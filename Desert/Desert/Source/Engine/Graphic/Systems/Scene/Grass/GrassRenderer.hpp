@@ -516,6 +516,9 @@ namespace Desert::Graphic::System
             std::vector<uint32_t> LawKey;
             std::vector<uint32_t> LawedKey;
             uint64_t              LawGeneration = 0;
+            // LOD-DITHER-GRASS-SIDE: the law's two LOD eyes this frame (GrassVarietyRowGpu::LodEyes, in LawKey):
+            // the view's temporal LOD samples snapped to the field eye's grid, [0] older, [1] newer.
+            glm::vec4 LodEyes[2]{ glm::vec4( 0.0f ), glm::vec4( 0.0f ) };
             // GRASS-CULL-HIER-1: what the cascades' lists were last culled from (GrassRenderer::WriteVarietyTable:
             // the guarded caster boxes, the wind origin, the row's buffers and rings, Generation) and whether a
             // frame culled them from it; from the next frame the lists hold (kGrassRowCascadesHeld) until it changes.

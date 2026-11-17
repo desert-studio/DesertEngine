@@ -64,6 +64,13 @@ struct GrassVarietyRow
     // CPU-GRASS-POOL-7: Feedback is the variety's range of one readback pool; FinalizeFull writes this mark
     // (GrassRenderer VarietyGpu::FeedbackMark, never 0) as the written mark: a range's earlier holder is told apart.
     uint  FeedbackMark;
+    // LOD-DITHER-GRASS-SIDE, THE LAW'S TWO LOD EYES (UE FTemporalLODState for the grass HISM's instances, the
+    // dithered LOD transition): xyz = the view's two temporal LOD samples (ViewFrame::TemporalLOD, [0] older,
+    // [1] newer) snapped to the field eye's tile grid (GrassRenderer FieldEye), so they change with the law
+    // generation only. A mesh's level is selected at both (GrassCull.shader GrassViewLaw); where they differ the
+    // law writes a fade twin (LawChunk). Both are the field eye for a blade, a one-level mesh and a view without
+    // samples. std430 places the array at the next 16 bytes (256).
+    vec4  LodEyes[2];
     // The row ends here; std430 rounds it to its 16-byte alignment.
 };
 

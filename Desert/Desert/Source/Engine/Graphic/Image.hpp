@@ -264,7 +264,8 @@ namespace Desert::Graphic
         static std::shared_ptr<Image2D> Create( const Core::Formats::Image2DSpecification& spec );
 
         /// This image's slot in the global bindless table (BindlessTextureTable): valid for a sampled image
-        /// (Image2DUsage::Image2D), with or without uploaded pixels, that is neither storage nor multisampled;
+        /// (Image2DUsage::Image2D), with or without uploaded pixels, that is neither storage nor multisampled, and
+        /// for a colour attachment marked Core::Formats::GraphDeclaredBindless;
         /// invalid (0) otherwise. Stable until the image's GPU resource is released.
         [[nodiscard]] BindlessTextureSlot GetBindlessSlot() const noexcept
         {

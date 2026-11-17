@@ -31,6 +31,7 @@
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/Systems/Scene/Decals/DecalRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Lights/LightFunctionAtlas.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
@@ -1012,7 +1013,8 @@ namespace Desert::Graphic
         // @p shadow is what the light asks of its shadow; the payload's ShadowView is written later, by
         // MeshRenderer::UpdateLocalShadows, once the frame's atlas is allocated.
         void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                            const LocalLightShadowSettings&           shadow );
+                            const LocalLightShadowSettings&           shadow,
+                           const System::LightFunctionProxy& function );
 
         const auto& GetPointLights() const
         {
@@ -1024,7 +1026,8 @@ namespace Desert::Graphic
         void AddDecal( const System::DecalProxy& decal );
 
         void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                           const LocalLightShadowSettings&          shadow );
+                           const LocalLightShadowSettings&          shadow,
+                           const System::LightFunctionProxy& function );
 
         // One local fog volume of this frame (LocalFogVolumeCommand, replayed per view: by const reference).
         // The list is reserved once at kVolumetricFogMaxLocalVolumes and emptied with the lights at frame end.
@@ -1884,10 +1887,28 @@ namespace Desert::Graphic
         };
         FrameScreenTrace AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures,
                                               const ViewFrame& frame );
-        void             AddFrameTracedGI( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const FrameScreenTrace& screenTrace,
-                                           const ViewFrame& frame );
+        // The traced GI in two declarations (FPS-PROBE-WAIT-2, UE Lumen: the radiance cache update forks right
+        // after the depth): the update - the radiance cache's Mark .. Trace - before the screen trace's HZB, so its
+        // async run forks at the depth's last writer; the gather after it - the cache's Filter declared by the
+        // screen probes right before their first cache reader (ScreenProbeGatherInputs::FinishRadianceCache), so
+        // the far field overlaps the filter. Empty: no traced GI this frame (said once by the update).
+        struct TracedGIUpdate
+        {
+            GlobalIllumination::RadianceCacheUpdateInputs Inputs;
+            GlobalIllumination::RadianceCacheFrame        Cache;
+        };
+        std::optional<TracedGIUpdate> AddFrameTracedGIUpdate( RDG::Builder& graph, FrameTextures& textures,
+                                                              const std::vector<RDG::TextureRef>& gbuffer,
+                                                              const glm::vec4& lightDir, const glm::vec4& lightColor,
+                                                              const ViewFrame& frame );
+        void AddFrameTracedGIGather( RDG::Builder& graph, FrameTextures& textures,
+                                     const std::vector<RDG::TextureRef>& gbuffer,
+                                     const std::optional<TracedGIUpdate>& update, const FrameScreenTrace& screenTrace,
+                                     const ViewFrame& frame );
+        // The cache's Filter (WorldRadianceCache::AddFilterPass) and what reads the filtered cache first: the
+        // cards' radiosity of the view that updated the cache.
+        [[nodiscard]] Common::BoolResultStr AddFrameRadianceCacheFinish( RDG::Builder& graph, FrameTextures& textures,
+                                                                         const TracedGIUpdate& update );
         // GIMethod::ScreenSpace's diffuse indirect of this frame (System::SSGIRenderer: the HZB trace over the
         // scene colour history, then the diffuse-indirect denoiser) into FrameTransients::GIDiffuse, which the
         // composite reads as GI mode 1 - only when the frame's GI is ScreenSpace and @p screenTrace is valid.
@@ -2048,6 +2069,9 @@ namespace Desert::Graphic
         // "Deferred: Decals" (DECALS-DBUFFER): this frame's decals, faded and sorted per view; a typed member, its
         // lists reserved once and cleared each frame beside the lights.
         System::DecalRenderer m_Decals;
+        // The lights' light function tiles (UE FLightFunctionAtlas): filled by AddPointLight / AddSpotLight, drawn
+        // before the G-buffer by "Lights: Light Function Atlas".
+        System::LightFunctionAtlas m_LightFunctions;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume

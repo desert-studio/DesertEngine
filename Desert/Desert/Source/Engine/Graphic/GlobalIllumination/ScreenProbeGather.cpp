@@ -1131,6 +1131,7 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( ScreenProbeGatherTraceShaderParameters::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::PointLightsUB, inputs.PointLights, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::SpotLightsUB, inputs.SpotLights, kR )
+                          .BindlessRead( inputs.LightFunctionAtlas, kS )
                           .Storage( ScreenProbeGatherTraceShaderParameters::LightGridParamsUB,
                                     inputs.WorldGridParams, kR )
                           .Storage( ScreenProbeGatherTraceShaderParameters::LightGridWorldCellsUB,
@@ -1219,30 +1220,87 @@ namespace Desert::Graphic::GlobalIllumination
                  } );
         };
 
+        // FPS-PROBE-WAIT-2 (UE Lumen: the far-field trace overlaps the radiance cache): the cache's last writers
+        // (inputs.FinishRadianceCache: its Filter) are declared right before the first leg that reads the cache,
+        // so the legs that read none of it (the software near field's march and far field) come before them on
+        // the async queue's order and run beside the cache's filter instead of after it. Once per gather.
+        bool       cacheFinished = false;
+        const auto finishCacheBefore = [&]( const Program program ) -> Common::BoolResultStr
+        {
+            if ( cacheFinished || !TraceLegReadsCache( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) ) )
+                return BOOLSUCCESS;
+            cacheFinished = true;
+            if ( !inputs.FinishRadianceCache )
+                return BOOLSUCCESS;
+            return inputs.FinishRadianceCache();
+        };
+        const auto declareLeg = [&]( const Program program, const std::string_view name, const RayList& in,
+                              const RayList* const out, const RayList* const out2 ) -> Common::BoolResultStr
+        {
+            if ( const auto finished = finishCacheBefore( program ); !finished )
+                return finished;
+            traceWorld( program, name, in, out, out2 );
+            return BOOLSUCCESS;
+        };
+        const auto refuseLeg = []( const Common::BoolResultStr& finished )
+        {
+            return Common::MakeFormattedError<ScreenProbeGatherFrame>( "screen probes: the radiance cache: {}",
+                                                                       finished.GetError() );
+        };
+
         const RayList* const hitLightingOut = hitLightingList ? &*hitLightingList : nullptr;
         // FPS-SP-TRACE-4 (UE compacts the voxel trace's rays to those with distance left): the screen and the near
         // field list a miss at the cache straight for the cache read, so the far field's dispatch holds only rays
         // with distance left to march (a ray at the cache has walked to its tMax already).
-        traceWorld( TraceNearField, "ScreenProbes: Trace Near Field", nearList, &farList, &cacheReadList );
+        if ( const auto traced = declareLeg( TraceNearField, "ScreenProbes: Trace Near Field", nearList, &farList,
+                                      &cacheReadList );
+             !traced )
+            return refuseLeg( traced );
+        // The far field before the near field's hit lighting (FPS-PROBE-WAIT-2): it reads only the near field's
+        // list, the hit lighting the cache; the two write disjoint rays (SkipBarrier above), so the order changes
+        // no texel, and the far field is the leg the cache's filter overlaps.
+        if ( const auto traced =
+                  declareLeg( TraceFarField, "ScreenProbes: Trace Far Field", farList, &cacheReadList, hitLightingOut );
+             !traced )
+            return refuseLeg( traced );
         // FPS-NEAR-FIELD (UE TraceMeshSDFs, then its hit lighting pass over the compacted hits): the software near
         // field's hits lit in a list of their own, so the near field's waves wait on no card search, no gradient of
         // an object later passed and no shadow ray of their few hit lanes.
         if ( nearHitLightingList )
-            traceWorld( TraceNearHitLighting, "ScreenProbes: Trace Near Hit Lighting", *nearHitLightingList, nullptr,
-                        nullptr );
-        traceWorld( TraceFarField, "ScreenProbes: Trace Far Field", farList, &cacheReadList, hitLightingOut );
+            if ( const auto traced = declareLeg( TraceNearHitLighting, "ScreenProbes: Trace Near Hit Lighting",
+                                          *nearHitLightingList, nullptr, nullptr );
+                 !traced )
+                return refuseLeg( traced );
         // GPU-FARFIELD-6: the rays the far field left at the radiance cache's coverage read the cache in a list of
         // their own (UE's trace / shading split), so the far field's waves hold no cache read on their march
         // lanes.
-        traceWorld( TraceCacheRead, "ScreenProbes: Trace Cache Read", cacheReadList, &cacheMissList, nullptr );
+        if ( const auto traced =
+                  declareLeg( TraceCacheRead, "ScreenProbes: Trace Cache Read", cacheReadList, &cacheMissList, nullptr );
+             !traced )
+            return refuseLeg( traced );
         // GPU-FARFIELD-3: the far field's global-field hits no card holds, lit in a list of their own (UE's hit
         // lighting is its own compacted pass), so the far field's waves do not wait on their shadow marches.
         if ( hitLightingOut )
-            traceWorld( TraceHitLighting, "ScreenProbes: Trace Hit Lighting", *hitLightingOut, nullptr, nullptr );
+            if ( const auto traced =
+                      declareLeg( TraceHitLighting, "ScreenProbes: Trace Hit Lighting", *hitLightingOut, nullptr, nullptr );
+                 !traced )
+                return refuseLeg( traced );
         // The rays the far field took to the radiance cache's coverage and no traced probe answered (cells the view
         // just reached: allocated this frame past the trace budget, or not yet marked) go on to the full trace
         // distance in a list of their own, so the far field's waves stay as short as its own leg.
-        traceWorld( TraceCacheMiss, "ScreenProbes: Trace Cache Miss", cacheMissList, nullptr, nullptr );
+        if ( const auto traced =
+                  declareLeg( TraceCacheMiss, "ScreenProbes: Trace Cache Miss", cacheMissList, nullptr, nullptr );
+             !traced )
+            return refuseLeg( traced );
+        // Every pass below reads the cache (the filter's and the integrates' uncovered fallbacks): finished by now
+        // whatever the legs read (the cache read always does).
+        if ( !cacheFinished )
+        {
+            cacheFinished = true;
+            if ( inputs.FinishRadianceCache )
+                if ( const auto finished = inputs.FinishRadianceCache(); !finished )
+                    return refuseLeg( finished );
+        }
 #if DESERT_DEV_INSTRUMENTS
         m_MissCounts.AddFrame( graph, m_FrameIndex, missReasons );
 #endif

@@ -675,7 +675,8 @@ namespace Desert::Graphic::System
                                inputs.MegaLightsSpecular, kRead, kWhole );
             else
                 block.Storage( ShaderProtocols::PointLight::Parameter, lights.Point, RDG::Access::StorageRead )
-                     .Storage( ShaderProtocols::SpotLight::Parameter, lights.Spot, RDG::Access::StorageRead );
+                     .Storage( ShaderProtocols::SpotLight::Parameter, lights.Spot, RDG::Access::StorageRead )
+                     .BindlessRead( lights.LightFunctionAtlas, kRead );
             if ( m_Active == kScreenMaskSunProgram || m_Active == kMegaLightsProgram ||
                  m_Active == kRayTracedLocalProgram || m_Active == kVirtualLocalProgram )
                 block.Texture( DeferredLightingCompositeShaderParameters::ScreenShadowMaskTexture,

@@ -14,6 +14,7 @@
 #include <array>
 #include <bit>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 #include <memory>
@@ -257,10 +258,18 @@ namespace Desert::Graphic::GlobalIllumination
         SurfaceCacheFrame  SurfaceCache; // the surface cache a hit reads first (GITracing.hpp)
         RDG::BufferRef     PointLights;
         RDG::BufferRef     SpotLights;
+        RDG::TextureRef    LightFunctionAtlas; // ViewLightBuffers::LightFunctionAtlas (BindlessRead)
         RDG::BufferRef     WorldGridParams;
         RDG::BufferRef     WorldGridCells;
         RDG::BufferRef     GIFrame; // GIFramePayload, "GIFrameUB"
         RadianceCacheFrame RadianceCache;
+        // FPS-PROBE-WAIT-2: declares the radiance cache's last writers (WorldRadianceCache::AddFilterPass, and
+        // what reads the filtered cache before the gather: the cards' radiosity). Called once by AddPasses,
+        // right before the first pass that reads RadianceCache's Indirection, Probes or atlases (Params is an
+        // upload, readable at once): the trace legs that read none of them are declared ahead of it, so the
+        // async queue runs them beside the cache's filter (UE Lumen: the far field overlaps the cache). Empty:
+        // the cache was finished before the gather. An error it returns is the gather's.
+        std::function<Common::BoolResultStr()> FinishRadianceCache;
         glm::uvec2         Extent{ 0u };
         uint32_t AdaptiveProbePercent = 0; // Scalability GlobalIllumination.AdaptiveProbeAllocationPercent
         uint32_t Downsample   = 16; // Scalability GlobalIllumination.ScreenProbeDownsample (ScreenProbeLayout)
