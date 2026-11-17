@@ -1,0 +1,44 @@
+# WP-DATA-LAYERS-RUNTIME (UE Runtime Data Layers: EDataLayerType::Runtime, InitialRuntimeState, EDataLayerRuntimeState
+# Unloaded/Loaded/Activated, UDataLayerManager::SetDataLayerInstanceRuntimeState, DataLayersLogicOperator Or). WP format
+# v3: a layer states Type + InitialRuntimeState; the set of runtime layers a composite belongs to is the third
+# coordinate of its cell (Rules::PlannedCell::DataLayers), its file G{g}_L{l}_{x}_{z}_DL<hash>.dwcell (cooked index v9).
+# Play starts the layer in its InitialRuntimeState; the Play palette moves it; residency gates the cell by it
+# (Rules::StepResidency): Unloaded = not read, Loaded = read and held, no entity, Activated = entities.
+# Expected log lines (editor.log "[WorldPartition] 'WP_Protocol': ..."):
+#   "cell G0_L0_<x>_<z>_DL<hash> (data layers Night) not loaded: its data layers are Unloaded."
+#   "data layer 'Night' Unloaded -> Loaded." then "cell ..._DL<hash> (data layers Night) loaded, not activated: ..."
+#   "data layer 'Night' Loaded -> Activated." then "cell ..._DL<hash> (data layers Night) activated."
+#   "data layer 'Night' Activated -> Unloaded." then "cell ..._DL<hash> (data layers Night) not loaded: ..."
+# Member cubes: three StaticMesh cubes about 20 m in front of the Player 9000001. LEAD: the ids 9100001..9100003 are
+# the three cubes the drop below makes - if the drop form differs on this build, use the form of WP-FAR-2.scn and put
+# the ids it reports into the three `set ... DataLayersData.Layers` lines (the component is added by `set`, as in
+# WP-DATA-LAYERS.scn; if not, Details > Add Component > Data Layers first).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано set world WorldPartition.DataLayers [{"Name":"Night","InitiallyLoadedInEditor":true,"Type":"Runtime","InitialRuntimeState":"Unloaded"}]
+Дано drop-mesh Content/Meshes/Cube.desmesh 2000,0,2000 --id 9100001
+Дано drop-mesh Content/Meshes/Cube.desmesh 2300,0,2000 --id 9100002
+Дано drop-mesh Content/Meshes/Cube.desmesh 2600,0,2000 --id 9100003
+Дано set 9100001 DataLayersData.Layers ["Night"]
+Дано set 9100002 DataLayersData.Layers ["Night"]
+Дано set 9100003 DataLayersData.Layers ["Night"]
+Когда run Mode "Select mode"
+Когда run Action "Play"
+Когда advance 2
+Когда --subject viewport set Camera.Position 2300,600,800
+Когда --subject viewport set Camera.Direction 0,-0.3,1
+Когда advance 1
+Тогда dlr_initial_unloaded кубов слоя Night нет, остальная ячейка (земля, соседние объекты) на месте; лог: "cell G…_DL<hash> (data layers Night) not loaded: its data layers are Unloaded."
+Когда run Scene "World Partition: Data layer Night -> Loaded"
+Когда advance 2
+Тогда dlr_loaded_hidden кубов всё ещё нет (прочитаны, не активированы); лог: "data layer 'Night' Unloaded -> Loaded." и "cell …_DL<hash> (data layers Night) loaded, not activated: its data layers are Loaded."; оверлея ожидания загрузки нет
+Когда run Scene "World Partition: Data layer Night -> Activated"
+Когда advance 2
+Тогда dlr_activated три куба стоят в 20 м перед игроком; лог: "cell …_DL<hash> (data layers Night) activated."
+Когда run Scene "World Partition: Data layer Night -> Unloaded"
+Когда advance 2
+Тогда dlr_unloaded_again кубы исчезли, остальная ячейка осталась; лог: "data layer 'Night' Activated -> Unloaded." и "… not loaded: its data layers are Unloaded."
+Когда run Action "Stop"
+# Restore: Stop rebuilds the scene from the Play snapshot; the edits above were never saved.
