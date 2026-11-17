@@ -26,8 +26,11 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
+#include <span>
 #include <optional>
 #include <string>
 #include <vector>
@@ -116,6 +119,12 @@ namespace Desert::Editor
         /// The panel's Load Region button: the rectangle selected on the map. Refused by name when nothing is
         /// selected; otherwise LoadRegion. The palette offers it beside Unload All / Load All.
         [[nodiscard]] Common::BoolResultStr LoadSelectedRegion();
+        /// The panel's Refresh: the Edit plan, what the editor holds of each cell and the HLOD overlay are read again
+        /// from the world's saved files on the next frame (after a save, an edited cell's HLOD shows stale).
+        void Refresh()
+        {
+            m_EditPlanStale = true;
+        }
         // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
         // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -127,6 +136,11 @@ namespace Desert::Editor
         // The Edit plan of m_Scene: a partitioned world opened from its files is planned over its descriptor
         // index (every entity of the world, loaded or not); any other scene over its serialised form.
         void RebuildEditPlan();
+        // The HLOD overlay of the Edit plan over the index: which cells' HLODs are built, and which are stale against
+        // the SAVED world (WorldCells::StaleHLODCells, as Build HLODs and the cook judge them). Nothing when no HLOD
+        // was built for the world; a refusal is m_HLODStatus.
+        void ReadHLODOverlay( const std::filesystem::path&                             scenePath,
+                              std::span<const ::Desert::Core::Rules::EntityDescriptor> descriptors );
         // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
         // material), write, read back.
         [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked );
@@ -170,6 +184,13 @@ namespace Desert::Editor
         bool m_PlanFromIndex = false;
         // Edit over the index: what the editor holds of each cell of m_EditPlan (empty otherwise).
         std::vector<WorldPartitionMap::CellState> m_EditCells;
+        // Edit over the index: each record's id and tag, in descriptor row order (the plan's record indices) - what
+        // the footprints test as held and print as labels.
+        std::vector<std::uint64_t> m_EditRowIds;
+        std::vector<std::string>   m_EditTags;
+        // Edit over the index, a world whose HLODs were built: each plan cell's HLOD overlay (ReadHLODOverlay).
+        std::vector<WorldPartitionMap::HLODState> m_HLODCells;
+        std::string                               m_HLODStatus; ///< why the HLOD overlay could not be read
 
         WorldPartitionMap::View m_View;
         bool                    m_FocusPending = true; // fit the plan once the canvas has a size

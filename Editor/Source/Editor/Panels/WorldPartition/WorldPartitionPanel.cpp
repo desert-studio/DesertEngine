@@ -36,8 +36,10 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <format>
 #include <numbers>
+#include <system_error>
 #include <span>
 #include <vector>
 
@@ -155,6 +157,10 @@ namespace Desert::Editor
         m_PlanSource    = m_Scene->GetWorldPartition();
         m_PlanFromIndex = false;
         m_EditCells.clear();
+        m_EditRowIds.clear();
+        m_EditTags.clear();
+        m_HLODCells.clear();
+        m_HLODStatus.clear();
         // A PARTITIONED WORLD OPENED FROM ITS FILES IS PLANNED OVER ITS DESCRIPTOR INDEX (WP20, UE's World
         // Partition editor draws every actor descriptor, loaded or not): the scene may hold only a region of it,
         // and the map is where the next region is chosen. An entity's unsaved move shows after its save.
@@ -188,6 +194,11 @@ namespace Desert::Editor
             m_EditCells =
                  WorldPartitionMap::EditorCellStates( *m_EditPlan, rowIds, [&packages]( std::uint64_t id )
                                                       { return packages.IsLoaded( Common::UUID( id ) ); } );
+            m_EditRowIds = std::move( rowIds );
+            m_EditTags.reserve( index.GetValue().Index.Entities.size() );
+            for ( const ::Desert::Core::DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
+                m_EditTags.push_back( row.Descriptor.Tag );
+            ReadHLODOverlay( *m_Scene->Packages()->BaselinePath(), descriptors );
             m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
             return;
         }
@@ -215,6 +226,51 @@ namespace Desert::Editor
                                                                      ::Desert::Core::RegistryMeshBounds() );
         m_EditPlanStatus.clear();
         m_FocusPending = true;
+    }
+
+    void WorldPartitionPanel::ReadHLODOverlay( const std::filesystem::path&                             scenePath,
+                                               std::span<const ::Desert::Core::Rules::EntityDescriptor> descriptors )
+    {
+        namespace WC = ::Desert::Core::WorldCells;
+        m_HLODCells.clear();
+        m_HLODStatus.clear();
+        // No Build HLODs yet: the world has no HLOD to show, built or stale.
+        std::error_code ec;
+        if ( !std::filesystem::exists(
+                  WC::BuiltHLODDirectory( scenePath ) / std::filesystem::path( WC::kBuiltHLODIndexName ), ec ) )
+            return;
+        auto stored = WC::ReadBuiltHLODs( scenePath );
+        if ( !stored )
+        {
+            m_HLODStatus = "HLOD overlay: " + stored.GetError();
+            return;
+        }
+        // Judged against the SAVED world, read exactly as Build HLODs reads it, so a cell is stale here exactly when
+        // the cook would refuse it.
+        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( scenePath );
+        if ( !text )
+        {
+            m_HLODStatus = "HLOD overlay: " + text.GetError();
+            return;
+        }
+        auto saved = ::Desert::Core::ParseLoadableScene( scenePath.string(), text.GetValue() );
+        if ( !saved )
+        {
+            m_HLODStatus = "HLOD overlay: " + saved.GetError();
+            return;
+        }
+        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
+        auto stale = WC::StaleHLODCells( stored.GetValue().Index, saved.GetValue().Scene, descriptors, registries );
+        if ( !stale )
+        {
+            m_HLODStatus = "HLOD overlay: " + stale.GetError();
+            return;
+        }
+        std::vector<std::string> built;
+        for ( const WC::BuiltHLODCell& row : stored.GetValue().Index.Cells )
+            if ( row.File )
+                built.push_back( row.Unit );
+        m_HLODCells = Map::HLODCellStates( *m_EditPlan, built, stale.GetValue() );
     }
 
     void WorldPartitionPanel::OnUIRender()
@@ -378,6 +434,9 @@ namespace Desert::Editor
         ImGui::TextDisabled( "%zu cells, %zu always-loaded, %d level(s), cell %.0f m", gridCells,
                              plan->AlwaysLoaded.size(), gridLevels,
                              static_cast<double>( shown.CellSize ) / 100.0 );
+
+        if ( !playing && !m_HLODStatus.empty() )
+            ImGui::TextColored( ImVec4( 1.0f, 0.5f, 0.35f, 1.0f ), "%s", m_HLODStatus.c_str() );
 
         DrawMap( *plan, *partition, residency, streamer );
     }
@@ -1075,6 +1134,46 @@ namespace Desert::Editor
             list.AddRect( lo, hi, ToU32( { fill.r, fill.g, fill.b, 0.9f } ) );
         }
 
+        // ── HLOD overlay (Edit, a world whose HLODs were built): a built cell outlined, a stale one bolder ──
+        if ( streamer == nullptr && !m_HLODCells.empty() )
+            for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level, m_Grid ) )
+            {
+                if ( index >= m_HLODCells.size() || m_HLODCells[index] == Map::HLODState::None )
+                    continue;
+                const auto&  cell = plan.Cells[index];
+                const ImVec2 a    = ToScreen( m_View, size, origin, { cell.Square.MinX, cell.Square.MinZ } );
+                const ImVec2 b    = ToScreen( m_View, size, origin, { cell.Square.MaxX, cell.Square.MaxZ } );
+                // Inset, so the cell's own state outline stays visible beside it.
+                const ImVec2 lo( std::min( a.x, b.x ) + 2.0f, std::min( a.y, b.y ) + 2.0f );
+                const ImVec2 hi( std::max( a.x, b.x ) - 2.0f, std::max( a.y, b.y ) - 2.0f );
+                const bool   stale = m_HLODCells[index] == Map::HLODState::Stale;
+                list.AddRect( lo, hi, ToU32( Map::ColorOf( m_HLODCells[index] ) ), 0.0f, 0, stale ? 3.0f : 1.5f );
+            }
+
+        // ── the held entities' footprints and labels, once legible (UE ShowActors / DrawActorLabels) ──
+        if ( streamer == nullptr && m_PlanFromIndex && m_Scene )
+        {
+            const ::Desert::Core::EntityPackages& packages = *m_Scene->Packages();
+            const auto held = [this, &packages]( std::size_t record )
+            { return record < m_EditRowIds.size() && packages.IsLoaded( Common::UUID( m_EditRowIds[record] ) ); };
+            for ( const Map::FootprintOnScreen& footprint : Map::VisibleFootprints( plan, m_View, size, held ) )
+            {
+                const ImVec2 lo( origin.x + static_cast<float>( footprint.Min.x ),
+                                 origin.y + static_cast<float>( footprint.Min.y ) );
+                const ImVec2 hi( origin.x + static_cast<float>( footprint.Max.x ),
+                                 origin.y + static_cast<float>( footprint.Max.y ) );
+                list.AddRect( lo, hi, ToU32( { 1.0f, 1.0f, 1.0f, 0.75f * footprint.Opacity } ) );
+                const std::size_t anchor = plan.Composites[footprint.Composite].Anchor;
+                if ( anchor >= m_EditTags.size() || m_EditTags[anchor].empty() )
+                    continue;
+                const ImVec2 label = ImGui::CalcTextSize( m_EditTags[anchor].c_str() );
+                if ( Map::LabelFits( footprint, { label.x, label.y } ) )
+                    list.AddText( ImVec2( lo.x + static_cast<float>( Map::kLabelPaddingPixels ),
+                                          lo.y + static_cast<float>( Map::kLabelPaddingPixels ) ),
+                                  ToU32( { 1.0f, 1.0f, 1.0f, footprint.Opacity } ), m_EditTags[anchor].c_str() );
+            }
+        }
+
         // ── world axes: X red, Z green, at UE's 40 % ──
         {
             const ImVec2 zero = ToScreen( m_View, size, origin, { 0.0, 0.0 } );
@@ -1151,6 +1250,15 @@ namespace Desert::Editor
                 const std::string text = std::format( "{} ({})", Map::NameOf( entry.State ), entry.Count );
                 list.AddText( ImVec2( row.x + h + 6.0f, row.y ), IM_COL32( 230, 230, 230, 255 ), text.c_str() );
             }
+            if ( streamer == nullptr && !m_HLODCells.empty() )
+                for ( const Map::HLODState hlod : { Map::HLODState::Built, Map::HLODState::Stale } )
+                {
+                    row.y -= h + 2.0f;
+                    list.AddRect( row, ImVec2( row.x + h, row.y + h ), ToU32( Map::ColorOf( hlod ) ), 0.0f, 0, 2.0f );
+                    const std::string text = std::format( "{} ({})", Map::NameOf( hlod ),
+                                                          std::ranges::count( m_HLODCells, hlod ) );
+                    list.AddText( ImVec2( row.x + h + 6.0f, row.y ), IM_COL32( 230, 230, 230, 255 ), text.c_str() );
+                }
         }
         list.PopClipRect();
 
