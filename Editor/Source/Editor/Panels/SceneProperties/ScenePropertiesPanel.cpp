@@ -413,8 +413,14 @@ namespace Desert::Editor
              selectedEntity.HasComponent<ECS::TagComponent>()
                   ? selectedEntity.GetComponent<ECS::TagComponent>().Tag
                   : std::string() );
+        // Outside an open prefab edit the world is inactive (UE FLevelInstanceEditorMode): its fields are shown,
+        // not edited - the third door, beside the picker and the gizmo, that Commands::BeginPrefabEdit closes.
+        const bool outsidePrefabEdit =
+             Commands::IsOutsidePrefabEdit( *selectedEntity.GetRegistry(), selectedEntity.GetHandle() );
+        ImGui::BeginDisabled( outsidePrefabEdit );
         m_ComponentEditor->Render( const_cast<ECS::Entity&>( selectedEntity ), m_Scene.get(),
                                    m_FieldSearch.c_str() );
+        ImGui::EndDisabled();
         navigation.EndFrame();
         ImGui::EndChild();
     }

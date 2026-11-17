@@ -197,7 +197,7 @@ namespace Desert::Editor::Commands
     [[nodiscard]] bool IsOutsidePrefabEdit( const entt::registry& registry, entt::entity entity );
 
     // "May this entity be picked, moved or edited?" - the authoring lock (ECS::IsLocked) OR outside an open prefab
-    // edit. The picker, the gizmo and the Details panel ask THIS, so the edit mode blocks all three at once.
+    // edit. The picker and the gizmo ask THIS; the Details panel disables its fields outside the edit (IsOutsidePrefabEdit).
     [[nodiscard]] bool IsAuthoringLocked( const entt::registry& registry, entt::entity entity );
 
     // Where a replacing instance's geometry comes from (see ReplaceWithPrefab).

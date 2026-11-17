@@ -11,13 +11,13 @@
 
 namespace Desert::Core::Rules
 {
-    std::size_t RemapEntityReferences( Assets::EntityData& record, const EntityIdRemap& remap )
+    std::size_t RemapEntityReferences( Common::Json::KeyedValues& components, const EntityIdRemap& remap )
     {
         std::size_t changed = 0;
         for ( const EntityReferenceRow& row : kEntityReferences )
         {
             const std::string key( row.ComponentKey );
-            const auto        payload = record.Components.get( key );
+            const auto        payload = components.get( key );
             if ( !payload )
                 continue;
             auto object = payload.value().to_object();
@@ -31,6 +31,8 @@ namespace Desert::Core::Rules
             if ( !text )
                 continue;
 
+            // The whole text is the decimal id (std::to_string wrote it), or it is not an id; the planner
+            // reports that one as an Issue.
             const std::string& digits = text.value();
             std::uint64_t      id     = 0;
             const auto         idRead = std::from_chars( digits.data(), digits.data() + digits.size(), id );
@@ -42,21 +44,29 @@ namespace Desert::Core::Rules
                 continue;
             block[std::string( row.Field )] =
                  Common::Json::Value( std::to_string( static_cast<std::uint64_t>( *target ) ) );
-            record.Components[key] = Common::Json::Value( block );
+            components[key] = Common::Json::Value( block );
             ++changed;
         }
         return changed;
     }
 
-    bool HasEntityReferenceBlock( const Assets::EntityData& record )
+    std::size_t RemapEntityReferences( Assets::EntityData& record, const EntityIdRemap& remap )
+    {
+        return RemapEntityReferences( record.Components, remap );
+    }
+
+    bool HasEntityReferenceBlock( const Common::Json::KeyedValues& components )
     {
         for ( const EntityReferenceRow& row : kEntityReferences )
         {
-            const auto payload = record.Components.get( std::string( row.ComponentKey ) );
-            if ( !payload )
-                continue;
-            return true;
+            if ( components.get( std::string( row.ComponentKey ) ) )
+                return true;
         }
         return false;
+    }
+
+    bool HasEntityReferenceBlock( const Assets::EntityData& record )
+    {
+        return HasEntityReferenceBlock( record.Components );
     }
 } // namespace Desert::Core::Rules

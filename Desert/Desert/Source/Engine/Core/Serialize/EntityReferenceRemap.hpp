@@ -31,8 +31,12 @@ namespace Desert::Core::Rules
     // A field whose text is not a whole decimal id is left alone - the World Partition planner reports that one.
     // The record's `parent` is structure, not a reference field (see kEntityReferences), and is not touched.
     std::size_t RemapEntityReferences( Assets::EntityData& record, const EntityIdRemap& remap );
+    // The same on a bare set of component blocks - a prefab override's (PrefabOverrideData::Components), which
+    // states its instance's entities by record id exactly as a body record does.
+    std::size_t RemapEntityReferences( Common::Json::KeyedValues& components, const EntityIdRemap& remap );
 
     // True when @p record carries a component block that can hold an entity reference, so a caller that would
     // have to copy the record to remap it copies only the records that need it.
     [[nodiscard]] bool HasEntityReferenceBlock( const Assets::EntityData& record );
+    [[nodiscard]] bool HasEntityReferenceBlock( const Common::Json::KeyedValues& components );
 } // namespace Desert::Core::Rules

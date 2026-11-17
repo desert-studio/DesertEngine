@@ -328,7 +328,30 @@ namespace Desert::Runtime::Factory
             // the base record a few lines ago and nothing has touched it since. So the value to merge
             // onto is the component itself, read back through the same serializer that wrote it, and no
             // caller has to carry the base records down here to find it.
-            for ( const auto& [key, fields] : over.Components )
+            // AN OVERRIDE STATES ITS INSTANCE'S ENTITIES BY RECORD ID (CapturePrefabInstance measures them so), and
+            // the body was just pointed at the uuids minted for it (Instantiate, step 3) - so the override's own
+            // references are pointed the same way, through the same remap, or it would undo that.
+            const Common::Json::KeyedValues* components = &over.Components;
+            Common::Json::KeyedValues        remapped;
+            if ( Core::Rules::HasEntityReferenceBlock( over.Components ) )
+            {
+                remapped = over.Components;
+                Core::Rules::RemapEntityReferences(
+                     remapped,
+                     [&indexed, &full]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+                     {
+                         if ( full.empty() )
+                             return std::nullopt;
+                         std::vector<Common::UUID> target( full.begin(), full.end() - 1 );
+                         target.push_back( stated );
+                         const auto hit = indexed.find( Assets::PrefabPathKey( target ) );
+                         if ( hit == indexed.end() || !hit->second.HasComponent<ECS::UUIDComponent>() )
+                             return std::nullopt;
+                         return hit->second.GetComponent<ECS::UUIDComponent>().UUID;
+                     } );
+                components = &remapped;
+            }
+            for ( const auto& [key, fields] : *components )
             {
                 const Core::Serialize::ComponentSerializer* serializer = FindComponentSerializer( key );
                 if ( serializer == nullptr )

@@ -208,6 +208,10 @@ namespace Desert::Editor
         /// fewer than two entries exist.
         bool JoinLastTwo()
         {
+            // Never across an open session's start: the joined entry would be half the session's (dropped by
+            // CloseSession) and half the world's before it.
+            if ( m_SessionFloor.has_value() && m_Undo.size() < *m_SessionFloor + 2 )
+                return false;
             if ( m_Undo.size() < 2 )
             {
                 return false;
@@ -305,7 +309,7 @@ namespace Desert::Editor
             {
                 std::erase_if( stack, []( const std::unique_ptr<ICommand>& c ) { return c->IsVolatile(); } );
             };
-            drop( m_Undo );
+            EraseUndoIf( []( const std::unique_ptr<ICommand>& c ) { return c->IsVolatile(); } );
             drop( m_Redo );
         }
 
@@ -321,7 +325,7 @@ namespace Desert::Editor
                 std::erase_if( stack, [object]( const std::unique_ptr<ICommand>& c )
                                { return c->EditedObject() == object; } );
             };
-            drop( m_Undo );
+            EraseUndoIf( [object]( const std::unique_ptr<ICommand>& c ) { return c->EditedObject() == object; } );
             drop( m_Redo );
         }
 
@@ -332,7 +336,7 @@ namespace Desert::Editor
         size_t DropIf( Predicate drops )
         {
             const size_t before = m_Undo.size() + m_Redo.size();
-            std::erase_if( m_Undo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
+            EraseUndoIf( [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
             std::erase_if( m_Redo, [&]( const std::unique_ptr<ICommand>& c ) { return drops( *c ); } );
             return before - ( m_Undo.size() + m_Redo.size() );
         }
@@ -357,6 +361,9 @@ namespace Desert::Editor
             if ( m_SessionFloor.has_value() )
                 return false;
             m_SessionFloor = m_Undo.size();
+            // Opening is an edit like any other: the redo branch it leaves would replay steps of the world the
+            // session holds locked, and CloseSession would then fold them away without an undo.
+            m_Redo.clear();
             return true;
         }
 
@@ -380,6 +387,25 @@ namespace Desert::Editor
             return dropped;
         }
 
+    private:
+        // Erases the undo entries @p drops answers true for; an open session's floor moves down by the ones
+        // that stood below it, so the session still begins at its own first step.
+        template <typename Predicate>
+        void EraseUndoIf( Predicate drops )
+        {
+            if ( m_SessionFloor.has_value() )
+            {
+                const std::size_t below = std::min( *m_SessionFloor, m_Undo.size() );
+                std::size_t       gone  = 0;
+                for ( std::size_t index = 0; index < below; ++index )
+                    if ( drops( m_Undo[index] ) )
+                        ++gone;
+                *m_SessionFloor -= gone;
+            }
+            std::erase_if( m_Undo, drops );
+        }
+
+    public:
         // Read-only views for the History panel (bottom = oldest, back = the next Undo target).
         const std::vector<std::unique_ptr<ICommand>>& UndoStack() const
         {
