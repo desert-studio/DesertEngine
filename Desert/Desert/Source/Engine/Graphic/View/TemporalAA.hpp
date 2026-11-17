@@ -104,16 +104,4 @@ namespace Desert::Graphic
 
     // The same for SupersampleResolve.shader (AddSupersampleResolve's two separable passes).
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& SupersampleResolveLayout();
-
-    // SupersampleResolve.shader's push constants: one axis of the separable Catmull-Rom.
-    struct SupersampleResolvePush
-    {
-        int32_t SourceWidth       = 0;
-        int32_t SourceHeight      = 0;
-        int32_t DestinationWidth  = 0;
-        int32_t DestinationHeight = 0;
-        int32_t Axis              = 0; // 0: horizontal, 1: vertical
-        int32_t Pad[3]            = {};
-    };
-    static_assert( sizeof( SupersampleResolvePush ) == 32 );
 } // namespace Desert::Graphic
