@@ -373,6 +373,7 @@ vec2 DesertPixelToJitteredNdc( const vec2 pixel )
         flat float ObjectMoved; \
         flat float ObjectScaleUp; \
         DESERT_SURFACE_BINNED_VARYINGS \
+        DESERT_SURFACE_LOD_FADE_VARYINGS \
     } v_Surface;
 #define DESERT_SURFACE_VARYING_TBN          mat3( v_Surface.Right, v_Surface.Along, v_Surface.Normal )
 #define DESERT_SURFACE_VARYING_VERTEX_COLOR vec4( 1.0 )

@@ -31,9 +31,11 @@ namespace Desert::Graphic::System
         // draws stripes so a light given the default shows that it works): Programs/LightFunctions/.
         constexpr const char* kDefaultLightFunctionShaderName = "DefaultLightFunction";
         constexpr uint32_t    kQuadVertexCount                = 6u;
-        // LightFunctionPush { uint FirstRow; three pads }; a material's own push values may follow, up to 128.
-        constexpr std::size_t kLightFunctionPushBytes = 16u;
-        constexpr std::size_t kMaxPushBytes           = 128u;
+        // Both stages share the engine push block (Common/MaterialTransport.glslh, 128 bytes): the material's
+        // values as its executor pushed them, the draw's first row in PrimitiveIndex (offset 72).
+        constexpr std::size_t kLightFunctionPushBytes  = 128u;
+        constexpr std::size_t kMaxPushBytes            = 128u;
+        constexpr std::size_t kLightFunctionFirstRowAt = 72u;
         constexpr std::size_t kInitialTiles           = 64u;
         constexpr std::size_t kInitialPrograms        = 8u;
         constexpr float       kKindSpot               = 0.0f;
@@ -366,7 +368,7 @@ namespace Desert::Graphic::System
             std::array<std::byte, kMaxPushBytes> push{};
             if ( pushed.Data != nullptr && pushed.Size != 0u )
                 std::memcpy( push.data(), pushed.Data, pushed.Size );
-            std::memcpy( push.data(), &draw.FirstRow, sizeof( draw.FirstRow ) );
+            std::memcpy( push.data() + kLightFunctionFirstRowAt, &draw.FirstRow, sizeof( draw.FirstRow ) );
             const std::size_t                bytes = std::max<std::size_t>( pushed.Size, kLightFunctionPushBytes );
             const std::span<const std::byte> block( push.data(), bytes );
             if ( auto drawn = Renderer::DrawProcedural( bindings, *program.Pipeline, executor, kQuadVertexCount,

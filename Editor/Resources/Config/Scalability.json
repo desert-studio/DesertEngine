@@ -427,8 +427,7 @@
             "Epic": {},
             "Cinematic": {
                 "Foliage.GrassCullDistanceScalePercent": 150,
-                "Foliage.GrassLodScreenPixels": 8,
-                "Foliage.GrassMeshLodDistanceScalePercent": 100
+                "Foliage.GrassLodScreenPixels": 8
             }
         }
     },

@@ -37,14 +37,10 @@ Shader "DefaultLightFunction"
         {
             LightFunctionRow LightFunctionRows[];
         };
-        // The draw's first row; the instance index walks the run (LightFunctionAtlas::Render: one run = one draw).
-        PushConstant LightFunctionPush
-        {
-            uint FirstRow;
-            uint Pad0;
-            uint Pad1;
-            uint Pad2;
-        };
+        // The fragment's engine push block (MaterialTransport.glslh, injected for its `Material` row): one pipeline
+        // has one block, so the vertex stage declares the same one. PrimitiveIndex carries the draw's first row;
+        // the instance index walks the run (LightFunctionAtlas::Render: one run = one draw).
+        #include <Common/MaterialTransport.glslh>
 
         layout(location = 0) out vec2 v_Local;
         layout(location = 1) out flat vec4 v_Forward;
@@ -59,7 +55,7 @@ Shader "DefaultLightFunction"
 
         void main()
         {
-            const LightFunctionRow row    = LightFunctionRows[FirstRow + uint( gl_InstanceIndex )];
+            const LightFunctionRow row    = LightFunctionRows[m_PushConstants.PrimitiveIndex + uint( gl_InstanceIndex )];
             const vec2             corner = kLightFunctionQuad[uint( gl_VertexIndex ) % 6u];
             v_Local                       = corner * 2.0 - 1.0;
             v_Forward                     = row.Forward;
