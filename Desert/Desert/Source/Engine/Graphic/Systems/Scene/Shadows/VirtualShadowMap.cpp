@@ -2,6 +2,7 @@
 
 #include <Common/Core/Math/Rounding.hpp>
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -650,10 +651,12 @@ namespace Desert::Graphic::System
         constexpr auto        kR        = RDG::Access::StorageRead;
         constexpr auto        kW        = RDG::Access::StorageWrite;
 
-        // One dispatch of kernel @p k: its block declared by @p declare, @p push (16 B) when the kernel has one.
-        const auto dispatch =
-             [&]( const Kernel k, auto&& declare, const std::optional<glm::uvec4> push, const glm::uvec3 groups )
+        // One dispatch of kernel @p k: its block declared by @p declare, @p push its program's generated block
+        // (ShaderPush::VirtualShadowMap*), std::nullopt when the kernel has none.
+        const auto dispatch = [&]( const Kernel k, auto&& declare, const auto push, const glm::uvec3 groups )
         {
+            using Push              = std::decay_t<decltype( push )>;
+            constexpr bool kHasPush = !std::is_same_v<Push, std::nullopt_t>;
             const KernelProgram& kernel = m_Kernels[k];
             graph.AddPass(
                  kKernelNames[k].Pass, RDG::PassFlags::Compute,
@@ -663,16 +666,16 @@ namespace Desert::Graphic::System
                           pass.Bindings( kernel.Layout.Get( kernel.Program ),
                                          Renderer::GetPipelineRouteFill( *kernel.Pipeline ) );
                      declare( block );
-                     if ( push )
-                         block.PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+                     if constexpr ( kHasPush )
+                         block.PushConstants<Push>();
                  },
                  [pipeline = kernel.Pipeline, push, groups,
                   name     = kKernelNames[k].Pass]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS_DYNAMIC( name );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     if ( push )
-                         bindings.PushConstants( &*push, static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+                     if constexpr ( kHasPush )
+                         bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, groups.x, groups.y,
                                                                      groups.z );
                  } );
@@ -687,7 +690,8 @@ namespace Desert::Graphic::System
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmPhysicalOwners, owners, kW );
              },
-             glm::uvec4( resetAll, 0u, 0u, 0u ), glm::uvec3( entryGroups, levelCount, 1u ) );
+             ShaderPush::VirtualShadowMapInvalidate{ .Params = glm::uvec4( resetAll, 0u, 0u, 0u ) },
+             glm::uvec3( entryGroups, levelCount, 1u ) );
 
         // Nothing to invalidate per caster when every page was just dropped. The still casters' boxes first (the
         // static and the merged layer), then the movers' (a sun level's merged layer alone).
@@ -723,7 +727,8 @@ namespace Desert::Graphic::System
                           .Storage( VirtualShadowMapPagesShaderParameters::VsmInvalidations, boxBuffer, kR );
                  },
                  // x = the first mover's box, y = the box count, z = boxes per z slice of the grid
-                 glm::uvec4( static_cast<uint32_t>( invalidations.size() ), count, groupsX, 0u ),
+                 ShaderPush::VirtualShadowMapInvalidateCasters{
+                      .Params = glm::uvec4( static_cast<uint32_t>( invalidations.size() ), count, groupsX, 0u ) },
                  glm::uvec3( groupsX, levelCount, Common::Math::DivideRoundUp( count, groupsX ) ) );
         }
 
@@ -739,7 +744,7 @@ namespace Desert::Graphic::System
                           .Texture( VirtualShadowMapPagesShaderParameters::GBufferDepthTexture, view.Depth,
                                     RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                  },
-                 glm::uvec4( view.Width, view.Height, 0u, 0u ),
+                 ShaderPush::VirtualShadowMapMark{ .RenderSize = glm::uvec4( view.Width, view.Height, 0u, 0u ) },
                  glm::uvec3( Common::Math::DivideRoundUp( view.Width, kScreenTile ),
                              Common::Math::DivideRoundUp( view.Height, kScreenTile ), 1u ) );
 
@@ -763,7 +768,9 @@ namespace Desert::Graphic::System
                                         RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                               .Storage( VirtualShadowMapPagesShaderParameters::VsmLocalLights, localLights, kR );
                      },
-                     glm::uvec4( view.Width, view.Height, lightCount, mode ), groups );
+                     ShaderPush::VirtualShadowMapMarkLocal{
+                          .RenderSize = glm::uvec4( view.Width, view.Height, lightCount, mode ) },
+                     groups );
             };
             const glm::uvec3 screen( Common::Math::DivideRoundUp( view.Width, kScreenTile ),
                                      Common::Math::DivideRoundUp( view.Height, kScreenTile ), 1u );
@@ -793,7 +800,7 @@ namespace Desert::Graphic::System
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmAllocator, allocator, kW )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmLists, lists, kW );
              },
-             glm::uvec4( pages, 0u, 0u, 0u ),
+             ShaderPush::VirtualShadowMapGather{ .Pool = glm::uvec4( pages, 0u, 0u, 0u ) },
              glm::uvec3( Common::Math::DivideRoundUp( pages, kGroup64 ), 1u, 1u ) );
 
         dispatch(
@@ -806,7 +813,8 @@ namespace Desert::Graphic::System
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmAllocator, allocator, kW )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmLists, lists, kW );
              },
-             glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( entryGroups, levelCount, 1u ) );
+             ShaderPush::VirtualShadowMapAllocate{ .Pool = glm::uvec4( pages, 0u, 0u, 0u ) },
+             glm::uvec3( entryGroups, levelCount, 1u ) );
 
         // The cells of each level holding a page drawn this frame, for the casters' cull: the static mask (the
         // still casters), then the drawn mask (the movers).
@@ -825,7 +833,8 @@ namespace Desert::Graphic::System
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmDirtyMask, dirtyMask, kW )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmLevelStats, levelStats, kW );
              },
-             glm::uvec4( levelCount, 0u, 0u, 0u ), glm::uvec3( entryGroups, levelCount, 1u ) );
+             ShaderPush::VirtualShadowMapDirtyMask{ .Params = glm::uvec4( levelCount, 0u, 0u, 0u ) },
+             glm::uvec3( entryGroups, levelCount, 1u ) );
 
         dispatch(
              ClearArgs, [&]( RDG::BindingBlockBuilder& block )
@@ -835,7 +844,7 @@ namespace Desert::Graphic::System
         // "VSM: Clear Pages": one group per dirty page, sized on the GPU.
         {
             const KernelProgram& kernel = m_Kernels[Clear];
-            const glm::uvec4     push( pages, 0u, 0u, 0u );
+            const ShaderPush::VirtualShadowMapClear push{ .Pool = glm::uvec4( pages, 0u, 0u, 0u ) };
             graph.AddPass(
                  kKernelNames[Clear].Pass, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -846,14 +855,14 @@ namespace Desert::Graphic::System
                           .Storage( VirtualShadowMapPoolShaderParameters::VsmPageTable, pageTable, kR )
                           .Storage( VirtualShadowMapPoolShaderParameters::VsmLists, lists, kR )
                           .Storage( VirtualShadowMapPoolShaderParameters::PhysicalPoolTexture, pool, kW )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
+                          .PushConstants<ShaderPush::VirtualShadowMapClear>();
                  },
                  [pipeline = kernel.Pipeline, push,
                   allocator]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "VSM: Clear Pages" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchComputeIndirect( bindings, *pipeline, allocator,
                                                                kVsmClearArgsOffset );
                  } );
@@ -914,7 +923,8 @@ namespace Desert::Graphic::System
 
         // x = level, y = instance count, z = threads per row of groups (the y stride of the instance index), w =
         // the mask's first level (0: the static mask, LevelCount: the drawn mask).
-        const glm::uvec4 push( level, instances, grid.x * kGroup64, movable ? frame.LevelCount : 0u );
+        const ShaderPush::VirtualShadowMapCullCasters push{
+             .Params = glm::uvec4( level, instances, grid.x * kGroup64, movable ? frame.LevelCount : 0u ) };
         graph.AddPass(
              m_CullPassNames[layerRow].Get( level, 0u, cullPassName ), RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -933,13 +943,13 @@ namespace Desert::Graphic::System
                                 RDG::Access::StorageWrite )
                       .Storage( VirtualShadowMapCullShaderParameters::VsmInstanceRemap, culled.InstanceRemap,
                                 RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
+                      .PushConstants<ShaderPush::VirtualShadowMapCullCasters>();
              },
              [pipeline = kernel.Pipeline, push, grid]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  DESERT_PROFILE_PASS( "VSM: Cull Casters" );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, grid.x, grid.y, grid.z );
              } );
         return Common::MakeSuccess( culled );
@@ -1004,7 +1014,8 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS; // no local light in view: the composite reads no layer
         if ( !masks.IsValid() )
             return Common::MakeError( "Shadows: Virtual Shadow Map: the local lights have no screen-mask array" );
-        const glm::uvec4 push( view.Width, view.Height, frame.LocalLightCount, 0u );
+        const ShaderPush::VirtualShadowMapProjectLocal push{
+             .RenderSize = glm::uvec4( view.Width, view.Height, frame.LocalLightCount, 0u ) };
         graph.AddPass(
              kKernelNames[ProjectLocal].Pass, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -1027,16 +1038,17 @@ namespace Desert::Graphic::System
                                 RDG::Access::StorageRead )
                       .Storage( VirtualShadowMapProjectLocalShaderParameters::LocalShadowMasksTexture, masks,
                                 RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
+                      .PushConstants<ShaderPush::VirtualShadowMapProjectLocal>();
              },
              [pipeline = kernel.Pipeline, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  DESERT_PROFILE_PASS( "VSM: Project Local" );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::DispatchCompute( bindings, *pipeline,
-                                                   Common::Math::DivideRoundUp( push.x, kScreenTile ),
-                                                   Common::Math::DivideRoundUp( push.y, kScreenTile ), push.z );
+                                                   Common::Math::DivideRoundUp( push.RenderSize.x, kScreenTile ),
+                                                   Common::Math::DivideRoundUp( push.RenderSize.y, kScreenTile ),
+                                                  push.RenderSize.z );
              } );
         return BOOLSUCCESS;
     }
