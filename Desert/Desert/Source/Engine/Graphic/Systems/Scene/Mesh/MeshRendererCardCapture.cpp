@@ -67,6 +67,9 @@ namespace Desert::Graphic::System
             key = HashCombine( key, static_cast<uint64_t>( shaders->RecompileGeneration() ) );
         if ( m_SceneRenderer != nullptr )
             key = HashCombine( key, m_SceneRenderer->GetPipelineCache().Generation() );
+        // A material's Emissive Lights Scene toggled: the cached draws' PrimitiveFlags (EMISSION_IS_LIGHT) and the
+        // cards' gather (the surface key below carries the flag, so only the affected primitives recapture).
+        key = HashCombine( key, Graphic::Material::EmissiveLightsGeneration() );
         return key;
     }
 
@@ -123,6 +126,12 @@ namespace Desert::Graphic::System
         {
             key = HashCombine( HashCombine( 0xCBF29CE484222325ull, PointerBits( surface ) ),
                                PointerBits( instance ) );
+            // EMISSIVE-MEGALIGHTS-3: the capture writes no emission for a material with Emissive Lights Scene on
+            // (PrimitiveFlag::NoEmission below), so toggling the flag is a new surface: its cards recapture
+            // (SurfaceCacheScene::TakeGroup resets every mip on a SurfaceKey change).
+            const bool lightsScene = instance != nullptr ? instance->IsEmissiveLightsScene()
+                                                         : surface != nullptr && surface->IsEmissiveLightsScene();
+            key = HashCombine( key, lightsScene ? 1ull : 0ull );
             GraphicsPipeline* const pass = CardCapturePassState( path );
             ready                        = pass != nullptr;
             if ( materials == nullptr || !materials->Owns( surface ) )

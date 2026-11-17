@@ -68,6 +68,7 @@ namespace
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
         DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheRadianceAtlasTexture );
@@ -1199,7 +1200,9 @@ namespace Desert::Graphic::GlobalIllumination
                               .Texture( ScreenProbeGatherTraceShaderParameters::GBufferATexture, inputs.GBufferA,
                                         kS, all )
                               .Texture( ScreenProbeGatherTraceShaderParameters::GBufferEmissiveTexture,
-                                        inputs.GBufferEmissive, kS, all );
+                                        inputs.GBufferEmissive, kS, all )
+                              .Texture( ScreenProbeGatherTraceShaderParameters::GBufferShadingWordTexture,
+                                        inputs.GBufferShadingWord, kS, all );
                      block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTracedTexture, traced, kW );
                      // FPS-GI-ASYNC (UE SkipBarrier on the Lumen trace UAVs): a ray is in one leg's list at a time,
                      // so two legs no list orders (the near field's hit lighting and the far field; the cache read

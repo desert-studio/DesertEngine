@@ -74,7 +74,13 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 // with the payload in the place of UE's CustomData GBufferD (RGBA8 — the same four floats, the same 8-bit
 // precision each):
 //   bits  0.. 3  shading-model index (0..15; 0 = Unlit)
-//   bits  4.. 7  sampled-texture count (the Material Complexity proxy, clamped to 15)
+//   bits  4.. 6  sampled-texture count (the Material Complexity proxy, clamped to 7; the view saturates at 3)
+//   bit   7      EMISSION_IS_LIGHT: set = the texel's emission is a MegaLights light source (a material with
+//                Emissive Lights Scene on, the draw's DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT): MegaLights lights the
+//                scene from it directly, so a GI ray that hits the texel on screen takes no emission from it
+//                (Common/GIHitLighting.glslh GIHitMaterial; UE MegaLights + Lumen: an emissive light source is not
+//                counted again by the screen traces). The deferred composite still shows the emission itself.
+//                DesertPackShadingWord never sets it
 //   bits  8..15  payload 0, unorm8
 //   bits 16..23  payload 1, unorm8
 //   bit  24      NO_SUN_SHADOWS: set = the sun's cascaded shadows do not darken this surface
@@ -103,7 +109,8 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 #define DESERT_SHADING_WORD_INDEX_FIRST_BIT    0
 #define DESERT_SHADING_WORD_INDEX_BITS         4
 #define DESERT_SHADING_WORD_TEXTURES_FIRST_BIT 4
-#define DESERT_SHADING_WORD_TEXTURES_BITS      4
+#define DESERT_SHADING_WORD_TEXTURES_BITS      3
+#define DESERT_SHADING_WORD_EMISSION_IS_LIGHT_BIT 7
 #define DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT 8
 #define DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT 16
 #define DESERT_SHADING_WORD_PAYLOAD2_FIRST_BIT 32
@@ -170,6 +177,20 @@ uvec2 DesertMarkLandscape( uvec2 shadingWord )
 bool DesertIsLandscape( uvec2 shadingWord )
 {
     return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_LANDSCAPE_BIT ) ) & 1u ) != 0u;
+}
+
+// The emission-is-a-light mark: the G-buffer writer calls it after DesertPackShadingWord (which leaves the bit
+// clear) with the draw's flag, so a cleared texel and a writer that forgets the mark read "ordinary emission",
+// which GI counts.
+uvec2 DesertMarkEmissionIsLight( uvec2 shadingWord, bool emissionIsLight )
+{
+    const uint mark = emissionIsLight ? 1u : 0u;
+    return uvec2( shadingWord.x | ( mark << uint( DESERT_SHADING_WORD_EMISSION_IS_LIGHT_BIT ) ), shadingWord.y );
+}
+
+bool DesertEmissionIsLight( uvec2 shadingWord )
+{
+    return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_EMISSION_IS_LIGHT_BIT ) ) & 1u ) != 0u;
 }
 
 // The texel's slab features (Mesh/SubstrateSlab.glslh kDesertSlab*), 0 where the model is no slab preset.

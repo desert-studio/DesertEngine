@@ -41,7 +41,8 @@ PushConstant PushConstants
 #endif
     uint PrimitiveFlags; // offset 120 — G-buffer fragment stage only (Mesh/Surface/Pass_GBuffer.glslh,
                          // Material::SetPrimitiveFlags): the draw's per-primitive bits, Graphic::PrimitiveFlag
-                         // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow). 0 = every default.
+                         // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow; bit 1 = NO_EMISSION; bit 2 =
+                         // EMISSION_IS_LIGHT). 0 = every default.
     float LodFadeSide;   // offset 124 - a CPU-recorded Masked draw's side of a dithered LOD transition
                          // (DrawPushFields::LodFadeSide; +1 older, -1 newer, 0 none - the binned draw's
                          // DesertMeshDraw::LodFadeSide; Mesh/Surface/LODTransition.glslh). Block size 128, the
@@ -54,5 +55,8 @@ m_PushConstants;
 // The draw writes no emission into the G-buffer: a surface-cache card capture of a material with Emissive Lights
 // Scene on (MegaLights lights the scene from it directly; the cards' emissive layer, which GI reads, holds none).
 #define DESERT_PRIMITIVE_FLAG_NO_EMISSION 2u
+// The draw's emission is a MegaLights light source (its material has Emissive Lights Scene on): the G-buffer marks
+// the shading word's EMISSION_IS_LIGHT, so a screen GI hit takes no emission from it (Common/GIHitLighting.glslh).
+#define DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT 4u
 
 #endif

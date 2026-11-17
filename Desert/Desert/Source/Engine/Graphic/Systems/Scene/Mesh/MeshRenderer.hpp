@@ -4013,6 +4013,8 @@ namespace Desert::Graphic::System
         // resolved only while the sun shadow is the virtual shadow map) moves them, and the feed re-resolves every
         // cached draw.
         uint64_t m_BinnedPipelineEpoch = 0;
+        // Material::EmissiveLightsGeneration at the last re-resolve (the slots' kDrawSlotEmissionIsLight).
+        uint64_t m_BinnedEmissiveLightsGeneration = 0;
         bool     m_BinnedWireframe     = false;
         bool     m_BinnedVirtualShadow = false;
         void FeedDrawCommandCache( const GpuDriven::GpuScene& scene, const GpuDriven::GpuSceneRecordRows& rows );

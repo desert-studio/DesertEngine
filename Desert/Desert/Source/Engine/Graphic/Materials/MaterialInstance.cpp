@@ -429,7 +429,10 @@ namespace Desert::Graphic
 
     void MaterialInstance::SetEmissiveLightsSceneOverride( const std::optional<bool> lightsScene ) noexcept
     {
+        if ( m_EmissiveLightsSceneOverride == lightsScene )
+            return;
         m_EmissiveLightsSceneOverride = lightsScene;
+        Material::NoteEmissiveLightsChange();
     }
 
     bool MaterialInstance::IsEmissiveLightsScene() const
