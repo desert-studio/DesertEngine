@@ -160,7 +160,11 @@ namespace Desert::Core
     // v5 (WP-HASH-SET): UE's Runtime Hash Set - `Grids` is `RuntimePartitions` (RuntimePartitionSerialized: Name,
     // Type LHGrid / Persistent, the LHGrid block, HLODSetups), a grid's one HLODLayer and the layers' ParentLayer
     // chain are the partition's ordered HLOD setups (Tools/SceneMigrator, MigrateRuntimePartitionsV4ToV5).
-    inline constexpr int kWorldPartitionVersion = 5;
+    // v6 (WP-LOADER-ADAPTERS): a record may state a `LocationVolume` component (ECS::LocationVolumeComponent, UE
+    // ALocationVolume: an editor loader's box, left out by the cook). Additive - a v5 file states none and reads the
+    // same - so the step (Tools/SceneMigrator, kWorldPartitionVersionLocationVolumes) states the tag and changes
+    // nothing else; the number moves so a v5 build refuses a world whose volumes it would cook as entities.
+    inline constexpr int kWorldPartitionVersion = 6;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are

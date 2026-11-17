@@ -12,7 +12,9 @@
 #include "EditorLoadedRegions.hpp"
 
 #include "../../Core/CommandHistory.hpp"
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Commands/WorldPartitionEditCommand.hpp>
+#include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 
 #include <algorithm>
@@ -29,6 +31,8 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
+#include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/Entity.hpp>
 #include <Projects/WorldPartitionSettings.hpp>
 
 #include <ImGui/imgui.h>
@@ -39,9 +43,10 @@
 #include <cstdio>
 #include <format>
 #include <numbers>
-#include <span>
 #include <optional>
+#include <span>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Editor
@@ -61,6 +66,43 @@ namespace Desert::Editor
         ImU32 ToU32( glm::vec4 rgba )
         {
             return ImGui::ColorConvertFloat4ToU32( ImVec4( rgba.r, rgba.g, rgba.b, rgba.a ) );
+        }
+
+        // The entity ids of an editor selection, as the loaders name records.
+        std::vector<std::uint64_t> IdsOf( const std::vector<Common::UUID>& selected )
+        {
+            std::vector<std::uint64_t> ids;
+            ids.reserve( selected.size() );
+            for ( const Common::UUID& id : selected )
+                ids.push_back( static_cast<std::uint64_t>( id ) );
+            return ids;
+        }
+
+        // One row of the Loaders section: its name and what it is (UE's loader list shows the same).
+        std::string LoaderLabel( const ::Desert::Core::EditorRegions::LoaderRow& row )
+        {
+            using Kind              = ::Desert::Core::EditorRegions::LoaderKind;
+            const char* const state = row.Loaded ? "Loaded" : "Unloaded";
+            switch ( row.Kind )
+            {
+                case Kind::Whole:
+                    return std::format( "{} (Load All: every record of the world)", row.Name );
+                case Kind::Volume:
+                    return std::format( "{} (Location Volume, {})", row.Name, state );
+                case Kind::Region:
+                    if ( row.Box )
+                        return std::format( "{} ({:.0f}..{:.0f} x {:.0f}..{:.0f} m, {})", row.Name,
+                                            static_cast<double>( row.Box->MinX ) / 100.0,
+                                            static_cast<double>( row.Box->MaxX ) / 100.0,
+                                            static_cast<double>( row.Box->MinZ ) / 100.0,
+                                            static_cast<double>( row.Box->MaxZ ) / 100.0, state );
+                    return std::format( "{} ({})", row.Name, state );
+                case Kind::EntityList:
+                    return std::format( "{} ({} entities, {})", row.Name, row.Count, state );
+                case Kind::Pinned:
+                    return std::format( "{} ({})", row.Name, row.Count );
+            }
+            return row.Name;
         }
 
         ImVec2 ToScreen( const Map::View& view, glm::dvec2 size, ImVec2 origin, glm::dvec2 world )
@@ -126,6 +168,9 @@ namespace Desert::Editor
         m_DragFrom.reset();
         m_Held     = {};
         m_HeldRead = false;
+        m_RowIds.clear();
+        m_Volumes.clear();
+        m_VolumesKnown = false;
         m_DataLayerStatus.clear();
     }
 
@@ -158,6 +203,8 @@ namespace Desert::Editor
         m_PlanSource    = m_Scene->GetWorldPartition();
         m_PlanFromIndex = false;
         m_EditCells.clear();
+        m_RowIds.clear();
+        m_Volumes.clear();
         // A PARTITIONED WORLD OPENED FROM ITS FILES IS PLANNED OVER ITS DESCRIPTOR INDEX (WP20, UE's World
         // Partition editor draws every actor descriptor, loaded or not): the scene may hold only a region of it,
         // and the map is where the next region is chosen. An entity's unsaved move shows after its save.
@@ -191,6 +238,20 @@ namespace Desert::Editor
             m_EditCells =
                  WorldPartitionMap::EditorCellStates( *m_EditPlan, rowIds, [&packages]( std::uint64_t id )
                                                       { return packages.IsLoaded( Common::UUID( id ) ); } );
+            m_RowIds  = std::move( rowIds );
+            m_Volumes = ::Desert::Core::EditorRegions::LocationVolumesOf( descriptors );
+            // The world's Location Volumes join this user's loaders (EditorRegions::WithWorldVolumes): with this
+            // user's state, else their Auto Load - which the open applied, so only the first reading of this scene
+            // may take it; a volume saved after the open joins unloaded, since nothing loaded it.
+            ::Desert::Core::EditorRegions::HeldRegions held = Held();
+            if ( m_VolumesKnown )
+                for ( const ::Desert::Core::EditorRegions::LocationVolume& volume : m_Volumes )
+                    if ( std::none_of( held.Volumes.begin(), held.Volumes.end(),
+                                       [&volume]( const ::Desert::Core::EditorRegions::VolumeLoader& named )
+                                       { return named.Volume == volume.Id; } ) )
+                        held.Volumes.push_back( ::Desert::Core::EditorRegions::VolumeLoader{ volume.Id, false } );
+            m_Held         = ::Desert::Core::EditorRegions::WithWorldVolumes( held, m_Volumes );
+            m_VolumesKnown = true;
             m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
             return;
         }
@@ -324,6 +385,7 @@ namespace Desert::Editor
                                      m_Scene->Packages()->NotLoadedCount() );
             if ( !m_RegionStatus.empty() )
                 ImGui::TextWrapped( "%s", m_RegionStatus.c_str() );
+            DrawLoaders();
         }
 
         // ── HLOD per grid (Edit, a partitioned world) ──
@@ -334,12 +396,21 @@ namespace Desert::Editor
             DrawDataLayers();
         }
 
+        // A loader change above read the world on disk again (RebuildEditPlan remade m_EditPlan): the map draws
+        // the plan as it is now, or none.
+        if ( !playing )
+        {
+            plan      = m_EditPlan ? &*m_EditPlan : nullptr;
+            partition = m_EditPlan ? &m_EditPartition : nullptr;
+        }
+
         // The map shows one partition that streams by cells (UE's runtime hash grid picker); a Persistent
         // partition has no cell to draw - its content is in the always-loaded count.
         const auto makesCells = [&]( std::size_t index )
         { return ::Desert::Core::Rules::CellGridOf( *partition, index ) != nullptr; };
         std::optional<std::size_t> firstCellPartition;
-        for ( std::size_t g = 0; g < partition->RuntimePartitions.size() && !firstCellPartition; ++g )
+        for ( std::size_t g = 0; partition != nullptr && g < partition->RuntimePartitions.size() && !firstCellPartition;
+              ++g )
             if ( makesCells( g ) )
                 firstCellPartition = g;
         if ( plan == nullptr || !firstCellPartition.has_value() )
@@ -661,36 +732,379 @@ namespace Desert::Editor
     {
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
-        auto* assets = m_Assets;
-        // The user's data-layer state goes with every region change: Load All does not load an unloaded layer.
-        const ::Desert::Core::EditorRegions::DataLayerOverrides layers = Held().DataLayers;
-        auto                                                    changed =
-             request.Whole
-                   ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets, layers )
-                   : ::Desert::Core::EditorRegions::LoadRegions(
-                         *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ),
-                         layers );
+        namespace Regions = ::Desert::Core::EditorRegions;
+        // The world's Location Volumes join the loaders first (RebuildEditPlan: EditorRegions::WithWorldVolumes),
+        // so Unload All also switches off an Auto Load volume this user never named.
+        if ( auto onDisk = ReadWorldOnDisk( request.Whole ? "Load All" : "Load Region" ); !onDisk )
+            return onDisk;
+        Regions::HeldRegions next = Held();
+        if ( request.Whole )
+            next.Whole = true;
+        else if ( request.Regions.empty() )
+        {
+            // Unload All: every loader off but the pins, which hold their entities whatever the others do (UE
+            // FLoaderAdapterPinnedActors); the rectangles and lists made by hand go.
+            next.Whole = false;
+            next.Regions.clear();
+            next.EntityLists.clear();
+            for ( Regions::VolumeLoader& volume : next.Volumes )
+                volume.Loaded = false;
+        }
+        else
+            for ( const ::Desert::Core::Rules::CellBounds& region : request.Regions )
+            {
+                // The same rectangle again is the listed loader switched on, not a second row naming one place.
+                const auto listed = std::find_if( next.Regions.begin(), next.Regions.end(),
+                                                  [&region]( const Regions::RegionLoader& loader )
+                                                  {
+                                                      return loader.Region.MinX == region.MinX &&
+                                                             loader.Region.MaxX == region.MaxX &&
+                                                             loader.Region.MinZ == region.MinZ &&
+                                                             loader.Region.MaxZ == region.MaxZ;
+                                                  } );
+                if ( listed != next.Regions.end() )
+                    listed->Loaded = true;
+                else
+                    next.Regions.push_back( Regions::RegionLoader{ region, true } );
+            }
+        return Reload( std::move( next ) );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::Reload( ::Desert::Core::EditorRegions::HeldRegions next )
+    {
+        if ( !m_Scene )
+            return Common::MakeError<bool>( std::string( "No active scene." ) );
+        auto changed = ::Desert::Core::EditorRegions::LoadHeld( *m_Scene, m_Assets, next );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();
         if ( outcome.Loaded > 0 || outcome.Unloaded > 0 )
             CommandHistory::Get().Clear();
-        m_RegionStatus =
-             std::format( "{} record(s) loaded, {} unloaded; {} of the world left on disk "
-                          "({} composite(s) in the region, {} always loaded, {} without a place, {} in unloaded "
-                          "data layers).",
-                          outcome.Loaded, outcome.Unloaded, outcome.NotLoaded, outcome.Selection.InRegions,
-                          outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
-                          outcome.Selection.UnloadedByDataLayers );
+        m_RegionStatus = std::format(
+             "{} record(s) loaded, {} unloaded; {} of the world left on disk ({} composite(s) in the regions and "
+             "volumes, {} held by entity lists and pins, {} always loaded, {} without a place, {} in unloaded data "
+             "layers).",
+             outcome.Loaded, outcome.Unloaded, outcome.NotLoaded, outcome.Selection.InRegions,
+             outcome.Selection.ByEntities, outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
+             outcome.Selection.UnloadedByDataLayers );
         m_EditPlanStale = true;
-        // The next open of this world holds what it holds now (UE's EditorLoadedRegions). The change itself
-        // stands either way; a refusal here is the status line's, so the user knows the next open will differ.
-        m_Held.Regions = request.Regions;
-        m_Held.Whole   = request.Whole;
+        // The next open of this world holds what it holds now (UE's per-user loaded regions and volumes). The change
+        // itself stands either way; a refusal here is the status line's, so the user knows the next open will differ.
+        m_Held     = std::move( next );
+        m_HeldRead = true;
         if ( const auto& baseline = m_Scene->Packages()->BaselinePath() )
             if ( const auto kept = EditorLoadedRegions::Remember( *baseline, m_Held ); !kept )
-                m_RegionStatus += " The loaded regions were not kept for the next open: " + kept.GetError();
+                m_RegionStatus += " The loaders were not kept for the next open: " + kept.GetError();
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::ReadWorldOnDisk( const std::string& what )
+    {
+        if ( !m_Scene )
+            return Common::MakeError<bool>( std::format( "{}: no active scene.", what ) );
+        RebuildEditPlan();
+        if ( !m_PlanFromIndex || !m_EditPlan.has_value() )
+            return Common::MakeError<bool>( std::format(
+                 "{}: the loaders hold a partitioned world opened from its files, and this scene is not one{}{}",
+                 what, m_EditPlanStatus.empty() ? "" : " - ", m_EditPlanStatus ) );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::AddLocationVolume()
+    {
+        if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() )
+            return Common::MakeError<bool>( std::string(
+                 "Add Location Volume: the scene is not a partitioned world, and a Location Volume is a loader of "
+                 "one." ) );
+        auto volume = m_Scene->CreateNewEntity( "Location Volume" );
+        volume.AddComponent<::Desert::ECS::LocationVolumeComponent>();
+        const Common::UUID id = volume.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
+        Commands::NotifyCreated( { id } );
+        ::Desert::Editor::Core::SelectionManager::SetSelected( id );
+        m_RegionStatus =
+             "Location Volume added at the origin: set its Tag, place and Extent, save the scene, then "
+             "Load it in Loaders.";
+        return BOOLSUCCESS;
+    }
+
+    std::vector<std::string> WorldPartitionPanel::LocationVolumeNames() const
+    {
+        std::vector<std::string> names;
+        if ( !m_Scene )
+            return names;
+        // Every volume is always loaded in the editor, so the scene names each one; a volume with no tag has no
+        // name to address (its row is "Location Volume <id>").
+        auto view =
+             m_Scene->GetRegistry().view<::Desert::ECS::LocationVolumeComponent, ::Desert::ECS::TagComponent>();
+        for ( const auto entity : view )
+        {
+            const std::string& tag = view.get<::Desert::ECS::TagComponent>( entity ).Tag;
+            if ( !tag.empty() && std::find( names.begin(), names.end(), tag ) == names.end() )
+                names.push_back( tag );
+        }
+        return names;
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::SetLocationVolumeLoaded( const std::string& name,
+                                                                        const bool         loaded )
+    {
+        namespace Regions      = ::Desert::Core::EditorRegions;
+        const std::string what = std::format( "{} location volume '{}'", loaded ? "Load" : "Unload", name );
+        if ( auto onDisk = ReadWorldOnDisk( what ); !onDisk )
+            return onDisk;
+        std::vector<std::uint64_t> tagged;
+        for ( const Regions::LocationVolume& volume : m_Volumes )
+            if ( volume.Name == name )
+                tagged.push_back( volume.Id );
+        if ( tagged.empty() )
+            return Common::MakeError<bool>(
+                 std::format( "{}: the saved world has no Location Volume tagged '{}' - a "
+                              "new or renamed volume is a loader once the scene is saved.",
+                              what, name ) );
+        if ( tagged.size() > 1 )
+            return Common::MakeError<bool>(
+                 std::format( "{}: {} saved Location Volumes are tagged '{}'; give each its own tag.", what,
+                              tagged.size(), name ) );
+        Regions::HeldRegions next = Held();
+        for ( Regions::VolumeLoader& volume : next.Volumes )
+            if ( volume.Volume == tagged.front() )
+                volume.Loaded = loaded;
+        return Reload( std::move( next ) );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::LoadRegionFromSelection( const std::vector<Common::UUID>& selected )
+    {
+        namespace Regions = ::Desert::Core::EditorRegions;
+        if ( selected.empty() )
+            return Common::MakeError<bool>( std::string( "Load Region from Selection: nothing is selected." ) );
+        if ( auto onDisk = ReadWorldOnDisk( "Load Region from Selection" ); !onDisk )
+            return onDisk;
+        const std::vector<std::uint64_t> ids     = IdsOf( selected );
+        std::vector<std::uint64_t>       records = Regions::RecordsAroundSelection( *m_EditPlan, m_RowIds, ids );
+        if ( records.empty() )
+            return Common::MakeError<bool>(
+                 std::format( "Load Region from Selection: none of the {} selected entities is a placed record of "
+                              "the saved world (save new entities first; the always-loaded part needs no loader).",
+                              selected.size() ) );
+        Regions::HeldRegions next = Held();
+        next.EntityLists.push_back( Regions::EntityListLoader{ std::move( records ), true } );
+        return Reload( std::move( next ) );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::UnloadSelected( const std::vector<Common::UUID>& selected )
+    {
+        namespace Regions = ::Desert::Core::EditorRegions;
+        if ( selected.empty() )
+            return Common::MakeError<bool>( std::string( "Unload Selected: nothing is selected." ) );
+        if ( auto onDisk = ReadWorldOnDisk( "Unload Selected" ); !onDisk )
+            return onDisk;
+        const std::vector<std::uint64_t> ids = IdsOf( selected );
+        if ( auto reloaded = Reload( Regions::WithoutEntities( Held(), *m_EditPlan, m_RowIds, ids ) ); !reloaded )
+            return reloaded;
+        const std::size_t held = static_cast<std::size_t>(
+             std::count_if( selected.begin(), selected.end(),
+                            [this]( const Common::UUID& id ) { return m_Scene->Packages()->IsLoaded( id ); } ) );
+        if ( held > 0 )
+            m_RegionStatus +=
+                 std::format( " {} of the selected entities stay loaded: a region, a Location Volume, a "
+                              "pin, Load All or the always-loaded part holds them.",
+                              held );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::SetSelectedPinned( const std::vector<Common::UUID>& selected,
+                                                                  const bool                       pinned )
+    {
+        namespace Regions      = ::Desert::Core::EditorRegions;
+        const std::string what = pinned ? "Pin Selected" : "Unpin Selected";
+        if ( selected.empty() )
+            return Common::MakeError<bool>( std::format( "{}: nothing is selected.", what ) );
+        if ( auto onDisk = ReadWorldOnDisk( what ); !onDisk )
+            return onDisk;
+        const std::vector<std::uint64_t> ids  = IdsOf( selected );
+        Regions::HeldRegions             next = Held();
+        if ( pinned )
+        {
+            const std::unordered_set<std::uint64_t> records( m_RowIds.begin(), m_RowIds.end() );
+            for ( const std::uint64_t id : ids )
+            {
+                if ( !records.contains( id ) )
+                    return Common::MakeError<bool>( std::format(
+                         "{}: entity {} is not a record of the saved world - save it first.", what, id ) );
+                if ( std::find( next.Pinned.begin(), next.Pinned.end(), id ) == next.Pinned.end() )
+                    next.Pinned.push_back( id );
+            }
+        }
+        else
+            std::erase_if( next.Pinned, [&ids]( const std::uint64_t id )
+                           { return std::find( ids.begin(), ids.end(), id ) != ids.end(); } );
+        return Reload( std::move( next ) );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::UnpinAll()
+    {
+        if ( auto onDisk = ReadWorldOnDisk( "Unpin All" ); !onDisk )
+            return onDisk;
+        ::Desert::Core::EditorRegions::HeldRegions next = Held();
+        next.Pinned.clear();
+        return Reload( std::move( next ) );
+    }
+
+    std::vector<std::string> WorldPartitionPanel::LoaderNames() const
+    {
+        std::vector<std::string> names;
+        for ( ::Desert::Core::EditorRegions::LoaderRow& row :
+              ::Desert::Core::EditorRegions::LoaderRowsOf( m_Held, m_Volumes ) )
+            names.push_back( std::move( row.Name ) );
+        return names;
+    }
+
+    std::optional<::Desert::Core::EditorRegions::LoaderRow>
+    WorldPartitionPanel::FindLoader( const std::string& name ) const
+    {
+        for ( ::Desert::Core::EditorRegions::LoaderRow& row :
+              ::Desert::Core::EditorRegions::LoaderRowsOf( m_Held, m_Volumes ) )
+            if ( row.Name == name )
+                return std::move( row );
+        return std::nullopt;
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::SetLoaderLoaded( const std::string& name, const bool loaded )
+    {
+        namespace Regions      = ::Desert::Core::EditorRegions;
+        using Kind             = Regions::LoaderKind;
+        const std::string what = std::format( "{} loader '{}'", loaded ? "Load" : "Unload", name );
+        if ( auto onDisk = ReadWorldOnDisk( what ); !onDisk )
+            return onDisk;
+        const std::optional<Regions::LoaderRow> row = FindLoader( name );
+        if ( !row )
+            return Common::MakeError<bool>( std::format( "{}: no loader is named '{}'.", what, name ) );
+        Regions::HeldRegions next = Held();
+        switch ( row->Kind )
+        {
+            case Kind::Whole:
+                next.Whole = loaded;
+                break;
+            case Kind::Volume:
+                next.Volumes[row->Index].Loaded = loaded;
+                break;
+            case Kind::Region:
+                next.Regions[row->Index].Loaded = loaded;
+                break;
+            case Kind::EntityList:
+                next.EntityLists[row->Index].Loaded = loaded;
+                break;
+            case Kind::Pinned:
+                return Common::MakeError<bool>( std::format( "{}: the pins hold their entities whatever the other "
+                                                             "loaders do - Unpin All, or Unpin Selected.",
+                                                             what ) );
+        }
+        return Reload( std::move( next ) );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::RemoveLoader( const std::string& name )
+    {
+        namespace Regions      = ::Desert::Core::EditorRegions;
+        using Kind             = Regions::LoaderKind;
+        const std::string what = std::format( "Remove loader '{}'", name );
+        if ( auto onDisk = ReadWorldOnDisk( what ); !onDisk )
+            return onDisk;
+        const std::optional<Regions::LoaderRow> row = FindLoader( name );
+        if ( !row )
+            return Common::MakeError<bool>( std::format( "{}: no loader is named '{}'.", what, name ) );
+        Regions::HeldRegions next = Held();
+        switch ( row->Kind )
+        {
+            case Kind::Whole: // Load All has no state but on: removing it is switching it off
+                next.Whole = false;
+                break;
+            case Kind::Region:
+                next.Regions.erase( next.Regions.begin() + static_cast<std::ptrdiff_t>( row->Index ) );
+                break;
+            case Kind::EntityList:
+                next.EntityLists.erase( next.EntityLists.begin() + static_cast<std::ptrdiff_t>( row->Index ) );
+                break;
+            case Kind::Volume:
+                return Common::MakeError<bool>( std::format(
+                     "{}: a Location Volume is the world's - Unload it, or delete its entity and save.", what ) );
+            case Kind::Pinned:
+                return Common::MakeError<bool>( std::format( "{}: the pins go with Unpin All.", what ) );
+        }
+        return Reload( std::move( next ) );
+    }
+
+    // UE's World Partition editor loader list, the pattern and not the letter: one row per loader of this user
+    // (the world's Location Volumes, the regions, the entity lists, the pins, Load All), each with its Loaded
+    // switch, and the selection actions that make or change one.
+    void WorldPartitionPanel::DrawLoaders()
+    {
+        namespace Regions = ::Desert::Core::EditorRegions;
+        if ( !ImGui::CollapsingHeader( "Loaders", ImGuiTreeNodeFlags_DefaultOpen ) )
+            return;
+        const std::vector<Common::UUID> selected = ::Desert::Editor::Core::SelectionManager::GetSelection();
+        const auto                      report   = [this]( const Common::BoolResultStr& done )
+        {
+            if ( !done )
+                m_RegionStatus = done.GetError();
+        };
+        if ( ImGui::Button( "Add Location Volume" ) )
+            report( AddLocationVolume() );
+        ImGui::SameLine();
+        ImGui::BeginDisabled( selected.empty() );
+        if ( ImGui::Button( "Load Region from Selection" ) )
+            report( LoadRegionFromSelection( selected ) );
+        ImGui::SameLine();
+        if ( ImGui::Button( "Unload Selected" ) )
+            report( UnloadSelected( selected ) );
+        ImGui::SameLine();
+        if ( ImGui::Button( "Pin" ) )
+            report( SetSelectedPinned( selected, true ) );
+        ImGui::SameLine();
+        if ( ImGui::Button( "Unpin" ) )
+            report( SetSelectedPinned( selected, false ) );
+        ImGui::EndDisabled();
+
+        // This frame's rows: an action reloads and rewrites what they were made from, so the list stops after one.
+        const std::vector<Regions::LoaderRow> rows = Regions::LoaderRowsOf( m_Held, m_Volumes );
+        if ( rows.empty() )
+            ImGui::TextDisabled( "No loader: the editor holds the always-loaded part only." );
+        for ( const Regions::LoaderRow& row : rows )
+        {
+            ImGui::PushID( row.Name.c_str() );
+            bool acted  = false;
+            bool loaded = row.Loaded;
+            ImGui::BeginDisabled( row.Kind == Regions::LoaderKind::Pinned );
+            if ( ImGui::Checkbox( "##loaded", &loaded ) )
+            {
+                report( SetLoaderLoaded( row.Name, loaded ) );
+                acted = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextUnformatted( LoaderLabel( row ).c_str() );
+            if ( !acted &&
+                 ( row.Kind == Regions::LoaderKind::Region || row.Kind == Regions::LoaderKind::EntityList ) )
+            {
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( "Remove" ) )
+                {
+                    report( RemoveLoader( row.Name ) );
+                    acted = true;
+                }
+            }
+            if ( !acted && row.Kind == Regions::LoaderKind::Pinned )
+            {
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( "Unpin All" ) )
+                {
+                    report( UnpinAll() );
+                    acted = true;
+                }
+            }
+            ImGui::PopID();
+            if ( acted )
+                break;
+        }
     }
 
     std::vector<std::string> WorldPartitionPanel::DataLayerNames() const
@@ -710,16 +1124,13 @@ namespace Desert::Editor
         if ( !::Desert::Core::Rules::DataLayerIndexOf( partition, name ).has_value() )
             return Common::MakeError<bool>( std::format( "Data Layers: the world states no layer '{}'.", name ) );
         const ::Desert::Core::EditorRegions::DataLayerOverrides before = Held().DataLayers;
-        m_Held.DataLayers = ::Desert::Core::EditorRegions::WithDataLayerLoaded( partition, before, name, loaded );
-        if ( m_Held.DataLayers == before )
+        ::Desert::Core::EditorRegions::HeldRegions              next   = Held();
+        next.DataLayers = ::Desert::Core::EditorRegions::WithDataLayerLoaded( partition, before, name, loaded );
+        if ( next.DataLayers == before )
             return Common::MakeSuccess( false );
-        // The same regions (or the whole world) again, under the new layer state; LoadRegion remembers it.
-        const RegionRequest again{ m_Held.Regions, m_Held.Whole };
-        if ( auto reloaded = LoadRegion( again ); !reloaded )
-        {
-            m_Held.DataLayers = before;
+        // The same loaders again, under the new layer state; Reload remembers it (and keeps the old on a refusal).
+        if ( auto reloaded = Reload( std::move( next ) ); !reloaded )
             return reloaded;
-        }
         m_DataLayerStatus = std::format( "{} '{}': {}", loaded ? "Loaded" : "Unloaded", name, m_RegionStatus );
         return BOOLSUCCESS;
     }
@@ -1267,6 +1678,28 @@ namespace Desert::Editor
             list.AddRectFilled( lo, hi, IM_COL32( 64, 140, 255, 48 ) );
             list.AddRect( lo, hi, IM_COL32( 96, 170, 255, 230 ), 0.0f, 0, 2.0f );
         }
+
+        // ── the loaders' boxes (WP-LOADER-ADAPTERS): Location Volumes amber, regions green; filled and solid
+        // while loaded, a thin outline while not; each named as its row in Loaders ──
+        if ( streamer == nullptr )
+            for ( const ::Desert::Core::EditorRegions::LoaderRow& row :
+                  ::Desert::Core::EditorRegions::LoaderRowsOf( m_Held, m_Volumes ) )
+            {
+                if ( !row.Box )
+                    continue;
+                const ImVec2 a = ToScreen( m_View, size, origin, { row.Box->MinX, row.Box->MinZ } );
+                const ImVec2 b = ToScreen( m_View, size, origin, { row.Box->MaxX, row.Box->MaxZ } );
+                const ImVec2 lo( std::min( a.x, b.x ), std::min( a.y, b.y ) );
+                const ImVec2 hi( std::max( a.x, b.x ), std::max( a.y, b.y ) );
+                const bool   volume = row.Kind == ::Desert::Core::EditorRegions::LoaderKind::Volume;
+                const ImU32  edge   = volume ? IM_COL32( 255, 196, 64, row.Loaded ? 230 : 110 )
+                                             : IM_COL32( 120, 220, 140, row.Loaded ? 230 : 110 );
+                if ( row.Loaded )
+                    list.AddRectFilled( lo, hi,
+                                        volume ? IM_COL32( 255, 196, 64, 32 ) : IM_COL32( 120, 220, 140, 32 ) );
+                list.AddRect( lo, hi, edge, 0.0f, 0, row.Loaded ? 2.0f : 1.0f );
+                list.AddText( ImVec2( lo.x + 4.0f, lo.y + 2.0f ), edge, row.Name.c_str() );
+            }
 
         // ── every streaming source: its loading circle, its unload band; where the view looks, in Edit ──
         for ( const ::Desert::Core::Rules::StreamingSource& source : sources )

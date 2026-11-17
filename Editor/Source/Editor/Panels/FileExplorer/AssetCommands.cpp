@@ -103,6 +103,58 @@ namespace Desert::Editor
                                               return WorldPartition()->SetDataLayerLoaded( layer, load );
                                           } } );
 
+        // The World Partition window's Loaders (WP-LOADER-ADAPTERS; UE's World Partition editor, its Location
+        // Volumes and loader adapters): the selection's actions, a Load / Unload pair per Location Volume of the
+        // scene, and Load / Unload / Remove per row of the Loaders list, named as the row is.
+        const auto worldPartitionEntry =
+             [this, &commands]( std::string                                                  label,
+                                std::function<Common::BoolResultStr( WorldPartitionPanel& )> run )
+        {
+            commands.push_back( { "Scene", std::move( label ),
+                                  [this, run = std::move( run )]() -> Common::BoolResultStr
+                                  {
+                                      if ( WorldPartition() == nullptr )
+                                          return Common::MakeError( "World Partition: the World Partition window "
+                                                                    "does not exist" );
+                                      return run( *WorldPartition() );
+                                  } } );
+        };
+        const auto selection = []() -> std::vector<Common::UUID>
+        { return ::Desert::Editor::Core::SelectionManager::GetSelection(); };
+        worldPartitionEntry( "World Partition: Add Location Volume",
+                             []( WorldPartitionPanel& panel ) { return panel.AddLocationVolume(); } );
+        worldPartitionEntry( "World Partition: Load Region from Selection",
+                             [selection]( WorldPartitionPanel& panel )
+                             { return panel.LoadRegionFromSelection( selection() ); } );
+        worldPartitionEntry( "World Partition: Unload Selected", [selection]( WorldPartitionPanel& panel )
+                             { return panel.UnloadSelected( selection() ); } );
+        worldPartitionEntry( "World Partition: Pin Selected", [selection]( WorldPartitionPanel& panel )
+                             { return panel.SetSelectedPinned( selection(), true ); } );
+        worldPartitionEntry( "World Partition: Unpin Selected", [selection]( WorldPartitionPanel& panel )
+                             { return panel.SetSelectedPinned( selection(), false ); } );
+        worldPartitionEntry( "World Partition: Unpin All",
+                             []( WorldPartitionPanel& panel ) { return panel.UnpinAll(); } );
+        if ( WorldPartition() != nullptr )
+        {
+            for ( const std::string& volume : WorldPartition()->LocationVolumeNames() )
+                for ( const bool load : { true, false } )
+                    worldPartitionEntry(
+                         std::format( "World Partition: {} location volume {}", load ? "Load" : "Unload", volume ),
+                         [volume, load]( WorldPartitionPanel& panel )
+                         { return panel.SetLocationVolumeLoaded( volume, load ); } );
+            for ( const std::string& loader : WorldPartition()->LoaderNames() )
+            {
+                for ( const bool load : { true, false } )
+                    worldPartitionEntry(
+                         std::format( "World Partition: {} loader {}", load ? "Load" : "Unload", loader ),
+                         [loader, load]( WorldPartitionPanel& panel )
+                         { return panel.SetLoaderLoaded( loader, load ); } );
+                worldPartitionEntry( std::format( "World Partition: Remove loader {}", loader ),
+                                     [loader]( WorldPartitionPanel& panel )
+                                     { return panel.RemoveLoader( loader ); } );
+            }
+        }
+
         // The rename dialog on the Assets window's selection, with the registry's referrers listed; the
         // same dialog F2 opens.
         commands.push_back( { "Assets", "Rename the selected asset", [this]

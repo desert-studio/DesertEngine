@@ -169,6 +169,9 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, 
 // (::Desert::Core::WorldStreamer). A custom entry for its Target Grids: see MakeStreamingSourceEntry below.
 // UE's Actor > World Partition > Runtime Grid: which grid of a partitioned world the entity streams on (WP22).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RuntimeGridComponent, Data, "RuntimeGridData", "Runtime Grid" )
+// UE's ALocationVolume: a named box of a partitioned world the World Partition window loads (WP-LOADER-ADAPTERS).
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::LocationVolumeComponent, Data, "LocationVolumeData",
+                                     "Location Volume" )
 // UE's Actor > World Partition > Data Layers: the layers of the world the entity belongs to (WP-DATA-LAYERS). A
 // custom entry for the pick of the world's layer names: see MakeDataLayersEntry below.
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every

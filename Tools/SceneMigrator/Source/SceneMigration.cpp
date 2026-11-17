@@ -5512,6 +5512,9 @@ namespace Desert::Migration
                 if ( !refused.empty() )
                     report.Refused = RefusedWhole( file, refused );
             }
+            // v5 -> v6 is additive the same way: a Location Volume is a component a v5 file never states.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionLocationVolumes )
+                report.LocationVolumesRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.

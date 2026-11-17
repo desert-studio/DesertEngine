@@ -578,6 +578,12 @@ namespace
                 << "->v" << Desert::Migration::kWorldPartitionVersionRuntimePartitions << " ("
                 << report.GridsRestated
                 << " grid(s) restated as LHGrid runtime partitions, HLOD chains as their HLOD setups)";
+        if ( report.LocationVolumesRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionRuntimePartitions )
+                << "->v" << Desert::Migration::kWorldPartitionVersionLocationVolumes
+                << " (location volumes: additive, nothing restated)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

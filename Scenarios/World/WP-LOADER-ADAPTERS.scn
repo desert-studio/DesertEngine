@@ -1,0 +1,48 @@
+# WP-LOADER-ADAPTERS (UE IWorldPartitionActorLoaderInterface + UWorldPartitionEditorLoaderAdapter): what the editor
+# holds of a partitioned world is the UNION of its loaders - rectangles (FLoaderAdapterShape), Location Volumes
+# (ALocationVolume, a component: Extent + Auto Load, always loaded in the editor, left out by the cook), entity
+# lists (FLoaderAdapterActorList, Load Region from Selection) and pins (FLoaderAdapterPinnedActors) - beside the
+# always-loaded part; Unload All switches every loader off but the pins. Kept per user in
+# Saved/Config/WorldPartitionEditor.json (UWorldPartitionEditorPerProjectUserSettings) and loaded again at open.
+# The new volume keeps its default tag "Location Volume" and Extent 15000 (a 300x300 m box): DesertCtl's selection
+# subject sets only the transform. Picked from WP_Protocol's entity files: the village is the 300x300 m box around (-500, -500) m (Main C05_06_B01,
+# C06_05_B02, C06_06_B00); the "lake" side (WP_Protocol has no lake) is Main C09_09_B00 (200459) at (300, 299) m,
+# ~1.1 km away; the lone pinned house is Main C10_05_B02 (200272) at (611, -617) m, ~970 m from both.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Unload All"
+Дано run Scene "World Partition: Add Location Volume"
+Дано --subject selection set Translation -50000,0,-50000
+Дано run Action "Save Scene"
+Дано --subject viewport set Camera.Position 0,180000,-1
+Дано --subject viewport set Camera.Direction 0,-1,0.0001
+Когда run Scene "World Partition: Load location volume Location Volume"
+# The lake side: the entity list around one lake-side building (Load Region from Selection needs it loaded first,
+# so Load All, select, list, then the whole-world flag goes again with Unload All - which keeps nothing but pins;
+# hence the list is made AFTER the pin below and the volume is loaded again last).
+Когда run Scene "World Partition: Load All"
+Когда select 200272
+Когда run Scene "World Partition: Pin Selected"
+Когда select 200459
+Когда run Scene "World Partition: Load Region from Selection"
+Когда run Scene "World Partition: Unload loader All"
+Тогда adapters_three вид сверху: загружены деревня (300x300 м вокруг Location Volume) и озёрный край (здания вокруг 200459) - два острова - и один закреплённый дом 200272 вне обоих; в панели World Partition три строки загрузчиков: Location Volume (Location Volume, Loaded), Selection 1 (N entities, Loaded), Pinned (1)
+# One loader off alone (the rows switch one by one), then on again.
+Когда run Scene "World Partition: Unload loader Selection 1"
+Тогда adapters_one_off вид сверху: озёрный край ушёл, деревня и закреплённый дом 200272 на месте; строка Selection 1 (N entities, Unloaded)
+Когда run Scene "World Partition: Load loader Selection 1"
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene WP_Protocol.desce"
+Когда --subject viewport set Camera.Position 0,180000,-1
+Когда --subject viewport set Camera.Direction 0,-1,0.0001
+Тогда adapters_restored после повторного открытия загружено то же самое, что в adapters_three (те же два острова и дом), в панели те же три строки
+# Unload Selected: the building's composite leaves the entity list; its neighbours in the list stay.
+Когда select 200459
+Когда run Scene "World Partition: Unload Selected"
+Тогда adapters_unload_selected вид сверху: здание 200459 выгружено, остальное как в adapters_restored; Selection 1 называет меньше сущностей
+# Restore the frozen world: the volume leaves, the user's loaders go.
+Когда run Scene "World Partition: Unload All"
+Когда run Scene "World Partition: Unpin All"
+Когда run Entity "Location Volume"
+Когда run Action "Delete"
+Когда run Action "Save Scene"

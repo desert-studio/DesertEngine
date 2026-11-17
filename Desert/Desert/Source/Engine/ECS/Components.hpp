@@ -3368,6 +3368,32 @@ namespace Desert::ECS
         DataLayersData Data;
     };
 
+    // A PLACE OF A PARTITIONED WORLD THE EDITOR LOADS BY NAME - UE's ALocationVolume (WP-LOADER-ADAPTERS): its box
+    // (the +-Extent box placed by the entity's world transform, seen from above as an X/Z rectangle) is a loader of
+    // the World Partition window (Core::EditorRegions): Load holds every composite whose footprint meets it, and it
+    // is listed there whether loaded or not. Always loaded in the editor (UE: bIsSpatiallyLoaded = false), so the list never misses one;
+    // an editor-only entity - the cook leaves it out (WorldCells), as UE never cooks an editor-only actor.
+    struct LocationVolumeData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Extent" ), Category( "Location Volume" ), Summary,
+                  Tooltip( "Half size of the volume box, cm, around the entity, placed by its transform (rotation "
+                           "and scale included); Load holds what meets the box's X/Z rectangle." ) )
+        glm::vec3 Extent{ 15000.0f, 15000.0f, 15000.0f };
+
+        PROPERTY( DisplayName( "Auto Load" ), Category( "Location Volume" ),
+                  Tooltip( "Loaded when the world is opened in the editor, unless this user unloaded it (UE "
+                           "ALocationVolume::bIsAutoLoad)." ) )
+        bool AutoLoad = false;
+    };
+
+    struct LocationVolumeComponent
+    {
+        COMPONENT( Key( "LocationVolume" ), Block( Data ), Run( ActorsAndUI ) )
+        LocationVolumeData Data;
+    };
+
     // Attaches a Lua script to an entity. The ScriptSystem loads the file and calls its OnStart()/OnUpdate(dt);
     // the script drives behavior through the bound API (self:move/jump/addYaw..., Input.*). See ScriptEngine.
     // A behavior unit, like a UE ActorComponent: one .lua file + its exposed properties + lifecycle flag.
