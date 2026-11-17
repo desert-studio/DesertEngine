@@ -2793,8 +2793,11 @@ namespace Desert::Graphic::System
             return material != nullptr &&
                    material->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Masked;
         };
+        // @p groupEmitsLight: the group's material has Emissive Lights Scene on (a stand-in group never) - an object
+        // with no section instance draws with it, so its single draw pushes EMISSION_IS_LIGHT as the record path does.
         const auto planGroup = [&]( const std::vector<const StaticMeshRenderData*>& objects, const bool standsIn,
-                                    const bool masked, DrawBuildScratch::StaticGroupPlan& plan,
+                                    const bool groupEmitsLight, const bool masked,
+                                    DrawBuildScratch::StaticGroupPlan& plan,
                                     DrawBuildScratch::BucketScratch&   slice )
         {
             plan.Batches.clear();
@@ -2919,7 +2922,9 @@ namespace Desert::Graphic::System
                 od.HasOverrides = od.Inst != nullptr && od.Inst->GetPropertySet().HasOverrides();
                 // A MegaLights emitter draws alone: its per-object draw pushes EMISSION_IS_LIGHT, a batch the
                 // default PrimitiveFlags (RefreshStaticPlanRows' kAlone, the same rule). A stand-in is not one.
-                const bool emissionIsLight = !standsIn && od.Inst != nullptr && od.Inst->IsEmissiveLightsScene();
+                // An object with no section instance draws with the group's material: the group's flag is its own.
+                const bool emissionIsLight =
+                     !standsIn && ( od.Inst != nullptr ? od.Inst->IsEmissiveLightsScene() : groupEmitsLight );
                 od.Alone = !obj->ReceiveShadows || !obj->CastContactShadow || emissionIsLight || od.HasOverrides;
                 od.Hidden       = hiddenOf( obj );
                 bucketFor( obj->Mesh, od.Hidden ).push_back( od );
@@ -3119,6 +3124,8 @@ namespace Desert::Graphic::System
                                   for ( std::size_t gi = first; gi < last; ++gi )
                                       if ( plans[gi].Opaque )
                                           planGroup( groups[gi].second, groups[gi].first == standInKey,
+                                                     groups[gi].first != standInKey && groups[gi].first != nullptr &&
+                                                          groups[gi].first->IsEmissiveLightsScene(),
                                                      clipsDitheredLod( groups[gi].first ), plans[gi], slice );
                               } );
                 first = last;
@@ -3899,6 +3906,15 @@ namespace Desert::Graphic::System
                 const GraphicsPipeline* twin =
                      CullPermutation( CellPipeline( pipeline, *mat ),
                                       instOf( obj ) != nullptr ? instOf( obj )->IsTwoSided() : mat->IsTwoSided() );
+                // A MegaLights emitter (its section's Emissive Lights Scene, the instance chain else the surface, as
+                // the emissive lists resolve it; a skinned section is one of the ray tracing scene's segments) marks
+                // the G-buffer's EMISSION_IS_LIGHT, so a screen GI hit takes none of its emission. A stand-in is not
+                // one. Per section: each section is its own draw here.
+                const bool emissionIsLight =
+                     !standsIn && ( obj.Section->Instance != nullptr ? obj.Section->Instance->IsEmissiveLightsScene()
+                                    : obj.Section->Material != nullptr
+                                         ? obj.Section->Material->IsEmissiveLightsScene()
+                                         : false );
                 list.Add( { .Pipeline          = twin,
                             .Mesh              = obj.Obj->Mesh,
                             .Transform         = glm::mat4( 1.0f ), // relative to the motion row's World
@@ -3907,7 +3923,8 @@ namespace Desert::Graphic::System
                             .Push              = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj.Obj->GpuPrimitive )
-                                         .MaterialIndex( *materialRow ) } );
+                                         .MaterialIndex( *materialRow )
+                                         .PrimitiveFlags( PrimitiveFlagsOf( true, emissionIsLight ) ) } );
             }
         }
     }
