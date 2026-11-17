@@ -220,7 +220,7 @@ void main()
     const vec3 prevPosition = b.x * previous[0] + b.y * previous[1] + b.z * previous[2];
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), 0.0,
-                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u, true );
 }
 #else
 // THE INSTANCED PATH'S RESOLVE (GRASS-VIS-MESH-1; UE 5 Nanite's FetchNaniteMaterialPixelParameters over a mesh's
@@ -379,6 +379,6 @@ void main()
     const float moved       = prevModel != model ? 1.0 : 0.0;
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), moved,
-                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u, true );
 }
 #endif

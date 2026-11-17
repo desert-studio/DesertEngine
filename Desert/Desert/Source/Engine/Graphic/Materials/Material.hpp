@@ -55,6 +55,10 @@ namespace Desert::Graphic
     {
         // UE !bCastContactShadow (StaticMeshComponent / InstancedStaticMeshComponent::CastContactShadow off).
         inline constexpr uint32_t NoContactShadow = 1u << 0;
+        // The draw writes no emission into the G-buffer: a surface-cache card capture of a material with
+        // EmissiveLightsScene on (MegaLights lights the scene from it; the cards' emissive layer GI reads holds
+        // none).
+        inline constexpr uint32_t NoEmission = 1u << 1;
     } // namespace PrimitiveFlag
 
     [[nodiscard]] constexpr uint32_t PrimitiveFlagsOf( const bool castContactShadow )
@@ -115,6 +119,16 @@ namespace Desert::Graphic
         [[nodiscard]] bool IsTwoSided() const
         {
             return m_TwoSided;
+        }
+        // The asset's EmissiveLightsScene (MaterialData::EmissiveLightsScene, absent = off): its emissive segments
+        // are MegaLights area lights (SceneRenderer::AddFrameEmissiveLights). An instance may override it.
+        void SetEmissiveLightsScene( const bool lightsScene ) noexcept
+        {
+            m_EmissiveLightsScene = lightsScene;
+        }
+        [[nodiscard]] bool IsEmissiveLightsScene() const noexcept
+        {
+            return m_EmissiveLightsScene;
         }
 
         // Name the row of the shared `Materials[]` storage buffer that the NEXT recorded draw reads.
@@ -352,5 +366,6 @@ namespace Desert::Graphic
 
         ResourceOwnership m_Accounting;
         bool              m_TwoSided = false;
+        bool              m_EmissiveLightsScene = false;
     };
 } // namespace Desert::Graphic

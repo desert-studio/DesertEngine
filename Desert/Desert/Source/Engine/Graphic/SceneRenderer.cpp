@@ -3565,8 +3565,39 @@ namespace Desert::Graphic
             return {}; // said once by EnsureMegaLightsResources
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
-        if ( pointCount + spotCount == 0 )
-            return {}; // no local light: nothing to sample, the composite adds none
+        // The emissive triangles of the materials with Emissive Lights Scene on: lights after the points and spots
+        // (AddFrameSceneEmissiveLights). A list that cannot be built this frame is said once per cause and the
+        // frame samples the local lights alone over an empty list (the bindings need one).
+        RayTracing::EmissiveLightsFrame emissive;
+        if ( const Common::ResultStr<RayTracing::EmissiveLightsFrame> built = AddFrameSceneEmissiveLights( graph );
+             built )
+        {
+            emissive = built.GetValue();
+            m_ReportedSceneEmissive.clear();
+        }
+        else
+        {
+            if ( m_ReportedSceneEmissive != built.GetError() )
+            {
+                m_ReportedSceneEmissive = built.GetError();
+                LOG_ERROR( "[SceneRenderer] {}: no emissive lights in MegaLights this frame: {}",
+                           m_ViewResources.GetName(), m_ReportedSceneEmissive );
+            }
+            const Common::BoolResultStr ready = m_SceneEmissiveLights.Initialize();
+            const Common::ResultStr<RayTracing::EmissiveLightsFrame> empty =
+                 ready ? m_SceneEmissiveLights.AddPasses( graph, RayTracing::EmissiveTriangleList{} )
+                       : Common::MakeError<RayTracing::EmissiveLightsFrame>( ready.GetError() );
+            if ( !empty )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {}; the local lights are unlit this frame", m_ViewResources.GetName(),
+                           empty.GetError() );
+                return {};
+            }
+            emissive = empty.GetValue();
+        }
+        const uint32_t emissiveTriangles = emissive.Static.TriangleCount + emissive.Dynamic.TriangleCount;
+        if ( pointCount + spotCount == 0 && emissiveTriangles == 0 )
+            return {}; // no local light and no emissive light: nothing to sample, the composite adds none
         if ( gbuffer.size() < 4 )
         {
             LOG_ERROR( "[SceneRenderer] {}: MegaLights needs the 4 G-buffer colours, the graph has {}; the local "
@@ -3604,7 +3635,8 @@ namespace Desert::Graphic
              // The G-buffer depth is the opaque scene: the march has
              // something to hit (as the composite's contact shadows).
                            .ContactShadowView =
-                  SceneResources::ContactShadowViewVector( GetContactShadowSettings( frame, true ) ) };
+                  SceneResources::ContactShadowViewVector( GetContactShadowSettings( frame, true ) ),
+                           .Emissive = emissive };
         const Common::ResultStr<System::MegaLightsLighting> lighting =
              m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
         if ( !lighting )
