@@ -70,7 +70,11 @@
     /* raster viewport (ViewFrame::RasterRect), ndc = xy * PixelToNdc.xy + PixelToNdc.zw; the G-buffer cell's */  \
     /* clip position (Mesh/Surface/Pass_GBuffer.glslh DesertGBufferClipFromPixel). 0 for a view with no rect */   \
     FIELD( glm::vec4, PixelToNdc, PixelToNdc, { 0.0f } ) /* offset 528 (MakePixelToNdc) */                        \
-    /* block size 544 */
+    /* scene views: the dithered LOD transition (ViewFrame::TemporalLOD; Mesh/Surface/LODTransition.glslh): */    \
+    /* x how far the fade has come (0..1), y 1 while the view fades its level changes; a cascade's light */       \
+    /* view carries its scene view's (WriteLightCamera): its casters clip the view's dither */                    \
+    FIELD( glm::vec4, LodTransition, LodTransition, { 0.0f } ) /* offset 544 */                                   \
+    /* block size 560 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -80,7 +84,7 @@ namespace Desert::Graphic::ShaderProtocols
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 544 );
+    static_assert( sizeof( Camera ) == 560 );
 
     /// PURE. CameraUB::PixelToNdc of a raster viewport @p rect (x, y its origin, z, w its size, target pixels),
     /// drawn as the engine draws every view - negative height, +Y up (VulkanRendererAPI::SetViewportRegion,
@@ -140,6 +144,8 @@ namespace Desert::Graphic::ShaderProtocols
         ub.CasterWindRing            = frame.CasterWindRing;
         ub.GrassLens                 = frame.GrassLens;
         ub.PixelToNdc                = MakePixelToNdc( frame.RasterRect );
+        ub.LodTransition             = glm::vec4( frame.TemporalLOD.Transition,
+                                                  frame.TemporalLOD.Active ? 1.0f : 0.0f, 0.0f, 0.0f );
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

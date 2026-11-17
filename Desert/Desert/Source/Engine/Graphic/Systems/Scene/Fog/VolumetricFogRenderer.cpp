@@ -404,6 +404,8 @@ namespace Desert::Graphic::System
                        std::move( distantSkyLightName ) )
              .Storage( Scattering::PointLightsUB, t.Lights.Point, RDG::Access::StorageRead )
              .Storage( Scattering::SpotLightsUB, t.Lights.Spot, RDG::Access::StorageRead )
+             // The rows' light function tiles (Mesh/LightFunctionAtlas.glslh), sampled bindless per froxel.
+             .BindlessRead( t.Lights.LightFunctionAtlas, RDG::Access::SampledCompute )
              .Storage( Scattering::LightGridParamsUB, t.Lights.GridParams, RDG::Access::StorageRead )
              .Storage( Scattering::LightGridCellsUB, t.Lights.GridCells, RDG::Access::StorageRead )
              // The cloud layer's map (white when none casts: CloudShadowParams.y = 0 and it is never fetched).

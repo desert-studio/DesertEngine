@@ -395,6 +395,16 @@ namespace Common::Scalability
         // the masked depth prepass and every shadow cascade draw. 0 = no far LOD (the variety's own LOD levels
         // only).
         FoliageGrassLodScreenPixels,
+        // Percent (FPS-GRASS-MESH-RASTER; UE foliage.LODDistanceScale / r.StaticMeshLODDistanceScale over the
+        // grass HISM): a mesh grass instance's LOD level is selected at its true distance x this / 100, so 200
+        // picks every coarser level of the field chain (Mesh::GetFieldLODScreenSizes) at half the distance: its
+        // triangles stand 4x the pixels each, past the one 2x2 raster quad the automatic chain's density rule
+        // (Geometry::kAutoLODPixelsPerTriangle) ends a level at. Only the level: the instance's distance cull,
+        // far LOD and thinning read the true distance. Read by SceneRenderer::BeginScene ->
+        // GrassRenderer::SetQuality -> PlanVariety (GrassParamsGpu::Lod.y) -> GrassCull.shader GrassMeshLevel,
+        // and the small buckets' screen bound (PrepareVariety: VarietyGpu::PrepassBuckets). 25..400; 100 = the
+        // chain as cooked.
+        FoliageGrassMeshLodDistanceScalePercent,
         // 0/1 (FPS-GRASS-HULL): a grass blade's raster strip spans only its card's cooked hull (the opaque part
         // of the card on the atlas, UE SubUV cutout) instead of the whole card. Read by SceneRenderer::BeginScene
         // -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (GrassBladeShapeGpu::HullTexels.z).

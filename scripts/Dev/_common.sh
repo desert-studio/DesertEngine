@@ -77,8 +77,6 @@ dev_build() {
     if command -v pgrep >/dev/null 2>&1; then
         while pgrep -x ninja >/dev/null; do sleep 10; done
     fi
-    # BASEDIR = the directory holding every worktree, so two trees' identical compiles share one cache entry.
-    export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime" CCACHE_COMPRESS=1
-    export CCACHE_BASEDIR="${CCACHE_BASEDIR:-$(dirname "$DEV_ROOT")}"
+    # The compile cache's settings (base_dir, PCH digests) are the build's own: scripts/Dev/ccache_launcher.sh.
     cmake --build "$DEV_BUILD" --config Debug -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
 }

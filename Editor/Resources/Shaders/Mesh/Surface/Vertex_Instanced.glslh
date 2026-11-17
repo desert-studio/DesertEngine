@@ -266,6 +266,11 @@ void main()
     }
 #endif
 #endif
+#if defined( DESERT_SURFACE_ROW_LOD_FADE ) && defined( DESERT_SURFACE_HAS_VARYINGS )
+    // A grass row's side of a dithered LOD transition (SurfaceTypes.glslh DESERT_SURFACE_ROW_LOD_FADE): its column
+    // 0 w, which InstancedWorldPosition's xyz never reads.
+    v_Surface.LodFadeSide = model[0].w;
+#endif
 #ifdef DESERT_SURFACE_PASS_Visibility
     // CPU-GRASS-POOL-5: the slot in the shared ids pool less the camera list's first (Slots.y): the section's.
     v_VisibilityRow =
@@ -295,6 +300,7 @@ void main()
 #ifdef DESERT_SURFACE_BINNED
     v_Surface.MaterialRow    = draw.MaterialRow;
     v_Surface.PrimitiveFlags = draw.Flags;
+    v_Surface.LodFadeSide    = draw.LodFadeSide;
 #endif
 #else // the full cell
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -313,6 +319,7 @@ void main()
 #if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.MaterialRow    = draw.MaterialRow;
     v_Surface.PrimitiveFlags = draw.Flags;
+    v_Surface.LodFadeSide    = draw.LodFadeSide;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The instance's previous world: transforms[i + offset], the offset in WindB.w's bits
