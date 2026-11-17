@@ -463,7 +463,17 @@ namespace Desert::Migration
     //       prefabs alike, the record and every prefab override.
     inline constexpr int kSceneVersionGrassRasterPath = 75;
 
-    static_assert( kSceneVersionGrassRasterPath == kSceneVersion,
+    //  76 - ONE ENTITY PER LANDSCAPE SPLINE (WP-LANDSCAPE-SPLINES; UE 5.5 ALandscapeSplineActor,
+    //       ULandscapeInfo::MoveSplinesToLevel). A Landscape block's Splines {ControlPoints, Segments} leaves the
+    //       root: every connected group of its control points (joined by segments; a lone point is its own group)
+    //       becomes one new record {LandscapeSpline: {Landscape: the root's id, Splines: the group, its segments
+    //       re-indexed}}, Tag "Landscape Spline", its id FNV-1a over "LandscapeSpline:<root id>:<group>" so a
+    //       re-run states the same identity. Scene-side; a prefab (or a prefab override) whose Landscape states
+    //       control points is refused naming it - no prefab in the content carries splines, and a spline cannot
+    //       become an entity of an instance (MigrateLandscapeSplineEntitiesV75ToV76).
+    inline constexpr int kSceneVersionLandscapeSplineEntities = 76;
+
+    static_assert( kSceneVersionLandscapeSplineEntities == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -653,6 +663,20 @@ namespace Desert::Migration
         std::size_t Disagreeing      = 0;     // further cloud layers whose wind differed from the one kept
         std::size_t OverridesDropped = 0;     // wind keys taken out of prefab overrides
     };
+
+    // What MigrateLandscapeSplineEntitiesV75ToV76 did to one file.
+    struct LandscapeSplineEntitiesReport
+    {
+        std::size_t RootsCleared   = 0;   // Landscape blocks (and overrides) whose Splines key was taken out
+        std::size_t SplinesCreated = 0;   // LandscapeSpline records added, one per connected group
+        std::vector<std::string> Refused; // a Splines value of the wrong shape, or splines in a prefab
+    };
+
+    // Splits every Landscape block's Splines into LandscapeSpline records under the rule
+    // kSceneVersionLandscapeSplineEntities states. @p createEntities: true for a scene, false for a prefab (whose
+    // control points are refused). PURE.
+    LandscapeSplineEntitiesReport
+    MigrateLandscapeSplineEntitiesV75ToV76( std::vector<Assets::EntityData>& entities, bool createEntities );
 
     // Moves the cloud layer's wind into a WindSource record under the rule kSceneVersionWindSource states.
     // @p createSource: true for a scene, false for a prefab. The record's id is derived from @p fileName so a
@@ -1364,6 +1388,8 @@ namespace Desert::Migration
         FilmicDefaultReport FilmicDefault;
         bool                  GrassRasterPathRaised = false; // below kSceneVersionGrassRasterPath
         GrassRasterPathReport GrassRasterPath;
+        bool                  LandscapeSplineEntitiesRaised = false; // below kSceneVersionLandscapeSplineEntities
+        LandscapeSplineEntitiesReport LandscapeSplineEntities;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -1383,7 +1409,7 @@ namespace Desert::Migration
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised || GrassRasterPathRaised;
+                   FilmicDefaultRaised || GrassRasterPathRaised || LandscapeSplineEntitiesRaised;
         }
     };
 

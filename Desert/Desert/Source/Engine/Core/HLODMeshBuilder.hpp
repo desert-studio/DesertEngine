@@ -32,9 +32,21 @@ namespace Desert::Core
     {
         Rules::HLODMeshBuilder      Mesh;
         Rules::LandscapeHLODBuilder Landscape;
+        // Binds @p registries (the mesh assets the spline segments lay).
+        Rules::LandscapeSplineHLODBuilder LandscapeSplines;
     };
 
     [[nodiscard]] HLODBuilders MakeHLODBuilders( std::span<const Common::Utils::AssetRegistry> registries );
+
+    // THE SPLINE MESHES OF ONE LANDSCAPE SPLINE (Rules::LandscapeSplineHLODRequest; UE: the spline's
+    // USplineMeshComponents in its cell's HLOD): its LandscapeSpline block read as the loader reads it, every
+    // segment's SplineMeshes bent by World::Landscape::BuildLandscapeSplineSegmentMeshes - the same function the
+    // editor and the game draw them with (LandscapeSplineMeshDraw) - from the built-in shape or the mesh asset
+    // (resolved by its handle in @p registries, read as BuildHLODMesh reads a part), one world-space EditMesh.
+    // Nullopt when the spline lays no mesh.
+    [[nodiscard]] Common::ResultStr<std::optional<Assets::StaticMeshComponentSer>>
+    BuildLandscapeSplineHLODMesh( const Rules::LandscapeSplineHLODRequest&      request,
+                                  std::span<const Common::Utils::AssetRegistry> registries );
 
     // The build itself, for one request; MakeHLODBuilders binds @p registries into it.
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>

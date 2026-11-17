@@ -67,6 +67,7 @@ namespace Desert::Editor::Tools
         struct SplineDrag
         {
             Common::UUID Landscape;
+            Common::UUID Spline;
             uint32_t     Point = 0u;
             glm::vec3    From  = glm::vec3( 0.0f );
         };

@@ -165,13 +165,16 @@ namespace Desert::Editor::Tools
             return best;
         }
 
-        /// The landscape's splines, or null when its root is not loaded.
-        World::Landscape::LandscapeSplines* SplinesOf( ::Desert::Core::Scene& scene,
-                                                       const Common::UUID&    landscape )
+        /// Spline entity @p spline's splines, or null when it is not loaded.
+        World::Landscape::LandscapeSplines* SplinesOf( ::Desert::Core::Scene& scene, const Common::UUID& spline )
         {
-            const auto root = ECS::FindLandscapeRootEntity( scene.GetRegistry(), landscape );
-            return root == entt::null ? nullptr
-                                      : &scene.GetRegistry().get<ECS::LandscapeComponent>( root ).Splines;
+            if ( spline.IsNull() )
+                return nullptr;
+            auto& registry = scene.GetRegistry();
+            for ( const auto entity : registry.view<ECS::LandscapeSplineComponent, ECS::UUIDComponent>() )
+                if ( registry.get<ECS::UUIDComponent>( entity ).UUID == spline )
+                    return &registry.get<ECS::LandscapeSplineComponent>( entity ).Splines;
+            return nullptr;
         }
 
         /// UE picks a control point by its sprite; here: the point nearest @p hit on the ground plane, within the
@@ -199,6 +202,34 @@ namespace Desert::Editor::Tools
         {
             const auto landscape = ECS::FirstLandscape( scene.GetRegistry() );
             return landscape ? TraceLandscape( scene, *landscape, ray ) : std::nullopt;
+        }
+
+        /// UE picks a control point of any spline actor of the landscape: the nearest point over every loaded
+        /// spline entity of @p landscape (PickSplinePoint on each), as {spline entity, point}.
+        std::optional<std::pair<Common::UUID, uint32_t>> PickLandscapeSplinePoint( ::Desert::Core::Scene& scene,
+                                                                                   const Common::UUID& landscape,
+                                                                                   const glm::vec3&    hit )
+        {
+            std::optional<std::pair<Common::UUID, uint32_t>> best;
+            float                                            bestDistance = 0.0f;
+            auto&                                            registry     = scene.GetRegistry();
+            for ( const auto entity : registry.view<ECS::LandscapeSplineComponent, ECS::UUIDComponent>() )
+            {
+                const auto& spline = registry.get<ECS::LandscapeSplineComponent>( entity );
+                if ( spline.Landscape != landscape )
+                    continue;
+                const auto picked = PickSplinePoint( spline.Splines, hit );
+                if ( !picked )
+                    continue;
+                const glm::vec3 at       = spline.Splines.ControlPoints[*picked].Location;
+                const float     distance = glm::length( glm::vec2( at.x - hit.x, at.z - hit.z ) );
+                if ( !best || distance < bestDistance )
+                {
+                    best         = std::pair{ registry.get<ECS::UUIDComponent>( entity ).UUID, *picked };
+                    bestDistance = distance;
+                }
+            }
+            return best;
         }
     } // namespace
 
@@ -406,14 +437,14 @@ namespace Desert::Editor::Tools
                     slab.CenterAdjust = glm::vec2( 0.0f, 15.0f );
                     meshes.push_back( slab );
                 }
-                if ( auto set = Commands::SetLandscapeSplineMeshes( scene, state.SplineLandscape, meshes ); !set )
+                if ( auto set = Commands::SetLandscapeSplineMeshes( scene, state.SelectedSpline, meshes ); !set )
                     ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
                 return true;
             }
             case Core::LandscapeStrokeRequest::SplineMeshLift:
             {
                 state.Request       = Core::LandscapeStrokeRequest::None;
-                const auto* splines = SplinesOf( scene, state.SplineLandscape );
+                const auto* splines = SplinesOf( scene, state.SelectedSpline );
                 if ( splines == nullptr || splines->Segments.empty() || splines->Segments.front().SplineMeshes.empty() )
                 {
                     ToastManager::Push( "landscape splines: no spline mesh to lift", ToastLevel::Error, 6.0f );
@@ -422,7 +453,7 @@ namespace Desert::Editor::Tools
                 auto meshes = splines->Segments.front().SplineMeshes;
                 for ( auto& entry : meshes )
                     entry.CenterAdjust.y += 100.0f;
-                if ( auto set = Commands::SetLandscapeSplineMeshes( scene, state.SplineLandscape, meshes ); !set )
+                if ( auto set = Commands::SetLandscapeSplineMeshes( scene, state.SelectedSpline, meshes ); !set )
                     ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
                 return true;
             }
@@ -542,18 +573,22 @@ namespace Desert::Editor::Tools
             return;
         }
         const auto& [landscape, hit] = *under;
-        // A point joins the selected one only on the same landscape: each landscape owns its splines.
-        if ( state.SplineLandscape != landscape )
-            state.SelectedSplinePoint.reset();
-        state.SplineLandscape = landscape;
-        auto added = Commands::AddLandscapeSplinePoint( scene, landscape, hit, state.SelectedSplinePoint,
+        // A point joins the selected one only on the same landscape and while its spline is loaded; otherwise
+        // the click starts a NEW spline entity (UE ULandscapeInfo::CreateSplineActor).
+        const bool join = state.SelectedSplinePoint && state.SplineLandscape == landscape &&
+                          SplinesOf( scene, state.SelectedSpline ) != nullptr;
+        auto added = Commands::AddLandscapeSplinePoint( scene, landscape,
+                                                        join ? state.SelectedSpline : Common::UUID::Null(), hit,
+                                                        join ? state.SelectedSplinePoint : std::nullopt,
                                                         state.Settings.SplinePoint, state.Settings.SplineSegment );
         if ( !added )
         {
             ToastManager::Push( added.GetError(), ToastLevel::Error, 6.0f );
             return;
         }
-        state.SelectedSplinePoint = added.GetValue();
+        state.SplineLandscape     = landscape;
+        state.SelectedSpline      = added.GetValue().Spline;
+        state.SelectedSplinePoint = added.GetValue().Point;
     }
 
     void LandscapeSculptTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay,
@@ -628,14 +663,14 @@ namespace Desert::Editor::Tools
 
     bool LandscapeSculptTool::SelectSplinePoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
     {
-        auto&       state   = Core::LandscapeSculptState::Get();
-        const auto  under   = SplineHit( scene, ray );
-        const auto* splines = under ? SplinesOf( scene, under->first ) : nullptr;
-        const auto  picked  = splines ? PickSplinePoint( *splines, under->second ) : std::nullopt;
+        auto&      state  = Core::LandscapeSculptState::Get();
+        const auto under  = SplineHit( scene, ray );
+        const auto picked = under ? PickLandscapeSplinePoint( scene, under->first, under->second ) : std::nullopt;
         if ( !picked )
             return false;
         state.SplineLandscape     = under->first;
-        state.SelectedSplinePoint = *picked;
+        state.SelectedSpline      = picked->first;
+        state.SelectedSplinePoint = picked->second;
         return true;
     }
 
@@ -654,7 +689,7 @@ namespace Desert::Editor::Tools
                                 6.0f );
             return;
         }
-        if ( auto moved = Commands::MoveLandscapeSplinePoint( scene, state.SplineLandscape,
+        if ( auto moved = Commands::MoveLandscapeSplinePoint( scene, state.SelectedSpline,
                                                               *state.SelectedSplinePoint, *hit );
              !moved )
             ToastManager::Push( moved.GetError(), ToastLevel::Error, 6.0f );
@@ -669,7 +704,7 @@ namespace Desert::Editor::Tools
             return;
         }
         if ( auto removed =
-                  Commands::RemoveLandscapeSplinePoint( scene, state.SplineLandscape, *state.SelectedSplinePoint );
+                  Commands::RemoveLandscapeSplinePoint( scene, state.SelectedSpline, *state.SelectedSplinePoint );
              !removed )
         {
             ToastManager::Push( removed.GetError(), ToastLevel::Error, 6.0f );
@@ -684,7 +719,7 @@ namespace Desert::Editor::Tools
         std::string name;
         if ( next )
         {
-            auto chosen = Commands::NextLandscapeSplineLayer( scene.GetRegistry(), state.SplineLandscape );
+            auto chosen = Commands::NextLandscapeSplineLayer( scene.GetRegistry(), state.SelectedSpline );
             if ( !chosen )
             {
                 ToastManager::Push( chosen.GetError(), ToastLevel::Error, 6.0f );
@@ -692,7 +727,7 @@ namespace Desert::Editor::Tools
             }
             name = chosen.ExtractValue();
         }
-        if ( auto set = Commands::SetLandscapeSplineLayer( scene, state.SplineLandscape, name ); !set )
+        if ( auto set = Commands::SetLandscapeSplineLayer( scene, state.SelectedSpline, name ); !set )
             ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
     }
 
@@ -702,7 +737,7 @@ namespace Desert::Editor::Tools
         auto& state = Core::LandscapeSculptState::Get();
         if ( m_SplineDrag )
         {
-            auto* splines = SplinesOf( scene, m_SplineDrag->Landscape );
+            auto* splines = SplinesOf( scene, m_SplineDrag->Spline );
             if ( splines == nullptr || m_SplineDrag->Point >= splines->ControlPoints.size() )
             {
                 m_SplineDrag.reset();
@@ -721,7 +756,7 @@ namespace Desert::Editor::Tools
             const auto drag    = *m_SplineDrag;
             m_SplineDrag.reset();
             if ( to != drag.From )
-                if ( auto moved = Commands::MoveLandscapeSplinePoint( scene, drag.Landscape, drag.Point, to );
+                if ( auto moved = Commands::MoveLandscapeSplinePoint( scene, drag.Spline, drag.Point, to );
                      !moved )
                     ToastManager::Push( moved.GetError(), ToastLevel::Error, 6.0f );
             return;
@@ -746,8 +781,8 @@ namespace Desert::Editor::Tools
             state.SelectedSplinePoint.reset(); // UE: a click on empty ground clears the selection
             return;
         }
-        if ( const auto* splines = SplinesOf( scene, state.SplineLandscape ) )
-            m_SplineDrag = SplineDrag{ state.SplineLandscape, *state.SelectedSplinePoint,
+        if ( const auto* splines = SplinesOf( scene, state.SelectedSpline ) )
+            m_SplineDrag = SplineDrag{ state.SplineLandscape, state.SelectedSpline, *state.SelectedSplinePoint,
                                        splines->ControlPoints[*state.SelectedSplinePoint].Location };
     }
 } // namespace Desert::Editor::Tools

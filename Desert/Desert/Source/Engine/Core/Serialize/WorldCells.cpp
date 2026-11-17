@@ -1296,13 +1296,13 @@ namespace Desert::Core::WorldCells
     BuildPlannedHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                        std::span<const Common::Utils::AssetRegistry> registries,
                        const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                       const BuiltHLODSink& sink );
+                       const Rules::LandscapeSplineHLODBuilder& landscapeSplines, const BuiltHLODSink& sink );
 
     Common::ResultStr<BuiltHLODIndex>
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
                      const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                     const BuiltHLODSink& sink )
+                     const Rules::LandscapeSplineHLODBuilder& landscapeSplines, const BuiltHLODSink& sink )
     {
         // The HLODs are built from the world the cook cuts: every prefab instance expanded the same way, by the
         // same function, so a cook finds them fresh (StaleHLODCells over the expanded records).
@@ -1310,14 +1310,14 @@ namespace Desert::Core::WorldCells
         if ( !expanded )
             return Common::MakeError<BuiltHLODIndex>( expanded.GetError() );
         return BuildPlannedHLODs( expanded.GetValue().World.Scene, expanded.GetValue().Descriptors, registries,
-                                  meshBuilder, landscape, sink );
+                                  meshBuilder, landscape, landscapeSplines, sink );
     }
 
     static Common::ResultStr<BuiltHLODIndex>
     BuildPlannedHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                        std::span<const Common::Utils::AssetRegistry> registries,
                        const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                       const BuiltHLODSink& sink )
+                       const Rules::LandscapeSplineHLODBuilder& landscapeSplines, const BuiltHLODSink& sink )
     {
         using Result = BuiltHLODIndex;
         auto planned = PlanHLODs( scene, descriptors, registries );
@@ -1344,8 +1344,9 @@ namespace Desert::Core::WorldCells
                                 std::span<const std::size_t> members, float minVisibleDistance,
                                 const std::string& cookedName, const std::string& name ) -> Common::BoolResultStr
         {
-            auto builtCell = Rules::BuildCellHLOD( hlodLayer, records, world, members, minVisibleDistance,
-                                                   customShader, issues, foliageInHLOD, meshBuilder, landscape );
+            auto builtCell =
+                 Rules::BuildCellHLOD( hlodLayer, records, world, members, minVisibleDistance, customShader,
+                                       issues, foliageInHLOD, meshBuilder, landscape, landscapeSplines );
             if ( !builtCell )
                 return Common::MakeError( "'" + scene.SceneName + "', " + row.Unit + ": " + builtCell.GetError() );
             const Rules::InstancingHLOD built = builtCell.ExtractValue();

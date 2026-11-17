@@ -136,7 +136,11 @@ namespace Desert::Core
     // Core::GrassRasterPath (Scalability 0, GBuffer 1, VisibilityBuffer 2): the renderer's choice is the level's
     // Foliage.GrassVisibilityBuffer unless a volume overrides it. false (the former default) -> Scalability,
     // true -> VisibilityBuffer (Tools/SceneMigrator, MigrateGrassRasterPathV74ToV75).
-    inline constexpr int kSceneVersion = 75;
+    // v76 (WP-LANDSCAPE-SPLINES): UE 5.5 ALandscapeSplineActor - every landscape spline is its own entity, a
+    // LandscapeSpline block {Landscape: the root's id, Splines}, spatially loaded by its band. The root's
+    // Landscape block loses Splines: each connected group of its control points becomes one LandscapeSpline record
+    // (Tools/SceneMigrator, MigrateLandscapeSplineEntitiesV75ToV76).
+    inline constexpr int kSceneVersion = 76;
 
     // World Partition's own format generation, stated under Assets::kWorldPartitionSchemaTag. v1 (MIGRATE-SUBSYS):
     // the counter exists - the block is exactly what scene schema v70 states; the step (Tools/SceneMigrator,

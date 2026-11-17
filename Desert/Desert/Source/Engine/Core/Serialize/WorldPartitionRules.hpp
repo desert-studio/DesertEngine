@@ -118,6 +118,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Engine/World/Landscape/LandscapeSplinesJson.hpp>
 
 // The transform composition below, and NOT Engine/ECS/Components.hpp for it. TransformComponent's
 // GetTransform() is the three lines this file needs, but that header carries entt, the reflection
@@ -234,6 +235,10 @@ namespace Desert::Core::Rules
          // null the way observation requires: a tile whose root is not loaded has no frame and is placed
          // nowhere (WorldPartitionPlan::UnplacedLandscapeTiles); it does not drag the root in.
          { "LandscapeTile", "Landscape", ReferenceKind::Observation },
+         // A landscape spline names its root the same way and for the same reason (UE: ALandscapeSplineActor
+         // is its own spatially loaded actor in a partitioned world). Its points are world cm, so it is placed by
+         // its band (EntityDescriptor::LandscapeSpline) whether the root is loaded or not, and never joins it.
+         { "LandscapeSpline", "Landscape", ReferenceKind::Observation },
     };
 
     // REFERENCES THAT NAME THEIR TARGET BY A NAME INSTEAD OF AN ID — the BLIND SPOT of the discovery
@@ -635,7 +640,8 @@ namespace Desert::Core::Rules
          { "SocketAttachment", ComponentLoading::Spatial },
          { "SpotLight", ComponentLoading::Spatial },
          { "StaticMesh", ComponentLoading::Spatial },
-         { "LandscapeTile", ComponentLoading::Spatial }, // its rectangle is its footprint
+         { "LandscapeTile", ComponentLoading::Spatial },   // its rectangle is its footprint
+         { "LandscapeSpline", ComponentLoading::Spatial }, // the box around its band is its footprint
          { "Text", ComponentLoading::Spatial },
          { "TwoBoneIK", ComponentLoading::Spatial },
          { "Visibility", ComponentLoading::Spatial },
@@ -696,6 +702,9 @@ namespace Desert::Core::Rules
     // root is not a part of the tile (see the register row): it is read, never joined.
     inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
     inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
+    // A landscape spline's footprint is the box around its band (World::Landscape::LandscapeSplinesBounds), read
+    // from its own block: its points are world cm and nothing reads the entity's transform.
+    inline constexpr std::string_view kLandscapeSplineComponent = "LandscapeSpline";
 
     // THE MESH BLOCKS THAT NAME A MESH ASSET, and where each states its reference (PrefabData.hpp): the Static
     // Mesh in its reflected `MeshHandle` object {Guid, Path} (asset references v1), the Skinned Mesh in the
@@ -1044,12 +1053,38 @@ namespace Desert::Core::Rules
             }
         }
 
+        // THE BOX AROUND A LANDSCAPE SPLINE RECORD'S BAND (world cm), or nullopt when the record has no
+        // LandscapeSpline block, its splines do not read (an Issue), or they have no control point.
+        inline std::optional<Common::Math::AABB> LandscapeSplineBandOf( const Assets::EntityData& record,
+                                                                        Common::Json::Issues&     issues )
+        {
+            const auto block = BlockOf( record, kLandscapeSplineComponent, issues );
+            if ( !block.has_value() )
+                return std::nullopt;
+            World::Landscape::LandscapeSplines splines;
+            World::Landscape::ReadLandscapeSplinesJson( *block, splines, issues );
+            return World::Landscape::LandscapeSplinesBounds( splines );
+        }
+
+        // The two corners of a spline's band box: its whole footprint, and NOT the entity's position.
+        inline void AppendSplineBand( const Common::Math::AABB& band, std::vector<glm::vec3>& out )
+        {
+            out.push_back( band.Min );
+            out.push_back( band.Max );
+        }
+
         // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
         // the top of this file. Returns false when the record contributed its position and nothing more.
+        // A landscape spline contributes its band's box alone (UE ALandscapeSplineActor's streaming bounds).
         inline bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
                                      const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
                                      Common::Json::Issues& issues )
         {
+            if ( const auto band = LandscapeSplineBandOf( record, issues ); band.has_value() )
+            {
+                AppendSplineBand( *band, out );
+                return true;
+            }
             out.emplace_back( world[3].x, world[3].y, world[3].z );
             const std::size_t before = out.size();
 
@@ -1239,6 +1274,9 @@ namespace Desert::Core::Rules
         std::vector<DescriptorReference>       References;
         std::optional<DescriptorLandscapeTile> LandscapeTile;
         std::optional<DescriptorLandscapeRoot> LandscapeRoot;
+        // A landscape spline: the world box around its band (LandscapeSplineBandOf); absent for any other record,
+        // and for a spline whose block does not read or has no control point (then its position, as any record).
+        std::optional<Common::Math::AABB> LandscapeSpline;
         // The RuntimeGrid block's grid name (WP22); absent = the world's first grid.
         std::optional<std::string> RuntimeGrid;
         // The StreamingSource block's Target Grids (UE FWorldPartitionStreamingSource::TargetGrids); empty = every
@@ -1341,6 +1379,7 @@ namespace Desert::Core::Rules
         }
         else if ( Detail::PayloadOf( record, kLandscapeTileComponent ).has_value() )
             out.LandscapeTile = DescriptorLandscapeTile{}; // a tile whose block is unreadable: no place
+        out.LandscapeSpline = Detail::LandscapeSplineBandOf( record, issues );
         if ( const auto root = Detail::BlockOf( record, kLandscapeRootComponent, issues ); root.has_value() )
         {
             DescriptorLandscapeRoot tiling;
@@ -1482,6 +1521,11 @@ namespace Desert::Core::Rules
         inline bool AppendFootprint( const EntityDescriptor& descriptor, const glm::mat4& world,
                                      const AssetBoundsSource& bounds, std::vector<glm::vec3>& out )
         {
+            if ( descriptor.LandscapeSpline.has_value() )
+            {
+                AppendSplineBand( *descriptor.LandscapeSpline, out );
+                return true;
+            }
             out.emplace_back( world[3].x, world[3].y, world[3].z );
             const std::size_t before = out.size();
             for ( const Common::Math::AABB& box : descriptor.Boxes )

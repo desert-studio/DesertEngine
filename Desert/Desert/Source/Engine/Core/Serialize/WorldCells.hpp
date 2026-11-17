@@ -412,7 +412,7 @@ namespace Desert::Core::WorldCells
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
                      const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                     const BuiltHLODSink& sink );
+                     const Rules::LandscapeSplineHLODBuilder& landscapeSplines, const BuiltHLODSink& sink );
 
     // `<dir>/<stem>_HLOD/` of the scene file @p scenePath (beside `<stem>_Landscape/`).
     [[nodiscard]] std::filesystem::path BuiltHLODDirectory( const std::filesystem::path& scenePath );

@@ -771,7 +771,9 @@ namespace Desert::Editor
             };
         if ( auto probe = WC::BuildWorldHLODs(
                   scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), builders.Mesh, collect,
-                  // The probe only gathers the landscape tiles to bake: its files are dropped.
+                  // The probe only gathers the landscape tiles to bake: its files are dropped, so the splines'
+                  // meshes are not built for it (an empty spline builder leaves them named holes).
+                  ::Desert::Core::Rules::LandscapeSplineHLODBuilder{},
                   []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );
@@ -854,7 +856,7 @@ namespace Desert::Editor
         std::size_t                 bytes  = 0;
         std::size_t                 files  = 0;
         auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(),
-                                          builders.Mesh, landscape,
+                                          builders.Mesh, landscape, builders.LandscapeSplines,
                                           [&]( WC::CookedFile file ) -> Common::BoolResultStr
                                           {
                                               bytes += file.Bytes.size();

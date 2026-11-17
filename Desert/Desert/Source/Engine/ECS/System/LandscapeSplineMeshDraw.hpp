@@ -1,12 +1,12 @@
 #pragma once
-// A LANDSCAPE'S SPLINE MESHES, RECORDED AS STATIC-MESH DRAWS (L9-MESHES; UE: the USplineMeshComponents
-// ULandscapeSplineSegment::UpdateSplineMeshes keeps on the landscape).
+// A LANDSCAPE SPLINE'S MESHES, RECORDED AS STATIC-MESH DRAWS (L9-MESHES; UE: the USplineMeshComponents
+// ULandscapeSplineSegment::UpdateSplineMeshes keeps on the ALandscapeSplineActor).
 //
 // Not a renderer: MeshECSSystem owns one of these and every segment's meshes go out as the DrawStaticMeshCommand
 // a static mesh records, at the identity transform (the splines are world cm). The bent geometry is DERIVED
-// from LandscapeComponent::Splines and nothing else — it is rebuilt the frame the splines differ from the ones
-// it was built from (an edit, a drag preview, an undo, a load), so no edit path has to remember to regenerate
-// it, and it is never saved. A mesh asset still loading is retried every frame until it reads.
+// from each LandscapeSplineComponent's Splines and nothing else — it is rebuilt the frame the splines differ from
+// the ones it was built from (an edit, a drag preview, an undo, a load), so no edit path has to remember to
+// regenerate it, and it is never saved. A mesh asset still loading is retried every frame until it reads.
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
 #include <Engine/World/Landscape/LandscapeSplines.hpp>

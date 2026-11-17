@@ -49,6 +49,11 @@
 //                     (ULandscapeHLODBuilder, a simplified mesh of the proxy). BuildCellHLOD hands every such
 //                     tile to the LandscapeHLODBuilder (WP-FAR-6), which makes it a built mesh of the tile's own
 //                     heights; only a cook given no landscape builder keeps it a NAMED hole.
+//   LandscapeSpline — a landscape spline entity (UE: ALandscapeSplineActor). Its meshes are bent along its
+//                     splines, not stated in a mesh block (UE: USplineMeshComponents, which the HLOD builds into
+//                     its mesh). BuildCellHLOD hands every such record to the LandscapeSplineHLODBuilder, which
+//                     makes the bent meshes one built WORLD-space mesh; only a cook given no spline builder keeps
+//                     it a NAMED hole, and a spline that lays no mesh needs no stand-in.
 // A record that draws nothing — no mesh block, a StaticMesh naming neither asset nor primitive, an ISM
 // without instances, `Visibility.Visible == false` — needs no stand-in and is neither batched nor listed.
 //
@@ -95,6 +100,7 @@ namespace Desert::Core::Rules
         Unreadable,
         CustomShaderMaterial,
         LandscapeTile,
+        LandscapeSpline,
     };
 
     // WHAT THE BUILDER MAY KNOW ABOUT A MATERIAL FROM OUTSIDE THE FILE: whether the material a slot names (by the
@@ -266,6 +272,12 @@ namespace Desert::Core::Rules
             if ( Detail::PayloadOf( record, kLandscapeTileComponent ).has_value() )
             {
                 hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeTile } );
+                continue;
+            }
+            // A landscape spline draws meshes bent along its splines, not a mesh block (the reason above).
+            if ( Detail::PayloadOf( record, kLandscapeSplineComponent ).has_value() )
+            {
+                hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeSpline } );
                 continue;
             }
             if ( Detail::PayloadOf( record, kSkinnedMeshComponent ).has_value() )
@@ -514,6 +526,23 @@ namespace Desert::Core::Rules
     using LandscapeHLODBuilder =
          std::function<Common::ResultStr<Assets::StaticMeshComponentSer>( const LandscapeHLODRequest& request )>;
 
+    // THE SPLINE MESHES OF ONE LANDSCAPE SPLINE RECORD (UE: the USplineMeshComponents of an ALandscapeSplineActor
+    // merged into its cell's HLOD): record @p Spline of @p Records answered with a StaticMesh block whose EditMesh
+    // is every segment's bent meshes in WORLD space (the splines are world cm), or nullopt when the spline lays no
+    // mesh and so needs no stand-in.
+    struct LandscapeSplineHLODRequest
+    {
+        std::span<const Assets::EntityData> Records;
+        std::span<const glm::mat4>          World;
+        std::size_t                         Spline = kNoRecord;
+    };
+    // The geometry side (it reads the mesh assets the segments lay), given to the rules as HLODMeshBuilder is. AN
+    // EMPTY BUILDER IS A STATED CONDITION: every landscape spline then stays a named LandscapeSpline hole. An
+    // error (a mesh that does not read) refuses the HLOD build by name.
+    using LandscapeSplineHLODBuilder =
+         std::function<Common::ResultStr<std::optional<Assets::StaticMeshComponentSer>>(
+              const LandscapeSplineHLODRequest& request )>;
+
     // THE HLOD OF ONE CELL BY ITS LAYER, seen from @p minVisibleDistance on (the cell's grid LoadingRange,
     // HLODMinVisibleDistance; it picks the landscape tiles' LOD). Instancing: BuildInstancingHLOD. MeshMerge /
     // MeshSimplify: the same pass chooses the parts and the holes, then every batch that casts shadows becomes one
@@ -524,18 +553,39 @@ namespace Desert::Core::Rules
                    std::span<const glm::mat4> world, std::span<const std::size_t> members,
                    float minVisibleDistance, const CustomShaderSource& customShader, Common::Json::Issues& issues,
                    const FoliageHLODSource& foliage, const HLODMeshBuilder& meshBuilder,
-                   const LandscapeHLODBuilder& landscape = {} )
+                   const LandscapeHLODBuilder&       landscape        = {},
+                   const LandscapeSplineHLODBuilder& landscapeSplines = {} )
     {
         // Every landscape tile the instancing pass named becomes its own batch (UE: one HLOD component per
-        // landscape proxy), whatever the layer does with the meshes.
+        // landscape proxy), and every landscape spline its bent meshes, whatever the layer does with the meshes.
         const auto withLandscape = [&]( InstancingHLOD hlod ) -> Common::ResultStr<InstancingHLOD>
         {
-            if ( !landscape )
+            if ( !landscape && !landscapeSplines )
                 return Common::MakeSuccess( std::move( hlod ) );
             std::vector<HLODNotInstanced> holes;
             for ( const HLODNotInstanced& missing : hlod.NotInstanced )
             {
-                if ( missing.Reason != HLODExclusion::LandscapeTile )
+                if ( missing.Reason == HLODExclusion::LandscapeSpline && landscapeSplines )
+                {
+                    LandscapeSplineHLODRequest request;
+                    request.Records = records;
+                    request.World   = world;
+                    request.Spline  = missing.Record;
+                    auto built      = landscapeSplines( request );
+                    if ( !built )
+                        return Common::MakeError<InstancingHLOD>(
+                             std::format( "HLOD layer '{}', landscape spline record {}: {}", layer.Name,
+                                          missing.Record, built.GetError() ) );
+                    std::optional<Assets::StaticMeshComponentSer> mesh = built.ExtractValue();
+                    if ( !mesh.has_value() )
+                        continue; // the spline lays no mesh: nothing to stand in for
+                    HLODBatch batch;
+                    batch.Mesh    = std::move( mesh );
+                    batch.Sources = { missing.Record };
+                    hlod.Batches.push_back( std::move( batch ) );
+                    continue;
+                }
+                if ( missing.Reason != HLODExclusion::LandscapeTile || !landscape )
                 {
                     holes.push_back( missing );
                     continue;
