@@ -1,5 +1,6 @@
 #include <Engine/Core/HLODMeshBuilder.hpp>
 
+#include <Engine/Core/HLODApproximate.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
@@ -123,11 +124,11 @@ namespace Desert::Core
         }
     } // namespace
 
-    Common::ResultStr<Assets::StaticMeshComponentSer>
-    BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
-                   std::span<const Common::Utils::AssetRegistry> registries )
+    Common::ResultStr<MergedHLODParts>
+    MergeHLODParts( const Rules::HLODMeshRequest&                 request,
+                    std::span<const Common::Utils::AssetRegistry> registries )
     {
-        using Result = Assets::StaticMeshComponentSer;
+        using Result = MergedHLODParts;
 
         // Every material the merged mesh binds, first-seen order: the {GUID, path} text pair a slot states.
         std::vector<std::pair<std::string, std::string>> slots;
@@ -225,7 +226,36 @@ namespace Desert::Core
         auto imported = Geometry::DynamicMeshFromRenderMesh( render );
         if ( !imported )
             return Common::MakeFormattedError<Result>( "the merged mesh does not weld: {}", imported.GetError() );
-        Geometry::DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
+        return Common::MakeSuccess(
+             MergedHLODParts{ std::move( imported.ExtractValue().Mesh ), std::move( slots ) } );
+    }
+
+    Common::ResultStr<Assets::StaticMeshComponentSer>
+    BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
+                   std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        using Result = Assets::StaticMeshComponentSer;
+
+        auto merged = MergeHLODParts( request, registries );
+        if ( !merged )
+            return Common::MakeError<Result>( merged.GetError() );
+        MergedHLODParts                                         parts = merged.ExtractValue();
+        Geometry::DynamicMesh3                                  mesh  = std::move( parts.Mesh );
+        const std::vector<std::pair<std::string, std::string>>& slots = parts.Slots;
+
+        if ( request.Type == HLODLayerType::MeshApproximate )
+        {
+            if ( !request.Approximation.has_value() )
+                return Common::MakeError<Result>( "a MeshApproximate request carries no Approximation settings" );
+            auto shell = BuildApproximateShell( mesh, *request.Approximation );
+            if ( !shell )
+                return Common::MakeError<Result>( "the approximation was refused: " + shell.GetError() );
+            // ONE material, the capture bake's (Editor HLODApproximateBake binds it): the source slots are what the
+            // bake's photos see, not slots of the shell.
+            Assets::StaticMeshComponentSer block;
+            block.EditMesh = Geometry::ToSerialized( shell.GetValue().Mesh );
+            return Common::MakeSuccess( std::move( block ) );
+        }
 
         if ( request.Type == HLODLayerType::MeshSimplify )
         {

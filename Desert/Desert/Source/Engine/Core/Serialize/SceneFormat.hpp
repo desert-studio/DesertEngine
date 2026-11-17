@@ -151,7 +151,11 @@ namespace Desert::Core
     // as an Editor layer and the operator as Or, which is what it meant - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionRuntimeDataLayers) states the tag and the defaults; the number moves so a v2 build
     // refuses a world whose runtime layers it would stream as if they were not there.
-    inline constexpr int kWorldPartitionVersion = 3;
+    // v4 (WP-HLOD-APPROX): HLODLayerType gains MeshApproximate and a layer states its `Approximation`
+    // (HLODApproximationSettings, MeshApproximate only). Additive - a v3 file states neither and reads the same -
+    // so the step (Tools/SceneMigrator, kWorldPartitionVersionMeshApproximate) states the tag and changes nothing
+    // else; the number moves so a v3 build refuses a world whose approximated layer it cannot build.
+    inline constexpr int kWorldPartitionVersion = 4;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -248,6 +252,11 @@ namespace Desert::Core
     //   MeshSimplify - UHLODBuilderMeshSimplify: the merged mesh, then simplified (QEM, the editor's own
     //                  Simplify - Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp) down to
     //                  SimplifyTrianglePercent of its triangles. What a far cell should cost.
+    //   MeshApproximate - UHLODBuilderMeshApproximate (UE IGeometryProcessing_ApproximateActors): the merged mesh
+    //                  voxel-wrapped into ONE closed shell (fast winding number -> Marching Cubes), gaps closed
+    //                  morphologically, inner cavities dropped, simplified to a geometric tolerance, auto-UV'd and
+    //                  textured by a capture of the source meshes (BaseColor, Normal, ORM) - one mesh and one
+    //                  material per cell, what a dense quarter costs from far away (HLODApproximate.hpp).
     // The built mesh is stored INSIDE the cell's HLOD file, as a StaticMesh record's EditMesh: UE writes its
     // merged UStaticMesh into the HLOD actor's own package for the same reason - it is derived from the cell
     // and belongs to nobody else.
@@ -256,6 +265,46 @@ namespace Desert::Core
         Instancing,
         MeshMerge,
         MeshSimplify,
+        MeshApproximate,
+    };
+
+    // How a MeshApproximate shell's normals are split - UE FMeshApproximationSettings::bEstimateHardNormals.
+    enum class HLODApproximationNormals
+    {
+        Smooth,    // one normal per vertex: the shell shades as one smooth surface
+        HardEdges, // split where two faces meet sharper than HardNormalAngle (walls and roofs keep their edges)
+    };
+
+    // UE FMeshApproximationSettings (Engine/Classes/Engine/MeshMerging.h), the fields the approximation reads, in
+    // centimetres where UE states metres. Every field is read by Core::BuildApproximateShell or the capture bake
+    // (Editor HLODApproximateBake); ranges are refused by Rules::ValidateHLODApproximation.
+    struct HLODApproximationSettings
+    {
+        // UE ApproximationAccuracy: the voxel size of the wrap, cm (> 0). The shell is within about this of the
+        // source surface, and the capture accepts a photo texel whose surface lies within it.
+        float WorldSpaceApproximationAccuracy = 100.0f;
+        // UE ClampVoxelDimension: the most voxels along the cell's longest side, 8..1024; a cell larger than
+        // ClampVoxelDimension x accuracy is wrapped at the coarser size this allows.
+        int32_t ClampVoxelDimension = 1024;
+        // UE WindingThreshold: the fast winding number the solid starts at (0.5 = inside a closed surface).
+        float WindingThreshold = 0.5f;
+        // UE bFillGaps + GapDistance: a morphological close (dilate, then contract) by GapDistance cm, so a
+        // street narrower than 2 x GapDistance between two houses is filled and the quarter is one shell.
+        bool  FillGaps    = true;
+        float GapDistance = 10.0f;
+        // UE GeometricDeviation (SimplifyMethod GeometricTolerance): the simplified shell stays within this many
+        // cm of the unsimplified one (> 0).
+        float GeometricDeviation = 10.0f;
+        // UE MaterialSettings.TextureSize: the baked BaseColor / Normal / ORM side, texels (power of two,
+        // 64..8192); also the auto-UV packing resolution.
+        int32_t TextureSize = 1024;
+        // UE RenderCaptureResolution: the side of each capture photo of the source meshes, pixels (64..8192).
+        int32_t CaptureResolution = 2048;
+        // UE bEstimateHardNormals + HardNormalAngle (degrees, (0, 180)).
+        HLODApproximationNormals NormalMode      = HLODApproximationNormals::HardEdges;
+        float                    HardNormalAngle = 60.0f;
+
+        bool operator==( const HLODApproximationSettings& ) const = default;
     };
 
     struct HLODLayerSerialized
@@ -270,6 +319,9 @@ namespace Desert::Core
         // mesh's triangles kept, in (0, 1]. Required on MeshSimplify and refused on any other type, so a
         // number nobody reads cannot sit in a file looking like a setting.
         std::optional<float> SimplifyTrianglePercent;
+        // MeshApproximate only (UE UHLODBuilderMeshApproximateSettings::MeshApproximationSettings): required on
+        // MeshApproximate and refused on any other type, as SimplifyTrianglePercent is.
+        std::optional<HLODApproximationSettings> Approximation;
         // UE UHLODLayer::bIsSpatiallyLoaded / CellSize / LoadingRange (WP-FAR-8): BOTH stated = the HLODs this
         // layer builds are SPATIALLY LOADED - each lives in a square cell of CellSize cm (by the centre of what it
         // stands in for) and is streamed by the same residency as a grid cell, within LoadingRange cm of a

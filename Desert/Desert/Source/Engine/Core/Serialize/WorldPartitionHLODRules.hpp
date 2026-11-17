@@ -355,6 +355,38 @@ namespace Desert::Core::Rules
         return nullptr;
     }
 
+    // A MeshApproximate layer's settings, refused by name outside the ranges its readers take
+    // (HLODApproximationSettings states each); Core::BuildApproximateShell refuses through this same check.
+    [[nodiscard]] inline Common::BoolResultStr ValidateHLODApproximation( const HLODApproximationSettings& settings )
+    {
+        if ( !( settings.WorldSpaceApproximationAccuracy > 0.0f ) )
+            return Common::MakeError<bool>( std::format( "WorldSpaceApproximationAccuracy {:f} cm is not > 0",
+                                                         settings.WorldSpaceApproximationAccuracy ) );
+        if ( settings.ClampVoxelDimension < 8 || settings.ClampVoxelDimension > 1024 )
+            return Common::MakeError<bool>(
+                 std::format( "ClampVoxelDimension {} is outside 8..1024", settings.ClampVoxelDimension ) );
+        if ( !( settings.WindingThreshold >= -10.0f && settings.WindingThreshold <= 10.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "WindingThreshold {:f} is outside -10..10", settings.WindingThreshold ) );
+        if ( settings.FillGaps && !( settings.GapDistance > 0.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "FillGaps with GapDistance {:f} cm, which is not > 0", settings.GapDistance ) );
+        if ( !( settings.GeometricDeviation > 0.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "GeometricDeviation {:f} cm is not > 0", settings.GeometricDeviation ) );
+        const auto powerOfTwo = []( int32_t value ) { return value > 0 && ( value & ( value - 1 ) ) == 0; };
+        if ( settings.TextureSize < 64 || settings.TextureSize > 8192 || !powerOfTwo( settings.TextureSize ) )
+            return Common::MakeError<bool>(
+                 std::format( "TextureSize {} is not a power of two in 64..8192", settings.TextureSize ) );
+        if ( settings.CaptureResolution < 64 || settings.CaptureResolution > 8192 )
+            return Common::MakeError<bool>(
+                 std::format( "CaptureResolution {} is outside 64..8192", settings.CaptureResolution ) );
+        if ( !( settings.HardNormalAngle > 0.0f && settings.HardNormalAngle < 180.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "HardNormalAngle {:f} is outside (0, 180)", settings.HardNormalAngle ) );
+        return BOOLSUCCESS;
+    }
+
     // Refused, by name: a layer without a name or named twice, a ParentLayer that names no layer or itself or
     // closes a loop, a SimplifyTrianglePercent missing on MeshSimplify, outside (0, 1], or stated on another
     // type, and a grid whose HLODLayer names no layer.
@@ -385,6 +417,16 @@ namespace Desert::Core::Rules
                 return Common::MakeError<bool>(
                      std::format( "HLOD layer '{}': SimplifyTrianglePercent {:f} is outside (0, 1]", layer.Name,
                                   *layer.SimplifyTrianglePercent ) );
+            const bool approximate = layer.Type == HLODLayerType::MeshApproximate;
+            if ( approximate && !layer.Approximation.has_value() )
+                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                "' is MeshApproximate and states no Approximation" );
+            if ( !approximate && layer.Approximation.has_value() )
+                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                "' states Approximation, which only MeshApproximate reads" );
+            if ( approximate )
+                if ( auto valid = ValidateHLODApproximation( *layer.Approximation ); !valid )
+                    return Common::MakeError<bool>( "HLOD layer '" + layer.Name + "': " + valid.GetError() );
             // Walk the parent chain: every link must resolve, and it must end within the list's length.
             const HLODLayerSerialized* at = &layer;
             for ( std::size_t steps = 0; at->ParentLayer.has_value(); ++steps )
@@ -478,6 +520,8 @@ namespace Desert::Core::Rules
     {
         HLODLayerType                                            Type            = HLODLayerType::MeshMerge;
         float                                                    TrianglePercent = 1.0f;
+        // MeshApproximate only: the layer's settings (HLODLayerSerialized::Approximation).
+        std::optional<HLODApproximationSettings>                 Approximation;
         std::span<const Assets::InstancedStaticMeshComponentSer> Parts;
     };
 
@@ -569,13 +613,18 @@ namespace Desert::Core::Rules
         merged.NotInstanced   = std::move( instanced.NotInstanced );
         merged.Instances      = instanced.Instances;
         merged.FoliageLeftOut = instanced.FoliageLeftOut;
+        // MeshApproximate wraps the whole cell in ONE shell with ONE material (UE UHLODBuilderMeshApproximate
+        // builds one mesh per HLOD actor): its parts are not split by shadow casting, and the shell casts.
+        const bool oneShell = layer.Type == HLODLayerType::MeshApproximate;
         for ( const bool shadows : { true, false } )
         {
+            if ( oneShell && !shadows )
+                break;
             std::vector<Assets::InstancedStaticMeshComponentSer> parts;
             std::vector<std::size_t>                             sources;
             for ( HLODBatch& batch : instanced.Batches )
             {
-                if ( batch.Block.CastShadows.value_or( true ) != shadows )
+                if ( !oneShell && batch.Block.CastShadows.value_or( true ) != shadows )
                     continue;
                 parts.push_back( batch.Block );
                 sources.insert( sources.end(), batch.Sources.begin(), batch.Sources.end() );
@@ -585,6 +634,7 @@ namespace Desert::Core::Rules
             HLODMeshRequest request;
             request.Type            = layer.Type;
             request.TrianglePercent = layer.SimplifyTrianglePercent.value_or( 1.0f );
+            request.Approximation   = layer.Approximation;
             request.Parts           = parts;
             auto built              = meshBuilder( request );
             if ( !built )

@@ -5436,6 +5436,9 @@ namespace Desert::Migration
             // v2 -> v3 is additive the same way: the rewrite states each layer's Type and the operator.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimeDataLayers )
                 report.RuntimeDataLayersRaised = true;
+            // v3 -> v4 is additive the same way: MeshApproximate and Approximation are new, nothing is restated.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionMeshApproximate )
+                report.MeshApproximateRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.

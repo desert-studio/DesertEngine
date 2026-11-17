@@ -18,9 +18,14 @@
 
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
+
 #include <Common/Utilities/AssetRegistry.hpp>
 
 #include <span>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace Desert::Core
 {
@@ -40,6 +45,19 @@ namespace Desert::Core
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
                    std::span<const Common::Utils::AssetRegistry> registries );
+
+    // THE CELL'S PARTS, MERGED - the first half of BuildHLODMesh: every instance of every part in WORLD space, one
+    // section per distinct material, welded into one DynamicMesh3; Slots are the {GUID, path} each MaterialID
+    // names, first-seen order (empty pair = the part stated no material). MeshApproximate's capture bake reads it
+    // as the surface its photos see (Editor HLODApproximateBake). Refused as BuildHLODMesh refuses a part.
+    struct MergedHLODParts
+    {
+        Geometry::DynamicMesh3                           Mesh;
+        std::vector<std::pair<std::string, std::string>> Slots;
+    };
+    [[nodiscard]] Common::ResultStr<MergedHLODParts>
+    MergeHLODParts( const Rules::HLODMeshRequest&                 request,
+                    std::span<const Common::Utils::AssetRegistry> registries );
 
     // THE LANDSCAPE HLOD OF ONE TILE (WP-FAR-6, Rules::LandscapeHLODRequest): the tile's heights, read from its
     // HeightFile (DLHT, resolved by Constants::Path::FullPath and read by ReadLandscapeTileFile, exactly as the

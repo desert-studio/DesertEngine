@@ -18,6 +18,7 @@
 //          handed in once, because Play's stop and a streaming error both destroy it from the editor's side.
 
 #include <Editor/Core/IPanel.hpp>
+#include "HLODApproximateBake.hpp"
 #include "LandscapeHLODBake.hpp"
 #include "WorldPartitionMap.hpp"
 
@@ -27,6 +28,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -84,7 +86,7 @@ namespace Desert::Editor
         void TickBuild();
 
         /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
-        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr; }
+        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr || m_ApproxBake != nullptr; }
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -129,7 +131,8 @@ namespace Desert::Editor
         void RebuildEditPlan();
         // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
         // material), write, read back.
-        [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked );
+        [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>&   baked,
+                                                              const std::vector<HLODApproximateBaked>& approximated );
         void DrawMap( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                       const ::Desert::Core::WorldPartitionSerialized&  partition,
                       const ::Desert::Core::Rules::ResidencyState*     residency,
@@ -140,6 +143,12 @@ namespace Desert::Editor
         StreamerGetter                         m_Streamer;
         // The landscape BaseColor bake of a running Build HLODs (BuildHLODs -> TickBuild).
         std::unique_ptr<LandscapeHLODBake> m_Bake;
+        // The MeshApproximate cells' texture capture (HLODApproximateBake), run after the landscape bake; the
+        // landscape's materials wait in m_LandscapeBaked meanwhile. m_ApproxShells: each approximated cell's shell
+        // as the probe built it, by HLODApproximationKey, so the final build binds it without wrapping it again.
+        std::unique_ptr<HLODApproximateBake>                            m_ApproxBake;
+        std::vector<LandscapeHLODBaked>                                 m_LandscapeBaked;
+        std::map<std::string, ::Desert::Assets::StaticMeshComponentSer> m_ApproxShells;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;
