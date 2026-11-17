@@ -563,6 +563,7 @@ namespace Desert::Core::WorldCells
                 row.Z                          = cell.Cell.Z;
                 row.Square                     = cell.Square;
                 row.Bounds                     = cell.Bounds;
+                row.Height                     = cell.Height;
             }
             std::set<std::string> keys;
             for ( const std::size_t record : members[unit] )
@@ -990,9 +991,10 @@ namespace Desert::Core::WorldCells
             else
             {
                 if ( !from.Grid.has_value() || !from.Level.has_value() || !from.X.has_value() ||
-                     !from.Z.has_value() || !from.Square.has_value() || !from.Bounds.has_value() )
+                     !from.Z.has_value() || !from.Square.has_value() || !from.Bounds.has_value() ||
+                     !from.Height.has_value() )
                     return Common::MakeError<Result>(
-                         name + " is a cell without its grid, level, coordinate, square or bounds" );
+                         name + " is a cell without its grid, level, coordinate, square, bounds or height span" );
                 if ( *from.Grid >= index.WorldPartition.Grids.size() )
                     return Common::MakeError<Result>( std::format( "{} is a cell of grid {}, but the world states {} grid(s)",
                                                                    name, *from.Grid, index.WorldPartition.Grids.size() ) );
@@ -1002,6 +1004,7 @@ namespace Desert::Core::WorldCells
                 cell.Cell   = Rules::CellCoord{ *from.X, *from.Z };
                 cell.Square = *from.Square;
                 cell.Bounds = *from.Bounds;
+                cell.Height = *from.Height;
                 cell.Composites.push_back( placeAt );
                 if ( !world.Plan.Cells.empty() )
                 {
@@ -1015,6 +1018,7 @@ namespace Desert::Core::WorldCells
                 composite.Level     = cell.Level;
                 composite.Cell      = cell.Cell;
                 composite.Footprint = cell.Bounds;
+                composite.Height    = cell.Height;
                 world.Plan.MaxLevel = std::max( world.Plan.MaxLevel, cell.Level );
                 world.Plan.Cells.push_back( std::move( cell ) );
             }

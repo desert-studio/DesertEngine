@@ -152,6 +152,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, 
 // (::Desert::Core::WorldStreamer). A custom entry for its Target Grids: see MakeStreamingSourceEntry below.
 // UE's Actor > World Partition > Runtime Grid: which grid of a partitioned world the entity streams on (WP22).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RuntimeGridComponent, Data, "RuntimeGridData", "Runtime Grid" )
+// UE's Actor > World Partition > Data Layers: the layers of the world the entity belongs to (WP-DATA-LAYERS). A
+// custom entry for the pick of the world's layer names: see MakeDataLayersEntry below.
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
 // piece of behaviour behind them belongs to the Animator's control list rather than to this page. The entry
 // next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line
@@ -2127,6 +2129,94 @@ namespace Desert::Editor
         return e;
     }
 
+    // DATA LAYERS (UE AActor::DataLayerAssets in Details > World Partition): a pick of the layers THIS world
+    // states (WorldPartitionSerialized::DataLayers), the same shape as Target Grids above. Each toggle is one undo
+    // step; a name the world has no layer of (read from the file) is listed in red and removed by clicking it,
+    // and the plan names it as an Issue (Entities[i].DataLayers.Layers).
+    static ComponentEditorEntry MakeDataLayersEntry()
+    {
+        using C        = ::Desert::ECS::DataLayersComponent;
+        auto e         = MakeReflectedComponentEntry<C>( "Data Layers", "DataLayersData", &C::Data );
+        auto reflected = e.Draw;
+        e.Draw         = [reflected]( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene,
+                              const ComponentEditContext& ctx )
+        {
+            reflected( en, scene, ctx );
+            if ( ctx.FieldFilter )
+                return;
+
+            const std::vector<std::string>& member = en.GetComponent<C>().Data.Layers;
+            std::vector<std::string>        layers;
+            if ( scene && scene->GetWorldPartition().has_value() && scene->GetWorldPartition()->DataLayers )
+                for ( const auto& layer : *scene->GetWorldPartition()->DataLayers )
+                    layers.push_back( layer.Name );
+            const auto isLayer = [&layers]( const std::string& name )
+            { return std::find( layers.begin(), layers.end(), name ) != layers.end(); };
+
+            std::string preview;
+            for ( const std::string& name : member )
+                preview += std::format( "{}{}{}", preview.empty() ? "" : ", ", name,
+                                        isLayer( name ) ? "" : " (no such layer)" );
+            if ( preview.empty() )
+                preview = "No layer";
+
+            // The one way the list changes: a whole-entity snapshot around the edit, so Ctrl+Z restores it.
+            const auto edit = [&en]( const std::function<void( std::vector<std::string>& )>& change )
+            {
+                ::Desert::Editor::Commands::MutateEntityUndoable(
+                     en.GetComponent<::Desert::ECS::UUIDComponent>().UUID,
+                     [&] { change( en.GetComponent<C>().Data.Layers ); } );
+            };
+
+            ImGui::TextUnformatted( "Data Layers" );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( !ImGui::BeginCombo( "##DataLayers", preview.c_str() ) )
+            {
+                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                     "The World Partition data layers this entity belongs to (World Partition > Data Layers)." );
+                return;
+            }
+            if ( layers.empty() )
+                ImGui::TextDisabled( "This world states no data layers (World Partition > Data Layers)." );
+            for ( const std::string& layer : layers )
+            {
+                const bool on = std::find( member.begin(), member.end(), layer ) != member.end();
+                if ( ImGui::Selectable( layer.c_str(), on, ImGuiSelectableFlags_DontClosePopups ) )
+                {
+                    edit(
+                         [&layer, on]( std::vector<std::string>& list )
+                         {
+                             if ( on )
+                                 list.erase( std::remove( list.begin(), list.end(), layer ), list.end() );
+                             else
+                                 list.push_back( layer );
+                         } );
+                    break; // the list moved under `member`; the combo is drawn again next frame
+                }
+            }
+            for ( const std::string& name : member )
+            {
+                if ( isLayer( name ) )
+                    continue;
+                ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.95f, 0.35f, 0.30f, 1.0f ) );
+                const bool clicked =
+                     ImGui::Selectable( std::format( "{}  (no such layer - click to remove)", name ).c_str(), true,
+                                        ImGuiSelectableFlags_DontClosePopups );
+                ImGui::PopStyleColor();
+                if ( clicked )
+                {
+                    const std::string gone = name;
+                    edit( [&gone]( std::vector<std::string>& list )
+                          { list.erase( std::remove( list.begin(), list.end(), gone ), list.end() ); } );
+                    break;
+                }
+            }
+            ImGui::EndCombo();
+        };
+        return e;
+    }
+
     // PROCEDURAL FOLIAGE VOLUME (UE AProceduralFoliageVolume's Details: Resimulate, the spawner's FoliageTypes).
     // Resimulate rewrites this volume's own fields (FoliagePaintTool::ResimulateProcedural); the types are a
     // list of `.defoliage` rows, a `.defoliage` dropped on "Add" joins it.
@@ -2588,6 +2678,8 @@ namespace
          ::Desert::Editor::MakeProceduralFoliageEntry() );
     const int _desert_streaming_source_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeStreamingSourceEntry() );
+    const int _desert_data_layers_component_reg =
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeDataLayersEntry() );
     const int _desert_level_sequence_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLevelSequenceEntry() );
 

@@ -47,13 +47,51 @@ namespace Desert::Core::EditorRegions
         std::size_t                InRegions    = 0; // composites whose footprint meets a region
         std::size_t                AlwaysLoaded = 0; // composites held whatever the regions
         std::size_t                Unplaced     = 0; // composites with no footprint: held by LoadWholeWorld only
+        // Composites left on disk because every data layer they belong to is not loaded in the editor (UE
+        // UDataLayerManager::ResolveIsLoadedInEditor) - wherever the regions are, always-loaded ones included.
+        std::size_t UnloadedByDataLayers = 0;
     };
 
+    // WHICH DATA LAYERS ONE USER LOADED OR UNLOADED IN THE EDITOR, against the world's own
+    // DataLayerSerialized::InitiallyLoadedInEditor - UE UWorldPartitionEditorPerProjectUserSettings::
+    // {LoadedDataLayers, NotLoadedDataLayers}, per user and per map, never in the world (two people editing one
+    // world hold different layers). A layer named in neither list is at the world's initial state; a name the
+    // world no longer states is ignored (it reaches no layer).
+    struct DataLayerOverrides
+    {
+        std::vector<std::string> Loaded;    // loaded although the world's layer is not initially loaded
+        std::vector<std::string> NotLoaded; // not loaded although the world's layer is initially loaded
+
+        bool operator==( const DataLayerOverrides& ) const = default;
+    };
+
+    // PURE. Whether each of the world's layers (index = WorldPartitionSerialized::DataLayers) is loaded in the
+    // editor under @p overrides: the world's InitiallyLoadedInEditor, unless the user's lists say otherwise.
+    [[nodiscard]] std::vector<bool> DataLayersLoadedInEditor( const WorldPartitionSerialized& settings,
+                                                              const DataLayerOverrides&       overrides );
+
+    // @p overrides with the layer @p name set to @p loaded for this user: the name leaves both lists and joins the
+    // one that differs from the world's initial state (none when it matches it), so the lists never restate the
+    // world's default.
+    [[nodiscard]] DataLayerOverrides WithDataLayerLoaded( const WorldPartitionSerialized& settings,
+                                                          DataLayerOverrides overrides, const std::string& name,
+                                                          bool loaded );
+
     // PURE. `plan` is PlanWorldPartition over the world's descriptors and `rowIds[r]` is the id of record `r`.
-    // A region and a footprint meet when they share any point (edges included).
+    // A region and a footprint meet when they share any point (edges included). `layerLoaded[l]` is whether the
+    // world's data layer `l` is loaded in the editor (DataLayersLoadedInEditor): a composite that belongs to
+    // layers is held only when ANY of them is loaded (UE ResolveIsLoadedInEditor); one in no layer is held by the
+    // regions alone.
     [[nodiscard]] RegionSelection SelectRecords( const Rules::WorldPartitionPlan&   plan,
                                                  std::span<const std::uint64_t>     rowIds,
-                                                 std::span<const Rules::CellBounds> regions );
+                                                 std::span<const Rules::CellBounds> regions,
+                                                 std::span<const bool>              layerLoaded );
+
+    // PURE. The whole world as Load All holds it: every record, but for the composites whose data layers are all
+    // unloaded in the editor (as SelectRecords).
+    [[nodiscard]] RegionSelection SelectWholeWorld( const Rules::WorldPartitionPlan& plan,
+                                                    std::span<const std::uint64_t>   rowIds,
+                                                    std::span<const bool>            layerLoaded );
 
     // What a region change did.
     struct RegionOutcome
@@ -69,11 +107,17 @@ namespace Desert::Core::EditorRegions
     // its files is rebuilt rather than used). Refused, changing nothing, naming why: the scene is not a
     // partitioned world opened from its files, the index or a file cannot be read, an entity to unload differs
     // from its file.
+    // `layers` is this user's data-layer state (HeldRegions::DataLayers): a composite whose layers are all unloaded
+    // in the editor is not held, wherever the regions are.
     [[nodiscard]] Common::ResultStr<RegionOutcome> LoadRegions( Scene& scene, Assets::AssetManager* assets,
-                                                                std::span<const Rules::CellBounds> regions );
+                                                                std::span<const Rules::CellBounds> regions,
+                                                                const DataLayerOverrides&          layers );
 
-    // Every record of the world: the scene holds all of it again, as an open would have made it.
-    [[nodiscard]] Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets );
+    // Every record of the world: the scene holds all of it again, as an open would have made it - but for the
+    // composites whose data layers are all unloaded in the editor under `layers` (UE's Load All loads every region,
+    // and an unloaded data layer stays unloaded).
+    [[nodiscard]] Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets,
+                                                                   const DataLayerOverrides& layers );
 
     // What of a world the editor holds besides its always-loaded part: the regions of its last region load, or
     // the whole world. UE keeps the same per user and per map (UWorldPartitionEditorPerProjectUserSettings::
@@ -82,6 +126,8 @@ namespace Desert::Core::EditorRegions
     {
         std::vector<Rules::CellBounds> Regions; // X/Z, cm; empty: the always-loaded part only
         bool                           Whole = false;
+        // This user's data-layer state (UE's LoadedDataLayers / NotLoadedDataLayers, kept beside the regions).
+        DataLayerOverrides DataLayers;
     };
 
     // What an editor open reads of the scene at a path.
