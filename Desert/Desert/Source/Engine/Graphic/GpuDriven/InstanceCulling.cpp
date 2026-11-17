@@ -239,7 +239,7 @@ namespace Desert::Graphic::GpuDriven
                  .Storage( P::GpuCullContentHash, b.ContentHash, W )
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( P::GpuCullHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ShaderPush::InstanceCull ) ) );
+                 .PushConstants<ShaderPush::InstanceCull>();
             if ( argsAsIndirect )
             {
                 pass.Read( b.DispatchArgs, RDG::Access::IndirectArgs );
@@ -261,7 +261,7 @@ namespace Desert::Graphic::GpuDriven
                   args     = binds.DispatchArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      if ( indirect )
                          return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                      return Renderer::DispatchCompute( bindings, *pipeline, grid.x, grid.y, grid.z );

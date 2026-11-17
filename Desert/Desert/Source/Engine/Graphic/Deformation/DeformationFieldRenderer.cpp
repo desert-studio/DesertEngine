@@ -1,5 +1,6 @@
 #include <Engine/Graphic/Deformation/DeformationFieldRenderer.hpp>
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -42,21 +43,7 @@ namespace Desert::Graphic::Deformation
             ClearAll = 2,
         };
 
-        struct DeformApplyPush
-        {
-            glm::ivec4 Window{ 0 };   // min cell xy, N, mode
-            glm::ivec4 Previous{ 0 }; // previous min cell xy, first tile
-            glm::vec4  Level{ 0.0f }; // texel size
-        };
-        static_assert( sizeof( DeformApplyPush ) == 48 );
 
-        struct DeformViewPush
-        {
-            glm::mat4  InverseViewProjection{ 1.0f };
-            glm::ivec4 Windows{ 0 };
-            glm::vec4  Levels{ 0.0f };
-        };
-        static_assert( sizeof( DeformViewPush ) == 96 );
 
         int FloorDiv( const int a, const int b )
         {
@@ -260,7 +247,7 @@ namespace Desert::Graphic::Deformation
             if ( m_Window[level] && *m_Window[level] == window )
                 continue;
             const DeformationLevel l = DeformationLevelOf( level );
-            DeformApplyPush        push;
+            ShaderPush::DeformStampApply        push;
             const ApplyMode        mode  = m_Window[level] ? ApplyMode::Scroll : ApplyMode::ClearAll;
             push.Window                  = glm::ivec4( window, l.Resolution, static_cast<int32_t>( mode ) );
             push.Previous                = glm::ivec4( m_Window[level].value_or( window ), 0, 0 );
@@ -281,12 +268,12 @@ namespace Desert::Graphic::Deformation
                                     RDG::Access::StorageWrite )
                           .Storage( DeformStampApplyShaderParameters::DeformDetailTexture, detail,
                                     RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DeformApplyPush ) ) );
+                          .PushConstants<ShaderPush::DeformStampApply>();
                  },
                  [clearPipeline, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchCompute( bindings, *clearPipeline, groups, groups, 1 );
                  } );
         }
@@ -392,7 +379,7 @@ namespace Desert::Graphic::Deformation
         for ( const Dispatch& dispatch : dispatches )
         {
             const DeformationLevel l = DeformationLevelOf( dispatch.Level );
-            DeformApplyPush        push;
+            ShaderPush::DeformStampApply        push;
             push.Window                     = glm::ivec4( frame.WindowMin[dispatch.Level], l.Resolution,
                                                           static_cast<int32_t>( ApplyMode::Apply ) );
             push.Previous                   = glm::ivec4( 0, 0, dispatch.FirstTile, 0 );
@@ -414,12 +401,12 @@ namespace Desert::Graphic::Deformation
                                     RDG::Access::StorageWrite )
                           .Storage( DeformStampApplyShaderParameters::DeformDetailTexture, detail,
                                     RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DeformApplyPush ) ) );
+                          .PushConstants<ShaderPush::DeformStampApply>();
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchCompute( bindings, *pipeline, kGroupsPerTileRow, kGroupsPerTileRow,
                                                        count );
                  } );
@@ -464,7 +451,7 @@ namespace Desert::Graphic::Deformation
                 return Common::MakeError<bool>( pipeline.GetError() );
             it = m_ViewPipelines.emplace( key, pipeline.GetValue() ).first;
         }
-        DeformViewPush push;
+        ShaderPush::DeformationFieldView push;
         push.InverseViewProjection       = inverseViewProjection;
         push.Windows                     = glm::ivec4( field.WindowMin[0], field.WindowMin[1] );
         push.Levels                      = glm::vec4( DeformationLevelOf( 0 ).Texel, DeformationLevelOf( 1 ).Texel,
@@ -486,13 +473,13 @@ namespace Desert::Graphic::Deformation
                                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                       .Texture( DeformationFieldViewShaderParameters::SceneShadingWordTexture, shadingWord,
                                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( DeformViewPush ) ) );
+                      .PushConstants<ShaderPush::DeformationFieldView>();
                  pass.ColorTarget( 0, target, load );
              },
              [pipeline, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DrawFullscreen( bindings, *pipeline, nullptr );
              } );
         return BOOLSUCCESS;

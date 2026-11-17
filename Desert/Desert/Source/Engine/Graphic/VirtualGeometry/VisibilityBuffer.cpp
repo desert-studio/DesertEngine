@@ -234,13 +234,13 @@ namespace Desert::Graphic::VirtualGeometry
                  const auto& layout = m_ClearLayout.Get( m_Clear->GetSpecification().Shader );
                  pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Clear ) )
                       .Storage( VisibilityClearShaderParameters::Visibility, words, RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( ShaderPush::VisibilityClear ) ) );
+                      .PushConstants<ShaderPush::VisibilityClear>();
              },
              [this, width, height, groupsX, groupsY]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  const ShaderPush::VisibilityClear push{ .Extent = glm::uvec4( width, height, 0u, 0u ) };
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::DispatchCompute( bindings, *m_Clear, groupsX, groupsY, 1 );
              } );
         return Common::MakeSuccess( frame );
@@ -260,14 +260,14 @@ namespace Desert::Graphic::VirtualGeometry
                  pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Classify ) )
                       .Storage( VisibilityClassifyShaderParameters::Visibility, words, RDG::Access::StorageWrite )
                       .Storage( VisibilityClassifyShaderParameters::ResolveArgs, args, RDG::Access::StorageWrite )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( ShaderPush::VisibilityClassify ) ) );
+                      .PushConstants<ShaderPush::VisibilityClassify>();
              },
              [this, width = frame.Width, height = frame.Height, tilesX,
               tilesY]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  const ShaderPush::VisibilityClassify push{ .Extent = glm::uvec4( width, height, tilesX, tilesY ) };
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::DispatchCompute( bindings, *m_Classify, tilesX, tilesY, 1 );
              } );
     }

@@ -178,7 +178,7 @@ namespace Desert::Graphic::VirtualGeometry
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( P::ClusterCutHzbTexture, b.Hzb, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ShaderPush::ClusterCut ) ) );
+                 .PushConstants<ShaderPush::ClusterCut>();
             if ( indirect )
             {
                 pass.Read( b.DispatchArgs, RDG::Access::IndirectArgs );
@@ -367,7 +367,7 @@ namespace Desert::Graphic::VirtualGeometry
                   dispatchArgs = b.DispatchArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      if ( indirect )
                          return Renderer::DispatchComputeIndirect( bindings, *pipeline, dispatchArgs, 0u );
                      return Renderer::DispatchCompute( bindings, *pipeline, 1u, 1u, 1u );
@@ -467,12 +467,12 @@ namespace Desert::Graphic::VirtualGeometry
                           .Storage( P::RasterBinningGroupCursor, cursor, W )
                           .Storage( P::RasterBinningRows, bins.Rows, W )
                           .Storage( P::RasterBinningGroupViewCounts, bins.GroupViewCounts, W )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( ShaderPush::RasterBinning ) ) );
+                          .PushConstants<ShaderPush::RasterBinning>();
                  },
                  [pipeline = program.Pipeline, push, groupsX]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchCompute( bindings, *pipeline, groupsX, 1u, 1u );
                  } );
         }
