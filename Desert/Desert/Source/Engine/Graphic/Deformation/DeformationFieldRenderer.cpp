@@ -223,6 +223,15 @@ namespace Desert::Graphic::Deformation
         }
     }
 
+    std::vector<glm::vec4> DeformationFieldRenderer::PendingFootprints() const
+    {
+        std::vector<glm::vec4> footprints;
+        footprints.reserve( m_Pending.size() );
+        for ( const ::Desert::World::DeformContact& contact : m_Pending )
+            footprints.emplace_back( contact.At, contact.Params.Radius * kStampReach );
+        return footprints;
+    }
+
     Common::ResultStr<std::optional<DeformationFieldFrame>>
     DeformationFieldRenderer::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
                                                const glm::vec3& viewPosition, const bool wanted )

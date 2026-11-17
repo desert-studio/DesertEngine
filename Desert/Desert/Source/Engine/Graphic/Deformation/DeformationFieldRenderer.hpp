@@ -160,6 +160,12 @@ namespace Desert::Graphic::Deformation
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& viewPosition,
                          bool wanted );
 
+        // RENDER TASK, before this frame's AddUpdatePasses: where the contacts it will apply write - one
+        // (x, y, z, half side) a contact, its position and the half side (cm) of the square its stamp may write
+        // (DEFORM_STAMP_REACH radii). DEFORM-GRASS-2: what a cached sun cascade redraws of its static layer this
+        // frame (MeshRenderer::SetCascadeFootprints; UE's VSM: a cached page is invalidated by what changed in it).
+        [[nodiscard]] std::vector<glm::vec4> PendingFootprints() const;
+
         // "Debug: Deformation Field" over @p target: the field at each pixel's surface (@p depth, the scene
         // depth), drawn only where @p shadingWord (the G-buffer's) marks the landscape.
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder&                graph,

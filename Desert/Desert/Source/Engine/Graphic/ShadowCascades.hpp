@@ -441,13 +441,39 @@ namespace Desert::Graphic
         return kept >= kCascadeScrollMinOverlap * side * side;
     }
 
+    // A TEXEL RECTANGLE OF A CASCADE as a culling matrix and a scissor: the texels @p x0..@p x1, @p y0..@p y1
+    // (framebuffer axes: x right, y down from the top - the graph opens a render pass with a negative-height
+    // viewport, so NDC y = 1 - 2 * y / size) grown a texel every way and kept on the map, written as @p rect (x, y,
+    // width, height) and as @p out, @p casterViewProj narrowed so its clip box is that rectangle: a caster box
+    // tested against it is tested against the rectangle.
+    inline void CascadeTexelRegion( const float x0, const float x1, const float y0, const float y1,
+                                    const uint32_t mapSize, const glm::mat4& casterViewProj, glm::mat4& out,
+                                    glm::uvec4& rect )
+    {
+        const float side        = static_cast<float>( mapSize );
+        const float texelLeft   = std::max( x0 - 1.0f, 0.0f );
+        const float texelRight  = std::min( x1 + 1.0f, side );
+        const float texelTop    = std::max( y0 - 1.0f, 0.0f );
+        const float texelBottom = std::min( y1 + 1.0f, side );
+        const float left        = 2.0f * texelLeft / side - 1.0f;
+        const float right       = 2.0f * texelRight / side - 1.0f;
+        const float bottom      = 1.0f - 2.0f * texelBottom / side;
+        const float top         = 1.0f - 2.0f * texelTop / side;
+        rect = glm::uvec4( static_cast<uint32_t>( texelLeft ), static_cast<uint32_t>( texelTop ),
+                           static_cast<uint32_t>( texelRight - texelLeft ),
+                           static_cast<uint32_t>( texelBottom - texelTop ) );
+        glm::mat4 narrow( 1.0f );
+        narrow[0][0] = 2.0f / ( right - left );
+        narrow[1][1] = 2.0f / ( top - bottom );
+        narrow[3][0] = -( right + left ) / ( right - left );
+        narrow[3][1] = -( top + bottom ) / ( top - bottom );
+        out          = narrow * casterViewProj;
+    }
+
     // THE STRIPS A SHIFT UNCOVERS (at most one across and one along), each as @p casterViewProj narrowed to the
-    // strip: a matrix whose clip box is the strip grown a texel every way, so a caster box tested against it is
-    // tested against the strip, and in @p rects the same texels as a scissor (x, y, width, height): the raster
-    // a strip's draws are limited to (MeshRenderer's scroll pass), so a caster that reaches the strip writes the
-    // strip only and the cache copied in around it stays as it was drawn. Framebuffer texels: x right, y down
-    // from the top - the graph opens a render pass with a negative-height viewport, so NDC y = 1 - 2 * y / size.
-    // Returns how many of @p out (and of @p rects) it wrote.
+    // strip (CascadeTexelRegion), and in @p rects the same texels as a scissor: the raster a strip's draws are
+    // limited to (MeshRenderer's scroll pass), so a caster that reaches the strip writes the strip only and the
+    // cache copied in around it stays as it was drawn. Returns how many of @p out (and of @p rects) it wrote.
     [[nodiscard]] inline uint32_t CascadeScrollStrips( const glm::ivec2 shift, const uint32_t mapSize,
                                                        const glm::mat4& casterViewProj, glm::mat4 ( &out )[2],
                                                        glm::uvec4 ( &rects )[2] )
@@ -456,25 +482,8 @@ namespace Desert::Graphic
         uint32_t    count = 0;
         const auto  strip = [&]( const float x0, const float x1, const float y0, const float y1 )
         {
-            // The strip's texels grown a texel every way and kept on the map: one rectangle for both the matrix
-            // and the scissor.
-            const float texelLeft   = std::max( x0 - 1.0f, 0.0f );
-            const float texelRight  = std::min( x1 + 1.0f, side );
-            const float texelTop    = std::max( y0 - 1.0f, 0.0f );
-            const float texelBottom = std::min( y1 + 1.0f, side );
-            const float left        = 2.0f * texelLeft / side - 1.0f;
-            const float right       = 2.0f * texelRight / side - 1.0f;
-            const float bottom      = 1.0f - 2.0f * texelBottom / side;
-            const float top         = 1.0f - 2.0f * texelTop / side;
-            rects[count] = glm::uvec4( static_cast<uint32_t>( texelLeft ), static_cast<uint32_t>( texelTop ),
-                                       static_cast<uint32_t>( texelRight - texelLeft ),
-                                       static_cast<uint32_t>( texelBottom - texelTop ) );
-            glm::mat4 narrow( 1.0f );
-            narrow[0][0] = 2.0f / ( right - left );
-            narrow[1][1] = 2.0f / ( top - bottom );
-            narrow[3][0] = -( right + left ) / ( right - left );
-            narrow[3][1] = -( top + bottom ) / ( top - bottom );
-            out[count++] = narrow * casterViewProj;
+            CascadeTexelRegion( x0, x1, y0, y1, mapSize, casterViewProj, out[count], rects[count] );
+            ++count;
         };
         const float across = static_cast<float>( shift.x );
         const float along  = static_cast<float>( shift.y );

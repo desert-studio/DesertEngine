@@ -1051,8 +1051,9 @@ namespace Desert::Graphic::System
         // per cascade: CascadeContentAnswer).
         void ExtractCascadeContent( RDG::Builder& graph, uint64_t frameIndex, const RDG::BufferRef& cells,
                                     uint32_t regions, std::span<const uint32_t> regionViews );
-        // A SCROLLED cascade's strips this frame (PlanCascadeCache: the caster matrices of the strips its shift
-        // uncovered), which its static layer's GPU cull keeps the casters of; empty - not scrolled.
+        // A SCROLLED or PATCHED cascade's strips this frame (PlanCascadeCache: the caster matrices of the strips its
+        // shift uncovered and of the texels this frame's deformation footprints reach), which its static layer's
+        // GPU cull keeps the casters of; empty - its static layer is drawn whole or not at all.
         [[nodiscard]] std::span<const glm::mat4> CascadeScrolledStrips( uint32_t view ) const;
         [[nodiscard]] bool CascadeMovableBinsDrawn( uint32_t view ) const;
         // The caster view of cascade view @p view's movable layer (ShadowCascadePasses' "<cascade>.Movable").
@@ -1251,6 +1252,16 @@ namespace Desert::Graphic::System
         {
             m_FrameDeformationField = field;
         }
+        // DEFORM-GRASS-2 (UE's VSM: a cached page is invalidated by the region that changed, not the whole map):
+        // where this frame's deformation contacts write (DeformationFieldRenderer::PendingFootprints, (x, y, z,
+        // half side) cm), handed before PlanCascadeCache. A cached cascade whose static layer stands redraws only
+        // the texels these footprints reach - grown by the reach of the grass blades the field lays flat - so a
+        // blade cast from the cache (past the shadow wind distance) casts its pressed pose (CascadeCacheState::
+        // Patch); a scrolled cascade draws them as one more strip. Empty: nothing deformed this frame.
+        void SetCascadeFootprints( std::vector<glm::vec4> footprints )
+        {
+            m_CascadeFootprints = std::move( footprints );
+        }
         // CPU-ISM-PACK (UE FInstanceCullingContext: the instance ids uploaded ONCE per view): every queued ISM's
         // main-view cull (LookUpIsmViewCull, the stale ones on setup tasks) and its kept GpuScene instances
         // (FirstGpuInstance + Indices, level-ordered) appended into the view's one uint32 buffer, uploaded at its
@@ -1409,6 +1420,8 @@ namespace Desert::Graphic::System
         // THE SUN'S CASCADES FOR THIS FRAME, in the order SceneRenderer::AddFrameShadowDepths adds them (UE: the
         // cached shadow maps of a directional light). Per cascade:
         //   StaticPasses  - only when its static casters' cache is stale: clears the cache and draws them;
+        //   PatchPasses   - when only the texels this frame's deformation footprints reach are: LOADS the cache,
+        //                   clears and redraws those (DEFORM-GRASS-2);
         //   Copies        - the cache into the cascade's layer of the sampled array, when the map must be rebuilt
         //                   this frame;
         //   MovablePasses - LOADS the map and draws the movable casters (skinned, swaying foliage, the terrain).
@@ -1439,6 +1452,9 @@ namespace Desert::Graphic::System
         {
             std::vector<CascadeCacheScroll> Scrolls;
             std::vector<SystemRasterPass>   StaticPasses;
+            // A PATCHED cascade's static pass (CascadeCacheState::Patch): its cache LOADED, the footprint strip
+            // cleared and redrawn under its scissor.
+            std::vector<SystemRasterPass>   PatchPasses;
             std::vector<SystemRasterPass>   ScrollPasses;
             std::vector<CascadeCacheCopy>   Copies;
             std::vector<SystemRasterPass>   MovablePasses;
@@ -3320,6 +3336,15 @@ namespace Desert::Graphic::System
             glm::mat4  Strips[2]{ glm::mat4( 1.0f ), glm::mat4( 1.0f ) }; // CascadeScrollStrips
             // ...and each strip's texels (x, y, width, height): the scissor its draws are recorded under.
             glm::uvec4 StripRects[2]{ glm::uvec4( 0u ), glm::uvec4( 0u ) };
+            // DEFORM-GRASS-2: the strips (bit s: strip s) whose texels hold cached depth the pass clears to the far
+            // plane before it draws - the footprint strip (SetCascadeFootprints), whose cached depth is the
+            // casters' pose before this frame's contacts pressed them. A scroll's own strips are already far
+            // (ScrollGraphDepthIntoLayer clears the layer).
+            uint32_t ClearStrips = 0;
+            // This frame the cache is PATCHED: its placement and content stand but deformation footprints reach
+            // it, so its static pass LOADS the cache, clears and redraws Strips[0] alone (StripCount 1), and the
+            // rebuild restores that strip with the movers' region (MovableRegion).
+            bool Patch = false;
             // THE MOVABLE LAYER'S KEY (SHADOW-CACHE-MOTION; UE's VSM: a cached page is invalidated only by a
             // primitive that updates): CascadeMovers' casters and poses with the caster matrix and bias, the key
             // of what the movable casters draw. This frame's (MovableKey: nullopt when no mover reaches the
@@ -5421,6 +5446,7 @@ namespace Desert::Graphic::System
         const GpuDriven::GpuScene*         m_GpuScene = nullptr;
         RDG::BufferRef                     m_FrameSceneInstances{}; // SetFrameSceneInstances
         DeformationFieldReads              m_FrameDeformationField{}; // SetFrameDeformationField
+        std::vector<glm::vec4>             m_CascadeFootprints;       // SetCascadeFootprints
         // PrepareViewIsmIds: the view's id buffer (per frame in flight, owned here and lent to every scene-id
         // cell), its CPU image, each m_InstancedQueue entry's first word in it (kNoViewIsmIds: none this frame)
         // with the cull entry's rebuild count it was filled from, and the stale culls' scratch (capacities kept).

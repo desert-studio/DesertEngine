@@ -176,6 +176,8 @@ namespace Desert::Graphic
                      } );
             }
             AddSystemRasters( graph, textures, cascades.StaticPasses, true );
+            // A patched cache (DEFORM-GRASS-2): LOAD, its footprint strip cleared and drawn in the pass.
+            AddSystemRasters( graph, textures, cascades.PatchPasses, false );
             // ...its strips drawn over the shifted cache: LOAD, no clear may wipe the copy.
             AddSystemRasters( graph, textures, cascades.ScrollPasses, false );
             for ( const auto& copy : cascades.Copies )

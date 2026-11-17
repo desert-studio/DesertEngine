@@ -1959,7 +1959,7 @@ namespace Desert::Graphic::System
 
     std::span<const glm::mat4> MeshRenderer::CascadeScrolledStrips( const uint32_t view ) const
     {
-        if ( view >= kCascadeViews || !m_CascadeCache[view].Scroll )
+        if ( view >= kCascadeViews || ( !m_CascadeCache[view].Scroll && !m_CascadeCache[view].Patch ) )
             return {};
         return { m_CascadeCache[view].Strips, std::min<size_t>( m_CascadeCache[view].StripCount, 2u ) };
     }

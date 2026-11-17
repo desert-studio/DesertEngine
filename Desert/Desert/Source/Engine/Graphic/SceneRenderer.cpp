@@ -2440,7 +2440,12 @@ namespace Desert::Graphic
                 // (IShadowCaster::CascadeShadowSignature) is this frame's and the landscape is drawn into the
                 // cached static layer (UE: a static landscape in the cached CSM). Nothing between UpdateCascades
                 // and here reads the plan; DropDirectionalShadow / InvalidateCascadeCaches below and the passes
-                // after.
+                // after. DEFORM-GRASS-2: where this frame's deformation contacts write first (AddFrameDeformationField
+                // applies them later in this frame, before the shadow depths), so a standing cache redraws those
+                // texels alone; a reflection capture's face keeps no field and hands none.
+                localShadowMeshes->SetCascadeFootprints( m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
+                                                              ? m_DeformationField.PendingFootprints()
+                                                              : std::vector<glm::vec4>{} );
                 localShadowMeshes->PlanCascadeCache();
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
