@@ -216,6 +216,8 @@ namespace Desert::Graphic::System
             RDG::BufferRef                                                  GIFrame;
             RDG::BufferRef                                                  PointLights;
             RDG::BufferRef                                                  SpotLights;
+            // The light function atlas the rows' tiles name (ViewLightBuffers::LightFunctionAtlas); invalid = none.
+            RDG::TextureRef                                                 LightFunctionAtlas;
             RDG::BufferRef                                                  WorldGridParams;
             RDG::BufferRef                                                  WorldGridCells;
             RDG::TextureRef                                                 EnvSpecular;
@@ -957,6 +959,7 @@ namespace Desert::Graphic::System
             block.Storage( SSRShaderParameters::GIFrameUB, traced.GIFrame, kR )
                  .Storage( SSRShaderParameters::PointLightsUB, traced.PointLights, kR )
                  .Storage( SSRShaderParameters::SpotLightsUB, traced.SpotLights, kR )
+                 .BindlessRead( traced.LightFunctionAtlas, kS )
                  .Storage( SSRShaderParameters::LightGridParamsUB, traced.WorldGridParams, kR )
                  .Storage( SSRShaderParameters::LightGridWorldCellsUB, traced.WorldGridCells, kR )
                  .Storage( SSRShaderParameters::RadianceCacheParamsUB, traced.RadianceCache.Params, kR )

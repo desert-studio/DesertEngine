@@ -1,0 +1,70 @@
+#ifndef DESERT_LIGHT_FUNCTION_GLSLH
+#define DESERT_LIGHT_FUNCTION_GLSLH
+
+// THE LIGHT FUNCTION ATLAS, writer side (UE LightFunctionAtlas: each light's MD_LightFunction material rendered into
+// its own tile, every lit pass samples it). System::LightFunctionAtlas draws one quad per light into that light's
+// tile ("Lights: Light Function Atlas"); a `Domain LightFunction` shader declares the rows buffer and the push block
+// (Programs/LightFunctions/DefaultLightFunction.shader is the form) and asks DesertLightFunctionInputs for what UE
+// hands a light function material.
+//
+// The tile's parametrisation is the READER'S (Mesh/LightFunctionAtlas.glslh), inverted here texel by texel:
+//   spot:         local = (dot(d, tangent), dot(d, bitangent)) / (dot(d, forward) * tan(outer cone))
+//   point / rect: local = DesertLightFunctionOctEncode( (dot(d, tangent), dot(d, bitangent), dot(d, forward)) )
+// local in [-1, 1]^2, y = -1 at the tile's first texel row.
+
+// One row of "LightFunctions.Rows" (System::LightFunctionRowGpu, 96 bytes std430).
+struct LightFunctionRow
+{
+    vec4 Forward;   // the light's forward (the IES frame); w kind: 0 spot, 1 point / rect
+    vec4 Tangent;   // the light's tangent; w tan(outer cone) for a spot
+    vec4 Bitangent; // cross(forward, tangent)
+    vec4 Position;  // world position (cm); w the light's range (cm)
+    vec4 InvScale;  // xyz 1 / LightFunctionScale (1/cm), w the scene time (s)
+    vec4 TileUV;    // the tile in atlas texture coordinates: x0, y0, x1, y1
+};
+
+const float LIGHT_FUNCTION_KIND_SPOT = 0.0;
+// The distance (cm) at which a light function's LightVector is taken: UE's default LightFunctionScale, so a light
+// at the default scale sees LightVector = the unit direction in its own frame.
+const float LIGHT_FUNCTION_REFERENCE_DISTANCE = 1024.0;
+
+// The inverse of DesertLightFunctionOctEncode (Mesh/LightFunctionAtlas.glslh): a point of [-1, 1]^2 back to the
+// unit vector (z > 0 the inner diamond).
+vec3 DesertLightFunctionOctDecode( vec2 p )
+{
+    vec3 n = vec3( p, 1.0 - abs( p.x ) - abs( p.y ) );
+    if ( n.z < 0.0 )
+        n.xy = ( 1.0 - abs( n.yx ) ) * vec2( n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0 );
+    return normalize( n );
+}
+
+struct LightFunctionInputs
+{
+    vec3  Direction;      // the unit direction in the light's frame: x tangent, y bitangent, z forward
+    vec3  WorldDirection; // the same direction in world
+    // UE's LightVector: the light-space position (x along the light's forward, y tangent, z bitangent) at
+    // LIGHT_FUNCTION_REFERENCE_DISTANCE, divided by LightFunctionScale.
+    vec3  LightVector;
+    float Time;           // the scene's clock (s)
+};
+
+// What a light function material sees at tile coordinate @p local ([-1, 1]^2) of @p row.
+LightFunctionInputs DesertLightFunctionInputs( LightFunctionRow row, vec2 local )
+{
+    vec3 direction;
+    if ( row.Forward.w == LIGHT_FUNCTION_KIND_SPOT )
+        direction = normalize( vec3( local * row.Tangent.w, 1.0 ) );
+    else
+        direction = DesertLightFunctionOctDecode( local );
+    LightFunctionInputs inputs;
+    inputs.Direction      = direction;
+    inputs.WorldDirection = row.Tangent.xyz * direction.x + row.Bitangent.xyz * direction.y +
+                            row.Forward.xyz * direction.z;
+    // UE LightFunctionScale is in light space too: x scales along the forward, y the tangent, z the bitangent.
+    inputs.LightVector    = vec3( direction.z, direction.x, direction.y ) * LIGHT_FUNCTION_REFERENCE_DISTANCE *
+                         row.InvScale.xyz;
+    inputs.Time           = row.InvScale.w;
+    return inputs;
+}
+
+#endif // DESERT_LIGHT_FUNCTION_GLSLH

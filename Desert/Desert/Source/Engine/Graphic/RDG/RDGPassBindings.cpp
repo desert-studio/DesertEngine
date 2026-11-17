@@ -610,6 +610,13 @@ namespace Desert::Graphic::RDG
         return *this;
     }
 
+    BindingBlockBuilder& BindingBlockBuilder::BindlessRead( TextureRef texture, Access declared )
+    {
+        if ( texture.IsValid() )
+            m_Pass.Read( texture, declared, SubresourceRange::All() );
+        return *this;
+    }
+
     BindingBlockRef BindingBlockBuilder::GetRef() const
     {
         return m_Ref;

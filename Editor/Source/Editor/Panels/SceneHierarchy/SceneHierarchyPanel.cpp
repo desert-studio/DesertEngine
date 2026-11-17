@@ -52,6 +52,7 @@ namespace Desert::Editor
             DirLight,
             PointLight,
             SpotLight,
+            RectLight,
             SkinnedModel,
             Character,
             Camera,
@@ -71,6 +72,7 @@ namespace Desert::Editor
              { "Lighting", ICON_MDI_LIGHTBULB, "Directional Light", Archetype::DirLight },
              { "Lighting", ICON_MDI_LIGHTBULB, "Point Light", Archetype::PointLight },
              { "Lighting", ICON_MDI_SPOTLIGHT, "Spot Light", Archetype::SpotLight },
+             { "Lighting", ICON_MDI_CEILING_LIGHT, "Rect Light", Archetype::RectLight },
              { "Animation", ICON_MDI_RUN, "Skinned Model", Archetype::SkinnedModel },
              { "Animation", ICON_MDI_HUMAN, "Character (Procedural)", Archetype::Character },
              { "Camera", ICON_MDI_VIDEO, "Camera", Archetype::Camera },
@@ -132,6 +134,14 @@ namespace Desert::Editor
                 {
                     auto e = scene.CreateNewEntity( "Spot Light" );
                     e.AddComponent<ECS::SpotLightComponent>();
+                    Track( e );
+                    break;
+                }
+                case Archetype::RectLight:
+                {
+                    // UE ARectLight: the component's defaults (a 64 x 64 cm rect facing the entity's -Z).
+                    auto e = scene.CreateNewEntity( "Rect Light" );
+                    e.AddComponent<ECS::RectLightComponent>();
                     Track( e );
                     break;
                 }
@@ -211,6 +221,8 @@ namespace Desert::Editor
             return EntityTypeKind::PointLight;
         if ( entity.HasComponent<ECS::SpotLightComponent>() )
             return EntityTypeKind::SpotLight;
+        if ( entity.HasComponent<ECS::RectLightComponent>() )
+            return EntityTypeKind::RectLight;
         if ( entity.HasComponent<ECS::SkyAtmosphereComponent>() )
             return EntityTypeKind::SkyAtmosphere;
         if ( entity.HasComponent<ECS::SkyboxComponent>() )
@@ -311,6 +323,8 @@ namespace Desert::Editor
             icon = ICON_MDI_CAMERA;
         else if ( entity.HasComponent<ECS::SpotLightComponent>() )
             icon = ICON_MDI_SPOTLIGHT;
+        else if ( entity.HasComponent<ECS::RectLightComponent>() )
+            icon = ICON_MDI_CEILING_LIGHT;
         else if ( entity.HasComponent<ECS::DirectionLightComponent>() ||
                   entity.HasComponent<ECS::PointLightComponent>() )
             icon = ICON_MDI_LIGHTBULB;

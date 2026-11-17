@@ -10,7 +10,7 @@ file(READ "${_root}/src/meshoptimizer.h" _header)
 string(FIND "${_header}" "#define MESHOPTIMIZER_VERSION 1030" _at)
 if(_at EQUAL -1)
     message(FATAL_ERROR "ThirdParty/meshoptimizer is not v1.3. Re-run scripts/MacOS/Setup.sh (macOS) or "
-                        "scripts\Windows\Setup.bat (Windows); they re-fetch a mismatched version.")
+                        "scripts/Windows/Setup.bat (Windows); they re-fetch a mismatched version.")
 endif()
 desert_glob(_src "${_root}/src/*.cpp" "${_root}/src/*.h")
 desert_add_library(MeshOptimizer FOLDER ThirdParty SOURCES ${_src})
