@@ -582,7 +582,8 @@ namespace Desert::Core::Rules
                                   unit, records.size(), finished.GetError() ) );
             tick.ActivationMs += ms;
             job.Ms += ms;
-            frame.Progressed = true;
+            // Only a finish that revealed the unit spends the frame's first-slice guarantee: a unit asked again
+            // every frame while its collision waits must not hold back the slices of the units behind it.
             if ( !finished.GetValue() )
             {
                 state.State = Residency::Activating;
@@ -590,8 +591,9 @@ namespace Desert::Core::Rules
                 ++tick.WaitingForCollision;
                 return Common::MakeSuccess( true );
             }
-            state.State = Residency::Activated;
-            state.Made  = 0;
+            frame.Progressed = true;
+            state.State      = Residency::Activated;
+            state.Made       = 0;
             ++tick.UnitsActivated;
             tick.Completed.push_back( { unit, records.size(), job.Slices,
                                         static_cast<std::size_t>( m_Ticks - job.FirstTick + 1 ), job.Ms } );

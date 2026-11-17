@@ -46,6 +46,7 @@
 #include <unordered_set>
 #include <string>
 #include <vector>
+#include <type_traits>
 
 namespace Desert::ECS
 {
@@ -355,7 +356,15 @@ namespace Desert::ECS
                         return Common::MakeError<Result>( "no mesh service to read the collider's mesh from" );
                     const Assets::MeshAsset* asset = service->GetAsset( mesh.GetMeshHandle() );
                     if ( asset == nullptr )
+                    {
+                        // A read that failed is not retried (MeshService::State): waiting on it would keep the
+                        // collider pending for good, and the streamed cell that holds it hidden behind the
+                        // loading overlay for good (WP-ACTIVATE-SLICED: Activated = collidable).
+                        using MeshState = std::remove_cvref_t<decltype( *service )>::State;
+                        if ( service->StateOf( mesh.GetMeshHandle() ) == MeshState::Failed )
+                            return Common::MakeError<Result>( "the StaticMesh's asset failed to load" );
                         return Common::MakeSuccess( Result{} );
+                    }
                     const auto* staticAsset = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
                     if ( staticAsset == nullptr )
                         return Common::MakeError<Result>(
@@ -435,8 +444,6 @@ namespace Desert::ECS
         // This frame's steps' contact events, named by entity, into the registry's PhysicsEventQueue (see
         // PhysicsEvents.hpp). The body → entity map keeps an entity whose body went this frame until its
         // EndOverlap is named.
-        // A volume's overlaps in the log, by name (UE: a Trigger Volume's begin/end overlap is what a level
-        // designer checks first). The events themselves go to the volume's subscribers like any body's.
         // The physics state of the registry made current: the listeners attached, every landscape tile, foliage
         // field and destructible synced, the pending bodies and characters built. What Update does first every
         // frame, and what a streamed cell's activation asks for before it reveals the cell.
@@ -575,6 +582,8 @@ namespace Desert::ECS
             }
         }
 
+        // A volume's overlaps in the log, by name (UE: a Trigger Volume's begin/end overlap is what a level
+        // designer checks first). The events themselves go to the volume's subscribers like any body's.
         static void LogVolumeOverlaps( entt::registry& registry, const std::vector<PhysicsEvent>& events )
         {
             const auto nameOf = [&registry]( entt::entity entity ) -> std::string

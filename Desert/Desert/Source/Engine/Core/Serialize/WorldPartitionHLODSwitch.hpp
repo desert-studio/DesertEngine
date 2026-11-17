@@ -11,7 +11,8 @@
 // the cell's meshes as InstancedStaticMesh records. In Play those records are ordinary entities for the whole
 // session, drawn by the ordinary instancing path; what changes is only their Visibility. UE's rule, verbatim:
 // an HLOD is visible exactly while its cell is NOT visible. A cell is visible when its records are entities —
-// Residency::Activated. Unloaded, Loading, Loaded (read but not yet made) and Failed all draw the HLOD.
+// Residency::Activated. Unloaded, Loading, Loaded (read but not yet made), Activating (part made,
+// hidden) and Failed all draw the HLOD.
 //
 // ── THE SAME FRAME, BOTH WAYS ───────────────────────────────────────────────────────────────────────
 //
@@ -261,8 +262,11 @@ namespace Desert::Core::Rules
                 for ( const std::size_t above : m_CellWaitsFor[cell] )
                     if ( !IsCellVisible( hlodState.Units[above].State ) )
                         gate.HoldActivation[cell] = 1;
+                // A world cell part made (Activating, hidden) holds it too: the HLOD stands in for it until the
+                // frame it is revealed whole, and its activation began only while the HLOD was drawn (WorldGate).
                 for ( const std::size_t unit : m_CellHeldByWorld[cell] )
-                    if ( IsCellVisible( state.Units[unit].State ) )
+                    if ( IsCellVisible( state.Units[unit].State ) ||
+                         state.Units[unit].State == Residency::Activating )
                         gate.HoldRelease[cell] = 1;
                 for ( const std::size_t child : m_CellHeldByCells[cell] )
                     if ( hlodState.Units[child].State != Residency::Unloaded )

@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -129,6 +130,10 @@ namespace Desert::ECS
             auto view = registry.view<ScriptComponent>();
             for ( auto entity : view )
             {
+                // A world partition cell still being made (WP-ACTIVATE-SLICED): its scripts start when the cell
+                // is revealed whole, as UE's actors BeginPlay only once AddToWorld has made their level visible.
+                if ( registry.has<StreamingPendingComponent>( entity ) )
+                    continue;
                 auto&          sc = view.get<ScriptComponent>( entity );
                 const uint32_t id = static_cast<uint32_t>( entity );
 

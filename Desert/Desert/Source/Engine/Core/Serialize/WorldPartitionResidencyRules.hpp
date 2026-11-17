@@ -18,9 +18,9 @@
 //
 // ── STATES ────────────────────────────────────────────────────────────────────────────────────────
 //
-//   Unloaded ──StartLoad──▶ Loading ──completed──▶ Loaded ──first slice──▶ Activating ──last slice,
-//                             │ failed                 ▲                                  collision ready──▶
-//                             Activated ▼                        └── an in-range cell waits here for the budget
+//   Unloaded ──StartLoad──▶ Loading ──completed──▶ Loaded ──first slice──▶ Activating ──last slice, collision
+//                             │ failed                 ▲                                  ready──▶ Activated
+//                             ▼                        └── an in-range cell waits here for the budget
 //                           Failed ──retry time reached, still wanted──▶ Loading
 //
 // Leaving range: Activated or Activating ─Deactivate+Unload─▶ Unloaded (an Activating unit's made part goes);
@@ -386,9 +386,10 @@ namespace Desert::Core::Rules
         if ( !keptWish.IsSuccess() )
             return Common::MakeError<ResidencyStep>( "StepResidency: " + keptWish.GetError() );
 
-        const std::vector<std::size_t> wanted = Detail::UnitsInOrder( plan, wished.GetValue() );
+        const std::vector<std::size_t> wanted      = Detail::UnitsInOrder( plan, wished.GetValue() );
+        const std::vector<std::size_t> keptInOrder = Detail::UnitsInOrder( plan, keptWish.GetValue() );
         std::vector<bool>              kept( unitCount, false );
-        for ( const std::size_t unit : Detail::UnitsInOrder( plan, keptWish.GetValue() ) )
+        for ( const std::size_t unit : keptInOrder )
             kept[unit] = true;
 
         // 3. Whatever is outside the band leaves, in unit order.
@@ -447,6 +448,25 @@ namespace Desert::Core::Rules
         {
             const UnitResidency& unit = state.Units[index];
             if ( unit.State != Residency::Loaded && unit.State != Residency::Activating )
+                continue;
+            if ( gate != nullptr && held( gate->HoldActivation, index ) )
+            {
+                ++step.WaitingForGate;
+                continue;
+            }
+            step.Actions.push_back( { ResidencyActionKind::Activate, index, 0 } );
+        }
+
+        // 6. A unit part made that the sources no longer want but that the band still keeps is finished too,
+        //    after every wanted unit, in priority order: its made part is hidden and already collides, and the
+        //    band keeps an Activated unit (UE finishes the AddToWorld it began). Left Activating it would stay
+        //    hidden and collidable for as long as the band holds it.
+        std::vector<bool> isWanted( unitCount, false );
+        for ( const std::size_t index : wanted )
+            isWanted[index] = true;
+        for ( const std::size_t index : keptInOrder )
+        {
+            if ( isWanted[index] || state.Units[index].State != Residency::Activating )
                 continue;
             if ( gate != nullptr && held( gate->HoldActivation, index ) )
             {

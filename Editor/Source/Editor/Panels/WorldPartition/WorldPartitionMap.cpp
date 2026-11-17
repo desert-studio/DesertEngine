@@ -209,6 +209,8 @@ namespace Desert::Editor::WorldPartitionMap
                 return CellState::Loading;
             case ::Desert::Core::Rules::Residency::Loaded:
                 return CellState::Loaded;
+            case ::Desert::Core::Rules::Residency::Activating:
+                return CellState::MakingVisible;
             case ::Desert::Core::Rules::Residency::Activated:
                 return CellState::Resident;
             case ::Desert::Core::Rules::Residency::Failed:
@@ -233,6 +235,8 @@ namespace Desert::Editor::WorldPartitionMap
                 return { 1.0f, 1.0f, 0.0f, kTile };
             case CellState::Loaded:
                 return { 0.0f, 1.0f, 1.0f, kTile };
+            case CellState::MakingVisible: // UE LEVEL_MakingVisible: FColor::Blue
+                return { 0.0f, 0.0f, 1.0f, kTile };
             case CellState::Resident:
                 return { 0.0f, 1.0f, 0.0f, kTile };
             case CellState::Failed:
@@ -260,6 +264,8 @@ namespace Desert::Editor::WorldPartitionMap
                 return "Loading";
             case CellState::Loaded:
                 return "Loaded, waiting to activate";
+            case CellState::MakingVisible:
+                return "Activating, hidden until whole";
             case CellState::Resident:
                 return "Resident";
             case CellState::Failed:
@@ -279,7 +285,8 @@ namespace Desert::Editor::WorldPartitionMap
         static constexpr std::array kEdit      = { CellState::Unstreamed };
         static constexpr std::array kEditor    = { CellState::EditorUnloaded, CellState::EditorPartial,
                                                    CellState::EditorLoaded };
-        static constexpr std::array kStreaming = { CellState::Unloaded, CellState::Loading, CellState::Loaded,
+        static constexpr std::array kStreaming = { CellState::Unloaded, CellState::Loading,
+                                                   CellState::Loaded,   CellState::MakingVisible,
                                                    CellState::Resident, CellState::Failed };
         if ( streaming )
             return kStreaming;
