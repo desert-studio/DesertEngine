@@ -31,7 +31,9 @@
 //     (LawChunk) - each kept record's row (GrassLawInstance, the law's one statement of it) into its slot of
 //     Instances (FPS-ARCH-GRASSROWS: the 64-byte rows are written once per law generation), its bucket + 1 into
 //     the chunk's code planes,
-//     the box of the kept instances' reach into its law words. (b) The kept box meets the views: each cascade
+//     the box of the kept instances' reach into its law words. A mesh record whose level differs at the row's two
+//     LOD eyes (LodEyes, the view's temporal LOD samples) gets a fade twin, its older level's row (LOD-DITHER-
+//     GRASS-SIDE; UE DitheredLODTransition), which mode 5 culls with it. (b) The kept box meets the views: each cascade
 //     list's caster box (none while the row's lists hold, kGrassRowCascadesHeld), the camera's side planes and the
 //     previous frame's HZB.
 //   5 THE CAMERA CULL'S INSTANCES (after mode 1, indirect by the work list): a lane per work item - a met
@@ -181,6 +183,10 @@ Shader "GrassCull"
         // up to their rounding (a few ulps), and the chunk must hold every instance's sphere.
         const float kChunkReachSlack = 1.0e-4;
 
+        // LOD-DITHER-GRASS-SIDE: a fade twin's slot rides in its record's row as a float (column 1 w), exact below
+        // 2^24.
+        const uint kGrassFadeTwinRows = 1u << 24u;
+
         shared uint s_Groups[64];
 
         // MetChunks' two lists (Rows.y met chunks, then Rows.z work items).
@@ -267,12 +273,33 @@ Shader "GrassCull"
             return index;
         }
 
+        // A mesh's level seen from @p eye (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::
+        // SelectLODFromBounds): the coarsest whose screen size the instance's bounding sphere (@p centre, the law's
+        // @p scale) is still below - at the distance x the Foliage quality's MeshLodDistanceScale (UE
+        // foliage.LODDistanceScale; p.Lod.y carries its square, GrassRenderer::PlanVariety).
+        uint GrassMeshLevel( GrassParams p, GrassWords args, vec3 centre, vec3 scale, vec3 eye )
+        {
+            float r        = p.Lod.x * max( scale.x, max( scale.y, scale.z ) );
+            vec3  d        = centre - eye;
+            float screenSq = r * r / max( 1.0, dot( d, d ) * p.Lod.y );
+            for ( uint level = p.Buckets.x - 1u; level > 0u; --level )
+            {
+                float halfSize = uintBitsToFloat( args.Words[p.Buckets.y + level * 4u + 3u] );
+                if ( halfSize * halfSize > screenSq )
+                    return level;
+            }
+            return 0u;
+        }
+
         // THE VIEW LAW (GRASS-VIEW-LAW-1, moved unchanged from GrassGenerate's tile cull, which is gone; UE landscape
         // grass: the instance cull's distance cull, LOD and PerInstanceFadeAmount, per view and frame): record @p r of
         // a variety with params @p p and bucket table in @p args - false when the law drops it, else its scale
         // @p outScale (GrassLawInstance makes its row of it) and its bucket @p outBucket. Everything view-dependent
-        // is here.
-        bool GrassViewLaw( GrassParams p, GrassWords args, TileRecord r, out vec3 outScale, out uint outBucket )
+        // is here. LOD-DITHER-GRASS-SIDE: a mesh's level is selected at the law's two LOD eyes (@p eyes, the row's
+        // LodEyes: [0] older, [1] newer) - @p outBucket the newer's, @p outOlder the older's; they differ while the
+        // instance cross-fades (LawChunk's fade twin). A blade's @p outOlder is its bucket.
+        bool GrassViewLaw( GrassParams p, GrassWords args, TileRecord r, vec4 eyes[2], out vec3 outScale,
+                           out uint outBucket, out uint outOlder )
         {
             vec2  world  = r.Position.xz;
             float height = r.Position.y;
@@ -380,25 +407,17 @@ Shader "GrassCull"
                 if ( p.Lod.w > 0.0 && lod.Level + 1u == bladeLevels && distance >= p.Lod.w )
                     bucket = bladeLevels;
             }
-            else if ( p.Buckets.x > 1u )
+            uint older = bucket;
+            if ( !blade && p.Buckets.x > 1u )
             {
-                // A mesh's level (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::
-                // SelectLODFromBounds): the coarsest whose screen size the instance's bounding sphere is still below.
-                float r        = p.Lod.x * max( scale.x, max( scale.y, scale.z ) );
-                vec3  d        = centre - p.Camera.xyz;
-                float screenSq = r * r / max( 1.0, dot( d, d ) * p.Lod.y );
-                for ( uint level = p.Buckets.x - 1u; level > 0u; --level )
-                {
-                    float halfSize = uintBitsToFloat( args.Words[p.Buckets.y + level * 4u + 3u] );
-                    if ( halfSize * halfSize > screenSq )
-                    {
-                        bucket = level;
-                        break;
-                    }
-                }
+                // A mesh's level at each LOD eye (UE ComputeStaticMeshLOD over the grass HISM's instances at the
+                // view's two temporal LOD samples, Geometry::SelectDitheredLODFromBounds).
+                bucket = GrassMeshLevel( p, args, centre, scale, eyes[1].xyz );
+                older  = GrassMeshLevel( p, args, centre, scale, eyes[0].xyz );
             }
             outScale  = scale;
             outBucket = bucket;
+            outOlder  = older;
             return true;
         }
 
@@ -833,10 +852,13 @@ Shader "GrassCull"
             outLow                = uvec4( 0u );
             outHigh               = uvec4( 0u );
             uint lawed            = slot == kGrassLawNoSlot ? 0u : run;
+            vec4 eyes[2] = VarietyRows[r].LodEyes;
             for ( uint base = 0u; base < lawed; base += gl_SubgroupSize )
             {
-                uint i    = base + gl_SubgroupInvocationID;
-                uint code = 0u;
+                uint i     = base + gl_SubgroupInvocationID;
+                uint code  = 0u;
+                uint older = 0u;
+                mat4 instance = mat4( 0.0 );
                 if ( i < lawed )
                 {
                     uint  record = GrassChunkRecord( first, page, i );
@@ -848,17 +870,51 @@ Shader "GrassCull"
                         TileRecord tile = GrassUnpackRecord( head0, quads.Quads[quad + 1u], quads.Quads[quad + 2u] );
                         vec3 scale;
                         uint b;
-                        if ( GrassViewLaw( p, args, tile, scale, b ) )
+                        if ( GrassViewLaw( p, args, tile, eyes, scale, b, older ) )
                         {
-                            mat4  instance = GrassLawInstance( tile, scale, blade, p.Lean.z );
-                            rows.Rows[slot + i] = instance;
-                            float reach    = ( ( abs( bounds.y ) + bounds.x ) * InstanceScale( instance ) + bounds.z ) *
+                            instance    = GrassLawInstance( tile, scale, blade, p.Lean.z );
+                            float reach = ( ( abs( bounds.y ) + bounds.x ) * InstanceScale( instance ) + bounds.z ) *
                                           ( 1.0 + kChunkReachSlack );
                             keptLo = min( keptLo, instance[3].xyz - vec3( reach ) );
                             keptHi = max( keptHi, instance[3].xyz + vec3( reach ) );
                             code   = b + 1u;
                         }
                     }
+                }
+                // LOD-DITHER-GRASS-SIDE, THE FADE TWIN (UE DitheredLODTransition: both levels drawn during the fade,
+                // complementary dither; the cascade lists' rest twins are the same idea): a kept record whose two
+                // LOD eyes select different levels takes a second slot of Instances, from the same counter as the
+                // runs (so the renderer, fed the uncapped count, grows LawCapacity by the twins). Its row is the
+                // record's with column 0 w = +1 (the older level fades out); the record's own row carries -1 (the
+                // newer fades in), the twin's slot in column 1 w and the older bucket in column 2 w (exact floats:
+                // InstancedWorldPosition and the normal matrix read only the columns' xyz, a mesh row's w are 0
+                // otherwise). Mode 5 culls the twin with its record (CameraInstances). A twin past LawCapacity, or
+                // past what a float holds exactly, is not made: the record draws its newer level alone (side 0).
+                bool  fades = code != 0u && older + 1u != code;
+                uvec4 twins = subgroupBallot( fades );
+                uint  n     = subgroupBallotBitCount( twins );
+                uint  twin  = kGrassLawNoSlot;
+                if ( n != 0u )
+                {
+                    uint taken = 0u;
+                    if ( subgroupElect() )
+                        taken = atomicAdd( chunks.Words[kGrassChunkSlotsUsedWord], n );
+                    twin = subgroupBroadcastFirst( taken ) + subgroupBallotExclusiveBitCount( twins );
+                    if ( !fades || twin >= VarietyRows[r].LawCapacity || twin >= kGrassFadeTwinRows )
+                        twin = kGrassLawNoSlot;
+                }
+                if ( code != 0u )
+                {
+                    if ( twin != kGrassLawNoSlot )
+                    {
+                        mat4 faded      = instance;
+                        faded[0].w      = 1.0;
+                        rows.Rows[twin] = faded;
+                        instance[0].w   = -1.0;
+                        instance[1].w   = float( twin );
+                        instance[2].w   = float( older );
+                    }
+                    rows.Rows[slot + i] = instance;
                 }
                 // Plane b's bits of records base..: the subgroup's ballot of its lanes' code bit b, placed at base.
                 for ( uint plane = 0u; plane < 4u; ++plane )
@@ -1133,9 +1189,23 @@ Shader "GrassCull"
             // LawCapacity rows and the pool's next range lies past them.
             if ( slot == kGrassLawNoSlot || row >= VarietyRows[r].LawCapacity )
                 return;
-            mat4 instance = GrassLawRows( VarietyRows[r].Instances ).Rows[row];
-            CullInstance( r, code - 1u, row, instance, met & kCascadeViews, ( met & kCameraView ) != 0u,
-                          ( met & kChunkHidden ) != 0u, held );
+            GrassLawRows rows     = GrassLawRows( VarietyRows[r].Instances );
+            mat4         instance = rows.Rows[row];
+            uint         views    = met & kCascadeViews;
+            bool         seen     = ( met & kCameraView ) != 0u;
+            bool         hidden   = ( met & kChunkHidden ) != 0u;
+            CullInstance( r, code - 1u, row, instance, views, seen, hidden, held );
+            // LOD-DITHER-GRASS-SIDE: a record in a LOD cross-fade (column 0 w = -1, LawChunk's fade twin) brings its
+            // twin - the older level's row, at the slot its column 1 w names, into the older bucket (column 2 w) -
+            // to the same views (the same transform, so the same tests): the two levels' dithers are complementary.
+            // A blade's column 0 w is its draw (>= 0), never a side.
+            if ( ( VarietyRows[r].Info.z & kGrassRowBlade ) == 0u && instance[0].w < 0.0 )
+            {
+                uint twin  = uint( instance[1].w );
+                uint older = uint( instance[2].w );
+                if ( twin < VarietyRows[r].LawCapacity && older < VarietyRows[r].Info.x )
+                    CullInstance( r, older, twin, rows.Rows[twin], views, seen, hidden, held );
+            }
         }
 
         // Mode 3: one thread per frozen candidate of every row.

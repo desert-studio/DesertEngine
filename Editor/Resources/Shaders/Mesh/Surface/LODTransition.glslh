@@ -1,0 +1,30 @@
+// THE DITHERED LOD TRANSITION's clip (UE Common.ush ClipLODTransition, the DitheredLODTransition of a mesh batch):
+// while an instance's two temporal LOD samples select different levels (Geometry::SelectDitheredLODFromBounds,
+// InstanceCull.shader SelectLodMask) the cull draws both, the older tagged DESERT_GPU_VISIBLE_LOD_FADE_OUT and the
+// newer _FADE_IN (Common/GpuScene.glslh DesertMeshDraw::LodFadeSide +1 / -1). Each keeps the pixels a fixed
+// screen-space noise puts on its side of the view's fade (CameraUB::LodTransition.x, Geometry::TemporalLODState):
+// the two sets are complementary at every moment, so the object is whole while its pixels move from one level to
+// the other over Geometry::kLODTemporalLagSeconds, and the temporal filter resolves the dither.
+// The factor is Geometry::LODTransitionFactor: the transition for the older level, the transition - 1 for the
+// newer.
+// Clipping happens in the cells that already clip (Masked: DESERT_SURFACE_CLIP), the depth prepass, the base pass
+// and every other pass header of the cell alike, so the base pass's equal depth test keeps what the prepass kept.
+#ifndef DESERT_SURFACE_LOD_TRANSITION_GLSLH
+#define DESERT_SURFACE_LOD_TRANSITION_GLSLH
+
+// True when the pixel at @p svPosition (gl_FragCoord.xy) belongs to the other level of the transition: @p side is
+// DesertMeshDraw::LodFadeSide (+1 older, -1 newer, 0 no transition), @p transition CameraUB::LodTransition.x.
+bool DesertLODTransitionClipped( const vec2 svPosition, const float side, const float transition )
+{
+    if ( side == 0.0 )
+        return false;
+    const float factor = side > 0.0 ? transition : transition - 1.0;
+    if ( abs( factor ) <= 0.001 )
+        return false;
+    const float randCos   = cos( dot( floor( svPosition ), vec2( 347.83451793, 3343.28371963 ) ) );
+    const float randomVal = fract( randCos * 1000.0 );
+    const bool  keep      = factor < 0.0 ? ( factor + 1.0 > randomVal ) : ( factor < randomVal );
+    return !keep;
+}
+
+#endif

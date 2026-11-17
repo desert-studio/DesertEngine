@@ -72,6 +72,8 @@ namespace Desert::Graphic
             // permutation declare them, every other cell skips them).
             DrawRowsLo,
             DrawRowsHi,
+            // A CPU-recorded Masked draw's side of a dithered LOD transition (Common/MaterialTransport.glslh).
+            LodFadeSide,
             Count
         };
         static constexpr size_t kFieldCount = static_cast<size_t>( FieldId::Count );
@@ -79,7 +81,7 @@ namespace Desert::Graphic
         static constexpr std::array<std::string_view, kFieldCount> kFieldNames = {
              "Transform", "PrimitiveIndex", "MaterialIndex", "PrimitiveFlags",       "WindA",
              "WindB",     "BoneOffset",     "ShadowSlope",   "SkinCacheVertexCount", "SkinCacheAddressLo",
-             "SkinCacheAddressHi", "DrawRowsLo",     "DrawRowsHi" };
+             "SkinCacheAddressHi", "DrawRowsLo",     "DrawRowsHi",    "LodFadeSide" };
 
         // CPU-FRAME-ARENA 3 (UE FMeshDrawCommand: the shader bindings live inline in the command, no allocation
         // per draw): each FieldId's size is its setter's type, so every field has a fixed place in the command's
@@ -88,7 +90,7 @@ namespace Desert::Graphic
         static constexpr std::array<uint32_t, kFieldCount> kFieldBytes = {
              sizeof( glm::mat4 ), sizeof( uint32_t ), sizeof( uint32_t ),  sizeof( uint32_t ), sizeof( glm::vec4 ),
              sizeof( glm::vec4 ), sizeof( uint32_t ), sizeof( glm::vec2 ), sizeof( uint32_t ), sizeof( uint32_t ),
-             sizeof( uint32_t ),  sizeof( uint32_t ), sizeof( uint32_t ) };
+             sizeof( uint32_t ),  sizeof( uint32_t ), sizeof( uint32_t ),  sizeof( float ) };
         // A namespace-scope function (DrawPushFieldsDetail): MSVC does not evaluate a member function of a class
         // still being defined in a constant expression (C2131).
         static constexpr std::array<uint32_t, kFieldCount> kValueOffsets =
@@ -172,6 +174,14 @@ namespace Desert::Graphic
         {
             Write<FieldId::DrawRowsLo>( static_cast<uint32_t>( address & 0xffffffffu ), false );
             return Write<FieldId::DrawRowsHi>( static_cast<uint32_t>( address >> 32u ), false );
+        }
+
+        // THE DITHERED LOD TRANSITION of a CPU-recorded draw (MeshRenderer::ComputeDitheredLOD; UE FMeshBatch
+        // bDitheredLODTransition): +1 the older level, -1 the newer, 0 none. A Masked cell clips the other side's
+        // pixels (Mesh/Surface/LODTransition.glslh); a cell without the field skips it.
+        DrawPushFields& LodFadeSide( const float side ) noexcept
+        {
+            return Write<FieldId::LodFadeSide>( side, false );
         }
 
         [[nodiscard]] bool IsEmpty() const noexcept

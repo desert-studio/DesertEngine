@@ -88,8 +88,8 @@
 
 // Directional light is a CUSTOM entry: the reflected fields PLUS the one direction widget (a sun dial over the
 // entity's Rotation, the light's forward axis -Z, as UE). See MakeDirectionalLightEntry.
-// Point / spot light: the reflected fields, plus UE ULocalLightComponent::PostEditChangeProperty - a change of
-// Intensity Units re-states Intensity in the new units, so the light keeps its brightness (LightPhotometry).
+// Point / spot / rect light: the reflected fields, plus UE ULocalLightComponent::PostEditChangeProperty - a change
+// of Intensity Units re-states Intensity in the new units, so the light keeps its brightness (LightPhotometry).
 namespace
 {
     const int _desert_pointlight_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
@@ -115,6 +115,23 @@ namespace
                   after.Intensity = ::Desert::ECS::LightPhotometry::ConvertIntensity(
                        before.Intensity, before.IntensityUnits, after.IntensityUnits, after.Falloff, 0.0f,
                        std::cos( glm::radians( after.OuterConeAngle ) ) );
+              } ) );
+
+    // Rect light (UE URectLightComponent): the same re-statement. A rect is physical by construction - no falloff
+    // choice, Unitless read as candelas (LightPhotometry::RectShaderLuminance) - so the value goes through the
+    // candelas with the Lambertian emitter's lumen cone, the one the renderer converts it with.
+    const int _desert_rectlight_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+         ::Desert::Editor::MakeReflectedComponentEntry<::Desert::ECS::RectLightComponent>(
+              "Rect Light", "RectLightData", &::Desert::ECS::RectLightComponent::Data, true,
+              []( const ::Desert::ECS::RectLightData& before, ::Desert::ECS::RectLightData& after )
+              {
+                  if ( before.IntensityUnits == after.IntensityUnits )
+                      return;
+                  namespace Photometry = ::Desert::ECS::LightPhotometry;
+                  const float candelas = Photometry::ToCandelas( before.Intensity, before.IntensityUnits,
+                                                                 Photometry::kRectLightLumensCosHalfCone );
+                  after.Intensity      = Photometry::FromCandelas( candelas, after.IntensityUnits,
+                                                                   Photometry::kRectLightLumensCosHalfCone );
               } ) );
 } // namespace
 // Camera is a CUSTOM entry: reflected fields + a focal-length readout and "look through". See MakeCameraEntry.

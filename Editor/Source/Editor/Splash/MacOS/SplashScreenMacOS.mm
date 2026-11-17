@@ -339,7 +339,8 @@ namespace Desert::Editor::Splash
             }
 
             m_WindowId = static_cast<CGWindowID>( m_Window.windowNumber );
-            m_Thread   = Common::StartEngineThread( [this] { Run(); } );
+            m_Thread   = Common::StartEngineThread( "Splash Screen", Common::ThreadPriority::Normal,
+                                                  [this]() noexcept { Run(); } );
         }
 
         ~SplashScreenMacOS() override
