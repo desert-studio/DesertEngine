@@ -116,6 +116,16 @@ namespace Desert::Graphic
         {
             return m_TwoSided;
         }
+        // The asset's EmissiveLightsScene (MaterialData::EmissiveLightsScene, absent = off): its emissive segments
+        // are MegaLights area lights (SceneRenderer::AddFrameEmissiveLights). An instance may override it.
+        void SetEmissiveLightsScene( const bool lightsScene ) noexcept
+        {
+            m_EmissiveLightsScene = lightsScene;
+        }
+        [[nodiscard]] bool IsEmissiveLightsScene() const noexcept
+        {
+            return m_EmissiveLightsScene;
+        }
 
         // Name the row of the shared `Materials[]` storage buffer that the NEXT recorded draw reads.
         //
@@ -352,5 +362,6 @@ namespace Desert::Graphic
 
         ResourceOwnership m_Accounting;
         bool              m_TwoSided = false;
+        bool              m_EmissiveLightsScene = false;
     };
 } // namespace Desert::Graphic
