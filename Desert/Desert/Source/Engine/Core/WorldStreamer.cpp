@@ -352,7 +352,7 @@ namespace Desert::Core
                     for ( std::size_t unit = plan.AlwaysLoaded.size();
                           !streamed && unit < Rules::ResidencyUnitCount( plan ); ++unit )
                     {
-                        const std::string name = Rules::DescribeResidencyUnit( plan, unit );
+                        const std::string name = Rules::HLODRowName( *partition, plan, unit );
                         const auto        row  = rows.find( name );
                         if ( staleUnits.contains( name ) || row == rows.end() )
                         {
@@ -942,8 +942,11 @@ namespace Desert::Core
                   "{3}; after: {4}",
                   m_SceneName, hlods.size(), recordCount, before.Describe(),
                   Common::Utils::ReadProcessFootprint().Describe() );
+        // The layers' states from the first Sync on (WP-HLOD-DATA-LAYERS): an HLOD of a cell whose runtime data
+        // layers start Unloaded or Loaded is never shown, not even for the frame before the first Tick.
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
-        if ( auto synced = m_HLODs->Sync( Executor().State(), nullptr, *this, Executor().UnitDataLayerStates() ); !synced )
+        if ( auto synced = m_HLODs->Sync( Executor().State(), nullptr, *this, Executor().UnitDataLayerStates() );
+             !synced )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + synced.GetError() );
         // From here on every switch is an event a flight reads (WP22c): the first Sync above set them all.
         m_HLODSwitchesSaid = true;
@@ -1035,9 +1038,16 @@ namespace Desert::Core
                                " failed: " + instantiated.GetError() );
             return BOOLSUCCESS;
         };
+        // Only the tops of no runtime data layer (WP-HLOD-DATA-LAYERS): one of runtime layers streams by their
+        // state from the first Tick, as the world's always-loaded composites of runtime layers do
+        // (ResidencyExecutor::BeginFromAlwaysLoaded marks activated exactly the units made here).
         for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
+        {
+            if ( !Rules::UnitRuntimeDataLayers( r.Plan, r.Partition, a ).empty() )
+                continue;
             if ( auto ok = makeUnit( a ); !ok )
                 return ok;
+        }
         for ( const std::size_t unit : atBegin )
         {
             if ( auto ok = makeUnit( unit ); !ok )
@@ -1050,9 +1060,13 @@ namespace Desert::Core
         if ( !executor )
             return failed( "the HLOD cells: " + executor.GetError() );
         m_HLODExecutor = executor.ExtractValue();
+        // With both residencies' data layer states, as every TickWithHLODs Sync after it (WP-HLOD-DATA-LAYERS).
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
-        if ( auto synced = m_HLODs->Sync( Executor().State(), &m_HLODExecutor->State(), *this,
-                                             Executor().UnitDataLayerStates() );
+        const Rules::ResidencyExecutor& hlodCells = *m_HLODExecutor;
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
+        Rules::HLODRuntime& hlodSwitch = *m_HLODs;
+        if ( auto synced = hlodSwitch.Sync( Executor().State(), &hlodCells.State(), *this,
+                                            Executor().UnitDataLayerStates(), hlodCells.UnitDataLayerStates() );
              !synced )
             return failed( synced.GetError() );
         m_HLODSwitchesSaid = true;
