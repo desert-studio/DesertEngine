@@ -89,6 +89,17 @@ namespace Desert::Graphic::VirtualGeometry
             glm::uvec4 Params2{ 0u }; // x = 1 when a HZB is bound, y = occluded carry capacity, z = 1 post phase
             glm::uvec4 Params3{ 0u }; // x = first cut view of the dispatch, y = its views
         };
+        static_assert( sizeof( CutPush ) == 48u,
+                       "ClusterCut.shader PushConstants: uvec4 Params, Params2, Params3" );
+
+        // RasterBinning.shader's push block - its own layout, not ClusterCut's: the binning program declares two
+        // uvec4 (Params, Params2), and the RDG refuses a pass whose push size differs from its shader's.
+        struct BinPush
+        {
+            glm::uvec4 Params{ 0u };  // step, visible capacity, group count, primitive rows of the pass table
+            glm::uvec4 Params2{ 0u }; // draw slot rows, bin rows, vertices per cluster draw, cut views counted
+        };
+        static_assert( sizeof( BinPush ) == 32u, "RasterBinning.shader PushConstants: uvec4 Params, Params2" );
 
         template <typename T>
         std::span<const std::byte> Bytes( const std::vector<T>& values )
@@ -442,7 +453,7 @@ namespace Desert::Graphic::VirtualGeometry
         const uint32_t           threads   = ( culled.VisibleCapacity + kBinGroupSize - 1u ) / kBinGroupSize;
         for ( const uint32_t step : { kBinStepCount, kBinStepOffsets, kBinStepScatter } )
         {
-            const CutPush  push{ glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
+            const BinPush  push{ glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
                                 glm::uvec4( slots, binRows, Geometry::kClusterMaxTriangles * 3u, countViews ) };
             const uint32_t groupsX = step == kBinStepOffsets ? 1u : threads;
             graph.AddPass(
@@ -468,7 +479,7 @@ namespace Desert::Graphic::VirtualGeometry
                           .Storage( P::RasterBinningGroupCursor, cursor, W )
                           .Storage( P::RasterBinningRows, bins.Rows, W )
                           .Storage( P::RasterBinningGroupViewCounts, bins.GroupViewCounts, W )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( CutPush ) ) );
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( BinPush ) ) );
                  },
                  [pipeline = program.Pipeline, push, groupsX]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
