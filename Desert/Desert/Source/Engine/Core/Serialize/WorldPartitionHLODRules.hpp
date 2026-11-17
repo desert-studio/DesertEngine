@@ -401,7 +401,8 @@ namespace Desert::Core::Rules
             // THE BUILDER'S NAME (UE UHLODLayer::HLODBuilderClass, read only for EHLODLayerType::Custom).
             const bool custom = layer.Type == HLODLayerType::Custom;
             if ( custom && ( !layer.Builder.has_value() || layer.Builder->empty() ) )
-                return Common::MakeError<bool>( "HLOD layer '" + layer.Name + "' is Custom and names no Builder" );
+                return Common::MakeError<bool>(
+                     std::format( "HLOD layer '{}' is Custom and names no Builder", layer.Name ) );
             if ( !custom && layer.Builder.has_value() )
                 return Common::MakeError<bool>(
                      std::format( "HLOD layer '{}' is {} and names Builder '{}', which only a Custom layer reads",

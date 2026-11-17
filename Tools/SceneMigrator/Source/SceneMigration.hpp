@@ -516,9 +516,8 @@ namespace Desert::Migration
     //       layers it would stream as if they were not there. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
 
-    //   4 - HLOD BUILDERS BY NAME (WP-HLOD-BUILDERS; UE UHLODLayer::HLODBuilderClass + HLODBuilderSettings). A
-    //   layer
-    //       states its builder's `Settings` object and a Custom layer its `Builder`; MeshSimplify's
+    //   4 - HLOD BUILDERS BY NAME (WP-HLOD-BUILDERS; UE UHLODLayer::HLODBuilderClass + HLODBuilderSettings).
+    //       A layer states its builder's `Settings` object and a Custom layer its `Builder`; MeshSimplify's
     //       SimplifyTrianglePercent is its Settings' TrianglePercent: every layer stating it states
     //       {"TrianglePercent": <the same number>} instead (MigrateHLODBuilderSettingsV3ToV4). Scenes only carry
     //       layers; a prefab's chain raises the number and changes nothing.
@@ -1418,9 +1417,10 @@ namespace Desert::Migration
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
-                   RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
-                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised || GrassRasterPathRaised || HLODBuildersRaised;
+                   RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised ||
+                   RuntimeDataLayersRaised || ReflectedAssetRefsRaised || SunRotationRaised ||
+                   VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised || FilmicDefaultRaised ||
+                   GrassRasterPathRaised || HLODBuildersRaised;
         }
     };
 

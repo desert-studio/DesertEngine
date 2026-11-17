@@ -5815,7 +5815,7 @@ namespace Desert::Migration
             if ( moved )
                 report.HLODSimplifySettingsMoved = moved.GetValue();
             else
-                report.Refused = scene.SceneName + ": " + moved.GetError();
+                report.Refused = std::format( "{}: {}", scene.SceneName, moved.GetError() );
         }
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );

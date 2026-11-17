@@ -1331,7 +1331,7 @@ namespace Desert::Core::WorldCells
         if ( const std::vector<std::string> refused =
                   Rules::HLODLayerBuilderIssues( *scene.WorldPartition, builders );
              !refused.empty() )
-            return Common::MakeError<Result>( "'" + scene.SceneName + "': " + refused.front() );
+            return Common::MakeError<Result>( std::format( "'{}': {}", scene.SceneName, refused.front() ) );
 
         const auto&                     records       = scene.Entities;
         Common::Json::Issues            issues        = hp.Plan.Issues;

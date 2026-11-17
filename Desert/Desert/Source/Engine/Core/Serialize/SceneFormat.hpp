@@ -154,7 +154,7 @@ namespace Desert::Core
     // (WP-HLOD-BUILDERS): an HLOD layer's builder is a registered one (UE UHLODLayer::HLODBuilderClass) with its
     // own settings object (UE HLODBuilderSettings): the layer states `Settings`, read by its builder alone, and a
     // Custom layer its `Builder`. MeshSimplify's SimplifyTrianglePercent is its builder's Settings.TrianglePercent
-    // (Tools/ SceneMigrator, MigrateHLODBuilderSettingsV3ToV4); the number moves so a v3 build refuses a layer it
+    // (Tools/SceneMigrator, MigrateHLODBuilderSettingsV3ToV4); the number moves so a v3 build refuses a layer it
     // cannot build.
     inline constexpr int kWorldPartitionVersion = 4;
 
@@ -256,9 +256,8 @@ namespace Desert::Core
     //                  Simplify - Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp) down to its Settings'
     //                  TrianglePercent of its triangles (Core::HLODMeshSimplifySettings). What a far cell should
     //                  cost.
-    //   Custom       - UE EHLODLayerType::Custom + HLODBuilderClass: the builder the layer's `Builder` names,
-    //   which
-    //                  a project or game module registered (Rules::HLODBuilderRegistry::Register).
+    //   Custom       - UE EHLODLayerType::Custom + HLODBuilderClass: the builder the layer's `Builder`
+    //                  names, which a project or game module registered (Rules::HLODBuilderRegistry::Register).
     // The built mesh is stored INSIDE the cell's HLOD file, as a StaticMesh record's EditMesh: UE writes its
     // merged UStaticMesh into the HLOD actor's own package for the same reason - it is derived from the cell
     // and belongs to nobody else.
@@ -284,7 +283,7 @@ namespace Desert::Core
         std::optional<std::string> Builder;
         // UE UHLODLayer::HLODBuilderSettings (WP v4): the builder's own settings object (UE: the
         // UHLODBuilderSettings subclass its GetSettingsClass names), read and checked by that builder alone
-        // (IHLODBuilder:: ValidateSettings) - MeshSimplify's is {"TrianglePercent": ...}. A builder that reads
+        // (IHLODBuilder::ValidateSettings) - MeshSimplify's is {"TrianglePercent": ...}. A builder that reads
         // none refuses any, so a number nobody reads cannot sit in a file looking like a setting. Absent = the
         // layer states none.
         std::optional<Common::Json::Value> Settings;

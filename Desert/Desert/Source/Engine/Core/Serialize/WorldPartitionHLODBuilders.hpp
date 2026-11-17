@@ -86,7 +86,7 @@ namespace Desert::Core::Rules
             return Common::MakeError<T>( "it states no Settings" );
         auto read = Common::Json::Read<T>( Common::Json::Write( *settings ) );
         if ( !read )
-            return Common::MakeError<T>( "Settings: " + read.GetError() );
+            return Common::MakeError<T>( std::format( "Settings: {}", read.GetError() ) );
         return read;
     }
 
@@ -242,12 +242,23 @@ namespace Desert::Core::Rules
         std::shared_ptr<const IHLODBuilder>                                     m_Landscape;
     };
 
+    // Which layers the builders are asked about: every one, or only those whose builder IS registered.
+    enum class HLODBuilderScope
+    {
+        EveryLayer,
+        RegisteredOnly,
+    };
+
     // WHAT THE BUILDERS SAY OF THE WORLD'S LAYERS (UE: a layer whose builder class is not loaded, or whose
     // settings its builder refuses, fails Build HLODs): one line per layer refused, "HLOD layer '<name>': <why>",
-    // in layer order. Empty = every layer can be built. The World Partition panel shows each line; Build HLODs
-    // refuses with the first (WorldCells::BuildWorldHLODs).
+    // in layer order. Empty = every layer can be built. EveryLayer: the World Partition panel shows each line;
+    // Build HLODs refuses with the first (WorldCells::BuildWorldHLODs). RegisteredOnly (UE: a settings object's
+    // own checks, run as it is edited): only the Settings a registered builder refuses - what the editor's
+    // EditWorldPartition refuses when an edit introduces it, while a builder this process has not registered
+    // stays a red line and not a refusal, so a world of another module's builders is still edited.
     [[nodiscard]] inline std::vector<std::string>
-    HLODLayerBuilderIssues( const WorldPartitionSerialized& partition, const HLODBuilderRegistry& builders )
+    HLODLayerBuilderIssues( const WorldPartitionSerialized& partition, const HLODBuilderRegistry& builders,
+                            HLODBuilderScope scope = HLODBuilderScope::EveryLayer )
     {
         std::vector<std::string> issues;
         if ( !partition.HLODLayers.has_value() )
@@ -257,7 +268,8 @@ namespace Desert::Core::Rules
             auto builder = builders.BuilderOf( layer );
             if ( !builder )
             {
-                issues.push_back( std::format( "HLOD layer '{}': {}", layer.Name, builder.GetError() ) );
+                if ( scope == HLODBuilderScope::EveryLayer )
+                    issues.push_back( std::format( "HLOD layer '{}': {}", layer.Name, builder.GetError() ) );
                 continue;
             }
             const Common::Json::Value* settings = layer.Settings.has_value() ? &*layer.Settings : nullptr;
