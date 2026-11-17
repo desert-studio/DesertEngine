@@ -113,6 +113,7 @@ namespace Desert::Core::Rules
         std::size_t UnboundReferences = 0;
         std::size_t WaitingForBudget  = 0;
         std::size_t WaitingForGate    = 0; // wanted Loaded units the step's ResidencyGate held back
+        std::size_t HeldByDataLayers  = 0; // wanted Loaded units their data layers keep Loaded (WP-DATA-LAYERS-RUNTIME)
         std::size_t StaleOutcomes     = 0;
         // Units whose loaded records were let go this tick (after a Deactivate, or a Loaded unit leaving range).
         std::size_t UnitsUnloaded = 0;
@@ -193,8 +194,11 @@ namespace Desert::Core::Rules
             auto wished = QueryStreamingCells( executor.m_Plan, executor.m_Partition, sources );
             if ( !wished.IsSuccess() )
                 return Common::MakeError<ResidencyExecutor>( "ResidencyExecutor: " + wished.GetError() );
+            // A wanted unit whose data layers are not Activated is destroyed with the rest: Unloaded is not read,
+            // and Loaded is read by the first Tick (its records come back from the cell source, not from Edit).
             for ( const std::size_t unit : Detail::UnitsInOrder( executor.m_Plan, wished.GetValue() ) )
-                executor.MarkActivated( unit );
+                if ( executor.m_UnitLayerStates[unit] == DataLayerRuntimeState::Activated )
+                    executor.MarkActivated( unit );
             std::vector<std::size_t> leaving;
             for ( std::size_t record = 0; record < records.size(); ++record )
                 if ( !executor.m_Live[record] )
@@ -220,8 +224,11 @@ namespace Desert::Core::Rules
             if ( !made.IsSuccess() )
                 return made;
             ResidencyExecutor executor = made.ExtractValue();
+            // The always-loaded records the caller made: those of no runtime data layer. One in runtime layers is
+            // in a file of its layers (WorldCells: AlwaysLoaded_DL...) and streams by their state from the first Tick.
             for ( std::size_t unit = 0; unit < executor.m_Plan.AlwaysLoaded.size(); ++unit )
-                executor.MarkActivated( unit );
+                if ( UnitRuntimeDataLayers( executor.m_Plan, executor.m_Partition, unit ).empty() )
+                    executor.MarkActivated( unit );
             for ( const std::size_t unit : madeCells )
             {
                 if ( unit < executor.m_Plan.AlwaysLoaded.size() || unit >= ResidencyUnitCount( executor.m_Plan ) )
@@ -246,7 +253,7 @@ namespace Desert::Core::Rules
         {
             const std::vector<LoadOutcome> finished = world.TakeLoadOutcomes();
             auto stepped = StepResidency( m_Plan, m_Partition, sources, m_Settings, std::move( m_State ), finished,
-                                          nowSeconds, gate );
+                                          nowSeconds, gate, m_UnitLayerStates );
             if ( !stepped.IsSuccess() )
                 return Common::MakeError<ResidencyTick>( stepped.GetError() );
             ResidencyStep step = stepped.ExtractValue();
@@ -258,6 +265,7 @@ namespace Desert::Core::Rules
             tick.WaitingForBudget = step.WaitingForBudget;
             tick.WaitingForGate   = step.WaitingForGate;
             tick.StaleOutcomes    = step.StaleOutcomes;
+            tick.HeldByDataLayers = step.HeldByDataLayers;
             for ( const ResidencyAction& action : step.Actions )
             {
                 const std::vector<std::size_t>& records = m_UnitRecords.at( action.Unit );
@@ -312,6 +320,35 @@ namespace Desert::Core::Rules
             return m_State;
         }
 
+        // UE UDataLayerManager::SetDataLayerInstanceRuntimeState: layer @p layer (index into the world's DataLayers)
+        // goes to @p state; the next Tick loads, activates, deactivates or releases its units accordingly. Refused
+        // for a layer that does not exist or is an Editor layer (it has no runtime state).
+        [[nodiscard]] Common::ResultStr<bool> SetDataLayerState( std::size_t layer, DataLayerRuntimeState state )
+        {
+            if ( layer >= m_LayerStates.size() || !m_Partition.DataLayers.has_value() )
+                return Common::MakeError<bool>(
+                     std::format( "data layer {} of {}", layer, m_LayerStates.size() ) );
+            if ( ( *m_Partition.DataLayers )[layer].Type != DataLayerType::Runtime )
+                return Common::MakeError<bool>( std::format( "the data layer '{}' is an Editor layer and has no "
+                                                             "runtime state",
+                                                             ( *m_Partition.DataLayers )[layer].Name ) );
+            m_LayerStates[layer] = state;
+            m_UnitLayerStates    = DataLayerUnitStates( m_Plan, m_Partition, m_LayerStates );
+            return Common::MakeSuccess( true );
+        }
+
+        // Each world layer's runtime state (index = layer; an Editor layer's is Activated: it gates nothing).
+        [[nodiscard]] const std::vector<DataLayerRuntimeState>& DataLayerStates() const
+        {
+            return m_LayerStates;
+        }
+
+        // Each unit's effective state (DataLayerUnitStates of the above).
+        [[nodiscard]] const std::vector<DataLayerRuntimeState>& UnitDataLayerStates() const
+        {
+            return m_UnitLayerStates;
+        }
+
         [[nodiscard]] bool IsLive( std::size_t record ) const
         {
             return m_Live.at( record );
@@ -346,6 +383,12 @@ namespace Desert::Core::Rules
             const std::size_t unitCount = ResidencyUnitCount( executor.m_Plan );
             executor.m_UnitRecords.resize( unitCount );
             executor.m_UnitOfRecord.assign( recordCount, kNoRecord );
+            // Play and a packaged game alike start every runtime layer in its InitialRuntimeState.
+            auto initial = InitialDataLayerStates( executor.m_Partition );
+            if ( !initial.IsSuccess() )
+                return Common::MakeError<ResidencyExecutor>( "ResidencyExecutor: " + initial.GetError() );
+            executor.m_LayerStates     = initial.ExtractValue();
+            executor.m_UnitLayerStates = DataLayerUnitStates( executor.m_Plan, executor.m_Partition, executor.m_LayerStates );
             for ( std::size_t unit = 0; unit < unitCount; ++unit )
             {
                 executor.m_UnitRecords[unit] = ResidencyUnitMembers( executor.m_Plan, unit );
@@ -392,6 +435,8 @@ namespace Desert::Core::Rules
         std::vector<std::vector<std::size_t>> m_RefsFrom;     // per record: observation targets
         std::vector<std::vector<std::size_t>> m_RefsTo;       // per record: who observes it
         std::vector<bool>                     m_Live;         // per record: an entity right now
+        std::vector<DataLayerRuntimeState>    m_LayerStates;     // per world data layer (SetDataLayerState)
+        std::vector<DataLayerRuntimeState>    m_UnitLayerStates; // per unit: DataLayerUnitStates of the above
     };
 
     // THE ONE DECISION AT THE START OF PLAY: does this world stream? Only a scene whose file states a
