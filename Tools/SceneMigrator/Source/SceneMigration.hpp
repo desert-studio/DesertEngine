@@ -70,8 +70,9 @@ namespace Desert::Migration
         std::optional<float> ChunkRegionSize;
         // Core::WorldPartitionSerialized::DataLayers (WP v2), carried through untouched (no step reads it).
         std::optional<std::vector<Core::DataLayerSerialized>> DataLayers;
-        // Core::WorldPartitionSerialized::DataLayersLogicOperator (WP v3): Or when a file does not state it.
-        Core::WorldPartitionDataLayersLogicOperator DataLayersLogicOperator = Core::WorldPartitionDataLayersLogicOperator::Or;
+        // Core::WorldPartitionSerialized::DataLayersLogicOperator (WP v3), carried through. Optional HERE because this
+        // tool's read is strict (no rfl::DefaultIfMissing) and no v1/v2 file states it; absent, the engine reads Or.
+        std::optional<Core::WorldPartitionDataLayersLogicOperator> DataLayersLogicOperator;
         // v50..v66 files only.
         std::optional<std::string> DefaultHLODLayer;
     };
@@ -104,7 +105,9 @@ namespace Desert::Migration
         std::string                                               Name;
         std::vector<Assets::EntityData>                           Entities;
         Common::UUID                                              Root;
-        Assets::PrefabRuntimeBehavior RuntimeBehavior = Assets::PrefabRuntimeBehavior::Partitioned; // WP v4
+        // Assets::PrefabData::RuntimeBehavior (WP v4). Optional HERE because this tool's read is strict (no
+        // rfl::DefaultIfMissing) and no file before v4 states it; ToEnginePrefab writes it, Partitioned when absent.
+        std::optional<Assets::PrefabRuntimeBehavior> RuntimeBehavior;
         // Pre-v26 files only; read so a refusal can name the version, never written.
         std::optional<int> SceneVersion;
         std::optional<int> UnitVersion;
@@ -117,7 +120,8 @@ namespace Desert::Migration
     [[nodiscard]] inline Assets::PrefabData ToEnginePrefab( const PrefabData& prefab )
     {
         return Assets::PrefabData{ prefab.Header,   prefab.Bounds, prefab.Name,
-                                   prefab.Entities, prefab.Root,   prefab.RuntimeBehavior };
+                                   prefab.Entities, prefab.Root,
+                                   prefab.RuntimeBehavior.value_or( Assets::PrefabRuntimeBehavior::Partitioned ) };
     }
 
     // THE MINIMUM GENERATION THIS TOOL READS. A file stating less than this - on either integer - is
@@ -1394,7 +1398,7 @@ namespace Desert::Migration
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised || RuntimeDataLayersRaised ||
-                   ReflectedAssetRefsRaised ||
+                   PrefabRuntimeBehaviorRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
                    FilmicDefaultRaised || GrassRasterPathRaised;
         }

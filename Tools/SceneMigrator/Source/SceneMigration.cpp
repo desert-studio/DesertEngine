@@ -5077,7 +5077,9 @@ namespace Desert::Migration
             const std::ifstream in( located.GetValue().File, std::ios::binary );
             std::ostringstream  text;
             text << in.rdbuf();
-            const auto prefab = rfl::json::read<Assets::PrefabData>( text.str() );
+            // The tool's own mirror: a prefab not yet at WP v4 states no RuntimeBehavior, which the engine's
+            // struct requires under a strict read.
+            const auto prefab = rfl::json::read<Migration::PrefabData>( text.str() );
             if ( !prefab )
             {
                 report.UnknownNames.push_back( site +
