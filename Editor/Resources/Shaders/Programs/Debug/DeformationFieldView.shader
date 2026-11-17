@@ -32,6 +32,7 @@ Shader "DeformationFieldView"
         Uniform(3) utexture2D SceneShadingWordTexture;
         #define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
         #include <ShadingModels/ShadingModelContract.glslh>
+        #include <Common/ScreenUV.glslh>
         Out(0) vec4 oColor;
 
         PushConstant DeformViewPush
@@ -48,9 +49,12 @@ Shader "DeformationFieldView"
 
         void main()
         {
-            // The depth is at the render resolution, the target may be the upscaled one: address it by the NDC.
+            // The depth is at the render resolution, the target may be the upscaled one: address it by the screen
+            // uv of this NDC. The engine's viewport has a negative height (Common/ScreenUV.glslh), so NDC y = +1 is
+            // the TOP row: NdcToScreenUV, never ndc * 0.5 + 0.5, which read the vertically mirrored depth and
+            // shading word and unprojected them along this pixel's ray (the field drawn at the wrong world place).
             const ivec2 size  = textureSize(SceneDepthTexture, 0);
-            const ivec2 pixel = clamp(ivec2((v_Ndc * 0.5 + 0.5) * vec2(size)), ivec2(0), size - 1);
+            const ivec2 pixel = clamp(ivec2(NdcToScreenUV(v_Ndc) * vec2(size)), ivec2(0), size - 1);
             const float depth = texelFetch(SceneDepthTexture, pixel, 0).r;
             if (depth <= 0.0) // reversed-Z: 0 is the far plane, the sky
             {
