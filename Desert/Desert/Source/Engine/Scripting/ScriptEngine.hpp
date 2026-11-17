@@ -120,6 +120,14 @@ namespace Desert::Scripting
         void SyncProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& overrides,
                              uint64_t revision );
 
+        // WP-ENTITY-REFS: the entity @p target (a UUID) came into the world or left it while this slot ran, so every
+        // Entity override of the slot naming it (an Entity property, or an Array of them holding it) is written into
+        // the running script again - the entity object now, nil once it is gone (UE: a soft reference resolving while
+        // its actor is loaded). Only those properties: the slot's other values stay as its script left them. An
+        // override the script no longer declares, or declares as another kind, is not applied (ApplyProperties).
+        void RebindEntityProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& overrides,
+                                     uint64_t target );
+
         // One property the running slot declares and the value its script holds NOW (what it last wrote to
         // `Properties.<name>`). Value is empty for a kind no scalar holds (Asset, Entity, Array) and for a value
         // of another kind than the declaration (the script stored a table, a function, nil).

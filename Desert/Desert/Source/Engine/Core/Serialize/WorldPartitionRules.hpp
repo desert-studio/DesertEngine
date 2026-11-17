@@ -117,6 +117,7 @@
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
+#include <Engine/Scripting/ScriptProperty.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 
 // The transform composition below, and NOT Engine/ECS/Components.hpp for it. TransformComponent's
@@ -256,6 +257,8 @@ namespace Desert::Core::Rules
     // (Components.hpp:1992, "names are looked up across the scene"), so a name link is not confined to
     // one canvas the way the hierarchy would confine it. If a name-addressed reference is ever
     // CONTAINMENT, this partitioner cannot enforce it without an index from name to record — and that
+    // index exists now (WP-ENTITY-REFS): ResolveEntityReferences matches every name to the records carrying it
+    // at planning time, so a row of kind Containment clusters its holder with every one of them. Before it,
     // index is the work that row would cost.
     struct NamedEntityReferenceRow
     {
@@ -270,11 +273,14 @@ namespace Desert::Core::Rules
          { "UIScreenStack", "InitialScreen", "UIScreen", ReferenceKind::Observation },
     };
 
-    // How a member of a composite hangs off the rest of it. Two, because the census found two.
+    // How a member of a composite hangs off the rest of it. The census found two; scripts and names add theirs
+    // (WP-ENTITY-REFS, UE: a Blueprint's hard actor references join the actor's cluster, FActorClusterContext).
     enum class Containment
     {
         Hierarchy,        // the entity record's `parent` meta field (RelationshipComponent)
-        SocketAttachment, // SocketAttachmentComponent::Target
+        SocketAttachment, // SocketAttachmentComponent::Target - the register's one Containment row
+        ScriptReference,  // a script's hard Entity property: Property.Entity( { hard = true } )
+        NamedReference,   // a kEntityReferencesByName row of kind Containment, its name matched to a record
     };
 
     // One containment edge of the file, as record indices.
@@ -696,6 +702,9 @@ namespace Desert::Core::Rules
     // root is not a part of the tile (see the register row): it is read, never joined.
     inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
     inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
+    // ECS::ScriptComponent's block (ComponentRegistry MakeScript): Scripts[] of { ScriptKey, Props[] of { Name, Type,
+    // Ref, ElementType, Items[] } } - Type is Scripting::PropertyType's stored number (WP-ENTITY-REFS).
+    inline constexpr std::string_view kScriptComponent = "Script";
 
     // THE MESH BLOCKS THAT NAME A MESH ASSET, and where each states its reference (PrefabData.hpp): the Static
     // Mesh in its reflected `MeshHandle` object {Guid, Path} (asset references v1), the Skinned Mesh in the
@@ -1199,6 +1208,32 @@ namespace Desert::Core::Rules
         ReferenceKind Kind   = ReferenceKind::Observation;
     };
 
+    // AN ENTITY PROPERTY A SCRIPT SLOT OF THE RECORD OVERRIDES (Property.Entity, or an item of a Property.Array of
+    // them), its target read and not null (WP-ENTITY-REFS). What it IS - hard or soft - is the script's declaration,
+    // answered at planning time by a ScriptReferenceSource, so a descriptor depends on its entity's file alone, as a
+    // DescriptorMesh does (UE: a Blueprint actor's references in FWorldPartitionActorDesc::GetReferences).
+    struct DescriptorScriptReference
+    {
+        std::string   Script;   // the slot's ScriptKey (ECS::ScriptSlot)
+        std::string   Property; // the property's name
+        std::uint64_t Target = 0;
+    };
+
+    // A kEntityReferencesByName reference the record holds: the NAME, matched to records at planning time.
+    struct DescriptorNamedReference
+    {
+        std::string Component; // the row's ComponentKey
+        std::string Field;     // the row's Field
+        std::string Name;
+    };
+
+    // A name the record carries as the TARGET of a kEntityReferencesByName row: its TargetComponentKey's `Name`.
+    struct DescriptorName
+    {
+        std::string Component; // the row's TargetComponentKey
+        std::string Name;
+    };
+
     // A landscape tile: its rectangle is its root's, so it keeps the root and its own tile coordinate.
     struct DescriptorLandscapeTile
     {
@@ -1237,6 +1272,9 @@ namespace Desert::Core::Rules
 
         AlwaysLoadedReason                     Reason = AlwaysLoadedReason::None; // None / Author / Component
         std::vector<DescriptorReference>       References;
+        std::vector<DescriptorScriptReference> ScriptReferences; // WP-ENTITY-REFS
+        std::vector<DescriptorNamedReference>  NamedReferences;  // WP-ENTITY-REFS
+        std::vector<DescriptorName>            Names;            // WP-ENTITY-REFS
         std::optional<DescriptorLandscapeTile> LandscapeTile;
         std::optional<DescriptorLandscapeRoot> LandscapeRoot;
         // The RuntimeGrid block's grid name (WP22); absent = the world's first grid.
@@ -1318,6 +1356,87 @@ namespace Desert::Core::Rules
                                                            static_cast<std::uint64_t>( target ), row.Kind } );
         }
 
+        // The Entity properties its script slots override - kept with the script and the property, whose
+        // declaration answers at planning time what each one is (ScriptReferenceSource).
+        if ( const auto script = Detail::BlockOf( record, kScriptComponent, issues ); script.has_value() )
+        {
+            const auto slots = script->Find( "Scripts" );
+            if ( slots.has_value() && slots->ExpectKind( Common::Json::Kind::Array, issues ) )
+            {
+                slots->ForEachElement(
+                     [&]( std::size_t, const Common::Json::Node& slot )
+                     {
+                         if ( !slot.ExpectKind( Common::Json::Kind::Object, issues ) )
+                             return;
+                         std::string key;
+                         slot.ReadInto( "ScriptKey", key, issues );
+                         const auto props = slot.Find( "Props" );
+                         if ( key.empty() || !props.has_value() ||
+                              !props->ExpectKind( Common::Json::Kind::Array, issues ) )
+                             return;
+                         props->ForEachElement(
+                              [&]( std::size_t, const Common::Json::Node& prop )
+                              {
+                                  if ( !prop.ExpectKind( Common::Json::Kind::Object, issues ) )
+                                      return;
+                                  std::string name;
+                                  int         type    = -1;
+                                  int         element = -1;
+                                  prop.ReadInto( "Name", name, issues );
+                                  prop.ReadInto( "Type", type, issues );
+                                  prop.ReadInto( "ElementType", element, issues );
+                                  const auto add = [&]( const Common::Json::Node& value )
+                                  {
+                                      std::uint64_t target = 0;
+                                      value.ReadInto( "Ref", target, issues );
+                                      if ( target != 0 )
+                                          out.ScriptReferences.push_back(
+                                               DescriptorScriptReference{ key, name, target } );
+                                  };
+                                  constexpr int kEntity = static_cast<int>( Scripting::PropertyType::Entity );
+                                  constexpr int kArray  = static_cast<int>( Scripting::PropertyType::Array );
+                                  if ( type == kEntity )
+                                      add( prop );
+                                  else if ( type == kArray && element == kEntity )
+                                  {
+                                      const auto items = prop.Find( "Items" );
+                                      if ( items.has_value() && items->ExpectKind( Common::Json::Kind::Array, issues ) )
+                                          items->ForEachElement(
+                                               [&]( std::size_t, const Common::Json::Node& item )
+                                               {
+                                                   if ( item.ExpectKind( Common::Json::Kind::Object, issues ) )
+                                                       add( item );
+                                               } );
+                                  }
+                              } );
+                     } );
+            }
+        }
+
+        // The names it holds for kEntityReferencesByName rows, and the names it carries as a row's target.
+        for ( const NamedEntityReferenceRow& row : kEntityReferencesByName )
+        {
+            if ( const auto block = Detail::BlockOf( record, row.ComponentKey, issues ); block.has_value() )
+            {
+                std::string name;
+                block->ReadInto( row.Field, name, issues );
+                if ( !name.empty() )
+                    out.NamedReferences.push_back( DescriptorNamedReference{
+                         std::string( row.ComponentKey ), std::string( row.Field ), std::move( name ) } );
+            }
+            const bool carried = std::any_of( out.Names.begin(), out.Names.end(), [&row]( const DescriptorName& held )
+                                              { return held.Component == row.TargetComponentKey; } );
+            if ( carried )
+                continue;
+            if ( const auto target = Detail::BlockOf( record, row.TargetComponentKey, issues ); target.has_value() )
+            {
+                std::string name;
+                target->ReadInto( "Name", name, issues );
+                if ( !name.empty() )
+                    out.Names.push_back( DescriptorName{ std::string( row.TargetComponentKey ), std::move( name ) } );
+            }
+        }
+
         if ( const auto grid = Detail::BlockOf( record, kRuntimeGridComponent, issues ); grid.has_value() )
         {
             std::string name;
@@ -1359,6 +1478,175 @@ namespace Desert::Core::Rules
         out.reserve( records.size() );
         for ( const Assets::EntityData& record : records )
             out.push_back( DescribeEntity( record ) );
+        return out;
+    }
+
+    // ── EVERY ENTITY→ENTITY REFERENCE, RESOLVED TO RECORDS (WP-ENTITY-REFS) ──────────────────────────────
+    //
+    // UE 5.5: an actor's hard references - its Blueprint's included (FWorldPartitionActorDesc::GetReferences) - join
+    // it and what it names into one cluster (FActorClusterContext), and a soft reference (TSoftObjectPtr) to an actor
+    // of another cell resolves while that actor is loaded. Here the three ways one entity names another - the
+    // register's component fields, a script's Entity properties, a name - are resolved by ONE function, read by the
+    // planner (Containment clusters), the cook (a crossing reference is listed, WorldCells::IndexReference) and
+    // residency (an Observation is rebound when its target arrives and unbound when it leaves).
+
+    // Where a reference comes from.
+    enum class ReferenceOrigin
+    {
+        Register, // a kEntityReferences row: a component field holding an id
+        Script,   // a script's Entity property (DescriptorScriptReference)
+        Name,     // a kEntityReferencesByName row, its name matched to the records carrying it
+    };
+
+    // WHAT A SCRIPT'S ENTITY PROPERTY IS: the script's own declaration - Property.Entity( { hard = true } ) is UE's
+    // hard actor reference (Containment: both entities in one cell, kept whole), Property.Entity() a soft one
+    // (Observation: bound while the target is resident, nil while it is not). nullopt: the script does not declare
+    // @p property as an Entity (or does not load) - ScriptEngine::ApplyProperties does not apply such a value either,
+    // so it is reported and observes. The engine's source reads the script files (WorldCells::ScriptReferenceKinds),
+    // as an AssetBoundsSource reads mesh boxes. EMPTY: the caller has no script declarations (a tool, a suite); every
+    // script reference observes and the plan says so in one Issue.
+    using ScriptReferenceSource =
+         std::function<std::optional<ReferenceKind>( std::string_view script, std::string_view property )>;
+
+    // One reference of a world, its holder and target as records.
+    struct ResolvedReference
+    {
+        std::size_t                 From   = kNoRecord;
+        std::size_t                 To     = kNoRecord; // kNoRecord: no record claims the target
+        ReferenceKind               Kind   = ReferenceKind::Observation;
+        ReferenceOrigin             Origin = ReferenceOrigin::Register;
+        std::string                 Component; // the holder's block key
+        std::string                 Field;     // its field; a script's: "<script key>:<property>"
+        std::optional<Common::UUID> TargetId;  // the id it names; absent for a name
+        Common::UUID                TargetRecordId = Common::UUID::Null(); // the target record's id, when it has one
+    };
+
+    // How a Containment reference of this origin hangs its holder off its target.
+    [[nodiscard]] inline Containment ContainmentOf( ReferenceOrigin origin )
+    {
+        if ( origin == ReferenceOrigin::Script )
+            return Containment::ScriptReference;
+        if ( origin == ReferenceOrigin::Name )
+            return Containment::NamedReference;
+        return Containment::SocketAttachment; // the register's one Containment row
+    }
+
+    // Every reference of @p records, in record order (a record's register references, then its script ones, then
+    // its named ones). A name carried by several records names each of them (the readers search the whole scene and
+    // may find any). What cannot be resolved as declared goes to @p issues, naming the entity.
+    [[nodiscard]] inline std::vector<ResolvedReference>
+    ResolveEntityReferences( std::span<const EntityDescriptor> records, const ScriptReferenceSource& scripts,
+                             Common::Json::Issues& issues )
+    {
+        std::unordered_map<Common::UUID, std::size_t>                           byId;
+        std::map<std::pair<std::string, std::string>, std::vector<std::size_t>> carriers; // (block, name) -> records
+        for ( std::size_t record = 0; record < records.size(); ++record )
+        {
+            if ( records[record].Id.has_value() )
+                byId.emplace( Common::UUID( *records[record].Id ), record );
+            for ( const DescriptorName& name : records[record].Names )
+                carriers[{ name.Component, name.Name }].push_back( record );
+        }
+        const auto where = [&records]( std::size_t record )
+        {
+            return records[record].Id.has_value() ? std::format( "Entities[id={}]", *records[record].Id )
+                                                  : std::format( "Entities[{}]", record );
+        };
+        const auto recordId = [&records]( std::size_t record )
+        { return records[record].Id.has_value() ? Common::UUID( *records[record].Id ) : Common::UUID::Null(); };
+        const auto target = [&]( ResolvedReference& reference, std::uint64_t id )
+        {
+            reference.TargetId = Common::UUID( id );
+            if ( const auto found = byId.find( *reference.TargetId ); found != byId.end() )
+            {
+                reference.To             = found->second;
+                reference.TargetRecordId = *reference.TargetId;
+            }
+        };
+
+        std::vector<ResolvedReference> out;
+        std::size_t                    undeclared = 0;
+        for ( std::size_t record = 0; record < records.size(); ++record )
+        {
+            const EntityDescriptor& data = records[record];
+            for ( const DescriptorReference& reference : data.References )
+            {
+                ResolvedReference resolved{ .From      = record,
+                                            .Kind      = reference.Kind,
+                                            .Origin    = ReferenceOrigin::Register,
+                                            .Component = reference.Component,
+                                            .Field     = reference.Field };
+                target( resolved, reference.Target );
+                out.push_back( std::move( resolved ) );
+            }
+            for ( const DescriptorScriptReference& reference : data.ScriptReferences )
+            {
+                ResolvedReference resolved{ .From      = record,
+                                            .Kind      = ReferenceKind::Observation,
+                                            .Origin    = ReferenceOrigin::Script,
+                                            .Component = std::string( kScriptComponent ),
+                                            .Field     = std::format( "{}:{}", reference.Script, reference.Property ) };
+                if ( !scripts )
+                    ++undeclared;
+                else if ( const auto kind = scripts( reference.Script, reference.Property ); kind.has_value() )
+                    resolved.Kind = *kind;
+                else
+                    issues.push_back( Common::Json::Issue{
+                         where( record ) + "." + std::string( kScriptComponent ),
+                         std::format( "an Entity property '{}' that '{}' declares", reference.Property,
+                                      reference.Script ),
+                         "none: the script does not declare it as an Entity or does not load, so the reference "
+                         "observes" } );
+                target( resolved, reference.Target );
+                out.push_back( std::move( resolved ) );
+            }
+            for ( const DescriptorNamedReference& reference : data.NamedReferences )
+            {
+                const auto row = std::find_if( std::begin( kEntityReferencesByName ), std::end( kEntityReferencesByName ),
+                                               [&reference]( const NamedEntityReferenceRow& named )
+                                               {
+                                                   return named.ComponentKey == reference.Component &&
+                                                          named.Field == reference.Field;
+                                               } );
+                if ( row == std::end( kEntityReferencesByName ) )
+                {
+                    issues.push_back( Common::Json::Issue{
+                         where( record ) + "." + reference.Component + "." + reference.Field,
+                         "a reference by name kEntityReferencesByName has a row for",
+                         "none: the descriptor is of another build; refresh the descriptor index" } );
+                    continue;
+                }
+                ResolvedReference resolved{ .From      = record,
+                                            .Kind      = row->Kind,
+                                            .Origin    = ReferenceOrigin::Name,
+                                            .Component = reference.Component,
+                                            .Field     = reference.Field };
+                const auto carrying = carriers.find( { std::string( row->TargetComponentKey ), reference.Name } );
+                if ( carrying == carriers.end() )
+                {
+                    if ( row->Kind == ReferenceKind::Containment )
+                        issues.push_back( Common::Json::Issue{
+                             where( record ) + "." + reference.Component + "." + reference.Field,
+                             std::format( "an entity whose {} is named '{}'", row->TargetComponentKey, reference.Name ),
+                             "none: the containment holds nothing" } );
+                    out.push_back( std::move( resolved ) );
+                    continue;
+                }
+                for ( const std::size_t carrier : carrying->second )
+                {
+                    if ( carrier == record )
+                        continue;
+                    ResolvedReference matched = resolved;
+                    matched.To                = carrier;
+                    matched.TargetRecordId    = recordId( carrier );
+                    out.push_back( std::move( matched ) );
+                }
+            }
+        }
+        if ( undeclared > 0 )
+            issues.push_back( Common::Json::Issue{
+                 "Entities", "the scripts' declarations (a ScriptReferenceSource)",
+                 std::format( "none given: {} script entity reference(s) planned as observation", undeclared ) } );
         return out;
     }
 
@@ -1707,7 +1995,8 @@ namespace Desert::Core::Rules
     // scene in memory). Record `r` of the plan is descriptor `r`.
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const EntityDescriptor> records,
                                                                 const WorldPartitionSerialized&   settings,
-                                                                const AssetBoundsSource&          bounds = {} )
+                                                                const AssetBoundsSource&          bounds  = {},
+                                                                const ScriptReferenceSource&      scripts = {} )
     {
         WorldPartitionPlan                            plan;
         std::unordered_map<Common::UUID, std::size_t> byId;
@@ -1734,6 +2023,10 @@ namespace Desert::Core::Rules
         }
 
         // ── 2. Containment edges, then composites ─────────────────────────────────────────────────
+        // Every reference resolved once, in record order: a record's edges are taken as they always were - its
+        // parent, then its references (the register's, its scripts' hard ones, its names').
+        const std::vector<ResolvedReference> references    = ResolveEntityReferences( records, scripts, plan.Issues );
+        std::size_t                          nextReference = 0;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
             const EntityDescriptor& data = records[record];
@@ -1761,19 +2054,18 @@ namespace Desert::Core::Rules
                          ContainmentEdge{ found->second, record, Containment::Hierarchy, *parent } );
             }
 
-            for ( const DescriptorReference& reference : data.References )
+            for ( ; nextReference < references.size() && references[nextReference].From == record; ++nextReference )
             {
+                const ResolvedReference& reference = references[nextReference];
                 if ( reference.Kind != ReferenceKind::Containment )
                     continue;
-                const Common::UUID target( reference.Target );
-
-                const auto found = byId.find( target );
-                if ( found == byId.end() )
-                    plan.Dangling.push_back(
-                         DanglingContainment{ record, Containment::SocketAttachment, target } );
-                else if ( found->second != record )
+                const Containment relation = ContainmentOf( reference.Origin );
+                // A name no record carries has no id to dangle by: ResolveEntityReferences named it.
+                if ( reference.To == kNoRecord && reference.TargetId.has_value() )
+                    plan.Dangling.push_back( DanglingContainment{ record, relation, *reference.TargetId } );
+                else if ( reference.To != kNoRecord && reference.To != record )
                     plan.Containment.push_back(
-                         ContainmentEdge{ found->second, record, Containment::SocketAttachment, target } );
+                         ContainmentEdge{ reference.To, record, relation, reference.TargetRecordId } );
             }
         }
 
@@ -2133,10 +2425,11 @@ namespace Desert::Core::Rules
     // A scene in memory: described, then planned by the one planner.
     [[nodiscard]] inline WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
                                                                 const WorldPartitionSerialized&     settings,
-                                                                const AssetBoundsSource&            bounds = {} )
+                                                                const AssetBoundsSource&            bounds  = {},
+                                                                const ScriptReferenceSource&        scripts = {} )
     {
         const std::vector<EntityDescriptor> descriptors = DescribeEntities( records );
-        return PlanWorldPartition( std::span<const EntityDescriptor>( descriptors ), settings, bounds );
+        return PlanWorldPartition( std::span<const EntityDescriptor>( descriptors ), settings, bounds, scripts );
     }
 
     // How many cells each level holds, index = level. Sized LevelCount.

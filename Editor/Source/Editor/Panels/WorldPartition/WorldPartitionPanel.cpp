@@ -176,7 +176,7 @@ namespace Desert::Editor
             m_EditPartition = *m_PlanSource;
             m_EditPlan      = ::Desert::Core::Rules::PlanWorldPartition(
                  std::span<const ::Desert::Core::Rules::EntityDescriptor>( descriptors ), m_EditPartition,
-                 ::Desert::Core::RegistryMeshBounds() );
+                 ::Desert::Core::RegistryMeshBounds(), ::Desert::Core::WorldCells::ScriptReferenceKinds() );
             m_PlanFromIndex = true;
             // What of each cell the editor holds now: a region load marks the plan stale, so this is remade
             // whenever the held set changes.
@@ -212,7 +212,8 @@ namespace Desert::Editor
         }
         m_EditPartition = *scene.WorldPartition;
         m_EditPlan      = ::Desert::Core::Rules::PlanWorldPartition( scene.Entities, m_EditPartition,
-                                                                     ::Desert::Core::RegistryMeshBounds() );
+                                                                     ::Desert::Core::RegistryMeshBounds(),
+                                                                     ::Desert::Core::WorldCells::ScriptReferenceKinds() );
         m_EditPlanStatus.clear();
         m_FocusPending = true;
     }

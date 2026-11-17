@@ -18,6 +18,7 @@ namespace Desert::Scripting
     //         Speed  = Property.Float( 300, { min = 0, max = 1200, units = "cm/s", category = "Movement",
     //                                         tooltip = "How fast the pawn walks." } ),
     //         Target = Property.Entity( { tooltip = "Who to follow." } ),
+    //         Barrel = Property.Entity( { hard = true } ), -- part of this entity: kept in its cell
     //         Mode   = Property.Enum( { "Idle", "Patrol", "Chase" }, "Patrol" ),
     //         Points = Property.Array( Property.Vector( 0, 0, 0 ), {} ),
     //         Lives  = 3, -- a plain literal: a Number / Bool / String with no metadata
@@ -32,6 +33,11 @@ namespace Desert::Scripting
         std::vector<std::string>     EnumOptions; // Enum (or an Array of Enum): the enumerators, in order
         PropertyType                 ElementType = PropertyType::Number; // Array: the kind of its items
         Reflection::PropertyMetadata ElementMeta;                        // Array: the items' range, units, ...
+        // Entity (or an Array of Entity): Property.Entity( { hard = true } ) - UE's hard actor reference. World
+        // Partition keeps the entity and every one it names in one cell, whole (Rules::ReferenceKind::Containment,
+        // a cluster). Without it the reference is soft (Observation): the script reads the entity while it is
+        // resident and nil while it is not, rebound when it streams in (WP-ENTITY-REFS).
+        bool HardReference = false;
     };
 
     // A function the script offers as a BUTTON in Details — UE's UFUNCTION(CallInEditor). Declared by name:

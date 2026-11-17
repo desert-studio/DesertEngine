@@ -33,13 +33,14 @@
 // ── REFERENCES ACROSS A CELL BOUNDARY: DEFERRED AND UNBOUND, COUNTED ─────────────────────────────────
 //
 // Containment never crosses a unit (a composite is never divided — WorldPartitionRules.hpp). Observation does,
-// by design, and every observation field in `kEntityReferences` is an id that its reader resolves by lookup when
-// it runs — AttachmentSystem, the projectile owner, the landscape tile's root — and treats "not found" as null.
-// So nothing has to be rewritten when a target comes or goes: a reference to a record that is not resident
-// resolves the frame its target activates (DEFERRED), and one whose target is destroyed reads null from the
-// next lookup (UNBOUND). What the executor adds is that neither happens silently: each tick counts both, from
-// the register, and the world logs them. References by NAME (`kEntityReferencesByName`, UI overlays) are not
-// counted here: their targets are UI trees under a screen-space canvas, which is always-loaded.
+// by design. The observations are every Observation Rules::ResolveEntityReferences finds (WP-ENTITY-REFS): the
+// register's component fields - ids their readers resolve by lookup when they run (AttachmentSystem, the
+// projectile owner, the landscape tile's root) - a script's soft Entity property, and a reference by name. A
+// reference to a record that is not resident is DEFERRED; when its target activates while its holder is resident
+// it is REBOUND, and when its target is destroyed while its holder stays it is UNBOUND. Each tick lists both
+// (ResidencyTick::Rebound / Unbound) for the world to carry out where a value holds the resolved entity - a running
+// script's `Properties.<name>` (ECS::EntityReferenceBindings) - and to say: UE's soft reference resolving while
+// its actor is loaded, not a "null forever" taken at the holder's start.
 
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
@@ -117,6 +118,11 @@ namespace Desert::Core::Rules
         std::size_t StaleOutcomes     = 0;
         // Units whose loaded records were let go this tick (after a Deactivate, or a Loaded unit leaving range).
         std::size_t UnitsUnloaded = 0;
+        // (holder, target) record pairs of observation references: REBOUND - the target activated this tick and the
+        // holder was resident before it (a holder activated with it starts bound); UNBOUND - the target was
+        // destroyed this tick and the holder is resident at the end of it (WP-ENTITY-REFS).
+        std::vector<std::pair<std::size_t, std::size_t>> Rebound;
+        std::vector<std::pair<std::size_t, std::size_t>> Unbound;
     };
 
     // WHETHER THIS TICK LET GO OF WHAT A CELL HELD (WP13). A resident cell is what keeps its assets: its entities
@@ -143,9 +149,9 @@ namespace Desert::Core::Rules
         [[nodiscard]] static Common::ResultStr<ResidencyExecutor>
         Begin( WorldPartitionPlan plan, WorldPartitionSerialized partition,
                std::span<const Assets::EntityData> records, const ResidencySettings& settings,
-               std::span<const StreamingSource> sources, ResidencyWorld& world )
+               std::span<const StreamingSource> sources, ResidencyWorld& world,
+               const ScriptReferenceSource& scripts = {} )
         {
-            std::unordered_map<Common::UUID, std::size_t> byId;
             for ( std::size_t record = 0; record < records.size(); ++record )
             {
                 if ( !records[record].id.has_value() || records[record].id->IsNull() )
@@ -155,26 +161,16 @@ namespace Desert::Core::Rules
                                       "found again to be destroyed",
                                       record, records[record].Tag.value_or( "" ) ) );
                 }
-                byId.emplace( *records[record].id, record );
             }
-            // The observation register, resolved to record indices once. A target the file does not contain is
-            // dangling, not a streaming matter — the planner already names those.
-            std::vector<std::pair<std::size_t, std::size_t>> observations;
+            // The observations, resolved to record indices once by the planner's own resolver. A target the file
+            // does not contain is dangling, not a streaming matter — the planner already names those.
             Common::Json::Issues                             issues;
-            for ( std::size_t record = 0; record < records.size(); ++record )
-                for ( const EntityReferenceRow& row : kEntityReferences )
-                {
-                    if ( row.Kind != ReferenceKind::Observation )
-                        continue;
-                    const auto   block = Detail::BlockOf( records[record], row.ComponentKey, issues );
-                    Common::UUID target;
-                    if ( !block.has_value() || !Detail::ReadReference( *block, row.Field, target, issues ) ||
-                         target.IsNull() )
-                        continue;
-                    const auto found = byId.find( target );
-                    if ( found != byId.end() )
-                        observations.emplace_back( record, found->second );
-                }
+            std::vector<std::pair<std::size_t, std::size_t>> observations;
+            for ( const ResolvedReference& reference :
+                  ResolveEntityReferences( DescribeEntities( records ), scripts, issues ) )
+                if ( reference.Kind == ReferenceKind::Observation && reference.To != kNoRecord &&
+                     reference.To != reference.From )
+                    observations.emplace_back( reference.From, reference.To );
             // An observation field of the wrong type observes nothing; it is named, not skipped in silence.
             Common::Json::ReportIssues( issues, "world partition observation references" );
             auto made = Make( std::move( plan ), std::move( partition ), settings, records.size(), observations );
@@ -308,10 +304,25 @@ namespace Desert::Core::Rules
             for ( const std::size_t record : activated )
                 for ( const std::size_t target : m_RefsFrom[record] )
                     tick.DeferredReferences += m_Live[target] ? 0 : 1;
+            if ( !activated.empty() )
+            {
+                // A holder activated with its target this tick starts bound (its references resolve at its start);
+                // one resident before the target arrived holds what it read then, and is rebound.
+                std::vector<bool> arrived( m_Live.size(), false );
+                for ( const std::size_t record : activated )
+                    arrived[record] = true;
+                for ( const std::size_t record : activated )
+                    if ( m_Live[record] )
+                        for ( const std::size_t referrer : m_RefsTo[record] )
+                            if ( m_Live[referrer] && !arrived[referrer] )
+                                tick.Rebound.emplace_back( referrer, record );
+            }
             for ( const std::size_t record : destroyed )
                 if ( !m_Live[record] )
                     for ( const std::size_t referrer : m_RefsTo[record] )
-                        tick.UnboundReferences += m_Live[referrer] ? 1 : 0;
+                        if ( m_Live[referrer] )
+                            tick.Unbound.emplace_back( referrer, record );
+            tick.UnboundReferences = tick.Unbound.size();
             return Common::MakeSuccess( tick );
         }
 
@@ -347,6 +358,12 @@ namespace Desert::Core::Rules
         [[nodiscard]] const std::vector<DataLayerRuntimeState>& UnitDataLayerStates() const
         {
             return m_UnitLayerStates;
+        }
+
+        // The residency unit holding @p record.
+        [[nodiscard]] std::size_t UnitOf( std::size_t record ) const
+        {
+            return m_UnitOfRecord.at( record );
         }
 
         [[nodiscard]] bool IsLive( std::size_t record ) const
@@ -446,15 +463,15 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline Common::ResultStr<std::optional<ResidencyExecutor>>
     BeginWorldStreaming( const SceneSerialized& scene, const AssetBoundsSource& bounds,
                          const ResidencySettings& settings, std::span<const StreamingSource> sources,
-                         ResidencyWorld& world )
+                         ResidencyWorld& world, const ScriptReferenceSource& scripts = {} )
     {
         if ( !scene.WorldPartition.has_value() )
             return Common::MakeSuccess( std::optional<ResidencyExecutor>() );
-        WorldPartitionPlan plan = PlanWorldPartition( scene.Entities, *scene.WorldPartition, bounds );
+        WorldPartitionPlan plan = PlanWorldPartition( scene.Entities, *scene.WorldPartition, bounds, scripts );
         // Play names what the planner refused exactly as the cook does (ReportPlanIssues).
         ReportPlanIssues( plan, scene.SceneName );
         auto begun = ResidencyExecutor::Begin( std::move( plan ), *scene.WorldPartition, scene.Entities, settings,
-                                               sources, world );
+                                               sources, world, scripts );
         if ( !begun.IsSuccess() )
             return Common::MakeError<std::optional<ResidencyExecutor>>( "'" + scene.SceneName +
                                                                         "': " + begun.GetError() );

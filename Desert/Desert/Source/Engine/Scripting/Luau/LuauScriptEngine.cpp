@@ -324,6 +324,23 @@ namespace Desert::Scripting
         }
     }
 
+    void ScriptEngine::RebindEntityProperties( uint32_t entity, uint32_t slot,
+                                               const std::vector<ScriptProperty>& overrides, uint64_t target )
+    {
+        std::vector<ScriptProperty> naming;
+        for ( const ScriptProperty& p : overrides )
+        {
+            const bool held = ( p.Type == PropertyType::Entity && p.Ref == target ) ||
+                              ( p.Type == PropertyType::Array && p.ElementType == PropertyType::Entity &&
+                                std::any_of( p.Items.begin(), p.Items.end(),
+                                             [target]( const ScriptValue& item ) { return item.Ref == target; } ) );
+            if ( held && target != 0 )
+                naming.push_back( p );
+        }
+        if ( !naming.empty() )
+            ApplyProperties( entity, slot, naming );
+    }
+
     void ScriptEngine::SyncProperties( uint32_t entity, uint32_t slot,
                                        const std::vector<ScriptProperty>& overrides, uint64_t revision )
     {

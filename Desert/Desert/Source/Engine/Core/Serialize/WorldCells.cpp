@@ -3,6 +3,9 @@
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp>
+#include <Engine/Scripting/ScriptSchema.hpp>
+
+#include <Common/Core/AssetHandle.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
@@ -26,6 +29,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <tuple>
 #include <set>
 #include <unordered_map>
@@ -371,6 +375,39 @@ namespace Desert::Core::WorldCells
         };
     }
 
+    Rules::ScriptReferenceSource ScriptReferenceKinds()
+    {
+        struct Read
+        {
+            std::mutex                                               Lock;
+            std::unordered_map<std::string, Scripting::ScriptSchema> Schemas; // by script key
+        };
+        auto read = std::make_shared<Read>();
+        return [read]( std::string_view script, std::string_view property ) -> std::optional<Rules::ReferenceKind>
+        {
+            const std::lock_guard<std::mutex> hold( read->Lock );
+            const std::string                 key( script );
+            auto                              found = read->Schemas.find( key );
+            if ( found == read->Schemas.end() )
+            {
+                const std::string path = Common::AssetHandle::PathForStableKey( key ).generic_string();
+                found                  = read->Schemas.emplace( key, Scripting::ReadScriptSchema( path ) ).first;
+            }
+            const Scripting::ScriptSchema& schema = found->second;
+            if ( schema.Status != Scripting::ScriptStatus::Ok )
+                return std::nullopt;
+            const Scripting::ScriptPropertyDecl* decl = Scripting::FindDecl( schema, std::string( property ) );
+            if ( decl == nullptr )
+                return std::nullopt;
+            const bool entity = decl->Default.Type == Scripting::PropertyType::Entity ||
+                                ( decl->Default.Type == Scripting::PropertyType::Array &&
+                                  decl->ElementType == Scripting::PropertyType::Entity );
+            if ( !entity )
+                return std::nullopt;
+            return decl->HardReference ? Rules::ReferenceKind::Containment : Rules::ReferenceKind::Observation;
+        };
+    }
+
     Rules::FoliageHLODSource FoliageInHLODFrom( std::span<const Common::Utils::AssetRegistry> registries )
     {
         if ( registries.empty() )
@@ -524,8 +561,9 @@ namespace Desert::Core::WorldCells
                      std::format( "record {} of '{}' is entity {} but its descriptor is another; the descriptor "
                                   "index is stale",
                                   record, scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
-        const Rules::WorldPartitionPlan plan =
-             Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
+        const Rules::ScriptReferenceSource scripts = ScriptReferenceKinds();
+        const Rules::WorldPartitionPlan    plan =
+             Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ), scripts );
         // What the planner refused is named by the one plan report Play and editor regions use too. Values of
         // the wrong type the reference walk and the HLOD build below find are the cook's own, named once at the
         // end.
@@ -592,30 +630,27 @@ namespace Desert::Core::WorldCells
                                                   records[record].Tag.value_or( "" ) + "') of '" +
                                                   scene.SceneName + "' is in no unit of the plan" );
 
-        // The references that cross a unit, from the one register every reader of them uses.
-        for ( std::size_t record = 0; record < records.size(); ++record )
-            for ( const Rules::EntityReferenceRow& reference : Rules::kEntityReferences )
-            {
-                const auto   block = Rules::Detail::BlockOf( records[record], reference.ComponentKey, issues );
-                Common::UUID target;
-                if ( !block.has_value() ||
-                     !Rules::Detail::ReadReference( *block, reference.Field, target, issues ) || target.IsNull() )
-                    continue;
-                const auto found = byId.find( target );
-                if ( found == byId.end() || unitOf[found->second] == unitOf[record] )
-                    continue;
-                if ( reference.Kind == Rules::ReferenceKind::Containment )
-                    return Common::MakeError<Result>(
-                         "record " + std::to_string( record ) + " ('" + records[record].Tag.value_or( "" ) +
-                         "') of '" + scene.SceneName + "' is held by a " + std::string( reference.ComponentKey ) +
-                         "." + std::string( reference.Field ) +
-                         " in another unit; containment never crosses one" );
-                index.References.push_back(
-                     { static_cast<std::uint64_t>( *records[record].id ), static_cast<std::uint64_t>( target ),
-                       static_cast<std::uint32_t>( unitOf[record] ),
-                       static_cast<std::uint32_t>( unitOf[found->second] ), std::string( reference.ComponentKey ),
-                       std::string( reference.Field ) } );
-            }
+        // The references that cross a unit, resolved as the planner resolved them (the register, the scripts'
+        // Entity properties, names: Rules::ResolveEntityReferences), so this list and the plan's composites agree.
+        // What the resolver could not resolve is already in plan.Issues, reported above.
+        Common::Json::Issues reportedWithThePlan;
+        for ( const Rules::ResolvedReference& reference :
+              Rules::ResolveEntityReferences( descriptors, scripts, reportedWithThePlan ) )
+        {
+            const std::size_t record = reference.From;
+            if ( reference.To == Rules::kNoRecord || unitOf[reference.To] == unitOf[record] )
+                continue;
+            if ( reference.Kind == Rules::ReferenceKind::Containment )
+                return Common::MakeError<Result>( std::format(
+                     "record {} ('{}') of '{}' is held by {}.{} in another unit; containment never crosses one",
+                     record, records[record].Tag.value_or( "" ), scene.SceneName, reference.Component,
+                     reference.Field ) );
+            index.References.push_back( { static_cast<std::uint64_t>( *records[record].id ),
+                                          static_cast<std::uint64_t>( *records[reference.To].id ),
+                                          static_cast<std::uint32_t>( unitOf[record] ),
+                                          static_cast<std::uint32_t>( unitOf[reference.To] ), reference.Component,
+                                          reference.Field } );
+        }
 
         // One file per distinct name, in the order the units first name them: the always-loaded file (if any)
         // holds every always-loaded unit, a cell file holds its one cell.
@@ -1057,16 +1092,9 @@ namespace Desert::Core::WorldCells
                                                   reference.Component + "." + reference.Field + " from " +
                                                   std::to_string( reference.From ) + " to " +
                                                   std::to_string( reference.To ) + " names an id no unit holds" );
-            // Only observation can cross a unit and dangle (the cook refuses a crossing containment).
-            const bool observation =
-                 std::any_of( std::begin( Rules::kEntityReferences ), std::end( Rules::kEntityReferences ),
-                              [&reference]( const Rules::EntityReferenceRow& row )
-                              {
-                                  return row.Kind == Rules::ReferenceKind::Observation &&
-                                         row.ComponentKey == reference.Component && row.Field == reference.Field;
-                              } );
-            if ( observation )
-                world.Observations.emplace_back( from->second.first, to->second.first );
+            // Every listed reference is an observation: only observation can cross a unit (the cook refuses a
+            // crossing containment, whatever its origin - register, script or name).
+            world.Observations.emplace_back( from->second.first, to->second.first );
         }
         return Common::MakeSuccess( std::move( world ) );
     }
@@ -1203,7 +1231,8 @@ namespace Desert::Core::WorldCells
                          "record {} of '{}' is entity {} but its descriptor is another; the descriptor index is "
                          "stale",
                          record, scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
-            out.Plan = Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ) );
+            out.Plan = Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ),
+                                                  ScriptReferenceKinds() );
             const std::size_t unitCount = Rules::ResidencyUnitCount( out.Plan );
             for ( std::size_t unit = 0; unit < unitCount; ++unit )
             {

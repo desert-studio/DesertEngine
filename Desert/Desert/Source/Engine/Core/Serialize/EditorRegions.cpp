@@ -1,4 +1,7 @@
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/ECS/EntityReferenceEvents.hpp>
+#include <Common/Core/Logger.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
@@ -26,6 +29,9 @@ namespace Desert::Core::EditorRegions
         {
             std::vector<std::uint64_t> RowIds; // every record of the world, in the index's (descriptor row) order
             RegionSelection            Selection;
+            // (holder id, target id) of every observation between the world's records (WP-ENTITY-REFS): what a
+            // region load rebinds when a target arrives or leaves while its holder stays.
+            std::vector<std::pair<std::uint64_t, std::uint64_t>> Observations;
         };
 
         // What `regions` select of the world at `path`, decided over its descriptor index (refreshed first, so an
@@ -45,11 +51,22 @@ namespace Desert::Core::EditorRegions
             for ( const DescriptorIndex::DescriptorRow& row : rows.Entities )
                 selected.RowIds.push_back( row.Id );
             // The fast whole world: no layer is unloaded, so every record is held and nothing is planned.
+            const std::vector<Rules::EntityDescriptor> descriptors = DescriptorIndex::Descriptors( rows );
+            const Rules::ScriptReferenceSource         scripts     = WorldCells::ScriptReferenceKinds();
+            Common::Json::Issues                       referenceIssues;
+            for ( const Rules::ResolvedReference& reference :
+                  Rules::ResolveEntityReferences( descriptors, scripts, referenceIssues ) )
+                if ( reference.Kind == Rules::ReferenceKind::Observation && reference.To != Rules::kNoRecord &&
+                     reference.To != reference.From )
+                    selected.Observations.emplace_back( selected.RowIds.at( reference.From ),
+                                                        selected.RowIds.at( reference.To ) );
             const std::vector<bool> layerLoaded = DataLayersLoadedInEditor( settings, layers );
             const bool everyLayerLoaded = std::all_of( layerLoaded.begin(), layerLoaded.end(),
                                                        []( const bool loaded ) { return loaded; } );
             if ( regions == nullptr && everyLayerLoaded )
             {
+                // Nothing is planned, so the plan report below does not name what the references could not resolve.
+                Common::Json::ReportIssues( referenceIssues, path.string() + ": entity references" );
                 selected.Selection.Records = selected.RowIds;
                 return Common::MakeSuccess( std::move( selected ) );
             }
@@ -58,9 +75,8 @@ namespace Desert::Core::EditorRegions
             for ( std::size_t layer = 0; layer < layerLoaded.size(); ++layer )
                 loadedFlags[layer] = layerLoaded[layer];
             const std::span<const bool> loaded( loadedFlags.get(), layerLoaded.size() );
-            const std::vector<Rules::EntityDescriptor> descriptors = DescriptorIndex::Descriptors( rows );
             const Rules::WorldPartitionPlan            plan        = Rules::PlanWorldPartition(
-                 std::span<const Rules::EntityDescriptor>( descriptors ), settings, RegistryMeshBounds() );
+                 std::span<const Rules::EntityDescriptor>( descriptors ), settings, RegistryMeshBounds(), scripts );
             // A region load names what the planner refused exactly as the cook and Play do (ReportPlanIssues).
             Rules::ReportPlanIssues( plan, path.string() );
             selected.Selection = regions == nullptr ? SelectWholeWorld( plan, selected.RowIds, loaded )
@@ -163,6 +179,34 @@ namespace Desert::Core::EditorRegions
                     return Common::MakeError<Result>( fmt::format( "'{}': {}", path.string(), made.GetError() ) );
             }
             outcome.Loaded = arriving.size();
+
+            // WP-ENTITY-REFS: what an entity that stays names among the arrivals is bound again, what it named among
+            // the departures reads nil - carried to its running scripts (ECS::EntityReferenceBindings) and said.
+            {
+                std::unordered_set<std::uint64_t> arrived;
+                for ( const Assets::EntityData& record : arriving )
+                    arrived.insert( static_cast<std::uint64_t>( *record.id ) );
+                std::unordered_set<std::uint64_t> left;
+                for ( const Common::UUID id : leaving )
+                    left.insert( static_cast<std::uint64_t>( id ) );
+                std::vector<ECS::EntityReferenceBinding> bindings;
+                std::size_t                              rebound = 0;
+                for ( const auto& [holder, target] : selected.GetValue().Observations )
+                {
+                    if ( !held.contains( holder ) || !wanted.contains( holder ) )
+                        continue; // the holder arrives with it (it reads it at its start) or leaves too
+                    const bool arrives = arrived.contains( target );
+                    if ( !arrives && !left.contains( target ) )
+                        continue;
+                    bindings.push_back( ECS::EntityReferenceBinding{ Common::UUID( holder ), Common::UUID( target ) } );
+                    rebound += arrives ? 1 : 0;
+                }
+                ECS::PublishEntityReferenceBindings( scene.GetRegistry(), bindings );
+                if ( !bindings.empty() )
+                    LOG_INFO( "[WorldPartition] '{0}': rebound {1} reference(s) into the loaded regions, unbound {2} "
+                              "from the regions unloaded",
+                              path.string(), rebound, bindings.size() - rebound );
+            }
 
             // The document a save merges foreign keys from is the held part's, as an open of it would have made.
             scene.SetLoadedDocument( std::move( parsed.Document ) );

@@ -80,11 +80,14 @@ namespace Desert::Core::WorldCells
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
     inline constexpr std::uint32_t kWorldFormatVersion =
-         9; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
+         10; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
             // 6: a cell row states its streaming bounds (WP-FAR-6B 9g); 7: prefab instances expanded at cook
             // (WP21); 8: a cell row states the height span of what it holds (WP-SRC-ALTITUDE); 9: a unit row states
             // its runtime data layers, the cell's third coordinate, and a cell or always-loaded composite of runtime
-            // layers has a file of its own, `..._DL<hash>.dwcell` (WP-DATA-LAYERS-RUNTIME)
+            // layers has a file of its own, `..._DL<hash>.dwcell` (WP-DATA-LAYERS-RUNTIME); 10: the crossing
+            // references are every one Rules::ResolveEntityReferences finds - a script's Entity property ("Script",
+            // "<script key>:<property>") and a reference by name besides the register's - all of them observation,
+            // which residency rebinds (WP-ENTITY-REFS); an index of 9 lacks them, so a runtime would never rebind them
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -121,8 +124,10 @@ namespace Desert::Core::WorldCells
         std::uint32_t Crc   = 0; // Crc32c of the whole file, envelope included
     };
 
-    // A kEntityReferences reference whose two ends are in different units. Only those: within a unit both ends
-    // are always resident together, so only a crossing one can be deferred or unbound.
+    // A reference whose two ends are in different units (Rules::ResolveEntityReferences: the register's, a script's
+    // Entity property, a name). Only those: within a unit both ends are always resident together, so only a crossing
+    // one can be deferred, rebound or unbound. Always an observation: the cook refuses a crossing containment.
+    // `Component`/`Field` are Rules::ResolvedReference's (a script's: "Script", "<script key>:<property>").
     struct IndexReference
     {
         std::uint64_t From     = 0;
@@ -176,7 +181,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexReference> References;
         std::vector<IndexHLOD>      HLODs; // cell order; a cell that draws nothing has none
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 9 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 10 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -185,7 +190,7 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
-    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 9 )
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 10 )
     // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
     static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
                    Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );
@@ -262,6 +267,14 @@ namespace Desert::Core::WorldCells
     // it or its file does not read. Empty registries give an empty source (see Rules::FoliageHLODSource).
     [[nodiscard]] Rules::FoliageHLODSource
     FoliageInHLODFrom( std::span<const Common::Utils::AssetRegistry> registries );
+
+    // WHAT EACH SCRIPT ENTITY PROPERTY IS (WP-ENTITY-REFS): the script's declaration, read from its file
+    // (Scripting::ReadScriptSchema, the script key resolved by AssetHandle::PathForStableKey) - Property.Entity(
+    // { hard = true } ) answers Containment, Property.Entity() Observation, and a script that does not load or does
+    // not declare the property as an Entity (or an Array of them) answers nullopt. Each script is read once per
+    // source; the source may be asked from several workers at once. The source every engine plan is made with -
+    // cook, Play, editor regions, the World Partition panel - so all of them cluster alike.
+    [[nodiscard]] Rules::ScriptReferenceSource ScriptReferenceKinds();
 
     // ── Reading ──────────────────────────────────────────────────────────────────────────────────
 
