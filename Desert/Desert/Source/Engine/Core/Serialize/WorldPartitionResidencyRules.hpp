@@ -267,14 +267,38 @@ namespace Desert::Core::Rules
         return state;
     }
 
-    // Every unit's effective state, index = unit: what StepResidency's @p unitLayerStates takes.
+    // UE UDataLayerInstance::GetEffectiveRuntimeState (WP v4, DataLayerSerialized::Parent): a runtime layer is
+    // never further along than its parent - its own state clamped by every ancestor's, the least of the chain.
+    // Index = the world's layer, as @p layerStates. Bounded by the layer count, so an unchecked cycle ends.
+    [[nodiscard]] inline std::vector<DataLayerRuntimeState>
+    EffectiveDataLayerStates( const WorldPartitionSerialized&        partition,
+                              std::span<const DataLayerRuntimeState> layerStates )
+    {
+        std::vector<DataLayerRuntimeState> effective( layerStates.begin(), layerStates.end() );
+        for ( std::size_t layer = 0; layer < effective.size(); ++layer )
+        {
+            std::optional<std::size_t> at = DataLayerParentIndex( partition, layer );
+            for ( std::size_t steps = 0; at.has_value() && steps < effective.size(); ++steps )
+            {
+                if ( *at < layerStates.size() )
+                    effective[layer] = std::min( effective[layer], layerStates[*at] );
+                at = DataLayerParentIndex( partition, *at );
+            }
+        }
+        return effective;
+    }
+
+    // Every unit's effective state, index = unit: what StepResidency's @p unitLayerStates takes. Each layer's
+    // state is first clamped by its parents' (EffectiveDataLayerStates), then a unit's layers combine by the
+    // operator.
     [[nodiscard]] inline std::vector<DataLayerRuntimeState>
     DataLayerUnitStates( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
                          std::span<const DataLayerRuntimeState> layerStates )
     {
+        const std::vector<DataLayerRuntimeState> clamped = EffectiveDataLayerStates( partition, layerStates );
         std::vector<DataLayerRuntimeState> units( ResidencyUnitCount( plan ), DataLayerRuntimeState::Activated );
         for ( std::size_t unit = 0; unit < units.size(); ++unit )
-            units[unit] = EffectiveDataLayerState( partition.DataLayersLogicOperator, layerStates,
+            units[unit] = EffectiveDataLayerState( partition.DataLayersLogicOperator, clamped,
                                                    UnitRuntimeDataLayers( plan, partition, unit ) );
         return units;
     }

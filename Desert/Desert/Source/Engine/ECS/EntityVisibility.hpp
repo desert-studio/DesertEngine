@@ -31,6 +31,9 @@ namespace Desert::ECS
         if ( entity == entt::null || !registry.valid( entity ) )
             return false;
 
+        // Its data layers are hidden in the editor (UE bHiddenEdLayer): stamped on the entity itself, so no walk.
+        if ( registry.has<HiddenByDataLayersComponent>( entity ) )
+            return true;
         return registry.has<VisibilityComponent>( entity ) && !registry.get<VisibilityComponent>( entity ).IsVisible();
     }
 } // namespace Desert::ECS

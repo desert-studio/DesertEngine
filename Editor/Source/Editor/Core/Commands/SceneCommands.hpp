@@ -271,4 +271,17 @@ namespace Desert::Editor::Commands
     // snapshotted before and after, and undo/redo swap between the two serialized states (delete +
     // recreate with preserved UUIDs — so selection and later history entries stay valid).
     void MutateEntityUndoable( const Common::UUID& uuid, const std::function<void()>& mutate );
+
+    // MutateEntityUndoable over several entities as ONE history entry named @p label: each top-level root's
+    // subtree before and after @p mutate (UE FScopedTransaction around AddActorsToDataLayers).
+    void MutateEntitiesUndoable( const std::vector<Common::UUID>& roots, const std::string& label,
+                                 const std::function<void()>& mutate );
+
+    // UE's actor editor context (FActorEditorContext / IActorEditorContextClient): what the editor stamps on every
+    // entity it creates for the user - added, placed, pasted or duplicated - BEFORE the creation is recorded, so
+    // the one undo step holds it. The Data Layers outliner installs the current data layers
+    // (DataLayerEditor::ApplyCurrentLayers); an empty function stamps nothing.
+    using CreatedEntitiesContext =
+         std::function<void( ::Desert::Core::Scene& scene, const std::vector<Common::UUID>& roots )>;
+    void SetCreatedEntitiesContext( CreatedEntitiesContext context );
 } // namespace Desert::Editor::Commands

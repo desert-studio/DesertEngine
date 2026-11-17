@@ -633,6 +633,8 @@ namespace Desert::Editor
             m_EditPlanStale   = true;
         };
 
+        // The summary: the tree, visibility, the current layer and membership are the Data Layers panel's.
+        ImGui::TextDisabled( "Tree, visibility, current layer and membership: the Data Layers panel." );
         if ( layers.empty() )
             ImGui::TextDisabled( "This world has no data layers." );
         else if ( ImGui::BeginTable( "##datalayers", 6,
@@ -711,7 +713,15 @@ namespace Desert::Editor
                 ImGui::SameLine();
                 if ( ImGui::SmallButton( "Delete" ) )
                 {
-                    if ( members[index] > 0 )
+                    // A parent goes after its children are moved (WP v4): a child naming a gone layer is an Issue.
+                    const auto children = std::count_if( layers.begin(), layers.end(),
+                                                         [&]( const ::Desert::Core::DataLayerSerialized& other )
+                                                         { return other.Parent == layer.Name; } );
+                    if ( children > 0 )
+                        m_DataLayerStatus = std::format( "Delete '{}': {} data layer(s) nest under it - move them "
+                                                         "first (the Data Layers panel).",
+                                                         layer.Name, children );
+                    else if ( members[index] > 0 )
                         m_DataLayerStatus = std::format(
                              "Delete '{}': {} entit{} of the world belong to it - remove it from their Data "
                              "Layers first.",
@@ -742,7 +752,9 @@ namespace Desert::Editor
             if ( !after.DataLayers )
                 after.DataLayers.emplace();
             const std::string name( m_NewDataLayer.data() );
-            after.DataLayers->push_back( ::Desert::Core::DataLayerSerialized{ name, true } );
+            ::Desert::Core::DataLayerSerialized layer{ name, true };
+            layer.DebugColor = ::Desert::Core::Rules::SeededDataLayerColor( name );
+            after.DataLayers->push_back( std::move( layer ) );
             commit( std::format( "New data layer '{}'", name ), std::move( after ) );
             if ( m_DataLayerStatus.empty() )
                 m_NewDataLayer.fill( '\0' );

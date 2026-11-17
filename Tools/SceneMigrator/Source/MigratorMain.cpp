@@ -565,6 +565,12 @@ namespace
                 << std::max( report.StatedWorldPartitionVersion, Desert::Migration::kWorldPartitionVersionDataLayers )
                 << "->v" << Desert::Migration::kWorldPartitionVersionRuntimeDataLayers
                 << " (runtime data layers: every layer's Type and the DataLayersLogicOperator stated)";
+        if ( report.DataLayerOutlinerRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionRuntimeDataLayers )
+                << "->v" << Desert::Migration::kWorldPartitionVersionDataLayerOutliner
+                << " (data layer outliner: every layer's DebugColor and InitiallyVisible stated)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

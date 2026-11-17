@@ -1596,6 +1596,47 @@ namespace Desert::Core::Rules
                 issues.push_back( { std::format( "WorldPartition.DataLayers[{}].InitialRuntimeState", layerIndex ),
                                     "no runtime state on an Editor data layer (it does not stream)",
                                     "a runtime state" } );
+            // WP v4 (UE UDataLayerInstance::CanBeChildOf): a parent is ANOTHER layer of this world, and a Runtime
+            // layer's parent is a Runtime layer - its state is clamped by the parent's, which an Editor layer has
+            // not.
+            if ( layer.Parent.has_value() )
+            {
+                const auto parent =
+                     std::find_if( layers.begin(), layers.end(), [&]( const DataLayerSerialized& other )
+                                   { return other.Name == *layer.Parent; } );
+                if ( parent == layers.end() || *layer.Parent == layer.Name )
+                    issues.push_back( { std::format( "WorldPartition.DataLayers[{}].Parent", layerIndex ),
+                                        "the name of another data layer of the world", *layer.Parent } );
+                else if ( layer.Type == DataLayerType::Runtime && parent->Type != DataLayerType::Runtime )
+                    issues.push_back( { std::format( "WorldPartition.DataLayers[{}].Parent", layerIndex ),
+                                        "a Runtime data layer (a Runtime layer is gated by its parent's state)",
+                                        std::format( "the Editor data layer '{}'", *layer.Parent ) } );
+            }
+        }
+        // A chain of parents ends at a top-level layer: a cycle would make "every ancestor" endless. Walked at
+        // most one step per layer, so a chain still going after that has closed a loop.
+        const auto parentOf = [&layers]( const std::size_t index ) -> std::optional<std::size_t>
+        {
+            if ( !layers[index].Parent.has_value() )
+                return std::nullopt;
+            const auto parent = std::find_if( layers.begin(), layers.end(), [&]( const DataLayerSerialized& other )
+                                              { return other.Name == *layers[index].Parent; } );
+            if ( parent == layers.end() )
+                return std::nullopt;
+            return static_cast<std::size_t>( parent - layers.begin() );
+        };
+        for ( std::size_t layerIndex = 0; layerIndex < layers.size(); ++layerIndex )
+        {
+            std::optional<std::size_t> at    = parentOf( layerIndex );
+            std::size_t                steps = 0;
+            while ( at.has_value() && steps < layers.size() )
+            {
+                at = parentOf( *at );
+                ++steps;
+            }
+            if ( at.has_value() )
+                issues.push_back( { std::format( "WorldPartition.DataLayers[{}].Parent", layerIndex ),
+                                    "a chain of parents that ends at a top-level data layer", "a cycle" } );
         }
         return issues;
     }
@@ -1665,6 +1706,96 @@ namespace Desert::Core::Rules
         if ( found == layers.end() )
             return std::nullopt;
         return static_cast<std::size_t>( found - layers.begin() );
+    }
+
+    // The index of @p layer's parent (DataLayerSerialized::Parent, WP v4), or nullopt for a top-level layer or a
+    // parent the world does not state (CheckDataLayers names that one).
+    [[nodiscard]] inline std::optional<std::size_t> DataLayerParentIndex( const WorldPartitionSerialized& settings,
+                                                                          const std::size_t               layer )
+    {
+        if ( !settings.DataLayers.has_value() || layer >= settings.DataLayers->size() )
+            return std::nullopt;
+        const std::optional<std::string>& parent = ( *settings.DataLayers )[layer].Parent;
+        if ( !parent.has_value() )
+            return std::nullopt;
+        return DataLayerIndexOf( settings, *parent );
+    }
+
+    // Whether @p layer is @p ancestor or nests under it at any depth: a member of the one is a member of the other
+    // (UE resolves an actor's layers with their parents). Bounded by the layer count, so an unchecked cycle ends.
+    [[nodiscard]] inline bool DataLayerIsWithin( const WorldPartitionSerialized& settings, const std::size_t layer,
+                                                 const std::size_t ancestor )
+    {
+        const std::size_t          count = settings.DataLayers.has_value() ? settings.DataLayers->size() : 0;
+        std::optional<std::size_t> at    = layer;
+        for ( std::size_t steps = 0; at.has_value() && steps <= count; ++steps )
+        {
+            if ( *at == ancestor )
+                return true;
+            at = DataLayerParentIndex( settings, *at );
+        }
+        return false;
+    }
+
+    // UE UDataLayerInstance::IsEffectiveVisible / IsEffectiveLoadedInEditor: each layer's own flag (index = the
+    // world's layer) AND every ancestor's - a child is loaded or visible only while all its parents are.
+    [[nodiscard]] inline std::vector<bool> EffectiveDataLayerFlags( const WorldPartitionSerialized& settings,
+                                                                    const std::vector<bool>&        own )
+    {
+        std::vector<bool> effective = own;
+        for ( std::size_t layer = 0; layer < effective.size(); ++layer )
+        {
+            std::optional<std::size_t> at = DataLayerParentIndex( settings, layer );
+            for ( std::size_t steps = 0; effective[layer] && at.has_value() && steps < own.size(); ++steps )
+            {
+                effective[layer] = *at < own.size() && own[*at];
+                at               = DataLayerParentIndex( settings, *at );
+            }
+        }
+        return effective;
+    }
+
+    // The DebugColor a layer made in the editor starts with (UE FColor::MakeRandomSeededColor over the asset's
+    // name): a hue from the name's FNV-1a hash at one saturation and value, so two layers of a world differ and
+    // the same name is the same colour on every machine. sRGB 0..1.
+    [[nodiscard]] inline std::array<float, 3> SeededDataLayerColor( std::string_view name )
+    {
+        std::uint32_t hash = 2166136261u;
+        for ( const char character : name )
+        {
+            hash ^= static_cast<std::uint8_t>( character );
+            hash *= 16777619u;
+        }
+        const float          hue = static_cast<float>( hash % 360u ) / 60.0f; // the sector of the hue circle, 0..6
+        const float          value     = 0.9f;
+        const float          chroma    = value * 0.65f;
+        const float          secondary = chroma * ( 1.0f - std::abs( std::fmod( hue, 2.0f ) - 1.0f ) );
+        const float          base      = value - chroma;
+        std::array<float, 3> rgb{};
+        switch ( static_cast<int>( hue ) )
+        {
+            case 0:
+                rgb = { chroma, secondary, 0.0f };
+                break;
+            case 1:
+                rgb = { secondary, chroma, 0.0f };
+                break;
+            case 2:
+                rgb = { 0.0f, chroma, secondary };
+                break;
+            case 3:
+                rgb = { 0.0f, secondary, chroma };
+                break;
+            case 4:
+                rgb = { secondary, 0.0f, chroma };
+                break;
+            default:
+                rgb = { chroma, 0.0f, secondary };
+                break;
+        }
+        for ( float& channel : rgb )
+            channel += base;
+        return rgb;
     }
 
     [[nodiscard]] inline RuntimeGridsCheck CheckRuntimeGrids( const WorldPartitionSerialized& settings )

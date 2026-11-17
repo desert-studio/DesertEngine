@@ -1189,6 +1189,7 @@ namespace Desert::Core
         r.prepare<ECS::TagComponent>();
         r.prepare<ECS::UUIDComponent>();
         r.prepare<ECS::VisibilityComponent>();
+        r.prepare<ECS::HiddenByDataLayersComponent>();
 
         // Renderables.
         r.prepare<ECS::StaticMeshComponent>();
@@ -1619,6 +1620,8 @@ namespace Desert::Core
         connect.template operator()<ECS::InstancedStaticMeshComponent>();
         connect.template operator()<ECS::MaterialComponent>();
         connect.template operator()<ECS::VisibilityComponent>();
+        // The editor's data-layer hiding (UE bHiddenEdLayer): ECS::IsHidden reads it beside VisibilityComponent.
+        connect.template operator()<ECS::HiddenByDataLayersComponent>();
         // A field's foliage type: the ISM record's fade and wind source (MeshECSSystem's Ism channel).
         connect.template operator()<ECS::FoliageComponent>();
         // Every component that holds render caches parks them as it dies (UE: the proxy's RHI objects are
