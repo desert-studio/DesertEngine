@@ -12,6 +12,14 @@
         "Min": [-255.27944946289062, -2.561310052871704, -15.770849227905273],
         "Max": [305.2189025878906, 31.696840286254883, 16.885032653808594]
     },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "VirtualGeometry": true,
+        "PreserveArea": true
+    },
     "Nodes": [
         {
             "Name": "grass_medium_01_small_a",

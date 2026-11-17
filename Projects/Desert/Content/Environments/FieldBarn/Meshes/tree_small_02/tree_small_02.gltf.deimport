@@ -17,6 +17,8 @@
         "UniformScale": 1.0,
         "UpAxis": "FromFile",
         "LodPolicy": "Generate",
-        "CanopyLeafSlots": ["tree_small_02_leaves"]
+        "CanopyLeafSlots": ["tree_small_02_leaves"],
+        "VirtualGeometry": true,
+        "PreserveArea": true
     }
 }

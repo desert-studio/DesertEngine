@@ -17,6 +17,8 @@
         "UniformScale": 1.0,
         "UpAxis": "FromFile",
         "LodPolicy": "Generate",
-        "CanopyLeafSlots": ["island_tree_02_leaves"]
+        "CanopyLeafSlots": ["island_tree_02_leaves"],
+        "VirtualGeometry": true,
+        "PreserveArea": true
     }
 }

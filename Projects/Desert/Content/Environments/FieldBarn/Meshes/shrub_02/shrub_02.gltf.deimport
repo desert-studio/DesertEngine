@@ -17,7 +17,9 @@
         "UniformScale": 1.0,
         "UpAxis": "FromFile",
         "LodPolicy": "Generate",
-        "CanopyLeafSlots": ["shrub_02"]
+        "CanopyLeafSlots": ["shrub_02"],
+        "VirtualGeometry": true,
+        "PreserveArea": true
     },
     "Nodes": [
         {

@@ -276,15 +276,45 @@ namespace Desert::Editor
 
     namespace
     {
+        // A NODE MESH STATES ITS RECORD'S SETTINGS (VG-FOLIAGE-PRESERVE): the record is the one home of the
+        // file's import options (SourceImportSettings), and every node copies its `Mesh` when the import writes
+        // it (WriteNodeMeshAsset), so a record changed after the import - a reviewed .deimport edit, a merge -
+        // re-imports its nodes, as a changed source byte does. The one field a node may state differently is
+        // its Virtual Geometry verdict (VirtualGeometryGate.hpp): ON in the record and OFF in the node stands
+        // only while the gate still refuses it. Judged here over every slot the node stores, a superset of the
+        // slots its sections draw (the import's judgement), so a node the import refused is refused here too
+        // and never re-imported for it on every pass.
+        bool NodeStatesRecordSettings( const Assets::MeshSourceAsset&    node,
+                                       const Assets::MeshImportSettings& recorded,
+                                       const std::filesystem::path&      source )
+        {
+            const Assets::MeshImportSettings& stored = node.Import.Settings;
+            if ( stored == recorded )
+                return true;
+            Assets::MeshImportSettings refusedForm = recorded;
+            refusedForm.VirtualGeometry            = false;
+            if ( stored != refusedForm || !recorded.VirtualGeometry )
+                return false;
+            return VirtualGeometryRefusal( recorded, node.Source.MaterialSlots, source ).has_value();
+        }
+
         // A SPLIT IMPORT'S "UP TO DATE" (THM1j): every node mesh the record names is on disk, states the
-        // source's current bytes, and every material it slots has its .demat. There is no combined envelope to
-        // ask: a split import writes none. A deleted node mesh re-imports the source, as a deleted .demat does.
+        // source's current bytes and the record's settings (NodeStatesRecordSettings), and every material it
+        // slots has its .demat. There is no combined envelope to ask: a split import writes none. A deleted node
+        // mesh re-imports the source, as a deleted .demat does.
         bool SplitImportIsCurrent( const std::filesystem::path&                                source,
                                    const std::vector<Assets::Serialization::ImportRecordNode>& nodes )
         {
             const auto hash = Assets::HashMeshSourceFile( source );
             if ( !hash )
                 return false;
+            const auto settings = Ser::ReadImportRecordSettings( source );
+            if ( !settings )
+            {
+                LOG_WARN( "[Import] '{}': its record's settings do not read ({}), so the source is imported again",
+                          source.generic_string(), settings.GetError() );
+                return false;
+            }
             for ( const auto& node : nodes )
             {
                 const std::filesystem::path path  = NodeMeshAssetPath( source, node.Name );
@@ -297,6 +327,13 @@ namespace Desert::Editor
                 }
                 if ( asset.GetValue().Import.SourceHash != hash.GetValue() )
                     return false;
+                if ( !NodeStatesRecordSettings( asset.GetValue(), settings.GetValue().Mesh, source ) )
+                {
+                    LOG_INFO( "[Import] '{}': node mesh '{}' states other import settings than its record, so the "
+                              "source is imported again",
+                              source.generic_string(), path.generic_string() );
+                    return false;
+                }
                 for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
                 {
                     std::error_code ec;
