@@ -591,6 +591,13 @@ namespace
                 << "->v" << Desert::Migration::kWorldPartitionVersionPrefabRuntimeBehavior
                 << " (prefab RuntimeBehavior stated; " << report.NestedInstancesKeptWhole
                 << " nested instance(s) kept whole as Standalone)";
+        if ( report.HLODBuildersRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionPrefabRuntimeBehavior )
+                << "->v" << Desert::Migration::kWorldPartitionVersionHLODBuilders << " ("
+                << report.HLODSimplifySettingsMoved
+                << " MeshSimplify layer(s)' SimplifyTrianglePercent restated as Settings.TrianglePercent)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

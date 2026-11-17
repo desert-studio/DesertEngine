@@ -46,9 +46,10 @@
 //   LandscapeTile   — a landscape tile (UE: ALandscapeStreamingProxy). It draws terrain and has no mesh block, so
 //                     reading it as "draws nothing" made the far terrain vanish with the log saying "every
 //                     drawing record has its stand-in" (WP-FAR-1, live). UE stands a landscape HLOD in for it
-//                     (ULandscapeHLODBuilder, a simplified mesh of the proxy). BuildCellHLOD hands every such
-//                     tile to the LandscapeHLODBuilder (WP-FAR-6), which makes it a built mesh of the tile's own
-//                     heights; only a cook given no landscape builder keeps it a NAMED hole.
+//                     (ULandscapeHLODBuilder, a simplified mesh of the proxy). BuildCellHLOD
+//                     (WorldPartitionHLODBuilders.hpp) hands every such tile to the registry's landscape builder
+//                     (WP-FAR-6), which makes it a built mesh of the tile's own heights; only a registry with no
+//                     landscape builder keeps it a NAMED hole.
 // A record that draws nothing — no mesh block, a StaticMesh naming neither asset nor primitive, an ISM
 // without instances, `Visibility.Visible == false` — needs no stand-in and is neither batched nor listed.
 //
@@ -77,6 +78,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Core::Rules
@@ -374,12 +376,36 @@ namespace Desert::Core::Rules
         return nullptr;
     }
 
-    // Refused, by name: a layer without a name or named twice, a SimplifyTrianglePercent missing on MeshSimplify,
-    // outside (0, 1], or stated on another type, a CellSize without a LoadingRange; and per partition's HLOD
-    // setups (UE FRuntimePartitionDesc::HLODSetups): setups on a partition whose content is never away, a setup
-    // without a name or named twice, a layer that is no layer of the world or named twice in one partition, a
-    // chain with a hole (a spatially loaded last setup, an always-loaded setup before another), ranges that do not
-    // grow along the chain, and one layer followed by different layers in two partitions.
+    // The built-in layer types and the names their builders are registered under (Rules::HLODBuilderRegistry; UE
+    // UHLODLayer::GetHLODBuilderClass maps a type to UHLODBuilderInstancing / MeshMerge / MeshSimplify the same
+    // way). Custom is not here: its builder is the one its layer names.
+    inline constexpr std::array<std::pair<HLODLayerType, std::string_view>, 3> kBuiltInHLODBuilders = { {
+         { HLODLayerType::Instancing, "Instancing" },
+         { HLODLayerType::MeshMerge, "MeshMerge" },
+         { HLODLayerType::MeshSimplify, "MeshSimplify" },
+    } };
+
+    // The name of the builder @p layer is built by: its type's (kBuiltInHLODBuilders), or a Custom layer's
+    // Builder. Empty for a Custom layer stating none (ValidateHLODLayers refuses it).
+    [[nodiscard]] inline std::string_view HLODBuilderNameOf( const HLODLayerSerialized& layer )
+    {
+        if ( layer.Type == HLODLayerType::Custom )
+            return layer.Builder.has_value() ? std::string_view( *layer.Builder ) : std::string_view();
+        for ( const auto& [type, name] : kBuiltInHLODBuilders )
+            if ( type == layer.Type )
+                return name;
+        return {};
+    }
+
+    // Refused, by name: a layer without a name or named twice, a Custom layer stating no Builder or a built-in
+    // type's name as its Builder, a Builder on any other type, a CellSize without a LoadingRange; and per
+    // partition's HLOD setups (UE FRuntimePartitionDesc::HLODSetups): setups on a partition whose content is never
+    // away, a setup without a name or named twice, a layer that is no layer of the world or named twice in one
+    // partition, a chain with a hole (a spatially loaded last setup, an always-loaded setup before another), ranges
+    // that do not grow along the chain, and one layer followed by different layers in two partitions. The layer's
+    // builder and Settings are the REGISTRY's to judge (HLODLayerBuilderIssues, WorldPartitionHLODBuilders.hpp): a
+    // world naming a builder this process has not registered still loads, edits and plays its saved HLODs - only
+    // Build HLODs is refused.
     [[nodiscard]] inline Common::BoolResultStr ValidateHLODLayers( const WorldPartitionSerialized& partition )
     {
         const std::vector<HLODLayerSerialized>  none;
@@ -395,18 +421,22 @@ namespace Desert::Core::Rules
             for ( std::size_t j = 0; j < i; ++j )
                 if ( layers[j].Name == layer.Name )
                     return Common::MakeError<bool>( "HLOD layer '" + layer.Name + "' is named twice" );
-            const bool simplify = layer.Type == HLODLayerType::MeshSimplify;
-            if ( simplify && !layer.SimplifyTrianglePercent.has_value() )
-                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                "' is MeshSimplify and states no SimplifyTrianglePercent" );
-            if ( !simplify && layer.SimplifyTrianglePercent.has_value() )
+            // THE BUILDER'S NAME (UE UHLODLayer::HLODBuilderClass, read only for EHLODLayerType::Custom).
+            const bool custom = layer.Type == HLODLayerType::Custom;
+            if ( custom && ( !layer.Builder.has_value() || layer.Builder->empty() ) )
                 return Common::MakeError<bool>(
-                     "HLOD layer '" + layer.Name +
-                     "' states SimplifyTrianglePercent, which only MeshSimplify reads" );
-            if ( simplify && !( *layer.SimplifyTrianglePercent > 0.0f && *layer.SimplifyTrianglePercent <= 1.0f ) )
+                     std::format( "HLOD layer '{}' is Custom and names no Builder", layer.Name ) );
+            if ( !custom && layer.Builder.has_value() )
                 return Common::MakeError<bool>(
-                     std::format( "HLOD layer '{}': SimplifyTrianglePercent {:f} is outside (0, 1]", layer.Name,
-                                  *layer.SimplifyTrianglePercent ) );
+                     std::format( "HLOD layer '{}' is {} and names Builder '{}', which only a Custom layer reads",
+                                  layer.Name, HLODBuilderNameOf( layer ), *layer.Builder ) );
+            if ( custom )
+                for ( const auto& builtIn : kBuiltInHLODBuilders )
+                    if ( *layer.Builder == builtIn.second )
+                        return Common::MakeError<bool>(
+                             std::format( "HLOD layer '{}' is Custom and names the built-in builder '{}'; state "
+                                          "Type {} instead",
+                                          layer.Name, builtIn.second, builtIn.second ) );
             // SPATIAL LOADING (WP-FAR-8): both numbers or neither; positive and finite.
             if ( layer.CellSize.has_value() != layer.LoadingRange.has_value() )
                 return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
@@ -551,20 +581,19 @@ namespace Desert::Core::Rules
     // WHAT A MESH LAYER HANDS THE GEOMETRY BUILDER: the instanced parts the Instancing pass already chose (so a
     // merged HLOD leaves out exactly what an instanced one would, for the same named reasons), each an ISM
     // block naming its mesh and materials with WORLD instance matrices. The builder merges every instance into
-    // one mesh in world space, one section per distinct material, and for MeshSimplify keeps
-    // `TrianglePercent` of the triangles (UHLODBuilderMeshMerge / UHLODBuilderMeshSimplify).
+    // one mesh in world space, one section per distinct material (UHLODBuilderMeshMerge), and when
+    // `TrianglePercent` is stated keeps that share of the triangles (UHLODBuilderMeshSimplify, its settings'
+    // target - Core::HLODMeshSimplifySettings).
     struct HLODMeshRequest
     {
-        HLODLayerType                                            Type            = HLODLayerType::MeshMerge;
-        float                                                    TrianglePercent = 1.0f;
+        std::optional<float>                                     TrianglePercent; // absent = merge only
         std::span<const Assets::InstancedStaticMeshComponentSer> Parts;
     };
 
-    // The geometry side, which reads mesh assets and runs the simplifier, so it is given to the rules rather
-    // than linked into them (as CustomShaderSource is). Answers a StaticMesh block with the built EditMesh and
-    // the material slot lists, or an error naming the part that could not be read. AN EMPTY BUILDER IS A
-    // STATED CONDITION: a mesh layer then REFUSES the build by name (BuildCellHLOD) rather than falling back
-    // to instancing.
+    // The geometry side (Core::BuildHLODMesh), which reads mesh assets and runs the simplifier, so it is given to
+    // the merge pass (MergeHLODBatches) rather than linked into the rules (as CustomShaderSource is). Answers a
+    // StaticMesh block with the built EditMesh and the material slot lists, or an error naming the part that could
+    // not be read.
     using HLODMeshBuilder =
          std::function<Common::ResultStr<Assets::StaticMeshComponentSer>( const HLODMeshRequest& request )>;
 
@@ -578,8 +607,8 @@ namespace Desert::Core::Rules
     // `MinVisibleDistance` - the nearest the HLOD is ever drawn, FHLODBuildContext::MinVisibleDistance, which is
     // the source cell's grid LoadingRange - and keeps the first landscape LOD whose screen size the tile no longer
     // exceeds. A heightfield is simplified by skipping samples (a landscape LOD), not by the layer's edge
-    // collapses, so SimplifyTrianglePercent does not apply to it (UE: the landscape builder ignores the layer's
-    // mesh settings too).
+    // collapses, so MeshSimplify's TrianglePercent does not apply to it (UE: the landscape builder ignores the
+    // layer's mesh settings too).
     struct LandscapeHLODRequest
     {
         std::span<const Assets::EntityData> Records;
@@ -587,99 +616,11 @@ namespace Desert::Core::Rules
         std::size_t                         Tile               = kNoRecord;
         float                               MinVisibleDistance = 0.0f; // cm
     };
-    // The geometry side (it reads the tile's height file), given to the rules as HLODMeshBuilder is. AN EMPTY
-    // BUILDER IS A STATED CONDITION: every landscape tile then stays a named LandscapeTile hole. An error (the
-    // height file is missing, the root does not resolve) refuses the HLOD build by name.
+    // The geometry side (it reads the tile's height file: Core::BuildLandscapeHLODMesh), given to the landscape
+    // builder (Rules::HLODBuilderLandscape) as HLODMeshBuilder is given to the merge. An error (the height file is
+    // missing, the root does not resolve) refuses the HLOD build by name.
     using LandscapeHLODBuilder =
          std::function<Common::ResultStr<Assets::StaticMeshComponentSer>( const LandscapeHLODRequest& request )>;
-
-    // THE HLOD OF ONE CELL BY ITS LAYER, seen from @p minVisibleDistance on (the cell's grid LoadingRange,
-    // HLODMinVisibleDistance; it picks the landscape tiles' LOD). Instancing: BuildInstancingHLOD. MeshMerge /
-    // MeshSimplify: the same pass chooses the parts and the holes, then every batch that casts shadows becomes one
-    // built mesh and every batch that does not becomes another (a merged mesh has one CastShadows), each standing
-    // in for the union of its batches' sources. Refused when a mesh layer has no builder or the builder refuses.
-    [[nodiscard]] inline Common::ResultStr<InstancingHLOD>
-    BuildCellHLOD( const HLODLayerSerialized& layer, std::span<const Assets::EntityData> records,
-                   std::span<const glm::mat4> world, std::span<const std::size_t> members,
-                   float minVisibleDistance, const CustomShaderSource& customShader, Common::Json::Issues& issues,
-                   const FoliageHLODSource& foliage, const HLODMeshBuilder& meshBuilder,
-                   const LandscapeHLODBuilder& landscape = {} )
-    {
-        // Every landscape tile the instancing pass named becomes its own batch (UE: one HLOD component per
-        // landscape proxy), whatever the layer does with the meshes.
-        const auto withLandscape = [&]( InstancingHLOD hlod ) -> Common::ResultStr<InstancingHLOD>
-        {
-            if ( !landscape )
-                return Common::MakeSuccess( std::move( hlod ) );
-            std::vector<HLODNotInstanced> holes;
-            for ( const HLODNotInstanced& missing : hlod.NotInstanced )
-            {
-                if ( missing.Reason != HLODExclusion::LandscapeTile )
-                {
-                    holes.push_back( missing );
-                    continue;
-                }
-                LandscapeHLODRequest request;
-                request.Records         = records;
-                request.World           = world;
-                request.Tile            = missing.Record;
-                request.MinVisibleDistance = minVisibleDistance;
-                auto built              = landscape( request );
-                if ( !built )
-                    return Common::MakeError<InstancingHLOD>(
-                         "HLOD layer '" + layer.Name + "', landscape tile record " +
-                         std::to_string( missing.Record ) + ": " + built.GetError() );
-                HLODBatch batch;
-                batch.Mesh    = built.ExtractValue();
-                batch.Sources = { missing.Record };
-                hlod.Batches.push_back( std::move( batch ) );
-            }
-            hlod.NotInstanced = std::move( holes );
-            return Common::MakeSuccess( std::move( hlod ) );
-        };
-        InstancingHLOD instanced = BuildInstancingHLOD( records, world, members, customShader, issues, foliage );
-        if ( layer.Type == HLODLayerType::Instancing || instanced.Batches.empty() )
-            return withLandscape( std::move( instanced ) );
-        if ( !meshBuilder )
-            return Common::MakeError<InstancingHLOD>( "HLOD layer '" + layer.Name +
-                                                      "' builds meshes and this cook was given no HLOD mesh "
-                                                      "builder; cook it where meshes can be read (the editor)" );
-        InstancingHLOD merged;
-        merged.NotInstanced   = std::move( instanced.NotInstanced );
-        merged.Instances      = instanced.Instances;
-        merged.FoliageLeftOut = instanced.FoliageLeftOut;
-        for ( const bool shadows : { true, false } )
-        {
-            std::vector<Assets::InstancedStaticMeshComponentSer> parts;
-            std::vector<std::size_t>                             sources;
-            for ( HLODBatch& batch : instanced.Batches )
-            {
-                if ( batch.Block.CastShadows.value_or( true ) != shadows )
-                    continue;
-                parts.push_back( batch.Block );
-                sources.insert( sources.end(), batch.Sources.begin(), batch.Sources.end() );
-            }
-            if ( parts.empty() )
-                continue;
-            HLODMeshRequest request;
-            request.Type            = layer.Type;
-            request.TrianglePercent = layer.SimplifyTrianglePercent.value_or( 1.0f );
-            request.Parts           = parts;
-            auto built              = meshBuilder( request );
-            if ( !built )
-                return Common::MakeError<InstancingHLOD>( "HLOD layer '" + layer.Name + "': " + built.GetError() );
-            HLODBatch batch;
-            batch.Mesh = built.ExtractValue();
-            if ( !shadows )
-                batch.Mesh->CastShadows = false;
-            // Sources in member order, once each (a record may feed several batches).
-            for ( const std::size_t member : members )
-                if ( std::find( sources.begin(), sources.end(), member ) != sources.end() )
-                    batch.Sources.push_back( member );
-            merged.Batches.push_back( std::move( batch ) );
-        }
-        return withLandscape( std::move( merged ) );
-    }
 
     // The id of batch @p batch of the HLOD named @p name in world @p world: a function of the three, as a file's
     // GUID is, so a re-cook (and a second Play of the same scene) reproduces it. Zero is a possible hash and is

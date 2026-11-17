@@ -1605,14 +1605,12 @@ namespace Desert::Core::WorldCells
     static Common::ResultStr<BuiltHLODIndex>
     BuildPlannedHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                        std::span<const Common::Utils::AssetRegistry> registries,
-                       const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                       const BuiltHLODSink& sink );
+                       const Rules::HLODBuilderRegistry& builders, const BuiltHLODSink& sink );
 
     Common::ResultStr<BuiltHLODIndex>
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
-                     const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                     const BuiltHLODSink& sink )
+                     const Rules::HLODBuilderRegistry& builders, const BuiltHLODSink& sink )
     {
         // The HLODs are built from the world the cook cuts: every prefab instance expanded the same way, by the
         // same function, so a cook finds them fresh (StaleHLODCells over the expanded records).
@@ -1620,14 +1618,13 @@ namespace Desert::Core::WorldCells
         if ( !expanded )
             return Common::MakeError<BuiltHLODIndex>( expanded.GetError() );
         return BuildPlannedHLODs( expanded.GetValue().World.Scene, expanded.GetValue().Descriptors, registries,
-                                  meshBuilder, landscape, sink );
+                                  builders, sink );
     }
 
     static Common::ResultStr<BuiltHLODIndex>
     BuildPlannedHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                        std::span<const Common::Utils::AssetRegistry> registries,
-                       const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                       const BuiltHLODSink& sink )
+                       const Rules::HLODBuilderRegistry& builders, const BuiltHLODSink& sink )
     {
         using Result = BuiltHLODIndex;
         auto planned = PlanHLODs( scene, descriptors, registries );
@@ -1639,6 +1636,12 @@ namespace Desert::Core::WorldCells
         if ( !Rules::AnyGridHLODLayer( *scene.WorldPartition ) )
             return Common::MakeError<Result>(
                  "'" + scene.SceneName + "' has no grid with an HLOD layer, so its cells have no HLODs to build" );
+        // The builders' say (UE: a layer whose builder class is not loaded, or refuses its settings, fails the
+        // build).
+        if ( const std::vector<std::string> refused =
+                  Rules::HLODLayerBuilderIssues( *scene.WorldPartition, builders );
+             !refused.empty() )
+            return Common::MakeError<Result>( std::format( "'{}': {}", scene.SceneName, refused.front() ) );
 
         const auto&                     records       = scene.Entities;
         Common::Json::Issues            issues        = hp.Plan.Issues;
@@ -1654,8 +1657,15 @@ namespace Desert::Core::WorldCells
                                 std::span<const std::size_t> members, float minVisibleDistance,
                                 const std::string& cookedName, const std::string& name ) -> Common::BoolResultStr
         {
-            auto builtCell = Rules::BuildCellHLOD( hlodLayer, records, world, members, minVisibleDistance,
-                                                   customShader, issues, foliageInHLOD, meshBuilder, landscape );
+            Rules::HLODBuildContext context;
+            context.Records            = records;
+            context.World              = world;
+            context.Members            = members;
+            context.MinVisibleDistance = minVisibleDistance;
+            context.Settings           = hlodLayer.Settings.has_value() ? &*hlodLayer.Settings : nullptr;
+            context.Registries         = registries;
+            auto builtCell =
+                 Rules::BuildCellHLOD( hlodLayer, builders, context, customShader, issues, foliageInHLOD );
             if ( !builtCell )
                 return Common::MakeError( "'" + scene.SceneName + "', " + row.Unit + ": " + builtCell.GetError() );
             const Rules::InstancingHLOD built = builtCell.ExtractValue();

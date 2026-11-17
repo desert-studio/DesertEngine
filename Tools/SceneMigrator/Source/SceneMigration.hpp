@@ -69,22 +69,26 @@ namespace Desert::Migration
         std::optional<std::string> HLODLayer;
     };
 
-    // ONE HLOD LAYER AS EVERY GENERATION READS IT: Core::HLODLayerSerialized PLUS the v1..v4 ParentLayer, frozen
-    // here. v5 states the chain as a partition's ordered HLOD setups (Core::RuntimePartitionHLODSetupSerialized);
-    // MigrateRuntimePartitionsV4ToV5 reads ParentLayer into them and clears it, and rfl omits an empty optional,
-    // so the layer this tool writes is the layer the engine reads.
+    // ONE HLOD LAYER AS EVERY GENERATION READS IT: Core::HLODLayerSerialized, member for member and in its order,
+    // PLUS the WP v1..v4 ParentLayer and the WP v1..v7 SimplifyTrianglePercent, frozen here. v5 states the chain as
+    // a partition's ordered HLOD setups (Core::RuntimePartitionHLODSetupSerialized): MigrateRuntimePartitionsV4ToV5
+    // reads ParentLayer into them and clears it. v8 moved SimplifyTrianglePercent into the layer's Settings (its
+    // MeshSimplify builder's TrianglePercent): MigrateHLODBuilderSettingsV7ToV8 moves it and clears it. rfl omits an
+    // empty optional, so the layer this tool writes is the layer the engine reads.
     struct HLODLayerSerialized
     {
-        std::string                Name;
-        Core::HLODLayerType        Type = Core::HLODLayerType::Instancing;
-        std::optional<std::string> ParentLayer; // v1..v4 files only
-        std::optional<float>       SimplifyTrianglePercent;
-        std::optional<float>       CellSize;
-        std::optional<float>       LoadingRange;
+        std::string                 Name;
+        Core::HLODLayerType         Type = Core::HLODLayerType::Instancing;
+        std::optional<std::string>  Builder;
+        std::optional<rfl::Generic> Settings;
+        std::optional<float>        CellSize;
+        std::optional<float>        LoadingRange;
+        std::optional<std::string>  ParentLayer;             // WP v1..v4 files only
+        std::optional<float>        SimplifyTrianglePercent; // WP v1..v7 files only
     };
     static_assert(
          rfl::named_tuple_t<HLODLayerSerialized>::size() ==
-              rfl::named_tuple_t<Core::HLODLayerSerialized>::size() + 1,
+              rfl::named_tuple_t<Core::HLODLayerSerialized>::size() + 2,
          "Core::HLODLayerSerialized gained or lost a member: mirror it in Migration::HLODLayerSerialized, "
          "or this tool drops it from every scene it rewrites" );
 
@@ -565,6 +569,13 @@ namespace Desert::Migration
     //       change nothing.
     inline constexpr int kWorldPartitionVersionPrefabRuntimeBehavior = 7;
 
+    //   8 - HLOD BUILDERS BY NAME (WP-HLOD-BUILDERS; UE UHLODLayer::HLODBuilderClass + HLODBuilderSettings).
+    //       A layer states its builder's `Settings` object and a Custom layer its `Builder`; MeshSimplify's
+    //       SimplifyTrianglePercent is its Settings' TrianglePercent: every layer stating it states
+    //       {"TrianglePercent": <the same number>} instead (MigrateHLODBuilderSettingsV7ToV8). Scenes only carry
+    //       layers; a prefab's chain raises the number and changes nothing.
+    inline constexpr int kWorldPartitionVersionHLODBuilders = 8;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -612,7 +623,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionPrefabRuntimeBehavior == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionHLODBuilders == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1056,6 +1067,10 @@ namespace Desert::Migration
     // that wrote it too.
     std::size_t MigrateRuntimePartitionsV4ToV5( SceneSerialized& scene, std::vector<std::string>& refused );
 
+    // Restates every HLOD layer's SimplifyTrianglePercent as its Settings {"TrianglePercent": ...} and clears it
+    // (kWorldPartitionVersionHLODBuilders); how many layers moved. Refused, by layer, when a layer states both.
+    Common::ResultStr<std::size_t> MigrateHLODBuilderSettingsV7ToV8( SceneSerialized& scene );
+
     // Drops siblingIndex from every root record of a partitioned (external-entities) scene
     // (kSceneVersionRootSiblingIndex); how many records lost it.
     std::size_t MigrateRootSiblingIndexV69ToV70( SceneSerialized& scene );
@@ -1400,6 +1415,8 @@ namespace Desert::Migration
         bool        LocationVolumesRaised   = false; // below kWorldPartitionVersionLocationVolumes (additive)
         bool        PrefabRuntimeBehaviorRaised = false; // below kWorldPartitionVersionPrefabRuntimeBehavior
         std::size_t NestedInstancesKeptWhole    = 0;     // nested instance records given Standalone by that step
+        bool        HLODBuildersRaised          = false; // below kWorldPartitionVersionHLODBuilders
+        std::size_t HLODSimplifySettingsMoved   = 0;     // layers whose SimplifyTrianglePercent became Settings
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1467,7 +1484,7 @@ namespace Desert::Migration
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised || RuntimeDataLayersRaised ||
                    DataLayerOutlinerRaised || RuntimePartitionsRaised || LocationVolumesRaised ||
-                   PrefabRuntimeBehaviorRaised || ReflectedAssetRefsRaised ||
+                   PrefabRuntimeBehaviorRaised || HLODBuildersRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
                    FilmicDefaultRaised || GrassRasterPathRaised;
         }

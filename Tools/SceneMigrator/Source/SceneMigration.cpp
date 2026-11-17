@@ -5224,6 +5224,31 @@ namespace Desert::Migration
         return grids.size();
     }
 
+    Common::ResultStr<std::size_t> MigrateHLODBuilderSettingsV7ToV8( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->HLODLayers.has_value() )
+            return Common::MakeSuccess( std::size_t{ 0 } );
+        std::size_t moved = 0;
+        for ( HLODLayerSerialized& layer : *scene.WorldPartition->HLODLayers )
+        {
+            if ( !layer.SimplifyTrianglePercent.has_value() )
+                continue;
+            if ( layer.Settings.has_value() )
+                return Common::MakeError<std::size_t>(
+                     std::format( "HLOD layer '{}' states both SimplifyTrianglePercent and Settings; a v7 world "
+                                  "states only the first",
+                                  layer.Name ) );
+            // The float's shortest text read back as the double the file states, so 0.1 stays "0.1".
+            rfl::Generic::Object settings;
+            settings["TrianglePercent"] =
+                 rfl::Generic( std::stod( std::format( "{}", *layer.SimplifyTrianglePercent ) ) );
+            layer.Settings                = rfl::Generic( std::move( settings ) );
+            layer.SimplifyTrianglePercent = std::nullopt;
+            ++moved;
+        }
+        return Common::MakeSuccess( moved );
+    }
+
     LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
                                                                   const std::filesystem::path&     sourceFile )
     {
@@ -5532,6 +5557,10 @@ namespace Desert::Migration
                             ++report.NestedInstancesKeptWhole;
                         }
             }
+            // v7 -> v8 restates MeshSimplify's SimplifyTrianglePercent as Settings; the transform is
+            // MigrateScene's (a prefab states no World Partition block), the flag is every file's.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODBuilders )
+                report.HLODBuildersRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
@@ -5876,6 +5905,14 @@ namespace Desert::Migration
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
         RunWorldPartitionSteps( scene.Header, scene, nullptr, scene.SceneName, report );
+        if ( report.Refused.empty() && report.HLODBuildersRaised )
+        {
+            auto moved = MigrateHLODBuilderSettingsV7ToV8( scene );
+            if ( moved )
+                report.HLODSimplifySettingsMoved = moved.GetValue();
+            else
+                report.Refused = std::format( "{}: {}", scene.SceneName, moved.GetError() );
+        }
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
         if ( report.Refused.empty() )

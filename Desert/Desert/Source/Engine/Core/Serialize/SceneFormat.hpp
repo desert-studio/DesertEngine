@@ -171,7 +171,12 @@ namespace Desert::Core
     // SceneMigrator, kWorldPartitionVersionPrefabRuntimeBehavior) states Partitioned on every prefab (what each
     // meant) and Standalone on every nested instance record inside a prefab (a nested body was always kept whole
     // under its root, and a Partitioned nested instance now opens into the outer world).
-    inline constexpr int kWorldPartitionVersion = 7;
+    // v8 (WP-HLOD-BUILDERS): an HLOD layer's builder is a registered one (UE UHLODLayer::HLODBuilderClass) with its
+    // own settings object (UE HLODBuilderSettings): the layer states `Settings`, read by its builder alone, and a
+    // Custom layer its `Builder`. MeshSimplify's SimplifyTrianglePercent is its builder's Settings.TrianglePercent
+    // (Tools/SceneMigrator, MigrateHLODBuilderSettingsV7ToV8); the number moves so a v7 build refuses a layer it
+    // cannot build.
+    inline constexpr int kWorldPartitionVersion = 8;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -315,14 +320,19 @@ namespace Desert::Core
     };
 
     // WHAT STANDS IN FOR A CELL WHILE IT IS AWAY - UE's UHLODLayer (WorldPartition/HLOD/HLODLayer.h), the
-    // pattern and not the letter: a named layer with a builder TYPE and an optional PARENT layer.
+    // pattern and not the letter: a named layer with a builder TYPE and an optional PARENT layer. Every type is
+    // built by a BUILDER found by name in the process's registry (Rules::HLODBuilderRegistry,
+    // WorldPartitionHLODBuilders.hpp; UE UHLODLayer::GetHLODBuilderClass), which also reads the layer's Settings:
     //   Instancing   - UHLODBuilderInstancing: the cell's own meshes, one instanced component per distinct
     //                  (mesh, materials, flags). Nothing is simplified (WorldPartitionHLODRules.hpp).
     //   MeshMerge    - UHLODBuilderMeshMerge: every mesh the cell draws merged into ONE mesh in world space,
     //                  one section per distinct material; geometry unchanged, one draw per material.
     //   MeshSimplify - UHLODBuilderMeshSimplify: the merged mesh, then simplified (QEM, the editor's own
-    //                  Simplify - Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp) down to
-    //                  SimplifyTrianglePercent of its triangles. What a far cell should cost.
+    //                  Simplify - Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp) down to its Settings'
+    //                  TrianglePercent of its triangles (Core::HLODMeshSimplifySettings). What a far cell should
+    //                  cost.
+    //   Custom       - UE EHLODLayerType::Custom + HLODBuilderClass: the builder the layer's `Builder`
+    //                  names, which a project or game module registered (Rules::HLODBuilderRegistry::Register).
     // The built mesh is stored INSIDE the cell's HLOD file, as a StaticMesh record's EditMesh: UE writes its
     // merged UStaticMesh into the HLOD actor's own package for the same reason - it is derived from the cell
     // and belongs to nobody else.
@@ -331,16 +341,23 @@ namespace Desert::Core
         Instancing,
         MeshMerge,
         MeshSimplify,
+        Custom,
     };
 
     struct HLODLayerSerialized
     {
         std::string   Name;
         HLODLayerType Type = HLODLayerType::Instancing;
-        // MeshSimplify only (UE FMeshProxySettings' triangle target, as a fraction): the share of the merged
-        // mesh's triangles kept, in (0, 1]. Required on MeshSimplify and refused on any other type, so a
-        // number nobody reads cannot sit in a file looking like a setting.
-        std::optional<float> SimplifyTrianglePercent;
+        // UE UHLODLayer::HLODBuilderClass (WP v8): the name a builder was registered under. REQUIRED on Custom and
+        // REFUSED on every other type (whose builder is its type's), and never a built-in type's name, so one
+        // builder has one spelling (Rules::ValidateHLODLayers).
+        std::optional<std::string> Builder;
+        // UE UHLODLayer::HLODBuilderSettings (WP v8): the builder's own settings object (UE: the
+        // UHLODBuilderSettings subclass its GetSettingsClass names), read and checked by that builder alone
+        // (IHLODBuilder::ValidateSettings) - MeshSimplify's is {"TrianglePercent": ...}. A builder that reads
+        // none refuses any, so a number nobody reads cannot sit in a file looking like a setting. Absent = the
+        // layer states none.
+        std::optional<Common::Json::Value> Settings;
         // UE UHLODLayer::bIsSpatiallyLoaded / CellSize / LoadingRange (WP-FAR-8): BOTH stated = the HLODs this
         // layer builds are SPATIALLY LOADED - each lives in a square cell of CellSize cm (by the centre of what it
         // stands in for) and is streamed by the same residency as a grid cell, within LoadingRange cm of a
@@ -352,7 +369,17 @@ namespace Desert::Core
         std::optional<float> CellSize;
         std::optional<float> LoadingRange;
 
-        bool operator==( const HLODLayerSerialized& ) const = default;
+        // Settings is an untyped value, compared as Json::Same compares one (its Write text); the rest
+        // member-wise.
+        bool operator==( const HLODLayerSerialized& other ) const
+        {
+            const bool sameSettings =
+                 Settings.has_value() == other.Settings.has_value() &&
+                 ( !Settings.has_value() || Common::Json::Same( *Settings, *other.Settings ) );
+            return Name == other.Name && Type == other.Type && Builder == other.Builder && sameSettings &&
+                   CellSize == other.CellSize &&
+                   LoadingRange == other.LoadingRange;
+        }
     };
 
     // WHAT A DATA LAYER IS FOR - UE EDataLayerType (WorldPartition/DataLayer/DataLayerType.h).

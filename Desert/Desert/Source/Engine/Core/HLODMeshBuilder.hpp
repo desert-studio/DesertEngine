@@ -16,27 +16,33 @@
 // found through @p registries by {MeshGuid, MeshPath}. A part whose mesh is in no registry or does not read is
 // an ERROR naming it: a merged HLOD with a silently missing piece is a hole nobody listed.
 
-#include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODBuilders.hpp>
 
 #include <Common/Utilities/AssetRegistry.hpp>
 
+#include <optional>
 #include <span>
 
 namespace Desert::Core
 {
-    // THE HLOD BUILDERS OF A COOK, in one place: every world cook - editor Play (WorldStreamer), the packager
-    // (GamePackager) and the WorldCook tool - takes its builders from here, so the three cannot build different
-    // stand-ins for one world. Mesh binds @p registries (the caller keeps them alive for the cook); Landscape
-    // reads the tile's height file itself.
-    struct HLODBuilders
+    // UE UHLODBuilderMeshSimplifySettings (FMeshProxySettings' triangle target, as a fraction): what a
+    // MeshSimplify layer's Settings state (HLODLayerSerialized::Settings), read by its builder alone.
+    // TrianglePercent is the share of the merged mesh's triangles kept, in (0, 1]; REQUIRED - the builder refuses
+    // Settings without it rather than pick a share nobody chose.
+    struct HLODMeshSimplifySettings
     {
-        Rules::HLODMeshBuilder      Mesh;
-        Rules::LandscapeHLODBuilder Landscape;
+        std::optional<float> TrianglePercent;
     };
 
-    [[nodiscard]] HLODBuilders MakeHLODBuilders( std::span<const Common::Utils::AssetRegistry> registries );
+    // THE PROCESS'S HLOD BUILDERS (UE: every UHLODBuilder subclass of the loaded modules), registered on first
+    // use: Instancing, MeshMerge and MeshSimplify under their type's name (Rules::kBuiltInHLODBuilders) and the
+    // landscape builder (BuildLandscapeHLODMesh). A project or game module registers its own here, at startup, for
+    // a Custom layer to name (Rules::HLODBuilderRegistry::Register). The editor's Build HLODs builds with a copy
+    // of it.
+    [[nodiscard]] Rules::HLODBuilderRegistry& HLODBuilders();
 
-    // The build itself, for one request; MakeHLODBuilders binds @p registries into it.
+    // The geometry of a MeshMerge / MeshSimplify HLOD, for one request; the builders pass the cook's @p
+    // registries.
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
                    std::span<const Common::Utils::AssetRegistry> registries );

@@ -65,6 +65,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldCellSource.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODBuilders.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
@@ -472,12 +473,13 @@ namespace Desert::Core::WorldCells
     // default HLOD layer, a record without an id or with a taken one, descriptors that are not the records'.
     // Each cell's file goes to @p sink as soon as it is built and is freed with the cell; the index is returned.
     // Prefab instances are expanded first with @p prefabs (ExpandWorldForCook), as CookWorld expands them, so
-    // the cook of the same world finds every HLOD fresh.
+    // the cook of the same world finds every HLOD fresh. Each layer is built by its builder in @p builders
+    // (Core::HLODBuilders, or the editor's copy of it); a layer whose builder is not registered or refuses its
+    // Settings refuses the build with the first such line (Rules::HLODLayerBuilderIssues).
     [[nodiscard]] Common::ResultStr<BuiltHLODIndex>
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
-                     const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
-                     const BuiltHLODSink& sink );
+                     const Rules::HLODBuilderRegistry& builders, const BuiltHLODSink& sink );
 
     // `<dir>/<stem>_HLOD/` of the scene file @p scenePath (beside `<stem>_Landscape/`).
     [[nodiscard]] std::filesystem::path BuiltHLODDirectory( const std::filesystem::path& scenePath );
