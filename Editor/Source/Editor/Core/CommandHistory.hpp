@@ -5,9 +5,12 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -188,7 +191,12 @@ namespace Desert::Editor
             m_Redo.clear();
             m_Undo.push_back( std::move( command ) );
             if ( m_Undo.size() > kMaxEntries )
+            {
                 m_Undo.erase( m_Undo.begin() );
+                // The entry that fell off was older than an open session's first step: the floor moves with it.
+                if ( m_SessionFloor.has_value() && *m_SessionFloor > 0 )
+                    --*m_SessionFloor;
+            }
             ++m_Revision;
         }
 
@@ -238,8 +246,15 @@ namespace Desert::Editor
 
         bool Undo()
         {
+            // An open session's history begins at its floor: the steps below it edit what the session holds
+            // locked, so Undo stops there until the session is committed or discarded (CloseSession).
+            if ( m_SessionFloor.has_value() && m_Undo.size() <= *m_SessionFloor )
+            {
+                LOG_INFO( "[History] undo stops at the start of the open edit session - commit or discard it first" );
+                return false;
+            }
             // Stale entries (target entity gone) report failure — discard them and keep walking down.
-            while ( !m_Undo.empty() )
+            while ( !m_Undo.empty() && !( m_SessionFloor.has_value() && m_Undo.size() <= *m_SessionFloor ) )
             {
                 std::unique_ptr<ICommand> cmd = std::move( m_Undo.back() );
                 m_Undo.pop_back();
@@ -326,6 +341,43 @@ namespace Desert::Editor
         {
             m_Undo.clear();
             m_Redo.clear();
+            m_SessionFloor.reset();
+        }
+
+        // ── AN EDIT SESSION: ITS STEPS ARE ITS OWN, AND ITS END FOLDS THEM AWAY ─────────────────────────────
+        //
+        // UE's level-instance edit (ULevelInstanceSubsystem::EditLevelInstance) is a mode with an end: Commit
+        // writes the level and Cancel throws the edits away, and in both cases the moves made inside the mode are
+        // not separate steps of the level's history afterwards. Here the steps recorded while a session is open
+        // are ordinary entries (Ctrl+Z inside the prefab edit works), Undo does not walk below the session's
+        // start, and CloseSession drops them - the session's owner then records ONE step for the whole edit
+        // (Commit) or none (Discard). False from OpenSession when one is already open.
+        bool OpenSession()
+        {
+            if ( m_SessionFloor.has_value() )
+                return false;
+            m_SessionFloor = m_Undo.size();
+            return true;
+        }
+
+        [[nodiscard]] bool SessionOpen() const
+        {
+            return m_SessionFloor.has_value();
+        }
+
+        // Drops every undo entry recorded since OpenSession, and the redo branch (it can only hold the session's
+        // own undone steps, or steps a session edit already invalidated). Answers how many entries went.
+        std::size_t CloseSession()
+        {
+            if ( !m_SessionFloor.has_value() )
+                return 0;
+            const std::size_t floor   = std::min( *m_SessionFloor, m_Undo.size() );
+            const std::size_t dropped = m_Undo.size() - floor + m_Redo.size();
+            m_Undo.resize( floor );
+            m_Redo.clear();
+            m_SessionFloor.reset();
+            ++m_Revision;
+            return dropped;
         }
 
         // Read-only views for the History panel (bottom = oldest, back = the next Undo target).
@@ -472,5 +524,7 @@ namespace Desert::Editor
         std::weak_ptr<::Desert::Core::IEditStamps> m_Packages;
         std::vector<Common::UUID>                  m_FieldSubjects; // FieldSubject scopes, innermost last
         uint64_t                               m_Revision = 0;
+        // Set while an edit session is open: the undo depth it began at (OpenSession / CloseSession).
+        std::optional<std::size_t> m_SessionFloor;
     };
 } // namespace Desert::Editor

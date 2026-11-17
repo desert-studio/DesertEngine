@@ -4,6 +4,7 @@
 
 #include <Common/Core/Math/Ray.hpp>
 
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/ECS/FoliageFieldEntities.hpp>
 
@@ -105,7 +106,7 @@ namespace Desert::Editor::Tools
         //
         // Refused, not silently ignored: the caller gets a name it can put in front of the user.
         if ( auto lockedRef = scene.FindEntityByID( selectedUUID ) )
-            if ( ECS::IsLocked( registry, lockedRef->get().GetHandle() ) )
+            if ( ::Desert::Editor::Commands::IsAuthoringLocked( registry, lockedRef->get().GetHandle() ) )
                 return PickOutcome::RefusedLocked;
 
         if ( additive )

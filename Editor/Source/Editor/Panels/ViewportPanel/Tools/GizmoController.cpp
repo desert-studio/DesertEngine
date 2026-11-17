@@ -354,7 +354,7 @@ namespace Desert::Editor::Tools
         // reach the padlock to undo it — and a selection made there must not come with draggable handles.
         // Returning before SetRect/Manipulate also leaves m_Hovered false, so picking does not stand down
         // for a gizmo that is not on screen.
-        if ( ECS::IsLocked( reg, selectedEntity.GetHandle() ) )
+        if ( ::Desert::Editor::Commands::IsAuthoringLocked( reg, selectedEntity.GetHandle() ) )
             return;
 
         // The gizmo must work in WORLD space. For a CHILD entity (e.g. a camera parented to the character),
@@ -474,7 +474,7 @@ namespace Desert::Editor::Tools
                     continue;
                 // A locked follower is not moved below, so it must not be snapshotted either — an undo
                 // entry for an entity that never changed is an undo step that appears to do nothing.
-                if ( ECS::IsLocked( reg, e.GetHandle() ) )
+                if ( ::Desert::Editor::Commands::IsAuthoringLocked( reg, e.GetHandle() ) )
                     continue;
                 const auto& tc = e.GetComponent<ECS::TransformComponent>();
                 m_DragSnapshots.push_back( { id, tc.GetTranslation(), tc.GetRotation(), tc.GetScale() } );
@@ -509,7 +509,7 @@ namespace Desert::Editor::Tools
                     // The group delta stops at a locked member. Dragging five things of which one is
                     // locked moves four — the lock is a property of the entity, not of how it happened
                     // to be selected, so a multi-selection cannot be a way around it.
-                    if ( ECS::IsLocked( reg, e.GetHandle() ) )
+                    if ( ::Desert::Editor::Commands::IsAuthoringLocked( reg, e.GetHandle() ) )
                         continue;
 
                     const auto&     tc = e.GetComponent<ECS::TransformComponent>();

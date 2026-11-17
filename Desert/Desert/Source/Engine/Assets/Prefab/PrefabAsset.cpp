@@ -5,6 +5,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
+#include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
@@ -13,6 +14,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Desert::Assets
@@ -167,12 +169,16 @@ namespace Desert::Assets
 
         m_EntityData.clear();
 
+        // The live uuid each record was written from -> the record id it is written under (below).
+        std::unordered_map<Common::UUID, Common::UUID> liveToRecord;
+
         std::function<void( ECS::Entity, bool )> traverse = [&]( ECS::Entity e, bool isRoot )
         {
             if ( !e )
                 return;
 
-            EntityData record = Core::Serialize::EntitySerializer::SerializeEntity( e, assetManager );
+            EntityData                        record = Core::Serialize::EntitySerializer::SerializeEntity( e, assetManager );
+            const std::optional<Common::UUID> liveId = record.id;
 
             // A NESTED PREFAB IS A LINK, NOT A COPY OF ITS BODY.
             //
@@ -212,6 +218,8 @@ namespace Desert::Assets
                     record.id = path.back();
                 }
             }
+            if ( liveId.has_value() && record.id.has_value() )
+                liveToRecord.emplace( *liveId, *record.id );
 
             if ( stopsHere )
             {
@@ -246,6 +254,31 @@ namespace Desert::Assets
 
         traverse( rootEntity, true );
 
+        // THE LINKS INSIDE THE BODY FOLLOW THE IDS. A record now carries its RECORD id, but the serializer wrote
+        // its `parent` and its entity references (Rules::kEntityReferences) as the LIVE uuids the factory minted -
+        // so a re-instantiated body found no parent for any record below the root and hung them all off the scene
+        // root, and an attachment named an entity of the instance it was captured from. Both are rewritten here
+        // through the same map; a link that leaves the body (the root's own parent) names no record and is kept.
+        const Core::Rules::EntityIdRemap toRecord =
+             [&liveToRecord]( const Common::UUID& live ) -> std::optional<Common::UUID>
+        {
+            const auto hit = liveToRecord.find( live );
+            if ( hit == liveToRecord.end() )
+                return std::nullopt;
+            return hit->second;
+        };
+        for ( std::size_t index = 1; index < m_EntityData.size(); ++index )
+        {
+            EntityData& record = m_EntityData[index];
+            if ( record.parent.has_value() )
+            {
+                if ( const auto parent = toRecord( *record.parent ); parent.has_value() )
+                    record.parent = *parent;
+            }
+        }
+        for ( EntityData& record : m_EntityData )
+            Core::Rules::RemapEntityReferences( record, toRecord );
+
         // Root entity's own PrefabComponent points to this very file — strip it from the
         // serialized data so that re-instantiating doesn't recurse into itself.
         if ( !m_EntityData.empty() )
@@ -253,6 +286,14 @@ namespace Desert::Assets
 
         m_IsLoaded = true;
         // Nothing on disk holds this yet — see IsReloadableFromFile and Unload's refusal.
+        m_CapturedInMemory = true;
+    }
+
+    void PrefabAsset::ReplaceBody( std::vector<EntityData> records )
+    {
+        m_EntityData = std::move( records );
+        m_IsLoaded   = true;
+        // As CreateFromEntity: the body is the caller's until SaveTo puts it in the file.
         m_CapturedInMemory = true;
     }
 

@@ -7,6 +7,8 @@
 
 #include <glm/glm.hpp>
 
+#include <entt/entt.hpp>
+
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -165,6 +167,38 @@ namespace Desert::Editor::Commands
     // Replaces the instance subtree with a fresh instantiation of its source prefab (same world position,
     // same parent). ONE undo step (undo brings the modified instance back). Returns the new root UUID.
     Common::UUID RevertPrefabInstance( const Common::UUID& uuid );
+
+    // ---- Prefab edit in place (UE 5.5 ULevelInstanceSubsystem::EditLevelInstance / CommitLevelInstance /
+    //      CancelLevelInstanceEdit, with FLevelInstanceEditorMode's "the rest of the world is inactive") ----
+    //
+    // THE BODY IS EDITED, NOT THE OVERRIDES. Begin turns the chosen instance into the prefab's bare body (its own
+    // overrides are set aside, so they are not baked into the file) standing where the instance stands; every
+    // entity outside it is locked for authoring (IsAuthoringLocked) and dimmed in the Outliner. A nested instance
+    // is edited at the level chosen: Begin on a nested root edits THAT prefab's file.
+    //
+    // Commit writes the edited body to the .deprefab and rebuilds every instance of that prefab in the scene - top
+    // level or nested inside another prefab's instance - with the overrides each held when the edit began, so an
+    // instance that had its own colour keeps it. ONE undo step: Undo puts back the file and every instance as they
+    // were before Begin; the steps made inside the session are folded into it (CommandHistory::CloseSession).
+    // Discard puts the edited instance back as it was before Begin and records nothing.
+    //
+    // Refused, naming why: no scene, a session already open, an entity that is not a prefab instance root, a
+    // prefab that does not load, an instance holding entities its prefab does not have (a rebuild would drop
+    // them), a file that is not written (the session stays open, nothing changed).
+    [[nodiscard]] Common::BoolResultStr BeginPrefabEdit( const Common::UUID& instanceRoot );
+    [[nodiscard]] Common::BoolResultStr CommitPrefabEdit();
+    [[nodiscard]] Common::BoolResultStr DiscardPrefabEdit();
+
+    // The root of the instance being edited; nullopt when no prefab edit is open.
+    [[nodiscard]] std::optional<Common::UUID> PrefabEditRoot();
+
+    // True while a prefab edit is open and @p entity of the edited scene's registry is not inside the edited
+    // instance - the Outliner dims it.
+    [[nodiscard]] bool IsOutsidePrefabEdit( const entt::registry& registry, entt::entity entity );
+
+    // "May this entity be picked, moved or edited?" - the authoring lock (ECS::IsLocked) OR outside an open prefab
+    // edit. The picker, the gizmo and the Details panel ask THIS, so the edit mode blocks all three at once.
+    [[nodiscard]] bool IsAuthoringLocked( const entt::registry& registry, entt::entity entity );
 
     // Where a replacing instance's geometry comes from (see ReplaceWithPrefab).
     enum class ReplaceMeshSource

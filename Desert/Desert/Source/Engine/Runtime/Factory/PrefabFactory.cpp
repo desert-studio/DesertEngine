@@ -5,6 +5,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
+#include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 
@@ -181,10 +182,40 @@ namespace Desert::Runtime::Factory
         }
 
         // 3. Apply components and set up hierarchy.
+        //
+        // AN ENTITY REFERENCE INSIDE THE BODY NAMES A RECORD OF THIS FILE (a SocketAttachment's Target, a
+        // Projectile's Owner), and the entity that record became was minted a fresh uuid in step 1. So each such
+        // field is rewritten to the created entity's uuid before the record is read - through
+        // Rules::RemapEntityReferences, the remap the cook applies to the same body (PrefabExpansion), so the
+        // editor, Play and the cooked world hang an attachment on the same socket. A reference to a record of a
+        // NESTED file is left as written: ids are per file, and the nested body remaps its own in its own call.
+        std::unordered_map<Common::UUID, Common::UUID> recordToEntity;
+        recordToEntity.reserve( plan.Created.size() );
+        for ( std::size_t slot = 0; slot < plan.Created.size(); ++slot )
+            recordToEntity.emplace( plan.Created[slot].Id,
+                                    created[slot].GetComponent<ECS::UUIDComponent>().UUID );
+        const Core::Rules::EntityIdRemap toCreated =
+             [&recordToEntity]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+        {
+            const auto hit = recordToEntity.find( stated );
+            if ( hit == recordToEntity.end() )
+                return std::nullopt;
+            return hit->second;
+        };
+
         for ( const auto& load : plan.Loads )
         {
             const ECS::Entity entity = created[load.Target];
-            Core::Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, assetManager );
+            if ( Core::Rules::HasEntityReferenceBlock( records[load.Record] ) )
+            {
+                Assets::EntityData remapped = records[load.Record];
+                Core::Rules::RemapEntityReferences( remapped, toCreated );
+                Core::Serialize::EntitySerializer::DeserializeEntity( remapped, entity, assetManager );
+            }
+            else
+            {
+                Core::Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, assetManager );
+            }
 
             if ( load.Parent != Core::Rules::kNoSlot )
                 scene.Attach( created[load.Parent], entity );

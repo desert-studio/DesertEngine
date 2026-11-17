@@ -5,12 +5,14 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <filesystem>
+#include <optional>
 #include <format>
 
 namespace Desert::Editor
@@ -83,6 +85,48 @@ namespace Desert::Editor
         }
 
         ImGui::Separator();
+
+        // ── Edit in place (Commands::BeginPrefabEdit) ─────────────────────
+        // The body is edited where this instance stands, the rest of the world locked; Commit writes the file and
+        // rebuilds every instance with its own overrides, Discard puts this one back. One session at a time.
+        if ( valid && entity.HasComponent<ECS::UUIDComponent>() )
+        {
+            const Common::UUID                id      = entity.GetComponent<ECS::UUIDComponent>().UUID;
+            const std::optional<Common::UUID> editing = Commands::PrefabEditRoot();
+            if ( !editing.has_value() )
+            {
+                if ( ImGui::Button( ICON_MDI_PENCIL " Edit in Place" ) )
+                {
+                    if ( const auto begun = Commands::BeginPrefabEdit( id ); !begun )
+                        LOG_ERROR( "{}", begun.GetError() );
+                    Utils::ImGuiUtilities::PopID();
+                    return; // the instance was rebuilt as the bare body; this entity handle is gone
+                }
+                Utils::ImGuiUtilities::Tooltip(
+                     "Edit the prefab's body here; the rest of the world is locked until Commit or Discard" );
+            }
+            else if ( *editing == id )
+            {
+                if ( ImGui::Button( ICON_MDI_CHECK " Commit" ) )
+                {
+                    if ( const auto committed = Commands::CommitPrefabEdit(); !committed )
+                        LOG_ERROR( "{}", committed.GetError() );
+                    Utils::ImGuiUtilities::PopID();
+                    return;
+                }
+                Utils::ImGuiUtilities::Tooltip( "Write the body to the prefab and rebuild every instance (one undo step)" );
+                ImGui::SameLine();
+                if ( ImGui::Button( ICON_MDI_CLOSE " Discard" ) )
+                {
+                    if ( const auto discarded = Commands::DiscardPrefabEdit(); !discarded )
+                        LOG_ERROR( "{}", discarded.GetError() );
+                    Utils::ImGuiUtilities::PopID();
+                    return;
+                }
+                Utils::ImGuiUtilities::Tooltip( "Put this instance back as it was; the prefab file is not touched" );
+            }
+            ImGui::Separator();
+        }
 
         // ── Action buttons ────────────────────────────────────────────────
         if ( valid )

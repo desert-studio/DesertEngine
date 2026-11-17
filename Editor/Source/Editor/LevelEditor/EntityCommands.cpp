@@ -336,6 +336,19 @@ namespace Desert::Editor
         // Placement by ray: the one door to it that does not need a mouse drag, so the control channel can
         // put an object on a hill and shoot the result. The ray is the active viewport's line of sight, and
         // the surface is whatever Scene::Raycast meets first — the landscape included.
+        // PREFAB EDIT IN PLACE (UE's Level Instance Edit / Commit / Cancel): the subject is the selected instance
+        // root; Commit and Discard answer the open session, and each returns the session's own refusal.
+        commands.push_back( { "Entity", "Edit the selected prefab instance in place", []() -> Common::BoolResultStr
+                              {
+                                  const auto& primary = Core::SelectionManager::GetSelected();
+                                  if ( !primary.has_value() )
+                                      return Common::MakeError<bool>(
+                                           "Edit prefab in place: select the root of a prefab instance" );
+                                  return Commands::BeginPrefabEdit( *primary );
+                              } } );
+        commands.push_back( { "Entity", "Commit the prefab edit", [] { return Commands::CommitPrefabEdit(); } } );
+        commands.push_back( { "Entity", "Discard the prefab edit", [] { return Commands::DiscardPrefabEdit(); } } );
+
         commands.push_back( { "Entity", "Place a cube on the surface at the viewport centre", [this]
                               {
                                   ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
