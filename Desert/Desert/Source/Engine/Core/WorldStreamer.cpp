@@ -1,6 +1,11 @@
 #include <Engine/Core/WorldStreamer.hpp>
 
 #include <Engine/Assets/AssetEviction.hpp>
+#include <Engine/Assets/AssetRootPin.hpp>
+#include <Engine/Core/Serialize/SceneDependencies.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
@@ -23,6 +28,7 @@
 #include <set>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <unordered_map>
 #include <utility>
@@ -77,6 +83,22 @@ namespace Desert::Core
             made.clear();
         }
 
+        // Where a record's "assets:" content keys resolve (GatherSceneDependencies), as the save resolves it.
+        std::filesystem::path AssetsRoot()
+        {
+            return Common::Constants::Path::FullPath(
+                 Common::Constants::Path::Dir( Common::Constants::Path::ContentDir::Assets ) );
+        }
+
+        // The ground rectangle of cell unit @p unit of @p plan (the world's, or the HLOD residency's).
+        const Rules::CellBounds& UnitBounds( const Rules::WorldPartitionPlan& plan, const std::size_t unit )
+        {
+            return plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Bounds;
+        }
+    } // namespace
+
+    namespace
+    {
         // THE RECORDS OF AN HLOD RESIDENCY UNIT (WP-FAR-8): its nodes' saved files, in composite order, read on
         // a worker. A node with no row stands in with no records (the residency plan gave it none).
         class StoredHLODCellSource final : public Rules::WorldCellSource
@@ -696,6 +718,12 @@ namespace Desert::Core
             return *m_Source;
         }
 
+        // What HLOD cell @p unit's read records name (WorldCellLoader::Dependencies); null when it is not read.
+        [[nodiscard]] const std::vector<std::string>* Dependencies( std::size_t unit ) const
+        {
+            return m_Loader.Dependencies( unit );
+        }
+
         // A slice of an HLOD cell (THE SLICES): made hidden, revealed whole by FinishActivation — the switch
         // then shows or hides each HLOD by its own Visibility, in the same tick.
         [[nodiscard]] Common::BoolResultStr Activate( std::size_t unit, std::size_t firstMember,
@@ -874,6 +902,17 @@ namespace Desert::Core
                           "{5:.2f} ms on the main thread, collision ready",
                           m_SceneName, name, unitDone.Frames, unitDone.Records, unitDone.Slices, unitDone.Ms );
         }
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): a streamer that began holds its HLOD switch
+        for ( const Rules::WarmupOverrun& overrun : m_HLODs->TakeWarmupOverruns() )
+            LOG_INFO(
+                 "[WorldPartition] '{0}': the HLOD warmup of {1} ran out of {2} frames before its assets were "
+                 "resident; {3} shown with what had arrived.",
+                 m_SceneName,
+                 overrun.HLODUnit // NOLINT(bugprone-unchecked-optional-access): only a streamed hierarchy's
+                      ? Rules::DescribeHLODUnit( *m_HLODHierarchy, *m_HLODResidency, overrun.Unit )
+                      : Rules::DescribeResidencyUnit( Executor().Plan(), overrun.Unit ),
+                 Rules::HLODRuntime::kWarmupMaxFrames,
+                 overrun.Showing ? "the cell is" : "what stands in for it is" );
         m_LastTick.LiveRecords           = Executor().LiveRecords();
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
@@ -1170,6 +1209,8 @@ namespace Desert::Core
         // ONE HLOD'S RECORDS ALIVE AT A TIME (CellHLOD): read, made entities, dropped before the next read.
         const Common::Utils::ProcessFootprint before = Common::Utils::ReadProcessFootprint();
         m_HLODIds.clear();
+        m_HLODDependencies.clear();
+        const std::filesystem::path assetsRoot  = AssetsRoot();
         std::size_t recordCount = 0;
         for ( CellHLOD& hlod : hlods )
         {
@@ -1187,6 +1228,9 @@ namespace Desert::Core
                 ids.push_back( *record.id );
             }
             recordCount += records.GetValue().size();
+            // What the HLOD draws, for its warmup (THE WARMUP): gathered while its records are in hand.
+            m_HLODDependencies.push_back(
+                 GatherSceneDependencies( records.GetValue(), nullptr, assetsRoot ).Guids );
             if ( auto made = SceneSerializer( m_Scene, m_Assets )
                                   .InstantiateRecords( records.GetValue(), m_SceneName, nullptr );
                  !made )
@@ -1278,6 +1322,10 @@ namespace Desert::Core
             if ( !records )
                 return failed( records.GetError() );
             made += records.GetValue().size();
+            // What this HLOD cell's HLODs draw, for their warmup (THE WARMUP); a streamed cell's come with its
+            // read.
+            m_HLODUnitDependencies[unit] =
+                 GatherSceneDependencies( records.GetValue(), nullptr, AssetsRoot() ).Guids;
             if ( auto instantiated = SceneSerializer( m_Scene, m_Assets )
                                           .InstantiateRecords( records.GetValue(), m_SceneName, nullptr );
                  !instantiated )
@@ -1363,6 +1411,155 @@ namespace Desert::Core
                   Rules::DescribeResidencyUnit( plan, unit ), visible ? "shown" : "hidden" );
     }
 
+    // ONE WARMUP IN FLIGHT: the rows its records name (their closure), the pins that keep them from the eviction
+    // sweep while no entity names them yet, and the standing ask every view measures (TextureStreamingDemand).
+    struct WorldStreamer::Warming
+    {
+        std::vector<Assets::ContentRegistry::ClosureRow>            Rows;
+        std::vector<std::unique_ptr<Assets::AssetRootPin>>          Pins;
+        std::shared_ptr<Graphic::TextureStreamingDemand::WarmupAsk> Ask;
+    };
+
+    bool WorldStreamer::WarmUp( std::map<std::size_t, std::unique_ptr<Warming>>& warming, const std::size_t key,
+                                const Rules::CellBounds& bounds, const std::string& what,
+                                const std::vector<std::string>* guids )
+    {
+        auto at = warming.find( key );
+        if ( at == warming.end() )
+        {
+            // THE REQUEST, ONCE (UE PrepareToWarmup): the closure read on workers and pinned, and the ask over the
+            // cell's bounds - a column (height does not partition), measured at the height of the source nearest
+            // to it, the nearest its content can be to that eye.
+            auto              made = std::make_unique<Warming>();
+            const std::string why  = "HLOD warmup of " + what;
+            if ( guids != nullptr )
+                made->Rows = Assets::ContentRegistry::ClosureOfGuids( *guids );
+            for ( const auto& row : made->Rows )
+                made->Pins.push_back( std::make_unique<Assets::AssetRootPin>( row.Handle, why ) );
+            Runtime::StartClosureReads( made->Rows );
+            const glm::vec2 centre( 0.5f * ( bounds.MinX + bounds.MaxX ), 0.5f * ( bounds.MinZ + bounds.MaxZ ) );
+            float           eyeHeight = 0.0f;
+            float           nearest   = std::numeric_limits<float>::max();
+            for ( const Rules::StreamingSource& source : m_LastSources )
+            {
+                const float distance = glm::length( glm::vec2( source.Position.x, source.Position.z ) - centre );
+                if ( distance < nearest )
+                {
+                    nearest   = distance;
+                    eyeHeight = source.Position.y;
+                }
+            }
+            made->Ask         = std::make_shared<Graphic::TextureStreamingDemand::WarmupAsk>();
+            made->Ask->Center = glm::vec3( centre.x, eyeHeight, centre.y );
+            made->Ask->Radius =
+                 0.5f * glm::length( glm::vec2( bounds.MaxX - bounds.MinX, bounds.MaxZ - bounds.MinZ ) );
+            made->Ask->Textures = Runtime::ClosureTextures( made->Rows );
+            at                  = warming.emplace( key, std::move( made ) ).first;
+            PublishWarmups();
+        }
+        // THE FACT (UE counts WarmupNumFrames instead): every row drawn as it will be asked for.
+        const Warming& warm = *at->second;
+        return Runtime::ClosureArriving( warm.Rows, warm.Ask->Pixels.load( std::memory_order_relaxed ) ) == 0;
+    }
+
+    void WorldStreamer::PublishWarmups()
+    {
+        std::vector<std::shared_ptr<Graphic::TextureStreamingDemand::WarmupAsk>> asks;
+        for ( const auto& [unit, warm] : m_WarmCells )
+            asks.push_back( warm->Ask );
+        for ( const auto& [hlod, warm] : m_WarmHLODs )
+            asks.push_back( warm->Ask );
+        for ( const auto& [unit, warm] : m_WarmHLODCells )
+            asks.push_back( warm->Ask );
+        Graphic::TextureStreamingDemand::Get().SetWarmups( this, m_Scene, std::move( asks ) );
+    }
+
+    bool WorldStreamer::WarmCell( const std::size_t unit )
+    {
+        // UE ShouldPerformWarmupForCell: a blocking load does not warm. While Play waits for the cell under a
+        // source (BlocksPlay) the loading overlay is up, no swap is seen, and holding cells would only lengthen
+        // it. The cell under a source is what Play waits for (CRITICAL): holding it would stop the game for a
+        // frame before the blocking load above lets it go, so it is shown the step it is read.
+        if ( m_FramesWaiting > 0 || UnderSource( unit ) )
+            return true;
+        const Rules::WorldPartitionPlan& plan = Executor().Plan();
+        return WarmUp( m_WarmCells, unit, UnitBounds( plan, unit ), Rules::DescribeResidencyUnit( plan, unit ),
+                       m_Loader->Dependencies( unit ) );
+    }
+
+    bool WorldStreamer::UnderSource( const std::size_t unit )
+    {
+        const Rules::WorldPartitionPlan& plan = Executor().Plan();
+        if ( unit < plan.AlwaysLoaded.size() )
+            return false;
+        const Rules::PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
+        return std::any_of( m_LastSources.begin(), m_LastSources.end(), [&]( const Rules::StreamingSource& source )
+                            { return Rules::CellHolds( cell, source, m_Partition ); } );
+    }
+
+    bool WorldStreamer::WarmHLODCell( const std::size_t unit )
+    {
+        if ( m_FramesWaiting > 0 )
+            return true; // a blocking load does not warm (WarmCell)
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): asked only through a streamed hierarchy's gate
+        const Rules::HLODResidency& residency = *m_HLODResidency;
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the hierarchy is held with its residency
+        return WarmUp( m_WarmHLODCells, unit, UnitBounds( residency.Plan, unit ),
+                       Rules::DescribeHLODUnit( *m_HLODHierarchy, residency, unit ),
+                       m_HLODCells->Dependencies( unit ) );
+    }
+
+    void WorldStreamer::EndHLODCellWarmup( const std::size_t unit )
+    {
+        if ( m_WarmHLODCells.erase( unit ) > 0 )
+            PublishWarmups();
+    }
+
+    bool WorldStreamer::WarmHLOD( const std::size_t hlod )
+    {
+        if ( m_FramesWaiting > 0 )
+            return true; // a blocking load does not warm (WarmCell)
+        // NOLINTNEXTLINE(bugprone-unchecked-optional-access): asked only by the switch this streamer holds
+        const Rules::HLODRuntime&       hlods = *m_HLODs;
+        const std::vector<std::string>* guids = nullptr;
+        if ( !hlods.Streamed() )
+            guids = hlod < m_HLODDependencies.size() ? &m_HLODDependencies[hlod] : nullptr;
+        else
+        {
+            // A streamed HLOD's entities are its HLOD cell's (HLODGate keeps that cell while the world cell
+            // beneath is drawn): what that cell's records name, gathered at Begin or with its read.
+            const std::size_t residesIn = hlods.ResidesIn( hlod );
+            const auto        begun     = m_HLODUnitDependencies.find( residesIn );
+            guids =
+                 begun != m_HLODUnitDependencies.end() ? &begun->second : m_HLODCells->Dependencies( residesIn );
+        }
+        // The rectangle the HLOD stands in for: a world cell's, or (a parent) its HLOD cell's.
+        const std::size_t unit = hlods.UnitOf( hlod );
+        if ( hlods.StandsForHLODUnit( hlod ) )
+        {
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access): a parent exists only in a streamed hierarchy
+            const Rules::HLODResidency& residency = *m_HLODResidency;
+            // NOLINTNEXTLINE(bugprone-unchecked-optional-access): the hierarchy is held with its residency
+            return WarmUp( m_WarmHLODs, hlod, UnitBounds( residency.Plan, unit ),
+                           Rules::DescribeHLODUnit( *m_HLODHierarchy, residency, unit ), guids );
+        }
+        const Rules::WorldPartitionPlan& plan = Executor().Plan();
+        return WarmUp( m_WarmHLODs, hlod, UnitBounds( plan, unit ), Rules::DescribeResidencyUnit( plan, unit ),
+                       guids );
+    }
+
+    void WorldStreamer::EndCellWarmup( const std::size_t unit )
+    {
+        if ( m_WarmCells.erase( unit ) > 0 )
+            PublishWarmups();
+    }
+
+    void WorldStreamer::EndHLODWarmup( const std::size_t hlod )
+    {
+        if ( m_WarmHLODs.erase( hlod ) > 0 )
+            PublishWarmups();
+    }
+
     WorldStreamer::~WorldStreamer()
     {
         if ( m_Scene != nullptr )
@@ -1374,6 +1571,8 @@ namespace Desert::Core
                 registry.unset<WorldPartitionStreamingEvents>();
             }
         }
+        // The standing asks name this streamer's warmups; they go with it.
+        Graphic::TextureStreamingDemand::Get().SetWarmups( this, nullptr, {} );
         // The scene outlives its streamer (hosts reset the streamer before clearing the scene); what the
         // streamer said about it must not outlive the streamer.
         if ( m_Scene != nullptr )

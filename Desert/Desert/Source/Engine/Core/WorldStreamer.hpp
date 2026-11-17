@@ -229,6 +229,15 @@ namespace Desert::Core
         void                                Unload( std::size_t unit ) override;
         [[nodiscard]] std::vector<Rules::LoadOutcome> TakeLoadOutcomes() override;
         void                                          SetHLODVisible( std::size_t hlod, bool visible ) override;
+        // THE HLOD WARMUP (Serialize/WorldPartitionHLODSwitch.hpp, THE WARMUP): what a cell's read records or an
+        // HLOD's own records name, as their dependency closure - read on workers, pinned against the eviction
+        // sweep, its textures asked for at the size every view measures the cell's bounds at - until resident.
+        [[nodiscard]] bool WarmCell( std::size_t unit ) override;
+        [[nodiscard]] bool WarmHLOD( std::size_t hlod ) override;
+        [[nodiscard]] bool WarmHLODCell( std::size_t unit ) override;
+        void               EndCellWarmup( std::size_t unit ) override;
+        void               EndHLODWarmup( std::size_t hlod ) override;
+        void               EndHLODCellWarmup( std::size_t unit ) override;
 
         // What stands in for the cells that are not drawn: nullopt only on a streamer that failed to begin.
         [[nodiscard]] const std::optional<Rules::HLODRuntime>& HLODs() const
@@ -320,6 +329,23 @@ namespace Desert::Core
         std::unique_ptr<HLODCellWorld>          m_HLODCells;
         // False through BeginHLODs' first Sync (which sets every HLOD); after it each switch is logged.
         bool m_HLODSwitchesSaid = false;
+        // THE WARMUPS IN FLIGHT (WorldStreamer.cpp): by world unit (a cell to be shown) and by HLOD (an HLOD to be
+        // shown in its cell's place). What each HLOD's records name is gathered when they are read: per HLOD made
+        // by BeginHLODs, per HLOD residency unit made at the start of BeginHLODCells (a streamed HLOD cell's come
+        // with its read, HLODCellWorld).
+        struct Warming;
+        [[nodiscard]] bool WarmUp( std::map<std::size_t, std::unique_ptr<Warming>>& warming, std::size_t key,
+                                   const Rules::CellBounds& bounds, const std::string& what,
+                                   const std::vector<std::string>* guids );
+        void               PublishWarmups();
+        // Whether world unit @p unit's square holds a streaming source: Play waits for that cell, so it is never
+        // held for a warmup (WorldPartitionStreamingPerformance.hpp, CRITICAL).
+        [[nodiscard]] bool                                        UnderSource( std::size_t unit );
+        std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmCells;
+        std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmHLODs;
+        std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmHLODCells; // by HLOD residency unit
+        std::vector<std::vector<std::string>>                     m_HLODDependencies;
+        std::unordered_map<std::size_t, std::vector<std::string>> m_HLODUnitDependencies;
 
         // The one settings value both beginnings hand the executor, kept so the panel reads the same margin.
         Rules::ResidencySettings              m_Settings;

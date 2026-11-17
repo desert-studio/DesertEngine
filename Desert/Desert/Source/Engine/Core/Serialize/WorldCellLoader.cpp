@@ -1,8 +1,12 @@
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 
+#include <Engine/Core/Serialize/SceneDependencies.hpp>
+
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/JobSystem.hpp>
 
 #include <chrono>
+#include <filesystem>
 #include <utility>
 
 namespace Desert::Core
@@ -31,14 +35,22 @@ namespace Desert::Core
         flight.Ticket = ticket;
         flight.HoldTicks = m_DebugDelayTicks;
         m_Source->HoldUnit( unit ); // released by Unload, or when the load turns out cancelled or failed
+        // The assets root is resolved here, on the thread that owns the paths; the worker only reads under it.
+        std::filesystem::path assetsRoot = Common::Constants::Path::FullPath(
+             Common::Constants::Path::Dir( Common::Constants::Path::ContentDir::Assets ) );
         flight.Result = Common::JobSystem::Get().Async(
-             [source = std::move( source ), unit]() noexcept
+             [source = std::move( source ), assetsRoot = std::move( assetsRoot ), unit]() noexcept
              {
                  const auto started = std::chrono::steady_clock::now();
                  Read       read;
                  auto       records = source->UnitRecords( unit );
                  if ( records )
+                 {
                      read.Records = records.ExtractValue();
+                     // A prefab link that states no GUID is refused by name when the record is made
+                     // (InstantiateRecords); here it simply names nothing to warm.
+                     read.Dependencies = GatherSceneDependencies( *read.Records, nullptr, assetsRoot ).Guids;
+                 }
                  else
                      read.Error = records.GetError();
                  read.Ms = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started )
@@ -57,6 +69,7 @@ namespace Desert::Core
 
     void WorldCellLoader::Unload( std::size_t unit )
     {
+        m_ReadyDependencies.erase( unit );
         if ( m_Ready.erase( unit ) > 0 )
             m_Source->ReleaseUnit( unit );
     }
@@ -87,7 +100,8 @@ namespace Desert::Core
             }
             if ( read.Records.has_value() )
             {
-                m_Ready[flight.Unit] = std::move( *read.Records );
+                m_Ready[flight.Unit]             = std::move( *read.Records );
+                m_ReadyDependencies[flight.Unit] = std::move( read.Dependencies );
                 finished.push_back( { flight.Unit, flight.Ticket, true, {} } );
             }
             else
@@ -104,5 +118,11 @@ namespace Desert::Core
     {
         const auto held = m_Ready.find( unit );
         return held != m_Ready.end() ? &held->second : nullptr;
+    }
+
+    const std::vector<std::string>* WorldCellLoader::Dependencies( std::size_t unit ) const
+    {
+        const auto held = m_ReadyDependencies.find( unit );
+        return held != m_ReadyDependencies.end() ? &held->second : nullptr;
     }
 } // namespace Desert::Core
