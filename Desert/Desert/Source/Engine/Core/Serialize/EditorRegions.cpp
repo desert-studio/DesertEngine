@@ -403,7 +403,8 @@ namespace Desert::Core::EditorRegions
         auto            rest  = ReadNotLoadedRecords( scene );
         if ( !rest )
             return Common::MakeError<SceneSerialized>( rest.GetError() );
-        for ( Assets::EntityData& record : rest.GetValue() )
+        std::vector<Assets::EntityData> arriving = rest.ExtractValue();
+        for ( Assets::EntityData& record : arriving )
             world.Entities.push_back( std::move( record ) );
         return Common::MakeSuccess( std::move( world ) );
     }

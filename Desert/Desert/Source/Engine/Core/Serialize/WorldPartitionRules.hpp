@@ -2006,7 +2006,10 @@ namespace Desert::Core::Rules
 
             for ( const PlannedComposite& held : plan.Composites )
             {
-                if ( !gridsUsable || held.Reason == AlwaysLoadedReason::NoGrid )
+                // A composite whose anchor names a grid the world lacks has no grid (step 4b's Issue): no member
+                // can differ from it.
+                if ( !gridsUsable || held.Reason == AlwaysLoadedReason::NoGrid ||
+                     !GridIndexOf( settings, records[held.Anchor].RuntimeGrid ).has_value() )
                     continue;
                 for ( const std::size_t member : held.Members )
                 {

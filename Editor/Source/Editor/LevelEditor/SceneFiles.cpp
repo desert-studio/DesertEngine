@@ -235,12 +235,17 @@ namespace Desert::Editor
             // leave the user's work split across two files.
             m_OpenScenePath = destination;
 
-            // MAP CHECK ON SAVE (WP-MAP-CHECK): a partitioned world just written is checked from its files - the one
-            // list Tools > Check World Partition and `WorldCook --check` read - and its StreamingGeneration log is
-            // written to <project>/Saved/Logs/WorldPartition.
-            const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
-            auto       check      = Desert::Core::WorldCells::CheckSavedWorldPartition(
-                 std::filesystem::path( destination.string() ), registries );
+            // MAP CHECK ON SAVE (WP-MAP-CHECK): a partitioned world just written is checked from its files - the
+            // one list Tools > Check World Partition and `WorldCook --check` read - and its StreamingGeneration
+            // log is written to <project>/Saved/Logs/WorldPartition. Only a world the editor holds as partitioned
+            // is read back: a plain scene's save costs nothing here.
+            const bool partitioned = m_Workspace.ActiveScene()->GetWorldPartition().has_value();
+            const auto registries  = std::span( &Assets::ContentRegistry::Get(), 1 );
+            auto       check =
+                 partitioned
+                            ? Desert::Core::WorldCells::CheckSavedWorldPartition(
+                             std::filesystem::path( destination.string() ), registries )
+                            : Common::MakeSuccess( std::optional<Desert::Core::WorldCells::WorldPartitionCheck>() );
             if ( !check )
                 Editor::ToastManager::Push( std::format( "World Partition check after the save failed: {}", check.GetError() ),
                                             Editor::ToastLevel::Warning );
@@ -248,11 +253,12 @@ namespace Desert::Editor
             {
                 const Desert::Core::WorldCells::WorldPartitionCheck& checked = *check.GetValue();
                 (void)Desert::Core::WorldCells::ReportWorldPartitionCheck( checked );
-                if ( const auto log = Desert::Core::WorldCells::WriteStreamingGenerationLog(
-                          Common::Constants::Path::ProjectDir(), checked.World, checked.Partition, checked.Plan,
-                          checked.Descriptors, checked.Issues );
-                     !log )
-                    LOG_ERROR( "[WorldPartition] {}", log.GetError() );
+                if ( Common::Constants::Path::HasProject() )
+                    if ( const auto log = Desert::Core::WorldCells::WriteStreamingGenerationLog(
+                              Common::Constants::Path::ProjectDir(), checked.World, checked.Partition,
+                              checked.Plan, checked.Descriptors, checked.Issues );
+                         !log )
+                        LOG_ERROR( "[WorldPartition] {}", log.GetError() );
                 if ( !checked.Issues.empty() )
                     Editor::ToastManager::Push( std::format( "{} World Partition issue{} - Tools > Check World Partition "
                                                              "lists them",

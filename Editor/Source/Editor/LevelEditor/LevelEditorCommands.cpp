@@ -33,6 +33,7 @@
 #include "Editor/Panels/Scalability/NeuralPaletteCommands.hpp"
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include "Editor/Panels/UI/UICommands.hpp"
+#include "Editor/Panels/Validation/SceneValidationPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include <Common/Settings/Scalability.hpp>
@@ -156,6 +157,23 @@ namespace Desert::Editor
         m_Commands.Register( "Assets (folders)",
                              [this]( Out& out ) { m_AssetCommands.AppendFolderCommands( out ); } );
         m_Commands.Register( "Scene", []( Out& out ) { AppendSceneCommands( out ); } );
+        // Tools > Check World Partition (WP-MAP-CHECK; UE Map Check): the Scene Validation window's button,
+        // offered unconditionally so a refusal names why (no window, not a partitioned world) instead of the entry
+        // vanishing.
+        m_Commands.Register( "Tools (World Partition check)",
+                             [this]( Out& out )
+                             {
+                                 out.push_back(
+                                      { "Tools", "Check World Partition", [this]
+                                        {
+                                            for ( const auto& panel : m_Modules.Panels )
+                                                if ( auto* validation =
+                                                          dynamic_cast<SceneValidationPanel*>( panel.get() ) )
+                                                    return validation->CheckWorldPartition();
+                                            return Common::MakeError( "Check World Partition: the Scene "
+                                                                      "Validation window does not exist" );
+                                        } } );
+                             } );
         m_Commands.Register( "Scene (new views)",
                              [&workspace]( Out& out ) { workspace.AppendNewViewCommands( out ); } );
         m_Commands.Register( "Debug (GPU allocations)", []( Out& out ) { AppendGpuAllocationCommand( out ); } );
