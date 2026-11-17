@@ -5,8 +5,9 @@
 # Unloaded, as high as its content (PlannedCell::Height); sources = a sphere of the loading range per grid (a sector's
 # wedge on the ground); details = the cells under each source; 2D = the runtime hash map at the view's top-right.
 # Colours by state are UE's streaming status colours: activated green, loaded cyan, loading yellow, failed red.
-# In a packaged game the same view: ` shows the debugger, 5 the category, Shift+M 2D, Shift+B 3D, Shift+S sources,
-# Shift+D details, Shift+G grid level, Shift+C colour by state / grid / data layer.
+# In a packaged game the same view: ` shows the debugger, 5 the category, Shift+M 2D, Shift+B 3D, Shift+O sources,
+# Shift+I details (the cells under each source and under the debugger's target), Shift+G grid level, Shift+C colour
+# by state / grid / data layer. The grid's and the data layers' DebugColor are edited in the World Partition panel.
 # WP format v4: every grid / data layer states DebugColor - LEAD: run scripts/Dev/migrate.sh --write before this
 # (WP_Protocol.desce is v3 until then and refuses to load).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
@@ -22,8 +23,11 @@
 Тогда wpdbg_3d рамки ячеек вокруг игрока: активированные зелёные, загружаемые жёлтые/загруженные голубые, коробки по высоте содержимого ячейки (не плоские квадраты); оранжевая точка «source 0» у игрока и сфера радиусом LoadingRange сетки (цвет сетки) вокруг него; над ячейкой под игроком подпись «G0 L0 x,z - N records, loaded in M ms»; в панели отладчика категория «World Partition» со строкой «Cells N activated, …» и строкой «source 0 in G0 L0 x,z  N records, activated, loaded in M ms, activated in K ms, height A..B cm»; 0 VUID в editor.log
 Когда run Scene "Gameplay Debugger: World Partition 2D"
 Когда advance 1
-Тогда wpdbg_2d в правом верхнем углу кадра карта 360x360 с заголовком «World Partition 2D - N m across, level all, colour by state»: квадраты ячеек, закрашенные по состоянию (зелёные вокруг центра, серые контуры дальше), окружность загрузки источника цветом сетки, оранжевая точка источника в центре с чертой направления взгляда; 3D-рамок в мире больше нет; панель отладчика слева не перекрыта картой
+Тогда wpdbg_2d в правом верхнем углу кадра карта 360x360 с заголовком «WP 2D  N cm across  level all  by state»: квадраты ячеек, закрашенные по состоянию (зелёные вокруг центра, серые контуры дальше), окружность загрузки источника цветом сетки, оранжевая точка источника в центре с чертой направления взгляда; 3D-рамок в мире больше нет; панель отладчика слева не перекрыта картой
 Когда run Scene "Gameplay Debugger: World Partition next colour mode"
 Когда advance 1
-Тогда wpdbg_2d_grid та же карта, ячейки закрашены цветом сетки (DebugColor G0, одинаковый у всех ячеек одной сетки), заголовок «colour by grid»
+Тогда wpdbg_2d_grid та же карта, ячейки закрашены цветом сетки (DebugColor G0, одинаковый у всех ячеек одной сетки), заголовок «by grid»
+Когда run Scene "Gameplay Debugger: World Partition next colour mode"
+Когда advance 1
+Тогда wpdbg_2d_layer та же карта, заголовок «by data layer»: ячейки без runtime-слоя серые (0.45), ячейки слоя — цветом DebugColor слоя
 Когда run Action "Stop"

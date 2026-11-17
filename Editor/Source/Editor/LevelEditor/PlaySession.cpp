@@ -566,8 +566,9 @@ namespace Desert::Editor
             }
 #if DESERT_DEV_INSTRUMENTS
         // THE WORLD PARTITION DEBUG VIEW (WP-DEBUG-DRAW; UE wp.Runtime.ToggleDrawRuntimeHash2D / 3D,
-        // ToggleDrawStreamingSources, ToggleDrawRuntimeCellsDetails, ShowRuntimeSpatialHashGridLevel): the gameplay
-        // debugger's World Partition category shown and switched - what Shift+M/B/S/D/G/C do in a packaged game.
+        // ToggleDrawStreamingSources, ToggleDrawRuntimeCellsDetails, ShowRuntimeSpatialHashGridLevel): the
+        // gameplay debugger's World Partition category shown and switched - what Shift+M/B/O/I/G/C do in a
+        // packaged game.
         {
             using WorldPartitionView = ::Desert::Debug::GameplayDebuggerCategoryWorldPartition;
             const auto viewCommand = [this]( std::string label, std::function<void( WorldPartitionView& )> change )
@@ -582,9 +583,11 @@ namespace Desert::Editor
                              return Common::MakeError<bool>(
                                   std::string( "the gameplay debugger has no World Partition category" ) );
                          debugger.SetActive( true );
-                         (void)debugger.SetCategoryEnabled( "World Partition", true );
+                         if ( !debugger.SetCategoryEnabled( "World Partition", true ) )
+                             return PaletteCommandOutcome( false, "the gameplay debugger did not turn its World "
+                                                                  "Partition category on" );
                          change( *category );
-                         return BOOLSUCCESS;
+                         return PaletteCommandDone();
                      } };
             };
             commands.push_back( viewCommand( "Gameplay Debugger: World Partition 3D",

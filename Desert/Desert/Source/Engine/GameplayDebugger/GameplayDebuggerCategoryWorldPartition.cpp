@@ -34,7 +34,6 @@ namespace Desert::Debug
         const glm::vec2 kMapOrigin    = glm::vec2( 20.0f, 60.0f );
         constexpr float kMapReach     = 1.5f;
         constexpr int   kArcSegments  = 32;
-        constexpr float kPi           = 3.14159265358979323846f;
 
         // UE ULevelStreaming::GetLevelStreamingStatusColor, per residency.
         glm::vec3 StateColor( const Rules::Residency state )
@@ -147,9 +146,9 @@ namespace Desert::Debug
             m_View.Hash2D = !m_View.Hash2D;
         if ( input.WasKeyPressed( Input::InputKey::Of( Common::KeyCode::B ) ) )
             m_View.Hash3D = !m_View.Hash3D;
-        if ( input.WasKeyPressed( Input::InputKey::Of( Common::KeyCode::S ) ) )
+        if ( input.WasKeyPressed( Input::InputKey::Of( Common::KeyCode::O ) ) )
             m_View.Sources = !m_View.Sources;
-        if ( input.WasKeyPressed( Input::InputKey::Of( Common::KeyCode::D ) ) )
+        if ( input.WasKeyPressed( Input::InputKey::Of( Common::KeyCode::I ) ) )
             m_View.CellDetails = !m_View.CellDetails;
         if ( input.WasKeyPressed( Input::InputKey::Of( Common::KeyCode::G ) ) )
             NextGridLevel();
@@ -177,17 +176,16 @@ namespace Desert::Debug
     void GameplayDebuggerCategoryWorldPartition::CollectData( const Core::Scene& scene, const ECS::Entity* target,
                                                               GameplayDebuggerCategoryData& out )
     {
-        (void)target; // the category shows the world's streaming, not one entity
         const auto onOff = []( const bool on ) { return on ? kOnColor : kOffColor; };
-        out.AddTextLine( { { "Shift+M 2D  ", onOff( m_View.Hash2D ) },
-                           { "Shift+B 3D  ", onOff( m_View.Hash3D ) },
-                           { "Shift+S sources  ", onOff( m_View.Sources ) },
-                           { "Shift+D details  ", onOff( m_View.CellDetails ) },
-                           { std::format( "Shift+G level {}  ", m_View.GridLevel
-                                                                      ? std::to_string( *m_View.GridLevel )
-                                                                      : std::string( "all" ) ),
-                             kValue },
-                           { std::format( "Shift+C colour by {}", ColorModeName( m_View.Coloring ) ), kValue } } );
+        out.AddTextLine(
+             { { "Shift+M 2D  ", onOff( m_View.Hash2D ) },
+               { "Shift+B 3D  ", onOff( m_View.Hash3D ) },
+               { "Shift+O sources  ", onOff( m_View.Sources ) },
+               { "Shift+I details  ", onOff( m_View.CellDetails ) },
+               { std::format( "Shift+G level {}  ",
+                              m_View.GridLevel ? std::to_string( *m_View.GridLevel ) : std::string( "all" ) ),
+                 kValue },
+               { std::format( "Shift+C colour by {}", ColorModeName( m_View.Coloring ) ), kValue } } );
 
         const Core::WorldStreamer* streamer = scene.GetGameplayDebugger().GetWorldStreamer();
         if ( streamer == nullptr )
@@ -297,41 +295,58 @@ namespace Desert::Debug
                     }
             }
 
-        // Details: the cells under each source (UE wp.Runtime.ToggleDrawRuntimeCellsDetails), in the panel and
-        // over the cell's box.
+        // Details: the cells under each source and under the debugger's target - the player and the cursor (UE
+        // wp.Runtime.ToggleDrawRuntimeCellsDetails), in the panel and over the cell's box.
+        struct Probe
+        {
+            std::string Name;
+            glm::vec3   Position;
+        };
+        std::vector<Probe> probes;
         if ( m_View.CellDetails )
+        {
             for ( std::size_t s = 0; s < sources.size(); ++s )
-                for ( std::size_t c = 0; c < plan.Cells.size(); ++c )
-                {
-                    const Rules::PlannedCell& cell = plan.Cells[c];
-                    if ( !shown( cell ) || !Contains( cell.Square, sources[s].Position ) )
-                        continue;
-                    const std::size_t                      unit    = firstCell + c;
-                    const Rules::Residency                 state   = UnitState( residency, unit );
-                    const Core::WorldStreamer::UnitTiming* timing  = streamer->TimingOf( unit );
-                    const std::size_t                      records = Rules::ResidencyUnitRecords( plan, unit );
-                    const std::string                      layers  = LayerNames( cell, partition );
-                    const std::string                      name    = std::format(
-                         "G{} L{} {},{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z,
-                         layers.empty() ? std::string() : std::format( " [{}]", layers ) );
-                    out.AddTextLine(
-                         { { std::format( "source {} in ", s ), kLabel },
-                           { name, WithAlpha( CellColor( m_View.Coloring, cell, state, partition ), 1.0f ) },
-                           { std::format( "  {} records, {}, loaded in {}, activated in {}, height {:.0f}..{:.0f} cm",
-                                          records, StateName( state ), Millis( timing ? timing->LoadMs : -1.0 ),
-                                          Millis( timing ? timing->ActivationMs : -1.0 ), cell.Height.MinY,
-                                          cell.Height.MaxY ),
-                             kValue } } );
-                    const glm::vec3 top( ( cell.Square.MinX + cell.Square.MaxX ) * 0.5f, cell.Height.MaxY,
-                                         ( cell.Square.MinZ + cell.Square.MaxZ ) * 0.5f );
-                    out.AddShape( GameplayDebuggerShape{
-                         .Type        = GameplayDebuggerShape::Kind::Point,
-                         .A           = top,
-                         .Radius      = 4.0f,
-                         .Color       = kValue,
-                         .Description = std::format( "{} - {} records, loaded in {}", name, records,
-                                                     Millis( timing ? timing->LoadMs : -1.0 ) ) } );
-                }
+                probes.push_back( { std::format( "source {}", s ), sources[s].Position } );
+            if ( target != nullptr )
+                probes.push_back( { "target", glm::vec3( target->GetWorldTransform()[3] ) } );
+        }
+        // A cell under both the player and the target is listed for each, and labelled in the world once.
+        std::vector<bool> labelled( plan.Cells.size(), false );
+        for ( const Probe& probe : probes )
+            for ( std::size_t c = 0; c < plan.Cells.size(); ++c )
+            {
+                const Rules::PlannedCell& cell = plan.Cells[c];
+                if ( !shown( cell ) || !Contains( cell.Square, probe.Position ) )
+                    continue;
+                const std::size_t                      unit    = firstCell + c;
+                const Rules::Residency                 state   = UnitState( residency, unit );
+                const Core::WorldStreamer::UnitTiming* timing  = streamer->TimingOf( unit );
+                const std::size_t                      records = Rules::ResidencyUnitRecords( plan, unit );
+                const std::string                      layers  = LayerNames( cell, partition );
+                const std::string                      name =
+                     std::format( "G{} L{} {},{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z,
+                                  layers.empty() ? std::string() : std::format( " [{}]", layers ) );
+                out.AddTextLine(
+                     { { probe.Name + " in ", kLabel },
+                       { name, WithAlpha( CellColor( m_View.Coloring, cell, state, partition ), 1.0f ) },
+                       { std::format( "  {} records, {}, loaded in {}, activated in {}, height {:.0f}..{:.0f} cm",
+                                      records, StateName( state ), Millis( timing ? timing->LoadMs : -1.0 ),
+                                      Millis( timing ? timing->ActivationMs : -1.0 ), cell.Height.MinY,
+                                      cell.Height.MaxY ),
+                         kValue } } );
+                if ( labelled[c] )
+                    continue;
+                labelled[c] = true;
+                const glm::vec3 top( ( cell.Square.MinX + cell.Square.MaxX ) * 0.5f, cell.Height.MaxY,
+                                     ( cell.Square.MinZ + cell.Square.MaxZ ) * 0.5f );
+                out.AddShape( GameplayDebuggerShape{
+                     .Type        = GameplayDebuggerShape::Kind::Point,
+                     .A           = top,
+                     .Radius      = 4.0f,
+                     .Color       = kValue,
+                     .Description = std::format( "{} - {} records, loaded in {}", name, records,
+                                                 Millis( timing ? timing->LoadMs : -1.0 ) ) } );
+            }
 
         // 2D: the runtime hash around the first source (UE ToggleDrawRuntimeHash2D), top-right of the view.
         if ( !m_View.Hash2D )
@@ -431,14 +446,13 @@ namespace Desert::Debug
                                             .Thickness = 2.0f } );
             }
         }
-        map.Shapes.push_back( { .Type  = Core::DebugDrawCanvasShape::Kind::Text,
-                                .A     = glm::vec2( 6.0f, 4.0f ),
-                                .Color = kValue,
-                                .Text  = std::format( "World Partition 2D - {:.0f} m across, level {}, colour by {}",
-                                                      2.0f * reach / 100.0f,
-                                                      m_View.GridLevel ? std::to_string( *m_View.GridLevel )
-                                                                       : std::string( "all" ),
-                                                      ColorModeName( m_View.Coloring ) ) } );
+        map.Shapes.push_back(
+             { .Type  = Core::DebugDrawCanvasShape::Kind::Text,
+               .A     = glm::vec2( 6.0f, 4.0f ),
+               .Color = kValue,
+               .Text  = std::format( "WP 2D  {:.0f} cm across  level {}  by {}", 2.0f * reach,
+                                    m_View.GridLevel ? std::to_string( *m_View.GridLevel ) : std::string( "all" ),
+                                     ColorModeName( m_View.Coloring ) ) } );
         out.Canvases.push_back( std::move( map ) );
     }
 } // namespace Desert::Debug

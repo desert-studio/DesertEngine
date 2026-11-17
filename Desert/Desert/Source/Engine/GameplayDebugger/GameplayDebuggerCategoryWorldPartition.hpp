@@ -16,13 +16,16 @@ namespace Desert::Debug
     /// ShowRuntimeSpatialHashGridLevel), as a gameplay debugger category, so a packaged game and the editor's Play
     /// show it by the same code:
     ///   2D  - a map of the runtime hash in the view's top-right corner: every cell around the first streaming
-    ///         source as a square, the sources' loading circles and sectors, the sources as dots with their facing.
+    ///         source as a square, the sources' loading circles and sectors, the sources as dots with their
+    ///         facing.
     ///   3D  - every cell that is not Unloaded as a box over its square, as high as its content (the cell's
     ///         Height, UE's content bounds in Z).
     ///   Sources - each source's shapes per grid: a sphere of its loading range, a sector's wedge on the ground.
-    ///   Details - the cells under each source: name, state, records, read and activation time, data layers.
-    /// Cells are coloured by streaming state (UE ULevelStreaming's status colours), by their grid's DebugColor or by
-    /// their first runtime data layer's DebugColor. Everything is read from the world's WorldStreamer (GameplayDebugger
+    ///   Details - the cells under each source and under the debugger's target (the selection, or what the view's
+    ///         centre looks at): name, state, records, read and activation time, data layers.
+    /// Cells are coloured by streaming state (UE ULevelStreaming's status colours), by their grid's DebugColor or
+    /// by their first runtime data layer's DebugColor. Everything is read from the world's WorldStreamer
+    /// (GameplayDebugger
     /// ::GetWorldStreamer); a world that is not streamed says so.
     class GameplayDebuggerCategoryWorldPartition final : public IGameplayDebuggerCategory
     {
@@ -34,8 +37,10 @@ namespace Desert::Debug
             DataLayer
         };
 
-        /// The switches (UE's wp.Runtime console toggles): Shift+M, Shift+B, Shift+S, Shift+D, Shift+G, Shift+C
-        /// while the category is on, or a host's command (the editor's palette).
+        /// The switches (UE's wp.Runtime console toggles): Shift+M 2D, Shift+B 3D, Shift+O sources, Shift+I cell
+        /// details, Shift+G grid level, Shift+C colouring while the category is on, or a host's command (the
+        /// editor's palette). Not Shift+S / Shift+D: Shift held with the movement keys is a sprint, and a sprint
+        /// backwards or sideways must not switch the view.
         struct View
         {
             bool               Hash2D      = false;
