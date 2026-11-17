@@ -570,7 +570,7 @@ namespace Desert::Editor
                           outcome.Selection.UnloadedByDataLayers );
         m_EditPlanStale = true;
         // The HLODs of the cells that arrived hide and those of the cells that left show, before the next frame.
-        if ( const auto synced = m_EditorHLODs.SyncHeld( *m_Scene ); !synced )
+        if ( const auto synced = m_EditorHLODs.SyncHeld( *m_Scene, EditorLayersLoaded() ); !synced )
             m_RegionStatus += " " + synced.GetError();
         // The next open of this world holds what it holds now (UE's EditorLoadedRegions). The change itself
         // stands either way; a refusal here is the status line's, so the user knows the next open will differ.
@@ -602,7 +602,7 @@ namespace Desert::Editor
         if ( m_EditorHLODsStale && !IsBuildingHLODs() )
         {
             m_EditorHLODsStale = false;
-            if ( const auto made = m_EditorHLODs.Make( *m_Scene, m_Assets ); !made )
+            if ( const auto made = m_EditorHLODs.Make( *m_Scene, m_Assets, EditorLayersLoaded() ); !made )
                 LOG_ERROR( "[WorldPartition] {0}", made.GetError() );
         }
         const EditorPreferences& prefs = EditorPreferences::Get();
@@ -613,6 +613,14 @@ namespace Desert::Editor
                              EditorHLODView{ prefs.ShowHLODsInEditor, prefs.HLODInEditorMinDrawDistance,
                                              prefs.HLODInEditorMaxDrawDistance },
                              eye );
+    }
+
+    std::vector<bool> WorldPartitionPanel::EditorLayersLoaded()
+    {
+        if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() )
+            return {};
+        return ::Desert::Core::EditorRegions::DataLayersLoadedInEditor( *m_Scene->GetWorldPartition(),
+                                                                        Held().DataLayers );
     }
 
     void WorldPartitionPanel::SetShowHLODs( const bool show )
@@ -975,6 +983,8 @@ namespace Desert::Editor
             return Common::MakeError( "Build HLODs: " + built.GetError() );
         if ( auto written = WC::WriteBuiltHLODIndex( path, built.GetValue() ); !written )
             return Common::MakeError( written.GetError() );
+        // The editor shows the HLODs just saved, whatever the read-back below finds (it shows what is on disk).
+        m_EditorHLODsStale = true;
         // Read back what was written and check it against the world it was built from.
         auto stored = WC::ReadBuiltHLODs( path );
         if ( !stored )
@@ -1005,7 +1015,6 @@ namespace Desert::Editor
         if ( !stale.GetValue().empty() )
             return Common::MakeError(
                  std::format( "Build HLODs: {} cell(s) read back stale", stale.GetValue().size() ) );
-        m_EditorHLODsStale = true; // the editor shows the HLODs just saved
         return BOOLSUCCESS;
     }
 

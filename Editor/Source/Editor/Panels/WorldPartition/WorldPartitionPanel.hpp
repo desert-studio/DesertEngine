@@ -153,7 +153,9 @@ namespace Desert::Editor
         // The landscape BaseColor bake of a running Build HLODs (BuildHLODs -> TickBuild).
         std::unique_ptr<LandscapeHLODBake> m_Bake;
         // The saved HLODs of the cells the editor does not hold, and whether they must be made (again).
-        void        DrawEditorHLODs();
+        void DrawEditorHLODs();
+        // Whether each of the world's data layers is loaded in the editor for this user (empty: not partitioned).
+        [[nodiscard]] std::vector<bool> EditorLayersLoaded();
         EditorHLODs m_EditorHLODs;
         bool        m_EditorHLODsStale = true;
 

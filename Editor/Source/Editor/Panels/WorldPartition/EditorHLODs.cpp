@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <format>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace Desert::Editor
@@ -41,7 +42,8 @@ namespace Desert::Editor
         }
     } // namespace
 
-    Common::BoolResultStr EditorHLODs::Make( ::Desert::Core::Scene& scene, ::Desert::Assets::AssetManager* assets )
+    Common::BoolResultStr EditorHLODs::Make( ::Desert::Core::Scene& scene, ::Desert::Assets::AssetManager* assets,
+                                             const std::vector<bool>& layerLoaded )
     {
         Release( scene );
         m_Status.clear();
@@ -79,7 +81,10 @@ namespace Desert::Editor
         for ( const WC::BuiltHLODCell& row : stored.GetValue().Index.Cells )
             rows.emplace( row.Unit, &row );
 
-        const ::Desert::Core::SceneSerializer serializer( &scene, assets );
+        // Every record of the world, held or not: an HLOD record with one's id would be made over it the moment a
+        // region load brings it (Play refuses the same world by the same test).
+        const std::unordered_set<std::uint64_t> worldIds( m_World->RowIds.begin(), m_World->RowIds.end() );
+        const ::Desert::Core::SceneSerializer   serializer( &scene, assets );
         std::vector<std::size_t>              units;
         std::size_t                           missing = 0;
         std::size_t                           records = 0;
@@ -111,10 +116,12 @@ namespace Desert::Editor
             {
                 if ( !record.id.has_value() )
                     continue;
-                if ( scene.FindEntityByID( *record.id ).has_value() )
-                    return refuse( std::format( "an HLOD record of {} has the id of an entity the scene holds; "
-                                                "rename the world",
-                                                name ) );
+                if ( worldIds.contains( static_cast<std::uint64_t>( *record.id ) ) ||
+                     scene.FindEntityByID( *record.id ).has_value() )
+                    return refuse(
+                         std::format( "an HLOD record of {} has the id of a record of the world or of an "
+                                      "entity the scene holds; rename the world",
+                                      name ) );
                 made.Ids.push_back( *record.id );
             }
             // Listed before it is made: a refusal half-way destroys what was made of this cell too.
@@ -142,7 +149,7 @@ namespace Desert::Editor
         m_Status = std::format( "{} saved HLOD(s), {} record(s); {} cell(s) have no saved HLOD.", m_HLODs.size(),
                                 records, missing );
         LOG_INFO( "[WorldPartition] Editor HLODs of '{0}': {1}", path.string(), m_Status );
-        return SyncHeld( scene );
+        return SyncHeld( scene, layerLoaded );
     }
 
     void EditorHLODs::Release( ::Desert::Core::Scene& scene )
@@ -184,7 +191,8 @@ namespace Desert::Editor
         return true;
     }
 
-    Common::BoolResultStr EditorHLODs::SyncHeld( ::Desert::Core::Scene& scene )
+    Common::BoolResultStr EditorHLODs::SyncHeld( ::Desert::Core::Scene&   scene,
+                                                 const std::vector<bool>& layerLoaded )
     {
         if ( !m_Runtime.has_value() || !m_World.has_value() )
             return BOOLSUCCESS;
@@ -193,7 +201,22 @@ namespace Desert::Editor
         const Rules::ResidencyState           state    = Rules::EditorResidency(
              m_World->Plan, [&]( const std::size_t record )
              { return record < rowIds.size() && packages.IsLoaded( Common::UUID( rowIds[record] ) ); } );
-        if ( auto synced = m_Runtime->Sync( state, *this ); !synced )
+        // The HLOD of a cell of runtime layers none of which is loaded in the editor stands in for nothing: the
+        // editor holds a composite of layers only while any of them is loaded (UE ResolveIsLoadedInEditor), and
+        // the HLOD carries the cell's layers. The switch's own layer gate (Sync) hides it.
+        using LayerState                      = ::Desert::Core::DataLayerRuntimeState;
+        const Rules::WorldPartitionPlan& plan = m_World->Plan;
+        std::vector<LayerState>          layers( Rules::ResidencyUnitCount( plan ), LayerState::Activated );
+        for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
+        {
+            const std::vector<std::size_t>& of     = plan.Cells[cell].DataLayers;
+            bool                            loaded = of.empty();
+            for ( const std::size_t layer : of )
+                loaded = loaded || ( layer < layerLoaded.size() && layerLoaded[layer] );
+            if ( !loaded )
+                layers[plan.AlwaysLoaded.size() + cell] = LayerState::Unloaded;
+        }
+        if ( auto synced = m_Runtime->Sync( state, nullptr, *this, layers ); !synced )
             return Common::MakeError( "editor HLODs: " + synced.GetError() );
         return BOOLSUCCESS;
     }

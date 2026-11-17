@@ -15,7 +15,9 @@
 // the editor holds (Rules::EditorResidency: a cell is Activated when the editor holds any record of it) - so a
 // region load hides the HLODs of its cells in the frame its entities arrive, and an unload shows them again. On
 // top of it the user's view: Show HLODs, and the Min/Max distance from the camera to the cell's content
-// (Rules::InEditorHLODRange).
+// (Rules::InEditorHLODRange). An HLOD carries the runtime data layers of its cell (UE: an HLOD actor carries the
+// data layers of what it was built from), so the HLOD of a cell none of whose layers this user has loaded in the
+// editor stands in for nothing, as the cell's own records are not held either (EditorRegions::SelectRecords).
 //
 // Staleness is not judged here: the editor shows what was saved, as UE's editor shows the built HLOD actors; Build
 // HLODs and Play are where a stale cell is named.
@@ -60,8 +62,11 @@ namespace Desert::Editor
         // Apply say otherwise; what was made before is destroyed first. A scene that is not a partitioned world
         // opened from its files, a world no runtime grid of which names an HLOD layer, and a world whose HLODs
         // were never built make none - Status() says which. Refused, by name and leaving nothing made, when the
-        // world's index or a saved HLOD cannot be read or an HLOD record has the id of an entity the scene holds.
-        [[nodiscard]] Common::BoolResultStr Make( ::Desert::Core::Scene& scene, ::Desert::Assets::AssetManager* assets );
+        // world's index or a saved HLOD cannot be read or an HLOD record has the id of a record of the world or
+        // of an entity the scene holds (as Play refuses it). @p layerLoaded: SyncHeld's.
+        [[nodiscard]] Common::BoolResultStr Make( ::Desert::Core::Scene&          scene,
+                                                  ::Desert::Assets::AssetManager* assets,
+                                                  const std::vector<bool>&        layerLoaded );
 
         // Destroys every entity Make made, and forgets them.
         void Release( ::Desert::Core::Scene& scene );
@@ -78,8 +83,10 @@ namespace Desert::Editor
         [[nodiscard]] bool IsInScene( const ::Desert::Core::Scene& scene ) const;
 
         // The residency the editor holds now (the scene's packages) through the HLOD switch: after Make, and after
-        // every region or data-layer change.
-        [[nodiscard]] Common::BoolResultStr SyncHeld( ::Desert::Core::Scene& scene );
+        // every region or data-layer change. @p layerLoaded[l]: whether the world's data layer `l` is loaded in
+        // the editor for this user (EditorRegions::DataLayersLoadedInEditor).
+        [[nodiscard]] Common::BoolResultStr SyncHeld( ::Desert::Core::Scene&   scene,
+                                                      const std::vector<bool>& layerLoaded );
 
         // Every editor frame: an HLOD is drawn when the switch shows it, the user shows HLODs and @p eye (the
         // editor camera, cm; none = no range test) is within the user's range of its cell. Only a change is told
