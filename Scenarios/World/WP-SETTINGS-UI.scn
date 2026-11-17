@@ -6,22 +6,26 @@
 # Layers, plus the cell its composite lands in (Rules::CellStem). Every edit is one undo step.
 # WP_Protocol states layers HLOD_Main (spatial, parent HLOD_Main_Far), HLOD_Main_Far, HLOD_Foliage, HLOD_Landscape -
 # the brief's "Near" is HLOD_Main here; its grid "MainGrid" is "Main".
-# The house: 1000 is the first external record of WP_Protocol; lead - if it is not a Main-grid building, take any
-# building's id from the Outliner (Details > World Partition must read Grid Main).
-# Lead: if `set` does not create a missing component, add it first (Details > Add Component > HLOD Layer, or the
-# DesertCtl add-component form) - the field is HLODLayerData.Layer; the Details row itself adds it.
+# The house: 200207 is WP_Protocol's "Main C05_04_B00", a StaticMesh record with no RuntimeGrid (the Main grid);
+# 1000 is the Sun, which a Global component keeps always loaded, so it shows no cell.
+# `set` edits a component the entity has (it never adds one): the HLOD Layer component is added first through
+# Details' Add Component route (DesertCtl add-component, reflected type HLODLayerData), then its Layer is set.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Когда set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"},{"Name":"Far2","Type":"MeshSimplify","SimplifyTrianglePercent":0.5}]
 Когда set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"Far2","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"},{"Name":"Far2","Type":"MeshSimplify","SimplifyTrianglePercent":0.5}]
-Когда select 1000
-Когда set 1000 HLODLayerData.Layer "Far2"
-Тогда wpui_layers панель World Partition, раздел HLOD layers: строка Far2 (Type MeshSimplify, Triangles kept 50.0 %, Parent None, Spatially Loaded снят), у HLOD_Main Parent = Far2, Used by у Far2: "0 grid(s), 1 layer(s) as Parent, 1 entity"; раздел Chunked packaging отмечен, Chunk region 100000. Details дома 1000 - раздел World Partition: Is Spatially Loaded отмечен, Runtime Grid "Main (main grid)", HLOD Layer Far2, Data Layers "No layer", Cell G0_L0_<x>_<z> - grid Main, level 0, cell 25 m
+Когда select 200207
+Когда add-component 200207 HLODLayerData
+Когда set 200207 HLODLayerData.Layer "Far2"
+Тогда wpui_layers панель World Partition, раздел HLOD layers: строка Far2 (Type MeshSimplify, Triangles kept 50.0 %, Parent None, Spatially Loaded снят), у HLOD_Main Parent = Far2, Used by у Far2: "0 grid(s), 1 layer(s) as Parent, 1 entity"; раздел Chunked packaging отмечен, Chunk region 100000. Details дома 200207 - раздел World Partition: Is Spatially Loaded отмечен, Runtime Grid "Main (main grid)", HLOD Layer Far2, Data Layers "No layer", Cell G0_L0_<x>_<z> - grid Main, level 0, cell 2500 cm
 Когда run Action "Undo"
-Тогда wpui_undo Details дома: HLOD Layer "Grid's layer (HLOD_Main)"; панель как в wpui_layers (слой и Parent - отдельные шаги истории)
+Когда run Action "Undo"
+Тогда wpui_undo Details дома: HLOD Layer "Grid's layer (HLOD_Main)" (Layer и Add Component - два шага истории); панель как в wpui_layers (слои - свои шаги)
+Когда run Action "Redo"
 Когда run Action "Redo"
 Тогда wpui_redo то же, что wpui_layers: HLOD Layer Far2, ячейка та же
+Когда run Action "Undo"
 Когда run Action "Undo"
 Когда run Action "Undo"
 Когда run Action "Undo"

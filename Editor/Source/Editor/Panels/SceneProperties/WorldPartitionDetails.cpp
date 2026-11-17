@@ -320,9 +320,9 @@ namespace Desert::Editor
             for ( const Rules::PlannedCell& cell : plan.Cells )
                 if ( std::find( cell.Composites.begin(), cell.Composites.end(), c ) != cell.Composites.end() )
                     return std::format(
-                         "{} - grid {}, level {}, cell {:.0f} m", Rules::CellStem( partition, cell ),
+                         "{} - grid {}, level {}, cell {:.0f} cm", Rules::CellStem( partition, cell ),
                          partition.Grids.at( cell.Grid ).Name, cell.Level,
-                         Rules::LevelCellSize( partition.Grids.at( cell.Grid ).CellSize, cell.Level ) / 100.0 );
+                         Rules::LevelCellSize( partition.Grids.at( cell.Grid ).CellSize, cell.Level ) );
             return "not planned: its composite is in no cell of the plan";
         }
         return "no place: a prefab instance or landscape tile the plan could not place (World Partition panel)";

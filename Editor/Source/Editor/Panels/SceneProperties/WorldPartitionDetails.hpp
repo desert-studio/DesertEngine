@@ -41,7 +41,7 @@ namespace Desert::Editor
         void Draw( ::Desert::ECS::Entity& entity, ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Assets::AssetManager>& assets );
 
     private:
-        // Where the entity's composite lands, as one line: "G0_L0_3_-2 - grid Main, level 0, cell 25 m", or the
+        // Where the entity's composite lands, as one line: "G0_L0_3_-2 - grid Main, level 0, cell 2500 cm", or the
         // always-loaded reason, or why the world could not be planned.
         [[nodiscard]] std::string PlanCellLine( const ::Desert::ECS::Entity& entity, ::Desert::Core::Scene& scene,
                                                 const std::shared_ptr<::Desert::Assets::AssetManager>& assets ) const;
