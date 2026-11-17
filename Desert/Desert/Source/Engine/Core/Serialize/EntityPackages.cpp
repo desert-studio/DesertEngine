@@ -325,7 +325,15 @@ namespace Desert::Core
                                   : ExternalEntities::WriteSceneDelta( scenePath, document.GetValue(), plan.Listed,
                                                                        plan.Changed, plan.Removed );
         if ( !written )
+        {
+            // A Save As that carried the not-loaded files and then failed before its scene file landed takes the
+            // folder it made back (CarryNotLoadedRecords refused a name that had one): left behind, it would
+            // refuse the next Save As to that name and be adopted by the next scene given it.
+            std::error_code ec;
+            if ( plan.CarryFrom && !std::filesystem::exists( scenePath, ec ) )
+                std::filesystem::remove_all( ExternalEntities::DirectoryOf( scenePath ), ec );
             return Common::MakeError<PackageSaveOutcome>( written.GetError() );
+        }
         outcome.Files = written.GetValue();
         packages.Baseline( scenePath, live );
         return Common::MakeSuccess( outcome );

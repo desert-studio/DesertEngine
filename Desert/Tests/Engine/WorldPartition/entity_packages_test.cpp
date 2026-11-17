@@ -289,7 +289,40 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
     EXPECT_TRUE( std::filesystem::exists( EE::FileOf( world.Scene, Common::UUID( 30 ) ) ) );
 }
 
-TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartIsRefused )
+// WP-ASSET-OPS (UE's SaveMapAs duplicates the external packages of the actors that are not loaded): a Save As of
+// a world held in part carries the not-loaded records' files into the new file's entity folder.
+TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartCarriesTheNotLoadedFiles )
+{
+    ModelWorld world;
+    world.Save();
+    world.Packages.Baseline( world.Scene, world.Live() );
+    const std::filesystem::path original = world.Scene;
+    const auto                  thirtyRead =
+         Common::Utils::FileSystem::ReadFileContent( EE::FileOf( original, Common::UUID( 30 ) ) );
+    ASSERT_TRUE( thirtyRead ) << thirtyRead.GetError();
+    world.Tags.erase( 30 );
+    const std::vector<Common::UUID> notLoaded{ Common::UUID( 30 ) };
+    world.Packages.AdoptRegion( world.Live(), notLoaded, {} );
+
+    world.Scene      = world.Root / "Elsewhere.desce";
+    const auto saved = world.TrySave( CleanCheck::AgainstFiles );
+    ASSERT_TRUE( saved ) << saved.GetError();
+    EXPECT_FALSE( saved.GetValue().Whole );
+    const auto listed = EE::ListedEntities( world.Scene );
+    ASSERT_TRUE( listed ) << listed.GetError();
+    EXPECT_EQ( listed.GetValue(),
+               ( std::vector<Common::UUID>{ Common::UUID( 10 ), Common::UUID( 20 ), Common::UUID( 30 ) } ) );
+    const auto thirtyCarried =
+         Common::Utils::FileSystem::ReadFileContent( EE::FileOf( world.Scene, Common::UUID( 30 ) ) );
+    ASSERT_TRUE( thirtyCarried ) << thirtyCarried.GetError();
+    EXPECT_EQ( thirtyCarried.GetValue(), thirtyRead.GetValue() );
+    EXPECT_TRUE( std::filesystem::exists( EE::FileOf( world.Scene, Common::UUID( 10 ) ) ) );
+    EXPECT_TRUE( std::filesystem::exists( EE::FileOf( original, Common::UUID( 30 ) ) ) ); // a copy, not a move
+}
+
+// The new name already has an entity folder: its files would be mixed with the carried ones - refused, nothing
+// written.
+TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartOntoAnEntityFolderIsRefused )
 {
     ModelWorld world;
     world.Save();
@@ -297,9 +330,11 @@ TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartIsRefused )
     world.Tags.erase( 30 );
     const std::vector<Common::UUID> notLoaded{ Common::UUID( 30 ) };
     world.Packages.AdoptRegion( world.Live(), notLoaded, {} );
-    world.Scene      = world.Root / "Elsewhere.desce";
+    world.Scene = world.Root / "Elsewhere.desce";
+    std::filesystem::create_directories( EE::DirectoryOf( world.Scene ) );
     const auto saved = world.TrySave( CleanCheck::Trust );
     ASSERT_FALSE( saved );
-    EXPECT_NE( saved.GetError().find( "not loaded" ), std::string::npos ) << saved.GetError();
+    EXPECT_NE( saved.GetError().find( "already holds entity files" ), std::string::npos ) << saved.GetError();
     EXPECT_FALSE( std::filesystem::exists( world.Scene ) );
+    EXPECT_FALSE( std::filesystem::exists( EE::FileOf( world.Scene, Common::UUID( 30 ) ) ) );
 }

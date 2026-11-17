@@ -12,30 +12,30 @@
 Тогда assetops_orig оригинал WP_Protocol целиком, вид сверху 2 км: застройка, листва, ландшафт 4x4 тайла
 Когда run "Content Browser" "Sync to Asset Scenes/WP_Protocol.desce"
 Когда run "Content Browser" "Duplicate"
-Когда run Scene "Open Scene Scenes/WP_Protocol 2.desce"
+Когда run Scene "Open Scene WP_Protocol 2.desce"
 Когда run Scene "World Partition: Load All"
 Когда --subject viewport set Camera.Position 0,200000,-1
 Когда --subject viewport set Camera.Direction 0,-1,0.0001
-Тогда assetops_dup копия «WP_Protocol 2» открыта целиком: тот же вид сверху, что assetops_orig; в логе нет отказа «listed entity files missing», рядом на диске __ExternalEntities__/WP_Protocol 2/ (с Descriptors.dedesc) и «WP_Protocol 2_HLOD/»
-Когда run Scene "Open Scene Scenes/WP_Protocol.desce"
+Тогда assetops_dup копия «WP_Protocol 2» открыта целиком, Content Browser в Scenes показывает «WP_Protocol 2.desce» и «WP_Protocol 2_HLOD»: тот же вид сверху, что assetops_orig; в логе нет отказа «listed entity files missing», рядом на диске __ExternalEntities__/WP_Protocol 2/ (с Descriptors.dedesc) и «WP_Protocol 2_HLOD/»
+Когда run Scene "Open Scene WP_Protocol.desce"
 Когда run "Content Browser" "Sync to Asset Scenes/WP_Protocol 2.desce"
 Когда run "Content Browser" "Delete (to the Trash)"
-Тогда-вид assetops_deleted файл и обе папки копии ушли в Saved/Trash (одна ячейка корзины), оригинал открыт как был
+Тогда assetops_deleted Content Browser в Scenes: нет «WP_Protocol 2.desce» и «WP_Protocol 2_HLOD» (файл и обе папки ушли в одну ячейку Saved/Trash), оригинал открыт как был
 Когда run Action "Undo"
-Когда run Scene "Open Scene Scenes/WP_Protocol 2.desce"
+Когда run Scene "Open Scene WP_Protocol 2.desce"
 Когда run Scene "World Partition: Load All"
 Когда --subject viewport set Camera.Position 0,200000,-1
 Когда --subject viewport set Camera.Direction 0,-1,0.0001
 Тогда assetops_delete_undo копия снова открывается целиком: тот же вид сверху, что assetops_dup
-Когда run Scene "Open Scene Scenes/WP_Protocol.desce"
+Когда run Scene "Open Scene WP_Protocol.desce"
 Когда run Scene "World Partition: Unload All"
 Когда save-as WP_Protocol_B
-Когда run Scene "Open Scene Scenes/WP_Protocol_B.desce"
+Когда run Scene "Open Scene WP_Protocol_B.desce"
 Когда run Scene "World Partition: Load All"
 Когда --subject viewport set Camera.Position 0,200000,-1
 Когда --subject viewport set Camera.Direction 0,-1,0.0001
 Тогда assetops_saveas_partial WP_Protocol_B — весь мир (тот же вид сверху, что assetops_orig), Save As не отказал «N of its M entities are not loaded»
-Когда run Scene "Open Scene Scenes/WP_Protocol.desce"
+Когда run Scene "Open Scene WP_Protocol.desce"
 Когда run "Content Browser" "Sync to Asset Scenes/WP_Protocol 2.desce"
 Когда run "Content Browser" "Delete (to the Trash)"
 Когда run "Content Browser" "Sync to Asset Scenes/WP_Protocol_B.desce"
