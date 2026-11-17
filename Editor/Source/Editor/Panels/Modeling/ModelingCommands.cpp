@@ -1,6 +1,7 @@
 #include "ModelingCommands.hpp"
 
 #include <Editor/Core/CommandPalette.hpp>
+#include <Editor/Baking/MaterialBaking.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -53,6 +54,23 @@ namespace Desert::Editor
         // first, with the palette's settings.
         commands.push_back( { "Modeling", "Bake Normal Map",
                               [&scene, &assets] { return Editor::ModelingPanel::BakeNormalMap( scene, assets ); } } );
+        // UE's Bake Materials / Merge Actors' flatten on one slot of the selection
+        // (Editor/Baking/MaterialBaking.hpp): BaseColor, Normal, ORM, Emissive and OpacityMask written as texture
+        // assets under Assets/Textures/Baked.
+        constexpr uint32_t kPaletteBakeSize = 1024;
+        constexpr int      kPaletteSlots    = 8;
+        for ( int slot = 0; slot < kPaletteSlots; ++slot )
+            commands.push_back( { "Modeling",
+                                  slot == 0 ? std::string( "Bake Material to Textures" )
+                                            : std::format( "Bake Material to Textures: slot {}", slot ),
+                                  [&scene, &assets, slot]() -> Common::BoolResultStr
+                                  {
+                                      if ( !scene || !assets )
+                                          return Common::MakeError( "Bake Material to Textures: no scene or no "
+                                                                    "asset manager" );
+                                      return Baking::StartBakeOfSelection( *scene, *assets, slot,
+                                                                           kPaletteBakeSize );
+                                  } } );
     }
 
     void AppendSelectElementsCommand( std::vector<PaletteCommand>& commands )
