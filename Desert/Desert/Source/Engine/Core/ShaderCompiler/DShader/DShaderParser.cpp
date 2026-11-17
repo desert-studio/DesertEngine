@@ -2252,6 +2252,8 @@ namespace Desert::Core::Preprocess
                     if ( result.Meta.DecalChannelMask == 0u )
                         result.Meta.DecalChannelMask = kDecalChannelAll;
                 }
+                else if ( v == "lightfunction" )
+                    result.Meta.Domain = ShaderDomain::LightFunction;
                 else
                 {
                     err = { line, "unknown Domain '" + v + "'" };

@@ -258,7 +258,10 @@ namespace Desert::Graphic::System
                      .Texture( MegaLightsShaderParameters::GBufferNormalTexture, in.GBufferB,
                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                      .Storage( ShaderProtocols::PointLight::Parameter, in.Lights.Point, RDG::Access::StorageRead )
-                     .Storage( ShaderProtocols::SpotLight::Parameter, in.Lights.Spot, RDG::Access::StorageRead );
+                     .Storage( ShaderProtocols::SpotLight::Parameter, in.Lights.Spot, RDG::Access::StorageRead )
+                     // ASYNC COMPUTE: the light function atlas the rows sample bindless, declared here so the
+                     // graph orders its graphics-queue writer before this queue's read.
+                     .BindlessRead( in.Lights.LightFunctionAtlas, RDG::Access::SampledCompute );
                 if ( shading )
                     block.Texture( MegaLightsShaderParameters::GBufferATexture, in.GBufferA,
                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )

@@ -300,6 +300,19 @@ function(desert_link_engine target)
     target_link_libraries(${target} PRIVATE ${_names} ${DESERT_DESERTSPECIFIC_LIBRARIES})
 endfunction()
 
+# A tool that runs engine code (WorldCook, SceneMigrator): the module libraries (desert_link_engine) and the
+# third-party libraries and system frameworks they are built against.
+function(desert_link_engine_tool target)
+    target_link_libraries(${target} PRIVATE GLFW ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree OpenEXRCore Dav1d Opus)
+    desert_link_engine(${target})
+    if(DESERT_IS_MACOS)
+        target_link_libraries(${target} PRIVATE
+            Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
+            "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
+            "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore" "-framework Foundation")
+    endif()
+endfunction()
+
 # The header tool invocation the engine's codegen library runs before it compiles (Desert/Desert/CMakeLists.txt).
 function(desert_engine_header_tool_command out)
     set(_cmd "$<TARGET_FILE:DesertHeaderTool>"

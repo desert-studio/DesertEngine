@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -77,6 +78,8 @@ namespace Desert::Graphic::GlobalIllumination
         SurfaceCacheFrame SurfaceCache; // the surface cache a hit reads first (GITracing.hpp)
         RDG::BufferRef    PointLights;
         RDG::BufferRef    SpotLights;
+        // The light function atlas the rows' tiles name (ViewLightBuffers::LightFunctionAtlas); invalid = none.
+        RDG::TextureRef   LightFunctionAtlas;
         RDG::BufferRef    WorldGridParams; // the world light grid (LightGridLayout::WorldClipmaps)
         RDG::BufferRef    WorldGridCells;
         RDG::BufferRef    GIFrame; // this frame's GIFramePayload (GITracing.hpp), "GIFrameUB"
@@ -175,14 +178,24 @@ namespace Desert::Graphic::GlobalIllumination
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
-        // The update of one frame, its seven passes added to @p graph. The cache is (re)built when @p shape
-        // differs from the last frame's (a quality change): every probe is traced again. A significant change of
-        // the directional lights (InvalidatesLightingHistory) makes the frame a FULL UPDATE (UE
-        // r.Lumen.RadianceCache.ForceFullUpdate): every used probe is traced in it, its history dropped.
+        // The update of one frame, its first six passes (Mark .. Trace) added to @p graph; the seventh, Filter,
+        // is AddFilterPass's, which the caller MUST declare in the same graph before any reader of the returned
+        // frame's Indirection, Probes, Irradiance, Depth or Radiance (Params is an upload: readable at once). The
+        // cache is (re)built when @p shape differs from the last frame's (a quality change): every probe is traced
+        // again. A significant change of the directional lights (InvalidatesLightingHistory) makes the frame a
+        // FULL UPDATE (UE r.Lumen.RadianceCache.ForceFullUpdate): every used probe is traced in it, its history
+        // dropped.
+        // FPS-PROBE-WAIT-2 (UE Lumen: the far-field trace overlaps the cache): the two declarations let the view
+        // declare async work that reads nothing of the cache (the screen probes' far field) between Trace and
+        // Filter, so the async queue runs it beside the cache's filter instead of after it.
         [[nodiscard]] Common::ResultStr<RadianceCacheFrame>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
                          const RadianceCache::RadianceCacheInputs& shape,
                          const RadianceCacheUpdateInputs&          inputs );
+        // The update's Filter pass (the probes' irradiance and depth from the traced radiance) and the update's
+        // counts read-back, after the AddUpdatePasses of the same graph; an error when none is pending (no update
+        // declared, or its filter declared already).
+        [[nodiscard]] Common::BoolResultStr AddFilterPass( RDG::Builder& graph );
         // The newest update read back in counts (RadianceCacheUpdateCounts), frames in flight late.
         [[nodiscard]] const RadianceCacheUpdateCounts& LastUpdateCounts() const
         {
@@ -201,6 +214,28 @@ namespace Desert::Graphic::GlobalIllumination
             Filter,
             PassCount
         };
+
+        // std430 RadianceCachePush (WorldRadianceCache.cpp, Common/RadianceCacheState.glslh), carried as bytes.
+        static constexpr size_t kPushBytes = 44;
+        // One update's graph resources and dispatch shapes, from AddUpdatePasses to its AddFilterPass.
+        struct UpdateDeclaration
+        {
+            RadianceCacheFrame                 Frame;
+            RDG::BufferRef                     LastUsed;
+            RDG::BufferRef                     FreeList;
+            RDG::BufferRef                     Schedule;
+            RDG::BufferRef                     UpdateCounts;
+            RDG::BufferRef                     DispatchArgs;
+            RDG::BufferRef                     MarkPoints;
+            RDG::BufferRef                     GIFrame;
+            std::array<glm::uvec3, PassCount>  Groups{};
+            std::array<std::byte, kPushBytes>  Push{};
+            uint32_t                           FrameIndex = 0;
+            bool                               FullUpdate = false;
+        };
+        // One pass of the update; @p inputs is null for Filter (it reads only the cache's own resources).
+        void DeclarePass( RDG::Builder& graph, Pass pass, const UpdateDeclaration& update,
+                          const RadianceCacheUpdateInputs* inputs );
 
         [[nodiscard]] Common::BoolResultStr EnsureResources( const RadianceCache::RadianceCacheInputs& shape );
 
@@ -231,5 +266,7 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t                           m_LightingFrame = 0; // FrameIndex of the last full update (0 = none)
         uint32_t m_FullUpdatesInWindow                     = 0; // since the last "[RadianceCache] traced" line
         RadianceCacheUpdateCountsReadback  m_UpdateCounts;
+        // The update declared by AddUpdatePasses whose Filter AddFilterPass has not declared yet.
+        std::optional<UpdateDeclaration> m_PendingFilter;
     };
 } // namespace Desert::Graphic::GlobalIllumination
