@@ -44,26 +44,6 @@ namespace Desert::Graphic
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& SpatialUpscaleLayout();
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& SharpenLayout();
 
-    // SpatialUpscale.shader's push constants.
-    struct SpatialUpscalePush
-    {
-        int32_t SourceWidth       = 0;
-        int32_t SourceHeight      = 0;
-        int32_t DestinationWidth  = 0;
-        int32_t DestinationHeight = 0;
-    };
-    static_assert( sizeof( SpatialUpscalePush ) == 16 );
-
-    // Sharpen.shader's push constants. Amount = Resolution.Sharpness / 100, the RCAS lobe scale in [0, 1].
-    struct SharpenPush
-    {
-        int32_t Width  = 0;
-        int32_t Height = 0;
-        float   Amount = 0.0f;
-        int32_t Pad    = 0;
-    };
-    static_assert( sizeof( SharpenPush ) == 16 );
-
     // EASU: RenderExtent -> OutputExtent in one compute node "SpatialUpscale" writing the transient
     // "SpatialUpscale.Output" (RGBA16F, OutputExtent, the returned ref). Owns its compute pipeline (made on first
     // record), one per SceneRenderer like SupersampleResolve. Error (named) when the frame is not a spatial
