@@ -24,7 +24,10 @@
 // from S and P and forwards to DesertSlabEvaluate / DesertSlabEvaluateSpecular / DesertSlabEvaluateAmbient; its
 // own text is only what is not a slab lobe (TwoSidedFoliage's transmission). A model whose response IS the slab
 // declares `SlabFeatures <function>;` (uint <function>( DesertPayload P ), the features its slab is built with):
-// such a preset promises that with no feature bit set it shades exactly as DefaultLit.
+// such a preset promises that with no feature bit set it shades exactly as DefaultLit. It also declares
+// `Slab <function>;` (DesertSlab <function>( DesertSurface S, DesertPayload P ), the slab its three functions
+// evaluate): DesertShadingModelSlab dispatches it, so a pass that needs the slab's parameters rather than its response
+// (the path tracer's lobe sampler, Programs/PathTracing/PathTracer.shader) reads the very slab the raster shades.
 //
 // Emission is NOT the model's: the pass adds SurfaceOutput.Emissive after both calls, for every model. So Unlit is
 // the model whose functions all return vec3( 0.0 ) — the texel is its emission, with no special case anywhere.

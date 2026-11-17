@@ -14,6 +14,7 @@ Inputs
     Roughness;
 }
 SlabFeatures DefaultLitSlabFeatures;
+Slab DefaultLitSlab;
 
 #include <Mesh/SubstrateSlab.glslh>
 
@@ -22,17 +23,22 @@ uint DefaultLitSlabFeatures( DesertPayload P )
     return 0u;
 }
 
+DesertSlab DefaultLitSlab( DesertSurface S, DesertPayload P )
+{
+    return DesertMakeSlab( S, DefaultLitSlabFeatures( P ) );
+}
+
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    return DesertSlabEvaluate( L, S, DesertMakeSlab( S, DefaultLitSlabFeatures( P ) ) );
+    return DesertSlabEvaluate( L, S, DefaultLitSlab( S, P ) );
 }
 
 vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    return DesertSlabEvaluateSpecular( L, S, DesertMakeSlab( S, DefaultLitSlabFeatures( P ) ) );
+    return DesertSlabEvaluateSpecular( L, S, DefaultLitSlab( S, P ) );
 }
 
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
-    return DesertSlabEvaluateAmbient( A, S, DesertMakeSlab( S, DefaultLitSlabFeatures( P ) ) );
+    return DesertSlabEvaluateAmbient( A, S, DefaultLitSlab( S, P ) );
 }
