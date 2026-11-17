@@ -178,6 +178,20 @@ namespace Desert::Editor
                 if ( !current )
                     return Common::MakeError<bool>( std::string(
                          "the world is not partitioned; set 'WorldPartition' to the whole block first" ) );
+                // `set world WorldPartition.DataLayers <json list>`: the world's data layers as a whole (UE's Data
+                // Layer Outliner New / Delete / Initially Loaded in one edit); `[]` states none, so no key is written.
+                if ( property == "WorldPartition.DataLayers" )
+                {
+                    auto parsed = Common::Json::Read<std::vector<::Desert::Core::DataLayerSerialized>>( text );
+                    if ( !parsed )
+                        return Common::MakeError<bool>( "WorldPartition.DataLayers: " + parsed.GetError() );
+                    after            = *current;
+                    after.DataLayers = parsed.GetValue().empty()
+                                            ? std::nullopt
+                                            : std::optional<std::vector<::Desert::Core::DataLayerSerialized>>(
+                                                   std::move( parsed.GetValue() ) );
+                    return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
+                }
                 if ( property == "WorldPartition.ChunkRegionSize" )
                 {
                     // The panel's DragFloat in text: centimetres, 0 clears it (the base archive), as the panel.
@@ -194,7 +208,8 @@ namespace Desert::Editor
                 const std::size_t dot = property.rfind( '.' );
                 if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
                     return Common::MakeError<bool>( std::format(
-                         "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize or WorldPartition.Grids.<Name>.<Field>", property ) );
+                         "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize, WorldPartition.DataLayers or "
+                         "WorldPartition.Grids.<Name>.<Field>", property ) );
                 const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );
                 const std::string field = property.substr( dot + 1 );
                 after                   = *current;

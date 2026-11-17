@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 // THE WORLD PARTITION MAP — UE's World Partition editor window (SWorldPartitionEditorGrid2D), as an ImGui panel.
 //
 // A top-down map of the partition: every cell the plan holds, coloured by what streaming is doing with it, the
@@ -19,6 +21,7 @@
 #include "LandscapeHLODBake.hpp"
 #include "WorldPartitionMap.hpp"
 
+#include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -99,6 +102,17 @@ namespace Desert::Editor
         // undoable.
         void DrawRuntimeGrids();
         void DrawGridHLODLayers();
+        /// UE's Data Layer Outliner (WP-DATA-LAYERS): the world's layers - a new one, Initially Loaded (the world's,
+        /// undoable through EditWorldPartition), Loaded (this user's, reloading what the editor holds), and Delete,
+        /// refused while an entity of the world belongs to the layer.
+        void DrawDataLayers();
+        /// UE's Data Layer Outliner "Loaded" toggle for this user: the editor holds the world again under the
+        /// changed layer state (the same regions or whole world it holds now) and keeps it for the next open
+        /// (EditorLoadedRegions). Refused by name for a layer the world does not state, or when the reload is
+        /// refused (a dirty entity that would leave) - the layer state is then as it was.
+        [[nodiscard]] Common::BoolResultStr SetDataLayerLoaded( const std::string& name, bool loaded );
+        /// The names of this panel's world's data layers, in the world's order (the palette's per-layer entries).
+        [[nodiscard]] std::vector<std::string> DataLayerNames() const;
         /// The panel's Load Region button: the rectangle selected on the map. Refused by name when nothing is
         /// selected; otherwise LoadRegion. The palette offers it beside Unload All / Load All.
         [[nodiscard]] Common::BoolResultStr LoadSelectedRegion();
@@ -145,6 +159,13 @@ namespace Desert::Editor
         std::optional<glm::dvec2>                        m_DragFrom;
         std::string                                      m_RegionStatus;
         std::string                                      m_GridEditStatus; ///< the last Runtime grids refusal
+        std::string m_DataLayerStatus; ///< the last Data Layers refusal or reload
+        std::array<char, 128> m_NewDataLayer{}; ///< the Data Layers section's name field
+        /// What the editor holds of this world for this user - the regions, or the whole world, and the data-layer
+        /// state - as EditorLoadedRegions remembers it; read once per scene, written after every reload.
+        ::Desert::Core::EditorRegions::HeldRegions m_Held;
+        bool                                       m_HeldRead = false;
+        [[nodiscard]] const ::Desert::Core::EditorRegions::HeldRegions& Held();
         // Whether the Edit plan is the world on disk (its descriptor index) rather than the scene in memory.
         bool m_PlanFromIndex = false;
         // Edit over the index: what the editor holds of each cell of m_EditPlan (empty otherwise).
