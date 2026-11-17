@@ -61,7 +61,7 @@ namespace Desert::Editor::WorldPartitionMap
     [[nodiscard]] View Follow( glm::dvec2 screenSize, glm::dvec2 sourceXZ );
 
     // Every reader below takes @p grid: only the cells of that runtime grid (PlannedCell::Grid, index into
-    // WorldPartitionSerialized::Grids - the panel's grid picker); nullopt = every grid's cells.
+    // WorldPartitionSerialized::RuntimePartitions - the panel's partition picker); nullopt = every grid's cells.
 
     // The bounds of every cell of @p plan; nullopt for a plan without cells.
     [[nodiscard]] std::optional<::Desert::Core::Rules::CellBounds>

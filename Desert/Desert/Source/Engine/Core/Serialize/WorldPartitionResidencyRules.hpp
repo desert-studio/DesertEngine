@@ -204,7 +204,8 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline float HLODMinVisibleDistance( const WorldPartitionSerialized& partition,
                                                        const WorldPartitionPlan& plan, std::size_t unit )
     {
-        return partition.Grids.at( plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid ).LoadingRange;
+        // A cell is only ever made by a partition with a cell grid (IRuntimePartition::GenerateStreaming).
+        return CellGridOf( partition, plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid )->LoadingRange;
     }
 
     // Records a unit brings into the world: the members of every composite it holds.

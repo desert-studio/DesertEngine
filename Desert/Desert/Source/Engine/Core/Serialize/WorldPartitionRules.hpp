@@ -8,7 +8,7 @@
 // spatial index: this file makes the scene FORMAT able to express a partition and makes the partitioner
 // assign every whole to exactly one cell of one level — or to the always-loaded set — and say why. A
 // cell is a set of records and a rectangle here, nothing more. Which cells are resident at a camera
-// position is WP4's pure query over this plan, and `GridSerialized::LoadingRange` is its input.
+// position is WP4's pure query over this plan, and `RuntimePartitionLHGridSerialized::LoadingRange` is its input.
 //
 // ── THE UNIT IS THE COMPOSITE, NOT THE ENTITY ─────────────────────────────────────────────────────
 //
@@ -403,7 +403,11 @@ namespace Desert::Core::Rules
         Author,    // a member carries the `AlwaysLoaded` marker
         Component, // a member carries a component `kComponentLoading` classifies Global
         NoFit,     // its footprint is wider than the top level a grid can have, or not a finite rectangle
-        NoGrid,    // the world states no usable grid: no `Grids` entry, or a CellSize <= 0
+        NoGrid,    // the world states no usable partition: no `RuntimePartitions` entry, a bad one, or a name it
+                   // lacks
+        // Its anchor streams on a Persistent partition (UE URuntimePartitionPersistent): the WORLD's choice that
+        // it never leaves. Last, so AlwaysLoadedByReason's size follows it.
+        Persistent,
     };
 
     // ONE COMPOSITE AND WHERE IT WENT. Members are record indices in file order and always include the
@@ -422,7 +426,7 @@ namespace Desert::Core::Rules
         std::size_t        Because = kNoRecord; // the member that made it Author/Component
         int                Level   = 0;
         CellCoord          Cell;
-        std::size_t        Grid    = 0; // index into WorldPartitionSerialized::Grids (UE: the actor's RuntimeGrid)
+        std::size_t        Grid = 0; // index into WorldPartitionSerialized::RuntimePartitions (UE: RuntimeGrid)
         // The data layers the composite belongs to - its ANCHOR's (UE AActor::DataLayerAssets), as indices into
         // WorldPartitionSerialized::DataLayers, ascending and unique. Empty = no layer. Whatever the Reason: an
         // always-loaded composite belongs to its layers too, and the editor holds it by them (EditorRegions).
@@ -435,7 +439,7 @@ namespace Desert::Core::Rules
     // holds lies inside it: the loading range is measured to `Bounds`.
     struct PlannedCell
     {
-        std::size_t              Grid  = 0; // index into WorldPartitionSerialized::Grids
+        std::size_t              Grid  = 0; // index into RuntimePartitions; always an LHGrid partition's
         int                      Level = 0;
         CellCoord                Cell;
         CellBounds               Square;
@@ -1536,26 +1540,24 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline std::optional<std::size_t> GridIndexOf( const WorldPartitionSerialized&   settings,
                                                                  const std::optional<std::string>& wanted )
     {
-        if ( settings.Grids.empty() )
+        const std::vector<RuntimePartitionSerialized>& partitions = settings.RuntimePartitions;
+        if ( partitions.empty() )
             return std::nullopt;
         if ( !wanted.has_value() )
             return std::size_t{ 0 };
         const auto found =
-             std::find_if( settings.Grids.begin(), settings.Grids.end(),
-                           [&]( const WorldPartitionGridSerialized& grid ) { return grid.Name == *wanted; } );
-        if ( found == settings.Grids.end() )
+             std::find_if( partitions.begin(), partitions.end(), [&]( const RuntimePartitionSerialized& partition )
+                           { return partition.Name == *wanted; } );
+        if ( found == partitions.end() )
             return std::nullopt;
-        return static_cast<std::size_t>( found - settings.Grids.begin() );
+        return static_cast<std::size_t>( found - partitions.begin() );
     }
 
-    // THE GRIDS A WORLD MAY STATE (WP22, UE FSpatialHashRuntimeGrid) - the one rule the planner (step 4a) and
-    // every editor edit of the block (EditWorldPartition: the panel's Runtime grids section, `desertctl set world
-    // WorldPartition...`) read, so the editor refuses exactly what the planner would. At least one grid; every
-    // grid named, once; a positive finite cell size; a positive finite loading range (a range of 0 is a grid
-    // that never streams anything in). `CellsUsable` is false when the CELLS cannot be made - no grid, a name
-    // missing or stated twice (which grid a record's name reaches would be a guess), a cell size that is not
-    // positive; a bad loading range is an Issue that leaves the cells as they are, because the partition does
-    // not read the range (WorldPartitionGridSerialized::LoadingRange).
+    // WHAT CheckRuntimeGrids FOUND. `CellsUsable` is false when the CELLS cannot be made - no partition, a name
+    // missing or stated twice (which partition a record's name reaches would be a guess), settings its class
+    // cannot place content with (an LHGrid's cell size that is not positive); a bad loading range is an Issue that
+    // leaves the cells as they are, because the partition does not read the range
+    // (RuntimePartitionLHGridSerialized::LoadingRange).
     struct RuntimeGridsCheck
     {
         Common::Json::Issues Issues;
@@ -1599,38 +1601,284 @@ namespace Desert::Core::Rules
         return static_cast<std::size_t>( found - layers.begin() );
     }
 
-    [[nodiscard]] inline RuntimeGridsCheck CheckRuntimeGrids( const WorldPartitionSerialized& settings )
+    // A footprint's larger side: what its level is chosen by. Not finite = no level can hold it.
+    [[nodiscard]] inline double FootprintExtent( const CellBounds& box )
     {
-        RuntimeGridsCheck check;
-        if ( settings.Grids.empty() )
+        return std::max( static_cast<double>( box.MaxX ) - static_cast<double>( box.MinX ),
+                         static_cast<double>( box.MaxZ ) - static_cast<double>( box.MinZ ) );
+    }
+
+    // ── THE RUNTIME PARTITIONS (WP-HASH-SET, UE UWorldPartitionRuntimeHashSet) ───────────────────────────
+    //
+    // ONE CLASS PER RuntimePartitionType, stateless (UE's class default object of a URuntimePartition subclass):
+    // the planner asks it to check a partition's settings and to place what streams on it; the HLOD rules ask it
+    // whether anything of it is ever away; the streaming query and the cook ask it for the cells' grid. Nothing
+    // that plans, cooks or streams a world switches on the type - a new kind of partition is a new class here.
+    class IRuntimePartition
+    {
+    public:
+        IRuntimePartition()                                      = default;
+        IRuntimePartition( const IRuntimePartition& )            = delete;
+        IRuntimePartition& operator=( const IRuntimePartition& ) = delete;
+        IRuntimePartition( IRuntimePartition&& )                 = delete;
+        IRuntimePartition& operator=( IRuntimePartition&& )      = delete;
+        virtual ~IRuntimePartition()                             = default;
+
+        // The issues of @p desc's own settings, each with its path under WorldPartition.RuntimePartitions[@p
+        // index]; clears @p check.CellsUsable when what streams on it cannot be placed (UE
+        // URuntimePartition::IsValidGrid).
+        virtual void CheckSettings( const RuntimePartitionSerialized& desc, std::size_t index,
+                                    RuntimeGridsCheck& check ) const = 0;
+
+        // UE URuntimePartition::GenerateStreaming: places @p composites - indices into @p plan.Composites, every
+        // one on partition @p index, placed by a footprint, Reason None, in ascending order. Cells it makes are
+        // appended to @p plan.Cells ordered by level, X, Z; a composite it cannot or will not put in a cell gets
+        // its always-loaded Reason (the planner lists AlwaysLoaded afterwards, in file order). Called once per
+        // partition, in partition order, after CheckSettings passed for every partition.
+        virtual void GenerateStreaming( const RuntimePartitionSerialized& desc, std::size_t index,
+                                        std::span<const std::size_t> composites,
+                                        WorldPartitionPlan&          plan ) const = 0;
+
+        // Whether what streams on it can be away, so that HLOD setups stand in for it (UE: a partition's HLOD
+        // setups are read for its streamed cells only).
+        [[nodiscard]] virtual bool CanBeAway() const = 0;
+
+        // The grid its cells stream on (UE URuntimePartitionLHGrid), or null when it makes no cells.
+        [[nodiscard]] virtual const RuntimePartitionLHGridSerialized*
+        CellGrid( const RuntimePartitionSerialized& desc ) const = 0;
+    };
+
+    // URuntimePartitionLHGrid: the square hierarchical grid (UE FSquare2DGridHelper).
+    class RuntimePartitionLHGrid final : public IRuntimePartition
+    {
+    public:
+        void CheckSettings( const RuntimePartitionSerialized& desc, std::size_t index,
+                            RuntimeGridsCheck& check ) const override
         {
-            check.Issues.push_back( { "WorldPartition.Grids", "at least one runtime grid", "none" } );
-            check.CellsUsable = false;
-        }
-        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
-        {
-            const WorldPartitionGridSerialized& grid  = settings.Grids[gridIndex];
-            const bool                          named = !grid.Name.empty();
-            const bool                          twice =
-                 named && std::any_of( settings.Grids.begin(),
-                                       settings.Grids.begin() + static_cast<std::ptrdiff_t>( gridIndex ),
-                                       [&]( const WorldPartitionGridSerialized& other )
-                                       { return other.Name == grid.Name; } );
+            if ( !desc.LHGrid.has_value() )
+            {
+                check.Issues.push_back( { std::format( "WorldPartition.RuntimePartitions[{}].LHGrid", index ),
+                                          "the LHGrid block of an LHGrid partition", "none" } );
+                check.CellsUsable = false;
+                return;
+            }
+            const RuntimePartitionLHGridSerialized& grid = *desc.LHGrid;
             if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) )
             {
-                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].CellSize", gridIndex ),
-                                          "a positive cell size", std::format( "{}", grid.CellSize ) } );
+                check.Issues.push_back(
+                     { std::format( "WorldPartition.RuntimePartitions[{}].LHGrid.CellSize", index ),
+                       "a positive cell size", std::format( "{}", grid.CellSize ) } );
                 check.CellsUsable = false;
             }
+            // A range of 0 is a grid that never streams anything in; the cells do not read the range, so they
+            // are still made.
+            if ( !( grid.LoadingRange > 0.0f ) || !std::isfinite( grid.LoadingRange ) )
+                check.Issues.push_back(
+                     { std::format( "WorldPartition.RuntimePartitions[{}].LHGrid.LoadingRange", index ),
+                       "a positive loading range", std::format( "{}", grid.LoadingRange ) } );
+        }
+
+        void GenerateStreaming( const RuntimePartitionSerialized& desc, std::size_t index,
+                                std::span<const std::size_t> composites, WorldPartitionPlan& plan ) const override
+        {
+            const float cellSize = desc.LHGrid->CellSize;
+
+            // HOW MANY LEVELS THIS GRID HAS FOR THIS WORLD. Its top level is the first whose cell reaches the
+            // furthest footprint edge from the origin among the composites ON THIS PARTITION, so at the top every
+            // footprint that does not straddle an axis is inside one of the four cells around the origin. Only
+            // composites still to be placed count: the sun at 10 km does not widen any grid. The cap keeps a
+            // corrupt coordinate (1e30) from asking for a level past what an int32 cell index can express at
+            // level 0; a footprint beyond it is NoFit.
+            constexpr int kMaxLevels = 31;
+            double        furthest   = 0.0;
+            double        widest     = 0.0;
+            for ( const std::size_t group : composites )
+            {
+                const CellBounds& box = *plan.Composites[group].Footprint;
+                furthest              = std::max( { furthest, std::fabs( static_cast<double>( box.MinX ) ),
+                                                    std::fabs( static_cast<double>( box.MaxX ) ),
+                                                    std::fabs( static_cast<double>( box.MinZ ) ),
+                                                    std::fabs( static_cast<double>( box.MaxZ ) ) } );
+                const double extent   = FootprintExtent( box );
+                if ( std::isfinite( extent ) )
+                    widest = std::max( widest, extent );
+            }
+            int levels = 1;
+            while ( levels < kMaxLevels && ( LevelCellSize( cellSize, levels - 1 ) < furthest ||
+                                             LevelCellSize( cellSize, levels - 1 ) < widest ) )
+                ++levels;
+            plan.GridLevelCount[index] = levels;
+            plan.LevelCount            = std::max( plan.LevelCount, levels );
+
+            // PLACEMENT (UE FSquare2DGridHelper): the lowest level whose cell is at least as wide as the
+            // footprint's larger side; the cell of the footprint's centre in it. A centre whose cell index an
+            // int32 cannot hold (a corrupt 1e30, a NaN) is not converted - that conversion is undefined
+            // behaviour - and the composite is NoFit.
+            std::map<std::tuple<int, std::int32_t, std::int32_t>, std::vector<std::size_t>> cells;
+            for ( const std::size_t group : composites )
+            {
+                PlannedComposite& held      = plan.Composites[group];
+                const CellBounds  footprint = *held.Footprint;
+                const double      extent    = FootprintExtent( footprint );
+                const double      centreX =
+                     ( static_cast<double>( footprint.MinX ) + static_cast<double>( footprint.MaxX ) ) * 0.5;
+                const double centreZ =
+                     ( static_cast<double>( footprint.MinZ ) + static_cast<double>( footprint.MaxZ ) ) * 0.5;
+                bool placed = false;
+                for ( int level = 0; std::isfinite( extent ) && level < levels; ++level )
+                {
+                    const double size = LevelCellSize( cellSize, level );
+                    if ( size < extent )
+                        continue;
+                    if ( !( std::fabs( centreX / size ) < 2147483647.0 ) ||
+                         !( std::fabs( centreZ / size ) < 2147483647.0 ) )
+                        break;
+                    held.Level = level;
+                    held.Cell  = CellCoord{ static_cast<std::int32_t>( std::floor( centreX / size ) ),
+                                           static_cast<std::int32_t>( std::floor( centreZ / size ) ) };
+                    placed     = true;
+                    break;
+                }
+                if ( !placed )
+                {
+                    held.Reason = AlwaysLoadedReason::NoFit;
+                    continue;
+                }
+                cells[std::make_tuple( held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
+            }
+
+            // THE CELLS, ordered by level, X, Z. Half the widest footprint each level holds is how far past its
+            // square a cell of it may reach (UE's loose cell bounds).
+            std::map<int, double> reach;
+            for ( const auto& [key, held] : cells )
+            {
+                double& margin = reach[std::get<0>( key )];
+                for ( const std::size_t group : held )
+                    margin = std::max( margin, FootprintExtent( *plan.Composites[group].Footprint ) * 0.5 );
+            }
+            for ( auto& [key, held] : cells )
+            {
+                PlannedCell cell;
+                cell.Grid           = index;
+                cell.Level          = std::get<0>( key );
+                cell.Cell.X         = std::get<1>( key );
+                cell.Cell.Z         = std::get<2>( key );
+                cell.Square         = GridSquareOf( cell.Cell, LevelCellSize( cellSize, cell.Level ) );
+                const double margin = reach.at( cell.Level );
+                cell.Bounds = CellBounds{ static_cast<float>( static_cast<double>( cell.Square.MinX ) - margin ),
+                                          static_cast<float>( static_cast<double>( cell.Square.MinZ ) - margin ),
+                                          static_cast<float>( static_cast<double>( cell.Square.MaxX ) + margin ),
+                                          static_cast<float>( static_cast<double>( cell.Square.MaxZ ) + margin ) };
+                // What the cell holds, vertically: the union of its composites' spans (each has one: it has a
+                // footprint).
+                cell.Height = *plan.Composites[held.front()].Height;
+                for ( const std::size_t group : held )
+                    cell.Height = UnionHeight( cell.Height, *plan.Composites[group].Height );
+                cell.Composites = std::move( held );
+                plan.Cells.push_back( std::move( cell ) );
+            }
+        }
+
+        [[nodiscard]] bool CanBeAway() const override
+        {
+            return true;
+        }
+
+        [[nodiscard]] const RuntimePartitionLHGridSerialized*
+        CellGrid( const RuntimePartitionSerialized& desc ) const override
+        {
+            return desc.LHGrid.has_value() ? &*desc.LHGrid : nullptr;
+        }
+    };
+
+    // URuntimePartitionPersistent: everything on it is always loaded, by the world's choice.
+    class RuntimePartitionPersistent final : public IRuntimePartition
+    {
+    public:
+        void CheckSettings( const RuntimePartitionSerialized& desc, std::size_t index,
+                            RuntimeGridsCheck& check ) const override
+        {
+            if ( desc.LHGrid.has_value() )
+                check.Issues.push_back( { std::format( "WorldPartition.RuntimePartitions[{}].LHGrid", index ),
+                                          "no LHGrid block on a Persistent partition (nothing reads it)",
+                                          "an LHGrid block" } );
+        }
+
+        void GenerateStreaming( const RuntimePartitionSerialized& /*desc*/, std::size_t /*index*/,
+                                std::span<const std::size_t> composites, WorldPartitionPlan& plan ) const override
+        {
+            for ( const std::size_t group : composites )
+                plan.Composites[group].Reason = AlwaysLoadedReason::Persistent;
+        }
+
+        [[nodiscard]] bool CanBeAway() const override
+        {
+            return false;
+        }
+
+        [[nodiscard]] const RuntimePartitionLHGridSerialized*
+        CellGrid( const RuntimePartitionSerialized& /*desc*/ ) const override
+        {
+            return nullptr;
+        }
+    };
+
+    // The class of @p type (UE FRuntimePartitionDesc::Class). Every RuntimePartitionType has one; an enumerator
+    // with no case fails the build (-Wswitch), never a silent default.
+    [[nodiscard]] inline const IRuntimePartition& RuntimePartitionClass( RuntimePartitionType type )
+    {
+        static const RuntimePartitionLHGrid     lhGrid;
+        static const RuntimePartitionPersistent persistent;
+        switch ( type )
+        {
+            case RuntimePartitionType::LHGrid:
+                return lhGrid;
+            case RuntimePartitionType::Persistent:
+                return persistent;
+        }
+        return lhGrid; // unreachable: every enumerator returns above (MSVC C4715 asks for a return here)
+    }
+
+    // The grid cells of partition @p partition stream on, or null when @p settings states no such partition or
+    // it makes no cells - the streaming query's, the residency's and the cook's one way to a cell's numbers.
+    [[nodiscard]] inline const RuntimePartitionLHGridSerialized*
+    CellGridOf( const WorldPartitionSerialized& settings, std::size_t partition )
+    {
+        if ( partition >= settings.RuntimePartitions.size() )
+            return nullptr;
+        const RuntimePartitionSerialized& desc = settings.RuntimePartitions[partition];
+        return RuntimePartitionClass( desc.Type ).CellGrid( desc );
+    }
+
+    // THE PARTITIONS A WORLD MAY STATE (WP22, WP-HASH-SET) - the one rule the planner (step 4a) and every editor
+    // edit of the block (EditWorldPartition: the panel's Runtime partitions section, `desertctl set world
+    // WorldPartition...`) read, so the editor refuses exactly what the planner would. At least one partition;
+    // every partition named, once; then each partition's own settings, by its class.
+    [[nodiscard]] inline RuntimeGridsCheck CheckRuntimeGrids( const WorldPartitionSerialized& settings )
+    {
+        RuntimeGridsCheck                              check;
+        const std::vector<RuntimePartitionSerialized>& partitions = settings.RuntimePartitions;
+        if ( partitions.empty() )
+        {
+            check.Issues.push_back(
+                 { "WorldPartition.RuntimePartitions", "at least one runtime partition", "none" } );
+            check.CellsUsable = false;
+        }
+        for ( std::size_t index = 0; index < partitions.size(); ++index )
+        {
+            const RuntimePartitionSerialized& desc  = partitions[index];
+            const bool                        named = !desc.Name.empty();
+            const bool                        twice =
+                 named &&
+                 std::any_of( partitions.begin(), partitions.begin() + static_cast<std::ptrdiff_t>( index ),
+                              [&]( const RuntimePartitionSerialized& other ) { return other.Name == desc.Name; } );
             if ( !named || twice )
             {
-                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].Name", gridIndex ),
-                                          "a name no other grid of the world states", grid.Name } );
+                check.Issues.push_back( { std::format( "WorldPartition.RuntimePartitions[{}].Name", index ),
+                                          "a name no other partition of the world states", desc.Name } );
                 check.CellsUsable = false;
             }
-            if ( !( grid.LoadingRange > 0.0f ) || !std::isfinite( grid.LoadingRange ) )
-                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].LoadingRange", gridIndex ),
-                                          "a positive loading range", std::format( "{}", grid.LoadingRange ) } );
+            RuntimePartitionClass( desc.Type ).CheckSettings( desc, index, check );
         }
         return check;
     }
@@ -1871,15 +2119,16 @@ namespace Desert::Core::Rules
             }
         }
 
-        // ── 4a. The grids (WP22, UE FSpatialHashRuntimeGrid): Rules::CheckRuntimeGrids ──────────────────
-        // A grid with no name, a name two grids state, or a cell size that is not positive makes the grids
-        // unusable AS A WHOLE: which grid a record's name reaches would otherwise be a guess.
+        // ── 4a. The partitions (WP22, WP-HASH-SET; UE FRuntimePartitionDesc): Rules::CheckRuntimeGrids ──────
+        // A partition with no name, a name two partitions state, or settings its class cannot place content with
+        // make the partitions unusable AS A WHOLE: which partition a record's name reaches would otherwise be a
+        // guess.
         RuntimeGridsCheck gridCheck = CheckRuntimeGrids( settings );
         plan.Issues.insert( plan.Issues.end(), std::make_move_iterator( gridCheck.Issues.begin() ),
                             std::make_move_iterator( gridCheck.Issues.end() ) );
-        const bool gridsUsable = gridCheck.CellsUsable;
-        plan.GridLevelCount.assign( settings.Grids.size(), 0 );
-        if ( !gridsUsable )
+        const std::vector<RuntimePartitionSerialized>& partitions = settings.RuntimePartitions;
+        plan.GridLevelCount.assign( partitions.size(), 0 );
+        if ( !gridCheck.CellsUsable )
         {
             for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
             {
@@ -1890,9 +2139,9 @@ namespace Desert::Core::Rules
             return plan;
         }
 
-        // ── 4b. The grid each composite streams on: its anchor's RuntimeGrid (UE AActor::RuntimeGrid) ───
-        // Absent = the first grid. A name the world does not state is NOT read as the first grid (UE does
-        // that silently): it is an Issue with the record's path, and the composite has no grid - NoGrid.
+        // ── 4b. The partition each composite streams on: its anchor's RuntimeGrid (UE AActor::RuntimeGrid) ──
+        // Absent = the first partition. A name the world does not state is NOT read as the first partition (UE
+        // does that silently): it is an Issue with the record's path, and the composite has no partition - NoGrid.
         for ( PlannedComposite& held : plan.Composites )
         {
             const std::optional<std::string>& wanted = records[held.Anchor].RuntimeGrid;
@@ -1902,7 +2151,8 @@ namespace Desert::Core::Rules
             if ( !found.has_value() )
             {
                 plan.Issues.push_back( { std::format( "Entities[{}].{}.Grid", held.Anchor, kRuntimeGridComponent ),
-                                         "grid", *wanted, Common::Json::IssueKind::MissingReference } );
+                                         "runtime partition", *wanted,
+                                         Common::Json::IssueKind::MissingReference } );
                 if ( held.Reason == AlwaysLoadedReason::None )
                     held.Reason = AlwaysLoadedReason::NoGrid;
                 continue;
@@ -1911,145 +2161,48 @@ namespace Desert::Core::Rules
         }
 
         // A Streaming Source's Target Grids name the world does not state streams nothing (Rules::TargetsGrid):
-        // an Issue with the record's path, as a RuntimeGrid name is - never matched to a grid by a guess.
+        // an Issue with the record's path, as a RuntimeGrid name is - never matched to a partition by a guess.
         for ( std::size_t record = 0; record < records.size(); ++record )
             for ( const std::string& name : records[record].TargetGrids )
-                if ( std::none_of( settings.Grids.begin(), settings.Grids.end(),
-                                   [&]( const WorldPartitionGridSerialized& grid )
-                                   { return grid.Name == name; } ) )
+                if ( std::none_of( partitions.begin(), partitions.end(),
+                                   [&]( const RuntimePartitionSerialized& partition )
+                                   { return partition.Name == name; } ) )
                     plan.Issues.push_back(
-                         { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ), "grid",
-                           name, Common::Json::IssueKind::MissingReference } );
+                         { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ),
+                           "runtime partition", name, Common::Json::IssueKind::MissingReference } );
 
-        // ── 4c. How many levels each grid has for this world ──────────────────────────────────────
-        //
-        // A grid's top level is the first whose cell reaches the furthest footprint edge from the origin
-        // among the composites ON THAT GRID, so at the top every footprint that does not straddle an axis
-        // is inside one of the four cells around the origin. Only composites still to be placed count: the
-        // sun at 10 km does not widen any grid. The cap keeps a corrupt coordinate (1e30) from asking for a
-        // level past what an int32 cell index can express at level 0; a footprint beyond it is NoFit.
-        constexpr int       kMaxLevels = 31;
-        // A footprint's larger side: what its level is chosen by. Not finite = no level can hold it.
-        const auto extentOf = []( const CellBounds& box )
-        {
-            return std::max( static_cast<double>( box.MaxX ) - static_cast<double>( box.MinX ),
-                             static_cast<double>( box.MaxZ ) - static_cast<double>( box.MinZ ) );
-        };
-        std::vector<double> furthest( settings.Grids.size(), 0.0 );
-        std::vector<double> widest( settings.Grids.size(), 0.0 );
-        for ( const PlannedComposite& group : plan.Composites )
-        {
-            if ( group.Reason != AlwaysLoadedReason::None || !group.Footprint.has_value() )
-                continue;
-            const CellBounds& box  = *group.Footprint;
-            furthest[group.Grid]   = std::max( { furthest[group.Grid], std::fabs( static_cast<double>( box.MinX ) ),
-                                                 std::fabs( static_cast<double>( box.MaxX ) ),
-                                                 std::fabs( static_cast<double>( box.MinZ ) ),
-                                                 std::fabs( static_cast<double>( box.MaxZ ) ) } );
-            const double extent    = extentOf( box );
-            if ( std::isfinite( extent ) )
-                widest[group.Grid] = std::max( widest[group.Grid], extent );
-        }
-        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
-        {
-            const float cellSize = settings.Grids[gridIndex].CellSize;
-            int         levels   = 1;
-            while ( levels < kMaxLevels && ( LevelCellSize( cellSize, levels - 1 ) < furthest[gridIndex] ||
-                                             LevelCellSize( cellSize, levels - 1 ) < widest[gridIndex] ) )
-                ++levels;
-            plan.GridLevelCount[gridIndex] = levels;
-            plan.LevelCount                = std::max( plan.LevelCount, levels );
-        }
-
-        // ── 5. Placement (UE FSquare2DGridHelper): the level by the footprint's size, the cell by its centre ──
+        // ── 5. Each partition places what streams on it, by its class (UE URuntimePartition::GenerateStreaming)
+        // ── In partition order, so the cells come out ordered by partition, then (each class's own order) level,
+        // X, Z - the plan does not depend on a hash map's iteration order. Refused prefab instances alone
+        // (UnplacedPrefabInstances) have no footprint: no place, so no cell and not always loaded - the origin's
+        // cell would be indistinguishable from a right answer, and the loader refuses them anyway.
+        std::vector<std::vector<std::size_t>> onPartition( partitions.size() );
         for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
         {
-            PlannedComposite& held = plan.Composites[group];
+            const PlannedComposite& held = plan.Composites[group];
+            if ( held.Reason == AlwaysLoadedReason::None && held.Footprint.has_value() )
+                onPartition[held.Grid].push_back( group );
+        }
+        for ( std::size_t index = 0; index < partitions.size(); ++index )
+            RuntimePartitionClass( partitions[index].Type )
+                 .GenerateStreaming( partitions[index], index, onPartition[index], plan );
+
+        // ── 6. The always-loaded set, in file order of the anchors, and the highest promotion ─────────────
+        for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
+        {
+            const PlannedComposite& held = plan.Composites[group];
             if ( held.Reason != AlwaysLoadedReason::None )
             {
                 plan.AlwaysLoaded.push_back( group );
                 continue;
             }
-
-            // Refused prefab instances alone (UnplacedPrefabInstances): no place, so NO cell. The origin's
-            // cell would be indistinguishable from a right answer, and the loader refuses them anyway.
             if ( !held.Footprint.has_value() )
                 continue;
-            const CellBounds footprint = *held.Footprint;
-            const float      cellSize  = settings.Grids[held.Grid].CellSize;
-
-            // The lowest level whose cell is at least as wide as the footprint's larger side; the cell of the
-            // footprint's centre in it. A centre whose cell index an int32 cannot hold (a corrupt 1e30, a
-            // NaN) is not converted - that conversion is undefined behaviour - and the composite is NoFit.
-            const double extent = extentOf( footprint );
-            const double centreX =
-                 ( static_cast<double>( footprint.MinX ) + static_cast<double>( footprint.MaxX ) ) * 0.5;
-            const double centreZ =
-                 ( static_cast<double>( footprint.MinZ ) + static_cast<double>( footprint.MaxZ ) ) * 0.5;
-            bool placed = false;
-            for ( int level = 0; std::isfinite( extent ) && level < plan.GridLevelCount[held.Grid]; ++level )
-            {
-                const double size = LevelCellSize( cellSize, level );
-                if ( size < extent )
-                    continue;
-                if ( !( std::fabs( centreX / size ) < 2147483647.0 ) ||
-                     !( std::fabs( centreZ / size ) < 2147483647.0 ) )
-                    break;
-                held.Level = level;
-                held.Cell  = CellCoord{ static_cast<std::int32_t>( std::floor( centreX / size ) ),
-                                       static_cast<std::int32_t>( std::floor( centreZ / size ) ) };
-                placed     = true;
-                break;
-            }
-            if ( !placed )
-            {
-                held.Reason = AlwaysLoadedReason::NoFit;
-                plan.AlwaysLoaded.push_back( group );
-                continue;
-            }
-
             if ( plan.MaxLevelComposite == kNoRecord || held.Level > plan.MaxLevel )
             {
                 plan.MaxLevel          = held.Level;
                 plan.MaxLevelComposite = group;
             }
-        }
-
-        // ── 6. The cells, ordered by grid, level, X, Z ────────────────────────────────────────────
-        std::map<std::tuple<std::size_t, int, std::int32_t, std::int32_t>, std::vector<std::size_t>> cells;
-        for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
-        {
-            const PlannedComposite& held = plan.Composites[group];
-            if ( held.Reason == AlwaysLoadedReason::None && held.Footprint.has_value() )
-                cells[std::make_tuple( held.Grid, held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
-        }
-        // Half the widest footprint each (grid, level) holds: how far past its square a cell of it may reach.
-        std::map<std::pair<std::size_t, int>, double> reach;
-        for ( const auto& [key, composites] : cells )
-        {
-            double& margin = reach[std::make_pair( std::get<0>( key ), std::get<1>( key ) )];
-            for ( const std::size_t group : composites )
-                margin = std::max( margin, extentOf( *plan.Composites[group].Footprint ) * 0.5 );
-        }
-        for ( auto& [key, composites] : cells )
-        {
-            PlannedCell cell;
-            cell.Grid       = std::get<0>( key );
-            cell.Level      = std::get<1>( key );
-            cell.Cell.X     = std::get<2>( key );
-            cell.Cell.Z     = std::get<3>( key );
-            cell.Square     = GridSquareOf( cell.Cell, LevelCellSize( settings.Grids[cell.Grid].CellSize, cell.Level ) );
-            const double margin = reach.at( std::make_pair( cell.Grid, cell.Level ) );
-            cell.Bounds     = CellBounds{ static_cast<float>( static_cast<double>( cell.Square.MinX ) - margin ),
-                                      static_cast<float>( static_cast<double>( cell.Square.MinZ ) - margin ),
-                                      static_cast<float>( static_cast<double>( cell.Square.MaxX ) + margin ),
-                                      static_cast<float>( static_cast<double>( cell.Square.MaxZ ) + margin ) };
-            // What the cell holds, vertically: the union of its composites' spans (each has one: it has a footprint).
-            cell.Height = *plan.Composites[composites.front()].Height;
-            for ( const std::size_t group : composites )
-                cell.Height = UnionHeight( cell.Height, *plan.Composites[group].Height );
-            cell.Composites = std::move( composites );
-            plan.Cells.push_back( std::move( cell ) );
         }
 
         return plan;
@@ -2076,7 +2229,7 @@ namespace Desert::Core::Rules
     // How many always-loaded composites each reason accounts for, indexed by AlwaysLoadedReason.
     [[nodiscard]] inline std::vector<std::size_t> AlwaysLoadedByReason( const WorldPartitionPlan& plan )
     {
-        std::vector<std::size_t> byReason( static_cast<std::size_t>( AlwaysLoadedReason::NoGrid ) + 1, 0 );
+        std::vector<std::size_t> byReason( static_cast<std::size_t>( AlwaysLoadedReason::Persistent ) + 1, 0 );
         for ( const std::size_t group : plan.AlwaysLoaded )
             ++byReason[static_cast<std::size_t>( plan.Composites[group].Reason )];
         return byReason;
@@ -2098,17 +2251,24 @@ namespace Desert::Core::Rules
                  ( level == 0 ? "L" : ", L" ) + std::to_string( level ) + ": " + std::to_string( perLevel[level] );
 
         const auto byReason = AlwaysLoadedByReason( plan );
-        line += "], " + std::to_string( plan.AlwaysLoaded.size() ) + " always-loaded (author " +
-                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Author )] ) +
-                ", component " +
-                std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Component )] ) +
-                ", no fit " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoFit )] ) +
-                ", no grid " + std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoGrid )] ) +
-                "); highest promotion: level " + std::to_string( plan.MaxLevel ) + "; " +
-                std::to_string( plan.PointOnlyRecords ) + " record(s) placed by position alone";
-        for ( const WorldPartitionGridSerialized& grid : settings.Grids )
-            std::format_to( std::back_inserter( line ), "; grid '{}': cell {}, loading range {} world units",
-                            grid.Name, units( grid.CellSize ), units( grid.LoadingRange ) );
+        line +=
+             "], " + std::to_string( plan.AlwaysLoaded.size() ) + " always-loaded (author " +
+             std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Author )] ) + ", component " +
+             std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Component )] ) + ", no fit " +
+             std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoFit )] ) + ", no grid " +
+             std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::NoGrid )] ) + ", persistent " +
+             std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Persistent )] ) +
+             "); highest promotion: level " + std::to_string( plan.MaxLevel ) + "; " +
+             std::to_string( plan.PointOnlyRecords ) + " record(s) placed by position alone";
+        for ( const RuntimePartitionSerialized& partition : settings.RuntimePartitions )
+        {
+            if ( partition.LHGrid.has_value() )
+                std::format_to( std::back_inserter( line ),
+                                "; partition '{}' (LHGrid): cell {}, loading range {} world units", partition.Name,
+                                units( partition.LHGrid->CellSize ), units( partition.LHGrid->LoadingRange ) );
+            else
+                std::format_to( std::back_inserter( line ), "; partition '{}' (Persistent)", partition.Name );
+        }
         return line;
     }
 

@@ -355,9 +355,31 @@ namespace Desert::Core::Rules
         return nullptr;
     }
 
-    // Refused, by name: a layer without a name or named twice, a ParentLayer that names no layer or itself or
-    // closes a loop, a SimplifyTrianglePercent missing on MeshSimplify, outside (0, 1], or stated on another
-    // type, and a grid whose HLODLayer names no layer.
+    // THE LAYER THE HLODs OF @p layer ARE GATHERED INTO (UE HLOD1 of HLOD0): the layer of the setup after the one
+    // that names @p layer, in any partition (RuntimePartitionHLODSetupSerialized: the order is the chain), or null
+    // when @p layer is the last setup wherever it is named. ValidateHLODLayers refuses a layer two partitions
+    // follow with different layers, so the answer does not depend on which partition is read first.
+    [[nodiscard]] inline const HLODLayerSerialized* NextHLODLayer( const WorldPartitionSerialized& partition,
+                                                                   std::string_view                layer )
+    {
+        for ( const RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
+        {
+            if ( !runtime.HLODSetups.has_value() )
+                continue;
+            const std::vector<RuntimePartitionHLODSetupSerialized>& setups = *runtime.HLODSetups;
+            for ( std::size_t k = 0; k + 1 < setups.size(); ++k )
+                if ( setups[k].HLODLayer == layer )
+                    return FindHLODLayer( partition, setups[k + 1].HLODLayer );
+        }
+        return nullptr;
+    }
+
+    // Refused, by name: a layer without a name or named twice, a SimplifyTrianglePercent missing on MeshSimplify,
+    // outside (0, 1], or stated on another type, a CellSize without a LoadingRange; and per partition's HLOD
+    // setups (UE FRuntimePartitionDesc::HLODSetups): setups on a partition whose content is never away, a setup
+    // without a name or named twice, a layer that is no layer of the world or named twice in one partition, a
+    // chain with a hole (a spatially loaded last setup, an always-loaded setup before another), ranges that do not
+    // grow along the chain, and one layer followed by different layers in two partitions.
     [[nodiscard]] inline Common::BoolResultStr ValidateHLODLayers( const WorldPartitionSerialized& partition )
     {
         const std::vector<HLODLayerSerialized>  none;
@@ -385,86 +407,143 @@ namespace Desert::Core::Rules
                 return Common::MakeError<bool>(
                      std::format( "HLOD layer '{}': SimplifyTrianglePercent {:f} is outside (0, 1]", layer.Name,
                                   *layer.SimplifyTrianglePercent ) );
-            // Walk the parent chain: every link must resolve, and it must end within the list's length.
-            const HLODLayerSerialized* at = &layer;
-            for ( std::size_t steps = 0; at->ParentLayer.has_value(); ++steps )
-            {
-                const HLODLayerSerialized* parent = FindHLODLayer( partition, *at->ParentLayer );
-                if ( parent == nullptr )
-                    return Common::MakeError<bool>( "HLOD layer '" + at->Name + "' names ParentLayer '" +
-                                                    *at->ParentLayer + "', which is no layer of this world" );
-                if ( steps >= layers.size() || parent == &layer )
-                    return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                    "': its ParentLayer chain loops back on itself" );
-                at = parent;
-            }
             // SPATIAL LOADING (WP-FAR-8): both numbers or neither; positive and finite.
             if ( layer.CellSize.has_value() != layer.LoadingRange.has_value() )
                 return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
                                                 "' states one of CellSize and LoadingRange; a spatially loaded "
                                                 "layer states both, an always-loaded one neither" );
-            const bool spatial = layer.CellSize.has_value();
-            if ( spatial && !( std::isfinite( *layer.CellSize ) && *layer.CellSize > 0.0f &&
-                               std::isfinite( *layer.LoadingRange ) && *layer.LoadingRange > 0.0f ) )
+            if ( layer.CellSize.has_value() &&
+                 !( std::isfinite( *layer.CellSize ) && *layer.CellSize > 0.0f &&
+                    std::isfinite( *layer.LoadingRange ) && *layer.LoadingRange > 0.0f ) )
                 return Common::MakeError<bool>( std::format(
                      "HLOD layer '{}': CellSize {:f} and LoadingRange {:f} must both be positive and finite",
                      layer.Name, *layer.CellSize, *layer.LoadingRange ) );
-            // NO HOLE AT ANY DISTANCE: beyond a spatially loaded layer's range only its parent stands in, so the
-            // chain must go on; and an always-loaded layer's own cells never leave, so a parent of it is never
-            // drawn - a setting nobody sees.
-            if ( spatial && !layer.ParentLayer.has_value() )
-                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                "' is spatially loaded and names no ParentLayer: beyond its "
-                                                "LoadingRange nothing would stand in for its cells" );
-            if ( !spatial && layer.ParentLayer.has_value() )
-                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                "' is always loaded and names "
-                                                "ParentLayer '" +
-                                                *layer.ParentLayer +
-                                                "', whose HLODs would never be drawn; state its CellSize and "
-                                                "LoadingRange or drop the parent" );
-            // A parent must reach further than its child, or the band where the child's cell has left and the
-            // parent's has not arrived is a hole.
-            if ( spatial )
-            {
-                const HLODLayerSerialized* parent = FindHLODLayer( partition, *layer.ParentLayer );
-                if ( parent->LoadingRange.has_value() && !( *parent->LoadingRange > *layer.LoadingRange ) )
-                    return Common::MakeError<bool>( std::format(
-                         "HLOD layer '{}' (LoadingRange {:f}) has ParentLayer '{}' with LoadingRange {:f}; a "
-                         "parent must load further out than its child",
-                         layer.Name, *layer.LoadingRange, parent->Name, *parent->LoadingRange ) );
-            }
         }
-        for ( const WorldPartitionGridSerialized& grid : partition.Grids )
+        for ( const RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
         {
-            if ( grid.HLODLayer.has_value() && FindHLODLayer( partition, *grid.HLODLayer ) == nullptr )
-                return Common::MakeError<bool>( "grid '" + grid.Name + "' names HLODLayer '" + *grid.HLODLayer +
-                                                "', which is no layer of this world's HLODLayers" );
-            const HLODLayerSerialized* layer =
-                 grid.HLODLayer.has_value() ? FindHLODLayer( partition, *grid.HLODLayer ) : nullptr;
-            if ( layer != nullptr && layer->LoadingRange.has_value() &&
-                 !( *layer->LoadingRange > grid.LoadingRange ) )
-                return Common::MakeError<bool>( std::format(
-                     "grid '{}' (LoadingRange {:f}) builds its HLODs with spatially loaded layer '{}' of "
-                     "LoadingRange {:f}; the layer must load further out than the cells it stands in for",
-                     grid.Name, grid.LoadingRange, layer->Name, *layer->LoadingRange ) );
+            if ( !runtime.HLODSetups.has_value() )
+                continue;
+            const std::vector<RuntimePartitionHLODSetupSerialized>& setups = *runtime.HLODSetups;
+            if ( setups.empty() )
+                return Common::MakeError<bool>(
+                     "partition '" + runtime.Name +
+                     "' states HLODSetups and none; a partition without HLODs states no "
+                     "HLODSetups" );
+            if ( !RuntimePartitionClass( runtime.Type ).CanBeAway() )
+                return Common::MakeError<bool>( "partition '" + runtime.Name +
+                                                "' states HLODSetups, but what streams on it is never away, so no "
+                                                "HLOD would ever stand in for it" );
+            const RuntimePartitionLHGridSerialized* grid =
+                 RuntimePartitionClass( runtime.Type ).CellGrid( runtime );
+            for ( std::size_t k = 0; k < setups.size(); ++k )
+            {
+                const RuntimePartitionHLODSetupSerialized& setup = setups[k];
+                if ( setup.Name.empty() )
+                    return Common::MakeError<bool>(
+                         std::format( "partition '{}': HLOD setup {} has no Name", runtime.Name, k ) );
+                for ( std::size_t j = 0; j < k; ++j )
+                {
+                    if ( setups[j].Name == setup.Name )
+                        return Common::MakeError<bool>( std::format(
+                             "partition '{}': HLOD setup '{}' is named twice", runtime.Name, setup.Name ) );
+                    // A layer twice in one chain would stand in for its own HLODs: the chain loops.
+                    if ( setups[j].HLODLayer == setup.HLODLayer )
+                        return Common::MakeError<bool>(
+                             std::format( "partition '{}': HLOD layer '{}' is named by setups '{}' and '{}'; the "
+                                          "chain would loop back on itself",
+                                          runtime.Name, setup.HLODLayer, setups[j].Name, setup.Name ) );
+                }
+                const HLODLayerSerialized* layer = FindHLODLayer( partition, setup.HLODLayer );
+                if ( layer == nullptr )
+                    return Common::MakeError<bool>(
+                         std::format( "partition '{}': HLOD setup '{}' names HLODLayer '{}', which is no layer of "
+                                      "this world's HLODLayers",
+                                      runtime.Name, setup.Name, setup.HLODLayer ) );
+                const bool last    = k + 1 == setups.size();
+                const bool spatial = layer->LoadingRange.has_value();
+                // NO HOLE AT ANY DISTANCE: beyond a spatially loaded layer's range only the next setup stands in,
+                // so the chain must go on; and an always-loaded layer's own HLODs never leave, so a setup after it
+                // is never drawn - a setting nobody sees.
+                if ( spatial && last )
+                    return Common::MakeError<bool>( std::format(
+                         "partition '{}': the last HLOD setup '{}' builds with spatially loaded layer '{}': "
+                         "beyond "
+                         "its LoadingRange nothing would stand in for its cells; add a setup after it",
+                         runtime.Name, setup.Name, layer->Name ) );
+                if ( !spatial && !last )
+                    return Common::MakeError<bool>( std::format(
+                         "partition '{}': HLOD setup '{}' builds with always-loaded layer '{}', so setup '{}' "
+                         "after "
+                         "it would never be drawn; state the layer's CellSize and LoadingRange or drop the later "
+                         "setups",
+                         runtime.Name, setup.Name, layer->Name, setups[k + 1].Name ) );
+                // What stands in must reach further than what it stands in for, or the band where the one has
+                // left and the other has not arrived is a hole: setup 0 beyond the partition's cells, each further
+                // spatially loaded setup beyond the one before.
+                if ( spatial && k == 0 && grid != nullptr && !( *layer->LoadingRange > grid->LoadingRange ) )
+                    return Common::MakeError<bool>( std::format( "partition '{}' (LoadingRange {:f}) builds its "
+                                                                 "first HLOD setup '{}' with spatially loaded "
+                                                                 "layer '{}' of LoadingRange {:f}; the layer must "
+                                                                 "load further out than the cells it stands "
+                                                                 "in for",
+                                                                 runtime.Name, grid->LoadingRange, setup.Name,
+                                                                 layer->Name, *layer->LoadingRange ) );
+                if ( k > 0 )
+                {
+                    const HLODLayerSerialized* before = FindHLODLayer( partition, setups[k - 1].HLODLayer );
+                    if ( spatial && !( *layer->LoadingRange > *before->LoadingRange ) )
+                        return Common::MakeError<bool>( std::format(
+                             "partition '{}': HLOD setup '{}' (layer '{}', LoadingRange {:f}) follows layer '{}' "
+                             "of "
+                             "LoadingRange {:f}; a later setup must load further out than the one before",
+                             runtime.Name, setup.Name, layer->Name, *layer->LoadingRange, before->Name,
+                             *before->LoadingRange ) );
+                }
+                // ONE HIERARCHY OF LAYERS PER WORLD: the HLODs of a layer are gathered into one next layer, so a
+                // layer two partitions follow with different layers would make its parent a guess.
+                const HLODLayerSerialized* next =
+                     last ? nullptr : FindHLODLayer( partition, setups[k + 1].HLODLayer );
+                for ( const RuntimePartitionSerialized& other : partition.RuntimePartitions )
+                {
+                    if ( !other.HLODSetups.has_value() )
+                        continue;
+                    const std::vector<RuntimePartitionHLODSetupSerialized>& theirs = *other.HLODSetups;
+                    for ( std::size_t j = 0; j < theirs.size(); ++j )
+                    {
+                        if ( theirs[j].HLODLayer != setup.HLODLayer )
+                            continue;
+                        const HLODLayerSerialized* theirNext =
+                             j + 1 < theirs.size() ? FindHLODLayer( partition, theirs[j + 1].HLODLayer ) : nullptr;
+                        if ( theirNext != next )
+                            return Common::MakeError<bool>( std::format(
+                                 "HLOD layer '{}' is followed by '{}' in partition '{}' and by '{}' in partition "
+                                 "'{}'; one layer's HLODs are gathered into one next layer",
+                                 setup.HLODLayer, next != nullptr ? next->Name : std::string( "nothing" ),
+                                 runtime.Name, theirNext != nullptr ? theirNext->Name : std::string( "nothing" ),
+                                 other.Name ) );
+                    }
+                }
+            }
         }
         return Common::MakeSuccess( true );
     }
 
-    // The layer a cell's HLOD is built with: its GRID's HLODLayer (UE FRuntimePartitionDesc::HLODSetups), null
-    // when the grid states none (that grid's cells then have no HLOD). Call after ValidateHLODLayers.
-    [[nodiscard]] inline const HLODLayerSerialized* GridHLODLayer( const WorldPartitionSerialized&     partition,
-                                                                   const WorldPartitionGridSerialized& grid )
+    // The layer a cell's FIRST HLOD is built with: its PARTITION's first HLOD setup (UE FRuntimePartitionDesc::
+    // HLODSetups[0]), null when the partition states none (its cells then have no HLOD). The later setups are the
+    // chain above it (NextHLODLayer). Call after ValidateHLODLayers.
+    [[nodiscard]] inline const HLODLayerSerialized* GridHLODLayer( const WorldPartitionSerialized&   partition,
+                                                                   const RuntimePartitionSerialized& runtime )
     {
-        return grid.HLODLayer.has_value() ? FindHLODLayer( partition, *grid.HLODLayer ) : nullptr;
+        if ( !runtime.HLODSetups.has_value() || runtime.HLODSetups->empty() )
+            return nullptr;
+        return FindHLODLayer( partition, runtime.HLODSetups->front().HLODLayer );
     }
 
-    // Whether any grid of the world states an HLOD layer, i.e. whether any cell has an HLOD to build or load.
+    // Whether any partition of the world states an HLOD setup, i.e. whether any cell has an HLOD to build or load.
     [[nodiscard]] inline bool AnyGridHLODLayer( const WorldPartitionSerialized& partition )
     {
-        for ( const WorldPartitionGridSerialized& grid : partition.Grids )
-            if ( GridHLODLayer( partition, grid ) != nullptr )
+        for ( const RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
+            if ( GridHLODLayer( partition, runtime ) != nullptr )
                 return true;
         return false;
     }

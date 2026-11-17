@@ -39,6 +39,8 @@
 #include <format>
 #include <numbers>
 #include <span>
+#include <optional>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Editor
@@ -160,9 +162,9 @@ namespace Desert::Editor
         // and the map is where the next region is chosen. An entity's unsaved move shows after its save.
         if ( m_PlanSource && m_Scene->Packages()->BaselinePath() )
         {
-            if ( m_PlanSource->Grids.empty() )
+            if ( m_PlanSource->RuntimePartitions.empty() )
             {
-                m_EditPlanStatus = "This scene's WorldPartition block states no grid.";
+                m_EditPlanStatus = "This scene's WorldPartition block states no runtime partition.";
                 return;
             }
             auto index = ::Desert::Core::DescriptorIndex::Refresh( *m_Scene->Packages()->BaselinePath() );
@@ -205,9 +207,9 @@ namespace Desert::Editor
             m_EditPlanStatus = "This scene is not partitioned: it states no WorldPartition block.";
             return;
         }
-        if ( scene.WorldPartition->Grids.empty() )
+        if ( scene.WorldPartition->RuntimePartitions.empty() )
         {
-            m_EditPlanStatus = "This scene's WorldPartition block states no grid.";
+            m_EditPlanStatus = "This scene's WorldPartition block states no runtime partition.";
             return;
         }
         m_EditPartition = *scene.WorldPartition;
@@ -331,27 +333,40 @@ namespace Desert::Editor
             DrawDataLayers();
         }
 
-        if ( plan == nullptr || partition->Grids.empty() )
+        // The map shows one partition that streams by cells (UE's runtime hash grid picker); a Persistent
+        // partition has no cell to draw - its content is in the always-loaded count.
+        const auto makesCells = [&]( std::size_t index )
+        { return ::Desert::Core::Rules::CellGridOf( *partition, index ) != nullptr; };
+        std::optional<std::size_t> firstCellPartition;
+        for ( std::size_t g = 0; g < partition->RuntimePartitions.size() && !firstCellPartition; ++g )
+            if ( makesCells( g ) )
+                firstCellPartition = g;
+        if ( plan == nullptr || !firstCellPartition.has_value() )
         {
-            ImGui::TextDisabled( "%s",
-                                 playing ? "The streamed partition states no grid." : m_EditPlanStatus.c_str() );
+            ImGui::TextDisabled( "%s", playing
+                                            ? "The streamed partition states no partition that streams by cells."
+                                       : plan == nullptr ? m_EditPlanStatus.c_str()
+                                                         : "This world states no partition that streams by "
+                                                           "cells: everything in it is always loaded." );
             return;
         }
 
-        // ── the grid shown (UE's runtime hash grid picker): every grid of the partition reachable ──
-        if ( m_Grid >= partition->Grids.size() )
+        // ── the partition shown: every partition of the world that makes cells reachable ──
+        if ( m_Grid >= partition->RuntimePartitions.size() || !makesCells( m_Grid ) )
         {
-            m_Grid         = 0;
+            m_Grid         = *firstCellPartition;
             m_FocusPending = true;
         }
         ImGui::SetNextItemWidth( 140.0f );
-        if ( ImGui::BeginCombo( "Grid", partition->Grids[m_Grid].Name.c_str() ) )
+        if ( ImGui::BeginCombo( "Partition", partition->RuntimePartitions[m_Grid].Name.c_str() ) )
         {
-            for ( std::size_t g = 0; g < partition->Grids.size(); ++g )
+            for ( std::size_t g = 0; g < partition->RuntimePartitions.size(); ++g )
             {
+                if ( !makesCells( g ) )
+                    continue;
                 ImGui::PushID( static_cast<int>( g ) );
                 const bool picked = g == m_Grid;
-                if ( ImGui::Selectable( partition->Grids[g].Name.c_str(), picked ) && !picked )
+                if ( ImGui::Selectable( partition->RuntimePartitions[g].Name.c_str(), picked ) && !picked )
                 {
                     m_Grid         = g;
                     m_FocusPending = true;
@@ -363,8 +378,9 @@ namespace Desert::Editor
             }
             ImGui::EndCombo();
         }
-        const ::Desert::Core::WorldPartitionGridSerialized& shown = partition->Grids[m_Grid];
-        // A plan without per-grid levels (none planned yet) shows the world's level count.
+        const ::Desert::Core::RuntimePartitionLHGridSerialized& shown =
+             *::Desert::Core::Rules::CellGridOf( *partition, m_Grid );
+        // A plan without per-partition levels (none planned yet) shows the world's level count.
         const int gridLevels =
              m_Grid < plan->GridLevelCount.size() ? plan->GridLevelCount[m_Grid] : plan->LevelCount;
         const std::size_t gridCells = static_cast<std::size_t>(
@@ -382,141 +398,244 @@ namespace Desert::Editor
         DrawMap( *plan, *partition, residency, streamer );
     }
 
-    // UE FRuntimePartitionDesc::HLODSetups, shown where UE shows them - beside the runtime grid they belong to:
-    // one row per grid, the layer its cells' HLOD is built with picked from the world's HLODLayers, or "None"
-    // (the grid's far cells draw nothing). Every pick is one history entry holding the whole block before and
-    // after, the same entry the conversion pushes, so an undo is a plain swap of the block.
+    namespace
+    {
+        [[nodiscard]] const char* PartitionTypeName( ::Desert::Core::RuntimePartitionType type )
+        {
+            switch ( type )
+            {
+                case ::Desert::Core::RuntimePartitionType::LHGrid:
+                    return "LHGrid";
+                case ::Desert::Core::RuntimePartitionType::Persistent:
+                    return "Persistent";
+            }
+            return "LHGrid"; // unreachable: every enumerator returns above (MSVC C4715 asks for a return here)
+        }
+    } // namespace
+
+    // UE FRuntimePartitionDesc::HLODSetups, shown where UE shows them - under the runtime partition they belong
+    // to: per partition whose content can be away, its setups in hierarchy order (setup 0 stands in for the
+    // cells, each next one for the setup before - RuntimePartitionHLODSetupSerialized), each a name and a layer
+    // picked from the world's HLODLayers; added at the end, removed from the end (removing from the middle would
+    // re-chain the rest silently). Every edit is ONE history entry through EditWorldPartition, which refuses what
+    // ValidateHLODLayers refuses.
     void WorldPartitionPanel::DrawGridHLODLayers()
     {
-        const ::Desert::Core::WorldPartitionSerialized& current = *m_Scene->GetWorldPartition();
-        if ( current.Grids.empty() || !ImGui::CollapsingHeader( "HLOD per grid" ) )
+        const ::Desert::Core::WorldPartitionSerialized current = *m_Scene->GetWorldPartition();
+        if ( current.RuntimePartitions.empty() || !ImGui::CollapsingHeader( "HLOD setups per partition" ) )
             return;
         static const std::vector<::Desert::Core::HLODLayerSerialized> kNoLayers;
         const std::vector<::Desert::Core::HLODLayerSerialized>& layers = current.HLODLayers.value_or( kNoLayers );
         if ( layers.empty() )
             ImGui::TextDisabled(
-                 "This world states no HLOD layer; a grid can only name one of the world's layers." );
+                 "This world states no HLOD layer; a setup can only name one of the world's layers." );
 
-        for ( std::size_t g = 0; g < current.Grids.size(); ++g )
+        std::optional<::Desert::Core::WorldPartitionSerialized> after;
+        std::string                                             label;
+        for ( std::size_t g = 0; g < current.RuntimePartitions.size(); ++g )
         {
-            const ::Desert::Core::WorldPartitionGridSerialized& grid    = current.Grids[g];
-            const std::string                                   preview = grid.HLODLayer.value_or( "None" );
+            const ::Desert::Core::RuntimePartitionSerialized& runtime = current.RuntimePartitions[g];
             ImGui::PushID( static_cast<int>( g ) );
-            ImGui::SetNextItemWidth( 200.0f );
-            if ( ImGui::BeginCombo( std::format( "{} (cell {:.0f} m)", grid.Name, grid.CellSize / 100.0f ).c_str(),
-                                    preview.c_str() ) )
+            ImGui::TextUnformatted(
+                 std::format( "{} ({})", runtime.Name, PartitionTypeName( runtime.Type ) ).c_str() );
+            if ( !::Desert::Core::Rules::RuntimePartitionClass( runtime.Type ).CanBeAway() )
             {
-                std::optional<std::optional<std::string>> picked;
-                if ( ImGui::Selectable( "None", !grid.HLODLayer.has_value() ) && grid.HLODLayer.has_value() )
-                    picked = std::optional<std::string>();
-                for ( const ::Desert::Core::HLODLayerSerialized& layer : layers )
-                    if ( ImGui::Selectable( layer.Name.c_str(), grid.HLODLayer == layer.Name ) &&
-                         grid.HLODLayer != layer.Name )
-                        picked = std::optional<std::string>( layer.Name );
-                ImGui::EndCombo();
-                if ( picked )
+                ImGui::SameLine();
+                ImGui::TextDisabled( "always loaded: no HLOD stands in for it" );
+                ImGui::PopID();
+                continue;
+            }
+            static const std::vector<::Desert::Core::RuntimePartitionHLODSetupSerialized> kNoSetups;
+            const std::vector<::Desert::Core::RuntimePartitionHLODSetupSerialized>&       setups =
+                 runtime.HLODSetups.has_value() ? *runtime.HLODSetups : kNoSetups;
+            if ( setups.empty() )
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled( "no HLOD: its far cells draw nothing" );
+            }
+            ImGui::Indent();
+            for ( std::size_t k = 0; k < setups.size(); ++k )
+            {
+                const ::Desert::Core::RuntimePartitionHLODSetupSerialized& setup = setups[k];
+                ImGui::PushID( static_cast<int>( k ) );
+                ImGui::SetNextItemWidth( 200.0f );
+                if ( ImGui::BeginCombo( std::format( "HLOD{} '{}'", k, setup.Name ).c_str(),
+                                        setup.HLODLayer.c_str() ) )
                 {
-                    ::Desert::Core::WorldPartitionSerialized after                 = current;
-                    after.Grids[g].HLODLayer                                       = *picked;
-                    std::optional<::Desert::Core::WorldPartitionSerialized> before = current;
-                    const std::string label = std::format( "Set HLOD layer of grid {}", grid.Name );
-                    m_Scene->SetWorldPartition( after );
-                    CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
-                         label, m_Scene, std::move( before ), std::move( after ) ) );
-                    ImGui::PopID();
-                    return; // `current` and `grid` referred to the block just replaced
+                    for ( const ::Desert::Core::HLODLayerSerialized& layer : layers )
+                        if ( ImGui::Selectable( layer.Name.c_str(), setup.HLODLayer == layer.Name ) &&
+                             setup.HLODLayer != layer.Name )
+                        {
+                            after                                                    = current;
+                            ( *after->RuntimePartitions[g].HLODSetups )[k].HLODLayer = layer.Name;
+                            label = std::format( "Set HLOD setup {} of partition {} to layer {}", setup.Name,
+                                                 runtime.Name, layer.Name );
+                        }
+                    ImGui::EndCombo();
+                }
+                ImGui::PopID();
+            }
+            if ( !layers.empty() && ImGui::SmallButton( "Add HLOD setup" ) )
+            {
+                after = current;
+                std::optional<std::vector<::Desert::Core::RuntimePartitionHLODSetupSerialized>>& edited =
+                     after->RuntimePartitions[g].HLODSetups;
+                if ( !edited.has_value() )
+                    edited.emplace();
+                ::Desert::Core::RuntimePartitionHLODSetupSerialized setup;
+                std::size_t                                         n     = edited->size();
+                const auto                                          taken = [&]( const std::string& name )
+                {
+                    return std::any_of( edited->begin(), edited->end(),
+                                        [&]( const ::Desert::Core::RuntimePartitionHLODSetupSerialized& other )
+                                        { return other.Name == name; } );
+                };
+                do
+                    setup.Name = std::format( "HLOD{}", n++ );
+                while ( taken( setup.Name ) );
+                setup.HLODLayer = layers.front().Name;
+                label           = std::format( "Add HLOD setup {} to partition {}", setup.Name, runtime.Name );
+                edited->push_back( std::move( setup ) );
+            }
+            if ( !setups.empty() )
+            {
+                ImGui::SameLine();
+                if ( ImGui::SmallButton( "Remove last setup" ) )
+                {
+                    after = current;
+                    std::optional<std::vector<::Desert::Core::RuntimePartitionHLODSetupSerialized>>& edited =
+                         after->RuntimePartitions[g].HLODSetups;
+                    label =
+                         std::format( "Remove HLOD setup {} of partition {}", edited->back().Name, runtime.Name );
+                    edited->pop_back();
+                    if ( edited->empty() )
+                        edited.reset(); // none is stated as no key, never as an empty list
                 }
             }
+            ImGui::Unindent();
             ImGui::PopID();
+        }
+        if ( after )
+        {
+            const auto edited = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
+            m_GridEditStatus  = edited ? std::string() : edited.GetError();
         }
     }
 
-    // UE World Settings -> Runtime Partitions -> Grids (FSpatialHashRuntimeGrid): the world's grids as a table,
-    // added, removed and edited here. Every commit (Enter in a cell, a button) is ONE history entry through
-    // EditWorldPartition, which refuses what the planner would refuse. Sizes are world units (centimetres).
+    // UE World Settings -> Runtime Hash Set -> Runtime Partitions (FRuntimePartitionDesc): the world's partitions
+    // as a table - name, type, and the LHGrid's own settings where the type has them - added, removed and edited
+    // here. Every commit (Enter in a cell, a button) is ONE history entry through EditWorldPartition, which
+    // refuses what the planner would refuse. Sizes are world units (centimetres).
     void WorldPartitionPanel::DrawRuntimeGrids()
     {
-        if ( !ImGui::CollapsingHeader( "Runtime grids" ) )
+        if ( !ImGui::CollapsingHeader( "Runtime partitions" ) )
             return;
         const ::Desert::Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
         std::optional<::Desert::Core::WorldPartitionSerialized> after;
         std::string                                             label;
-        if ( ImGui::BeginTable( "##runtimegrids", 5,
+        if ( ImGui::BeginTable( "##runtimepartitions", 6,
                                 ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
         {
             ImGui::TableSetupColumn( "Name" );
+            ImGui::TableSetupColumn( "Type" );
             ImGui::TableSetupColumn( "Cell size (cm)" );
             ImGui::TableSetupColumn( "Loading range (cm)" );
             ImGui::TableSetupColumn( "Priority" );
             ImGui::TableSetupColumn( "" );
             ImGui::TableHeadersRow();
             constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
-            for ( std::size_t g = 0; g < current.Grids.size(); ++g )
+            for ( std::size_t g = 0; g < current.RuntimePartitions.size(); ++g )
             {
-                const ::Desert::Core::WorldPartitionGridSerialized& grid = current.Grids[g];
+                const ::Desert::Core::RuntimePartitionSerialized& runtime = current.RuntimePartitions[g];
                 ImGui::PushID( static_cast<int>( g ) );
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
                 char name[128];
-                std::snprintf( name, sizeof( name ), "%s", grid.Name.c_str() );
+                std::snprintf( name, sizeof( name ), "%s", runtime.Name.c_str() );
                 ImGui::SetNextItemWidth( -FLT_MIN );
-                if ( ImGui::InputText( "##name", name, sizeof( name ), kCommit ) && grid.Name != name )
+                if ( ImGui::InputText( "##name", name, sizeof( name ), kCommit ) && runtime.Name != name )
                 {
-                    after                = current;
-                    after->Grids[g].Name = name;
-                    label                = std::format( "Rename grid {} to {}", grid.Name, name );
+                    after                            = current;
+                    after->RuntimePartitions[g].Name = name;
+                    label = std::format( "Rename partition {} to {}", runtime.Name, name );
                 }
                 ImGui::TableNextColumn();
-                float cell = grid.CellSize;
-                ImGui::SetNextItemWidth( -FLT_MIN );
-                if ( ImGui::InputFloat( "##cell", &cell, 0.0f, 0.0f, "%.0f", kCommit ) && cell != grid.CellSize )
+                ImGui::TextUnformatted( PartitionTypeName( runtime.Type ) );
+                if ( runtime.LHGrid.has_value() )
                 {
-                    after                    = current;
-                    after->Grids[g].CellSize = cell;
-                    label                    = std::format( "Set cell size of grid {}", grid.Name );
+                    const ::Desert::Core::RuntimePartitionLHGridSerialized& grid = *runtime.LHGrid;
+                    ImGui::TableNextColumn();
+                    float cell = grid.CellSize;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##cell", &cell, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                         cell != grid.CellSize )
+                    {
+                        after                                        = current;
+                        after->RuntimePartitions[g].LHGrid->CellSize = cell;
+                        label = std::format( "Set cell size of partition {}", runtime.Name );
+                    }
+                    ImGui::TableNextColumn();
+                    float range = grid.LoadingRange;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##range", &range, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                         range != grid.LoadingRange )
+                    {
+                        after                                            = current;
+                        after->RuntimePartitions[g].LHGrid->LoadingRange = range;
+                        label = std::format( "Set loading range of partition {}", runtime.Name );
+                    }
+                    ImGui::TableNextColumn();
+                    int priority = grid.Priority;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputInt( "##priority", &priority, 0, 0, kCommit ) && priority != grid.Priority )
+                    {
+                        after                                        = current;
+                        after->RuntimePartitions[g].LHGrid->Priority = priority;
+                        label = std::format( "Set priority of partition {}", runtime.Name );
+                    }
                 }
-                ImGui::TableNextColumn();
-                float range = grid.LoadingRange;
-                ImGui::SetNextItemWidth( -FLT_MIN );
-                if ( ImGui::InputFloat( "##range", &range, 0.0f, 0.0f, "%.0f", kCommit ) &&
-                     range != grid.LoadingRange )
+                else
                 {
-                    after                        = current;
-                    after->Grids[g].LoadingRange = range;
-                    label                        = std::format( "Set loading range of grid {}", grid.Name );
-                }
-                ImGui::TableNextColumn();
-                int priority = grid.Priority;
-                ImGui::SetNextItemWidth( -FLT_MIN );
-                if ( ImGui::InputInt( "##priority", &priority, 0, 0, kCommit ) && priority != grid.Priority )
-                {
-                    after                    = current;
-                    after->Grids[g].Priority = priority;
-                    label                    = std::format( "Set priority of grid {}", grid.Name );
+                    // A type without a grid states none of the three (RuntimePartitionSerialized::LHGrid).
+                    for ( int column = 0; column < 3; ++column )
+                    {
+                        ImGui::TableNextColumn();
+                        ImGui::TextDisabled( "-" );
+                    }
                 }
                 ImGui::TableNextColumn();
                 if ( ImGui::SmallButton( "Remove" ) )
                 {
                     after = current;
-                    after->Grids.erase( after->Grids.begin() + static_cast<std::ptrdiff_t>( g ) );
-                    label = std::format( "Remove grid {}", grid.Name );
+                    after->RuntimePartitions.erase( after->RuntimePartitions.begin() +
+                                                    static_cast<std::ptrdiff_t>( g ) );
+                    label = std::format( "Remove partition {}", runtime.Name );
                 }
                 ImGui::PopID();
             }
             ImGui::EndTable();
         }
-        if ( ImGui::Button( "Add grid" ) )
+        // UE's new partition: a name no partition states; an LHGrid gets the main grid's defaults (128 m cell,
+        // 256 m range), a Persistent one nothing to set.
+        const auto addPartition = [&]( ::Desert::Core::RuntimePartitionType type, std::string_view stem )
         {
             after = current;
-            // UE's new grid: the main grid's defaults (128 m cell, 256 m range), a name no grid states.
-            ::Desert::Core::WorldPartitionGridSerialized grid;
-            std::size_t                                  n = after->Grids.size() + 1;
+            ::Desert::Core::RuntimePartitionSerialized runtime;
+            runtime.Type  = type;
+            std::size_t n = after->RuntimePartitions.size() + 1;
             do
-                grid.Name = std::format( "Grid{}", n++ );
-            while ( ::Desert::Core::Rules::GridIndexOf( *after, grid.Name ).has_value() );
-            label = std::format( "Add grid {}", grid.Name );
-            after->Grids.push_back( std::move( grid ) );
-        }
+                runtime.Name = std::format( "{}{}", stem, n++ );
+            while ( ::Desert::Core::Rules::GridIndexOf( *after, runtime.Name ).has_value() );
+            if ( type == ::Desert::Core::RuntimePartitionType::LHGrid )
+                runtime.LHGrid.emplace();
+            label = std::format( "Add {} partition {}", PartitionTypeName( type ), runtime.Name );
+            after->RuntimePartitions.push_back( std::move( runtime ) );
+        };
+        if ( ImGui::Button( "Add LHGrid partition" ) )
+            addPartition( ::Desert::Core::RuntimePartitionType::LHGrid, "Grid" );
+        ImGui::SameLine();
+        if ( ImGui::Button( "Add Persistent partition" ) )
+            addPartition( ::Desert::Core::RuntimePartitionType::Persistent, "Persistent" );
         if ( after )
         {
             const auto edited = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
@@ -938,9 +1057,11 @@ namespace Desert::Editor
         avail.x             = std::max( avail.x, kMinMapPixels );
         avail.y             = std::max( avail.y, kMinMapPixels );
         const glm::dvec2 size( avail.x, avail.y );
-        // Only the picked grid is drawn (OnUIRender keeps m_Grid inside partition.Grids).
-        const ::Desert::Core::WorldPartitionGridSerialized& grid     = partition.Grids[m_Grid];
-        const float                                         cellSize = grid.CellSize;
+        // Only the picked partition is drawn, and OnUIRender keeps m_Grid on one that makes cells.
+        const ::Desert::Core::RuntimePartitionSerialized& shownPartition = partition.RuntimePartitions[m_Grid];
+        const ::Desert::Core::RuntimePartitionLHGridSerialized& grid =
+             *::Desert::Core::Rules::CellGridOf( partition, m_Grid );
+        const float cellSize = grid.CellSize;
 
         ImGui::InvisibleButton( "##wpmap", avail,
                                 ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
@@ -1100,7 +1221,7 @@ namespace Desert::Editor
             const double loadCm = ::Desert::Core::Rules::SourceRadius( source, grid );
             const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
                                                       : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
-            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, grid ) )
+            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, shownPartition ) )
             {
                 PaintSector( list, m_View, size, origin, sector, 1.0, 1.0, IM_COL32( 255, 255, 255, 200 ), false );
                 PaintSector( list, m_View, size, origin, sector, 1.0 + margin, 1.0 + margin,

@@ -858,10 +858,14 @@ namespace Desert::WorldGen
             // sizing argument is made against (see kPresets): about 29 of 1024 tiles resident.
             if ( partition )
             {
-                Core::WorldPartitionGridSerialized grid;
-                grid.CellSize        = static_cast<float>( partitionCell.value_or( spec.CellSizeCm ) );
-                grid.LoadingRange    = static_cast<float>( loadingRange.value_or( 76800 ) );
-                scene.WorldPartition = Core::WorldPartitionSerialized{ { grid } };
+                Core::RuntimePartitionSerialized main;
+                main.Name = "Main";
+                main.Type = Core::RuntimePartitionType::LHGrid;
+                main.LHGrid.emplace();
+                main.LHGrid->CellSize     = static_cast<float>( partitionCell.value_or( spec.CellSizeCm ) );
+                main.LHGrid->LoadingRange = static_cast<float>( loadingRange.value_or( 76800 ) );
+                scene.WorldPartition.emplace();
+                scene.WorldPartition->RuntimePartitions.push_back( std::move( main ) );
                 Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
                 // An external-entities scene persists no root order (SceneSerializer's SiblingIndexOf, v68):
                 // its roots state no siblingIndex, children keep theirs.
@@ -986,10 +990,11 @@ namespace Desert::WorldGen
                 const auto& who =
                      scene.Entities[held.Because != Core::Rules::kNoRecord ? held.Because : held.Anchor];
                 out << "  always-loaded: '" << who.Tag.value_or( "Entity" ) << "' ("
-                    << ( held.Reason == Core::Rules::AlwaysLoadedReason::Component ? "component"
-                         : held.Reason == Core::Rules::AlwaysLoadedReason::Author  ? "author"
-                         : held.Reason == Core::Rules::AlwaysLoadedReason::NoFit   ? "no fit"
-                                                                                   : "no grid" )
+                    << ( held.Reason == Core::Rules::AlwaysLoadedReason::Component    ? "component"
+                         : held.Reason == Core::Rules::AlwaysLoadedReason::Author     ? "author"
+                         : held.Reason == Core::Rules::AlwaysLoadedReason::NoFit      ? "no fit"
+                         : held.Reason == Core::Rules::AlwaysLoadedReason::Persistent ? "persistent"
+                                                                                      : "no grid" )
                     << ")\n";
             }
             if ( plan.AlwaysLoaded.size() > kNamed )

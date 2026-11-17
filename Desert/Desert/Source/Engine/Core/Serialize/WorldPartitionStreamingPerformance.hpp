@@ -61,8 +61,8 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline bool CellHolds( const PlannedCell& cell, const StreamingSource& source,
                                          const WorldPartitionSerialized& partition )
     {
-        if ( !source.TargetGrids.empty() &&
-             ( cell.Grid >= partition.Grids.size() || !TargetsGrid( source, partition.Grids[cell.Grid] ) ) )
+        if ( !source.TargetGrids.empty() && ( cell.Grid >= partition.RuntimePartitions.size() ||
+                                              !TargetsGrid( source, partition.RuntimePartitions[cell.Grid] ) ) )
             return false;
         const float x = source.Position.x;
         const float z = source.Position.z;
@@ -71,9 +71,9 @@ namespace Desert::Core::Rules
         // WP-SRC-ALTITUDE: under the source's feet only while the source also REACHES the cell. A plane 2 km above
         // a 25 m cell stands in its square, but THE QUERY does not want that cell (its distance is 3D): waiting for
         // it would block forever, and from up there the cell's HLOD stands in for it.
-        if ( cell.Grid >= partition.Grids.size() )
+        if ( cell.Grid >= partition.RuntimePartitions.size() )
             return false;
-        for ( const SourceSector& sector : SourceSectors( source, partition.Grids[cell.Grid] ) )
+        for ( const SourceSector& sector : SourceSectors( source, partition.RuntimePartitions[cell.Grid] ) )
             if ( WithAltitude( DistanceToCellInSector( sector, cell.Bounds ), sector, cell.Height ) <= sector.Radius )
                 return true;
         return false;

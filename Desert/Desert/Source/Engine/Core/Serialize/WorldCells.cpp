@@ -126,6 +126,8 @@ namespace Desert::Core::WorldCells
                     return "NoFit";
                 case Rules::AlwaysLoadedReason::NoGrid:
                     return "NoGrid";
+                case Rules::AlwaysLoadedReason::Persistent:
+                    return "Persistent";
             }
             return "Unknown";
         }
@@ -903,7 +905,8 @@ namespace Desert::Core::WorldCells
         std::optional<Rules::AlwaysLoadedReason> ReasonNamed( std::string_view name )
         {
             for ( const auto reason : { Rules::AlwaysLoadedReason::Author, Rules::AlwaysLoadedReason::Component,
-                                        Rules::AlwaysLoadedReason::NoFit, Rules::AlwaysLoadedReason::NoGrid } )
+                                        Rules::AlwaysLoadedReason::NoFit, Rules::AlwaysLoadedReason::NoGrid,
+                                        Rules::AlwaysLoadedReason::Persistent } )
                 if ( ReasonName( reason ) == name )
                     return reason;
             return std::nullopt;
@@ -995,9 +998,11 @@ namespace Desert::Core::WorldCells
                      !from.Height.has_value() )
                     return Common::MakeError<Result>(
                          name + " is a cell without its grid, level, coordinate, square, bounds or height span" );
-                if ( *from.Grid >= index.WorldPartition.Grids.size() )
-                    return Common::MakeError<Result>( std::format( "{} is a cell of grid {}, but the world states {} grid(s)",
-                                                                   name, *from.Grid, index.WorldPartition.Grids.size() ) );
+                if ( Rules::CellGridOf( index.WorldPartition, *from.Grid ) == nullptr )
+                    return Common::MakeError<Result>( std::format(
+                         "{} is a cell of runtime partition {}, but the world states {} partition(s) and only an "
+                         "LHGrid one makes cells",
+                         name, *from.Grid, index.WorldPartition.RuntimePartitions.size() ) );
                 Rules::PlannedCell cell;
                 cell.Grid   = *from.Grid;
                 cell.Level  = *from.Level;
@@ -1368,9 +1373,10 @@ namespace Desert::Core::WorldCells
             BuiltHLODCell             row;
             row.Unit      = hp.Names[unit];
             row.BuiltFrom = HLODBuildChecksum( records, hp.Members[unit], *scene.WorldPartition );
-            // The layer is the cell's GRID's (WP22c): a grid that states none gives its cells a row with no file.
-            const HLODLayerSerialized* const hlodLayer =
-                 Rules::GridHLODLayer( *scene.WorldPartition, scene.WorldPartition->Grids.at( cell.Grid ) );
+            // The layer is the cell's PARTITION's first HLOD setup (WP22c, WP-HASH-SET): a partition that states
+            // none gives its cells a row with no file.
+            const HLODLayerSerialized* const hlodLayer = Rules::GridHLODLayer(
+                 *scene.WorldPartition, scene.WorldPartition->RuntimePartitions.at( cell.Grid ) );
             if ( hlodLayer != nullptr )
                 if ( auto built = build( row, *hlodLayer, hp.Members[unit],
                                          Rules::HLODMinVisibleDistance( *scene.WorldPartition, hp.Plan, unit ),
@@ -1380,8 +1386,8 @@ namespace Desert::Core::WorldCells
             out.Cells.push_back( std::move( row ) );
         }
         // THE PARENTS (WP-FAR-8, WorldPartitionHLODHierarchy.hpp): per HLOD cell of a spatially loaded layer, the
-        // HLOD of its ParentLayer, built from the records of every world cell beneath it and seen from the child
-        // layer's LoadingRange on. Their rows follow the cells', keyed by the node's name.
+        // HLOD of its next setup's layer, built from the records of every world cell beneath it and seen from the
+        // child layer's LoadingRange on. Their rows follow the cells', keyed by the node's name.
         auto hierarchy = Rules::PlanHLODHierarchy( *scene.WorldPartition, hp.Plan );
         if ( !hierarchy )
             return Common::MakeError<Result>( "'" + scene.SceneName + "': " + hierarchy.GetError() );

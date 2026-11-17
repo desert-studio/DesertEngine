@@ -2060,8 +2060,8 @@ namespace Desert::Editor
             const std::vector<std::string>& targets = en.GetComponent<C>().Data.TargetGrids;
             std::vector<std::string>        grids;
             if ( scene && scene->GetWorldPartition().has_value() )
-                for ( const auto& grid : scene->GetWorldPartition()->Grids )
-                    grids.push_back( grid.Name );
+                for ( const auto& runtime : scene->GetWorldPartition()->RuntimePartitions )
+                    grids.push_back( runtime.Name );
             const auto isGrid = [&grids]( const std::string& name )
             { return std::find( grids.begin(), grids.end(), name ) != grids.end(); };
 

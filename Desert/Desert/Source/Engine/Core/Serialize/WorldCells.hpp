@@ -96,7 +96,7 @@ namespace Desert::Core::WorldCells
     {
         std::string                      Name; // Rules::DescribeResidencyUnit
         std::string                      File;
-        std::optional<std::size_t>       Grid; // index into WorldPartition.Grids (WP22)
+        std::optional<std::size_t>       Grid; // index into WorldPartition.RuntimePartitions (WP22)
         std::optional<int>               Level;
         std::optional<std::int32_t>      X;
         std::optional<std::int32_t>      Z;

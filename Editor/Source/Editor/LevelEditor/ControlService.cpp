@@ -147,19 +147,29 @@ namespace Desert::Editor
             // World Settings > World Partition's one field (WP23): 0 = absent, the world ships in the base archive.
             rows.push_back( { "WorldPartition.ChunkRegionSize", "float",
                               std::format( "{}", partition->ChunkRegionSize.value_or( 0.0f ) ) } );
-            for ( const ::Desert::Core::WorldPartitionGridSerialized& grid : partition->Grids )
+            for ( const ::Desert::Core::RuntimePartitionSerialized& runtime : partition->RuntimePartitions )
             {
-                const std::string at = "WorldPartition.Grids." + grid.Name + ".";
-                rows.push_back( { at + "Name", "string", grid.Name } );
-                rows.push_back( { at + "CellSize", "float", std::format( "{}", grid.CellSize ) } );
-                rows.push_back( { at + "LoadingRange", "float", std::format( "{}", grid.LoadingRange ) } );
-                rows.push_back( { at + "Priority", "int", std::format( "{}", grid.Priority ) } );
-                rows.push_back( { at + "HLODLayer", "string", grid.HLODLayer.value_or( "" ) } );
+                const std::string at = "WorldPartition.RuntimePartitions." + runtime.Name + ".";
+                rows.push_back( { at + "Name", "string", runtime.Name } );
+                rows.push_back(
+                     { at + "Type", "string",
+                       runtime.Type == ::Desert::Core::RuntimePartitionType::LHGrid ? "LHGrid" : "Persistent" } );
+                if ( runtime.LHGrid.has_value() )
+                {
+                    rows.push_back( { at + "CellSize", "float", std::format( "{}", runtime.LHGrid->CellSize ) } );
+                    rows.push_back(
+                         { at + "LoadingRange", "float", std::format( "{}", runtime.LHGrid->LoadingRange ) } );
+                    rows.push_back( { at + "Priority", "int", std::format( "{}", runtime.LHGrid->Priority ) } );
+                }
+                rows.push_back( { at + "HLODSetups", "json",
+                                  runtime.HLODSetups.has_value() ? Common::Json::Write( *runtime.HLODSetups )
+                                                                 : std::string( "[]" ) } );
             }
         }
 
-        // `set world WorldPartition <json>` (the whole block) or `set world WorldPartition.Grids.<Name>.<Field>
-        // <text>`: the block after the edit, committed through the panel's own EditWorldPartition (one undo step).
+        // `set world WorldPartition <json>` (the whole block) or `set world
+        // WorldPartition.RuntimePartitions.<Name>.<Field> <text>`: the block after the edit, committed through the
+        // panel's own EditWorldPartition (one undo step).
         Common::BoolResultStr SetWorldPartitionProperty( const std::shared_ptr<::Desert::Core::Scene>& scene,
                                                          const std::string& property, const std::string& text )
         {
@@ -173,7 +183,7 @@ namespace Desert::Editor
             }
             else
             {
-                constexpr std::string_view kGrids  = "WorldPartition.Grids.";
+                constexpr std::string_view kGrids  = "WorldPartition.RuntimePartitions.";
                 const auto&                current = scene->GetWorldPartition();
                 if ( !current )
                     return Common::MakeError<bool>( std::string(
@@ -207,22 +217,61 @@ namespace Desert::Editor
                 }
                 const std::size_t dot = property.rfind( '.' );
                 if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
-                    return Common::MakeError<bool>( std::format(
-                         "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize, WorldPartition.DataLayers or "
-                         "WorldPartition.Grids.<Name>.<Field>", property ) );
+                    return Common::MakeError<bool>(
+                         std::format( "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize, "
+                                      "WorldPartition.DataLayers or "
+                                      "WorldPartition.RuntimePartitions.<Name>.<Field>",
+                                      property ) );
                 const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );
                 const std::string field = property.substr( dot + 1 );
                 after                   = *current;
                 const auto index = ::Desert::Core::Rules::GridIndexOf( after, std::optional<std::string>( name ) );
                 if ( !index )
-                    return Common::MakeError<bool>( std::format( "the world states no grid '{}'", name ) );
-                ::Desert::Core::WorldPartitionGridSerialized& grid = after.Grids[*index];
+                    return Common::MakeError<bool>(
+                         std::format( "the world states no runtime partition '{}'", name ) );
+                ::Desert::Core::RuntimePartitionSerialized& runtime = after.RuntimePartitions[*index];
+                // The LHGrid's own numbers exist on an LHGrid partition only (RuntimePartitionSerialized::LHGrid).
+                const bool gridField = field == "CellSize" || field == "LoadingRange" || field == "Priority";
+                if ( gridField && !runtime.LHGrid.has_value() )
+                    return Common::MakeError<bool>( std::format(
+                         "partition '{}' is not an LHGrid partition; it has no {}", runtime.Name, field ) );
                 if ( field == "Name" )
-                    grid.Name = text;
-                else if ( field == "HLODLayer" )
-                    grid.HLODLayer = text.empty() ? std::nullopt : std::optional<std::string>( text );
+                    runtime.Name = text;
+                else if ( field == "Type" )
+                {
+                    // A type change carries its settings block with it: an LHGrid gains the main grid's
+                    // defaults, any other type states none - never a block its type does not read.
+                    if ( text == "LHGrid" )
+                    {
+                        runtime.Type = ::Desert::Core::RuntimePartitionType::LHGrid;
+                        if ( !runtime.LHGrid.has_value() )
+                            runtime.LHGrid.emplace();
+                    }
+                    else if ( text == "Persistent" )
+                    {
+                        runtime.Type = ::Desert::Core::RuntimePartitionType::Persistent;
+                        runtime.LHGrid.reset();
+                        runtime.HLODSetups.reset();
+                    }
+                    else
+                        return Common::MakeError<bool>(
+                             std::format( "'{}' is not a partition type; LHGrid or Persistent", text ) );
+                }
+                else if ( field == "HLODSetups" )
+                {
+                    auto parsed =
+                         Common::Json::Read<std::vector<::Desert::Core::RuntimePartitionHLODSetupSerialized>>(
+                              text );
+                    if ( !parsed )
+                        return Common::MakeError<bool>( std::format( "{}: {}", property, parsed.GetError() ) );
+                    if ( parsed.GetValue().empty() )
+                        runtime.HLODSetups.reset(); // none is stated as no key, never as an empty list
+                    else
+                        runtime.HLODSetups = std::move( parsed.GetValue() );
+                }
                 else if ( field == "CellSize" || field == "LoadingRange" )
                 {
+                    ::Desert::Core::RuntimePartitionLHGridSerialized& grid  = *runtime.LHGrid;
                     std::size_t                used  = 0;
                     const std::optional<float> value = Common::FloatFromText( text, &used );
                     if ( !value || used != text.size() )
@@ -240,11 +289,12 @@ namespace Desert::Editor
                     if ( read.ec != std::errc{} || read.ptr != text.data() + text.size() )
                         return Common::MakeError<bool>(
                              std::format( "'{}' is not a value for {}", text, property ) );
-                    grid.Priority = priority;
+                    runtime.LHGrid->Priority = priority;
                 }
                 else
                     return Common::MakeError<bool>( std::format(
-                         "a grid's fields are Name, CellSize, LoadingRange, Priority, HLODLayer; not '{}'",
+                         "a runtime partition's fields are Name, Type, CellSize, LoadingRange, Priority, "
+                         "HLODSetups; not '{}'",
                          field ) );
             }
             return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );

@@ -16,10 +16,12 @@
 // editor, and the editor command below it is only the plumbing that stores the answer.
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <optional>
+#include <vector>
 #include <string>
 #include <utility>
 #include <string_view>
@@ -31,8 +33,8 @@ namespace Desert::Core::Rules
     // UE's Build > Build HLODs: the step that builds every cell's HLOD and saves it beside the world.
     inline constexpr std::string_view kBuildHLODsLabel = "Build HLODs";
 
-    /// The partition an UNPARTITIONED world gets: exactly one grid, at the format's own defaults
-    /// (WorldPartitionGridSerialized — 128 m cells, 256 m loading range, in centimetres).
+    /// The partition an UNPARTITIONED world gets: exactly one LHGrid runtime partition, at the format's own
+    /// defaults (RuntimePartitionLHGridSerialized — 128 m cells, 256 m loading range, in centimetres).
     ///
     /// EXACTLY ONE GRID, and not a copy of the numbers. The defaults live in the struct, which is the
     /// single place that states what a fresh grid is; restating 12800 here would be the second source
@@ -50,17 +52,23 @@ namespace Desert::Core::Rules
         if ( !partition.HLODLayers.has_value() )
             partition.HLODLayers.emplace();
         partition.HLODLayers->push_back( std::move( layer ) );
-        // Every grid the world has builds its cells' HLOD with it (the layer is a grid's choice, UE
-        // FRuntimePartitionDesc::HLODSetups); state the grids first.
-        for ( WorldPartitionGridSerialized& grid : partition.Grids )
-            grid.HLODLayer = std::string( kInstancingHLODLayerName );
+        // Every partition whose content can be away builds its cells' HLOD with it - one HLOD setup (UE
+        // FRuntimePartitionDesc::HLODSetups, the partition's choice); state the partitions first.
+        for ( RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
+            if ( RuntimePartitionClass( runtime.Type ).CanBeAway() )
+                runtime.HLODSetups =
+                     std::vector<RuntimePartitionHLODSetupSerialized>{ RuntimePartitionHLODSetupSerialized{
+                          std::string( kInstancingHLODLayerName ), std::string( kInstancingHLODLayerName ) } };
     }
 
     [[nodiscard]] inline WorldPartitionSerialized DefaultWorldPartition()
     {
         WorldPartitionSerialized partition;
-        // UE's main grid: the one every record that names no RuntimeGrid streams on.
-        partition.Grids.emplace_back().Name = "Main";
+        // UE's main partition: the one every record that names no RuntimeGrid streams on.
+        RuntimePartitionSerialized& main = partition.RuntimePartitions.emplace_back();
+        main.Name                        = "Main";
+        main.Type                        = RuntimePartitionType::LHGrid;
+        main.LHGrid.emplace();
         StateInstancingHLODLayer( partition );
         return partition;
     }
@@ -76,10 +84,9 @@ namespace Desert::Core::Rules
     {
         if ( current.has_value() )
             return Common::MakeFormattedError<WorldPartitionSerialized>(
-                 "'{}' is already partitioned: it states {} grid(s), the first with {:.0f} m cells. "
-                 "Converting again would replace them with the default grid, so nothing was changed.",
-                 sceneName, current->Grids.size(),
-                 current->Grids.empty() ? 0.0 : static_cast<double>( current->Grids.front().CellSize ) / 100.0 );
+                 "'{}' is already partitioned: it states {} runtime partition(s). "
+                 "Converting again would replace them with the default one, so nothing was changed.",
+                 sceneName, current->RuntimePartitions.size() );
 
         return Common::MakeSuccess( DefaultWorldPartition() );
     }
