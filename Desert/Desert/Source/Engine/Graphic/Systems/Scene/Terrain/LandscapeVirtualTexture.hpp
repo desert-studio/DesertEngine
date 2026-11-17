@@ -113,9 +113,6 @@ namespace Desert::Graphic::System
             uint64_t            Generation = 0u;
             uint32_t            Words      = 0u;
         };
-        float    Side = 0.0f;
-        uint64_t Key  = 0u;
-    };
 
     void                                DeclareDisabled( RDG::Builder& graph, FrameTextures& textures );
     void                                ResetLayout( glm::vec2 origin, float extent ) noexcept;
