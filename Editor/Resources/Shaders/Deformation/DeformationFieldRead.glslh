@@ -1,0 +1,64 @@
+// THE VIEW'S DEFORMATION FIELD AS A SURFACE READS IT (DEFORM-GRASS; Notion Вики DEFORM-ARCH). The two-level
+// toroidal clipmap of what the world's contacts did to the ground around the view
+// (Graphic/Deformation/DeformationFieldRenderer.hpp): level 0 of 2 cm texels, level 1 of 8 cm, a texel holding world
+// cell c at c mod N. Height = (sink cm, rim cm, compaction, flatten), Detail = (flatten direction X, Z 0.5-biased,
+// wetness, touched). DeformationFieldParams places each level's window this frame (FrameGraphRefs.hpp
+// DeformationFieldReads, bound by the mesh draw list); a view with no field binds System.Black and zero levels, so
+// every read below answers "untouched". Declared only into the cells that call DeformationFieldTrampleAt (an unread
+// shared sampler is refused by the build): the grass blade vertex stage and the visibility resolve's blade path.
+#ifndef DEFORMATION_FIELD_READ_GLSLH
+#define DEFORMATION_FIELD_READ_GLSLH
+
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+
+layout( binding = kDeformHeight0Binding ) uniform texture2D DeformHeight0Texture;
+layout( binding = kDeformHeight1Binding ) uniform texture2D DeformHeight1Texture;
+layout( binding = kDeformDetail0Binding ) uniform texture2D DeformDetail0Texture;
+layout( binding = kDeformDetail1Binding ) uniform texture2D DeformDetail1Texture;
+Uniform sampler DeformationFieldSampler;
+// Deformation::DeformationFieldParamsGpu, std430.
+layout( std430, binding = kDeformationFieldParamsBinding ) readonly buffer DeformationFieldParams
+{
+    ivec4 DeformWindows; // xy: level 0's minimum cell, zw: level 1's
+    vec4  DeformLevels;  // x, y: texel (cm) of level 0, 1; z, w: their resolution (0: no field this frame)
+};
+
+bool DeformationFieldCovers( ivec2 cell, ivec2 window, int n )
+{
+    return all( greaterThanEqual( cell, window ) ) && all( lessThan( cell, window + ivec2( n ) ) );
+}
+
+// THE TRAMPLE at the world point @p root (a blade's root): xy = the world X, Z direction the strongest contact
+// pressed the grass (unit), z = how flat it is pressed, 0 standing .. 1 flat. Level 0 where its window covers the
+// point, level 1 farther out, (0, 0, 0) outside both: the one cell under the root, unfiltered (the field's own
+// texelFetch, as the "Deformation Field" view reads it).
+vec3 DeformationFieldTrampleAt( vec3 root )
+{
+    const int n0 = int( DeformLevels.z );
+    if ( n0 > 0 )
+    {
+        const ivec2 cell = ivec2( floor( root.xz / DeformLevels.x ) );
+        if ( DeformationFieldCovers( cell, DeformWindows.xy, n0 ) )
+        {
+            const ivec2 texel   = cell & ivec2( n0 - 1 );
+            const float flatten = texelFetch( sampler2D( DeformHeight0Texture, DeformationFieldSampler ), texel, 0 ).a;
+            const vec2  along   = texelFetch( sampler2D( DeformDetail0Texture, DeformationFieldSampler ), texel, 0 ).xy;
+            return vec3( along * 2.0 - 1.0, clamp( flatten, 0.0, 1.0 ) );
+        }
+    }
+    const int n1 = int( DeformLevels.w );
+    if ( n1 > 0 )
+    {
+        const ivec2 cell = ivec2( floor( root.xz / DeformLevels.y ) );
+        if ( DeformationFieldCovers( cell, DeformWindows.zw, n1 ) )
+        {
+            const ivec2 texel   = cell & ivec2( n1 - 1 );
+            const float flatten = texelFetch( sampler2D( DeformHeight1Texture, DeformationFieldSampler ), texel, 0 ).a;
+            const vec2  along   = texelFetch( sampler2D( DeformDetail1Texture, DeformationFieldSampler ), texel, 0 ).xy;
+            return vec3( along * 2.0 - 1.0, clamp( flatten, 0.0, 1.0 ) );
+        }
+    }
+    return vec3( 0.0 );
+}
+
+#endif // DEFORMATION_FIELD_READ_GLSLH

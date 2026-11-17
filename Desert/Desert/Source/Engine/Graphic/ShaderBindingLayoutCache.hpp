@@ -50,6 +50,11 @@ namespace Desert::Graphic
         FogAerialPerspective,
         FogDistantSkyLight,
         FogVolume,
+        // The view's deformation field (FrameGraphRefs.hpp DeformationFieldReads), bound by the mesh draw list.
+        DeformHeight0,
+        DeformHeight1,
+        DeformDetail0,
+        DeformDetail1,
         // A pass's own textures, bound by the pass (not BindSceneViewInputs) where its cell declares them.
         SceneColorTexture,
         FrontLayerReflectionTexture,
@@ -66,6 +71,7 @@ namespace Desert::Graphic
         RadianceCacheIndirection,
         RadianceCacheProbes,
         FogParams,
+        DeformationFieldParams,
         GpuSceneInstances,
         GpuSceneVisibleInstances,
         GpuSceneDrawSlots,

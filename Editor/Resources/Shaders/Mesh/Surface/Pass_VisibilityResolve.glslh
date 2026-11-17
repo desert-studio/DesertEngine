@@ -31,6 +31,8 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 #endif
 #ifdef DESERT_SURFACE_PATH_GrassBlade
 #include <Mesh/Surface/GrassBlade.glslh>
+// The view's deformation field: the raster flattened the blade by it (Vertex_GrassBlade.glslh), so does the rebuild.
+#include <Deformation/DeformationFieldRead.glslh>
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
     GrassBladeShapeData Blade;
@@ -149,6 +151,8 @@ void main()
     // The local wind at the blade's root, now and one step before (the raster's, Vertex_GrassBlade.glslh).
     const vec2  localAir     = LocalWindXZ( vec3( model[3] ), false );
     const vec2  prevLocalAir = LocalWindXZ( vec3( model[3] ), true );
+    // The deformation field under the root (DEFORM-GRASS), the raster's one cell.
+    const vec3  trample      = DeformationFieldTrampleAt( vec3( model[3] ) );
     BladePoint  point[3];
     vec3        previous[3];
     vec4        jittered[3];
@@ -156,12 +160,12 @@ void main()
     for ( int k = 0; k < 3; ++k )
     {
         const BladePoint full = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA,
-                                         m_PushConstants.WindB, cameraUB.WindGust, localAir );
+                                         m_PushConstants.WindB, cameraUB.WindGust, localAir, trample );
         hullSide[k] = BladeHullSide( model, full, corner[k].x, corner[k].y, rowSpan );
         point[k]    = BladeHullPoint( model, full, corner[k].x, hullSide[k] );
         previous[k] = BladeHullPoint( model,
                                       BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev,
-                                               cameraUB.PrevWindGust, prevLocalAir ),
+                                               cameraUB.PrevWindGust, prevLocalAir, trample ),
                                       corner[k].x, hullSide[k] )
                            .Position;
         jittered[k] = cameraUB.JitteredViewProjection * vec4( point[k].Position, 1.0 );

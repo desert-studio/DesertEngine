@@ -2517,12 +2517,14 @@ namespace Desert::Graphic
         // The virtual shadow map's cluster path is this frame's only if its VSM cut sets it again: a frame whose
         // method is not VirtualMaps (or whose cut is refused) holds no last frame's issue or refused groups.
         m_Systems.Mesh->ResetVirtualShadowGeometry();
+        // DEFORM-GRASS: the deformation field before any mesh pass - the grass blades of the view, its cascades and
+        // its virtual shadow read it (MeshRenderer::SetFrameDeformationField).
+        AddFrameDeformationField( graph, textures, frame );
         AddFrameDrawBins( graph, textures, frame );
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Virtual geometry" );
         AddFrameVirtualGeometry( graph, frame );
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Shadow depths" );
         AddFrameShadowDepths( graph, textures );
-        AddFrameDeformationField( graph, textures, frame );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Light grid + forward volumes" );
@@ -3288,6 +3290,9 @@ namespace Desert::Graphic
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
         m_FrameDeformationCaptured = false;
+        // This graph's field refs end with it (the next AddFrameDeformationField hands the next graph's).
+        if ( m_Systems.Mesh )
+            m_Systems.Mesh->SetFrameDeformationField( {} );
         m_FrameSurfaceCache       = nullptr;
 
         return BOOLSUCCESS;

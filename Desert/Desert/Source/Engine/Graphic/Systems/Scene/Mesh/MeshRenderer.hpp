@@ -249,6 +249,13 @@ namespace Desert::Graphic::System
             {
                 m_SceneInstances = instances;
             }
+            // DEFORM-GRASS: the view's deformation field in this list's graph (FrameGraphRefs.hpp
+            // DeformationFieldReads), bound to every block whose shader reads it (the grass blade cells). A block
+            // that reads it with none set fails by name. Carried by Append; until the next Clear.
+            void SetDeformationField( const DeformationFieldReads& field )
+            {
+                m_DeformationField = field;
+            }
             // A draw without pipeline, mesh or material (or whose material has no shader) is refused here.
             void               Add( MeshDrawCommand command );
             // Moves @p other's commands to the end of this list, as if each had been Added here in its order (the
@@ -409,6 +416,7 @@ namespace Desert::Graphic::System
             std::vector<uint32_t>        m_FirstRecords;
             std::optional<BinnedIssue>   m_Binned;       // SetBinned
             RDG::BufferRef               m_SceneInstances; // SetSceneInstances
+            DeformationFieldReads        m_DeformationField; // SetDeformationField
             std::vector<uint32_t>        m_GroupBlock;   // per group of m_Binned: its block (kInvalidBlock: empty)
             std::vector<uint32_t>        m_VgGroupBlock; // per group of m_Binned->VirtualGeometry: its block
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
@@ -1234,6 +1242,14 @@ namespace Desert::Graphic::System
         {
             m_FrameSceneInstances = instances;
             m_ViewIsmIdsReady     = false; // PrepareViewIsmIds fills this frame's
+        }
+        // DEFORM-GRASS: the view's deformation field in THIS view's graph (SceneRenderer::AddFrameDeformationField,
+        // before any mesh pass is added; reset at EndScene): every list a grass blade section draws into binds it
+        // (BuildGpuInstancedDraws, BuildGpuInstancedShadowDraws), so the view, its cascades and its virtual shadow
+        // flatten the same blades.
+        void SetFrameDeformationField( const DeformationFieldReads& field )
+        {
+            m_FrameDeformationField = field;
         }
         // CPU-ISM-PACK (UE FInstanceCullingContext: the instance ids uploaded ONCE per view): every queued ISM's
         // main-view cull (LookUpIsmViewCull, the stale ones on setup tasks) and its kept GpuScene instances
@@ -5404,6 +5420,7 @@ namespace Desert::Graphic::System
         GpuDriven::GpuSceneProxies         m_GpuSceneProxies;
         const GpuDriven::GpuScene*         m_GpuScene = nullptr;
         RDG::BufferRef                     m_FrameSceneInstances{}; // SetFrameSceneInstances
+        DeformationFieldReads              m_FrameDeformationField{}; // SetFrameDeformationField
         // PrepareViewIsmIds: the view's id buffer (per frame in flight, owned here and lent to every scene-id
         // cell), its CPU image, each m_InstancedQueue entry's first word in it (kNoViewIsmIds: none this frame)
         // with the cull entry's rebuild count it was filled from, and the stale culls' scratch (capacities kept).

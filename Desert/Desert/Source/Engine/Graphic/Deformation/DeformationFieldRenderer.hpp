@@ -113,6 +113,30 @@ namespace Desert::Graphic::Deformation
         std::array<glm::ivec2, kDeformationLevels>      WindowMin{};
     };
 
+    // The block the field's surface readers bind (DEFORM-GRASS, Deformation/DeformationFieldRead.glslh
+    // DeformationFieldParams), std430.
+    struct DeformationFieldParamsGpu
+    {
+        glm::ivec4 Windows{ 0 };   // xy: level 0's minimum cell, zw: level 1's
+        glm::vec4  Levels{ 0.0f }; // x, y: texel (cm) of level 0, 1; z, w: their resolution (0: no field)
+    };
+    static_assert( sizeof( DeformationFieldParamsGpu ) == 32 );
+
+    // @p field's windows and levels; nullptr (the view has no field this frame) is all zero, which every reader
+    // answers as untouched ground.
+    [[nodiscard]] inline DeformationFieldParamsGpu DeformationFieldParamsOf( const DeformationFieldFrame* field )
+    {
+        DeformationFieldParamsGpu params;
+        if ( field == nullptr )
+            return params;
+        const DeformationLevel l0 = DeformationLevelOf( 0 );
+        const DeformationLevel l1 = DeformationLevelOf( 1 );
+        params.Windows            = glm::ivec4( field->WindowMin[0], field->WindowMin[1] );
+        params.Levels = glm::vec4( l0.Texel, l1.Texel, static_cast<float>( l0.Resolution ),
+                                   static_cast<float>( l1.Resolution ) );
+        return params;
+    }
+
     class DeformationFieldRenderer
     {
     public:

@@ -73,6 +73,10 @@ GpuInstanceDrawRow g_GrassDrawRow; // set first thing in main()
 // The blade's shape and placement: one statement for this stage and the ray tracer's blade BLAS.
 #include <Mesh/Surface/GrassBlade.glslh>
 #include <Common/LocalWind.glslh>
+#ifndef DESERT_SURFACE_PASS_VisibilityResolve // the resolve's vertex stage places no blade (its fragment stage does)
+// The view's deformation field: a pressed blade lies flat (DEFORM-GRASS), in every pass that places one.
+#include <Deformation/DeformationFieldRead.glslh>
+#endif
 
 // The variety's shape (GrassBladeShapeGpu), std430.
 #ifndef DESERT_SURFACE_DRAW_ROWS
@@ -209,8 +213,10 @@ void main()
         }
     }
 #endif
+    // DEFORM-GRASS: the field under the blade's root, one cell for the whole blade (every vertex reads the same).
+    const vec3       trample = DeformationFieldTrampleAt( vec3( model[3] ) );
     const BladePoint full = BladeAt( Blade, model, side, t, windA, GRASS_BLADE_WIND_B, cameraUB.WindGust,
-                                     LocalWindXZ( vec3( model[3] ), false ) );
+                                     LocalWindXZ( vec3( model[3] ), false ), trample );
     // FPS-GRASS-HULL: the row narrowed to its card's cooked hull (Mesh/Surface/GrassBladeHull.glslh) - the same plane,
     // position and UV map as the full strip, without the card's transparent part. Every view cell narrows it through
     // the same expressions, so the depth prepass and the G-buffer stay EQUAL; a cascade's caster keeps the full card
@@ -274,7 +280,7 @@ void main()
     const BladePoint previous = BladeHullPoint(
          model, BladeAt( Blade, model, side, t, windA,
                          vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ), cameraUB.PrevWindGust,
-                         LocalWindXZ( vec3( model[3] ), true ) ), side, hullSide );
+                         LocalWindXZ( vec3( model[3] ), true ), trample ), side, hullSide );
 #ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
 #endif

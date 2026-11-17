@@ -156,7 +156,20 @@ namespace Desert::Core
     // particle cells (Mesh/Surface/Pass_ParticleSprite.glslh); bound by name (BindSceneViewInputs,
     // SceneViewSlot::TranslucencyLightingVolume), System.Black3D on a frame no lit particle draws.
     inline constexpr uint32_t kTranslucencyLightingVolumeBinding = kSceneReadBindingFirst + 32u;
-    inline constexpr uint32_t kSceneReadBindingCount             = 33u;
+    // THE VIEW'S DEFORMATION FIELD AS A SURFACE READS IT (DEFORM-GRASS;
+    // Graphic/Deformation/DeformationFieldRenderer.hpp): each level's Height (sink, rim, compaction, flatten) and
+    // Detail (flatten direction, wetness, touched), then the block that says where each level's window lies
+    // (`DeformationFieldParams`). Declared by Deformation/DeformationFieldRead.glslh into the grass blade cells
+    // (Mesh/Surface/Vertex_GrassBlade.glslh, the blade path of Pass_VisibilityResolve.glslh), which flatten a
+    // blade by it in every pass - view, cascade and virtual shadow alike, so the shadow is the blade drawn. Bound
+    // by name onto every mesh draw list block that declares them (MeshDrawList::SetDeformationField,
+    // BindDeformationFieldReads), System.Black and an empty window where the view has no field.
+    inline constexpr uint32_t kDeformHeight0Binding          = kSceneReadBindingFirst + 33u;
+    inline constexpr uint32_t kDeformHeight1Binding          = kSceneReadBindingFirst + 34u;
+    inline constexpr uint32_t kDeformDetail0Binding          = kSceneReadBindingFirst + 35u;
+    inline constexpr uint32_t kDeformDetail1Binding          = kSceneReadBindingFirst + 36u;
+    inline constexpr uint32_t kDeformationFieldParamsBinding = kSceneReadBindingFirst + 37u;
+    inline constexpr uint32_t kSceneReadBindingCount         = 38u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -226,8 +239,9 @@ namespace Desert::Core
          kVirtualGeometryRasterBindingFirst + kVirtualGeometryRasterBindingCount;
     // Then from 63: the DBuffer's three slots joined the scene-read range (DECALS-DBUFFER). Then from 66: the
     // distance-field sun's mask joined it (DF-SHADOWS). Then from 67: the translucency lighting volume joined it
-    // (PARTICLES-LIT-TLV).
-    static_assert( kGraphOwnedBindingFirst == 68u,
+    // (PARTICLES-LIT-TLV). Then from 68: the deformation field's four levels' images and its block joined it
+    // (DEFORM-GRASS).
+    static_assert( kGraphOwnedBindingFirst == 73u,
                    "the graph's window opens right above the virtual geometry raster's range" );
 
     /**
@@ -309,6 +323,11 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kDBufferCBinding ),
          DESERT_SCENE_BINDING_ROW( kSunDistanceFieldShadowBinding ),
          DESERT_SCENE_BINDING_ROW( kTranslucencyLightingVolumeBinding ),
+         DESERT_SCENE_BINDING_ROW( kDeformHeight0Binding ),
+         DESERT_SCENE_BINDING_ROW( kDeformHeight1Binding ),
+         DESERT_SCENE_BINDING_ROW( kDeformDetail0Binding ),
+         DESERT_SCENE_BINDING_ROW( kDeformDetail1Binding ),
+         DESERT_SCENE_BINDING_ROW( kDeformationFieldParamsBinding ),
          DESERT_SCENE_BINDING_ROW( kSceneReadBindingCount ),
          DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kVsmFrameDataBinding ),

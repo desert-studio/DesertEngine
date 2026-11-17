@@ -404,6 +404,15 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewDBufferSamplerName = "DBufferSampler";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
     inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
+    // DEFORM-GRASS: the deformation field as a surface reads it (Deformation/DeformationFieldRead.glslh): each level's
+    // Height and Detail image, read with texelFetch through a shared sampler state of its own (the grass blade cells
+    // declare none of the others), and the block that places the levels' windows.
+    inline constexpr std::array<std::string_view, 2> kDeformHeightNames{ "DeformHeight0Texture",
+                                                                         "DeformHeight1Texture" };
+    inline constexpr std::array<std::string_view, 2> kDeformDetailNames{ "DeformDetail0Texture",
+                                                                         "DeformDetail1Texture" };
+    inline constexpr std::string_view kDeformationFieldSamplerName     = "DeformationFieldSampler";
+    inline constexpr std::string_view kDeformationFieldParamsBlockName = "DeformationFieldParams";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
     inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
@@ -803,5 +812,47 @@ namespace Desert::Graphic
     void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
     {
         BindSceneViewInputs( block, inputs, SceneViewSlotsOf( layout ) );
+    }
+    // THE VIEW'S DEFORMATION FIELD AS ITS SURFACES READ IT (DEFORM-GRASS; Graphic/Deformation/DeformationFieldRenderer.hpp):
+    // this graph's two levels' Height and Detail images (System.Black where the view has no field) and the block that
+    // places their windows (Deformation::DeformationFieldParamsGpu: Levels 0 where there is none, so every reader
+    // answers "untouched"). Made by SceneRenderer::AddFrameDeformationField for every view, before any mesh pass.
+    struct DeformationFieldReads
+    {
+        std::array<RDG::TextureRef, 2> Height{};
+        std::array<RDG::TextureRef, 2> Detail{};
+        RDG::BufferRef                 Params;
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return Params.IsValid() && Height[0].IsValid() && Height[1].IsValid() && Detail[0].IsValid() &&
+                   Detail[1].IsValid();
+        }
+    };
+
+    // SETUP: the deformation field where the layout declares it (the grass blade cells: their vertex stage, and the
+    // visibility resolve's fragment stage, which rebuilds the blade). Read by texelFetch at the blade's root cell.
+    template <typename Block>
+    void BindDeformationFieldReads( Block& block, const DeformationFieldReads& reads, SceneViewSlots slots )
+    {
+        constexpr RDG::SamplerParameter            kSampler{ kDeformationFieldSamplerName };
+        constexpr std::array<SceneViewSlot, 2> kHeightSlots{ SceneViewSlot::DeformHeight0,
+                                                             SceneViewSlot::DeformHeight1 };
+        constexpr std::array<SceneViewSlot, 2> kDetailSlots{ SceneViewSlot::DeformDetail0,
+                                                             SceneViewSlot::DeformDetail1 };
+        for ( std::size_t level = 0; level < 2; ++level )
+        {
+            if ( slots.Has( kHeightSlots[level] ) )
+                block.Texture( RDG::TextureParameter{ kDeformHeightNames[level] }, reads.Height[level],
+                               RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( kSampler, RDG::SamplerDesc::PointClamp() );
+            if ( slots.Has( kDetailSlots[level] ) )
+                block.Texture( RDG::TextureParameter{ kDeformDetailNames[level] }, reads.Detail[level],
+                               RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( kSampler, RDG::SamplerDesc::PointClamp() );
+        }
+        if ( slots.Has( SceneViewSlot::DeformationFieldParams ) )
+            block.Storage( RDG::StorageBufferParameter{ kDeformationFieldParamsBlockName }, reads.Params,
+                           RDG::Access::StorageRead );
     }
 } // namespace Desert::Graphic

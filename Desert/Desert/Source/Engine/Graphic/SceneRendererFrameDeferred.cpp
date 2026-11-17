@@ -1617,9 +1617,32 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameDeformationField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         m_DeformationFrame.reset();
+        // DEFORM-GRASS: on every exit the mesh lists get this graph's field as its surfaces read it - the levels'
+        // images, or System.Black and an all-zero block (no window: untouched) where the view has none - so a
+        // grass blade cell always has its bindings and flattens nothing without a field.
+        const auto publish = [&]
+        {
+            if ( !m_Systems.Mesh )
+                return;
+            const RDG::TextureRef black = textures.GraphRefs().System.Black;
+            DeformationFieldReads reads;
+            for ( std::size_t level = 0; level < reads.Height.size(); ++level )
+            {
+                reads.Height[level] = m_DeformationFrame ? m_DeformationFrame->Height[level] : black;
+                reads.Detail[level] = m_DeformationFrame ? m_DeformationFrame->Detail[level] : black;
+            }
+            const Deformation::DeformationFieldParamsGpu params =
+                 Deformation::DeformationFieldParamsOf( m_DeformationFrame ? &*m_DeformationFrame : nullptr );
+            reads.Params = graph.CreateBuffer( RDG::BufferDesc{ sizeof( params ) }, "Deformation.ReadParams" );
+            graph.QueueBufferUpload( reads.Params, std::as_bytes( std::span( &params, 1 ) ) );
+            m_Systems.Mesh->SetFrameDeformationField( reads );
+        };
         // A reflection capture's face sees the ground as the scene's views do not need it to: no field of its own.
         if ( !m_FrameDeformationCaptured || m_ViewProfile.SceneCapture )
+        {
+            publish();
             return;
+        }
 #if DESERT_DEV_INSTRUMENTS
         const bool wanted = m_DebugView.DeferredDebug == DeferredDebugMode::DeformationField;
 #else
@@ -1633,9 +1656,11 @@ namespace Desert::Graphic
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Deformation field: {}", field.GetError() );
+            publish();
             return;
         }
         m_DeformationFrame = field.ExtractValue();
+        publish();
     }
 
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,

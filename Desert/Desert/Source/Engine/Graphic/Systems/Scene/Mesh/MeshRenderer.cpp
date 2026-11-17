@@ -813,6 +813,7 @@ namespace Desert::Graphic::System
 
         void MeshDrawList::Clear()
         {
+            m_DeformationField = {};
             m_Commands.clear();
             m_Triangles = 0;
             m_BlockOf.clear();
@@ -1072,6 +1073,8 @@ namespace Desert::Graphic::System
                 // The scene's instance rows of one view graph: whichever list set them, the same handle.
                 if ( other.m_SceneInstances.IsValid() )
                     m_SceneInstances = other.m_SceneInstances;
+                if ( other.m_DeformationField.IsValid() )
+                    m_DeformationField = other.m_DeformationField;
                 if ( other.m_Error )
                     Fail( std::move( *other.m_Error ) );
             }
@@ -1154,6 +1157,16 @@ namespace Desert::Graphic::System
                                         SceneResources::kVgRasterPrimitiveDraws, vg.PrimitiveDraws } } )
                         if ( slots.Has( entry.Slot ) )
                             block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
+                }
+                // DEFORM-GRASS: the view's deformation field, where the block's shader reads it (the grass blade
+                // cells flatten a blade by it in every pass).
+                if ( slots.Has( SceneViewSlot::DeformationFieldParams ) )
+                {
+                    if ( m_DeformationField.IsValid() )
+                        BindDeformationFieldReads( block, m_DeformationField, slots );
+                    else // never by construction: a blade section's builder sets the frame's field on its list
+                        LOG_ERROR( "[MeshRenderer] a grass blade cell reads the deformation field but its list was "
+                                   "given none" );
                 }
                 perBlock( block, slotted );
             }

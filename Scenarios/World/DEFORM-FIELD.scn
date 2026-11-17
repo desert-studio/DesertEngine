@@ -18,3 +18,7 @@
 Когда --subject viewport set Camera.Position 3000,1870,150
 Когда --subject viewport set Camera.Direction -0.893,-0.447,-0.045
 Тогда-вид 3_scrolled_l1 from 30 m to the side (outside L0's 20.48 m half-window, read from L1 at 8 cm/texel): the same three prints at the same world spots, coarser, on the darker L1 grey; editor.log errors 0
+Когда run View "View mode: Lit"
+Когда --subject viewport set Camera.Position 0,770,150
+Когда --subject viewport set Camera.Direction 0,-0.94,-0.35
+Тогда-вид 4_grass_lit DEFORM-GRASS, lit, from 4 m above the same row: where each print lies the grass is pressed flat, its blades laid outward from the print's centre (a round flattened patch about 0.8 m across, three in a row 1.5 m apart), standing grass all round; the blades' shadows lie flat with them; editor.log errors 0

@@ -517,6 +517,8 @@ namespace Desert::Graphic::System
     {
         if ( m_GpuInstancedQueue.empty() || instancedPipeline == nullptr )
             return;
+        // DEFORM-GRASS: a blade cell flattens its blade by the view's deformation field in every pass.
+        list.SetDeformationField( m_FrameDeformationField );
 
         // A section with a box is drawn only where the view's frustum meets it (GpuInstancedRenderData::WorldBounds).
         const auto*                        camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
@@ -1150,6 +1152,8 @@ namespace Desert::Graphic::System
     bool MeshRenderer::BuildGpuInstancedShadowDraws( const uint32_t c, const uint32_t shadowView,
                                                      const ShadowCasterLayer layer, MeshDrawList& list )
     {
+        // DEFORM-GRASS: the caster flattens the blade the view flattens (the same field, the same BladeAt).
+        list.SetDeformationField( m_FrameDeformationField );
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
             return false;
