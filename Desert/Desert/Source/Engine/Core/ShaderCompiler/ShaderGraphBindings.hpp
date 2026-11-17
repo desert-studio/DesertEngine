@@ -248,6 +248,15 @@ namespace Desert::Core
     inline constexpr uint32_t kSsrFrontLayerDepthBinding  = 1u;
 
     /**
+     * THE SSR TRACED PERMUTATION'S SHADING WORD (Common/SSRTrace.glslh under DESERT_REFLECTIONS_TRACED,
+     * `GBufferShadingWordTexture`): a world hit the view sees is lit with its G-buffer emissive unless the word
+     * marks that emission a MegaLights light (EMISSION_IS_LIGHT, Common/GIHitLighting.glslh GIHitMaterial), bound by
+     * name (SSRRenderer DeclareTracedReads). In the program's own set next to the front layer, for the reason
+     * given there: set 0 of the traced permutation has no slot outside every shared range.
+     */
+    inline constexpr uint32_t kSsrShadingWordBinding = 2u;
+
+    /**
      * THE TABLE SHADERS READ: every slot above, by its C++ name, as Generated/SceneBindings.glslh hands it to GLSL
      * (`#define kSceneFogVolumeBinding 48`; Graphic::ShaderProtocols::SceneBindingsGlsl, served by the shader
      * includer and hashed by the cache key like every generated protocol include - there is no file on disk to
@@ -319,6 +328,7 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerSet ),
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerNormalBinding ),
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerDepthBinding ),
+         DESERT_SCENE_BINDING_ROW( kSsrShadingWordBinding ),
     };
 #undef DESERT_SCENE_BINDING_ROW
 

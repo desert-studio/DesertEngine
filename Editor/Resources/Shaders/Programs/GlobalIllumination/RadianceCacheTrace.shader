@@ -60,6 +60,10 @@ Shader "RadianceCacheTrace"
         #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
         Uniform(19) texture2D GBufferEmissiveTexture;
         #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+        // The shading word (uint): a hit's EMISSION_IS_LIGHT (Common/GIHitLighting.glslh GIHitMaterial). 23: the
+        // one slot below the surface cache (24..30) and the shared scene-read range (25 up) left by 16..22.
+        layout(binding = 23) uniform utexture2D GBufferShadingWordTexture;
+        #define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
         Uniform(20) texture2D RadianceCacheIrradianceTexture;
         #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
         Uniform(21) texture2D RadianceCacheDepthTexture;
