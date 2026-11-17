@@ -66,7 +66,17 @@ namespace Desert::Core::Rules
             return false;
         const float x = source.Position.x;
         const float z = source.Position.z;
-        return x >= cell.Square.MinX && x < cell.Square.MaxX && z >= cell.Square.MinZ && z < cell.Square.MaxZ;
+        if ( !( x >= cell.Square.MinX && x < cell.Square.MaxX && z >= cell.Square.MinZ && z < cell.Square.MaxZ ) )
+            return false;
+        // WP-SRC-ALTITUDE: under the source's feet only while the source also REACHES the cell. A plane 2 km above
+        // a 25 m cell stands in its square, but THE QUERY does not want that cell (its distance is 3D): waiting for
+        // it would block forever, and from up there the cell's HLOD stands in for it.
+        if ( cell.Grid >= partition.Grids.size() )
+            return false;
+        for ( const SourceSector& sector : SourceSectors( source, partition.Grids[cell.Grid] ) )
+            if ( WithAltitude( DistanceToCellInSector( sector, cell.Bounds ), sector, cell.Height ) <= sector.Radius )
+                return true;
+        return false;
     }
 
     // @p state sized for @p plan (an unsized state — before the first step — has nothing resident).
@@ -74,9 +84,13 @@ namespace Desert::Core::Rules
                                                               const WorldPartitionSerialized&  partition,
                                                               const ResidencySettings&         settings,
                                                               const ResidencyState&            state,
-                                                              std::span<const StreamingSource> sources )
+                                                              std::span<const StreamingSource> sources,
+                                                              std::span<const DataLayerRuntimeState> unitLayerStates = {} )
     {
         StreamingAssessment out;
+        // WP-DATA-LAYERS-RUNTIME: how far its data layers want a unit (empty = all the way).
+        const auto layerState = [&]( std::size_t unit )
+        { return unit < unitLayerStates.size() ? unitLayerStates[unit] : DataLayerRuntimeState::Activated; };
         const std::size_t   units   = ResidencyUnitCount( plan );
         const auto          stateOf = [&]( std::size_t unit )
         { return unit < state.Units.size() ? state.Units[unit].State : Residency::Unloaded; };
@@ -84,7 +98,8 @@ namespace Desert::Core::Rules
         for ( std::size_t unit = 0; unit < units; ++unit )
         {
             const Residency now = stateOf( unit );
-            if ( now == Residency::Loading || now == Residency::Loaded )
+            const bool parked = now == Residency::Loaded && layerState( unit ) != DataLayerRuntimeState::Activated;
+            if ( ( now == Residency::Loading || now == Residency::Loaded ) && !parked )
             {
                 ++out.QueuedUnits;
                 out.QueuedRecords += ResidencyUnitRecords( plan, unit );
@@ -100,9 +115,11 @@ namespace Desert::Core::Rules
             bool              held = false;
             for ( const StreamingSource& source : sources )
                 held = held || CellHolds( plan.Cells[cell], source, partition );
-            if ( !held )
+            if ( !held || layerState( unit ) == DataLayerRuntimeState::Unloaded )
                 continue;
             const Residency now = stateOf( unit );
+            if ( layerState( unit ) == DataLayerRuntimeState::Loaded && now == Residency::Loaded )
+                continue; // as far as its layers want it
             if ( now == Residency::Failed )
                 ++out.FailedUnderSrc;
             else if ( now != Residency::Activated && out.UnderSource == kNoRecord )
@@ -133,7 +150,8 @@ namespace Desert::Core::Rules
     // @p state sized for @p plan (an unsized state has nothing resident). Refused as THE QUERY refuses.
     [[nodiscard]] inline Common::ResultStr<SourceCompletion>
     AssessSourceCompletion( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
-                            const ResidencyState& state, const StreamingSource& source )
+                            const ResidencyState& state, const StreamingSource& source,
+                            std::span<const DataLayerRuntimeState> unitLayerStates = {} )
     {
         auto wish = QueryStreamingCells( plan, partition, std::span<const StreamingSource>( &source, 1 ) );
         if ( !wish )
@@ -143,6 +161,10 @@ namespace Desert::Core::Rules
         {
             const std::size_t unit = plan.AlwaysLoaded.size() + wanted.Cell;
             const Residency   now  = unit < state.Units.size() ? state.Units[unit].State : Residency::Unloaded;
+            const DataLayerRuntimeState layers =
+                 unit < unitLayerStates.size() ? unitLayerStates[unit] : DataLayerRuntimeState::Activated;
+            if ( layers != DataLayerRuntimeState::Activated )
+                continue; // its data layers do not want it as an entity: nothing a source waits for
             ++out.Wanted;
             if ( now == Residency::Activated )
                 ++out.Activated;
