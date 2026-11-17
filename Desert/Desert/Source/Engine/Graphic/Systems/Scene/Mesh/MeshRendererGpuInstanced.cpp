@@ -859,6 +859,11 @@ namespace Desert::Graphic::System
             if ( !materialRow )
                 continue;
             const uint32_t row = *materialRow;
+            // The section's PrimitiveFlags: its material's Emissive Lights Scene (the instance chain resolves it,
+            // as the emissive lists do) marks the G-buffer's EMISSION_IS_LIGHT, so a screen GI hit takes no
+            // emission from a MegaLights emitter; a GPU-instanced section casts contact shadows (UE's default).
+            const uint32_t primitiveFlags =
+                 PrimitiveFlagsOf( true, gpu.Material != nullptr && gpu.Material->IsEmissiveLightsScene() );
             applyFrameState( draw.Instance.get() );
             if ( maskedPrepass )
             {
@@ -889,7 +894,7 @@ namespace Desert::Graphic::System
                             .Push               = DrawPushFields{}
                                          .MaterialIndex( row )
                                          .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                         .PrimitiveFlags( 0u )
+                                         .PrimitiveFlags( primitiveFlags )
                                          .LodFadeSide( 0.0f ) } );
                 continue;
             }
@@ -918,7 +923,8 @@ namespace Desert::Graphic::System
                     // Only the visibility raster reads a mesh's rows: no other pass resolves the view's copy.
                     if ( pass == MeshPass::Visibility )
                         drawRow.MeshVisibility = AddressOf( gpu.MeshVisibility );
-                    drawRow.MaterialRow = row;
+                    drawRow.MaterialRow    = row;
+                    drawRow.PrimitiveFlags = primitiveFlags;
                     const auto wind     = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset );
                     drawRow.WindA       = wind.A;
                     drawRow.WindB       = wind.B;
@@ -992,7 +998,7 @@ namespace Desert::Graphic::System
                                 .Push               = DrawPushFields{}
                                              .MaterialIndex( row )
                                              .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                             .PrimitiveFlags( 0u )
+                                             .PrimitiveFlags( primitiveFlags )
                                              .LodFadeSide( 0.0f ) } );
                 };
                 if ( first >= end )

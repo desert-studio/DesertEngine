@@ -58,6 +58,11 @@
 
         #include <Common/LandscapeSurface.glslh>
         #include <Common/LandscapeGrassCover.glslh>
+#ifdef DESERT_TERRAIN_VIRTUAL_TEXTURE
+        // LANDSCAPE-RVT: the layer blend read from the landscape's runtime virtual texture (TerrainGBuffer.shader
+        // declares its page table, atlases and feedback).
+        #include <Common/LandscapeVirtualTexture.glslh>
+#endif
 
         // THE LANDSCAPE MATERIAL'S LAYER INPUTS (UE: LandscapeLayerBlend's per-layer inputs). Up to eight inputs,
         // each matched to the tile channels painted with its layer info's LayerName (TerrainInstance.LayerInput,
@@ -133,6 +138,11 @@
         // TerrainShadow.shader, discard on the same test).
         TerrainSurface EvaluateTerrainSurfaceHere( out vec4 w0, out vec4 w1, out float dist )
         {
+#ifdef DESERT_TERRAIN_VIRTUAL_TEXTURE
+            // The footprint of the ground at this pixel, before any discard (derivatives need the whole quad).
+            const vec2 virtualDx = dFdx( v_WorldPos.xz );
+            const vec2 virtualDy = dFdy( v_WorldPos.xz );
+#endif
             w0 = vec4( 0.0 );
             w1 = vec4( 0.0 );
             if ( LandscapeTileHasLayers( CurrentTerrain ) )
@@ -156,6 +166,13 @@
             }
             // Distance to the camera for the far tiling: from the view block's eye, as the ray tracing hit measures it.
             dist = length( v_WorldPos - cameraUB.CameraPos );
+#ifdef DESERT_TERRAIN_VIRTUAL_TEXTURE
+            // The weightmap above stays per pixel (the hole discard, the grass cover); the layer blend comes from
+            // the RVT's pages where one answers (UE: the landscape's base pass samples its RVT).
+            TerrainLayer virtualLayer;
+            if ( LandscapeVirtualEnabled() && LandscapeVirtualLayer( v_WorldPos, virtualDx, virtualDy, virtualLayer ) )
+                return LandscapeSurfaceOf( virtualLayer, normalize( v_Normal ) );
+#endif
             return EvaluateLandscapeSurface( CurrentTerrain, TerrainMaterial(), v_WorldPos, normalize( v_Normal ), dist, w0, w1 );
         }
         TerrainSurface EvaluateTerrainSurface()

@@ -42,6 +42,7 @@ namespace
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
         DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheRadianceTexture );
@@ -518,6 +519,8 @@ namespace Desert::Graphic::GlobalIllumination
                                         all )
                               .Texture( WorldRadianceCacheShaderParameters::GBufferEmissiveTexture,
                                         inputs->GBufferEmissive, kS, all )
+                              .Texture( WorldRadianceCacheShaderParameters::GBufferShadingWordTexture,
+                                        inputs->GBufferShadingWord, kS, all )
                               .Texture( WorldRadianceCacheShaderParameters::RadianceCacheIrradianceTexture,
                                         irradiance, kS, all )
                               .Texture( WorldRadianceCacheShaderParameters::RadianceCacheDepthTexture, depth, kS,

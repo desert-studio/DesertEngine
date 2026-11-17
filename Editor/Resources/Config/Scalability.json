@@ -131,19 +131,34 @@
         "Textures": {
             "Low": {
                 "Textures.MipBias": 100,
-                "Textures.StreamingPoolMiB": 512
+                "Textures.StreamingPoolMiB": 512,
+                "Textures.LandscapeVirtualTextureSizeLog2": 14,
+                "Textures.LandscapeVirtualTexturePoolPages": 16,
+                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 32
             },
             "Medium": {
-                "Textures.StreamingPoolMiB": 1024
+                "Textures.StreamingPoolMiB": 1024,
+                "Textures.LandscapeVirtualTextureSizeLog2": 15,
+                "Textures.LandscapeVirtualTexturePoolPages": 24,
+                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 48
             },
             "High": {
-                "Textures.StreamingPoolMiB": 2048
+                "Textures.StreamingPoolMiB": 2048,
+                "Textures.LandscapeVirtualTextureSizeLog2": 16,
+                "Textures.LandscapeVirtualTexturePoolPages": 32,
+                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 64
             },
             "Epic": {
-                "Textures.StreamingPoolMiB": 2048
+                "Textures.StreamingPoolMiB": 2048,
+                "Textures.LandscapeVirtualTextureSizeLog2": 16,
+                "Textures.LandscapeVirtualTexturePoolPages": 32,
+                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 64
             },
             "Cinematic": {
-                "Textures.StreamingPoolMiB": 8192
+                "Textures.StreamingPoolMiB": 8192,
+                "Textures.LandscapeVirtualTextureSizeLog2": 17,
+                "Textures.LandscapeVirtualTexturePoolPages": 48,
+                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 128
             }
         },
         "Shadows": {

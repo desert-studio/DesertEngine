@@ -12,6 +12,14 @@
         "Min": [-114.47540283203125, -0.7033416032791138, -15.880741119384766],
         "Max": [109.46883392333984, 17.881820678710938, 14.785059928894043]
     },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "VirtualGeometry": true,
+        "PreserveArea": true
+    },
     "Nodes": [
         {
             "Name": "celandine_01_a",

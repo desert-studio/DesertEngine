@@ -613,6 +613,7 @@ namespace Desert::Graphic
         inputs.GBufferA        = gbuffer[0];
         inputs.GBufferB        = gbuffer[1];
         inputs.GBufferEmissive = gbuffer[3];
+        inputs.GBufferShadingWord = gbuffer[2];
         inputs.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
         inputs.Tracer          = MakeTracerFrame( graph, textures, m_GIPipeline );
         // The cards a hit reads first (AddFrameSurfaceCache, earlier in this graph); a frame without them is
@@ -1814,22 +1815,26 @@ namespace Desert::Graphic
         return hash.Get();
     }
 
-    Common::ResultStr<RayTracing::EmissiveLightsFrame> SceneRenderer::AddFrameEmissiveLights( RDG::Builder& graph )
+    Common::BoolResultStr SceneRenderer::GatherFrameEmissiveScene()
     {
-        using Result = RayTracing::EmissiveLightsFrame;
         // The list is built from the scene's rows (EmissiveLights.hpp): this frame's TLAS gather, or - on a frame
-        // that traces no TLAS (the software GI tracer) - a scene gather of the same queues.
-        const bool tlas = m_RayTracingScene.GetFrame().Built;
+        // that traces no TLAS (the software GI tracer, MegaLights on screen traces) - a scene gather of the same
+        // queues. Once per frame: every emissive list of the frame reads the same gather and its movers.
+        const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        if ( frame == m_EmissiveGatherFrame )
+            return BOOLSUCCESS;
         if ( const Common::BoolResultStr gathered = m_RayTracingScene.GatherScene(); !gathered )
-            return Common::MakeError<Result>( gathered.GetError() );
-        // Its programs, on the first frame that asks (the path tracer's bring-up, or the surface cache lighting
-        // under either GI tracer, GI-EMISSIVE-LIGHTS); made once, kept.
-        if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
-            return Common::MakeError<Result>( ready.GetError() );
+            return gathered;
+        m_EmissiveGatherFrame = frame;
+        return BOOLSUCCESS;
+    }
+
+    RayTracing::EmissiveMaterialEstimate
+    SceneRenderer::EstimateSegmentEmission( const RayTracing::RayTracingSegmentRecord& segment )
+    {
         // The estimate the tree's powers are made of: the segment's emissive colour x intensity, emissive map and
         // UV transform in the row the raster draws it with (the surface templates' SurfaceEmission). A landscape
         // tile's hit group emits nothing (TerrainRayHit), a whole-entity override has no surface row.
-        const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
         {
             RayTracing::EmissiveMaterialEstimate estimate;
             if ( segment.LandscapeTile != RayTracing::kNoLandscapeTile )
@@ -1863,7 +1868,21 @@ namespace Desert::Graphic
                       MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceUvRotationParam ) )
                 estimate.UvRotation = rotation->x;
             return estimate;
-        };
+        }
+    }
+
+    Common::ResultStr<RayTracing::EmissiveLightsFrame> SceneRenderer::AddFrameEmissiveLights( RDG::Builder& graph )
+    {
+        using Result    = RayTracing::EmissiveLightsFrame;
+        const bool tlas = m_RayTracingScene.GetFrame().Built;
+        if ( const Common::BoolResultStr gathered = GatherFrameEmissiveScene(); !gathered )
+            return Common::MakeError<Result>( gathered.GetError() );
+        // Its programs, on the first frame that asks (the path tracer's bring-up, or the surface cache lighting
+        // under either GI tracer, GI-EMISSIVE-LIGHTS); made once, kept.
+        if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
+            return Common::MakeError<Result>( ready.GetError() );
+        const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
+        { return EstimateSegmentEmission( segment ); };
         // The CPU list is rebuilt only when the rows it indexes were laid out anew (GetLayoutSerial: a full gather,
         // scene or TLAS, only when the GpuScene stream carried a structure change; a TLAS instance-list rebuild),
         // when it holds this frame's skin-cache streams (graph refs of this graph only), or when a material's
@@ -1895,6 +1914,41 @@ namespace Desert::Graphic
         }
 #endif // DESERT_DEV_INSTRUMENTS
         return m_EmissiveLights.AddPasses( graph, list );
+    }
+
+    Common::ResultStr<RayTracing::EmissiveLightsFrame>
+    SceneRenderer::AddFrameSceneEmissiveLights( RDG::Builder& graph )
+    {
+        using Result = RayTracing::EmissiveLightsFrame;
+        if ( const Common::BoolResultStr gathered = GatherFrameEmissiveScene(); !gathered )
+            return Common::MakeError<Result>( gathered.GetError() );
+        if ( const Common::BoolResultStr ready = m_SceneEmissiveLights.Initialize(); !ready )
+            return Common::MakeError<Result>( ready.GetError() );
+        // The shared estimate where the segment's material lights the scene (Emissive Lights Scene, resolved up
+        // the instance chain as TwoSided), dark elsewhere: a dark segment is not in the list. Read per material
+        // each frame (EmissiveMaterialTable), so a toggled flag is seen the frame it changes.
+        const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
+        {
+            const bool lightsScene = segment.Instance != nullptr ? segment.Instance->IsEmissiveLightsScene()
+                                     : segment.SurfaceMaterial != nullptr
+                                          ? segment.SurfaceMaterial->IsEmissiveLightsScene()
+                                          : false;
+            return lightsScene ? EstimateSegmentEmission( segment ) : RayTracing::EmissiveMaterialEstimate{};
+        };
+        const uint64_t layout      = m_RayTracingScene.GetLayoutSerial();
+        const bool     regathered  = layout != m_SceneEmissiveLayoutSerial || m_RayTracingScene.HasDeformedPositions();
+        m_SceneEmissiveLayoutSerial = layout;
+        {
+            DESERT_PROFILE_SCOPE( "EmissiveLights: Scene List" );
+            // No hit lookup: MegaLights picks the triangles, no ray asks which one it met.
+            const Common::BoolResultStr updated = m_SceneEmissiveList.Update(
+                 m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
+                 std::span<const RayTracing::RayTracingInstance>(), regathered,
+                 m_RayTracingScene.GetSceneMovedPrimitives(), estimateOf );
+            if ( !updated )
+                return Common::MakeError<Result>( updated.GetError() );
+        }
+        return m_SceneEmissiveLights.AddPasses( graph, m_SceneEmissiveList.GetList() );
     }
 
     Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
@@ -2206,6 +2260,7 @@ namespace Desert::Graphic
         reads.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
         reads.GBufferA        = gbuffer[0];
         reads.GBufferEmissive = gbuffer[3];
+        reads.GBufferShadingWord = gbuffer[2];
         reads.HitGroups       = hitLit ? &m_ReflectionHitGroups : nullptr;
         return reads;
     }

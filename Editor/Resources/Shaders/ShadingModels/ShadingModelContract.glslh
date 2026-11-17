@@ -20,6 +20,12 @@
 //   vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P );
 //        The environment's contribution: IBL and the indirect bounce, both times A.Occlusion.
 //
+// THE SLAB (Mesh/SubstrateSlab.glslh, UE Substrate): a lit model carries no BRDF of its own. It builds a DesertSlab
+// from S and P and forwards to DesertSlabEvaluate / DesertSlabEvaluateSpecular / DesertSlabEvaluateAmbient; its
+// own text is only what is not a slab lobe (TwoSidedFoliage's transmission). A model whose response IS the slab
+// declares `SlabFeatures <function>;` (uint <function>( DesertPayload P ), the features its slab is built with):
+// such a preset promises that with no feature bit set it shades exactly as DefaultLit.
+//
 // Emission is NOT the model's: the pass adds SurfaceOutput.Emissive after both calls, for every model. So Unlit is
 // the model whose functions all return vec3( 0.0 ) — the texel is its emission, with no special case anywhere.
 //
@@ -68,7 +74,13 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 // with the payload in the place of UE's CustomData GBufferD (RGBA8 — the same four floats, the same 8-bit
 // precision each):
 //   bits  0.. 3  shading-model index (0..15; 0 = Unlit)
-//   bits  4.. 7  sampled-texture count (the Material Complexity proxy, clamped to 15)
+//   bits  4.. 6  sampled-texture count (the Material Complexity proxy, clamped to 7; the view saturates at 3)
+//   bit   7      EMISSION_IS_LIGHT: set = the texel's emission is a MegaLights light source (a material with
+//                Emissive Lights Scene on, the draw's DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT): MegaLights lights the
+//                scene from it directly, so a GI ray that hits the texel on screen takes no emission from it
+//                (Common/GIHitLighting.glslh GIHitMaterial; UE MegaLights + Lumen: an emissive light source is not
+//                counted again by the screen traces). The deferred composite still shows the emission itself.
+//                DesertPackShadingWord never sets it
 //   bits  8..15  payload 0, unorm8
 //   bits 16..23  payload 1, unorm8
 //   bit  24      NO_SUN_SHADOWS: set = the sun's cascaded shadows do not darken this surface
@@ -81,7 +93,10 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 //                not grass, foliage or a mesh standing on it - the ground mask a reader of the ground needs where the
 //                depth buffer holds whatever stands in front (the Deformation Field view; later the field's
 //                receivers). DEPTH32F has no stencil (UE keeps this in the stencil); DesertPackShadingWord never sets it
-//   bits 27..31  free
+//   bits 27..31  SLAB_FEATURES: the texel's slab features (Mesh/SubstrateSlab.glslh kDesertSlab*: HAZE, CLEAR_COAT,
+//                FUZZ, F90, ANISOTROPY), written by DesertPackShadingWord from the model's `SlabFeatures` manifest line; 0 for a
+//                model that is no slab preset. "Deferred: Tile Classify" reads them: a slab preset's texel with no
+//                feature is DefaultLit exactly and is shaded by the SIMPLE tiles (UE Substrate's tile classification)
 //   bits 32..39  payload 2, unorm8   (.y bits 0..7)
 //   bits 40..47  payload 3, unorm8   (.y bits 8..15)
 //   bits 48..55  Specular, unorm8 (UE's Specular pin, GBuffer Specular): the dielectric F0 = 0.08 x Specular
@@ -94,7 +109,8 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 #define DESERT_SHADING_WORD_INDEX_FIRST_BIT    0
 #define DESERT_SHADING_WORD_INDEX_BITS         4
 #define DESERT_SHADING_WORD_TEXTURES_FIRST_BIT 4
-#define DESERT_SHADING_WORD_TEXTURES_BITS      4
+#define DESERT_SHADING_WORD_TEXTURES_BITS      3
+#define DESERT_SHADING_WORD_EMISSION_IS_LIGHT_BIT 7
 #define DESERT_SHADING_WORD_PAYLOAD0_FIRST_BIT 8
 #define DESERT_SHADING_WORD_PAYLOAD1_FIRST_BIT 16
 #define DESERT_SHADING_WORD_PAYLOAD2_FIRST_BIT 32
@@ -103,6 +119,8 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 #define DESERT_SHADING_WORD_NO_SUN_SHADOWS_BIT 24
 #define DESERT_SHADING_WORD_NO_CONTACT_SHADOW_BIT 25
 #define DESERT_SHADING_WORD_LANDSCAPE_BIT      26
+#define DESERT_SHADING_WORD_SLAB_FEATURES_FIRST_BIT 27
+#define DESERT_SHADING_WORD_SLAB_FEATURES_BITS      5
 #define DESERT_SHADING_WORD_SPECULAR_FIRST_BIT 48
 #define DESERT_SHADING_WORD_SPECULAR_BITS      8
 #define DESERT_SHADING_WORD_SUN_SELF_SHADOW_FIRST_BIT 56
@@ -159,6 +177,27 @@ uvec2 DesertMarkLandscape( uvec2 shadingWord )
 bool DesertIsLandscape( uvec2 shadingWord )
 {
     return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_LANDSCAPE_BIT ) ) & 1u ) != 0u;
+}
+
+// The emission-is-a-light mark: the G-buffer writer calls it after DesertPackShadingWord (which leaves the bit
+// clear) with the draw's flag, so a cleared texel and a writer that forgets the mark read "ordinary emission",
+// which GI counts.
+uvec2 DesertMarkEmissionIsLight( uvec2 shadingWord, bool emissionIsLight )
+{
+    const uint mark = emissionIsLight ? 1u : 0u;
+    return uvec2( shadingWord.x | ( mark << uint( DESERT_SHADING_WORD_EMISSION_IS_LIGHT_BIT ) ), shadingWord.y );
+}
+
+bool DesertEmissionIsLight( uvec2 shadingWord )
+{
+    return ( ( shadingWord.x >> uint( DESERT_SHADING_WORD_EMISSION_IS_LIGHT_BIT ) ) & 1u ) != 0u;
+}
+
+// The texel's slab features (Mesh/SubstrateSlab.glslh kDesertSlab*), 0 where the model is no slab preset.
+uint DesertShadingWordSlabFeatures( uvec2 shadingWord )
+{
+    return ( shadingWord.x >> uint( DESERT_SHADING_WORD_SLAB_FEATURES_FIRST_BIT ) ) &
+           ( ( 1u << uint( DESERT_SHADING_WORD_SLAB_FEATURES_BITS ) ) - 1u );
 }
 
 // A model's four payload floats, in [0, 1] (the pass clamps; 1/255 resolution). The manifest's `Payload` block

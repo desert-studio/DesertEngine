@@ -98,8 +98,11 @@ void main()
     // Common/MaterialTransport.glslh), as UE's primitive data carries it.
     DesertWriteGBuffer( i, s, clip, prevClip, v_Surface.ObjectMoved,
 #ifdef DESERT_SURFACE_BINNED
-                        ( v_Surface.PrimitiveFlags & DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW ) == 0u );
+                        ( v_Surface.PrimitiveFlags & DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW ) == 0u, true,
+                        ( v_Surface.PrimitiveFlags & DESERT_GPU_DRAW_EMISSION_IS_LIGHT ) != 0u );
 #else
-                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_EMISSION ) == 0u,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u );
 #endif
 }

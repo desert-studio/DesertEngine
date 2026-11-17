@@ -120,6 +120,14 @@ namespace Desert::Assets
         // instance an absent value INHERITS the parent's and a present one overrides it (UE's
         // bOverride_TwoSided), which is why it is optional and not a bool with a default.
         std::optional<bool> TwoSided;
+        // THE MATERIAL'S EMISSION LIGHTS THE SCENE (UE "Use Emissive for Dynamic Area Lighting"; the editor's
+        // "Emissive Lights Scene"): every segment drawn with it becomes an area light of MegaLights - its
+        // triangles join the view's scene-lighting emissive list (SceneRenderer::AddFrameEmissiveLights,
+        // EmissiveLightUse:: SceneLighting), sampled by MegaLights' stochastic selection and shadowed by its
+        // traced samples. A property of the MATERIAL, not a shader parameter. Absent on a base material = off (a
+        // scene without it renders as before); on an instance an absent value INHERITS the parent's and a present
+        // one overrides it, as TwoSided. Additive: no schema step.
+        std::optional<bool> EmissiveLightsScene;
 
         bool IsInstance() const
         {

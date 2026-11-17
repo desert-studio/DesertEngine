@@ -2317,6 +2317,22 @@ namespace Desert::Editor
             }
         }
 
+        // UE "Use Emissive for Dynamic Area Lighting": MaterialData::EmissiveLightsScene, a property of the
+        // material (absent = off on a base, inherit on an instance). Published to the runtime as every edit.
+        if ( m_WorkingCopy && ImGui::CollapsingHeader( "Lighting", ImGuiTreeNodeFlags_DefaultOpen ) )
+        {
+            auto& data        = m_WorkingCopy->Data();
+            bool  lightsScene = data.EmissiveLightsScene.value_or( false );
+            if ( ImGui::Checkbox( "Emissive Lights Scene##emissive_lights_scene", &lightsScene ) )
+            {
+                data.EmissiveLightsScene = lightsScene;
+                PublishToRuntime( *m_WorkingCopy, data.IsInstance() );
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "The emission of this material lights the scene as MegaLights area lights "
+                                   "(stochastic selection, traced shadows)." );
+        }
+
         // UE's material "Thumbnail" category: Primitive Type, Preview Mesh and the orbit, all in
         // MaterialData::Thumbnail (SetThumbnail: the default info is written as no key). Saved with the material;
         // the saved .demat's bytes re-shoot the picture (ThumbnailFreshness).

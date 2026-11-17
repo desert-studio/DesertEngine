@@ -26,14 +26,18 @@
 //              every frame adds a bounce, as UE's radiance cache feedback does;
 //     material the hit's albedo and emissive from the G-buffer when the hit is the surface the view sees at its
 //              pixel (the screen holds the material), otherwise GI_HIT_ALBEDO_OFF_SCREEN and no emissive — a
-//              distance-field hit carries no material;
+//              distance-field hit carries no material; no emissive either where the pixel's shading word says
+//              its emission is a MegaLights light (EMISSION_IS_LIGHT: MegaLights already lights the scene from
+//              it, as the cards of such a material hold none);
 //   miss     the sky in the ray's direction: the scene environment's radiance cube (mip 0) through the sky look.
 //
 // The includer declares, before including this file: the GI frame record `giFrame` (Common/GIFrame.glslh), the point and
 // spot rows (`pointLights[]`, `spotLights[]`), the world light grid (`lightGrid` + LIGHT_GRID_WORLD_CELLS, read
 // section included), the radiance cache read (Common/RadianceCache.glslh, read section included), samplers
-// EnvironmentSpecularTexture, GBufferDepthTexture, GBufferATexture, GBufferEmissiveTexture, includes the tracer (Common/GITracer.glslh),
-// and defines GI_SURFACE_CACHE_BINDING (the surface cache's seven bindings). Nothing here knows which tracer that is.
+// EnvironmentSpecularTexture, GBufferDepthTexture, GBufferATexture, GBufferEmissiveTexture, GBufferShadingWordTexture
+// (a usampler2D, texelFetch: the EMISSION_IS_LIGHT mark; unread under GI_HIT_EXCLUDES_EMISSION), includes the tracer
+// (Common/GITracer.glslh), and defines GI_SURFACE_CACHE_BINDING (the surface cache's seven bindings). Nothing here
+// knows which tracer that is.
 
 #include <Common/SkyLook.glslh>
 #include <Common/ReconstructPosition.glslh>
@@ -78,7 +82,13 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
     // The includer counts the emitter -> origin path by light sampling (Common/SurfaceCacheSampling.glslh).
     emissive = vec3( 0.0 );
 #else
+    // A MegaLights emissive light source (EMISSION_IS_LIGHT, ShadingModels/ShadingModelContract.glslh) is counted
+    // by MegaLights' own samples of it: the screen hit takes none of it, or the lamp would light the room twice.
     emissive = textureLod( GBufferEmissiveTexture, uv, 0.0 ).rgb;
+    const ivec2 texel = min( ivec2( uv * vec2( textureSize( GBufferShadingWordTexture, 0 ) ) ),
+                             textureSize( GBufferShadingWordTexture, 0 ) - ivec2( 1 ) );
+    if ( DesertEmissionIsLight( texelFetch( GBufferShadingWordTexture, texel, 0 ).rg ) )
+        emissive = vec3( 0.0 );
 #endif
 }
 

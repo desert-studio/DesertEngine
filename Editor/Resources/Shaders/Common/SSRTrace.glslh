@@ -8,7 +8,7 @@
 // (LocalSize, shared memory) sit behind DESERT_RAY_TRACING_STAGE, which the parser defines in every ray tracing
 // stage.
 
-#include <Generated/SceneBindings.glslh> // the SSR front layer's set-1 slots (Core::kSsrFrontLayer*)
+#include <Generated/SceneBindings.glslh> // the SSR program's set-1 slots (Core::kSsrFrontLayer*, kSsrShadingWordBinding)
 #include <Common/SSRGate.glslh>
 #include <Common/ReconstructPosition.glslh>
 
@@ -98,8 +98,8 @@ float SSRSurfaceDepth(ivec2 p)
 #if defined( DESERT_REFLECTIONS_TRACED )
 // The traced legs' reads (System::SSRRenderer::TracedReads): what GIHitRadiance lights a hit with - the GI
 // frame record, the lights and the world light grid, the radiance cache's read (a neutral one, covering
-// nothing, when the GI does not run it), the sky, the G-buffer's material - then the tracer (23..28), the
-// surface cache (29..35) and the mesh SDF near field (36..41).
+// nothing, when the GI does not run it), the sky, the G-buffer's material (its shading word in set 1) - then the
+// tracer (23..33, the software tracer's mesh SDF near field included) and the surface cache (34..40).
 #include <Common/GIFrame.glslh>
 #include <Common/RadianceCache.glslh>
 #include <Mesh/LightSources.glslh>
@@ -148,6 +148,10 @@ layout(binding = 21) uniform texture2D GBufferATexture;
 #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
 layout(binding = 22) uniform texture2D GBufferEmissiveTexture;
 #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+// The shading word (uint): a hit's EMISSION_IS_LIGHT (Common/GIHitLighting.glslh GIHitMaterial). Set 1, the
+// program's own set, beside the front layer's slots (Core::kSsrShadingWordBinding).
+layout(set = kSsrFrontLayerSet, binding = kSsrShadingWordBinding) uniform utexture2D GBufferShadingWordTexture;
+#define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
 #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
 #define RADIANCE_CACHE_PROBES radianceCacheProbes
 #include <Common/RadianceCache.glslh>

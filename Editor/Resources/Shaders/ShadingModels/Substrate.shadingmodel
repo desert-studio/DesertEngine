@@ -1,0 +1,72 @@
+// Substrate — UE's Substrate Slab BSDF node (the slab a material builds directly, not a legacy model's conversion):
+// the slab of Mesh/SubstrateSlab.glslh with the features a 4 x 8-bit payload carries at once - HAZE (a second
+// specular lobe of its own roughness: polished-then-worn metal, glazed ceramics, the soft halo around a highlight),
+// FUZZ (a white sheen layer: dust, peach fuzz, velvet's grey sheen; a coloured sheen is the Cloth preset's) and F90
+// (the Fresnel's edge reflectance). Every feature whose pin sits at its neutral value is off: its bit is clear, its
+// lobe is never evaluated, and a texel with no feature is DefaultLit exactly (the tile classification then shades it
+// with the SIMPLE tiles).
+//
+// The payload: CustomData0 = Haziness (0..1, the second lobe's share; 0 = off), CustomData1 = Haze Roughness (the
+// second lobe's perceptual roughness), CustomData2 = Fuzz Amount (0..1; 0 = off), CustomData3 = F90 (the
+// achromatic edge reflectance; 1, UE's default white F90, = off). UE's slab carries F90 and the fuzz colour as
+// colours; the shading word has four 8-bit payload fields, so this preset carries them achromatic.
+Guid 9180417262390551283;
+Payload
+{
+    CustomData0 Haziness;      // 0..1 the second lobe's share
+    CustomData1 HazeRoughness; // 0..1 the second lobe's perceptual roughness
+    CustomData2 FuzzAmount;    // 0..1 the sheen layer's coverage
+    CustomData3 F90;           // 0..1 the edge reflectance (1 = white, the feature off)
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+    CustomData0;
+    CustomData1;
+    CustomData2;
+    CustomData3;
+}
+SlabFeatures SubstrateSlabFeatures;
+
+#include <Mesh/SubstrateSlab.glslh>
+
+uint SubstrateSlabFeatures( DesertPayload P )
+{
+    uint features = 0u;
+    if ( P.CustomData0 > 0.0 )
+        features |= kDesertSlabHaze;
+    if ( P.CustomData2 > 0.0 )
+        features |= kDesertSlabFuzz;
+    if ( P.CustomData3 < 1.0 )
+        features |= kDesertSlabF90;
+    return features;
+}
+
+DesertSlab SubstrateSlab( DesertSurface S, DesertPayload P )
+{
+    DesertSlab slab    = DesertMakeSlab( S, SubstrateSlabFeatures( P ) );
+    slab.Haziness      = clamp( P.CustomData0, 0.0, 1.0 );
+    slab.HazeRoughness = max( P.CustomData1, kDesertMinRoughness );
+    slab.FuzzColor     = vec3( 1.0 );
+    slab.FuzzAmount    = clamp( P.CustomData2, 0.0, 1.0 );
+    slab.FuzzRoughness = S.Roughness;
+    slab.F90           = vec3( clamp( P.CustomData3, 0.0, 1.0 ) );
+    return slab;
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluate( L, S, SubstrateSlab( S, P ) );
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluateSpecular( L, S, SubstrateSlab( S, P ) );
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluateAmbient( A, S, SubstrateSlab( S, P ) );
+}

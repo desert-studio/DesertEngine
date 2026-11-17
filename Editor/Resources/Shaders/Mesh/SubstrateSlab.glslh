@@ -1,0 +1,395 @@
+#ifndef DESERT_SUBSTRATE_SLAB_GLSLH
+#define DESERT_SUBSTRATE_SLAB_GLSLH
+
+// THE SLAB: the one parameterised BSDF every lit shading model is a preset of (UE Substrate's Slab BSDF,
+// Substrate.ush / SubstrateEvaluation.ush; the legacy models' conversion, SubstrateLegacyConversion.ush). A model
+// file (ShadingModels/<Name>.shadingmodel) no longer carries a BRDF of its own: it builds a DesertSlab from the
+// surface and its payload and forwards its three contract functions to DesertSlabEvaluate,
+// DesertSlabEvaluateSpecular and DesertSlabEvaluateAmbient below. The lobes live here once.
+//
+// The slab: the diffuse albedo and metalness of DesertSurface, one GGX lobe of F0/F90 at the surface's roughness,
+// and five optional FEATURES (UE's slab features, BSDF_GETHASHAZINESS / HASFUZZ / HASF90 / HASANISOTROPY ...):
+//   HAZE        UE haziness: a second GGX specular lobe of its own roughness, blended with the first by Haziness
+//               (the same F0/F90 - Barla 2018 "Hazy gloss", the lobe pair UE's slab evaluates)
+//   CLEAR_COAT  UE haziness as simple clear coat (bHazinessAsSimpleClearCoat, the legacy MSM_ClearCoat conversion):
+//               the second lobe is a colourless dielectric layer on top (F0 = 4 %) of strength Haziness and
+//               roughness HazeRoughness; what its Fresnel reflects never reaches the slab beneath
+//   FUZZ        UE fuzz: a Charlie sheen layer on top (Estevez & Kulla 2017), FuzzAmount x FuzzColor, the slab
+//               beneath attenuated by the layer's directional albedo (UE's fuzz energy conservation)
+//   F90         UE's F90 edge colour: the Schlick Fresnel runs from F0 to F90 instead of to white
+//   ANISOTROPY  UE's slab anisotropy: the GGX lobes stretched along a tangent (UE GetAnisotropicRoughness, D_GGXaniso,
+//               Vis_SmithJointAniso) and the environment read along the bent reflection (GetAnisotropicBentNormal)
+// A slab with NO feature is DefaultLit exactly: the same functions of Mesh/DirectLighting.glslh, Mesh/RectLight.glslh
+// and Mesh/AmbientIBL.glslh, called with the same arguments. That identity is what the tile classification relies on
+// (Programs/Deferred/DeferredTileClassify.shader): a texel of a slab preset whose feature bits are all clear is
+// shaded by the SIMPLE tiles' DefaultLit-folded program, so pixels without a feature pay for none.
+//
+// The feature bits a texel carries are the shading word's SLAB_FEATURES field (ShadingModelContract.glslh), written
+// by DesertPackShadingWord from the model's `SlabFeatures <function>;` manifest line - the same function the model's
+// slab is built with, so the word and the evaluation can never disagree.
+
+#include <Mesh/BRDF.glslh>
+#include <Mesh/DirectLighting.glslh>
+#include <Mesh/RectLight.glslh> // a rect source's area response (DesertLight::RectCenter)
+#include <Common/AnisotropicTangent.glslh>
+// The pure half of the ambient text when the pass has not included the whole file (a G-buffer pass only packs the
+// shading word and binds no cube; a lighting pass has already included Mesh/AmbientIBL.glslh with its samplers).
+#ifndef AMBIENT_IBL_GLSLH
+#define AMBIENT_IBL_NO_SAMPLERS
+#include <Mesh/AmbientIBL.glslh>
+#endif
+
+// The feature bits, in the order of the shading word's SLAB_FEATURES field (DESERT_SHADING_WORD_SLAB_FEATURES_BITS).
+const uint kDesertSlabHaze      = 1u;
+const uint kDesertSlabClearCoat = 2u;
+const uint kDesertSlabFuzz      = 4u;
+const uint kDesertSlabF90       = 8u;
+const uint kDesertSlabAnisotropy = 16u;
+
+// The coat's dielectric reflectance at normal incidence: IOR 1.5 (UE ClearCoatBxDF's F0 = 0.04).
+const float kDesertSlabClearCoatF0 = 0.04;
+
+struct DesertSlab
+{
+    uint  Features;      // kDesertSlab* bits; a lobe whose bit is clear is never evaluated
+    vec3  F0;            // the specular reflectance at normal incidence (DesertSpecularF0)
+    vec3  F90;           // the edge reflectance (F90); white without the feature
+    float Haziness;      // HAZE: the second lobe's share; CLEAR_COAT: the coat's strength (0..1)
+    float HazeRoughness; // the second lobe's / the coat's roughness, >= kDesertMinRoughness
+    vec3  FuzzColor;     // FUZZ: the sheen's reflectance (linear)
+    float FuzzAmount;    // FUZZ: the layer's coverage (0..1)
+    float FuzzRoughness; // FUZZ: the sheen lobe's roughness, >= kDesertMinRoughness
+    float Anisotropy;    // ANISOTROPY: -1..1, > 0 widens the lobes along Tangent and narrows them across
+    vec3  Tangent;       // ANISOTROPY: the unit stretch direction, orthogonal to S.N
+};
+
+// The slab of @p S with the features @p features and every feature's parameter at its neutral value: the preset
+// sets the parameters of the features it declares.
+DesertSlab DesertMakeSlab( DesertSurface S, uint features )
+{
+    DesertSlab slab;
+    slab.Features      = features;
+    slab.F0            = DesertSpecularF0( S );
+    slab.F90           = vec3( 1.0 );
+    slab.Haziness      = 0.0;
+    slab.HazeRoughness = S.Roughness;
+    slab.FuzzColor     = vec3( 0.0 );
+    slab.FuzzAmount    = 0.0;
+    slab.FuzzRoughness = S.Roughness;
+    slab.Anisotropy    = 0.0;
+    slab.Tangent       = vec3( 0.0 );
+    return slab;
+}
+
+bool DesertSlabHas( DesertSlab slab, uint feature )
+{
+    return ( slab.Features & feature ) != 0u;
+}
+
+// Schlick from F0 to F90 (UE F_Schlick( F0, F90, VoH )); without the F90 feature exactly Mesh/BRDF.glslh's.
+vec3 DesertSlabFresnel( DesertSlab slab, float VoH )
+{
+    if ( !DesertSlabHas( slab, kDesertSlabF90 ) )
+        return fresnelSchlick( slab.F0, VoH );
+    return slab.F0 + ( slab.F90 - slab.F0 ) * pow( 1.0 - VoH, 5.0 );
+}
+
+// ANISOTROPY: UE GetAnisotropicRoughness - the GGX alphas along the tangent (.x) and the bitangent (.y).
+vec2 DesertSlabAnisotropicAlphas( DesertSlab slab, float roughness )
+{
+    const float alpha = roughness * roughness;
+    return max( vec2( alpha * ( 1.0 + slab.Anisotropy ), alpha * ( 1.0 - slab.Anisotropy ) ), vec2( 0.001 ) );
+}
+
+// ANISOTROPY: UE D_GGXaniso (BRDF.ush; Burley 2012).
+float DesertSlabAnisotropicDistribution( vec2 alphas, float NoH, float XoH, float YoH )
+{
+    const float a2 = alphas.x * alphas.y;
+    const vec3  v  = vec3( alphas.y * XoH, alphas.x * YoH, a2 * NoH );
+    const float s  = dot( v, v );
+    const float w  = a2 / max( s, 1e-12 );
+    return a2 * w * w / PI;
+}
+
+// ANISOTROPY: UE Vis_SmithJointAniso (BRDF.ush; Heitz 2014): G / (4 NoL NoV) for the anisotropic lobe.
+float DesertSlabAnisotropicVisibility( vec2 alphas, float NoV, float NoL, float XoV, float XoL, float YoV, float YoL )
+{
+    const float smithV = NoL * length( vec3( alphas.x * XoV, alphas.y * YoV, NoV ) );
+    const float smithL = NoV * length( vec3( alphas.x * XoL, alphas.y * YoL, NoL ) );
+    return 0.5 / max( smithV + smithL, 1e-6 );
+}
+
+// ANISOTROPY: the stretched GGX lobe at @p roughness for one punctual light, Fresnel @p F applied.
+vec3 DesertSlabAnisotropicLobe( DesertLight L, DesertSurface S, DesertSlab slab, float roughness, vec3 F,
+                                float cosLi )
+{
+    const vec3  X      = slab.Tangent;
+    const vec3  Y      = cross( S.N, X );
+    const vec3  H      = normalize( S.V + L.L );
+    const float cosLo  = max( dot( S.N, S.V ), 1e-5 );
+    const vec2  alphas = DesertSlabAnisotropicAlphas( slab, roughness );
+    const float D = DesertSlabAnisotropicDistribution( alphas, max( dot( S.N, H ), 0.0 ), dot( X, H ), dot( Y, H ) );
+    const float Vis = DesertSlabAnisotropicVisibility( alphas, cosLo, cosLi, dot( X, S.V ), dot( X, L.L ),
+                                                       dot( Y, S.V ), dot( Y, L.L ) );
+    return D * Vis * F * L.Radiance * cosLi;
+}
+
+// ANISOTROPY: Filament / UE GetAnisotropicBentNormal - the reflection of the normal bent toward the stretch, by
+// |anisotropy| and more for rougher lobes (a mirror has nothing to smear).
+vec3 DesertSlabBentReflection( DesertSurface S, DesertSlab slab, float roughness )
+{
+    const vec3  X         = slab.Tangent;
+    const vec3  Y         = cross( S.N, X );
+    const vec3  direction = slab.Anisotropy >= 0.0 ? Y : X;
+    const vec3  tangent   = cross( direction, S.V );
+    const vec3  bent      = cross( tangent, direction );
+    const float bend      = abs( slab.Anisotropy ) * clamp( 5.0 * roughness, 0.0, 1.0 );
+    return reflect( -S.V, normalize( mix( S.N, bent, bend ) ) );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The GGX lobe of the slab at @p roughness for one light, Fresnel and multiple-scattering compensation included
+// (Mesh/DirectLighting.glslh EvaluateDirectLightSpecular; a rect source integrates the lobe over the rect).
+vec3 DesertSlabLobe( DesertLight L, DesertSurface S, DesertSlab slab, float roughness )
+{
+    if ( DesertIsRectLight( L ) )
+        return EvaluateRectLightSpecular( L, S.V, S.N, slab.F0, roughness );
+    if ( !DesertSlabHas( slab, kDesertSlabF90 | kDesertSlabAnisotropy ) )
+        return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, slab.F0, roughness );
+    const float cosLi = max( dot( S.N, L.L ), 0.0 );
+    if ( cosLi <= 0.0 )
+        return vec3( 0.0 );
+    if ( DesertSlabHas( slab, kDesertSlabAnisotropy ) )
+    {
+        const vec3 F = DesertSlabFresnel( slab, max( dot( normalize( S.V + L.L ), S.V ), 0.0 ) );
+        return DesertSlabAnisotropicLobe( L, S, slab, roughness, F, cosLi );
+    }
+    const vec3  H            = normalize( S.V + L.L );
+    const float cosLh        = max( dot( S.N, H ), 0.0 );
+    const float cosLo        = max( dot( S.N, S.V ), 0.0 );
+    const vec3  compensation = GGXEnergyCompensation( slab.F0, GGXSpecularAlbedo( cosLo, roughness ) );
+    return DistributionGGX( cosLh, roughness ) * VisibilitySmith( cosLi, cosLo, roughness ) *
+           DesertSlabFresnel( slab, max( dot( H, S.V ), 0.0 ) ) * compensation * L.Radiance * cosLi;
+}
+
+// The slab's diffuse plus its first lobe for one light, unshadowed: DefaultLit's response.
+vec3 DesertSlabBaseLight( DesertLight L, DesertSurface S, DesertSlab slab )
+{
+    if ( DesertIsRectLight( L ) )
+        return EvaluateRectLight( L, S.V, S.N, slab.F0, S.Metallic, S.Roughness, S.BaseColor );
+    if ( !DesertSlabHas( slab, kDesertSlabF90 | kDesertSlabAnisotropy ) )
+        return EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, slab.F0, S.Metallic, S.Roughness, S.BaseColor );
+    // EvaluateDirectLight's Lambert under ( 1 - F ), F the slab's F0..F90 Fresnel.
+    const float cosLi = max( dot( S.N, L.L ), 0.0 );
+    if ( cosLi <= 0.0 )
+        return vec3( 0.0 );
+    const vec3  H              = normalize( S.V + L.L );
+    const float cosLo          = max( dot( S.N, S.V ), 0.0 );
+    const vec3  F              = DesertSlabFresnel( slab, max( dot( H, S.V ), 0.0 ) );
+    // The anisotropic lobe has no multiple-scattering table of its own: its diffuse is the plain ( 1 - F ) split.
+    if ( DesertSlabHas( slab, kDesertSlabAnisotropy ) )
+        return ( 1.0 - F ) * ( 1.0 - S.Metallic ) * S.BaseColor / PI * L.Radiance * cosLi +
+               DesertSlabAnisotropicLobe( L, S, slab, S.Roughness, F, cosLi );
+    const float specularAlbedo = GGXSpecularAlbedo( cosLo, S.Roughness );
+    const vec3  kd =
+         ( 1.0 - F ) * ( 1.0 - S.Metallic ) * ( vec3( 1.0 ) - GGXMultipleScatteringShare( slab.F0, specularAlbedo ) );
+    return kd * S.BaseColor / PI * L.Radiance * cosLi + DesertSlabLobe( L, S, slab, S.Roughness );
+}
+
+// CLEAR_COAT: the coat's Fresnel toward the light (scalar: the coat is colourless) times its strength - the share
+// of the light the coat reflects, and so the share the slab beneath never receives.
+float DesertSlabCoatFresnel( DesertLight L, DesertSurface S, DesertSlab slab )
+{
+    const vec3 H = normalize( S.V + L.L );
+    return fresnelSchlick( vec3( kDesertSlabClearCoatF0 ), max( dot( H, S.V ), 0.0 ) ).x * slab.Haziness;
+}
+
+// CLEAR_COAT: the coat's GGX lobe for one light, its Fresnel and strength included.
+vec3 DesertSlabCoatLobe( DesertLight L, DesertSurface S, DesertSlab slab, float coatFresnel )
+{
+    const float cosLi = max( dot( S.N, L.L ), 0.0 );
+    if ( cosLi <= 0.0 )
+        return vec3( 0.0 );
+    const vec3  H     = normalize( S.V + L.L );
+    const float cosLh = max( dot( S.N, H ), 0.0 );
+    const float cosLo = max( dot( S.N, S.V ), 0.0 );
+    return DistributionGGX( cosLh, slab.HazeRoughness ) * VisibilitySmith( cosLi, cosLo, slab.HazeRoughness ) *
+           coatFresnel * L.Radiance * cosLi;
+}
+
+// FUZZ: Estevez & Kulla 2017, eq. 2: D = (2 + 1/alpha) sin(theta_h)^(1/alpha) / (2 pi), alpha = roughness^2. The
+// sin^2 floor keeps the lobe finite where H meets N exactly (Filament's 0.0078125).
+float DesertSlabCharlieDistribution( float cosLh, float roughness )
+{
+    const float invAlpha = 1.0 / ( roughness * roughness );
+    const float sin2h    = max( 1.0 - cosLh * cosLh, 0.0078125 );
+    return ( 2.0 + invAlpha ) * pow( sin2h, invAlpha * 0.5 ) / ( 2.0 * PI );
+}
+
+// FUZZ: Neubelt & Pettineo 2013: V = 1 / (4 (NoL + NoV - NoL NoV)).
+float DesertSlabNeubeltVisibility( float cosLi, float cosLo )
+{
+    return 1.0 / max( 4.0 * ( cosLi + cosLo - cosLi * cosLo ), 1e-6 );
+}
+
+// FUZZ: the Charlie lobe's directional albedo at (NoV, roughness): the curve fit of Estevez & Kulla's tabulated
+// integral (three.js IBLSheenBRDF, the KHR_materials_sheen sample viewer's analytic form), divided by pi as there.
+float DesertSlabFuzzAlbedo( float NoV, float roughness )
+{
+    const float r2     = roughness * roughness;
+    const bool  glossy = roughness < 0.25;
+    const float a      = glossy ? -339.2 * r2 + 161.4 * roughness - 25.9 : -8.48 * r2 + 14.3 * roughness - 9.95;
+    const float b      = glossy ? 44.0 * r2 - 23.7 * roughness + 3.26 : 1.97 * r2 - 3.27 * roughness + 0.72;
+    const float tail   = glossy ? 0.0 : 0.1 * ( roughness - 0.25 );
+    return clamp( ( exp( a * NoV + b ) + tail ) / PI, 0.0, 1.0 );
+}
+
+// FUZZ: the share of the light the fuzz layer takes from the slab beneath (UE's fuzz energy conservation: the
+// layer's coverage times its directional albedo at the view, its brightest channel so no channel gains energy).
+float DesertSlabFuzzCover( DesertSurface S, DesertSlab slab )
+{
+    const float reflectance = max( slab.FuzzColor.r, max( slab.FuzzColor.g, slab.FuzzColor.b ) );
+    return clamp( slab.FuzzAmount * reflectance *
+                       DesertSlabFuzzAlbedo( DesertAmbientNoV( S.N, S.V ), slab.FuzzRoughness ),
+                  0.0, 1.0 );
+}
+
+// FUZZ: the sheen lobe for one light, coverage included: Amount * D * V * FuzzColor * radiance * NoL (the Charlie
+// lobe has no Fresnel of its own; its colour is its reflectance).
+vec3 DesertSlabFuzzLobe( DesertLight L, DesertSurface S, DesertSlab slab )
+{
+    const float cosLi = max( dot( S.N, L.L ), 0.0 );
+    if ( cosLi <= 0.0 )
+        return vec3( 0.0 );
+    const vec3  H     = normalize( S.V + L.L );
+    const float cosLh = max( dot( S.N, H ), 0.0 );
+    const float cosLo = max( dot( S.N, S.V ), 0.0 );
+    return slab.FuzzAmount * DesertSlabCharlieDistribution( cosLh, slab.FuzzRoughness ) *
+           DesertSlabNeubeltVisibility( cosLi, cosLo ) * slab.FuzzColor * L.Radiance * cosLi;
+}
+
+// The layers above the slab's own lobes, applied to @p beneath (the slab's response to one light): the coat, then
+// the fuzz on top of everything (UE's slab order: fuzz is the topmost layer).
+vec3 DesertSlabLayerDirect( DesertLight L, DesertSurface S, DesertSlab slab, vec3 beneath )
+{
+    vec3 light = beneath;
+    if ( DesertSlabHas( slab, kDesertSlabClearCoat ) )
+    {
+        const float coatFresnel = DesertSlabCoatFresnel( L, S, slab );
+        light = light * ( 1.0 - coatFresnel ) + DesertSlabCoatLobe( L, S, slab, coatFresnel );
+    }
+    if ( DesertSlabHas( slab, kDesertSlabFuzz ) )
+        light = light * ( 1.0 - DesertSlabFuzzCover( S, slab ) ) + DesertSlabFuzzLobe( L, S, slab );
+    return light;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The contract's three functions (ShadingModels/ShadingModelContract.glslh) for a slab.
+
+vec3 DesertSlabEvaluate( DesertLight L, DesertSurface S, DesertSlab slab )
+{
+    vec3 light = DesertSlabBaseLight( L, S, slab );
+    if ( DesertSlabHas( slab, kDesertSlabHaze ) )
+        light += ( DesertSlabLobe( L, S, slab, slab.HazeRoughness ) - DesertSlabLobe( L, S, slab, S.Roughness ) ) *
+                 slab.Haziness;
+    return DesertSlabLayerDirect( L, S, slab, light ) * L.Shadow;
+}
+
+vec3 DesertSlabEvaluateSpecular( DesertLight L, DesertSurface S, DesertSlab slab )
+{
+    vec3 specular = DesertSlabLobe( L, S, slab, S.Roughness );
+    if ( DesertSlabHas( slab, kDesertSlabHaze ) )
+        specular = mix( specular, DesertSlabLobe( L, S, slab, slab.HazeRoughness ), slab.Haziness );
+    return DesertSlabLayerDirect( L, S, slab, specular ) * L.Shadow;
+}
+
+// UE EnvBRDFApprox (BRDF.ush, Karis "Physically Based Shading on Mobile" 2014): the split sum's scale and bias at
+// (roughness, NoV), fitted - the directional albedo of a lobe the pass's split-sum sample was not taken for.
+vec2 DesertSlabEnvBRDFApprox( float roughness, float NoV )
+{
+    const vec4  c0   = vec4( -1.0, -0.0275, -0.572, 0.022 );
+    const vec4  c1   = vec4( 1.0, 0.0425, 1.04, -0.04 );
+    const vec4  r    = roughness * c0 + c1;
+    const float a004 = min( r.x * r.x, exp2( -9.28 * NoV ) ) * r.x + r.y;
+    return vec2( -1.04, 1.04 ) * a004 + r.zw;
+}
+
+// The environment's radiance along the reflection at @p roughness: the pass's prefiltered sample where it is a
+// TRACED gather (the one occluded answer the pass has: a cube lookup there would mirror the open sky inside a
+// garage), else the sky cube at that roughness.
+vec3 DesertSlabAmbientRadiance( DesertAmbient A, DesertSurface S, float roughness )
+{
+    if ( A.Traced < 0.5 )
+        return DesertAmbientSpecular( reflect( -S.V, S.N ), roughness );
+    return A.Prefiltered;
+}
+
+// The reflection of the slab's own lobes, before occlusion: the split sum at the surface's roughness (F0 to F90),
+// blended toward the haze lobe's.
+vec3 DesertSlabAmbientReflection( DesertAmbient A, DesertSurface S, DesertSlab slab, float NoV )
+{
+    // ANISOTROPY: under the sky light the lobe reads the sky cube along the bent reflection; a TRACED gather's
+    // isotropic lobe is the occluded answer and is kept.
+    vec3 radiance = A.Prefiltered;
+    if ( DesertSlabHas( slab, kDesertSlabAnisotropy ) && A.Traced < 0.5 )
+        radiance = DesertAmbientSpecular( DesertSlabBentReflection( S, slab, S.Roughness ), S.Roughness );
+    vec3 specular;
+    if ( DesertSlabHas( slab, kDesertSlabF90 ) )
+        specular = ( slab.F0 * A.SpecularBRDF.x + slab.F90 * A.SpecularBRDF.y ) *
+                   GGXEnergyCompensation( slab.F0, A.SpecularBRDF.x + A.SpecularBRDF.y ) * radiance;
+    else
+        specular = EvaluateAmbientIBLSpecular( radiance, A.SpecularBRDF, slab.F0 );
+    if ( DesertSlabHas( slab, kDesertSlabHaze ) )
+    {
+        const vec2 hazeBRDF   = DesertSlabEnvBRDFApprox( slab.HazeRoughness, NoV );
+        const vec3 hazeAlbedo = slab.F0 * hazeBRDF.x + slab.F90 * hazeBRDF.y;
+        specular = mix( specular, DesertSlabAmbientRadiance( A, S, slab.HazeRoughness ) * hazeAlbedo, slab.Haziness );
+    }
+    return specular;
+}
+
+// The layers above the slab, applied to the environment's @p beneath, as DesertSlabLayerDirect for one light.
+vec3 DesertSlabLayerAmbient( DesertAmbient A, DesertSurface S, DesertSlab slab, float NoV, float specularOcclusion,
+                             vec3 beneath )
+{
+    vec3 ambient = beneath;
+    if ( DesertSlabHas( slab, kDesertSlabClearCoat ) )
+    {
+        const vec2  coatBRDF      = DesertSlabEnvBRDFApprox( slab.HazeRoughness, NoV );
+        const float coatAlbedo    = ( kDesertSlabClearCoatF0 * coatBRDF.x + coatBRDF.y ) * slab.Haziness;
+        const float coatOcclusion = DesertSpecularOcclusion( NoV, slab.HazeRoughness, A.Occlusion );
+        ambient = ambient * ( 1.0 - coatAlbedo ) +
+                  DesertSlabAmbientRadiance( A, S, slab.HazeRoughness ) * coatAlbedo * coatOcclusion;
+    }
+    if ( DesertSlabHas( slab, kDesertSlabFuzz ) )
+    {
+        const vec3 fuzz = A.Prefiltered * slab.FuzzColor * slab.FuzzAmount *
+                          DesertSlabFuzzAlbedo( NoV, slab.FuzzRoughness ) * specularOcclusion;
+        ambient = ambient * ( 1.0 - DesertSlabFuzzCover( S, slab ) ) + fuzz;
+    }
+    return ambient;
+}
+
+vec3 DesertSlabEvaluateAmbient( DesertAmbient A, DesertSurface S, DesertSlab slab )
+{
+    const float NoV     = DesertAmbientNoV( S.N, S.V );
+    const vec3  diffuse = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, slab.F0, S.BaseColor, S.Metallic );
+    const vec3  specular = DesertSlabAmbientReflection( A, S, slab, NoV );
+    // UE ReflectionEnvironment: the reflection takes GetSpecularOcclusion( NoV, Roughness^2, AO ), the diffuse AO.
+    const float specularOcclusion = DesertSpecularOcclusion( NoV, S.Roughness, A.Occlusion );
+    const vec3  ambient =
+         ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
+    return DesertSlabLayerAmbient( A, S, slab, NoV, specularOcclusion, ambient );
+}
+
+// The specular half of DesertSlabEvaluateAmbient (the term ComposeAmbient adds for the reflection, under the same
+// layers): a screen-space scattered model's ambient split (the contract's EvaluateAmbientSpecular).
+vec3 DesertSlabEvaluateAmbientSpecular( DesertAmbient A, DesertSurface S, DesertSlab slab )
+{
+    const float NoV               = DesertAmbientNoV( S.N, S.V );
+    const float specularOcclusion = DesertSpecularOcclusion( NoV, S.Roughness, A.Occlusion );
+    const vec3  specular          = DesertSlabAmbientReflection( A, S, slab, NoV ) * specularOcclusion;
+    return DesertSlabLayerAmbient( A, S, slab, NoV, specularOcclusion, specular );
+}
+
+#endif

@@ -12,6 +12,14 @@
         "Min": [-412.01495361328125, -0.8377076387405396, -13.672635078430176],
         "Max": [9.414416313171387, 16.179513931274414, 12.0932035446167]
     },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "VirtualGeometry": true,
+        "PreserveArea": true
+    },
     "Nodes": [
         {
             "Name": "dandelion_01_a",

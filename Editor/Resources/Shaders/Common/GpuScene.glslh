@@ -27,6 +27,10 @@
 #define DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION      16u
 #define DESERT_GPU_PRIMITIVE_MOVABLE_CASTER      32u
 #define DESERT_GPU_PRIMITIVE_PREVIOUS_POSITIONS  64u
+// Never in Primitives[]: DesertResolveDrawOf sets it on a resolved draw's Flags from its slot's
+// DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT (the submesh's material has Emissive Lights Scene on), so the binned
+// G-buffer cell marks the shading word's EMISSION_IS_LIGHT (Mesh/Surface/Pass_GBuffer.glslh).
+#define DESERT_GPU_DRAW_EMISSION_IS_LIGHT        128u
 
 // GpuDriven::CullViewFlags
 #define DESERT_GPU_CULL_VIEW_ORTHOGRAPHIC  1u
@@ -154,6 +158,9 @@ struct GpuDrawSlot
 };
 // GpuDriven::kDrawSlotDitheredLod: the slot's cell clips, an instance in a LOD transition draws both levels here.
 #define DESERT_GPU_DRAW_SLOT_DITHERED_LOD 1u
+// GpuDriven::kDrawSlotEmissionIsLight: the slot's material has Emissive Lights Scene on (its emission is a MegaLights
+// light source); the resolved draw carries it as DESERT_GPU_DRAW_EMISSION_IS_LIGHT.
+#define DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT 2u
 
 // Per bin of a pass (pass x pipeline x mesh x submesh x LOD). 32 bytes.
 struct GpuDrawBin
@@ -323,7 +330,8 @@ struct DesertMeshDraw
     uint Instance;
     uint Primitive;
     uint MaterialRow; // row in Materials[]; the fragment stage gets it as a flat varying
-    uint Flags;       // the primitive's DESERT_GPU_PRIMITIVE_*; the fragment stage gets it as a flat varying
+    uint Flags;       // the primitive's DESERT_GPU_PRIMITIVE_*, plus the slot's DESERT_GPU_DRAW_EMISSION_IS_LIGHT; the
+                      // fragment stage gets it as a flat varying
     bool RestPose;    // DESERT_GPU_VISIBLE_REST_POSE: the wind does not bend it in this view
     // DesertClipLODTransition's side (Mesh/Surface/LODTransition.glslh): +1 the older level of a dithered LOD
     // transition (DESERT_GPU_VISIBLE_LOD_FADE_OUT), -1 the newer (_FADE_IN), 0 no transition.
@@ -345,6 +353,8 @@ DesertMeshDraw DesertResolveDrawOf( const GpuVisibleInstance visible )
     draw.Primitive   = instance.Primitive;
     draw.MaterialRow = slot.MaterialRow;
     draw.Flags       = primitive.Flags;
+    if ( ( slot.Flags & DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT ) != 0u )
+        draw.Flags |= DESERT_GPU_DRAW_EMISSION_IS_LIGHT;
     draw.RestPose    = ( visible.DrawSlot & DESERT_GPU_VISIBLE_REST_POSE ) != 0u;
     draw.LodFadeSide = 0.0;
     if ( ( visible.DrawSlot & DESERT_GPU_VISIBLE_LOD_FADE_OUT ) != 0u )

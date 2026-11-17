@@ -11,6 +11,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 #include <Engine/Graphic/View/PassHistory.hpp>
@@ -78,6 +79,14 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, ReservoirsTexture );
         DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
         DESERT_SHADER_PARAMETER( Texture, HzbTexture );
+        // The scene-lighting emissive triangles (Common/MegaLights.glslh bindings 60..66).
+        DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveSegmentsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveLookupUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissivePowerUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveDynamicSegmentsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveDynamicTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveDynamicPowerUB );
     };
 
     inline constexpr std::string_view kMegaLightsDiffuseName  = "MegaLights.Diffuse";
@@ -133,6 +142,11 @@ namespace Desert::Graphic::System
         uint32_t                            Width       = 0; // render resolution
         uint32_t                            Height      = 0;
         glm::vec4 ContactShadowView{ 0.0f }; // SceneResources ShadowUBData::ContactShadowView (PackContactShadow)
+        // THE SCENE-LIGHTING EMISSIVE TRIANGLES (SceneRenderer::AddFrameSceneEmissiveLights: the emissive list of
+        // the materials with Emissive Lights Scene on): lights of the index space after the points and spots
+        // (Common/MegaLights.glslh). Always a valid frame - with no such material its parts are empty (root
+        // power 0) and no candidate is drawn.
+        RayTracing::EmissiveLightsFrame Emissive;
     };
 
     // MegaLightsViewUB (Common/MegaLights.glslh), std140.
@@ -147,8 +161,10 @@ namespace Desert::Graphic::System
         glm::vec4  Params;            // history cap, history readable, normal bias, spatial radius (sample px)
         glm::uvec4 Frame;             // frame index, render width, render height, downsample factor
         glm::vec4  ContactShadowView; // steps, tan(fov / 2), dither frame
+        glm::uvec4 EmissiveCounts;    // EmissiveLightsFrame::StaticParams of MegaLightsInputs::Emissive
+        glm::uvec4 EmissiveDynamicCounts; // and its DynamicParams
     };
-    static_assert( sizeof( MegaLightsViewUniforms ) == 336 );
+    static_assert( sizeof( MegaLightsViewUniforms ) == 368 );
 
     class MegaLightsRenderer
     {
@@ -194,6 +210,9 @@ namespace Desert::Graphic::System
                 return Common::MakeError<MegaLightsLighting>(
                      "MegaLights: a light's visibility source is vsm+screen but the frame has no virtual shadow "
                      "map" );
+            if ( !in.Emissive.Valid )
+                return Common::MakeError<MegaLightsLighting>(
+                     "MegaLights: the frame has no scene-lighting emissive list (AddFrameSceneEmissiveLights)" );
             if ( !in.Lights.GridCells.IsValid() || !in.Velocity.IsValid() )
                 return Common::MakeError<MegaLightsLighting>( std::format(
                      "MegaLights: the frame has no {}",
@@ -231,7 +250,9 @@ namespace Desert::Graphic::System
                                       kMegaLightsNormalBias,
                                       kMegaLightsSpatialRadiusPixels / static_cast<float>( factor ) ),
                  .Frame  = glm::uvec4( static_cast<uint32_t>( frame.FrameIndex ), width, height, factor ),
-                 .ContactShadowView = in.ContactShadowView };
+                 .ContactShadowView     = in.ContactShadowView,
+                 .EmissiveCounts        = in.Emissive.StaticParams(),
+                 .EmissiveDynamicCounts = in.Emissive.DynamicParams() };
             const RDG::BufferRef view =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( MegaLightsViewUniforms ) }, "MegaLights.ViewUB" );
             graph.QueueBufferUpload( view,
@@ -262,6 +283,16 @@ namespace Desert::Graphic::System
                      // ASYNC COMPUTE: the light function atlas the rows sample bindless, declared here so the
                      // graph orders its graphics-queue writer before this queue's read.
                      .BindlessRead( in.Lights.LightFunctionAtlas, RDG::Access::SampledCompute );
+                using P          = MegaLightsShaderParameters;
+                const auto& list = in.Emissive;
+                constexpr RDG::Access kRead = RDG::Access::StorageRead;
+                block.Storage( P::MegaLightsEmissiveSegmentsUB, list.Static.Segments, kRead )
+                     .Storage( P::MegaLightsEmissiveLookupUB, list.Lookup, kRead )
+                     .Storage( P::MegaLightsEmissiveTrianglesUB, list.Static.Triangles, kRead )
+                     .Storage( P::MegaLightsEmissivePowerUB, list.Static.Power, kRead )
+                     .Storage( P::MegaLightsEmissiveDynamicSegmentsUB, list.Dynamic.Segments, kRead )
+                     .Storage( P::MegaLightsEmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kRead )
+                     .Storage( P::MegaLightsEmissiveDynamicPowerUB, list.Dynamic.Power, kRead );
                 if ( shading )
                     block.Texture( MegaLightsShaderParameters::GBufferATexture, in.GBufferA,
                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
