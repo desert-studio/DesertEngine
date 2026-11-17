@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Geometry/ClusterDag.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -80,26 +81,6 @@ namespace Desert::Graphic::VirtualGeometry
         constexpr uint32_t kBinGroupSize   = 64u; // RasterBinning.shader LocalSize
         constexpr uint32_t kStepArgs       = 0u;
         constexpr uint32_t kStepCut        = 1u;
-
-        // ClusterCut.shader's push block.
-        struct CutPush
-        {
-            glm::uvec4 Params{
-                 0u }; // step, visible capacity, primitive rows of the pass table, candidate rows per region
-            glm::uvec4 Params2{ 0u }; // x = 1 when a HZB is bound, y = occluded carry capacity, z = 1 post phase
-            glm::uvec4 Params3{ 0u }; // x = first cut view of the dispatch, y = its views
-        };
-        static_assert( sizeof( CutPush ) == 48u,
-                       "ClusterCut.shader PushConstants: uvec4 Params, Params2, Params3" );
-
-        // RasterBinning.shader's push block - its own layout, not ClusterCut's: the binning program declares two
-        // uvec4 (Params, Params2), and the RDG refuses a pass whose push size differs from its shader's.
-        struct BinPush
-        {
-            glm::uvec4 Params{ 0u };  // step, visible capacity, group count, primitive rows of the pass table
-            glm::uvec4 Params2{ 0u }; // draw slot rows, bin rows, vertices per cluster draw, cut views counted
-        };
-        static_assert( sizeof( BinPush ) == 32u, "RasterBinning.shader PushConstants: uvec4 Params, Params2" );
 
         template <typename T>
         std::span<const std::byte> Bytes( const std::vector<T>& values )
@@ -197,7 +178,7 @@ namespace Desert::Graphic::VirtualGeometry
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( P::ClusterCutHzbTexture, b.Hzb, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( CutPush ) ) );
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ShaderPush::ClusterCut ) ) );
             if ( indirect )
             {
                 pass.Read( b.DispatchArgs, RDG::Access::IndirectArgs );
@@ -369,9 +350,13 @@ namespace Desert::Graphic::VirtualGeometry
         for ( const uint32_t step : { kStepArgs, kStepCut } )
         {
             const bool    indirect = step == kStepCut;
-            const CutPush push{ glm::uvec4( step, visibleCapacity, primitiveRows, candidates.Capacity ),
-                                glm::uvec4( hasHzb ? 1u : 0u, carryCapacity, post ? 1u : 0u, 0u ),
-                                glm::uvec4( firstView, static_cast<uint32_t>( views.size() ), 0u, 0u ) };
+            // Params: step, visible capacity, primitive rows of the pass table, candidate rows per region.
+            // Params2: 1 when a HZB is bound, occluded carry capacity, 1 in the post phase.
+            // Params3: the dispatch's first cut view, its view count.
+            const ShaderPush::ClusterCut push{
+                 .Params  = glm::uvec4( step, visibleCapacity, primitiveRows, candidates.Capacity ),
+                 .Params2 = glm::uvec4( hasHzb ? 1u : 0u, carryCapacity, post ? 1u : 0u, 0u ),
+                 .Params3 = glm::uvec4( firstView, static_cast<uint32_t>( views.size() ), 0u, 0u ) };
             graph.AddPass(
                  post ? ( indirect ? "VirtualGeometry: Cluster Cut Post"
                                    : "VirtualGeometry: Cluster Cut Post Args" )
@@ -453,8 +438,11 @@ namespace Desert::Graphic::VirtualGeometry
         const uint32_t           threads   = ( culled.VisibleCapacity + kBinGroupSize - 1u ) / kBinGroupSize;
         for ( const uint32_t step : { kBinStepCount, kBinStepOffsets, kBinStepScatter } )
         {
-            const BinPush  push{ glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
-                                glm::uvec4( slots, binRows, Geometry::kClusterMaxTriangles * 3u, countViews ) };
+            // Params: step, visible capacity, group count, primitive rows of the pass table.
+            // Params2: draw slot rows, bin rows, vertices per cluster draw, cut views counted.
+            const ShaderPush::RasterBinning push{
+                 .Params  = glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
+                 .Params2 = glm::uvec4( slots, binRows, Geometry::kClusterMaxTriangles * 3u, countViews ) };
             const uint32_t groupsX = step == kBinStepOffsets ? 1u : threads;
             graph.AddPass(
                  step == kBinStepCount     ? "VirtualGeometry: Raster Binning Count"
@@ -479,7 +467,7 @@ namespace Desert::Graphic::VirtualGeometry
                           .Storage( P::RasterBinningGroupCursor, cursor, W )
                           .Storage( P::RasterBinningRows, bins.Rows, W )
                           .Storage( P::RasterBinningGroupViewCounts, bins.GroupViewCounts, W )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( BinPush ) ) );
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( ShaderPush::RasterBinning ) ) );
                  },
                  [pipeline = program.Pipeline, push, groupsX]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

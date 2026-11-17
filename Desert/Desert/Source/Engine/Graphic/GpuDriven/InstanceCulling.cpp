@@ -1,5 +1,6 @@
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -58,15 +59,6 @@ namespace Desert::Graphic::GpuDriven
         constexpr uint32_t    kStepMain      = 1u;
         constexpr uint32_t    kStepPost      = 2u;
         constexpr uint32_t    kStepArgs      = 3u;
-
-        // InstanceCull.shader's push block: Params, Params2, Params3 (x = VG primitive rows, y = VG candidate
-        // rows per cut view; 0 = no append).
-        struct CullPush
-        {
-            glm::uvec4 Params{ 0u };
-            glm::uvec4 Params2{ 0u };
-            glm::uvec4 Params3{ 0u };
-        };
 
         glm::uvec3 Grid( const uint64_t threads )
         {
@@ -247,7 +239,7 @@ namespace Desert::Graphic::GpuDriven
                  .Storage( P::GpuCullContentHash, b.ContentHash, W )
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( P::GpuCullHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( CullPush ) ) );
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ShaderPush::InstanceCull ) ) );
             if ( argsAsIndirect )
             {
                 pass.Read( b.DispatchArgs, RDG::Access::IndirectArgs );
@@ -258,8 +250,8 @@ namespace Desert::Graphic::GpuDriven
         }
 
         void AddStep( RDG::Builder& graph, const std::string& name, const InstanceCulling::Program& program,
-                      const GpuSceneBuffers& scene, const DispatchBinds& binds, const CullPush push,
-                      const uint64_t threads, const bool indirect )
+                      const GpuSceneBuffers& scene, const DispatchBinds& binds,
+                      const ShaderPush::InstanceCull push, const uint64_t threads, const bool indirect )
         {
             const glm::uvec3 grid = Grid( threads );
             graph.AddPass(
@@ -440,7 +432,7 @@ namespace Desert::Graphic::GpuDriven
                  !kept )
                 return Common::MakeError<MainPhaseResult>( kept.GetError() );
 
-            CullPush push;
+            ShaderPush::InstanceCull push;
             push.Params  = { kStepInitDraws, instances, local, firstRow[p] };
             push.Params2 = { hasBins ? bins : 0u, capacity,
                              hasBins ? static_cast<uint32_t>( table.PrimitiveDraws.size() ) : 0u,
@@ -534,7 +526,7 @@ namespace Desert::Graphic::GpuDriven
                 return Common::MakeError<Result>( kept.GetError() );
             binds.ArgsSlot = ZeroBuffer( graph, std::format( "GPUDriven.PostArgsSlot.P{}", p ) );
 
-            CullPush push;
+            ShaderPush::InstanceCull push;
             push.Params  = { kStepInitDraws, carry.InstanceCount, local, firstRow[p] };
             push.Params2 = { hasBins ? bins : 0u, table.VisibleCapacity,
                              hasBins ? static_cast<uint32_t>( table.PrimitiveDraws.size() ) : 0u, 1u };

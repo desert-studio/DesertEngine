@@ -336,6 +336,9 @@ function(desert_engine_header_tool_command out)
         --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp
         "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"
         --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp
-        "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp")
+        "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"
+        # The C++ push structs of the shaders' PushConstant blocks (Engine/Generated/ShaderPushConstants.gen.hpp).
+        --shader-push "${DESERT_ROOT}/Editor/Resources/Shaders"
+        "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/ShaderPushConstants.gen.hpp")
     set(${out} ${_cmd} PARENT_SCOPE)
 endfunction()

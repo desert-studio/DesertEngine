@@ -14,6 +14,7 @@
 //                               [--reflect-components <output-file>]]
 //                    [--check <include-root>]... [--context <include-root>]...
 //                    [--subsystems <Owner> <OwnerType> <owner-header> <output-file>]...
+//                    [--shader-push <shader-root> <output-file>]
 //     --templates    directory of the *.tpl text templates (Tools/DesertHeaderTool/Templates).
 //     --modules      the module table. The repository root is its file's grandparent.
 //     --reflect      REFLECT()/PROPERTY()/FUNCTION() registration of <source-root>/<scan-subdir>: the module list
@@ -30,6 +31,9 @@
 //     --check        sources whose routed-event handlers are verified (a build error with file:line).
 //     --context      sources read for events, bases and attachments but not diagnosed.
 //     --subsystems   CreateSubsystems() of <OwnerType> for every DESERT_SUBSYSTEM( <Owner> ) class.
+//     --shader-push  the C++ push struct of every PushConstant block of <shader-root>/**/*.shader, std430
+//                    offsets asserted (Source/ShaderPushBlocks.hpp): the one declaration of a pass's push block
+//                    is the shader's, the C++ side is generated from it.
 //
 //     --reflect-components  after --reflect: the COMPONENT(...) rows as a header
 //     (ReflectedComponentBlocks.gen.hpp).
@@ -46,6 +50,7 @@
 #include "Source/ComponentBlocks.hpp"
 #include "Source/HeaderScan.hpp"
 #include "Source/ModuleTable.hpp"
+#include "Source/ShaderPushBlocks.hpp"
 
 #include <cctype>
 #include <filesystem>
@@ -1412,6 +1417,65 @@ namespace
              .Build();
     }
 
+    Common::Json::Value ShaderPushModel( const std::vector<Desert::HeaderTool::ShaderPushStruct>& structs )
+    {
+        Common::Json::Value::Array rows;
+        for ( const auto& s : structs )
+        {
+            Common::Json::Value::Array fields;
+            for ( const auto& f : s.Fields )
+                fields.emplace_back(
+                     Common::Json::ObjectBuilder()
+                          .Set( "type", f.CppType )
+                          .Set( "name", f.Name )
+                          .Set( "extent", f.Count == 0u ? std::string() : std::format( "[{}]", f.Count ) )
+                          .Set( "offset", std::to_string( f.Offset ) )
+                          .Build() );
+            rows.emplace_back( Common::Json::ObjectBuilder()
+                                    .Set( "name", s.Name )
+                                    .Set( "source", s.Source )
+                                    .Set( "size", std::to_string( s.Size ) )
+                                    .Set( "fields", Common::Json::Value( std::move( fields ) ) )
+                                    .Build() );
+        }
+        return Common::Json::ObjectBuilder().Set( "structs", Common::Json::Value( std::move( rows ) ) ).Build();
+    }
+
+    // --shader-push: every *.shader under `root` -> the push structs in `output`. 0 on success, 1 with the
+    // diagnostics on stderr (a block the generator cannot lay out exactly fails the build).
+    int ShaderPush( const fs::path& templateDir, const fs::path& root, const fs::path& output )
+    {
+        if ( !fs::is_directory( root ) )
+        {
+            std::cerr << "[DesertHeaderTool] shader root does not exist: " << root << "\n";
+            return 1;
+        }
+        std::vector<Desert::HeaderTool::ShaderSource> sources;
+        for ( const fs::path& path : SortedSourceTree( root, { ".shader" } ) )
+            sources.push_back( { path.lexically_relative( root ).generic_string(), ReadFile( path ) } );
+        const Desert::HeaderTool::ShaderPushScan scan = Desert::HeaderTool::ScanShaderPushBlocks( sources );
+        for ( const std::string& error : scan.Errors )
+            std::cerr << root.generic_string() << "/" << error << " [DesertHeaderTool: shader push block]\n";
+        if ( !scan.Errors.empty() )
+            return 1;
+        auto rendered =
+             RenderTemplate( templateDir, "ShaderPushConstants.gen.hpp.tpl", ShaderPushModel( scan.Structs ) );
+        if ( !rendered.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << rendered.GetError() << "\n";
+            return 1;
+        }
+        const Common::BoolResultStr written = WriteIfChanged( output, rendered.ExtractValue() );
+        if ( !written.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << written.GetError() << "\n";
+            return 1;
+        }
+        std::cout << "[DesertHeaderTool] " << ( written.GetValue() ? "generated " : "up to date " ) << output.string()
+                  << " (" << scan.Structs.size() << " shader push structs)\n";
+        return 0;
+    }
+
     // One source tree the reflected types are read from: its include root and the directory under it scanned.
     struct ReflectRoot
     {
@@ -1608,6 +1672,7 @@ static int RunTool( int argc, char** argv )
     std::vector<SubsystemsRequest> subsystemRequests;
     std::vector<fs::path>          checkRoots;
     std::vector<fs::path>          contextRoots;
+    std::optional<std::pair<fs::path, fs::path>> shaderPush;
     for ( int i = 1; i < argc; ++i )
     {
         const std::string_view arg  = argv[i];
@@ -1639,6 +1704,11 @@ static int RunTool( int argc, char** argv )
             reflect->Anchor = argv[++i];
         else if ( arg == "--reflect-components" && left >= 1 && reflect )
             reflect->Components = argv[++i];
+        else if ( arg == "--shader-push" && left >= 2 )
+        {
+            shaderPush.emplace( argv[i + 1], argv[i + 2] );
+            i += 2;
+        }
         else if ( arg == "--subsystems" && left >= 4 )
         {
             subsystemRequests.push_back( { argv[i + 1], argv[i + 2], argv[i + 3], argv[i + 4] } );
@@ -1651,7 +1721,7 @@ static int RunTool( int argc, char** argv )
             break;
         }
     }
-    if ( !templateDir || ( !reflect && checkRoots.empty() ) )
+    if ( !templateDir || ( !reflect && checkRoots.empty() && !shaderPush ) )
     {
         std::cerr << "Usage: DesertHeaderTool --templates <dir> [--modules <build>/DesertModules.json]\n"
                      "       [--reflect <source-root> <scan-subdir> <output> [--reflect-anchor <Name>]\n"
@@ -1659,7 +1729,8 @@ static int RunTool( int argc, char** argv )
                      "                  [--reflect-enums <scan-dir>]...\n"
                      "                  [--reflect-components <output>]]\n"
                      "       [--check <include-root>]... [--context <include-root>]...\n"
-                     "       [--subsystems <Owner> <OwnerType> <owner-header> <output>]...\n";
+                     "       [--subsystems <Owner> <OwnerType> <owner-header> <output>]...\n"
+                     "       [--shader-push <shader-root> <output>]\n";
         return 1;
     }
 
@@ -1706,6 +1777,10 @@ static int RunTool( int argc, char** argv )
         std::cout << "[DesertHeaderTool] " << ( written.GetValue() ? "generated " : "up to date " )
                   << request.Output.string() << " (" << owned.size() << " " << request.Owner << " subsystems)\n";
     }
+
+    if ( shaderPush )
+        if ( const int failed = ShaderPush( *templateDir, shaderPush->first, shaderPush->second ); failed != 0 )
+            return failed;
 
     if ( !reflect )
         return 0;
