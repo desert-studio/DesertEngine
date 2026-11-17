@@ -566,14 +566,16 @@ namespace Desert::Editor
                 m_OpenReplacePrefab    = true; // deferred: OpenPopup at panel scope (see OnUIRender)
             }
 
-            // UE's Create Level Instance: the selection (when this row is in it, else this row) becomes one new prefab
-            // and one instance of it. Deferred like the replace above; this row is the Selected Entity pivot.
+            // UE's Create Level Instance: the selection (when this row is in it, else this row) becomes one new
+            // prefab and one instance of it. Deferred like the replace above; this row is the Selected Entity
+            // pivot.
             if ( ImGui::BeginMenu( ICON_MDI_PACKAGE_VARIANT " Create Prefab from Selection" ) )
             {
                 for ( const Commands::PrefabPivot pivot :
-                      { Commands::PrefabPivot::Center, Commands::PrefabPivot::CenterMin, Commands::PrefabPivot::Entity,
-                        Commands::PrefabPivot::WorldOrigin } )
-                    if ( ImGui::MenuItem( std::format( "Pivot: {}", Commands::PrefabPivotLabel( pivot ) ).c_str() ) )
+                      { Commands::PrefabPivot::Center, Commands::PrefabPivot::CenterMin,
+                        Commands::PrefabPivot::Entity, Commands::PrefabPivot::WorldOrigin } )
+                    if ( ImGui::MenuItem(
+                              std::format( "Pivot: {}", Commands::PrefabPivotLabel( pivot ) ).c_str() ) )
                         m_PendingPrefabFromSelection = std::make_pair( pivot, UUID );
                 ImGui::EndMenu();
             }
@@ -590,7 +592,7 @@ namespace Desert::Editor
                     m_PendingPrefabRevert = UUID; // deferred: replaces the subtree after iteration
                 if ( ImGui::Selectable( ICON_MDI_PACKAGE_VARIANT_CLOSED " Break Prefab (one level)" ) )
                 {
-                    m_PendingPrefabUnpack          = UUID; // deferred: Commands::BreakPrefabInstance after iteration
+                    m_PendingPrefabUnpack = UUID; // deferred: Commands::BreakPrefabInstance after iteration
                     m_PendingPrefabUnpackAllLevels = false;
                 }
                 if ( ImGui::Selectable( ICON_MDI_PACKAGE_VARIANT_CLOSED " Break Prefab (all levels)" ) )
@@ -1144,23 +1146,23 @@ namespace Desert::Editor
             const std::vector<Common::UUID> members = Core::SelectionManager::IsSelected( clicked )
                                                            ? Core::SelectionManager::GetSelection()
                                                            : std::vector<Common::UUID>{ clicked };
-            std::string stem = "Prefab";
-            if ( auto found = m_Scene->FindEntityByID( clicked ); found && found->get().HasComponent<ECS::TagComponent>() )
+            std::string                     stem    = "Prefab";
+            if ( auto found = m_Scene->FindEntityByID( clicked );
+                 found && found->get().HasComponent<ECS::TagComponent>() )
                 stem = found->get().GetComponent<ECS::TagComponent>().Tag;
-            if ( const auto created = Commands::CreatePrefabFromSelection( members, Commands::UniquePrefabPath( stem ),
-                                                                           pivot, clicked );
+            if ( const auto created = Commands::CreatePrefabFromSelection(
+                      members, Commands::UniquePrefabPath( stem ), pivot, clicked );
                  !created.IsSuccess() )
                 LOG_ERROR( "[Prefab] {}", created.GetError() );
         }
         if ( m_PendingPrefabUnpack.has_value() )
         {
-            // THE ONE ROUTE (Commands::BreakPrefabInstance): undoable, and it takes the record addresses off as well as
-            // the link. The strip that stood here left them, so "plain" entities still claimed prefab records, and a
-            // prefab cut from two of them wrote one record id twice.
-            const auto broken = Commands::BreakPrefabInstance( *m_PendingPrefabUnpack,
-                                                               m_PendingPrefabUnpackAllLevels
-                                                                    ? Commands::BreakDepth::AllLevels
-                                                                    : Commands::BreakDepth::OneLevel );
+            // THE ONE ROUTE (Commands::BreakPrefabInstance): undoable, and it takes the record addresses off as
+            // well as the link. The strip that stood here left them, so "plain" entities still claimed prefab
+            // records, and a prefab cut from two of them wrote one record id twice.
+            const auto broken = Commands::BreakPrefabInstance(
+                 *m_PendingPrefabUnpack, m_PendingPrefabUnpackAllLevels ? Commands::BreakDepth::AllLevels
+                                                                        : Commands::BreakDepth::OneLevel );
             if ( !broken.IsSuccess() )
                 LOG_ERROR( "[Prefab] {}", broken.GetError() );
             m_PendingPrefabUnpack.reset();

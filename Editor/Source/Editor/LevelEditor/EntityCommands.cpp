@@ -410,11 +410,13 @@ namespace Desert::Editor
                                       return Common::MakeError<bool>( folded.GetError() );
                                   return Common::MakeSuccess( true );
                               } } );
-        // UE's Create Level Instance from the selection: one entry per pivot, because the pivot is the one choice the
-        // operation asks and a palette entry asks nothing. The file is a new one named after the primary (last
-        // selected) entity, which is also the Selected Entity pivot - UE's pivot actor defaults to the selection's.
-        for ( const Commands::PrefabPivot pivot : { Commands::PrefabPivot::Center, Commands::PrefabPivot::CenterMin,
-                                                    Commands::PrefabPivot::Entity, Commands::PrefabPivot::WorldOrigin } )
+        // UE's Create Level Instance from the selection: one entry per pivot, because the pivot is the one choice
+        // the operation asks and a palette entry asks nothing. The file is a new one named after the primary (last
+        // selected) entity, which is also the Selected Entity pivot - UE's pivot actor defaults to the
+        // selection's.
+        for ( const Commands::PrefabPivot pivot :
+              { Commands::PrefabPivot::Center, Commands::PrefabPivot::CenterMin, Commands::PrefabPivot::Entity,
+                Commands::PrefabPivot::WorldOrigin } )
         {
             commands.push_back(
                  { "Entity",
@@ -429,31 +431,31 @@ namespace Desert::Editor
                        const std::string  stem    = found && found->get().HasComponent<ECS::TagComponent>()
                                                          ? found->get().GetComponent<ECS::TagComponent>().Tag
                                                          : std::string( "Prefab" );
-                       const auto created = Commands::CreatePrefabFromSelection(
+                       const auto         created = Commands::CreatePrefabFromSelection(
                             selection, Commands::UniquePrefabPath( stem ), pivot, primary );
                        if ( !created.IsSuccess() )
                            return Common::MakeError<bool>( created.GetError() );
                        return Common::MakeSuccess( true );
                    } } );
         }
-        for ( const Commands::BreakDepth depth : { Commands::BreakDepth::OneLevel, Commands::BreakDepth::AllLevels } )
+        for ( const Commands::BreakDepth depth :
+              { Commands::BreakDepth::OneLevel, Commands::BreakDepth::AllLevels } )
         {
-            commands.push_back( { "Entity",
-                                  depth == Commands::BreakDepth::OneLevel ? "Break selected prefab (one level)"
-                                                                          : "Break selected prefab (all levels)",
-                                  [depth]
-                                  {
-                                      const std::vector<Common::UUID> selection =
-                                           Core::SelectionManager::GetSelection();
-                                      if ( selection.size() != 1 )
-                                          return Common::MakeFormattedError<bool>(
-                                               "select exactly one prefab instance to break ({} selected)",
-                                               selection.size() );
-                                      const auto broken = Commands::BreakPrefabInstance( selection.front(), depth );
-                                      if ( !broken.IsSuccess() )
-                                          return Common::MakeError<bool>( broken.GetError() );
-                                      return Common::MakeSuccess( true );
-                                  } } );
+            commands.push_back(
+                 { "Entity",
+                   depth == Commands::BreakDepth::OneLevel ? "Break selected prefab (one level)"
+                                                           : "Break selected prefab (all levels)",
+                   [depth]
+                   {
+                       const std::vector<Common::UUID> selection = Core::SelectionManager::GetSelection();
+                       if ( selection.size() != 1 )
+                           return Common::MakeFormattedError<bool>(
+                                "select exactly one prefab instance to break ({} selected)", selection.size() );
+                       const auto broken = Commands::BreakPrefabInstance( selection.front(), depth );
+                       if ( !broken.IsSuccess() )
+                           return Common::MakeError<bool>( broken.GetError() );
+                       return Common::MakeSuccess( true );
+                   } } );
         }
     }
 

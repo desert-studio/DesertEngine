@@ -69,17 +69,19 @@ namespace Desert::Assets
             ECS::LocalTransform InRoot;
         };
 
-        // UE's ULevelInstanceSubsystem::CreateLevelInstanceFrom: @p members become the children of a NEW root record
-        // named @p rootTag that stands at the file's origin. Each member's subtree is captured by CreateFromEntity's
-        // rules (a nested instance is a link carrying its overrides, never a copy of its body); its own transform is
-        // InRoot - on the record for a plain entity, in the link's root override for a prefab instance, which is
-        // where a nesting record's placement lives. Refused, the payload as it was, when there is no member or an
-        // instance member's root carries no record address to place it by.
-        [[nodiscard]] Common::BoolResultStr CreateFromEntities( std::string_view rootTag, std::span<const Member> members,
-                                                                const AssetManager& assetManager );
+        // UE's ULevelInstanceSubsystem::CreateLevelInstanceFrom: @p members become the children of a NEW root
+        // record named @p rootTag that stands at the file's origin. Each member's subtree is captured by
+        // CreateFromEntity's rules (a nested instance is a link carrying its overrides, never a copy of its body);
+        // its own transform is InRoot, stated on its record - a nesting record's placement lives there too
+        // (PrefabFactory places the nested root by it). Refused, the payload as it was, when there is no member or
+        // a member entity is gone.
+        [[nodiscard]] Common::BoolResultStr CreateFromEntities( std::string_view        rootTag,
+                                                                std::span<const Member> members,
+                                                                const AssetManager&     assetManager );
 
-        // The box this prefab's body occupies in its root's frame - the partitioner's rule (Rules::PrefabBounds), the
-        // one Serialize states in the file and the registry carries. nullopt when nothing in the body has an extent.
+        // The box this prefab's body occupies in its root's frame - the partitioner's rule (Rules::PrefabBounds),
+        // the one Serialize states in the file and the registry carries. nullopt when nothing in the body has an
+        // extent.
         [[nodiscard]] std::optional<Common::Math::AABB> BodyBounds() const;
 
         // The GUID the file's header states; null for a prefab no file holds yet. Serialize writes it
@@ -114,11 +116,10 @@ namespace Desert::Assets
                                                                   const glm::vec3*    position = nullptr ) const;
 
     private:
-        // CreateFromEntity's walk: @p e and its subtree, pre-order, appended to the payload. True when @p e was written
-        // as a nested prefab LINK (never for @p isRoot); @p linkPath, when given, then receives that instance root's
-        // own override address, which is where a link's placement is stated.
-        bool AppendSubtree( ECS::Entity e, bool isRoot, const AssetManager& assetManager,
-                            std::optional<std::vector<Common::UUID>>* linkPath );
+        // CreateFromEntity's walk: @p e and its subtree, pre-order, appended to the payload. A nested instance
+        // (never
+        // @p isRoot) is written as ONE link record that states the instance root's placement on itself.
+        void AppendSubtree( ECS::Entity e, bool isRoot, const AssetManager& assetManager );
 
         Common::Content::AssetGuid m_Guid;
         std::vector<EntityData>    m_EntityData;

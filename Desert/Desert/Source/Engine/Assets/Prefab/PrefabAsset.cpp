@@ -16,7 +16,6 @@
 #include <unordered_set>
 #include <algorithm>
 #include <format>
-#include <iterator>
 
 namespace Desert::Assets
 {
@@ -159,11 +158,10 @@ namespace Desert::Assets
         return Common::MakeSuccess( std::move( created ) );
     }
 
-    bool PrefabAsset::AppendSubtree( ECS::Entity e, bool isRoot, const AssetManager& assetManager,
-                                     std::optional<std::vector<Common::UUID>>* linkPath )
+    void PrefabAsset::AppendSubtree( ECS::Entity e, bool isRoot, const AssetManager& assetManager )
     {
         if ( !e )
-            return false;
+            return;
 
         EntityData record = Core::Serialize::EntitySerializer::SerializeEntity( e, assetManager );
 
@@ -176,8 +174,7 @@ namespace Desert::Assets
         // nested prefab reached only one of the two copies. Stopping here is what makes "nested
         // prefab" mean a reference at all; what the instance holds of its own travels as overrides
         // on this record, exactly as it does for a scene.
-        const bool stopsHere =
-             !isRoot && e.HasComponent<ECS::PrefabComponent>() && record.PrefabPath.has_value();
+        const bool stopsHere = !isRoot && e.HasComponent<ECS::PrefabComponent>() && record.PrefabPath.has_value();
 
         // A RECORD ID IS A LINK KEY, AND IT MUST SURVIVE "APPLY INSTANCE CHANGES TO PREFAB".
         //
@@ -208,22 +205,40 @@ namespace Desert::Assets
 
         if ( stopsHere )
         {
-            const auto capture = Core::Serialize::CapturePrefabInstance( e, assetManager );
-            if ( linkPath != nullptr )
-                *linkPath = capture.RootPath;
+            // A LINK STANDS WHERE ITS RECORD SAYS (UE: a level instance nested in a level carries its own actor
+            // transform there). The record keeps the nested root's local transform SerializeEntity wrote, and the
+            // root's override loses the same three fields, so the placement has one home: the one the factory
+            // places the nested root by, the one IndexBaseRecords bases the next capture on, and the one
+            // Rules::PrefabBounds composes the nested box with (an override is invisible to it, so a link whose
+            // placement lived there was measured at its parent's origin).
+            auto capture = Core::Serialize::CapturePrefabInstance( e, assetManager );
+            if ( capture.RootPath.has_value() )
+            {
+                for ( PrefabOverrideData& over : capture.Overrides )
+                {
+                    if ( over.Path != *capture.RootPath )
+                        continue;
+                    over.Translation.reset();
+                    over.Rotation.reset();
+                    over.Scale.reset();
+                }
+                std::erase_if( capture.Overrides,
+                               [&]( const PrefabOverrideData& over )
+                               {
+                                   return over.Path == *capture.RootPath && !over.Tag.has_value() &&
+                                          over.Components.begin() == over.Components.end();
+                               } );
+            }
             if ( !capture.Overrides.empty() )
             {
-                record.PrefabOverrides = capture.Overrides;
+                record.PrefabOverrides = std::move( capture.Overrides );
             }
 
             record.Tag = std::nullopt;
-            record.Translation.reset();
-            record.Rotation.reset();
-            record.Scale.reset();
             record.Components.clear();
 
             m_EntityData.push_back( std::move( record ) );
-            return true;
+            return;
         }
 
         m_EntityData.push_back( std::move( record ) );
@@ -234,19 +249,19 @@ namespace Desert::Assets
             const auto& rel = e.GetComponent<ECS::RelationshipComponent>();
             for ( auto childHandle : rel.Children )
             {
-                (void)AppendSubtree( ECS::Entity{ childHandle, *e.GetRegistry() }, false, assetManager, nullptr );
+                AppendSubtree( ECS::Entity{ childHandle, *e.GetRegistry() }, false, assetManager );
             }
         }
-        return false;
     }
 
     void PrefabAsset::CreateFromEntity( ECS::Entity rootEntity, const AssetManager& assetManager )
     {
-        if ( !rootEntity ) return;
+        if ( !rootEntity )
+            return;
 
         m_EntityData.clear();
 
-        (void)AppendSubtree( rootEntity, true, assetManager, nullptr );
+        AppendSubtree( rootEntity, true, assetManager );
 
         // Root entity's own PrefabComponent points to this very file — strip it from the
         // serialized data so that re-instantiating doesn't recurse into itself.
@@ -258,8 +273,9 @@ namespace Desert::Assets
         m_CapturedInMemory = true;
     }
 
-    Common::BoolResultStr PrefabAsset::CreateFromEntities( std::string_view rootTag, std::span<const Member> members,
-                                                           const AssetManager& assetManager )
+    Common::BoolResultStr PrefabAsset::CreateFromEntities( std::string_view        rootTag,
+                                                           std::span<const Member> members,
+                                                           const AssetManager&     assetManager )
     {
         std::vector<EntityData> previous = std::move( m_EntityData );
         m_EntityData.clear();
@@ -269,9 +285,11 @@ namespace Desert::Assets
             return Common::MakeError<bool>( std::move( reason ) );
         };
         if ( members.empty() )
-            return refuse( std::format( "prefab '{}' not captured: no entity to capture", m_Metadata.Filepath.string() ) );
+            return refuse(
+                 std::format( "prefab '{}' not captured: no entity to capture", m_Metadata.Filepath.string() ) );
 
-        // THE NEW ROOT IS DATA ONLY: no entity stands for it in the scene, so nothing is created and torn down again.
+        // THE NEW ROOT IS DATA ONLY: no entity stands for it in the scene, so nothing is created and torn down
+        // again.
         EntityData root;
         root.id                   = Common::UUID::Generate();
         root.Tag                  = std::string( rootTag );
@@ -283,50 +301,19 @@ namespace Desert::Assets
 
         for ( const Member& member : members )
         {
-            ECS::Entity entity = member.Entity;
-            if ( !entity )
+            if ( !member.Entity )
                 return refuse( std::format( "prefab '{}' not captured: a member entity no longer exists",
                                             m_Metadata.Filepath.string() ) );
-            const std::size_t                        first = m_EntityData.size();
-            std::optional<std::vector<Common::UUID>> linkPath;
-            const bool  asLink = AppendSubtree( entity, false, assetManager, &linkPath );
-            EntityData& top    = m_EntityData[first];
-            top.parent         = rootId;
-            if ( !asLink )
-            {
-                top.Translation = member.InRoot.Translation;
-                top.Rotation    = member.InRoot.Rotation;
-                top.Scale       = member.InRoot.Scale;
-                continue;
-            }
-
-            // A LINK'S PLACEMENT IS ITS ROOT OVERRIDE (CreateFromEntity clears the nesting record's transform), so
-            // the member's place in the new frame is stated there - all three fields, as a scene record states an
-            // instance's transform whatever the prefab's root says.
-            if ( !linkPath.has_value() )
-            {
-                const std::string tag =
-                     entity.HasComponent<ECS::TagComponent>() ? entity.GetComponent<ECS::TagComponent>().Tag : "";
-                return refuse( std::format( "prefab '{}' not captured: the instance '{}' carries no record address of "
-                                            "its own prefab, so nothing could place it in the new one; revert it to "
-                                            "its prefab first",
-                                            m_Metadata.Filepath.string(), tag ) );
-            }
-            if ( !top.PrefabOverrides.has_value() )
-                top.PrefabOverrides.emplace();
-            std::vector<PrefabOverrideData>& overrides = *top.PrefabOverrides;
-            auto own = std::find_if( overrides.begin(), overrides.end(),
-                                     [&]( const PrefabOverrideData& over ) { return over.Path == *linkPath; } );
-            if ( own == overrides.end() )
-            {
-                PrefabOverrideData placement;
-                placement.Path = *linkPath;
-                overrides.push_back( std::move( placement ) );
-                own = std::prev( overrides.end() );
-            }
-            own->Translation = member.InRoot.Translation;
-            own->Rotation    = member.InRoot.Rotation;
-            own->Scale       = member.InRoot.Scale;
+            // The member's own record is the first its walk appends, a plain entity's or a nested link's alike:
+            // both state their placement on the record (AppendSubtree), so the new frame is written there for
+            // both.
+            const std::size_t first = m_EntityData.size();
+            AppendSubtree( member.Entity, false, assetManager );
+            EntityData& top = m_EntityData[first];
+            top.parent      = rootId;
+            top.Translation = member.InRoot.Translation;
+            top.Rotation    = member.InRoot.Rotation;
+            top.Scale       = member.InRoot.Scale;
         }
 
         m_IsLoaded = true;
@@ -337,8 +324,8 @@ namespace Desert::Assets
 
     std::optional<Common::Math::AABB> PrefabAsset::BodyBounds() const
     {
-        const Common::UUID root =
-             m_EntityData.empty() ? Common::UUID::Null() : m_EntityData.front().id.value_or( Common::UUID::Null() );
+        const Common::UUID   root = m_EntityData.empty() ? Common::UUID::Null()
+                                                         : m_EntityData.front().id.value_or( Common::UUID::Null() );
         Common::Json::Issues issues;
         auto box = Core::Rules::PrefabBounds( m_EntityData, root, &ContentRegistry::BoundsOf, issues );
         if ( !issues.empty() )

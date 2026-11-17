@@ -91,7 +91,8 @@ namespace Desert::Editor
         std::string                 m_ReplacePrefabError;
         std::optional<Common::UUID> m_PendingPrefabUnpack; // Commands::BreakPrefabInstance after iteration
         bool                        m_PendingPrefabUnpackAllLevels = true;
-        // Create Prefab from Selection: the pivot and the clicked row (the Selected Entity pivot, and the file's name).
+        // Create Prefab from Selection: the pivot and the clicked row (the Selected Entity pivot, and the file's
+        // name).
         std::optional<std::pair<Commands::PrefabPivot, Common::UUID>> m_PendingPrefabFromSelection;
         // Deferred structural edits, applied after the UI iteration (they create/destroy entities or edit
         // the Children vectors the tree walk is iterating). Lists: an operation on an entity that is part

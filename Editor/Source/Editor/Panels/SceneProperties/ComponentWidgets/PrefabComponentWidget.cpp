@@ -127,9 +127,10 @@ namespace Desert::Editor
                 Utils::ImGuiUtilities::PopID();
                 return; // the link is gone (or the refusal is logged); stop rendering this widget
             }
-            Utils::ImGuiUtilities::Tooltip( "Break the prefab link one level: this instance's entities become regular "
-                                            "objects; prefabs nested in it stay instances (the Outliner's Break Prefab "
-                                            "(all levels) breaks those too)" );
+            Utils::ImGuiUtilities::Tooltip(
+                 "Break the prefab link one level: this instance's entities become regular "
+                 "objects; prefabs nested in it stay instances (the Outliner's Break Prefab "
+                 "(all levels) breaks those too)" );
 
             ImGui::SameLine();
         }

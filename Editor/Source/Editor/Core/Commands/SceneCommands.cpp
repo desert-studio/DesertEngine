@@ -35,6 +35,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <filesystem>
 #include <string_view>
 
@@ -1730,8 +1731,9 @@ namespace Desert::Editor::Commands
 
     namespace
     {
-        // An entity that is PART of a prefab instance and not a scene-level instance's root: its record address names
-        // a record of an enclosing instance, so it cannot leave that instance without the instance losing it.
+        // An entity that is PART of a prefab instance and not a scene-level instance's root: its record address
+        // names a record of an enclosing instance, so it cannot leave that instance without the instance losing
+        // it.
         bool SitsInsideInstance( ECS::Entity entity )
         {
             if ( !entity.HasComponent<ECS::PrefabInstanceComponent>() )
@@ -1755,8 +1757,9 @@ namespace Desert::Editor::Commands
             return false;
         }
 
-        // @p entity's transform in the frame @p frameId (Null = the scene root): its own local values when it already
-        // hangs there (exact - nothing is decomposed), else its world matrix brought into the frame by @p toFrame.
+        // @p entity's transform in the frame @p frameId (Null = the scene root): its own local values when it
+        // already hangs there (exact - nothing is decomposed), else its world matrix brought into the frame by @p
+        // toFrame.
         ECS::LocalTransform MemberTransformInFrame( ECS::Entity entity, const Common::UUID& frameId,
                                                     const glm::mat4& toFrame )
         {
@@ -1770,13 +1773,14 @@ namespace Desert::Editor::Commands
             glm::vec3 skew( 0.0f );
             glm::vec4 perspective( 0.0f );
             glm::quat rotation( 1.0f, 0.0f, 0.0f, 0.0f );
-            glm::decompose( toFrame * entity.GetWorldTransform(), scale, rotation, translation, skew, perspective );
+            glm::decompose( toFrame * entity.GetWorldTransform(), scale, rotation, translation, skew,
+                            perspective );
             return ECS::LocalTransform{ translation, glm::eulerAngles( rotation ), scale };
         }
 
-        // What Break took off one entity, addressed by UUID like every other history entry: the broken level's prefab
-        // link (PrefabComponent, on its roots) and the entity's record address - removed, or, for an entity of a nested
-        // instance that stays one under OneLevel, shortened by the broken level's element.
+        // What Break took off one entity, addressed by UUID like every other history entry: the broken level's
+        // prefab link (PrefabComponent, on its roots) and the entity's record address - removed, or, for an entity
+        // of a nested instance that stays one under OneLevel, shortened by the broken level's element.
         struct BrokenLink
         {
             Common::UUID                                            Entity;
@@ -1847,8 +1851,8 @@ namespace Desert::Editor::Commands
                     }
                     any = true;
                 }
-                // The saver writes a broken instance's entities as the scene's own from now on (and an undone break as
-                // a link again), so the whole subtree is dirty: a partitioned save rewrites its files.
+                // The saver writes a broken instance's entities as the scene's own from now on (and an undone
+                // break as a link again), so the whole subtree is dirty: a partitioned save rewrites its files.
                 if ( auto root = FindEntity( m_Root ) )
                     s_Scene->MarkModifiedSubtree( *root );
                 return any;
@@ -1870,8 +1874,10 @@ namespace Desert::Editor::Commands
     std::filesystem::path UniquePrefabPath( std::string_view stem )
     {
         std::string base( stem );
+        // A tag may hold anything; a file name on either platform may not (Windows refuses <>:"/\\|?* and control
+        // characters), so everything but a letter, a digit, '-' and '_' becomes '_'.
         for ( char& ch : base )
-            if ( ch == ' ' || ch == '/' || ch == '\\' || ch == ':' )
+            if ( !std::isalnum( static_cast<unsigned char>( ch ) ) && ch != '-' && ch != '_' )
                 ch = '_';
         if ( base.empty() )
             base = "Prefab";
@@ -1910,19 +1916,20 @@ namespace Desert::Editor::Commands
         {
             const auto entity = FindEntity( uuid );
             if ( !entity )
-                return Common::MakeFormattedError<Result>( "Create Prefab from Selection: entity {} is not in the scene",
-                                                           static_cast<uint64_t>( uuid ) );
-            if ( SitsInsideInstance( *entity ) )
                 return Common::MakeFormattedError<Result>(
-                     "Create Prefab from Selection: '{}' is part of a prefab instance; select the instance's root, or "
-                     "break the instance first",
-                     PrefabTagOf( *entity ) );
+                     "Create Prefab from Selection: entity {} is not in the scene",
+                     static_cast<uint64_t>( uuid ) );
+            if ( SitsInsideInstance( *entity ) )
+                return Common::MakeFormattedError<Result>( "Create Prefab from Selection: '{}' is part of a "
+                                                           "prefab instance; select the instance's root, or "
+                                                           "break the instance first",
+                                                           PrefabTagOf( *entity ) );
             if ( Assets::ClassifyPrefabRoot( ::Desert::Core::Serialize::EntitySerializer::SerializeEntity(
                       *entity, *s_AssetManager ) ) != Assets::PrefabRootKind::World )
-                return Common::MakeFormattedError<Result>(
-                     "Create Prefab from Selection: '{}' is a UI element, which a new root could not lay out; cut a UI "
-                     "prefab from its layout root with Save as Prefab",
-                     PrefabTagOf( *entity ) );
+                return Common::MakeFormattedError<Result>( "Create Prefab from Selection: '{}' is a UI element, "
+                                                           "which a new root could not lay out; cut a UI "
+                                                           "prefab from its layout root with Save as Prefab",
+                                                           PrefabTagOf( *entity ) );
             if ( !entities.empty() && ParentUUIDOf( *entity ) != ParentUUIDOf( entities.front() ) )
                 sharedParent = false;
             entities.push_back( *entity );
@@ -1940,9 +1947,10 @@ namespace Desert::Editor::Commands
         for ( const ECS::Entity& entity : entities )
             members.push_back( { entity, MemberTransformInFrame( entity, frameId, toFrame ) } );
 
-        // THE PIVOT, in the frame. The box is measured on the body captured with the frame's origin as its own, by the
-        // rule the file and the partitioner state it with, so Center Min is the base of the box the registry carries.
-        const std::string    rootTag = prefabFile.stem().string();
+        // THE PIVOT, in the frame. The box is measured on the body captured with the frame's origin as its own, by
+        // the rule the file and the partitioner state it with, so Center Min is the base of the box the registry
+        // carries.
+        const std::string   rootTag = prefabFile.stem().string();
         Assets::PrefabAsset draft( prefabFile );
         if ( const auto captured = draft.CreateFromEntities( rootTag, members, *s_AssetManager ); !captured )
             return Common::MakeFormattedError<Result>( "Create Prefab from Selection: {}", captured.GetError() );
@@ -1954,10 +1962,10 @@ namespace Desert::Editor::Commands
             {
                 const auto box = draft.BodyBounds();
                 if ( !box.has_value() )
-                    return Common::MakeFormattedError<Result>(
-                         "Create Prefab from Selection: nothing selected has an extent to take a '{}' pivot from; pick "
-                         "the Selected Entity or World Origin pivot",
-                         PrefabPivotLabel( pivot ) );
+                    return Common::MakeFormattedError<Result>( "Create Prefab from Selection: nothing selected "
+                                                               "has an extent to take a '{}' pivot from; pick "
+                                                               "the Selected Entity or World Origin pivot",
+                                                               PrefabPivotLabel( pivot ) );
                 origin = ( box->Min + box->Max ) * 0.5f;
                 if ( pivot == PrefabPivot::CenterMin )
                     origin.y = box->Min.y;
@@ -1981,7 +1989,8 @@ namespace Desert::Editor::Commands
         if ( const auto captured = draft.CreateFromEntities( rootTag, members, *s_AssetManager ); !captured )
             return Common::MakeFormattedError<Result>( "Create Prefab from Selection: {}", captured.GetError() );
 
-        // The file first, then the asset registered FROM it (SaveNewFromEntity's order), so it carries its header GUID.
+        // The file first, then the asset registered FROM it (SaveNewFromEntity's order), so it carries its header
+        // GUID.
         std::error_code directoryError;
         std::filesystem::create_directories( prefabFile.parent_path(), directoryError );
         if ( const auto written = draft.SaveTo( prefabFile ); !written )
@@ -2009,10 +2018,10 @@ namespace Desert::Editor::Commands
             // All of the selection or none of it: the entities come back, the written file is named.
             composite->Undo();
             OnStructuralChange();
-            return Common::MakeFormattedError<Result>(
-                 "Create Prefab from Selection: '{}' was written, but its instance was refused and the selection is "
-                 "back as it was: {}",
-                 prefabFile.generic_string(), placed.GetError() );
+            return Common::MakeFormattedError<Result>( "Create Prefab from Selection: '{}' was written, but its "
+                                                       "instance was refused and the selection is "
+                                                       "back as it was: {}",
+                                                       prefabFile.generic_string(), placed.GetError() );
         }
         const Common::UUID instanceId = UUIDOf( placed.GetValue() );
         composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ instanceId } ) );
@@ -2050,7 +2059,7 @@ namespace Desert::Editor::Commands
                     pending.push_back( child );
 
             BrokenLink link;
-            link.Entity = UUIDOf( entity );
+            link.Entity           = UUIDOf( entity );
             const bool brokenRoot = entity.GetHandle() == root->GetHandle() || depth == BreakDepth::AllLevels;
             if ( brokenRoot && entity.HasComponent<ECS::PrefabComponent>() )
                 link.Prefab = entity.GetComponent<ECS::PrefabComponent>().Prefab;
@@ -2058,7 +2067,8 @@ namespace Desert::Editor::Commands
             {
                 // One element per level, outermost first: under OneLevel an entity of a nested instance keeps its
                 // address inside that instance - which is now a scene-level one - and loses the broken level's.
-                const std::vector<Common::UUID>& path = entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
+                const std::vector<Common::UUID>& path =
+                     entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
                 link.PathBefore = path;
                 if ( depth == BreakDepth::OneLevel && path.size() > 1 )
                     link.PathAfter = std::vector<Common::UUID>( path.begin() + 1, path.end() );
@@ -2073,7 +2083,8 @@ namespace Desert::Editor::Commands
         CommandHistory::Get().PushCommand( std::move( command ) );
         OnStructuralChange();
         LOG_INFO( "[Prefab] broke '{}' ({}): {} entit{} changed", PrefabTagOf( *root ),
-                  depth == BreakDepth::OneLevel ? "one level" : "all levels", changed, changed == 1 ? "y" : "ies" );
+                  depth == BreakDepth::OneLevel ? "one level" : "all levels", changed,
+                  changed == 1 ? "y" : "ies" );
         return Common::MakeSuccess( changed );
     }
 
