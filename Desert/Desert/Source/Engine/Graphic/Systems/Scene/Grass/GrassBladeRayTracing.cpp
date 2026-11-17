@@ -1,3 +1,4 @@
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassBladeRayTracing.hpp>
 
 #include <Engine/Geometry/Mesh.hpp>
@@ -227,7 +228,7 @@ namespace Desert::Graphic::System
                           .Storage( GrassBladeRayTracingVerticesShaderParameters::GrassBladeStripIndices, job.StripIndices, RDG::Access::StorageRead )
                           .Storage( GrassBladeRayTracingVerticesShaderParameters::GrassBladeRayTracingVertexData, job.Vertices, RDG::Access::StorageWrite )
                           .Storage( GrassBladeRayTracingVerticesShaderParameters::GrassBladeRayTracingIndexData, job.Indices, RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+                          .PushConstants<ShaderPush::GrassBladeRayTracingVertices>();
              },
              [pipeline = m_Pipeline, counts]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -235,7 +236,7 @@ namespace Desert::Graphic::System
                  for ( uint32_t i = 0; i < counts.size(); ++i )
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
-                     bindings.PushConstants( &counts[i], static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+                     bindings.PushConstants( ShaderPush::GrassBladeRayTracingVertices{ .Counts = counts[i] } );
                      const uint32_t groups =
                           ( std::max( counts[i].x, counts[i].y ) + kLocalSize - 1 ) / kLocalSize;
                      if ( auto dispatched = renderer.DispatchCompute( bindings, *pipeline, groups, 1, 1 );

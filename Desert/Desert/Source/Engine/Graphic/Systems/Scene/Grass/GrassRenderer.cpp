@@ -4,6 +4,7 @@
 // within the cull radius (GRASS-TILE-1, Programs/Grass/GrassGenerate.shader; UE builds them on worker threads per
 // landscape component into HISM tiles), culled per view into the drawn lists, and drawn by indirect draws through
 // the mesh renderer's instanced cells (GpuInstances.hpp) instead of a HISM component.
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -98,10 +99,10 @@ namespace Desert::Graphic::System
             };
             return wrap( z ) * side + wrap( x );
         }
-        // CPU-GRASS-POOL-2: GrassGeneratePush::Base of a variety (GrassRenderer::VarietyGpu): its header entry in
+        // CPU-GRASS-POOL-2: ShaderPush::GrassGenerate::Base of a variety (GrassRenderer::VarietyGpu): its header entry in
         // the shared tile table and its first word of the shared tile feedback; CPU-GRASS-POOL-3: z its first word
         // of the shared tile pool words (GrassRenderer m_TileWordsPool).
-        // CPU-GRASS-POOL-7: GrassGeneratePush::Ranges of a variety: its params record, its first chunks word and
+        // CPU-GRASS-POOL-7: ShaderPush::GrassGenerate::Ranges of a variety: its params record, its first chunks word and
         // its first segment table entry in the shared pools (GrassRenderer m_ParamsPool / m_ChunksPool /
         // m_SegmentTablesPool).
         template <typename Gpu>
@@ -499,14 +500,6 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, CompactDrawRows );
             DESERT_SHADER_PARAMETER( StorageBuffer, CompactCounts );
         };
-        struct GrassDrawCompactPush
-        {
-            glm::uvec4 Compact{ 0u }; // x entries, y the longest entry's Count, z bins, w 0 clear / 1 gather
-            // FPS-DEVLOST9: x the table's slot capacity, y its bin capacity (GpuDrawBinFrame::SlotCapacity /
-            // BinCapacity, the bound buffers' sizes): the gather writes and counts nothing past them.
-            glm::uvec4 Bounds{ 0u };
-        };
-        static_assert( sizeof( GrassDrawCompactPush ) == 32 );
         // The bins' table: at least kDrawBinMinSlots, at most kDrawBinMaxEntries (the gather's dispatch y, a row
         // per entry; a table holds no more slots than its entries can name). A frame a section did not fit
         // doubles it up to that bound (GpuDrawBinFrame::Overflow).
@@ -523,24 +516,6 @@ namespace Desert::Graphic::System
             return address.GetValue();
         }
 
-        // GrassGenerate's push block, std430 (Programs/Grass/GrassGenerate.shader PushConstants).
-        struct GrassGeneratePush
-        {
-            // x = kGrassTileMode*, y = the mode's first entry in the tile table, z = its entries (Init: the tile
-            // slots), w = the pool's pages
-            glm::uvec4 Mode{ 0u };
-            // GRASS-VRAM-BUDGET-1: x = the free-page stack's room (VarietyGpu::TileRoom), y = the first page this
-            // frame's growth adds, z = the pages it adds (Free), w = 0
-            glm::uvec4 Pool{ 0u };
-            // CPU-GRASS-POOL-2: x = the variety's header entry in the shared tile table
-            // (VarietyGpu::TileTableBase; Mode.y counts from the table's start), y = its first word of the shared
-            // tile feedback, zw = 0
-            glm::uvec4 Base{ 0u };
-            // CPU-GRASS-POOL-7, the variety's ranges of the shared pools: x = its params record of the params
-            // pool, y = its first word of the chunks pool, z = its first entry of the segment tables pool, w = 0
-            glm::uvec4 Ranges{ 0u };
-        };
-        static_assert( sizeof( GrassGeneratePush ) == 64 );
 
         // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
 
@@ -555,24 +530,14 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( Texture, GrassHzbTexture );
         };
 
-        // GrassCull's push block, std430 (Programs/Grass/GrassCull.shader PushConstants).
-        struct GrassCullPush
-        {
-            glm::mat4  HzbViewProjection{ 1.0f }; // unjittered, what the bound HZB was built through
-            glm::uvec4 Hzb{ 0u };  // xy = the HZB's mip-0 size, z = its mip count (0: nothing tested), w = kCullMode*
-            glm::uvec4 Rows{ 0u }; // x = the variety table's rows the pass covers (its first), y / z = MetChunks'
-                                   // rooms for met chunks / work items (GrassCull.shader MetRoom / WorkRoom), w =
-                                   // CullTiles' room for tiles
-        };
-        static_assert( sizeof( GrassCullPush ) == 96 );
 
         // A pass over the variety table that runs ONE group (GrassCull's dispatch and finalize
         // modes): its one binding block, @p push, one dispatch.
         Common::BoolResultStr DispatchOneGroup( RDG::PassContext& context, const ComputePipeline& pipeline,
-                                                const void* push, const size_t bytes )
+                                                const ShaderPush::GrassCull& push )
         {
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( push, static_cast<uint32_t>( bytes ) );
+            bindings.PushConstants( push );
             return Renderer::DispatchCompute( bindings, pipeline, 1, 1, 1 );
         }
 
@@ -3173,7 +3138,7 @@ namespace Desert::Graphic::System
                  .Storage( GrassGenerateShaderParameters::Tiles, m_TileTableRef, RDG::Access::StorageRead )
                  .Storage( GrassGenerateShaderParameters::TileFeedback, m_TileFeedbackRef, pool )
                  .Storage( GrassGenerateShaderParameters::Chunks, m_ChunksPool.Ref(), pool )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
+                 .PushConstants<ShaderPush::GrassGenerate>();
         };
         // One dispatch per variety of @p list, with the push and the groups @p shape gives it (no groups: none).
         const auto dispatchTiles = [this]( RDG::PassContext& context, const std::vector<VarietyGpu*>& list,
@@ -3185,7 +3150,7 @@ namespace Desert::Graphic::System
                 if ( groups.x == 0u || groups.y == 0u || groups.z == 0u )
                     continue;
                 RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
-                bindings.PushConstants( &push, sizeof( push ) );
+                bindings.PushConstants( push );
                 if ( auto dispatched =
                           Renderer::DispatchCompute( bindings, *m_Generate, groups.x, groups.y, groups.z );
                      !dispatched )
@@ -3204,7 +3169,7 @@ namespace Desert::Graphic::System
                 if ( gpu.PoolFresh )
                 {
                     const uint32_t threads = std::max( gpu.TilePages, gpu.TileSlots * kGrassTileHeaderWords );
-                    return std::pair{ GrassGeneratePush{ glm::uvec4( kGrassTileModeInit, gpu.TileTableBase,
+                    return std::pair{ ShaderPush::GrassGenerate{ glm::uvec4( kGrassTileModeInit, gpu.TileTableBase,
                                                                      gpu.TileSlots, gpu.TilePages ),
                                                          glm::uvec4( gpu.TileRoom, 0u, 0u, 0u ), TileBase( gpu ),
                                                          TileRanges( gpu ) },
@@ -3212,7 +3177,7 @@ namespace Desert::Graphic::System
                 }
                 // GRASS-VRAM-BUDGET-1: the Free pass also pushes a grown pool's new pages on the stack.
                 const uint32_t          grown = gpu.TilePages - gpu.TileGrowFrom;
-                const GrassGeneratePush push{
+                const ShaderPush::GrassGenerate push{
                      glm::uvec4( kGrassTileModeFree, gpu.TileTableBase + 1u, gpu.TileFrees, gpu.TilePages ),
                      glm::uvec4( gpu.TileRoom, gpu.TileGrowFrom, grown, 0u ), TileBase( gpu ), TileRanges( gpu ) };
                 const uint32_t          threads = std::max( gpu.TileFrees, grown );
@@ -3239,7 +3204,7 @@ namespace Desert::Graphic::System
                 const uint32_t tileMode   = mode;
                 const auto     buildShape = [tileMode]( const VarietyGpu& gpu )
                 {
-                    const GrassGeneratePush push{ glm::uvec4( tileMode, gpu.TileTableBase + 1u + gpu.TileFrees,
+                    const ShaderPush::GrassGenerate push{ glm::uvec4( tileMode, gpu.TileTableBase + 1u + gpu.TileFrees,
                                                               gpu.TileBuilds, gpu.TilePages ),
                                                   glm::uvec4( gpu.TileRoom, 0u, 0u, 0u ), TileBase( gpu ),
                                                   TileRanges( gpu ) };
@@ -3297,7 +3262,7 @@ namespace Desert::Graphic::System
             tilesDesc.Bytes = kTileHeaderBytes + std::max( tileRoom, uint64_t( 1u ) ) * kTileEntryBytes;
             m_FrameTiles    = graph.CreateBuffer( tilesDesc, "GrassCullTiles" );
             const RDG::TextureRef hzb = testsHzb ? occlusion.Hzb : occlusion.Neutral;
-            GrassCullPush         layOut;
+            ShaderPush::GrassCull         layOut;
             layOut.HzbViewProjection = occlusion.PrevViewProjection;
             // Hzb.z = 0: the camera cull tests the camera's planes alone.
             layOut.Hzb  = testsHzb ? glm::uvec4( occlusion.Extent, kCullModeDispatch )
@@ -3306,13 +3271,13 @@ namespace Desert::Graphic::System
             // room for tiles (FPS-GRASS-CULL-GPU2).
             layOut.Rows = glm::uvec4( cullRows, static_cast<uint32_t>( chunkRoom ),
                                       static_cast<uint32_t>( workRoom ), static_cast<uint32_t>( tileRoom ) );
-            GrassCullPush tiles = layOut;
+            ShaderPush::GrassCull tiles = layOut;
             tiles.Hzb.w         = kCullModeCameraTiles;
-            GrassCullPush cull     = layOut;
+            ShaderPush::GrassCull cull     = layOut;
             cull.Hzb.w             = kCullModeCameraCull;
-            GrassCullPush instances = layOut;
+            ShaderPush::GrassCull instances = layOut;
             instances.Hzb.w         = kCullModeCameraInstances;
-            GrassCullPush finalize = layOut;
+            ShaderPush::GrassCull finalize = layOut;
             finalize.Hzb.w         = kCullModeCameraFinalize;
             // GPU-HZB-SPD (UE InstanceCulling on the async pipe): the dispatch, the cull, the finalize and the
             // gathers below request async compute; the graph forks after the tile builds' last write and joins
@@ -3333,7 +3298,7 @@ namespace Desert::Graphic::System
                      }
                  },
                  [this, layOut]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return DispatchOneGroup( context, *m_Cull, &layOut, sizeof( layOut ) ); } );
+                 { return DispatchOneGroup( context, *m_Cull, layOut ); } );
 
             graph.AddPass(
                  "Grass: Camera Cull Tiles", cullFlags,
@@ -3353,7 +3318,7 @@ namespace Desert::Graphic::System
                      // GrassCull kTileSlotsPerGroup tile slots of a row per group: the groups the Cull Dispatch
                      // laid out.
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &tiles, sizeof( tiles ) );
+                     bindings.PushConstants( tiles );
                      return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, 0u );
                  } );
 
@@ -3383,7 +3348,7 @@ namespace Desert::Graphic::System
                  {
                      // GrassCull kTilesPerGroup tiles per group: the dispatch the tile pass grew (TileCommand).
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &cull, sizeof( cull ) );
+                     bindings.PushConstants( cull );
                      return Renderer::DispatchComputeIndirect( bindings, *m_Cull, tilesBuffer, 0u );
                  } );
 
@@ -3413,7 +3378,7 @@ namespace Desert::Graphic::System
                  {
                      // GrassCull mode 5, a group per met chunk: the dispatch the chunk pass grew (MetCommand).
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &instances, sizeof( instances ) );
+                     bindings.PushConstants( instances );
                      return Renderer::DispatchComputeIndirect( bindings, *m_Cull, metBuffer, 0u );
                  } );
 
@@ -3433,7 +3398,7 @@ namespace Desert::Graphic::System
                      }
                  },
                  [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return DispatchOneGroup( context, *m_Cull, &finalize, sizeof( finalize ) ); } );
+                 { return DispatchOneGroup( context, *m_Cull, finalize ); } );
             // RENDER-JOB-CPU-4: the first phase's compacted bins, gathered from the records just finalized.
             if ( const Common::BoolResultStr gathered = AddDrawGather( graph, kGpuDrawBinCameraPhase ); !gathered )
                 LOG_ERROR( "[Grass] the grass draws per variety this frame: {}", gathered.GetError() );
@@ -3634,7 +3599,7 @@ namespace Desert::Graphic::System
              .Sampler( GrassCullShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Texture( GrassCullShaderParameters::GrassHzbTexture, hzb, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassCullPush ) ) );
+             .PushConstants<ShaderPush::GrassCull>();
     }
 
     bool GrassRenderer::AddFramePostOcclusion( RDG::Builder& graph, const RDG::TextureRef hzb,
@@ -3648,11 +3613,11 @@ namespace Desert::Graphic::System
         // appended - drawn once more than an HZB would let through, never dropped.
         const bool            tests = hzb.IsValid();
         const RDG::TextureRef bound = tests ? hzb : m_FrameNeutral;
-        GrassCullPush         post;
+        ShaderPush::GrassCull         post;
         post.HzbViewProjection = viewProjection;
         post.Hzb  = tests ? glm::uvec4( extent, kCullModePostOcclusion ) : glm::uvec4( 0u, 0u, 0u, kCullModePostOcclusion );
         post.Rows = glm::uvec4( static_cast<uint32_t>( m_FrameCull.size() ), 0u, 0u, 0u );
-        GrassCullPush finalize = post;
+        ShaderPush::GrassCull finalize = post;
         finalize.Hzb.w         = kCullModePostFinalize;
         graph.AddPass(
              tests ? "Grass: Post-Occlusion" : "Grass: Post-Occlusion (no HZB)", RDG::PassFlags::Compute,
@@ -3675,7 +3640,7 @@ namespace Desert::Graphic::System
              {
                  // One thread per candidate of every row: the groups the Camera Cull Finalize laid out.
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &post, sizeof( post ) );
+                 bindings.PushConstants( post );
                  return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, kPostDispatchOffset );
              } );
 
@@ -3692,7 +3657,7 @@ namespace Desert::Graphic::System
                  }
              },
              [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return DispatchOneGroup( context, *m_Cull, &finalize, sizeof( finalize ) ); } );
+             { return DispatchOneGroup( context, *m_Cull, finalize ); } );
         if ( const Common::BoolResultStr gathered = AddDrawGather( graph, 1u ); !gathered )
             LOG_ERROR( "[Grass] the post-occlusion grass draws per variety this frame: {}", gathered.GetError() );
         return true;
@@ -3781,7 +3746,7 @@ namespace Desert::Graphic::System
                  .Storage( GrassDrawCompactShaderParameters::CompactCommands, bins.Refs.Commands, out )
                  .Storage( GrassDrawCompactShaderParameters::CompactDrawRows, bins.Refs.DrawRows, out )
                  .Storage( GrassDrawCompactShaderParameters::CompactCounts, bins.Refs.Counts, out )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassDrawCompactPush ) ) );
+                 .PushConstants<ShaderPush::GrassDrawCompact>();
             // The records the entries copy, by address: every list of the phase the varieties' culls wrote.
             for ( const VarietyGpu* gpu : m_FrameCull )
             {
@@ -3834,11 +3799,11 @@ namespace Desert::Graphic::System
                            if ( const auto wrote = storage.Rows->SetData( bins.Rows.data(), rowBytes );
                                 !wrote.IsSuccess() )
                                return wrote;
-                           const GrassDrawCompactPush clear{
+                           const ShaderPush::GrassDrawCompact clear{
                                 glm::uvec4( 0u, 0u, bins.Bins, 0u ),
                                 glm::uvec4( bins.SlotCapacity, bins.BinCapacity, 0u, 0u ) };
                            RDG::PassBindings          bindings( context, context.GetBindingBlock( 0 ) );
-                           bindings.PushConstants( &clear, sizeof( clear ) );
+                           bindings.PushConstants( clear );
                            const uint32_t groups = ( bins.Bins + 63u ) / 64u;
                            return Renderer::DispatchCompute( bindings, *m_DrawCompact, groups, 1, 1 );
                        } );
@@ -3852,11 +3817,11 @@ namespace Desert::Graphic::System
                            for ( const GpuDrawCompactEntry& entry : bins.Entries )
                                longest = std::max( longest, entry.Count );
                            const uint32_t             entries = static_cast<uint32_t>( bins.Entries.size() );
-                           const GrassDrawCompactPush gather{
+                           const ShaderPush::GrassDrawCompact gather{
                                 glm::uvec4( entries, longest, bins.Bins, 1u ),
                                 glm::uvec4( bins.SlotCapacity, bins.BinCapacity, 0u, 0u ) };
                            RDG::PassBindings          bindings( context, context.GetBindingBlock( 0 ) );
-                           bindings.PushConstants( &gather, sizeof( gather ) );
+                           bindings.PushConstants( gather );
                            const uint32_t groups = ( longest + 63u ) / 64u;
                            return Renderer::DispatchCompute( bindings, *m_DrawCompact, groups, entries, 1 );
                        } );

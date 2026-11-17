@@ -1,4 +1,5 @@
 #include "TerrainRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -91,12 +92,6 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDiceCullView );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, LandscapeDiceHzbTexture );
-    };
-    struct DiceCullPush
-    {
-        glm::uvec4 Hzb{ 0u };      // xy = the HZB's mip-0 size, z = its mip count (0: the frustum alone)
-        glm::uvec4 Tile{ 0u };     // the row, the fade square's cells, the first corner node, the first record
-        glm::vec4  Bounds{ 0.0f }; // x = the displacement's reach (cm)
     };
     constexpr std::string_view kDiceCullPass      = "Landscape: Dice Cull";
     constexpr std::string_view kDiceCullShader    = "LandscapeDiceCull";
@@ -2223,7 +2218,7 @@ namespace Desert::Graphic::System
              [&]( const std::string_view name, const uint32_t phase, const RDG::Access cornerAccess )
         {
             ComputeNodeDeclaration  node( graph.GetFrameArena() );
-            std::vector<glm::uvec4> pushes;
+            std::vector<ShaderPush::LandscapeDicePool> pushes;
             std::vector<uint32_t>   groups;
             node.Name = name; // kDicePoolCornerPass / kDicePoolPass: static
             for ( std::size_t i = 0; i < m_DicePoolJobs.size(); ++i )
@@ -2235,7 +2230,7 @@ namespace Desert::Graphic::System
                                                      static_cast<const void*>( job.Weightmap.get() ) )
                                       : std::string( "Landscape.DicePool.WeightmapFallback" );
                 node.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DicePoolPipeline ) )
-                     .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) )
+                     .PushConstants<ShaderPush::LandscapeDicePool>()
                      .Storage( DicePoolShaderParameters::LandscapeDicePoolRows, rows, RDG::Access::StorageRead )
                      .Texture( DicePoolShaderParameters::HeightmapTexture, job.Heightmap,
                                RDG::Access::SampledCompute,
@@ -2254,7 +2249,8 @@ namespace Desert::Graphic::System
                                RDG::Access::StorageWrite )
                      .Storage( DicePoolShaderParameters::LandscapeDicePoolCorners, corners, cornerAccess );
                 const uint32_t items = phase == 0u ? job.Corners : job.Vertices;
-                pushes.emplace_back( static_cast<uint32_t>( i ), items, job.FirstCorner, phase );
+                pushes.push_back( ShaderPush::LandscapeDicePool{
+                     .Tile = glm::uvec4( static_cast<uint32_t>( i ), items, job.FirstCorner, phase ) } );
                 groups.push_back( ( items + kDicePoolLocalSize - 1u ) / kDicePoolLocalSize );
             }
             node.Record = [pipeline = m_DicePoolPipeline, pushes = std::move( pushes ),
@@ -2264,7 +2260,7 @@ namespace Desert::Graphic::System
                 for ( uint32_t block = 0; block < pushes.size(); ++block )
                 {
                     RDG::PassBindings bindings( context, context.GetBindingBlock( block ) );
-                    bindings.PushConstants( &pushes[block], static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+                    bindings.PushConstants( pushes[block] );
                     if ( const Common::BoolResultStr dispatched =
                               Renderer::DispatchCompute( bindings, *pipeline, groups[block], 1, 1 );
                          !dispatched )
@@ -2484,7 +2480,7 @@ namespace Desert::Graphic::System
         const bool      still = glm::length( frame.CameraPosition - frame.PrevCameraPosition ) <= kDiceHzbStillCm;
         const bool      tests = occlusion.Hzb.IsValid() && frame.HistoryValid() && still;
         RDG::TextureRef hzb   = occlusion.Neutral;
-        DiceCullPush    base;
+        ShaderPush::LandscapeDiceCull    base;
         if ( tests )
         {
             hzb      = occlusion.Hzb;
@@ -2493,7 +2489,7 @@ namespace Desert::Graphic::System
 
         const auto&               layout = m_DiceCullLayout.Get( m_DiceCullPipeline->GetSpecification().Shader );
         ComputeNodeDeclaration    node( graph.GetFrameArena() );
-        std::vector<DiceCullPush> pushes;
+        std::vector<ShaderPush::LandscapeDiceCull> pushes;
         std::vector<uint32_t>     groups;
         node.Name = kDiceCullPass;
         for ( std::size_t i = 0; i < m_DiceCullJobs.size(); ++i )
@@ -2502,7 +2498,7 @@ namespace Desert::Graphic::System
             // The block's push range is declared with its bindings (RDGPassBindings validates it against the
             // shader's PushConstants block: 48 bytes) - the Record below pushes exactly this many.
             node.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DiceCullPipeline ) )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( DiceCullPush ) ) )
+                 .PushConstants<ShaderPush::LandscapeDiceCull>()
                  .Storage( DiceCullShaderParameters::LandscapeDiceCullRows, rows, RDG::Access::StorageRead )
                  .Storage( DiceCullShaderParameters::LandscapeDicePoolCorners, m_DicePoolCornerNodes,
                            RDG::Access::StorageRead )
@@ -2513,7 +2509,7 @@ namespace Desert::Graphic::System
                  .Sampler( DiceCullShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( DiceCullShaderParameters::LandscapeDiceHzbTexture, hzb, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() );
-            DiceCullPush push = base;
+            ShaderPush::LandscapeDiceCull push = base;
             push.Tile   = glm::uvec4( static_cast<uint32_t>( i ), job.Cells, job.FirstCorner,
                                       static_cast<uint32_t>( i ) * kDiceLevels );
             push.Bounds = glm::vec4( job.Reach, 0.0f, 0.0f, 0.0f );
@@ -2527,7 +2523,7 @@ namespace Desert::Graphic::System
             for ( uint32_t block = 0; block < pushes.size(); ++block )
             {
                 RDG::PassBindings bindings( context, context.GetBindingBlock( block ) );
-                bindings.PushConstants( &pushes[block], static_cast<uint32_t>( sizeof( DiceCullPush ) ) );
+                bindings.PushConstants( pushes[block] );
                 if ( const Common::BoolResultStr dispatched =
                           Renderer::DispatchCompute( bindings, *pipeline, groups[block], 1, 1 );
                      !dispatched )
