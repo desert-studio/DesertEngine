@@ -30,6 +30,7 @@ Inputs
     CustomData1;
 }
 SlabFeatures AnisotropicSlabFeatures;
+Slab AnisotropicSlab;
 
 #include <Mesh/SubstrateSlab.glslh>
 

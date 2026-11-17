@@ -423,6 +423,19 @@ namespace Desert::Core::ShadingModels
                 std::format_to( emit, "    if ( index == {} )\n        return true;\n",
                                 ShadingModelIndexDefine( e.Manifest.Name ) );
         out += "    return false;\n}\n";
+        // The texel's slab itself, built by the model's own Slab function (the slab its Evaluate shades): what a
+        // consumer reads when it needs the slab's parameters rather than its response - the path tracer samples the
+        // lobes of this slab (UE's path tracer reads the Substrate slab the raster evaluates). A model that is no
+        // slab preset gets the featureless slab of its surface (DefaultLit's lobes).
+        out += "\n#include <Mesh/SubstrateSlab.glslh>\n"
+               "\n// The texel's slab (Mesh/SubstrateSlab.glslh): the model's own; the featureless slab for a model "
+               "that is no slab preset.\n"
+               "DesertSlab DesertShadingModelSlab( int index, DesertSurface S, DesertPayload P )\n{\n";
+        for ( const ShadingModelEntry& e : m_Entries )
+            if ( !e.Manifest.SlabFunction.empty() )
+                std::format_to( emit, "    if ( index == {} )\n        return {}( S, P );\n",
+                                ShadingModelIndexDefine( e.Manifest.Name ), e.Manifest.SlabFunction );
+        out += "    return DesertMakeSlab( S, 0u );\n}\n";
 
         // The shading word (ShadingModelContract.glslh): a uvec2, packed and unpacked with integer operations, its
         // bits numbered across the pair (0..31 = .x, 32..63 = .y). The NO_SUN_SHADOWS bit is not one of these

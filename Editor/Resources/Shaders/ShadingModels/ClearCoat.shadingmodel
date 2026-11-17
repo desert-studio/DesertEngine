@@ -22,6 +22,7 @@ Inputs
     CustomData1;
 }
 SlabFeatures ClearCoatSlabFeatures;
+Slab ClearCoatSlab;
 
 #include <Mesh/SubstrateSlab.glslh>
 

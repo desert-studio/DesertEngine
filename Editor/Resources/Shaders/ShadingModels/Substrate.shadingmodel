@@ -29,6 +29,7 @@ Inputs
     CustomData3;
 }
 SlabFeatures SubstrateSlabFeatures;
+Slab SubstrateSlab;
 
 #include <Mesh/SubstrateSlab.glslh>
 

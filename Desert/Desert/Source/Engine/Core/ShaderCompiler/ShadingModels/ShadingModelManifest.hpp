@@ -182,6 +182,11 @@ namespace Desert::Core::ShadingModels
         // DefaultLit exactly, so the tile classification shades it with the SIMPLE tiles
         // (DesertShadingModelIsPlainSlab). Empty = the model is no plain slab preset (its feature bits stay 0).
         std::string              SlabFeaturesFunction;
+        // The `Slab <fn>;` line (after SlabFeatures, and set exactly when SlabFeatures is) names the body's
+        // `DesertSlab <fn>( DesertSurface S, DesertPayload P )` that builds the model's slab - the one its three
+        // contract functions evaluate. DesertShadingModelSlab dispatches it, so a consumer that needs the slab's
+        // parameters rather than its response (the path tracer's lobe sampler) reads the same slab the raster shades.
+        std::string              SlabFunction;
         std::string              Body;    // the GLSL after the Inputs block
         std::filesystem::path    SourcePath;
     };

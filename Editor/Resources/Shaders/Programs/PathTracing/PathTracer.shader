@@ -184,13 +184,14 @@ Shader "PathTracer"
             // (Common/RayTracingPayload.glslh ShadingWord); the BSDF is that model's Evaluate through the dispatch
             // the raster calls (Generated/ShadingModels.glslh DesertEvaluateShadingModel) - one formula for the
             // raster, hit lighting and the path tracer, as UE's path tracer evaluates each shading model's BxDF
-            // (PathTracingMaterialSampling.ush). The sampler is UE's per-model lobe mixture (PathTracingDefaultLit
-            // / ClearCoat / Cloth .ush): a cosine lobe, the base GGX lobe's visible normals (isotropic, or along
-            // the Anisotropic model's tangent) and the ClearCoat model's coat lobe, each chosen by its estimated
-            // albedo at this view; Cloth's wide sheen lobe is sampled by the cosine lobe (UE samples the fuzz from
-            // the hemisphere). A model with no sampler of its own (subsurface, foliage, toon, water) is sampled as
-            // DefaultLit and still evaluated as itself, so the estimator stays unbiased (the light samples and the
-            // mixture cover the whole upper hemisphere).
+            // (PathTracingMaterialSampling.ush). The sampler is a lobe mixture over the hit's Substrate slab (the
+            // slab the model's Evaluate shades, Mesh/SubstrateSlab.glslh): a cosine lobe, the base GGX lobe's
+            // visible normals (isotropic, or stretched along the slab's ANISOTROPY tangent) and a third GGX lobe for
+            // the slab's HAZE lobe or CLEAR_COAT layer, each chosen by its estimated albedo at this view; the FUZZ
+            // layer's wide sheen lobe is sampled by the cosine lobe (UE samples the fuzz from the hemisphere). A
+            // model that is no slab preset (subsurface, foliage, toon, water) is sampled as the featureless slab and
+            // still evaluated as itself, so the estimator stays unbiased (the light samples and the mixture cover
+            // the whole upper hemisphere).
             struct PathTracingMaterial
             {
                 vec3          Position;
@@ -200,8 +201,8 @@ Shader "PathTracer"
                 float         Specular;        // UE's Specular pin (DesertSpecularF0)
                 int           Model;           // the shading model index (SHADING_MODEL_INDEX_<NAME>)
                 DesertPayload Payload;         // its CustomData, the 8-bit values the raster reads back
-                vec3          LobeProbability; // the mixture's weights: x = cosine, y = base GGX, z = coat GGX
-                float         CoatRoughness;   // the coat lobe's roughness (z > 0: ClearCoat)
+                vec3          LobeProbability; // the mixture's weights: x = cosine, y = base GGX, z = haze / coat GGX
+                float         CoatRoughness;   // the third lobe's roughness (z > 0: the slab's HAZE or CLEAR_COAT)
                 vec2          Alphas;          // the base GGX lobe's alphas along Tangent and cross(N, Tangent)
                 vec3          Tangent;         // the base lobe's tangent (any one around N for an isotropic lobe)
             };
@@ -238,43 +239,54 @@ Shader "PathTracer"
                 m.Alphas        = vec2(m.Roughness * m.Roughness);
                 m.Tangent       = PathTracingBasis(N)[0];
                 // Choose the lobes by their share of the reflected energy at this view (UE picks lobes by their
-                // estimated albedo, PathTracingMaterialSampling.ush).
+                // estimated albedo, PathTracingMaterialSampling.ush). The shares are read off the hit's SLAB - the
+                // one the model's Evaluate shades (Generated/ShadingModels.glslh DesertShadingModelSlab, built by
+                // the model's own `Slab` function; Mesh/SubstrateSlab.glslh) - so the sampler follows the slab's
+                // features, not a list of model names: UE's path tracer samples the Substrate slab the raster
+                // evaluates. A model that is no slab preset gets the featureless slab (DefaultLit's lobes).
+                const DesertSurface S    = PathTracingSurfaceOf(m, N, V);
+                const DesertSlab    slab = DesertShadingModelSlab(m.Model, S, m.Payload);
                 const float NoV = max(dot(N, V), 0.0);
-                const vec3  F0  = DesertSpecularF0(PathTracingSurfaceOf(m, N, V));
-                float specular  = PathTracingLuminance(fresnelSchlick(F0, NoV));
+                float specular  = PathTracingLuminance(DesertSlabFresnel(slab, NoV));
                 float diffuse   = PathTracingLuminance(m.BaseColor) * (1.0 - m.Metallic) * (1.0 - specular);
                 float coat      = 0.0;
-            #ifdef SHADING_MODEL_INDEX_CLEAR_COAT
-                if (m.Model == SHADING_MODEL_INDEX_CLEAR_COAT)
+                if (DesertSlabHas(slab, kDesertSlabHaze))
                 {
-                    // The coat reflects its Fresnel share first; the base under it sees the rest (ClearCoat
-                    // Evaluate).
-                    coat            = ClearCoatStrength(m.Payload) * fresnelSchlick(vec3(kClearCoatF0), NoV).x;
+                    // HAZE: the second GGX lobe of the slab's F0/F90 takes Haziness of the specular (the slab's
+                    // lobe pair); the third mixture lobe samples it at its own roughness.
+                    coat            = specular * slab.Haziness;
+                    specular       *= 1.0 - slab.Haziness;
+                    m.CoatRoughness = slab.HazeRoughness;
+                }
+                if (DesertSlabHas(slab, kDesertSlabClearCoat))
+                {
+                    // CLEAR_COAT: the coat reflects its Fresnel share first; the slab under it sees the rest
+                    // (DesertSlabLayerDirect).
+                    coat            = slab.Haziness * fresnelSchlick(vec3(kDesertSlabClearCoatF0), NoV).x;
                     specular       *= 1.0 - coat;
                     diffuse        *= 1.0 - coat;
-                    m.CoatRoughness = ClearCoatRoughness(m.Payload);
+                    m.CoatRoughness = slab.HazeRoughness;
                 }
-            #endif
-            #ifdef SHADING_MODEL_INDEX_CLOTH
-                if (m.Model == SHADING_MODEL_INDEX_CLOTH)
+                if (DesertSlabHas(slab, kDesertSlabFuzz))
                 {
-                    // The fuzz takes the Cloth share of the specular (UE ClothBxDF: mix(GGX, fuzz, Cloth)); its
-                    // directional albedo is the model's own fit (ClothFuzzAlbedo, stored divided by pi).
-                    const float cloth = ClothAmount(m.Payload);
-                    diffuse += cloth * PathTracingLuminance(ClothFuzzColor(m.Payload)) *
-                               min(ClothFuzzAlbedo(NoV, m.Roughness) * PI, 1.0);
-                    specular *= 1.0 - cloth;
+                    // FUZZ: the sheen layer on top takes its cover from everything beneath (DesertSlabFuzzCover) and
+                    // reflects FuzzAmount x FuzzColor x its directional albedo (DesertSlabFuzzAlbedo, stored divided
+                    // by pi); its wide Charlie lobe is sampled by the cosine lobe (UE samples the fuzz from the
+                    // hemisphere).
+                    const float cover = DesertSlabFuzzCover(S, slab);
+                    specular *= 1.0 - cover;
+                    diffuse  *= 1.0 - cover;
+                    coat     *= 1.0 - cover;
+                    diffuse  += slab.FuzzAmount * PathTracingLuminance(slab.FuzzColor) *
+                               min(DesertSlabFuzzAlbedo(NoV, slab.FuzzRoughness) * PI, 1.0);
                 }
-            #endif
-            #ifdef SHADING_MODEL_INDEX_ANISOTROPIC
-                if (m.Model == SHADING_MODEL_INDEX_ANISOTROPIC)
+                if (DesertSlabHas(slab, kDesertSlabAnisotropy))
                 {
-                    // The model's own alphas and tangent (UE GetAnisotropicRoughness, the payload's tangent
-                    // angle).
-                    m.Alphas  = AnisotropicAlphas(PathTracingSurfaceOf(m, N, V), m.Payload);
-                    m.Tangent = DesertDecodeAnisotropyTangent(N, m.Payload.CustomData1);
+                    // ANISOTROPY: the base lobe's stretched alphas along the slab's tangent (UE
+                    // GetAnisotropicRoughness).
+                    m.Alphas  = DesertSlabAnisotropicAlphas(slab, m.Roughness);
+                    m.Tangent = slab.Tangent;
                 }
-            #endif
                 // Every lobe the BSDF has keeps at least 5 % of the samples (the two-lobe sampler's clamp), so no
                 // direction it reflects into has a vanishing density; a black surface samples its GGX lobe alone.
                 const vec3  weights = vec3(diffuse, specular, coat);
