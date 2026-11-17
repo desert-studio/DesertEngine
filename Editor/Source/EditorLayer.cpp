@@ -374,6 +374,8 @@ namespace Desert::Editor
                                        m_AnimationLibrary, *m_ThumbnailPool );
             m_FileExplorerPanel              = handles.FileExplorer;
             m_WorldPartitionPanel            = handles.WorldPartition;
+            if ( m_WorldPartitionPanel )
+                m_WorldPartitionPanel->SetSaveOpenScene( [this] { return m_SceneFiles.SaveOpenScene(); } );
         }
 
         // ── WHICH EDITOR OPENS WHICH KIND OF SUBJECT, AND HOW A PATH BECOMES ONE OF THEM ──────────────────
@@ -877,6 +879,10 @@ namespace Desert::Editor
         m_Documents.DrawOpenRefusedPopup();
         ImportOptions::DrawWindow(); // a dropped file never imported asks for its options first (THM1l)
         m_Documents.DrawCloseQuestionPopup();
+        // The Save / Discard / Cancel prompt of a region change that would unload unsaved entities, whichever
+        // window asked (the World Partition window, the outliner's Pin column, the palette).
+        if ( m_WorldPartitionPanel )
+            m_WorldPartitionPanel->DrawUnloadPrompt();
 
         // Transient bottom-right notifications (save/import/validation). Drawn last so they float on top.
         Editor::ToastManager::Get().Draw();

@@ -26,6 +26,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -94,10 +95,34 @@ namespace Desert::Editor
         };
         /// UE's "Load Region from Selection" / "Unload All" / "Load All" (WP19-20, decision O3): the scene holds
         /// exactly the part of its world on disk that the regions (X/Z, cm) select - EditorRegions::LoadRegions,
-        /// or the whole world - EditorRegions::LoadWholeWorld. Refused by name (a dirty entity that would leave, a
-        /// scene not opened from its files). The undo history is reset on success, as UE resets its transactions
-        /// when it unloads actors: an entry may name an entity that is gone.
+        /// or the whole world - EditorRegions::LoadWholeWorld. Refused by name (a scene not opened from its
+        /// files). An entity that differs from its file and would leave opens the Save / Discard / Cancel prompt
+        /// (DrawUnloadPrompt) and nothing changes until it is answered. The undo history is reset on success, as
+        /// UE resets its transactions when it unloads actors: an entry may name an entity that is gone.
         [[nodiscard]] Common::BoolResultStr LoadRegion( const RegionRequest& request );
+        /// UE's Scene Outliner Pinned column (the pinned actors loader adapter): whether this user pinned the
+        /// world's record @p record, and pinning / unpinning it - the editor holds the world again with the record
+        /// held whatever the regions (or left to them), and keeps it for the next open (EditorLoadedRegions). An
+        /// unpin that would unload an unsaved entity asks first, as any region change. Refused during Play: the
+        /// played world is the whole world, not what the editor holds.
+        [[nodiscard]] bool                  IsPinned( std::uint64_t record );
+        [[nodiscard]] Common::BoolResultStr SetPinned( std::uint64_t record, bool pinned );
+        /// Whether Play runs the window's scene (its streamer exists): the editor's loaded part, its pins and its
+        /// unsaved state are Edit's, and the outliner's World Partition mode is off.
+        [[nodiscard]] bool Playing() const
+        {
+            return m_Streamer && m_Scene && m_Streamer() != nullptr;
+        }
+        /// UE's save prompt before an unload (FEditorFileUtils::SaveDirtyPackages): "N unsaved entities: <names>"
+        /// with Save (the open scene's save, then the change), Discard (the change, their edits dropped) and
+        /// Cancel (nothing, the regions / pins / layers as they were). Drawn every UI frame by EditorLayer,
+        /// whether this window is open or not - the outliner's unpin and the palette ask through it too.
+        void DrawUnloadPrompt();
+        /// THE editor's save of the open scene (SceneFiles::SaveOpenScene), the prompt's Save.
+        void SetSaveOpenScene( std::function<bool()> save )
+        {
+            m_SaveOpenScene = std::move( save );
+        }
         // One combo per grid: the layer its cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups);
         // undoable.
         void DrawRuntimeGrids();
@@ -127,6 +152,11 @@ namespace Desert::Editor
         // The Edit plan of m_Scene: a partitioned world opened from its files is planned over its descriptor
         // index (every entity of the world, loaded or not); any other scene over its serialised form.
         void RebuildEditPlan();
+        // A region change under @p policy for unsaved entities that would leave. Ask with such entities changes
+        // nothing and opens the prompt, which puts @p before back on Cancel.
+        [[nodiscard]] Common::BoolResultStr
+        ChangeRegions( const RegionRequest& request, ::Desert::Core::EditorRegions::UnsavedPolicy policy,
+                       const ::Desert::Core::EditorRegions::HeldRegions& before );
         // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
         // material), write, read back.
         [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked );
@@ -165,6 +195,17 @@ namespace Desert::Editor
         /// state - as EditorLoadedRegions remembers it; read once per scene, written after every reload.
         ::Desert::Core::EditorRegions::HeldRegions m_Held;
         bool                                       m_HeldRead = false;
+        /// A region change waiting on the Save / Discard / Cancel prompt: what was asked, what the editor held
+        /// before it (put back on Cancel), the unsaved entities that would leave, and whether to open the popup.
+        struct PendingUnload
+        {
+            RegionRequest                                             Request;
+            ::Desert::Core::EditorRegions::HeldRegions                Before;
+            std::vector<::Desert::Core::EditorRegions::UnsavedEntity> Unsaved;
+            bool                                                      Open = true;
+        };
+        std::optional<PendingUnload>                                    m_PendingUnload;
+        std::function<bool()>                                           m_SaveOpenScene;
         [[nodiscard]] const ::Desert::Core::EditorRegions::HeldRegions& Held();
         // Whether the Edit plan is the world on disk (its descriptor index) rather than the scene in memory.
         bool m_PlanFromIndex = false;

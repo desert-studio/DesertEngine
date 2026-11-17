@@ -5,6 +5,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <format>
 #include <optional>
 #include <string>
@@ -24,6 +25,10 @@ namespace Desert::Editor::EditorLoadedRegions
             // so a file written before data layers reads, and an empty list is never written.
             std::optional<std::vector<std::string>> LoadedDataLayers;
             std::optional<std::vector<std::string>> NotLoadedDataLayers;
+            // The records this user pinned (the outliner's Pinned column), held whatever the regions. Absent =
+            // none. UE keeps pinned actors for the session only; here they are the user's like the regions, so a
+            // reopened world holds what the user pinned.
+            std::optional<std::vector<std::uint64_t>> Pinned;
         };
 
         struct RegionsFile
@@ -78,6 +83,7 @@ namespace Desert::Editor::EditorLoadedRegions
                 held.Whole   = world.Whole;
                 held.DataLayers.Loaded    = world.LoadedDataLayers.value_or( std::vector<std::string>{} );
                 held.DataLayers.NotLoaded = world.NotLoadedDataLayers.value_or( std::vector<std::string>{} );
+                held.Pinned               = world.Pinned.value_or( std::vector<std::uint64_t>{} );
             }
         return Common::MakeSuccess( std::move( held ) );
     }
@@ -93,8 +99,10 @@ namespace Desert::Editor::EditorLoadedRegions
         std::erase_if( file.Worlds, [&key]( const WorldRegions& world ) { return world.World == key; } );
         const auto listed = []( const std::vector<std::string>& names )
         { return names.empty() ? std::nullopt : std::optional<std::vector<std::string>>( names ); };
+        const std::optional<std::vector<std::uint64_t>> pinned =
+             held.Pinned.empty() ? std::nullopt : std::optional<std::vector<std::uint64_t>>( held.Pinned );
         file.Worlds.push_back( WorldRegions{ key, held.Regions, held.Whole, listed( held.DataLayers.Loaded ),
-                                             listed( held.DataLayers.NotLoaded ) } );
+                                             listed( held.DataLayers.NotLoaded ), pinned } );
 
         std::error_code dirError;
         std::filesystem::create_directories( FilePath().parent_path(), dirError );

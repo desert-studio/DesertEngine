@@ -10,8 +10,11 @@
 //     arrives without its children, a reference holder never without what it contains;
 //   - every always-loaded composite is loaded whatever the regions (the sun, the sky, the player start);
 //   - a composite with no place (an unplaced prefab instance or landscape tile) is loaded only by LoadWholeWorld.
-// Changing the regions unloads what left them. An entity that differs from its file is not unloaded: the change
-// is refused, naming it, until it is saved (UE asks the same before it unloads a dirty actor).
+// Changing the regions unloads what left them. An entity that differs from its file is not unloaded behind the
+// user's back: the change names every such entity and changes nothing (UnsavedPolicy::Ask) until the user saves
+// them or discards their changes (UE's save prompt before it unloads dirty actors, FEditorFileUtils::
+// SaveDirtyPackages). Records the user PINNED are held whatever the regions (UE's pinned actors loader adapter,
+// FLoaderAdapterPinnedActors - the Scene Outliner's Pinned column).
 //
 // The entities that stay on disk are NOT deleted: the scene's packages keep them as not loaded
 // (EntityPackages::AdoptRegion), the header keeps listing them, and a save writes only loaded entities.
@@ -50,6 +53,8 @@ namespace Desert::Core::EditorRegions
         // Composites left on disk because every data layer they belong to is not loaded in the editor (UE
         // UDataLayerManager::ResolveIsLoadedInEditor) - wherever the regions are, always-loaded ones included.
         std::size_t UnloadedByDataLayers = 0;
+        // Composites held only because one of their records is pinned (outside every region, not always loaded).
+        std::size_t Pinned = 0;
     };
 
     // WHICH DATA LAYERS ONE USER LOADED OR UNLOADED IN THE EDITOR, against the world's own
@@ -82,16 +87,33 @@ namespace Desert::Core::EditorRegions
     // world's data layer `l` is loaded in the editor (DataLayersLoadedInEditor): a composite that belongs to
     // layers is held only when ANY of them is loaded (UE ResolveIsLoadedInEditor); one in no layer is held by the
     // regions alone.
+    // `pinned` are record ids the user pinned: a composite with a pinned member is held whole wherever the regions
+    // are (UE's pinned actors loader adapter), unless its data layers are all unloaded.
     [[nodiscard]] RegionSelection SelectRecords( const Rules::WorldPartitionPlan&   plan,
                                                  std::span<const std::uint64_t>     rowIds,
                                                  std::span<const Rules::CellBounds> regions,
-                                                 std::span<const bool>              layerLoaded );
+                                                 std::span<const bool>              layerLoaded,
+                                                 std::span<const std::uint64_t>     pinned );
 
     // PURE. The whole world as Load All holds it: every record, but for the composites whose data layers are all
     // unloaded in the editor (as SelectRecords).
     [[nodiscard]] RegionSelection SelectWholeWorld( const Rules::WorldPartitionPlan& plan,
                                                     std::span<const std::uint64_t>   rowIds,
                                                     std::span<const bool>            layerLoaded );
+
+    // What a region change does with an entity that differs from its file and would leave the loaded part.
+    enum class UnsavedPolicy
+    {
+        Ask, // nothing changes: the outcome names every such entity (the editor's Save / Discard / Cancel prompt)
+        Discard, // it is unloaded with its changes dropped - its file is what the world holds of it
+    };
+
+    // One entity a region change would unload although it differs from its file.
+    struct UnsavedEntity
+    {
+        Common::UUID Id;
+        std::string  Name; // its Tag
+    };
 
     // What a region change did.
     struct RegionOutcome
@@ -100,24 +122,28 @@ namespace Desert::Core::EditorRegions
         std::size_t     Loaded    = 0; // records read from their files and made
         std::size_t     Unloaded  = 0; // records whose entities were destroyed (their files kept)
         std::size_t     NotLoaded = 0; // records of the world the scene does not hold now
+        // UnsavedPolicy::Ask: the entities that differ from their files and would leave. Not empty = NOTHING was
+        // loaded or unloaded; the caller asks the user and calls again (Discard, or Ask after a save).
+        std::vector<UnsavedEntity> Unsaved;
     };
 
     // THE EDITOR'S REGION LOAD: the scene holds exactly the records `regions` select of the world it was opened
     // from (its packages' baseline), read through the descriptor index (refreshed first, so an index older than
     // its files is rebuilt rather than used). Refused, changing nothing, naming why: the scene is not a
-    // partitioned world opened from its files, the index or a file cannot be read, an entity to unload differs
-    // from its file.
-    // `layers` is this user's data-layer state (HeldRegions::DataLayers): a composite whose layers are all unloaded
-    // in the editor is not held, wherever the regions are.
-    [[nodiscard]] Common::ResultStr<RegionOutcome> LoadRegions( Scene& scene, Assets::AssetManager* assets,
-                                                                std::span<const Rules::CellBounds> regions,
-                                                                const DataLayerOverrides&          layers );
+    // partitioned world opened from its files, the index or a file cannot be read. An entity to unload that
+    // differs from its file is `policy`'s (UnsavedPolicy). `pinned` (HeldRegions::Pinned) are held as well.
+    // `layers` is this user's data-layer state (HeldRegions::DataLayers): a composite whose layers are all
+    // unloaded in the editor is not held, wherever the regions are.
+    [[nodiscard]] Common::ResultStr<RegionOutcome>
+    LoadRegions( Scene& scene, Assets::AssetManager* assets, std::span<const Rules::CellBounds> regions,
+                 const DataLayerOverrides& layers, std::span<const std::uint64_t> pinned, UnsavedPolicy policy );
 
     // Every record of the world: the scene holds all of it again, as an open would have made it - but for the
     // composites whose data layers are all unloaded in the editor under `layers` (UE's Load All loads every region,
     // and an unloaded data layer stays unloaded).
     [[nodiscard]] Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets,
-                                                                   const DataLayerOverrides& layers );
+                                                                   const DataLayerOverrides& layers,
+                                                                   UnsavedPolicy             policy );
 
     // What of a world the editor holds besides its always-loaded part: the regions of its last region load, or
     // the whole world. UE keeps the same per user and per map (UWorldPartitionEditorPerProjectUserSettings::
@@ -128,6 +154,8 @@ namespace Desert::Core::EditorRegions
         bool                           Whole = false;
         // This user's data-layer state (UE's LoadedDataLayers / NotLoadedDataLayers, kept beside the regions).
         DataLayerOverrides DataLayers;
+        // The records this user pinned (UE's Scene Outliner Pinned column): held whatever the regions.
+        std::vector<std::uint64_t> Pinned;
     };
 
     // What an editor open reads of the scene at a path.
@@ -148,6 +176,33 @@ namespace Desert::Core::EditorRegions
     // disk. Refused, naming the file, as ReadSceneFileText and LoadRegions refuse.
     [[nodiscard]] Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path,
                                                            const HeldRegions&           held );
+
+    // ONE RECORD OF THE WORLD THE SCENE DOES NOT HOLD, as the editor's outliner lists it (UE's FActorDescTreeItem:
+    // an unloaded actor is listed from its descriptor, never by loading it).
+    struct NotLoadedRow
+    {
+        std::uint64_t            Id     = 0;
+        std::uint64_t            Parent = 0; // 0: the record states no parent
+        std::string              Name;       // its Tag
+        std::vector<std::string> Components; // its component keys, in file order: its type
+        std::vector<std::string> DataLayers;
+        // Where the plan streams its composite: "L<level> (<x>, <z>)" (and its grid past the first), "always
+        // loaded", "no place" (an unplaced composite) or "not planned" (a record no composite lists).
+        std::string Cell;
+    };
+
+    // The world of a partitioned scene opened from its files, as its descriptor index states it.
+    struct WorldRows
+    {
+        std::vector<std::uint64_t> Records;   // every record of the world, in the world's order
+        std::vector<NotLoadedRow>  NotLoaded; // the records the scene does not hold, in the world's order
+    };
+
+    // THE OUTLINER'S WORLD: every record of the world the scene was opened from (its packages' baseline) and a row
+    // per record the scene does not hold, read off the descriptor index (refreshed first, as a region load reads
+    // it) and planned as the cook plans it - no record's file is parsed. Refused, naming why: the scene is not a
+    // partitioned world opened from its files, the index cannot be read.
+    [[nodiscard]] Common::ResultStr<WorldRows> DescribeWorld( Scene& scene );
 
     // THE PLAYED WORLD OF A WORLD HELD IN PART (WP20). UE's Play-in-Editor plays the WHOLE partitioned world:
     // every actor the editor holds as it is in memory (unsaved edits included), every other one from its

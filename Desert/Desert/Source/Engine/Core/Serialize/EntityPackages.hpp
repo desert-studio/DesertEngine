@@ -121,6 +121,12 @@ namespace Desert::Core
         {
             return m_NotLoaded.size();
         }
+        // Moves on every Baseline, AdoptRegion and Forget: what the outliner lists of the world's records (and of
+        // those left on disk) is current exactly while this has not moved.
+        [[nodiscard]] std::uint64_t RegionGeneration() const
+        {
+            return m_RegionGeneration;
+        }
 
         // PURE: what a save of the scene to `scenePath`, whose live entities are `live`, must write.
         [[nodiscard]] PackageSavePlan Plan( const std::filesystem::path& scenePath,
@@ -143,6 +149,7 @@ namespace Desert::Core
         std::unordered_map<std::uint64_t, Revision>    m_SavedRevision; // every live entity at the baseline
         std::unordered_map<std::uint64_t, SavedRecord> m_SavedRecords;  // the records among them
         std::unordered_set<std::uint64_t>              m_NotLoaded;     // records left on disk (AdoptRegion)
+        std::uint64_t                                  m_RegionGeneration = 0;
     };
 
     // What one save did.

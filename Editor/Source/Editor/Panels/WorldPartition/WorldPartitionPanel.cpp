@@ -9,6 +9,8 @@
 // vertical axis is world Z (the ground plane of a Y-up engine) instead of UE's Y.
 
 #include "WorldPartitionPanel.hpp"
+
+#include <cstdint>
 #include "EditorLoadedRegions.hpp"
 
 #include "../../Core/CommandHistory.hpp"
@@ -538,28 +540,48 @@ namespace Desert::Editor
 
     Common::BoolResultStr WorldPartitionPanel::LoadRegion( const RegionRequest& request )
     {
+        const ::Desert::Core::EditorRegions::HeldRegions before = Held();
+        return ChangeRegions( request, ::Desert::Core::EditorRegions::UnsavedPolicy::Ask, before );
+    }
+
+    Common::BoolResultStr
+    WorldPartitionPanel::ChangeRegions( const RegionRequest&                               request,
+                                        const ::Desert::Core::EditorRegions::UnsavedPolicy policy,
+                                        const ::Desert::Core::EditorRegions::HeldRegions&  before )
+    {
         if ( !m_Scene )
             return Common::MakeError<bool>( std::string( "No active scene." ) );
         auto* assets = m_Assets;
-        // The user's data-layer state goes with every region change: Load All does not load an unloaded layer.
+        // The user's data-layer state and pins go with every region change: Load All does not load an unloaded
+        // layer, Unload All keeps what is pinned.
         const ::Desert::Core::EditorRegions::DataLayerOverrides layers = Held().DataLayers;
+        const std::vector<std::uint64_t>                        pinned = Held().Pinned;
         auto                                                    changed =
              request.Whole
-                   ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets, layers )
-                   : ::Desert::Core::EditorRegions::LoadRegions(
+                                                                     ? ::Desert::Core::EditorRegions::LoadWholeWorld( *m_Scene, assets, layers, policy )
+                                                                     : ::Desert::Core::EditorRegions::LoadRegions(
                          *m_Scene, assets, std::span<const ::Desert::Core::Rules::CellBounds>( request.Regions ),
-                         layers );
+                         layers, std::span<const std::uint64_t>( pinned ), policy );
         if ( !changed )
             return Common::MakeError<bool>( changed.GetError() );
         const auto& outcome = changed.GetValue();
+        if ( !outcome.Unsaved.empty() )
+        {
+            // Nothing changed: the prompt asks (DrawUnloadPrompt), and its answer calls this again.
+            const std::size_t count = outcome.Unsaved.size();
+            m_PendingUnload         = PendingUnload{ request, before, outcome.Unsaved, true };
+            m_RegionStatus = std::format( "{} unsaved {} would be unloaded: Save, Discard or Cancel.", count,
+                                          count == 1 ? "entity" : "entities" );
+            return BOOLSUCCESS;
+        }
         if ( outcome.Loaded > 0 || outcome.Unloaded > 0 )
             CommandHistory::Get().Clear();
         m_RegionStatus =
              std::format( "{} record(s) loaded, {} unloaded; {} of the world left on disk "
-                          "({} composite(s) in the region, {} always loaded, {} without a place, {} in unloaded "
-                          "data layers).",
+                          "({} composite(s) in the region, {} pinned, {} always loaded, {} without a place, {} in "
+                          "unloaded data layers).",
                           outcome.Loaded, outcome.Unloaded, outcome.NotLoaded, outcome.Selection.InRegions,
-                          outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
+                          outcome.Selection.Pinned, outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
                           outcome.Selection.UnloadedByDataLayers );
         m_EditPlanStale = true;
         // The next open of this world holds what it holds now (UE's EditorLoadedRegions). The change itself
@@ -570,6 +592,109 @@ namespace Desert::Editor
             if ( const auto kept = EditorLoadedRegions::Remember( *baseline, m_Held ); !kept )
                 m_RegionStatus += " The loaded regions were not kept for the next open: " + kept.GetError();
         return BOOLSUCCESS;
+    }
+
+    bool WorldPartitionPanel::IsPinned( const std::uint64_t record )
+    {
+        const std::vector<std::uint64_t>& pinned = Held().Pinned;
+        return std::find( pinned.begin(), pinned.end(), record ) != pinned.end();
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::SetPinned( const std::uint64_t record, const bool pinned )
+    {
+        if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() )
+            return Common::MakeError<bool>( std::string( "Pin: the world is not partitioned." ) );
+        if ( Playing() )
+            return Common::MakeError<bool>(
+                 std::string( "Pin: not during Play - the played world is all loaded." ) );
+        const ::Desert::Core::EditorRegions::HeldRegions before = Held();
+        if ( IsPinned( record ) == pinned )
+            return Common::MakeSuccess( false );
+        if ( pinned )
+            m_Held.Pinned.push_back( record );
+        else
+            std::erase( m_Held.Pinned, record );
+        // The same regions (or the whole world) again, with the record held or left to them.
+        const RegionRequest again{ m_Held.Regions, m_Held.Whole };
+        if ( auto reloaded = ChangeRegions( again, ::Desert::Core::EditorRegions::UnsavedPolicy::Ask, before );
+             !reloaded )
+        {
+            m_Held = before;
+            return reloaded;
+        }
+        return BOOLSUCCESS;
+    }
+
+    void WorldPartitionPanel::DrawUnloadPrompt()
+    {
+        constexpr const char* kPrompt = "Unsaved Entities##WorldPartitionUnload";
+        if ( m_PendingUnload && m_PendingUnload->Open )
+        {
+            ImGui::OpenPopup( kPrompt );
+            m_PendingUnload->Open = false;
+        }
+        if ( !ImGui::BeginPopupModal( kPrompt, nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
+            return;
+        if ( !m_PendingUnload )
+        {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+        const std::vector<::Desert::Core::EditorRegions::UnsavedEntity>& unsaved = m_PendingUnload->Unsaved;
+        // Named up to a screenful; the rest is a count, as UE's Save Content dialog scrolls.
+        constexpr std::size_t kNamed = 8;
+        std::string           names;
+        for ( std::size_t i = 0; i < unsaved.size() && i < kNamed; ++i )
+            names += i == 0 ? unsaved[i].Name : std::format( ", {}", unsaved[i].Name );
+        if ( unsaved.size() > kNamed )
+            names += std::format( " and {} more", unsaved.size() - kNamed );
+        ImGui::TextUnformatted(
+             std::format( "{} unsaved {}: {}", unsaved.size(), unsaved.size() == 1 ? "entity" : "entities", names )
+                  .c_str() );
+        ImGui::TextDisabled( "They differ from their files and would leave the loaded part of the world." );
+        ImGui::TextDisabled(
+             "Save writes the world's unsaved entities, then unloads. Discard unloads them and drops "
+             "their changes." );
+        ImGui::Spacing();
+        bool save    = false;
+        bool discard = false;
+        bool cancel  = false;
+        ImGui::BeginDisabled( !m_SaveOpenScene );
+        save = ImGui::Button( "Save", ImVec2( 100.0f, 0.0f ) );
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        discard = ImGui::Button( "Discard", ImVec2( 100.0f, 0.0f ) );
+        ImGui::SameLine();
+        cancel =
+             ImGui::Button( "Cancel", ImVec2( 100.0f, 0.0f ) ) || ImGui::IsKeyPressed( ImGuiKey_Escape, false );
+        if ( save || discard || cancel )
+        {
+            PendingUnload pending = std::move( *m_PendingUnload );
+            m_PendingUnload.reset();
+            ImGui::CloseCurrentPopup();
+            if ( cancel )
+            {
+                m_Held         = pending.Before;
+                m_RegionStatus = "Cancelled: nothing was loaded or unloaded.";
+            }
+            else if ( save && !m_SaveOpenScene() )
+            {
+                m_Held         = pending.Before;
+                m_RegionStatus = "The world was not saved (see the log): nothing was loaded or unloaded.";
+            }
+            else if ( const auto changed =
+                           ChangeRegions( pending.Request,
+                                          save ? ::Desert::Core::EditorRegions::UnsavedPolicy::Ask
+                                               : ::Desert::Core::EditorRegions::UnsavedPolicy::Discard,
+                                          pending.Before );
+                      !changed )
+            {
+                m_Held         = pending.Before;
+                m_RegionStatus = changed.GetError();
+            }
+        }
+        ImGui::EndPopup();
     }
 
     std::vector<std::string> WorldPartitionPanel::DataLayerNames() const
@@ -588,13 +713,15 @@ namespace Desert::Editor
         const ::Desert::Core::WorldPartitionSerialized& partition = *m_Scene->GetWorldPartition();
         if ( !::Desert::Core::Rules::DataLayerIndexOf( partition, name ).has_value() )
             return Common::MakeError<bool>( std::format( "Data Layers: the world states no layer '{}'.", name ) );
-        const ::Desert::Core::EditorRegions::DataLayerOverrides before = Held().DataLayers;
+        const ::Desert::Core::EditorRegions::HeldRegions        heldBefore = Held();
+        const ::Desert::Core::EditorRegions::DataLayerOverrides before     = heldBefore.DataLayers;
         m_Held.DataLayers = ::Desert::Core::EditorRegions::WithDataLayerLoaded( partition, before, name, loaded );
         if ( m_Held.DataLayers == before )
             return Common::MakeSuccess( false );
         // The same regions (or the whole world) again, under the new layer state; LoadRegion remembers it.
         const RegionRequest again{ m_Held.Regions, m_Held.Whole };
-        if ( auto reloaded = LoadRegion( again ); !reloaded )
+        if ( auto reloaded = ChangeRegions( again, ::Desert::Core::EditorRegions::UnsavedPolicy::Ask, heldBefore );
+             !reloaded )
         {
             m_Held.DataLayers = before;
             return reloaded;

@@ -58,6 +58,7 @@ namespace Desert::Core
         m_SavedRevision.clear();
         m_SavedRecords.clear();
         m_NotLoaded.clear();
+        ++m_RegionGeneration;
     }
 
     void EntityPackages::AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded,
@@ -80,9 +81,13 @@ namespace Desert::Core
         }
         std::erase_if( m_SavedRevision, [&]( const auto& row ) { return !alive.contains( row.first ); } );
         std::erase_if( m_SavedRecords, [&]( const auto& row ) { return !alive.contains( row.first ); } );
+        // An entity unloaded with its changes discarded (EditorRegions::UnsavedPolicy::Discard) is read back from
+        // its file when it returns: a direct edit made before it left does not follow it.
+        std::erase_if( m_Unrecorded, [&]( const std::uint64_t id ) { return !alive.contains( id ); } );
         m_NotLoaded.clear();
         for ( const Common::UUID id : notLoaded )
             m_NotLoaded.insert( Bits( id ) );
+        ++m_RegionGeneration;
     }
 
     void EntityPackages::Baseline( const std::filesystem::path& scenePath, std::span<const LiveEntity> live )
@@ -90,6 +95,7 @@ namespace Desert::Core
         m_Whole = false;
         m_Unrecorded.clear();
         m_BaselinePath = scenePath.lexically_normal();
+        ++m_RegionGeneration; // an open or a save: the world's records may be others now
         m_SavedRevision.clear();
         m_SavedRecords.clear();
         for ( const LiveEntity& entity : live )
