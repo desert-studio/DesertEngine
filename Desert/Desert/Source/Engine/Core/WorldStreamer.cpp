@@ -8,6 +8,8 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
 
 #include <Common/Content/ContentChunks.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -29,6 +31,51 @@ namespace Desert::Core
 {
     namespace
     {
+        // THE MADE PART OF A UNIT STILL ACTIVATING IS NOT DRAWN (WP-ACTIVATE-SLICED; UE registers a streamed
+        // level's components before ULevel::bIsVisible). Every entity a slice made — each record's entity and its
+        // subtree, since a prefab instance's inner entities are no records — gets ECS::StreamingPendingComponent,
+        // which ECS::IsHidden reads, and is listed in @p made so the unit's reveal clears exactly those.
+        void HideMade( Scene& scene, std::span<const Common::UUID> recordIds, std::span<const std::size_t> records,
+                       std::vector<std::uint32_t>& made )
+        {
+            entt::registry&           registry = scene.GetRegistry();
+            std::vector<entt::entity> walk;
+            for ( const std::size_t record : records )
+            {
+                // A record the loader refused by name (a prefab that did not load) has no entity to hide.
+                const auto entity = scene.FindEntityByID( recordIds[record] );
+                if ( !entity.has_value() )
+                    continue;
+                walk.push_back( entity->get().GetHandle() );
+                while ( !walk.empty() )
+                {
+                    const entt::entity next = walk.back();
+                    walk.pop_back();
+                    if ( !registry.valid( next ) || registry.has<ECS::StreamingPendingComponent>( next ) )
+                        continue; // a child record already reached through its parent
+                    registry.emplace<ECS::StreamingPendingComponent>( next );
+                    made.push_back( static_cast<std::uint32_t>( next ) );
+                    if ( const auto* relationship = registry.try_get<ECS::RelationshipComponent>( next ) )
+                        walk.insert( walk.end(), relationship->Children.begin(), relationship->Children.end() );
+                }
+            }
+        }
+
+        // The unit is whole: what HideMade hid is drawn from this frame on.
+        void RevealMade( Scene& scene, std::vector<std::uint32_t>& made )
+        {
+            entt::registry& registry = scene.GetRegistry();
+            for ( const std::uint32_t raw : made )
+            {
+                const auto entity = static_cast<entt::entity>( raw );
+                if ( !registry.valid( entity ) || !registry.has<ECS::StreamingPendingComponent>( entity ) )
+                    continue; // destroyed since it was made (a script, its parent's tree)
+                registry.remove<ECS::StreamingPendingComponent>( entity );
+                scene.MarkRenderStateDirty( entity, false );
+            }
+            made.clear();
+        }
+
         // THE RECORDS OF AN HLOD RESIDENCY UNIT (WP-FAR-8): its nodes' saved files, in composite order, read on
         // a worker. A node with no row stands in with no records (the residency plan gave it none).
         class StoredHLODCellSource final : public Rules::WorldCellSource
@@ -565,22 +612,44 @@ namespace Desert::Core
             return *m_Source;
         }
 
-        [[nodiscard]] Common::BoolResultStr Activate( std::size_t                  unit,
+        // A slice of an HLOD cell (THE SLICES): made hidden, revealed whole by FinishActivation — the switch
+        // then shows or hides each HLOD by its own Visibility, in the same tick.
+        [[nodiscard]] Common::BoolResultStr Activate( std::size_t unit, std::size_t firstMember,
                                                       std::span<const std::size_t> records ) override
         {
             const std::vector<Assets::EntityData>* read = m_Loader.Records( unit );
-            if ( read == nullptr || read->size() != records.size() )
+            if ( read == nullptr || firstMember + records.size() > read->size() )
                 return Common::MakeError( std::format(
-                     "world streaming of '{}': {} is activated with {} record(s) "
-                     "read and {} planned",
-                     m_Owner.m_SceneName, Name( unit ), read == nullptr ? 0 : read->size(), records.size() ) );
+                     "world streaming of '{}': {} is activated at records {}..{} with {} record(s) read",
+                     m_Owner.m_SceneName, Name( unit ), firstMember, firstMember + records.size(),
+                     read == nullptr ? 0 : read->size() ) );
             auto made = SceneSerializer( m_Owner.m_Scene, m_Owner.m_Assets )
-                             .InstantiateRecords( *read, m_Owner.m_SceneName, nullptr );
+                             .InstantiateRecords( std::span<const Assets::EntityData>( *read ).subspan(
+                                                       firstMember, records.size() ),
+                                                  m_Owner.m_SceneName, nullptr );
             if ( made )
-                LOG_INFO( "[WorldPartition] '{0}': {1} loaded, {2} HLOD record(s); process {3}",
-                          m_Owner.m_SceneName, Name( unit ), records.size(),
-                          Common::Utils::ReadProcessFootprint().Describe() );
+                HideMade( *m_Owner.m_Scene, m_RecordIds, records, m_Made[unit] );
             return made;
+        }
+
+        // An HLOD cell has no bodies: whole is drawn.
+        [[nodiscard]] Common::ResultStr<bool> FinishActivation( std::size_t                  unit,
+                                                                std::span<const std::size_t> records ) override
+        {
+            RevealMade( *m_Owner.m_Scene, m_Made[unit] );
+            m_Made.erase( unit );
+            LOG_INFO( "[WorldPartition] '{0}': {1} loaded, {2} HLOD record(s); process {3}", m_Owner.m_SceneName,
+                      Name( unit ), records.size(), Common::Utils::ReadProcessFootprint().Describe() );
+            return Common::MakeSuccess( true );
+        }
+
+        [[nodiscard]] Rules::ActivationRecordKind ActivationKindOf( std::size_t unit,
+                                                                    std::size_t member ) const override
+        {
+            const std::vector<Assets::EntityData>* read = m_Loader.Records( unit );
+            // A count that differs from the plan is refused by the first slice's Activate, by name.
+            return read != nullptr && member < read->size() ? Rules::ActivationKindOf( ( *read )[member] )
+                                                            : Rules::ActivationRecordKind::Plain;
         }
 
         void Destroy( std::span<const std::size_t> records ) override
@@ -604,6 +673,7 @@ namespace Desert::Core
         void Unload( std::size_t unit ) override
         {
             m_Loader.Unload( unit );
+            m_Made.erase( unit ); // destroyed by the Deactivate before this
             LOG_INFO( "[WorldPartition] '{0}': {1} unloaded.", m_Owner.m_SceneName, Name( unit ) );
         }
 
@@ -628,6 +698,8 @@ namespace Desert::Core
         std::shared_ptr<const Rules::WorldCellSource> m_Source;
         WorldCellLoader                               m_Loader;
         std::vector<Common::UUID>                     m_RecordIds;
+        // Per Activating HLOD cell: the entities its slices made, hidden until it is whole.
+        std::unordered_map<std::size_t, std::vector<std::uint32_t>> m_Made;
     };
 
     float WorldStreamer::CameraViewAngle( const float verticalFovDegrees, const float aspect )
@@ -691,6 +763,8 @@ namespace Desert::Core
         UseSources( std::move( gathered ) );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
 
+        // UE's priority level streaming: while play waits behind the overlay, activation has more of the frame.
+        Executor().SetPriorityActivation( m_LastTick.Streaming.Blocks() );
         m_LastTick = TickReport{};
         // The HLODs switch on the state this very tick leaves, before the frame is drawn.
         // NOLINTBEGIN(bugprone-unchecked-optional-access): a streamer that began holds its HLOD switch
@@ -704,11 +778,23 @@ namespace Desert::Core
 
         const Rules::ResidencyTick& done = tick.GetValue();
         m_LastTick.Tick                  = done;
+        for ( const Rules::ActivationDone& unitDone : done.Completed )
+        {
+            const std::string name = Rules::DescribeResidencyUnit( Executor().Plan(), unitDone.Unit );
+            m_LastTick.ActivatedUnits += ( m_LastTick.ActivatedUnits.empty() ? "" : " " ) + name;
+            ++m_Activations;
+            m_WorstUnitMs = std::max( m_WorstUnitMs, unitDone.Ms );
+            // A unit made over several frames is SAID: it is what the budget did, and where a slow cell shows.
+            if ( unitDone.Frames > 1 )
+                LOG_INFO( "[WorldPartition] '{0}': {1} activated in {2} frames: {3} record(s) in {4} slice(s), "
+                          "{5:.2f} ms on the main thread, collision ready",
+                          m_SceneName, name, unitDone.Frames, unitDone.Records, unitDone.Slices, unitDone.Ms );
+        }
         m_LastTick.LiveRecords           = Executor().LiveRecords();
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
-        m_LastTick.Streaming =
-             Rules::AssessStreaming( Executor().Plan(), m_Partition, m_Settings, Executor().State(), sources );
+        m_LastTick.Streaming             = Rules::AssessStreaming( Executor().Plan(), m_Partition, m_Settings,
+                                                                   Executor().ActivationCost(), Executor().State(), sources );
         const bool wasWaiting = m_FramesWaiting > 0;
         m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
         if ( m_FramesWaiting == 1 )
@@ -771,6 +857,7 @@ namespace Desert::Core
     void WorldStreamer::Unload( std::size_t unit )
     {
         m_Loader->Unload( unit );
+        m_Made.erase( unit ); // what it made was destroyed by the Deactivate before this
     }
 
     std::vector<Rules::LoadOutcome> WorldStreamer::TakeLoadOutcomes()
@@ -783,32 +870,77 @@ namespace Desert::Core
         return finished;
     }
 
-    Common::BoolResultStr WorldStreamer::Activate( std::size_t unit, std::span<const std::size_t> records )
+    Common::BoolResultStr WorldStreamer::Activate( std::size_t unit, std::size_t firstMember,
+                                                   std::span<const std::size_t> records )
     {
         const auto start = std::chrono::steady_clock::now();
 
-        // StepResidency activates only a Loaded unit, and a unit is Loaded only once its read was reported Ok.
+        // StepResidency lets through only a Loaded unit, and a unit is Loaded only once its read was reported Ok.
         const std::vector<Assets::EntityData>* unitRecords = m_Loader->Records( unit );
         if ( unitRecords == nullptr )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': unit " + std::to_string( unit ) +
                                       " is activated with no finished read of its records" );
-        if ( unitRecords->size() != records.size() )
+        const std::size_t planned = Rules::ResidencyUnitRecords( Executor().Plan(), unit );
+        if ( unitRecords->size() != planned || firstMember + records.size() > planned )
         {
-            return Common::MakeError( "world streaming of '" + m_SceneName + "': unit " + std::to_string( unit ) +
-                                      " came back with " + std::to_string( unitRecords->size() ) +
-                                      " record(s), the plan holds " + std::to_string( records.size() ) );
+            return Common::MakeError( std::format(
+                 "world streaming of '{}': unit {} came back with {} record(s), the "
+                 "plan holds {} (slice {}..{})",
+                 m_SceneName, unit, unitRecords->size(), planned, firstMember, firstMember + records.size() ) );
         }
-        auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( *unitRecords, m_SceneName, nullptr );
+        auto made =
+             SceneSerializer( m_Scene, m_Assets )
+                  .InstantiateRecords(
+                       std::span<const Assets::EntityData>( *unitRecords ).subspan( firstMember, records.size() ),
+                       m_SceneName, nullptr );
+        if ( made )
+        {
+            HideMade( *m_Scene, m_RecordIds, records, m_Made[unit] );
+            // UE creates a primitive's physics state as it registers: the slice's bodies are made in the slice,
+            // and its time is theirs too. Before the Play's physics world exists this makes nothing, and
+            // FinishActivation waits for it.
+            if ( auto* physics = m_Scene->FindSystem<ECS::PhysicsECSSystem>() )
+                physics->CreatePendingBodies( m_Scene->GetRegistry() );
+        }
 
         const double ms = MsSince( start );
-        ++m_Activations;
+        ++m_Slices;
         m_RecordsActivated += records.size();
         m_ActivationMs += ms;
-        m_WorstUnitMs = std::max( m_WorstUnitMs, ms );
+        m_WorstSliceMs = std::max( m_WorstSliceMs, ms );
         m_LastTick.ActivationMs += ms;
-        m_LastTick.ActivatedUnits += ( m_LastTick.ActivatedUnits.empty() ? "" : " " ) +
-                                     Rules::DescribeResidencyUnit( Executor().Plan(), unit );
         return made;
+    }
+
+    Common::ResultStr<bool> WorldStreamer::FinishActivation( std::size_t unit,
+                                                             std::span<const std::size_t> /*records*/ )
+    {
+        std::vector<std::uint32_t>& made = m_Made[unit];
+        // ACTIVATED = COLLIDABLE. A scene with no physics system, or one whose Play refused to simulate (no
+        // collision profiles, said once by the system), has no body to wait for.
+        auto* physics = m_Scene->FindSystem<ECS::PhysicsECSSystem>();
+        if ( physics != nullptr && !physics->RefusesSimulation() )
+        {
+            entt::registry& registry = m_Scene->GetRegistry();
+            // The Play's physics world is made by the system's first Update: until then nothing can collide.
+            if ( !physics->CreatePhysicsState( registry ) )
+                return Common::MakeSuccess( false );
+            for ( const std::uint32_t entity : made )
+                if ( physics->AwaitsPhysics( static_cast<entt::entity>( entity ) ) )
+                    return Common::MakeSuccess( false ); // its mesh is still being read
+        }
+        RevealMade( *m_Scene, made );
+        m_Made.erase( unit );
+        return Common::MakeSuccess( true );
+    }
+
+    Rules::ActivationRecordKind WorldStreamer::ActivationKindOf( std::size_t unit, std::size_t member ) const
+    {
+        const std::vector<Assets::EntityData>* unitRecords = m_Loader->Records( unit );
+        // A count that differs from the plan is refused by the first slice's Activate, by name.
+        return unitRecords != nullptr && member < unitRecords->size()
+                    ? Rules::ActivationKindOf( ( *unitRecords )[member] )
+                    : Rules::ActivationRecordKind::Plain;
     }
 
     void WorldStreamer::Destroy( std::span<const std::size_t> records )
@@ -1031,11 +1163,14 @@ namespace Desert::Core
             m_Scene->GetRegistry().unset<WorldStreamingWait>();
         if ( !m_Executor.has_value() )
             return;
-        LOG_INFO( "[WorldPartition] '{0}': streamed {1} activation(s), {2} record(s) in {3:.2f} ms on the main "
-                  "thread ({4:.4f} ms per record, worst unit {5:.2f} ms), their reads {6:.2f} ms on workers; at "
-                  "most {7} of {8} record(s) resident at once.",
-                  m_SceneName, m_Activations, m_RecordsActivated, m_ActivationMs,
-                  m_RecordsActivated > 0 ? m_ActivationMs / static_cast<double>( m_RecordsActivated ) : 0.0,
-                  m_WorstUnitMs, m_Loader->WorkerMs(), m_MostResident, m_RecordIds.size() );
+        LOG_INFO(
+             "[WorldPartition] '{0}': streamed {1} activation(s), {2} record(s) in {3} slice(s), {4:.2f} ms "
+             "on the main thread ({5:.4f} ms per record, worst slice {6:.2f} ms, slowest unit {7:.2f} ms over "
+             "its frames; per kind: {8}), their reads {9:.2f} ms on workers; at most {10} of {11} record(s) "
+             "resident at once.",
+             m_SceneName, m_Activations, m_RecordsActivated, m_Slices, m_ActivationMs,
+             m_RecordsActivated > 0 ? m_ActivationMs / static_cast<double>( m_RecordsActivated ) : 0.0,
+             m_WorstSliceMs, m_WorstUnitMs, Executor().ActivationCost().Describe(), m_Loader->WorkerMs(),
+             m_MostResident, m_RecordIds.size() );
     }
 } // namespace Desert::Core

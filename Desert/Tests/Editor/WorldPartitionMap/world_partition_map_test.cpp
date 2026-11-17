@@ -78,7 +78,8 @@ namespace
     struct SetWorld final : ResidencyWorld
     {
         std::set<std::size_t> Live;
-        Common::BoolResultStr Activate( std::size_t, std::span<const std::size_t> records ) override
+        Common::BoolResultStr Activate( std::size_t, std::size_t /*firstMember*/,
+                                        std::span<const std::size_t> records ) override
         {
             Live.insert( records.begin(), records.end() );
             return Common::MakeSuccess( true );

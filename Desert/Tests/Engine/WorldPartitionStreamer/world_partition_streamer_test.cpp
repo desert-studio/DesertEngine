@@ -140,7 +140,8 @@ namespace
                 Live.insert( record );
         }
 
-        Common::BoolResultStr Activate( std::size_t /*unit*/, std::span<const std::size_t> records ) override
+        Common::BoolResultStr Activate( std::size_t /*unit*/, std::size_t /*firstMember*/,
+                                        std::span<const std::size_t> records ) override
         {
             ++ActivateCalls;
             if ( !FailWith.empty() )
@@ -162,7 +163,6 @@ namespace
     {
         ResidencySettings settings;
         settings.ActivationBudgetMs = 1.0;
-        settings.MsPerRecord        = 0.1; // ten records a frame, so a cell row of three fits
         return settings;
     }
 

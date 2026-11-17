@@ -70,6 +70,49 @@ namespace Desert::ECS
         {
         }
 
+        // ── WHAT A STREAMED CELL'S ACTIVATION ASKS OF PHYSICS (WP-ACTIVATE-SLICED) ─────────────────────────
+        //
+        // UE creates a primitive's physics state when its component registers (UPrimitiveComponent::OnRegister
+        // -> CreatePhysicsState), inside the incremental registration of a streamed level, so the level collides
+        // by the time it is made visible. The world streamer does the same: after each slice of a cell's records
+        // it builds the bodies that slice marked pending (so the slice's measured time includes them), and before
+        // it reveals the cell it makes the whole physics state current and asks, entity by entity, whether any
+        // still waits (WorldStreamer::FinishActivation). Only then is the cell Activated.
+
+        // Builds the pending rigid bodies and characters now. Nothing while this Play's Jolt world does not
+        // exist yet (it is made by this system's first Update of the Play).
+        void CreatePendingBodies( entt::registry& registry )
+        {
+            if ( !m_World )
+                return;
+            m_Lifetime->Attach( registry );
+            BuildPendingBodies( registry );
+            BuildPendingCharacters( registry );
+        }
+
+        // RegisterPhysicsState now. False — nothing done — while this Play's Jolt world does not exist yet.
+        [[nodiscard]] bool CreatePhysicsState( entt::registry& registry )
+        {
+            if ( !m_World )
+                return false;
+            RegisterPhysicsState( registry );
+            return true;
+        }
+
+        // This Play does not simulate (the collision profiles were refused, said once): no body will ever exist.
+        [[nodiscard]] bool RefusesSimulation() const
+        {
+            return m_ProfilesRefused;
+        }
+
+        // Whether @p entity still waits for its rigid body or character after CreatePhysicsState: pending, and
+        // neither built nor refused (a mesh collider whose mesh is still being read).
+        [[nodiscard]] bool AwaitsPhysics( entt::entity entity ) const
+        {
+            return m_Lifetime && ( m_Lifetime->GetPendingBodies().contains( entity ) ||
+                                   m_Lifetime->GetPendingCharacters().contains( entity ) );
+        }
+
         void Update( entt::registry&         registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ts ) override
         {
@@ -138,128 +181,7 @@ namespace Desert::ECS
                 m_World->SetGravity( m_AppliedGravity );
             }
 
-            // Every body created below is given back by the listener when its entity (or its collider) goes —
-            // see PhysicsBodyLifetime.hpp. Re-armed each frame because a reloaded scene may be a new registry.
-            m_Lifetime->Attach( registry );
-            m_Landscape->Attach( registry );
-            m_Foliage->Attach( registry );
-            m_Destructibles->Attach( registry );
-            m_Ragdolls->Attach( registry );
-            m_Destructibles->Sync(
-                 registry, []( const Assets::AssetHandle& fracture )
-                 { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); },
-                 []( const Assets::AssetHandle& mesh )
-                 {
-                     // The file a run-time fracture cuts (DST-RUNTIME): the static mesh asset the entity draws.
-                     const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh );
-                     return asset ? asset->GetMetadata().Filepath : std::filesystem::path();
-                 } );
-            // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
-            m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
-            // One static body per foliage field whose type collides (FOLIAGE-COLLISION), streamed with its cell.
-            m_Foliage->Sync( registry );
-
-            // Create a Jolt body for the entities whose body components were added or replaced since the last
-            // frame (uses the authored pose) - PhysicsBodyLifetime's pending set, not a walk of every body.
-            // From the back: erasing the current entity swaps in the last one, which is already looked at.
-            PhysicsBodyLifetime::PendingSet& pendingBodies = m_Lifetime->GetPendingBodies();
-            for ( std::size_t i = pendingBodies.size(); i-- > 0; )
-            {
-                const entt::entity entity = pendingBodies.data()[i];
-                if ( !registry.valid( entity ) ||
-                     !registry.has<TransformComponent, RigidBodyComponent, ColliderComponent>( entity ) )
-                {
-                    pendingBodies.erase( entity ); // a missing component marks it again when it is added
-                    continue;
-                }
-                auto& rb = registry.get<RigidBodyComponent>( entity );
-                if ( rb.RuntimeBody != Physics::kInvalidBody )
-                {
-                    pendingBodies.erase( entity ); // replaced on a body that already exists
-                    continue;
-                }
-
-                const auto& collider = registry.get<ColliderComponent>( entity );
-
-                Physics::BodyDesc desc;
-                desc.Shape       = collider.Data.Shape;
-                desc.HalfExtents = collider.Data.HalfExtents;
-                desc.Radius      = collider.Data.Radius;
-                desc.HalfHeight  = collider.Data.HalfHeight;
-                desc.Axis        = collider.Data.Axis;
-                desc.Center      = collider.Data.Center;
-                desc.Type        = rb.Data.Type;
-                desc.Mass        = rb.Data.Mass;
-                desc.Friction    = rb.Data.Friction;
-                desc.Restitution = rb.Data.Restitution;
-                auto profile     = m_World->GetCollisionProfiles().Resolve( rb.Data.CollisionProfile );
-                if ( !profile )
-                {
-                    RefuseCollider( entity, profile.GetError() );
-                    continue;
-                }
-                desc.Profile = profile.GetValue();
-
-                // The WORLD pose, so a collider on a CHILD entity is created where it actually is.
-                const EntityWorldPose pose       = ComputeEntityWorldPose( registry, entity );
-                const glm::vec3       worldScale = pose.Scale;
-                desc.Position                    = pose.Position;
-                desc.Rotation                    = pose.Rotation;
-
-                std::optional<ColliderMesh> colliderMesh;
-                if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
-                {
-                    auto gathered = GatherColliderMesh( registry, entity, worldScale );
-                    if ( !gathered.IsSuccess() )
-                    {
-                        RefuseCollider( entity, gathered.GetError() );
-                        continue;
-                    }
-                    if ( !gathered.GetValue() )
-                        continue; // the mesh asset is still loading: stays pending, tried again next frame
-                    colliderMesh     = *gathered.GetValue();
-                    desc.MeshPoints  = colliderMesh->Points;
-                    desc.MeshIndices = colliderMesh->Indices;
-                }
-
-                auto created = m_World->CreateBody( desc );
-                if ( !created.IsSuccess() )
-                {
-                    RefuseCollider( entity, created.GetError() );
-                    continue;
-                }
-                rb.RuntimeBody = created.GetValue();
-                m_Lifetime->Track( rb.RuntimeBody, entity );
-                pendingBodies.erase( entity );
-            }
-
-            // Create a Jolt CharacterVirtual for the pending character entities (authored pose), same rule.
-            PhysicsBodyLifetime::PendingSet& pendingCharacters = m_Lifetime->GetPendingCharacters();
-            for ( std::size_t i = pendingCharacters.size(); i-- > 0; )
-            {
-                const entt::entity entity = pendingCharacters.data()[i];
-                // Looked at once whatever the outcome: built, already built, gone, or refused (said once).
-                pendingCharacters.erase( entity );
-                if ( !registry.valid( entity ) ||
-                     !registry.has<TransformComponent, CharacterControllerComponent>( entity ) )
-                    continue;
-                auto& cc = registry.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter )
-                    continue;
-                const auto& transform = registry.get<TransformComponent>( entity );
-
-                if ( const auto created = CharacterMovement::CreateCharacter(
-                          cc, *m_World, transform.GetTranslation() ); // capsule centre
-                     !created )
-                {
-                    LOG_ERROR( "[Physics] entity {} has no character: {}", static_cast<uint32_t>( entity ),
-                               created.GetError() );
-                    continue;
-                }
-                // A character is its inner body to the others (PhysicsWorld::GetCharacterBody): the pawn that
-                // walks into a trigger is named by its entity.
-                m_Lifetime->Track( m_World->GetCharacterBody( cc.RuntimeCharacter ), entity );
-            }
+            RegisterPhysicsState( registry );
 
             if ( !playing )
                 return; // Paused (and not stepping): bodies exist but time is frozen.
@@ -515,6 +437,144 @@ namespace Desert::ECS
         // EndOverlap is named.
         // A volume's overlaps in the log, by name (UE: a Trigger Volume's begin/end overlap is what a level
         // designer checks first). The events themselves go to the volume's subscribers like any body's.
+        // The physics state of the registry made current: the listeners attached, every landscape tile, foliage
+        // field and destructible synced, the pending bodies and characters built. What Update does first every
+        // frame, and what a streamed cell's activation asks for before it reveals the cell.
+        void RegisterPhysicsState( entt::registry& registry )
+        {
+            // Every body created below is given back by the listener when its entity (or its collider) goes —
+            // see PhysicsBodyLifetime.hpp. Re-armed each frame because a reloaded scene may be a new registry.
+            m_Lifetime->Attach( registry );
+            m_Landscape->Attach( registry );
+            m_Foliage->Attach( registry );
+            m_Destructibles->Attach( registry );
+            m_Ragdolls->Attach( registry );
+            m_Destructibles->Sync(
+                 registry, []( const Assets::AssetHandle& fracture )
+                 { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); },
+                 []( const Assets::AssetHandle& mesh )
+                 {
+                     // The file a run-time fracture cuts (DST-RUNTIME): the static mesh asset the entity draws.
+                     const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh );
+                     return asset ? asset->GetMetadata().Filepath : std::filesystem::path();
+                 } );
+            // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
+            m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
+            // One static body per foliage field whose type collides (FOLIAGE-COLLISION), streamed with its cell.
+            m_Foliage->Sync( registry );
+
+            BuildPendingBodies( registry );
+            BuildPendingCharacters( registry );
+        }
+
+        void BuildPendingBodies( entt::registry& registry )
+        {
+            // Create a Jolt body for the entities whose body components were added or replaced since the last
+            // frame (uses the authored pose) - PhysicsBodyLifetime's pending set, not a walk of every body.
+            // From the back: erasing the current entity swaps in the last one, which is already looked at.
+            PhysicsBodyLifetime::PendingSet& pendingBodies = m_Lifetime->GetPendingBodies();
+            for ( std::size_t i = pendingBodies.size(); i-- > 0; )
+            {
+                const entt::entity entity = pendingBodies.data()[i];
+                if ( !registry.valid( entity ) ||
+                     !registry.has<TransformComponent, RigidBodyComponent, ColliderComponent>( entity ) )
+                {
+                    pendingBodies.erase( entity ); // a missing component marks it again when it is added
+                    continue;
+                }
+                auto& rb = registry.get<RigidBodyComponent>( entity );
+                if ( rb.RuntimeBody != Physics::kInvalidBody )
+                {
+                    pendingBodies.erase( entity ); // replaced on a body that already exists
+                    continue;
+                }
+
+                const auto& collider = registry.get<ColliderComponent>( entity );
+
+                Physics::BodyDesc desc;
+                desc.Shape       = collider.Data.Shape;
+                desc.HalfExtents = collider.Data.HalfExtents;
+                desc.Radius      = collider.Data.Radius;
+                desc.HalfHeight  = collider.Data.HalfHeight;
+                desc.Axis        = collider.Data.Axis;
+                desc.Center      = collider.Data.Center;
+                desc.Type        = rb.Data.Type;
+                desc.Mass        = rb.Data.Mass;
+                desc.Friction    = rb.Data.Friction;
+                desc.Restitution = rb.Data.Restitution;
+                auto profile     = m_World->GetCollisionProfiles().Resolve( rb.Data.CollisionProfile );
+                if ( !profile )
+                {
+                    RefuseCollider( entity, profile.GetError() );
+                    continue;
+                }
+                desc.Profile = profile.GetValue();
+
+                // The WORLD pose, so a collider on a CHILD entity is created where it actually is.
+                const EntityWorldPose pose       = ComputeEntityWorldPose( registry, entity );
+                const glm::vec3       worldScale = pose.Scale;
+                desc.Position                    = pose.Position;
+                desc.Rotation                    = pose.Rotation;
+
+                std::optional<ColliderMesh> colliderMesh;
+                if ( desc.Shape == Physics::ShapeType::Mesh || desc.Shape == Physics::ShapeType::ConvexHull )
+                {
+                    auto gathered = GatherColliderMesh( registry, entity, worldScale );
+                    if ( !gathered.IsSuccess() )
+                    {
+                        RefuseCollider( entity, gathered.GetError() );
+                        continue;
+                    }
+                    if ( !gathered.GetValue() )
+                        continue; // the mesh asset is still loading: stays pending, tried again next frame
+                    colliderMesh     = *gathered.GetValue();
+                    desc.MeshPoints  = colliderMesh->Points;
+                    desc.MeshIndices = colliderMesh->Indices;
+                }
+
+                auto created = m_World->CreateBody( desc );
+                if ( !created.IsSuccess() )
+                {
+                    RefuseCollider( entity, created.GetError() );
+                    continue;
+                }
+                rb.RuntimeBody = created.GetValue();
+                m_Lifetime->Track( rb.RuntimeBody, entity );
+                pendingBodies.erase( entity );
+            }
+        }
+
+        void BuildPendingCharacters( entt::registry& registry )
+        {
+            // Create a Jolt CharacterVirtual for the pending character entities (authored pose), same rule.
+            PhysicsBodyLifetime::PendingSet& pendingCharacters = m_Lifetime->GetPendingCharacters();
+            for ( std::size_t i = pendingCharacters.size(); i-- > 0; )
+            {
+                const entt::entity entity = pendingCharacters.data()[i];
+                // Looked at once whatever the outcome: built, already built, gone, or refused (said once).
+                pendingCharacters.erase( entity );
+                if ( !registry.valid( entity ) ||
+                     !registry.has<TransformComponent, CharacterControllerComponent>( entity ) )
+                    continue;
+                auto& cc = registry.get<CharacterControllerComponent>( entity );
+                if ( cc.RuntimeCharacter != Physics::kInvalidCharacter )
+                    continue;
+                const auto& transform = registry.get<TransformComponent>( entity );
+
+                if ( const auto created = CharacterMovement::CreateCharacter(
+                          cc, *m_World, transform.GetTranslation() ); // capsule centre
+                     !created )
+                {
+                    LOG_ERROR( "[Physics] entity {} has no character: {}", static_cast<uint32_t>( entity ),
+                               created.GetError() );
+                    continue;
+                }
+                // A character is its inner body to the others (PhysicsWorld::GetCharacterBody): the pawn that
+                // walks into a trigger is named by its entity.
+                m_Lifetime->Track( m_World->GetCharacterBody( cc.RuntimeCharacter ), entity );
+            }
+        }
+
         static void LogVolumeOverlaps( entt::registry& registry, const std::vector<PhysicsEvent>& events )
         {
             const auto nameOf = [&registry]( entt::entity entity ) -> std::string

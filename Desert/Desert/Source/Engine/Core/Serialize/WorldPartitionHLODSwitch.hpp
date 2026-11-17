@@ -369,14 +369,16 @@ namespace Desert::Core::Rules
         auto worldGate = hlods.WorldGate( hlodExecutor.State() );
         if ( !worldGate.IsSuccess() )
             return Common::MakeError<ResidencyTick>( worldGate.GetError() );
-        auto tick = executor.Tick( sources, nowSeconds, world, &worldGate.GetValue() );
+        // One activation budget for the frame: the HLOD cells' slices spend what the world's cells left.
+        ActivationFrame frame;
+        auto            tick = executor.Tick( sources, nowSeconds, world, &worldGate.GetValue(), &frame );
         if ( !tick.IsSuccess() )
             return tick;
         auto hlodGate = hlods.HLODGate( executor.State(), hlodExecutor.State() );
         if ( !hlodGate.IsSuccess() )
             return Common::MakeError<ResidencyTick>( hlodGate.GetError() );
         const std::vector<StreamingSource> hlodSources = HLODSources( residency, sources );
-        if ( auto hlodTick = hlodExecutor.Tick( hlodSources, nowSeconds, hlodCells, &hlodGate.GetValue() );
+        if ( auto hlodTick = hlodExecutor.Tick( hlodSources, nowSeconds, hlodCells, &hlodGate.GetValue(), &frame );
              !hlodTick.IsSuccess() )
             return Common::MakeError<ResidencyTick>( "the HLOD cells: " + hlodTick.GetError() );
         if ( auto synced = hlods.Sync( executor.State(), &hlodExecutor.State(), hlodWorld ); !synced.IsSuccess() )
