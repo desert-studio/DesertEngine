@@ -7,6 +7,7 @@
 #include <Engine/ECS/System/LandscapeECSSystem.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
+#include <Engine/ECS/System/RectLightSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
@@ -36,5 +37,6 @@ namespace Desert::Core
         scene.AddSystem<ECS::WaterZoneECSSystem>();
         scene.AddSystem<ECS::PointLightECSSystem>();
         scene.AddSystem<ECS::SpotLightECSSystem>();
+        scene.AddSystem<ECS::RectLightECSSystem>();
     }
 } // namespace Desert::Core

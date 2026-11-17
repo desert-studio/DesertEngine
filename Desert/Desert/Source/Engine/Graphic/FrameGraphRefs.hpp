@@ -71,6 +71,13 @@ namespace Desert::Graphic
         // (SceneRenderer::WorldLightGridRead).
         RDG::BufferRef WorldGridParams; // "Upload: Lights.WorldGridParams"
         RDG::BufferRef WorldGridCells;  // written by "LightGridWorld"
+        // THE LIGHT FUNCTION ATLAS these rows name (System::LightFunctionAtlas, "Lights: Light Function Atlas",
+        // drawn before the rows are uploaded): sampled BINDLESS by every evaluation of a point / spot / rect light
+        // (Mesh/LightSources.glslh -> Mesh/LightFunctionAtlas.glslh), so every pass that binds Point or Spot
+        // declares it beside them (RDG::BindingBlockBuilder::BindlessRead, the stage family it runs on): the graph
+        // then orders the atlas's writer before it on its own queue (UE: LightFunctionAtlas in each consumer's pass
+        // parameters). Invalid when no light of the view has a function (no node; every row's tile is -1).
+        RDG::TextureRef LightFunctionAtlas;
     };
 
     // THE MEGALIGHTS TRANSLUCENCY VOLUME of a view (System::MegaLightsVolumeRenderer;
@@ -283,6 +290,9 @@ namespace Desert::Graphic
         // point and spot lights of its froxel. Bound where the layout has the two storage blocks.
         RDG::BufferRef LightGridParams;
         RDG::BufferRef LightGridCells;
+        // The light function atlas the grid's lights sample bindless (ViewLightBuffers::LightFunctionAtlas):
+        // declared wherever the layout reads the grid; invalid when no light has a function.
+        RDG::TextureRef LightFunctionAtlas;
         // The table of the local shadow atlas's views (ViewLightBuffers::ShadowViews) each point/spot row's
         // shadowView names: read with the atlas wherever a lit pass shades the grid's lights
         // (Mesh/LocalLightShadow.glslh).
@@ -512,6 +522,7 @@ namespace Desert::Graphic
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
         inputs.LocalShadowViews       = t.Lights.ShadowViews;
+        inputs.LightFunctionAtlas     = t.Lights.LightFunctionAtlas;
         inputs.Vsm                    = t.Vsm;
         inputs.FogParams              = t.FogParams;
         inputs.FogAerialPerspective   = t.FogAerialPerspective;
@@ -745,6 +756,9 @@ namespace Desert::Graphic
                                              inputs.MegaLightsVolume.Params } } )
             if ( slots.Has( entry.Slot ) )
                 block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
+        // The grid's lights sample their light function tiles bindless: a grid reader declares the atlas.
+        if ( slots.Has( SceneViewSlot::LightGridCells ) )
+            block.BindlessRead( inputs.LightFunctionAtlas, RDG::Access::SampledGraphics );
         BindVirtualShadowMapReads( block, inputs.Vsm, slots );
         // The radiance cache, where the shader reads it (the forward passes' estimator). Bound here and not in
         // BindWhere: the surface cache's lighting passes bind their own cache under the same names.

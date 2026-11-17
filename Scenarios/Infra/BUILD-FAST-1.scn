@@ -1,0 +1,10 @@
+# BUILD-FAST-1: a task's build takes minutes. Measured outside the editor (DesertEngine-scratch/BUILD-FAST-1/timings.txt):
+#   [1_slot_reuse]    scripts/Dev/build_slot.sh take <CODE> <branch> on a slot holding a built dev -> Editor built <= 3 min
+#   [2_fresh_warm]    a brand-new tree, the compile cache warm -> >= 90 % ccache hits, Editor <= 5 min
+#   [3_one_cpp]       one Renderer .cpp edited -> Editor <= 1 min
+#   [4_compile_check] scripts/Dev/compile_check.sh prints OK or the first errors <= 3 min
+# Regression (here): the Editor built from the shared cache (sources compiled in another tree, PCH digests) opens the
+# saved World Partition world and draws it as the dev Editor does.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт 2 км, город, кусты, небо; без падения и диалога ошибки; в editor.log нет отказа загрузки

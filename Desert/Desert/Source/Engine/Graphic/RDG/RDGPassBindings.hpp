@@ -110,6 +110,12 @@ namespace Desert::Graphic::RDG
         BindingBlockBuilder& AccelerationStructure( AccelerationStructureParameter parameter, BufferRef tlas );
         // The size the exec's PassBindings::PushConstants will give; 0 = none.
         BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
+        // A texture the block's shader samples through the BINDLESS table (no slot of the block: the light
+        // function atlas, Mesh/LightFunctionAtlas.glslh): declared to the graph alone, so its writer is ordered
+        // (and barriered) before this pass on whichever queue the pass runs (UE: a pass parameter the shader reads
+        // through a descriptor heap). An invalid ref declares nothing - its producer did not run this frame and the
+        // payloads name no slot of it.
+        BindingBlockBuilder& BindlessRead( TextureRef texture, Access declared );
 
         [[nodiscard]] BindingBlockRef GetRef() const;
 

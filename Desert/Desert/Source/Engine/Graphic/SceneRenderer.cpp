@@ -1316,6 +1316,8 @@ namespace Desert::Graphic
                                                    Parameter::FoliageGrassCullDistanceScalePercent ) ),
                  .LodScreenPixels =
                       static_cast<float>( quality.As<int>( Parameter::FoliageGrassLodScreenPixels ) ),
+                 .MeshLodDistanceScale = 0.01f * static_cast<float>( quality.As<int>(
+                                                      Parameter::FoliageGrassMeshLodDistanceScalePercent ) ),
                  .BladeCardHull = quality.As<int>( Parameter::FoliageGrassBladeCardHull ) != 0 };
             if ( const auto& grass = m_Systems.Grass )
                 grass->SetQuality( grassQuality );
@@ -1419,7 +1421,7 @@ namespace Desert::Graphic
             // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
             for ( const ShaderProtocols::PointLightPayload& light :
                   System::ParticleWorldGpu::Of( scene.GetVFXWorld() ).ParticleLights() )
-                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false } );
+                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false }, System::LightFunctionProxy{} );
         }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
@@ -1894,6 +1896,10 @@ namespace Desert::Graphic
             bloom->SetPreExposure( frame.PreExposure );
         if ( auto* shafts = m_Systems.LightShaft.get() )
             shafts->SetPreExposure( frame.PreExposure );
+        // The view's dithered LOD transition for the cascades' casters (WriteLightCamera): they clip the fade the
+        // view clips with.
+        if ( auto* mesh = m_Systems.Mesh.get() )
+            mesh->SetViewTemporalLOD( frame.TemporalLOD );
         // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
         // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Resize render targets" );
@@ -2466,7 +2472,29 @@ namespace Desert::Graphic
         // RENDER-CPU-COST-1: a row of its own per step (the phase had none: 0.35 ms self on the turn).
         DESERT_PROFILE_PHASES( lightGridPhases );
         DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: Grid" );
+        // THE LIGHT FUNCTION ATLAS (UE FLightFunctionAtlas): the tiles AddPointLight / AddSpotLight handed out,
+        // drawn before any lit pass on EITHER path, the atlas slot stamped on every light with a tile BEFORE
+        // AddFrameLightGrid copies the rows into "Upload: Lights.Point/Spot" (QueueBufferUpload copies at the call:
+        // a stamp after it never reached the GPU). The imported atlas rides with the rows (ViewLightBuffers::
+        // LightFunctionAtlas): every pass that binds them declares it. A frame with no light function adds no node
+        // and stamps nothing: its lights keep tile -1 and shade exactly as before.
+        RDG::TextureRef lightFunctionAtlas;
+        if ( const int32_t atlasSlot =
+                  m_LightFunctions.PrepareFrame( static_cast<float>( m_SceneTimeSeconds ), GetPipelineCache() );
+             atlasSlot > 0 && m_LightFunctions.HasDraws() )
+        {
+            for ( auto& point : m_PointLight.PointLights )
+                if ( point.LightFunctionTile >= 0 )
+                    point.LightFunctionAtlasTexture = atlasSlot;
+            for ( auto& spot : m_SpotLight.SpotLights )
+                if ( spot.LightFunctionTile >= 0 )
+                    spot.LightFunctionAtlasTexture = atlasSlot;
+            lightFunctionAtlas =
+                 textures.Import( m_LightFunctions.GetAtlas(), "LightFunctionAtlas", RDG::Access::SampledGraphics );
+            m_LightFunctions.AddPasses( graph, lightFunctionAtlas );
+        }
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
+        textures.Transients.Lights.LightFunctionAtlas = lightFunctionAtlas;
         DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: World grid + distance field" );
         // The MegaLights translucency volume the forward and glass cells read starts OFF (the neutral block); it is
         // lit by AddFrameMegaLightsVolume once its visibility source is drawn - before the base pass on the forward
@@ -2716,6 +2744,10 @@ namespace Desert::Graphic
                                            ? m_Systems.SSR.get()
                                            : nullptr;
                 const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
+                // The radiance cache's update (Mark .. Trace) ahead of the screen trace's HZB (FPS-PROBE-WAIT-2): it
+                // reads the depth and the normals, no HZB, so its async run forks at the depth's last writer.
+                const std::optional<TracedGIUpdate> tracedGI =
+                     AddFrameTracedGIUpdate( graph, textures, gbuffer, lightDir, lightColor, frame );
                 const FrameScreenTrace screenTrace =
                      ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) ||
                        ( m_RenderMethods.GlobalIllumination.Effective ==
@@ -2723,13 +2755,13 @@ namespace Desert::Graphic
                          EnsureSSGIResources() ) )
                           ? AddFrameScreenTrace( graph, textures, frame )
                           : FrameScreenTrace{};
-                AddFrameTracedGI( graph, textures, gbuffer, lightDir, lightColor, screenTrace, frame );
+                AddFrameTracedGIGather( graph, textures, gbuffer, tracedGI, screenTrace, frame );
                 AddFrameSSGI( graph, textures, gbuffer, screenTrace, frame );
                 // THE GRAPHICS QUEUE'S WORK WHILE THE GI GATHERS (UE FDeferredShadingSceneRenderer::Render:
                 // Lumen's gather on the async pipe while the graphics pipe renders what reads none of it - the
-                // volumetric fog among it, ComputeVolumetricFog before the lights). The radiance cache and the
-                // screen probes above fork after the screen trace (the surface cache's run forked before the
-                // G-buffer, surfaceCacheBeforeGBuffer) and join at their first readers (the
+                // volumetric fog among it, ComputeVolumetricFog before the lights). The radiance cache above forks
+                // after the depth and the screen probes after the screen trace (the surface cache's run forked
+                // before the G-buffer, surfaceCacheBeforeGBuffer) and join at their first readers (the
                 // reflections, the composite: RDGCompile CutRunsAtConsumers), so every node declared between the
                 // two that reads nothing the runs write - and writes nothing they read - fills the graphics
                 // queue's wait instead of sitting after the join. The volumetric fog's froxels: the light grid,
@@ -3181,6 +3213,7 @@ namespace Desert::Graphic
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
         m_Decals.ClearQueue();
+        m_LightFunctions.ClearQueue();
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
         m_LocalFogVolumes.clear(); // keeps the capacity reserved by AddLocalFogVolume
@@ -5237,9 +5270,24 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                                       const LocalLightShadowSettings&           shadow )
+                                       const LocalLightShadowSettings&           shadow,
+                                       const System::LightFunctionProxy& function )
     {
         m_PointLight.PointLights.push_back( pointLight );
+        // The light's tile in this frame's light function atlas (-1 = none); the atlas slot is stamped before the
+        // G-buffer, once the atlas has its size.
+        m_PointLight.PointLights.back().LightFunctionTile =
+             m_LightFunctions.Add( function, m_PointLight.PointLights.back() );
+        // The IES profile's atlas: the collector named the row on its thread, the image is (re)built here, on
+        // the main thread, so a profile added this frame shows this frame (Runtime::IesProfileService).
+        if ( m_PointLight.PointLights.back().IesProfileRow >= 0 )
+            m_PointLight.PointLights.back().IesAtlasTexture =
+                 Runtime::ResourceRegistry::GetIesProfileService()->AtlasTexture();
+        // A rect source integrates its specular against the GGX LTC tables (Mesh/RectLight.glslh), made on the
+        // first rect light, here on the main thread (Runtime::RectLightLtcService).
+        if ( m_PointLight.PointLights.back().RectHalfWidth > 0.0f )
+            m_PointLight.PointLights.back().RectLtcTexture =
+                 Runtime::ResourceRegistry::GetRectLightLtcService()->LtcTexture();
         m_PointLightShadows.push_back( shadow );
     }
 
@@ -5249,9 +5297,17 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                                      const LocalLightShadowSettings&          shadow )
+                                      const LocalLightShadowSettings&          shadow,
+                                       const System::LightFunctionProxy& function )
     {
         m_SpotLight.SpotLights.push_back( spotLight );
+        m_SpotLight.SpotLights.back().LightFunctionTile =
+             m_LightFunctions.Add( function, m_SpotLight.SpotLights.back() );
+        // The IES profile's atlas: the collector named the row on its thread, the image is (re)built here, on
+        // the main thread, so a profile added this frame shows this frame (Runtime::IesProfileService).
+        if ( m_SpotLight.SpotLights.back().IesProfileRow >= 0 )
+            m_SpotLight.SpotLights.back().IesAtlasTexture =
+                 Runtime::ResourceRegistry::GetIesProfileService()->AtlasTexture();
         m_SpotLightShadows.push_back( shadow );
     }
 

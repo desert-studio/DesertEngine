@@ -35,8 +35,8 @@
 {% endfor %}{% endif %}
 {# No static object here: a module's registration runs because the module list calls it by name, so the
    linker keeps this object for the reference and not for a side effect it cannot see (plan C11). -#}
-{# DESERT_REFLECTION_DATA_ONLY: a tool that compiles this table to read and write formats (SceneMigrator,
-   WorldGen) links no engine code, and a FUNCTION thunk takes the address of the engine function it calls.
+{# DESERT_REFLECTION_DATA_ONLY: a tool that compiles this table to read and write formats (WorldGen) links no
+   engine code, and a FUNCTION thunk takes the address of the engine function it calls.
    Such a tool defines the macro and gets the types and their fields without the callable functions. -#}
 {# REFLECT( ScriptStruct ): the member list a Struct Value is packed from and unpacked into (FunctionThunk.hpp,
    ReflectedStruct) - declared before any FUNCTION below takes or returns the struct. -#}

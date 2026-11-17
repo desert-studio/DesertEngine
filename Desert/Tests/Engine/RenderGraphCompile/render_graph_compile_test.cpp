@@ -5296,6 +5296,12 @@ namespace
                                        kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
             return *this;
         }
+        // The light function atlas: a graph declaration of the pass, no slot of the block
+        // (RDG::BindingBlockBuilder::BindlessRead), so the collected block keeps nothing.
+        CollectedBlock& BindlessRead( TextureRef, Access )
+        {
+            return *this;
+        }
         // The reflection capture list (BindSceneViewInputs binds it as a storage buffer).
         CollectedBlock& Storage( Desert::Graphic::RDG::StorageBufferParameter parameter, BufferRef buffer,
                                  Access access )
