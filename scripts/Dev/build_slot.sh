@@ -24,28 +24,41 @@ lockfile() { echo "$(git -C "$1" rev-parse --absolute-git-dir)/desert-slot"; }
 # Tracked edits only; " T" = a submodule the slot links to the main tree's checkout (new_tree.sh), not an edit.
 dirty() { git -C "$1" status --porcelain --untracked-files=no | grep -v '^ T ' | head -5; }
 
-# new_slot <tree> <base>: a worktree ready to build -- submodules initialised in the main tree linked to it, the others
-# initialised for real, untracked ThirdParty cloned copy-on-write (the shape of ~/.claude/tools/new_tree.sh).
-new_slot() {
-    local t="$1" base="$2" sha p rest n
-    git -C "$MAIN" worktree add -q --detach "$t" "$base" || return 1
-    git -C "$t" submodule status | while read -r sha p rest; do
-        if git -C "$MAIN" submodule status "$p" | grep -q '^ '; then rm -rf "${t:?}/$p"; ln -s "$MAIN/$p" "$t/$p"
-        else git -C "$t" submodule update --init -q "$p"; fi
+# sync_submodules <tree>: every submodule at the commit the tree's HEAD pins. One the main tree has checked out at that
+# very commit is a link to the main tree's checkout (no second copy on disk); any other is a real checkout. A link
+# to a checkout at ANOTHER commit compiles the wrong sources (new_tree.sh linked ThirdParty/ImGui of the main tree's
+# older dev: "no member named 'WaitWindowIdleFn'", BUILD-FAST-1 11-17).
+sync_submodules() {
+    local t="$1" mode type sha p have
+    git -C "$t" ls-tree -r HEAD | while read -r mode type sha p; do
+        [ "$type" = commit ] || continue
+        have=$(git -C "$MAIN/$p" rev-parse HEAD 2>/dev/null)
+        if [ "$have" = "$sha" ]; then
+            [ -L "$t/$p" ] || { rm -rf "${t:?}/$p"; ln -s "$MAIN/$p" "$t/$p"; }
+        else
+            [ -L "$t/$p" ] && rm "$t/$p"
+            git -C "$t" submodule update --init -q "$p"
+        fi
     done
+}
+
+# new_slot <tree> <base>: a worktree ready to build -- submodules (sync_submodules), untracked ThirdParty cloned
+# copy-on-write from the main tree (the shape of ~/.claude/tools/new_tree.sh).
+new_slot() {
+    local t="$1" base="$2" p n
+    git -C "$MAIN" worktree add -q --detach "$t" "$base" || return 1
+    sync_submodules "$t"
     for p in "$MAIN"/ThirdParty/*/; do n=$(basename "$p"); [ -e "$t/ThirdParty/$n" ] || cp -cR "$p" "$t/ThirdParty/$n"; done
 }
 
 # switch_to <tree> <branch> <base>: the branch as it exists (local, else origin), else a new one from <base>; then the
-# submodules the slot owns (not the linked ones) follow the new commit.
+# submodules follow the new commit.
 switch_to() {
-    local t="$1" b="$2" base="$3" p
+    local t="$1" b="$2" base="$3"
     if git -C "$t" show-ref -q --verify "refs/heads/$b"; then git -C "$t" switch -q "$b"
     elif git -C "$t" show-ref -q --verify "refs/remotes/origin/$b"; then git -C "$t" switch -q -c "$b" --track "origin/$b"
     else git -C "$t" switch -q -c "$b" --no-track "$base"; fi || return 1
-    git -C "$t" submodule status | sed -n 's/^+[0-9a-f]* \([^ ]*\).*/\1/p' | while read -r p; do
-        [ -L "$t/$p" ] || git -C "$t" submodule update -q "$p"
-    done
+    sync_submodules "$t"
 }
 
 take() {
@@ -89,6 +102,7 @@ warm() {
         [ -f "$(lockfile "$s")" ] && { echo "build_slot: $s taken -- not warmed" >&2; continue; }
         [ -n "$(dirty "$s")" ] && { echo "build_slot: $s has uncommitted edits -- not warmed" >&2; continue; }
         git -C "$s" switch -q --detach origin/dev || continue
+        sync_submodules "$s"
         ( source "$s/scripts/Dev/_common.sh"
           log="$(dev_logdir warm)"; start=$(date +%s)
           dev_configure "$log" "" && dev_build "$log/build.log" Editor; rc=$?
