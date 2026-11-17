@@ -12,17 +12,21 @@
 #     function OnStart()
 #       World.find("WPTeleportTarget"):component("StreamingSource").Data.Enabled = true
 #       print("pending before the first tick: " .. WorldPartition.streamingPending({Location = P, Radius = 5000}, "Activated"))
-#       WorldPartition.waitUntilStreamed({Location = P, Radius = 5000}, "Activated", function(ms)
-#         local pawn = gameMode.pawn()
-#         pawn:component("Transform").Translation = P + vector.create(0, 200, 0)
+#       coroutine.wrap(function() -- the yielding wait: the coroutine sleeps until the destination streamed
+#         local co = coroutine.running()
+#         WorldPartition.waitUntilStreamed({Location = P, Radius = 5000}, "Activated", function(ms) coroutine.resume(co, ms) end)
+#         local ms = coroutine.yield()
+#         print("teleport after " .. ms .. " ms")
+#         gameMode.pawn():setPosition(P + vector.create(0, 200, 0))
 #         World.find("WPTeleportTarget"):component("StreamingSource").Data.Enabled = false
-#         for _, line in WorldPartition.cellStatesAt(P) do print(line) end
-#       end)
+#         local lines = WorldPartition.cellStatesAt(P)
+#         for _, line in lines do print(line) end
+#       end)()
 #     end
 #     function OnWorldPartitionCellActivated(cell) print("activated " .. cell) end
 #     function OnWorldPartitionCellUnloaded(cell) print("unloaded " .. cell) end
 # Expected (editor.log): "pending before the first tick: N" with N > 0 (never -1); "activated G..." lines for the
-# cells around P; "[WorldPartition] streaming completed for query in N ms (Activated)"; then cellStatesAt prints
+# cells around P; "[WorldPartition] streaming completed for query in N ms (Activated)", "teleport after N ms" (the coroutine resumed); then cellStatesAt prints
 # "...: Activated" for every cell holding P; "unloaded G..." for the start area afterwards.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"

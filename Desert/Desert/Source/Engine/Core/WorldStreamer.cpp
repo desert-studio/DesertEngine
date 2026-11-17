@@ -188,7 +188,6 @@ namespace Desert::Core
     WorldStreamer::WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName )
          : m_Scene( &scene ), m_Assets( &assets ), m_SceneName( std::move( sceneName ) )
     {
-        m_Scene->GetRegistry().set<WorldStreamerOfScene>( WorldStreamerOfScene{ this } );
     }
 
     Common::ResultStr<std::unique_ptr<WorldStreamer>>
@@ -258,6 +257,9 @@ namespace Desert::Core
             return Common::MakeSuccess( Result() );
 
         streamer->m_Executor = begun.ExtractValue();
+        // On the scene's context once the executor exists (WorldStreamerOfScene): a script that asks before the
+        // first Tick reads a plan and a residency, never a streamer without either.
+        scene.GetRegistry().set<WorldStreamerOfScene>( WorldStreamerOfScene{ streamer.get() } );
         // A streaming begin is what a WorldPartition block produces; a begin without one is a broken invariant.
         const std::optional<WorldPartitionSerialized>& partition = snapshot->WorldPartition;
         if ( !partition.has_value() )
@@ -438,6 +440,9 @@ namespace Desert::Core
             return Common::MakeError<Result>( "world streaming of '" + streamer->m_SceneName +
                                               "': " + begun.GetError() );
         streamer->m_Executor = begun.ExtractValue();
+        // On the scene's context once the executor exists (WorldStreamerOfScene): a script that asks before the
+        // first Tick reads a plan and a residency, never a streamer without either.
+        scene.GetRegistry().set<WorldStreamerOfScene>( WorldStreamerOfScene{ streamer.get() } );
         streamer->m_RecordIds.reserve( world.Indexed.RecordIds.size() );
         for ( const std::uint64_t id : world.Indexed.RecordIds )
             streamer->m_RecordIds.emplace_back( id );

@@ -313,10 +313,10 @@ namespace Desert::Core
     };
 
     // THE STREAMER OF A SCENE, ON THE SCENE'S REGISTRY CONTEXT (UE: a world's UWorldPartitionSubsystem): set while
-    // a WorldStreamer streams the scene - from its construction, so a script asks before the first tick and is
-    // told the truth (nothing has arrived) - and removed by its destructor. What the WorldPartition script library
-    // (Libraries/WorldPartitionLibrary.hpp) reads the plan and the residency through; a host draws from
-    // WorldStreamingWait instead.
+    // a WorldStreamer streams the scene - by Begin / BeginCooked as soon as its executor exists, so a script asks
+    // before the first tick and is told the truth (nothing has arrived) - and removed by its destructor. What the
+    // WorldPartition script library (Libraries/WorldPartitionLibrary.hpp) reads the plan and the residency
+    // through; a host draws from WorldStreamingWait instead.
     struct WorldStreamerOfScene
     {
         WorldStreamer* Streamer = nullptr;

@@ -27,16 +27,15 @@ namespace Desert::Libraries
     /// and query it; the query answers when what the source streams has arrived.
     ///
     /// A query is a table - or a list of them, all of which must be complete:
-    ///   Location            vector, cm (required unless SpatialQuery is false; Y is the altitude, as a source's)
-    ///   Radius              cm; stating it means the query's own range (UE bUseGridLoadingRange off)
-    ///   UseGridLoadingRange true: each grid's LoadingRange (the default when no Radius is stated);
-    ///                       stating it true beside a Radius is refused, not guessed
-    ///   Yaw                 degrees the query faces, counter-clockwise from -Z seen from above (its Shapes'
-    ///   frame) Shapes              list of {Radius | UseGridLoadingRange, LoadingRangeScale, IsSector,
-    ///   SectorAngle,
-    ///                       Location, Yaw} in the query's frame (UE FStreamingSourceShape); none = one circle
-    ///   TargetGrids         list of grid names (UE TargetGrids); none = every grid; a name no grid has is refused
-    ///   SpatialQuery        false: every cell of the target grids, wherever it is (UE bSpatialQuery)
+    ///   Location - vector, cm (required unless SpatialQuery is false; Y is the altitude, as a source's).
+    ///   Radius - cm; stating it means the query's own range (UE bUseGridLoadingRange off).
+    ///   UseGridLoadingRange - true: each grid's LoadingRange (the default when no Radius is stated); stating it
+    ///     true beside a Radius is refused, not guessed.
+    ///   Yaw - degrees the query faces, counter-clockwise from -Z seen from above (its Shapes' frame).
+    ///   Shapes - list of {Radius | UseGridLoadingRange, LoadingRangeScale, IsSector, SectorAngle, Location,
+    ///     Yaw} in the query's frame (UE FStreamingSourceShape); none = one circle.
+    ///   TargetGrids - list of grid names (UE TargetGrids); none = every grid; a name no grid has is refused.
+    ///   SpatialQuery - false: every cell of the target grids, wherever it is (UE bSpatialQuery).
     /// The state is "Loaded" (read, entities or not) or "Activated" (entities in the world) - UE's
     /// EWorldPartitionRuntimeCellState. A cell whose read FAILED counts as arrived, as it does for the loading
     /// overlay (WorldPartitionStreamingPerformance.hpp): it is logged and retried, and waiting on it would lock a
@@ -68,7 +67,13 @@ namespace Desert::Libraries
         /// played frame whose residency completes the query, with the milliseconds since this call - and the log
         /// says "streaming completed for query in N ms". Never on this very call: a query complete already
         /// answers on the next frame, as UE's latent action does. A wait belongs to the script that made it: a
-        /// reload or the entity's destruction drops it unfired, as a timer's callback.
+        /// reload or the entity's destruction drops it unfired, as a timer's callback. The YIELDING form is the
+        /// script's own coroutine, resumed from @p done (the engine calls it outside the coroutine):
+        ///   coroutine.wrap(function()
+        ///     local co = coroutine.running()
+        ///     WorldPartition.waitUntilStreamed(query, "Activated", function(ms) coroutine.resume(co, ms) end)
+        ///     local ms = coroutine.yield() -- the teleport / the cinematic continues here
+        ///   end)()
         FUNCTION( ScriptCallable, ScriptName( "waitUntilStreamed" ),
                   Tooltip( "Calls the function (with the milliseconds waited) once the query (a table or a list) "
                            "reaches the state (\"Loaded\" or \"Activated\"). The query loads nothing itself: wait "
