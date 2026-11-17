@@ -2,6 +2,8 @@
 
 #include "AssetContextMenu.hpp"
 
+#include <Editor/Panels/SizeMap/SizeMapPanel.hpp>
+
 #include <Editor/Core/AssetFileOps.hpp>
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
@@ -125,6 +127,9 @@ namespace Desert::Editor
                 EditorPreferences::ToggleFavouriteFolder( entry.AssetPath );
         }
 
+        ImGui::Separator();
+        // UE: Size Map... on an asset or a folder (what it drags in, by size).
+        CommandMenuItem( ContentBrowserCommand::SizeMap, folder );
         ImGui::Separator();
         if ( ImGui::MenuItem( "Copy Path" ) )
             ImGui::SetClipboardText(
@@ -396,6 +401,25 @@ namespace Desert::Editor
             m_Selection.Clear();
             return Common::MakeSuccess( true );
         }
+        if ( command == ContentBrowserCommand::SizeMap )
+        {
+            // Every selected asset and folder together, as UE maps a multi-selection in one Size Map. With nothing
+            // selected, the folder the browser shows: it is our path view's selection, and UE's path view offers
+            // Size Map... on the selected folder.
+            const std::vector<DirectoryInformation*> picked = m_Selection.EntriesIn( folder );
+            std::vector<std::filesystem::path>       assets;
+            std::vector<std::filesystem::path>       folders;
+            for ( const DirectoryInformation* entry : picked )
+                ( entry->IsFile ? assets : folders ).emplace_back( entry->AssetPath );
+            if ( picked.empty() )
+            {
+                if ( folder == nullptr )
+                    return Common::MakeFormattedError<bool>( "'{}': nothing is selected and no folder is shown",
+                                                             label );
+                folders.emplace_back( folder->AssetPath );
+            }
+            return OpenSizeMap( std::move( assets ), std::move( folders ) );
+        }
 
         const std::vector<DirectoryInformation*> entries = m_Selection.EntriesIn( folder );
         if ( entries.empty() )
@@ -508,7 +532,8 @@ namespace Desert::Editor
                 return Common::MakeSuccess( true );
             }
             case ContentBrowserCommand::ClearSelection:
-                break; // answered above: it needs no selection
+            case ContentBrowserCommand::SizeMap:
+                break; // answered above: neither needs a selection
         }
         return Common::MakeSuccess( true );
     }
