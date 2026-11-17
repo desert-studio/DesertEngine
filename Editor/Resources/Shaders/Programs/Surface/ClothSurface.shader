@@ -25,6 +25,7 @@ Shader "ClothSurface"
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
         // The Cloth model's payload (ShadingModels/Cloth.shadingmodel): the sheen's colour and its share of the
         // specular (0 = DefaultLit's lobe, 1 = the fuzz lobe alone).
         Color       FuzzColor ("Fuzz Color", Category("Cloth")) = (1, 1, 1, 1)
@@ -70,6 +71,7 @@ Shader "ClothSurface"
                                                    Material.EmissiveColor.rgb, Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
+            s.ReceiveDecals     = Material.ReceiveDecals;
             const vec3 fuzz = clamp( Material.FuzzColor.rgb *
                                      SurfaceSampleMaterial( Material.FuzzColorTexture, uv ).rgb, 0.0, 1.0 );
             s.CustomData0       = sqrt( fuzz.r );

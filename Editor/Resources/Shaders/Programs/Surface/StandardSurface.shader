@@ -81,6 +81,7 @@ Shader "StandardSurface"
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
         // The relief of `Height`: centimetres between height 0 and height 1, and the height that stays on the mesh
         // surface (1 = the surface is the top, the relief is carved below it - what parallax can show).
         Float       HeightScale ("Height Scale (cm)", Range(0,50), Category("Height")) = 2
@@ -131,6 +132,7 @@ Shader "StandardSurface"
                                                Material.EmissiveColor.rgb, Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
+            s.ReceiveDecals     = Material.ReceiveDecals;
             s.SampledTextureCount = float( int( BindlessTextureExtent( Material.AlbedoTexture ).x > 1 ) + int( normalSize.x > 1 ) +
                                            int( BindlessTextureExtent( Material.OrmTexture ).x > 1 ) +
                                            int( BindlessTextureExtent( Material.EmissiveTexture ).x > 1 ) +

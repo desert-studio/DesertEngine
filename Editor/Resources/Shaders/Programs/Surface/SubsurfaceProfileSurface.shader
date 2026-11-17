@@ -21,6 +21,7 @@ Shader "SubsurfaceProfileSurface"
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
         // UE's Opacity on a subsurface model: the subsurface density a light's contact shadow fades with.
         Float       SubsurfaceOpacity ("Subsurface Opacity", Range(0,1), Category("Subsurface")) = 1
         // WRITTEN BY THE RENDERER, never authored (MaterialService, from MaterialData::SubsurfaceProfile): the
@@ -58,6 +59,7 @@ Shader "SubsurfaceProfileSurface"
             s.Emissive          = SurfaceEmission( SurfaceSampleMaterial( Material.EmissiveTexture, uv ).rgb,
                                                Material.EmissiveColor.rgb, Material.EmissiveIntensity );
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
+            s.ReceiveDecals     = Material.ReceiveDecals;
             // The SubsurfaceProfile model's payload: the profile row (UE EncodeSubsurfaceProfile) and the opacity.
             s.CustomData0       = clamp( Material.SubsurfaceProfileIndex, 0.0, 255.0 ) / 255.0;
             s.CustomData3       = Material.SubsurfaceOpacity;

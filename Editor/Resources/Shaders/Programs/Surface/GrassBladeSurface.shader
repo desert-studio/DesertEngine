@@ -32,6 +32,7 @@ Shader "GrassBladeSurface"
         Float       RootOcclusion ("Root Occlusion", Range(0,1), Category("Field")) = 1
         // Material half of the sun-shadow receive decision (as StandardSurface).
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
         // The light a blade lets through, as a tint of its own albedo (UE's SubsurfaceColor pin).
         Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (1, 1, 1, 1)
         // UE's Opacity pin of a subsurface model: how dense the medium the sun crosses to reach the blade is
@@ -70,6 +71,7 @@ Shader "GrassBladeSurface"
             s.Specular          = Material.Specular;
             s.AmbientOcclusion  = orm.x * mix( Material.RootOcclusion, 1.0, i.UV1.y );
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
+            s.ReceiveDecals     = Material.ReceiveDecals;
             // TwoSidedFoliage's payload: SubsurfaceColor as its square root (UE EncodeSubsurfaceColor).
             const vec3 subsurface = sqrt( clamp( s.BaseColor * Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
             s.CustomData0       = subsurface.r;

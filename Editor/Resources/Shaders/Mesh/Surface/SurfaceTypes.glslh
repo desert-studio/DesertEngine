@@ -186,6 +186,11 @@ struct SurfaceOutput
     // Shadows toggle is off; a template that exposes it forwards Material.ReceiveSunShadows here). < 0.5 =
     // the cascades do not shadow this surface.
     float ReceiveSunShadows;
+    // The material's decal receive (UE UMaterial::bReceivesDecals; DECALS-VG): a template that exposes it forwards
+    // Material.ReceiveDecals here. < 0.5 = the G-buffer's one writer (GBufferOutputs.glslh DesertWriteGBuffer)
+    // folds no DBuffer into this surface - whichever route wrote the texel: the raster cell, the virtual-geometry
+    // cluster cell (its `.VirtualGeometry` permutation of the same Pass_GBuffer.glslh) or the visibility resolve.
+    float ReceiveDecals;
     // The material-complexity proxy the deferred debug view heat-maps (G-buffer C.w): real textures sampled.
     float SampledTextureCount;
     float Refraction; // index of refraction (UE's Refraction pin), read only by the translucency pass
@@ -244,6 +249,7 @@ SurfaceOutput DefaultSurfaceOutput()
     s.Normal              = vec3( 0.0, 0.0, 1.0 );
     s.AmbientOcclusion    = 1.0;
     s.ReceiveSunShadows   = 1.0;
+    s.ReceiveDecals       = 1.0;
     s.SampledTextureCount = 0.0;
     s.Refraction          = 1.0;
     s.CustomData0         = 0.0;
