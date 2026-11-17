@@ -319,11 +319,14 @@ struct TerrainSurface
     float AO;
 };
 
-// THE GROUND at @p worldPosition (cm) of tile @p t: @p Ng the interpolated geometric normal, @p viewDistance the
-// distance to the view's camera (the far tiling's fade), @p w0 / @p w1 the tile's weightmap pages there (ignored when
-// the tile has no painted layers). The hole test is the caller's, before (the raster discards, the any hit ignores).
-TerrainSurface EvaluateLandscapeSurface( TerrainInstance t, LandscapeMaterial m, vec3 worldPosition, vec3 Ng,
-                                         float viewDistance, vec4 w0, vec4 w1 )
+// THE LANDSCAPE MATERIAL'S BLEND at @p worldPosition (cm) of tile @p t, before the one transform to world: albedo
+// (macro variation and hue applied), the TANGENT-space normal (normalised, z up), roughness and occlusion. Nothing in it
+// reads the geometric normal, so it is a function of the ground's xz alone - what the landscape's runtime virtual
+// texture stores per texel (Common/LandscapeVirtualTexture.glslh, LANDSCAPE-RVT: rendered once into pages, sampled by
+// the G-buffer), and what EvaluateLandscapeSurface turns into a surface. @p viewDistance the distance the far tiling
+// fades by, @p w0 / @p w1 the tile's weightmap pages there (ignored when the tile has no painted layers).
+TerrainLayer EvaluateLandscapeLayers( TerrainInstance t, LandscapeMaterial m, vec3 worldPosition, float viewDistance,
+                                      vec4 w0, vec4 w1 )
 {
     float start  = m.Tiling.x;
     float farMix = clamp( ( viewDistance - 0.5 * start ) / max( start, 1.0 ), 0.0, 1.0 );
@@ -455,18 +458,35 @@ TerrainSurface EvaluateLandscapeSurface( TerrainInstance t, LandscapeMaterial m,
         blended.Albedo  = max( toRgb * yiq, vec3( 0.0 ) );
     }
 
-    // Tangent space of a world-aligned projection on the heightfield: T follows +X (u), B the image's up, which is -Z
-    // for v = z / tile (OpenGL-convention maps: green = up), both projected onto the surface by the geometric normal.
+    blended.Normal = normalize( blended.Normal );
+    return blended;
+}
+
+// The surface of a blended layer @p l (EvaluateLandscapeLayers, or the virtual texture's texel of it) over the
+// geometric normal @p Ng: the tangent space of a world-aligned projection on the heightfield - T follows +X (u), B the
+// image's up, which is -Z for v = z / tile (OpenGL-convention maps: green = up), both projected onto the surface by
+// the geometric normal.
+TerrainSurface LandscapeSurfaceOf( TerrainLayer l, vec3 Ng )
+{
     vec3 T  = normalize( vec3( 1.0, 0.0, 0.0 ) - Ng * Ng.x );
     vec3 B  = cross( Ng, T );
-    vec3 tn = normalize( blended.Normal );
+    vec3 tn = normalize( l.Normal );
 
     TerrainSurface s;
     s.N         = normalize( T * tn.x + B * tn.y + Ng * tn.z );
-    s.Albedo    = blended.Albedo;
-    s.Roughness = blended.Roughness;
-    s.AO        = blended.AO;
+    s.Albedo    = l.Albedo;
+    s.Roughness = l.Roughness;
+    s.AO        = l.AO;
     return s;
+}
+
+// THE GROUND at @p worldPosition (cm) of tile @p t: @p Ng the interpolated geometric normal, @p viewDistance the
+// distance to the view's camera (the far tiling's fade), @p w0 / @p w1 the tile's weightmap pages there (ignored when
+// the tile has no painted layers). The hole test is the caller's, before (the raster discards, the any hit ignores).
+TerrainSurface EvaluateLandscapeSurface( TerrainInstance t, LandscapeMaterial m, vec3 worldPosition, vec3 Ng,
+                                         float viewDistance, vec4 w0, vec4 w1 )
+{
+    return LandscapeSurfaceOf( EvaluateLandscapeLayers( t, m, worldPosition, viewDistance, w0, w1 ), Ng );
 }
 
 #endif // LANDSCAPE_SURFACE_GLSLH
