@@ -571,6 +571,13 @@ namespace
                              Desert::Migration::kWorldPartitionVersionRuntimeDataLayers )
                 << "->v" << Desert::Migration::kWorldPartitionVersionDataLayerOutliner
                 << " (data layer outliner: every layer's DebugColor and InitiallyVisible stated)";
+        if ( report.RuntimePartitionsRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionDataLayerOutliner )
+                << "->v" << Desert::Migration::kWorldPartitionVersionRuntimePartitions << " ("
+                << report.GridsRestated
+                << " grid(s) restated as LHGrid runtime partitions, HLOD chains as their HLOD setups)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

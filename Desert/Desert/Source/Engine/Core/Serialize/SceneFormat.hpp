@@ -157,7 +157,10 @@ namespace Desert::Core
     // are top-level, grey and visible, which the read gives every missing key and the rewrite states - so the step
     // (Tools/SceneMigrator, kWorldPartitionVersionDataLayerOutliner) changes nothing else; the number moves so a
     // v3 build refuses a world whose nesting it would read flat (a child streaming past its parent).
-    inline constexpr int kWorldPartitionVersion = 4;
+    // v5 (WP-HASH-SET): UE's Runtime Hash Set - `Grids` is `RuntimePartitions` (RuntimePartitionSerialized: Name,
+    // Type LHGrid / Persistent, the LHGrid block, HLODSetups), a grid's one HLODLayer and the layers' ParentLayer
+    // chain are the partition's ordered HLOD setups (Tools/SceneMigrator, MigrateRuntimePartitionsV4ToV5).
+    inline constexpr int kWorldPartitionVersion = 5;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -194,25 +197,43 @@ namespace Desert::Core
     // decisions 2026-09-18 and O1 2026-09-23; Rules::PlanWorldPartition). What cannot be derived is how
     // big a cell is and how far away one starts to load - per grid.
     //
-    // THE GRID IS ONE ENTRY OF A LIST FROM THE FIRST FORMAT THAT HAS IT (A7). One grid is used today;
-    // several - per-record grid choice, e.g. a coarse grid for distant landmarks - are WP22, and a list
-    // now means that step adds entries rather than reshaping the block.
+    // THE RUNTIME HASH IS A SET OF RUNTIME PARTITIONS (WP-HASH-SET, World Partition format v5) - UE 5.5's
+    // UWorldPartitionRuntimeHashSet, the form UE creates new worlds with: the world states a LIST of partitions
+    // (FRuntimePartitionDesc), each with a Name a record streams on by its RuntimeGrid block (UE AActor::
+    // RuntimeGrid), a TYPE (FRuntimePartitionDesc::Class) whose settings decide how its content streams, and its
+    // own HLOD setups (FRuntimePartitionDesc::HLODSetups). A record that names no partition streams on the FIRST
+    // one, UE's main partition. v1..v4 stated a bare list of square grids (`Grids`); the migrator restated each as
+    // an LHGrid partition (Tools/SceneMigrator, MigrateRuntimePartitionsV4ToV5).
     //
-    // DATA LAYERS (WP-DATA-LAYERS, the O4 reservation taken up) are a SIBLING of `Grids` in this object -
-    // `DataLayers`, a list of named layers (DataLayerSerialized) - plus a membership list on the record (the
-    // `DataLayers` component, ECS::DataLayersComponent). This step brings UE's EDITOR data layers: they decide
-    // what of the world the editor holds and nothing of the cook or Play. A RUNTIME layer (WP v3,
+    // DATA LAYERS (WP-DATA-LAYERS, the O4 reservation taken up) are a SIBLING of `RuntimePartitions` in this
+    // object - `DataLayers`, a list of named layers (DataLayerSerialized) - plus a membership list on the record
+    // (the `DataLayers` component, ECS::DataLayersComponent). This step brings UE's EDITOR data layers: they
+    // decide what of the world the editor holds and nothing of the cook or Play. A RUNTIME layer (WP v3,
     // WP-DATA-LAYERS-RUNTIME: DataLayerSerialized::Type) streams by the layer's runtime state: the set of runtime
     // layers a composite belongs to is the third coordinate of its cell beside level and square
     // (Rules::PlannedCell::DataLayers), with a file and an index row of its own.
-    struct WorldPartitionGridSerialized
-    {
-        // UE FSpatialHashRuntimeGrid::GridName. What a record names in its RuntimeGrid block to stream on this
-        // grid (UE AActor::RuntimeGrid); a record that names none streams on the FIRST grid, UE's main grid.
-        // Required, non-empty and unique within the world (Rules::PlanWorldPartition refuses the grids
-        // otherwise): a name is the only way a record reaches a grid, so two grids of one name would be a guess.
-        std::string Name;
 
+    // THE KIND OF A RUNTIME PARTITION - UE's URuntimePartition subclasses (WorldPartition/RuntimeHashSet/
+    // RuntimePartition*.h), the pattern and not the letter: FRuntimePartitionDesc::Class, stated by name.
+    //   LHGrid     - URuntimePartitionLHGrid: the square hierarchical grid. A composite lands in the lowest level
+    //                whose cell (CellSize * 2^L) holds its footprint, and a cell streams in within LoadingRange
+    //                of a source. Its settings are the partition's `LHGrid` block.
+    //   Persistent - URuntimePartitionPersistent: one always-loaded set. What streams on it is resident from the
+    //                first frame of Play to the last, whatever the sources - a player, a game mode, a manager
+    //                that must never stream out. It states no settings and no HLOD setups.
+    // A further kind is an enumerator here, its settings block on RuntimePartitionSerialized and its class in
+    // Rules (IRuntimePartition, Rules::RuntimePartitionClass): what plans, cooks and streams a world asks the
+    // partition, never its type.
+    enum class RuntimePartitionType
+    {
+        LHGrid,
+        Persistent,
+    };
+
+    // The settings of an LHGrid partition (UE URuntimePartitionLHGrid::CellSize + URuntimePartition::LoadingRange
+    // / Priority).
+    struct RuntimePartitionLHGridSerialized
+    {
         // Edge length of one level-0 cell in WORLD UNITS, and a world unit is a CENTIMETRE
         // (Common/Core/Units.hpp). Level L cells are CellSize * 2^L. The default is UE's own main grid,
         // 128 m, in our units; it is the number a world gets when switched on, nothing depends on it.
@@ -227,22 +248,59 @@ namespace Desert::Core
         // on it, which is why a cell's contents never change when it is edited.
         float LoadingRange = 25600.0f;
 
-        // UE FSpatialHashRuntimeGrid::Priority: among the cells one source wants at one source priority,
-        // this grid's load first when higher. It never changes WHICH cells are wanted (QueryStreamingCells).
+        // UE URuntimePartition::Priority: among the cells one source wants at one source priority, this
+        // partition's load first when higher. It never changes WHICH cells are wanted (QueryStreamingCells).
         int Priority = 0;
 
-        // The layer this grid's cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups: HLOD setup
-        // belongs to the runtime partition, so two grids of one world can stand in for their cells
-        // differently). Must name a layer of WorldPartitionSerialized::HLODLayers (Rules::ValidateHLODLayers).
-        // ABSENT = this grid's cells have no HLOD and a far cell draws nothing; optional so a grid with no
-        // HLOD writes no key and an empty string is not a second spelling of "none".
-        std::optional<std::string> HLODLayer;
+        bool operator==( const RuntimePartitionLHGridSerialized& ) const = default;
+    };
+
+    // ONE LEVEL OF A PARTITION'S HLOD HIERARCHY - UE FRuntimePartitionHLODSetup ("one for each layer in the
+    // hierarchy"). Setup 0's HLODs stand in for the partition's own cells; setup k+1's are built from, and stand
+    // in for, setup k's HLOD cells (UE HLOD1 of HLOD0). The ORDER of the list is the chain - nowhere else states
+    // it (v1..v4's HLODLayerSerialized::ParentLayer was restated as this order). How setup k's HLODs stream is its
+    // layer's (HLODLayerSerialized::CellSize / LoadingRange: spatially loaded, or resident throughout).
+    // In UE a setup lists SEVERAL layers because an actor picks its own HLOD layer (AActor::HLODLayer); here the
+    // partition builds every cell's HLOD with the setup's layer, so a setup names exactly one - a second name
+    // would be read by nothing.
+    struct RuntimePartitionHLODSetupSerialized
+    {
+        // UE FRuntimePartitionHLODSetup::Name: unique within the partition, non-empty (the panel's row, the log).
+        std::string Name;
+        // Names a layer of WorldPartitionSerialized::HLODLayers (Rules::ValidateHLODLayers).
+        std::string HLODLayer;
+
+        bool operator==( const RuntimePartitionHLODSetupSerialized& ) const = default;
+    };
+
+    // ONE RUNTIME PARTITION - UE FRuntimePartitionDesc (Name, Class, MainLayer, HLODSetups).
+    struct RuntimePartitionSerialized
+    {
+        // UE FRuntimePartitionDesc::Name. What a record names in its RuntimeGrid block to stream on this
+        // partition (UE AActor::RuntimeGrid); a record that names none streams on the FIRST partition.
+        // Required, non-empty and unique within the world (Rules::CheckRuntimeGrids refuses the list otherwise):
+        // a name is the only way a record reaches a partition, so two of one name would be a guess.
+        std::string Name;
+
+        // UE FRuntimePartitionDesc::Class.
+        RuntimePartitionType Type = RuntimePartitionType::LHGrid;
+
+        // UE FRuntimePartitionDesc::MainLayer of class URuntimePartitionLHGrid: required on an LHGrid partition
+        // and refused on any other type (Rules::CheckRuntimeGrids), so a number nobody reads cannot sit in a
+        // file looking like a setting.
+        std::optional<RuntimePartitionLHGridSerialized> LHGrid;
+
+        // UE FRuntimePartitionDesc::HLODSetups, the hierarchy's levels in order
+        // (RuntimePartitionHLODSetupSerialized). ABSENT = this partition's cells have no HLOD and a far cell draws
+        // nothing; optional so a partition with none writes no key and an empty list is not a second spelling of
+        // "none". Refused on Persistent: what it holds is never away, so nothing would ever stand in for it.
+        std::optional<std::vector<RuntimePartitionHLODSetupSerialized>> HLODSetups;
 
         // Compared, not just written: the editor's World Partition panel keeps the plan it painted and
         // the partition that plan was made from, and a plan is remade when the two stop matching. Without
         // an equality the panel would have to rebuild every frame (a whole serialisation of the world) or
         // trust a notification, and an undo that no notification reached would leave the old picture up.
-        bool operator==( const WorldPartitionGridSerialized& ) const = default;
+        bool operator==( const RuntimePartitionSerialized& ) const = default;
     };
 
     // WHAT STANDS IN FOR A CELL WHILE IT IS AWAY - UE's UHLODLayer (WorldPartition/HLOD/HLODLayer.h), the
@@ -268,10 +326,6 @@ namespace Desert::Core
     {
         std::string   Name;
         HLODLayerType Type = HLODLayerType::Instancing;
-        // UE UHLODLayer::ParentLayer: the layer the HLODs THIS layer builds are themselves gathered into, one
-        // grid level up (HLOD1 of HLOD0). Must name another layer of the list and the chain must not loop
-        // (Rules::ValidateHLODLayers); absent = the top of a chain.
-        std::optional<std::string> ParentLayer;
         // MeshSimplify only (UE FMeshProxySettings' triangle target, as a fraction): the share of the merged
         // mesh's triangles kept, in (0, 1]. Required on MeshSimplify and refused on any other type, so a
         // number nobody reads cannot sit in a file looking like a setting.
@@ -279,10 +333,11 @@ namespace Desert::Core
         // UE UHLODLayer::bIsSpatiallyLoaded / CellSize / LoadingRange (WP-FAR-8): BOTH stated = the HLODs this
         // layer builds are SPATIALLY LOADED - each lives in a square cell of CellSize cm (by the centre of what it
         // stands in for) and is streamed by the same residency as a grid cell, within LoadingRange cm of a
-        // source; its ParentLayer's HLOD stands in for that cell while the cell is not resident. BOTH absent = the
-        // layer's HLODs are resident for the whole session (the top of a chain). One without the other, a
-        // spatially loaded layer with no ParentLayer (a hole beyond its range) and an always-loaded layer with a
-        // ParentLayer (a parent never drawn) are refused by Rules::ValidateHLODLayers.
+        // source; the NEXT setup's HLOD (RuntimePartitionHLODSetupSerialized: the order is the chain) stands in
+        // for that cell while the cell is not resident. BOTH absent = the layer's HLODs are resident for the whole
+        // session (the top of a chain). One without the other, a spatially loaded layer that is the last setup of
+        // a partition (a hole beyond its range) and an always-loaded layer that is not (a next setup never drawn)
+        // are refused by Rules::ValidateHLODLayers.
         std::optional<float> CellSize;
         std::optional<float> LoadingRange;
 
@@ -375,10 +430,11 @@ namespace Desert::Core
 
     struct WorldPartitionSerialized
     {
-        std::vector<WorldPartitionGridSerialized> Grids;
-        // The world's HLOD layers (UE: the UHLODLayer assets a world's grids name). Which layer a cell's HLOD
-        // is built with is its GRID's choice (WorldPartitionGridSerialized::HLODLayer). Optional, so a world
-        // with no layers writes no key (reflect-cpp omits a nullopt) and an empty list is not a second
+        // UE UWorldPartitionRuntimeHashSet::RuntimePartitions (RuntimePartitionSerialized).
+        std::vector<RuntimePartitionSerialized> RuntimePartitions;
+        // The world's HLOD layers (UE: the UHLODLayer assets a world's partitions name). Which layers a cell's
+        // HLODs are built with is its PARTITION's choice (RuntimePartitionSerialized::HLODSetups). Optional, so a
+        // world with no layers writes no key (reflect-cpp omits a nullopt) and an empty list is not a second
         // spelling of "none".
         std::optional<std::vector<HLODLayerSerialized>> HLODLayers;
         // Side of the square region (cm) whose cells a packaged build ships in ONE on-demand content chunk

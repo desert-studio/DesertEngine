@@ -180,7 +180,8 @@ namespace Desert::Editor
         // and drops the follow on a wheel, so a 200 m loading range with look-ahead never fits). Focus clears it.
         bool                    m_FollowZoomed = false;
         int                     m_Level        = -1;   // -1 shows every level
-        // The runtime grid the map, the header and the source circles show (index into the partition's Grids):
+        // The runtime partition the map, the header and the source circles show (index into the partition's
+        // RuntimePartitions, always one that makes cells):
         // UE's World Partition editor shows one runtime hash grid at a time; every grid is reachable by the
         // picker beside the Level slider.
         std::size_t             m_Grid         = 0;

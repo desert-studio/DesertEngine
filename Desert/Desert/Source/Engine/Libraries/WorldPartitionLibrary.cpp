@@ -286,7 +286,7 @@ namespace Desert::Libraries
                 for ( const std::string& name : names.GetValue() )
                 {
                     bool known = false;
-                    for ( const Core::WorldPartitionGridSerialized& grid : partition.Grids )
+                    for ( const Core::RuntimePartitionSerialized& grid : partition.RuntimePartitions )
                         known = known || grid.Name == name;
                     if ( !known )
                     {
@@ -400,8 +400,8 @@ namespace Desert::Libraries
                 for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
                 {
                     const std::size_t grid = plan.Cells[cell].Grid;
-                    if ( grid < partition.Grids.size() &&
-                         Rules::TargetsGrid( query.Source, partition.Grids[grid] ) )
+                    if ( grid < partition.RuntimePartitions.size() &&
+                         Rules::TargetsGrid( query.Source, partition.RuntimePartitions[grid] ) )
                         wanted[cell] = 1;
                 }
             }

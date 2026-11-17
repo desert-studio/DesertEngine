@@ -2150,7 +2150,7 @@ namespace Desert::Editor
             std::vector<std::string> hlodLayers;
             if ( scene && scene->GetWorldPartition().has_value() )
             {
-                for ( const auto& grid : scene->GetWorldPartition()->Grids )
+                for ( const auto& grid : scene->GetWorldPartition()->RuntimePartitions )
                     grids.push_back( grid.Name );
                 if ( scene->GetWorldPartition()->HLODLayers.has_value() )
                     for ( const auto& layer : *scene->GetWorldPartition()->HLODLayers )

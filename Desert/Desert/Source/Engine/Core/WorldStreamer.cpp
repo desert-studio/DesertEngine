@@ -1356,8 +1356,9 @@ namespace Desert::Core
         const std::size_t                unit = m_HLODs->UnitOf( hlod );
         const std::size_t                grid =
              unit < plan.AlwaysLoaded.size() ? 0 : plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid;
-        const std::string gridName =
-             grid < m_Partition.Grids.size() ? m_Partition.Grids[grid].Name : std::string( "?" );
+        const std::string gridName = grid < m_Partition.RuntimePartitions.size()
+                                          ? m_Partition.RuntimePartitions[grid].Name
+                                          : std::string( "?" );
         LOG_INFO( "[WorldPartition] '{0}': grid '{1}' HLOD of {2} {3}.", m_SceneName, gridName,
                   Rules::DescribeResidencyUnit( plan, unit ), visible ? "shown" : "hidden" );
     }

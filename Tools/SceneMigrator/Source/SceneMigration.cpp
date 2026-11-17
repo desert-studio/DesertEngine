@@ -5119,20 +5119,20 @@ namespace Desert::Migration
              scene.WorldPartition->DefaultHLODLayer.has_value() )
             return false;
         // The v50 shape, frozen: the Instancing layer stated as the WORLD's default (v67 moves it onto the grids).
-        Core::HLODLayerSerialized layer;
+        HLODLayerSerialized layer;
         layer.Name                           = std::string( Core::Rules::kInstancingHLODLayerName );
         layer.Type                           = Core::HLODLayerType::Instancing;
-        scene.WorldPartition->HLODLayers     = std::vector<Core::HLODLayerSerialized>{ std::move( layer ) };
+        scene.WorldPartition->HLODLayers       = std::vector<HLODLayerSerialized>{ std::move( layer ) };
         scene.WorldPartition->DefaultHLODLayer = std::string( Core::Rules::kInstancingHLODLayerName );
         return true;
     }
 
     std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene )
     {
-        if ( !scene.WorldPartition.has_value() )
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->Grids.has_value() )
             return 0;
         std::size_t named = 0;
-        auto&       grids = scene.WorldPartition->Grids;
+        auto&       grids = *scene.WorldPartition->Grids;
         for ( std::size_t index = 0; index < grids.size(); ++index )
         {
             if ( !grids[index].Name.empty() )
@@ -5148,7 +5148,9 @@ namespace Desert::Migration
         if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->DefaultHLODLayer.has_value() )
             return 0;
         std::size_t given = 0;
-        for ( Core::WorldPartitionGridSerialized& grid : scene.WorldPartition->Grids )
+        if ( !scene.WorldPartition->Grids.has_value() )
+            scene.WorldPartition->Grids.emplace(); // a v67 world states its grids; none is no grid to give it to
+        for ( WorldPartitionGridSerialized& grid : *scene.WorldPartition->Grids )
         {
             if ( grid.HLODLayer.has_value() )
                 continue;
@@ -5157,6 +5159,67 @@ namespace Desert::Migration
         }
         scene.WorldPartition->DefaultHLODLayer = std::nullopt;
         return given;
+    }
+
+    std::size_t MigrateRuntimePartitionsV4ToV5( SceneSerialized& scene, std::vector<std::string>& refused )
+    {
+        if ( !scene.WorldPartition.has_value() )
+            return 0;
+        WorldPartitionSerialized&                       block = *scene.WorldPartition;
+        const std::vector<WorldPartitionGridSerialized> grids =
+             block.Grids.value_or( std::vector<WorldPartitionGridSerialized>{} );
+        const std::vector<HLODLayerSerialized> layers =
+             block.HLODLayers.value_or( std::vector<HLODLayerSerialized>{} );
+        const auto layerNamed = [&]( const std::string& name ) -> const HLODLayerSerialized*
+        {
+            for ( const HLODLayerSerialized& layer : layers )
+                if ( layer.Name == name )
+                    return &layer;
+            return nullptr;
+        };
+        std::vector<Core::RuntimePartitionSerialized> partitions;
+        for ( const WorldPartitionGridSerialized& grid : grids )
+        {
+            Core::RuntimePartitionSerialized partition;
+            partition.Name = grid.Name;
+            partition.Type = Core::RuntimePartitionType::LHGrid;
+            partition.LHGrid =
+                 Core::RuntimePartitionLHGridSerialized{ grid.CellSize, grid.LoadingRange, grid.Priority };
+            if ( grid.HLODLayer.has_value() )
+            {
+                // The chain, in order: the grid's layer, its ParentLayer, that layer's ParentLayer, ...
+                std::vector<Core::RuntimePartitionHLODSetupSerialized> setups;
+                for ( const HLODLayerSerialized* at = layerNamed( *grid.HLODLayer );; )
+                {
+                    if ( at == nullptr )
+                    {
+                        refused.push_back(
+                             std::format( "grid '{}': its HLOD chain names a layer this world does not "
+                                          "state",
+                                          grid.Name ) );
+                        break;
+                    }
+                    if ( setups.size() > layers.size() )
+                    {
+                        refused.push_back(
+                             std::format( "grid '{}': its HLOD layers' ParentLayer chain loops", grid.Name ) );
+                        break;
+                    }
+                    setups.push_back( Core::RuntimePartitionHLODSetupSerialized{ at->Name, at->Name } );
+                    if ( !at->ParentLayer.has_value() )
+                        break;
+                    at = layerNamed( *at->ParentLayer );
+                }
+                partition.HLODSetups = std::move( setups );
+            }
+            partitions.push_back( std::move( partition ) );
+        }
+        if ( block.HLODLayers.has_value() )
+            for ( HLODLayerSerialized& layer : *block.HLODLayers )
+                layer.ParentLayer.reset();
+        block.RuntimePartitions = std::move( partitions );
+        block.Grids.reset();
+        return grids.size();
     }
 
     LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
@@ -5423,8 +5486,10 @@ namespace Desert::Migration
     {
         // World Partition's chain, by the number the file states under its own tag (kWorldPartitionVersion*).
         // One `if` per step, in order, as the scene chain; a step that refuses names the file and stops it.
+        // @p scene holds the WorldPartition block the v3 step restates; a prefab passes an empty scene (it states
+        // no block, so its step is the stamp). @p file names the file in a refusal.
         void RunWorldPartitionSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
-                                     FileMigrationReport&                                             report )
+                                     SceneSerialized& scene, const std::string& file, FileMigrationReport& report )
         {
             report.StatedWorldPartitionVersion = Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag );
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionTagged )
@@ -5439,6 +5504,14 @@ namespace Desert::Migration
             // v3 -> v4 is additive the same way: the rewrite states each layer's DebugColor and InitiallyVisible.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDataLayerOutliner )
                 report.DataLayerOutlinerRaised = true;
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimePartitions )
+            {
+                report.RuntimePartitionsRaised = true;
+                std::vector<std::string> refused;
+                report.GridsRestated = MigrateRuntimePartitionsV4ToV5( scene, refused );
+                if ( !refused.empty() )
+                    report.Refused = RefusedWhole( file, refused );
+            }
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
@@ -5782,7 +5855,7 @@ namespace Desert::Migration
             report.VolumetricFogRaised = true;
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
-        RunWorldPartitionSteps( scene.Header, report );
+        RunWorldPartitionSteps( scene.Header, scene, scene.SceneName, report );
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
         if ( report.Refused.empty() )
@@ -5872,7 +5945,10 @@ namespace Desert::Migration
                 outcome.Steps.Refused = RefusedWhole( prefab.Name, outcome.Steps.AssetKeys.Refused );
         }
         if ( outcome.Steps.Refused.empty() )
-            RunWorldPartitionSteps( prefab.Header, outcome.Steps );
+        {
+            SceneSerialized noWorld; // a prefab states no WorldPartition block: the v3 step is its stamp
+            RunWorldPartitionSteps( prefab.Header, noWorld, prefab.Name, outcome.Steps );
+        }
         if ( outcome.Steps.Refused.empty() )
             RunAssetRefSteps( prefab.Header, prefab.Entities, assetsRoot, prefab.Name, outcome.Steps );
         if ( outcome.Steps.Refused.empty() )

@@ -114,7 +114,7 @@ namespace Desert::Core::WorldCells
     {
         std::string                      Name; // Rules::DescribeResidencyUnit
         std::string                      File;
-        std::optional<std::size_t>       Grid; // index into WorldPartition.Grids (WP22)
+        std::optional<std::size_t>       Grid; // index into WorldPartition.RuntimePartitions (WP22)
         std::optional<int>               Level;
         std::optional<std::int32_t>      X;
         std::optional<std::int32_t>      Z;
@@ -207,7 +207,7 @@ namespace Desert::Core::WorldCells
         // THE HLOD CELLS (WP-FAR-8), when an HLOD layer is spatially loaded (Rules::HLODHierarchy::Streams; HLODs
         // is then empty): the residency units of Rules::MakeHLODResidency in its unit order - each node resident
         // the whole session (`Reason` kHLODResidentReason, a file of its own), then the HLOD cells by (grid, X,
-        // Z), `Grid` indexing Rules::HLODResidency::Partition.Grids - and every node of the hierarchy, in node
+        // Z), `Grid` indexing Rules::HLODResidency::Partition.RuntimePartitions - and every node of the hierarchy, in node
         // order.
         std::vector<IndexUnit>     HLODUnits;
         std::vector<IndexHLODNode> HLODNodes;

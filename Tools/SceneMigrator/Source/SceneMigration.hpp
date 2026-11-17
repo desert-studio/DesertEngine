@@ -57,15 +57,48 @@ namespace Desert::Migration
     // them when it stamps the header, and rfl omits an empty optional, so the file this tool writes is the
     // file the engine reads. A deliberate second copy of the shape; the static_assert below is what keeps
     // it from forking (a member added to the engine's struct and not here fails to compile).
+    // ONE GRID OF A v1..v4 WORLD (World Partition format), frozen here: the engine's struct became
+    // Core::RuntimePartitionSerialized at v5 (WP-HASH-SET). Read, never written - MigrateRuntimePartitionsV4ToV5
+    // restates every grid as an LHGrid partition and clears the list.
+    struct WorldPartitionGridSerialized
+    {
+        std::string                Name;
+        float                      CellSize     = 12800.0f;
+        float                      LoadingRange = 25600.0f;
+        int                        Priority     = 0;
+        std::optional<std::string> HLODLayer;
+    };
+
+    // ONE HLOD LAYER AS EVERY GENERATION READS IT: Core::HLODLayerSerialized PLUS the v1..v4 ParentLayer, frozen
+    // here. v5 states the chain as a partition's ordered HLOD setups (Core::RuntimePartitionHLODSetupSerialized);
+    // MigrateRuntimePartitionsV4ToV5 reads ParentLayer into them and clears it, and rfl omits an empty optional,
+    // so the layer this tool writes is the layer the engine reads.
+    struct HLODLayerSerialized
+    {
+        std::string                Name;
+        Core::HLODLayerType        Type = Core::HLODLayerType::Instancing;
+        std::optional<std::string> ParentLayer; // v1..v4 files only
+        std::optional<float>       SimplifyTrianglePercent;
+        std::optional<float>       CellSize;
+        std::optional<float>       LoadingRange;
+    };
+    static_assert(
+         rfl::named_tuple_t<HLODLayerSerialized>::size() ==
+              rfl::named_tuple_t<Core::HLODLayerSerialized>::size() + 1,
+         "Core::HLODLayerSerialized gained or lost a member: mirror it in Migration::HLODLayerSerialized, "
+         "or this tool drops it from every scene it rewrites" );
+
     // THE WORLD PARTITION BLOCK THIS TOOL READS: the engine's Core::WorldPartitionSerialized PLUS the v50..v66
-    // world-wide DefaultHLODLayer, frozen here. v67 moved the layer onto each grid (Core::
-    // WorldPartitionGridSerialized::HLODLayer), and the read is strict, so an older file's key needs a member to
-    // land in. Read, never written: MigrateGridHLODLayerV67ToV68 moves it onto the grids and clears it, and rfl
-    // omits an empty optional, so the block this tool writes is the block the engine reads.
+    // world-wide DefaultHLODLayer and the v1..v4 Grids, frozen here. v67 moved the layer onto each grid, v5 the
+    // grids into RuntimePartitions, and the read is strict, so an older file's key needs a member to land in.
+    // Read, never written: MigrateGridHLODLayerV67ToV68 and MigrateRuntimePartitionsV4ToV5 move them and clear
+    // them, and rfl omits an empty optional, so the block this tool writes is the block the engine reads.
+    // RuntimePartitions is optional HERE only, because a v1..v4 file states no such key.
     struct WorldPartitionSerialized
     {
-        std::vector<Core::WorldPartitionGridSerialized>       Grids;
-        std::optional<std::vector<Core::HLODLayerSerialized>> HLODLayers;
+        std::optional<std::vector<WorldPartitionGridSerialized>>     Grids; // v1..v4 files only
+        std::optional<std::vector<Core::RuntimePartitionSerialized>> RuntimePartitions;
+        std::optional<std::vector<HLODLayerSerialized>>              HLODLayers;
         // Core::WorldPartitionSerialized::ChunkRegionSize, carried through untouched (no step reads it).
         std::optional<float> ChunkRegionSize;
         // Core::WorldPartitionSerialized::DataLayers (WP v2), carried through untouched (no step reads it).
@@ -76,7 +109,7 @@ namespace Desert::Migration
         std::optional<std::string> DefaultHLODLayer;
     };
     static_assert( rfl::named_tuple_t<WorldPartitionSerialized>::size() ==
-                        rfl::named_tuple_t<Core::WorldPartitionSerialized>::size() + 1,
+                        rfl::named_tuple_t<Core::WorldPartitionSerialized>::size() + 2,
                    "Core::WorldPartitionSerialized gained or lost a member: mirror it in "
                    "Migration::WorldPartitionSerialized, or this tool drops it from every scene it rewrites" );
 
@@ -501,6 +534,16 @@ namespace Desert::Migration
     //       read flat (a runtime child streaming past its parent). Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionDataLayerOutliner = 4;
 
+    //   5 - THE RUNTIME HASH SET (WP-HASH-SET; UE UWorldPartitionRuntimeHashSet). `Grids` is `RuntimePartitions`:
+    //       every grid becomes an LHGrid partition of the same Name whose LHGrid block states its CellSize,
+    //       LoadingRange and Priority - in the same order, so a record that names no partition still streams on
+    //       the first. A grid's HLODLayer and that layer's ParentLayer chain become the partition's HLOD setups in
+    //       chain order (Core::RuntimePartitionHLODSetupSerialized, each named after its layer); every layer's
+    //       ParentLayer is cleared, the order of the setups being the chain now. A grid with no HLODLayer states
+    //       no HLODSetups. No Persistent partition is invented: what was always loaded stays so by its own reason.
+    //       Scenes only - a prefab has no WorldPartition block, so its step is the stamp.
+    //       MigrateRuntimePartitionsV4ToV5.
+    inline constexpr int kWorldPartitionVersionRuntimePartitions = 5;
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -548,7 +591,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionDataLayerOutliner == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionRuntimePartitions == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -986,6 +1029,12 @@ namespace Desert::Migration
     // (kSceneVersionGridHLODLayer); how many grids were given the layer.
     std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene );
 
+    // Restates a partitioned world's Grids as LHGrid RuntimePartitions and the layers' ParentLayer chains as the
+    // partitions' HLOD setups (kWorldPartitionVersionRuntimePartitions); how many grids it restated. Refuses (by
+    // message, appended to @p refused) a chain that names no layer or loops - such a file was refused by the build
+    // that wrote it too.
+    std::size_t MigrateRuntimePartitionsV4ToV5( SceneSerialized& scene, std::vector<std::string>& refused );
+
     // Drops siblingIndex from every root record of a partitioned (external-entities) scene
     // (kSceneVersionRootSiblingIndex); how many records lost it.
     std::size_t MigrateRootSiblingIndexV69ToV70( SceneSerialized& scene );
@@ -1325,6 +1374,8 @@ namespace Desert::Migration
         bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
         bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
         bool        DataLayerOutlinerRaised = false; // below kWorldPartitionVersionDataLayerOutliner (additive)
+        bool        RuntimePartitionsRaised = false; // below kWorldPartitionVersionRuntimePartitions
+        std::size_t GridsRestated           = 0;     // grids restated as LHGrid runtime partitions
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1391,7 +1442,7 @@ namespace Desert::Migration
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised || RuntimeDataLayersRaised ||
-                   ReflectedAssetRefsRaised ||
+                   DataLayerOutlinerRaised || RuntimePartitionsRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
                    FilmicDefaultRaised || GrassRasterPathRaised;
         }

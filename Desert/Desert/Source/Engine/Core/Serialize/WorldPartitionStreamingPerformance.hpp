@@ -76,16 +76,19 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline bool CellHolds( const PlannedCell& cell, const StreamingSource& source,
                                          const WorldPartitionSerialized& partition )
     {
-        if ( cell.Grid >= partition.Grids.size() || !TargetsGrid( source, partition.Grids[cell.Grid] ) )
+        if ( cell.Grid >= partition.RuntimePartitions.size() ||
+             !TargetsGrid( source, partition.RuntimePartitions[cell.Grid] ) )
             return false;
         const float x = source.Position.x;
         const float z = source.Position.z;
         if ( !( x >= cell.Square.MinX && x < cell.Square.MaxX && z >= cell.Square.MinZ && z < cell.Square.MaxZ ) )
             return false;
         // WP-SRC-ALTITUDE: under the source's feet only while the source also REACHES the cell. A plane 2 km above
-        // a 25 m cell stands in its square, but THE QUERY does not want that cell (its distance is 3D): waiting
-        // for it would block forever, and from up there the cell's HLOD stands in for it.
-        for ( const SourceSector& sector : SourceSectors( source, partition.Grids[cell.Grid] ) )
+        // a 25 m cell stands in its square, but THE QUERY does not want that cell (its distance is 3D): waiting for
+        // it would block forever, and from up there the cell's HLOD stands in for it.
+        if ( cell.Grid >= partition.RuntimePartitions.size() )
+            return false;
+        for ( const SourceSector& sector : SourceSectors( source, partition.RuntimePartitions[cell.Grid] ) )
             if ( WithAltitude( DistanceToCellInSector( sector, cell.Bounds ), sector, cell.Height ) <= sector.Radius )
                 return true;
         return false;
@@ -98,9 +101,9 @@ namespace Desert::Core::Rules
                                                 const WorldPartitionSerialized& partition )
     {
         double best = std::numeric_limits<double>::infinity();
-        if ( cell.Grid >= partition.Grids.size() )
+        if ( cell.Grid >= partition.RuntimePartitions.size() )
             return best;
-        const auto& grid = partition.Grids[cell.Grid];
+        const RuntimePartitionSerialized& grid = partition.RuntimePartitions[cell.Grid];
         for ( const StreamingSource& source : sources )
         {
             if ( !source.TargetGrids.empty() && !TargetsGrid( source, grid ) )
