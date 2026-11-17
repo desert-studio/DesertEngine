@@ -32,8 +32,6 @@
 #include <utility>
 #include <vector>
 
-#include <tuple>
-
 namespace Desert::Core::WorldCells
 {
     namespace
@@ -882,7 +880,7 @@ namespace Desert::Core::WorldCells
             return ReadCellFile( index, file, bytes.GetValue() );
         }
 
-        // The scene-wide part of the index and the records of units [0, @p units), each file read once.
+        // The scene-wide part of the index and the records of every unit @p takes, each file read once.
         Common::ResultStr<SceneSerialized> Assemble( const WorldIndex& index, const FileReader& reader,
                                                      const std::function<bool( std::size_t )>& takes )
         {

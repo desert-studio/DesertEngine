@@ -286,7 +286,12 @@ namespace Desert::Core::Rules
         if ( unit < plan.AlwaysLoaded.size() )
             return std::format( "A{}", unit );
         const PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
-        return std::format( "G{}L{}({},{})", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z );
+        // A cell of runtime data layers names its set (WP-DATA-LAYERS-RUNTIME): two cells of one square in
+        // different sets are two units, and the saved HLOD index keys its rows by this name. "DL0+2" = layers 0, 2.
+        std::string layers;
+        for ( const std::size_t layer : cell.DataLayers )
+            layers += std::format( "{}{}", layers.empty() ? "DL" : "+", layer );
+        return std::format( "G{}L{}({},{}){}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z, layers );
     }
 
     // THE NEAREST AN HLOD OF @p unit IS EVER DRAWN (UE FHLODBuildContext::MinVisibleDistance, WP-FAR-6B): the
