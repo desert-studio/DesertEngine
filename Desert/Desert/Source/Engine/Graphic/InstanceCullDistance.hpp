@@ -123,7 +123,8 @@ namespace Desert::Graphic
                                      const InstanceCullDistance& cull, const InstanceWind& wind,
                                      const Geometry::LODView& cullView, const Geometry::LODView& lodView,
                                      std::span<const float> lodScreenSizes, std::vector<glm::mat4>& visible,
-                                     std::vector<uint32_t>& levels, std::vector<uint32_t>* indices = nullptr )
+                                     std::vector<uint32_t>& levels, std::vector<uint32_t>* indices = nullptr,
+                                     std::vector<uint32_t>* olderLevels = nullptr )
     {
         visible.clear();
         levels.clear();
@@ -160,7 +161,24 @@ namespace Desert::Graphic
         }
         // The kept instances' levels in one batch, eight per register (Geometry::SelectLODsFromBounds: per
         // instance the per-instance policy bit for bit), in the order they were kept.
+        // A LOD view with temporal samples (UE FTemporalLODState): @p levels at the newer sample and, when the
+        // caller asks, @p olderLevels at the older - an instance whose two differ is in a dithered transition
+        // (Geometry::SelectDitheredLODFromBounds per instance). Without samples both are the view origin's.
+        Geometry::LODView newer = lodView;
+        if ( lodView.Temporal.Active )
+            newer.Origin = lodView.Temporal.Origins[1];
         levels.resize( visible.size() );
-        Geometry::SelectLODsFromBounds( visible, localBounds, lodView, lodScreenSizes, -1, 0, levels );
+        Geometry::SelectLODsFromBounds( visible, localBounds, newer, lodScreenSizes, -1, 0, levels );
+        if ( olderLevels == nullptr )
+            return;
+        if ( !lodView.Temporal.Active )
+        {
+            *olderLevels = levels;
+            return;
+        }
+        Geometry::LODView older = lodView;
+        older.Origin            = lodView.Temporal.Origins[0];
+        olderLevels->resize( visible.size() );
+        Geometry::SelectLODsFromBounds( visible, localBounds, older, lodScreenSizes, -1, 0, *olderLevels );
     }
 } // namespace Desert::Graphic

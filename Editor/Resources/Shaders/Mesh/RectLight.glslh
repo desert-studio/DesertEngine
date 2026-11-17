@@ -1,0 +1,89 @@
+#ifndef RECT_LIGHT_GLSLH
+#define RECT_LIGHT_GLSLH
+
+// THE SURFACE'S SIDE OF A RECT LIGHT (DesertLight::RectCenter; the source's side is Mesh/LightSources.glslh
+// DesertRectLightAt): the Cook-Torrance response of DefaultLit to an area, not a point.
+//
+//   diffuse  — Lambert on the rect's vector irradiance: Radiance * dot( N, L ) is the exact irradiance of the
+//              visible rect (wholly above the surface's horizon), so the lobe is EvaluateDirectLight's diffuse
+//              half at L (UE RectIrradianceLambert).
+//   specular — the GGX lobe integrated over the rect's polygon with a linearly transformed cosine (Heitz et al.
+//              2016; UE RectGGXApproxLTC): the polygon is carried into the space where the GGX lobe for this
+//              roughness and view angle is a clamped cosine (the inverse LTC matrix, a 64x64 fit), its
+//              clipped form factor there IS the lobe's integral over the rect, and the fit's amplitude splits it
+//              into the F0 scale and bias (Fresnel). Exact for a rect wholly above the horizon; the horizon is
+//              the clipped-sphere approximation (Hill & Heitz 2016), as UE and every LTC renderer clip it.
+//
+// Requires Mesh/DirectLighting.glslh first. Mesh/LightSources.glslh (binding-free: BRDF.glslh's PI and
+// fresnelSchlick, the DesertLight contract, RectLightEdge, and the bindless table the LTC tables are read from,
+// Runtime::RectLightLtcService) is included here.
+#include <Mesh/LightSources.glslh>
+
+const float RECT_LIGHT_LTC_SIZE = 64.0; // Runtime::RectLightLtcService kLtcSize
+
+// The rect's clipped-sphere form factor under the transform `toLtc` (world offsets from the surface into the
+// LTC's cosine space): the integral of the clamped cosine over the transformed polygon.
+float RectLightLtcFormFactor( DesertLight light, mat3 toLtc )
+{
+    const vec3 c0 = normalize( toLtc * ( light.RectCenter - light.RectExtentX - light.RectExtentY ) );
+    const vec3 c1 = normalize( toLtc * ( light.RectCenter + light.RectExtentX - light.RectExtentY ) );
+    const vec3 c2 = normalize( toLtc * ( light.RectCenter + light.RectExtentX + light.RectExtentY ) );
+    const vec3 c3 = normalize( toLtc * ( light.RectCenter - light.RectExtentX + light.RectExtentY ) );
+    vec3 formFactor = RectLightEdge( c0, c1 ) + RectLightEdge( c1, c2 ) + RectLightEdge( c2, c3 ) +
+                      RectLightEdge( c3, c0 );
+    // The sum's sign is the corners' winding as the transform leaves it (the rect faces the surface, and a
+    // matrix with a negative determinant mirrors). A polygon's vector form factor points toward the polygon, so
+    // it is turned toward the rect's centre - one answer for either winding and either determinant.
+    if ( dot( formFactor, toLtc * light.RectCenter ) < 0.0 )
+        formFactor = -formFactor;
+    // Clipped sphere (Hill & Heitz 2016): the polygon's horizon-clipped form factor from its vector form factor.
+    const float len = length( formFactor );
+    return max( ( len * len + formFactor.z ) / ( len + 1.0 ), 0.0 );
+}
+
+// The specular lobe of a rect light: Luminance * Fresnel-weighted LTC integral of GGX over the rect.
+vec3 EvaluateRectLightSpecular( DesertLight light, vec3 view, vec3 N, vec3 F0, float roughness )
+{
+    if ( light.RectLtcTexture <= 0 )
+        return vec3( 0.0 ); // the tables were refused (RectLightLtcService logged why)
+
+    const float NoV = clamp( dot( N, view ), 0.0, 1.0 );
+    // Texel centres of the 64x64 fit, over (perceptual roughness, sqrt( 1 - NoV )); the image holds the matrix
+    // in its upper half and the amplitude in its lower half.
+    const vec2  fit   = vec2( clamp( roughness, 0.0, 1.0 ), sqrt( 1.0 - NoV ) ) *
+                        ( ( RECT_LIGHT_LTC_SIZE - 1.0 ) / RECT_LIGHT_LTC_SIZE ) + 0.5 / RECT_LIGHT_LTC_SIZE;
+    const uint  slot      = uint( light.RectLtcTexture );
+    const vec4  matrix    = SampleBindless( slot, BINDLESS_SAMPLER_LINEAR_CLAMP, vec2( fit.x, fit.y * 0.5 ), 0.0 );
+    const vec4  amplitude =
+         SampleBindless( slot, BINDLESS_SAMPLER_LINEAR_CLAMP, vec2( fit.x, 0.5 + fit.y * 0.5 ), 0.0 );
+
+    // The surface's frame with the view in its XZ plane (the fit is symmetric about it); at normal incidence any
+    // tangent does.
+    vec3 tangent = view - N * dot( view, N );
+    tangent      = dot( tangent, tangent ) > 1e-8 ? normalize( tangent )
+                                                  : normalize( cross( N, abs( N.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 )
+                                                                                           : vec3( 1.0, 0.0, 0.0 ) ) );
+    const vec3 bitangent = cross( N, tangent );
+    const mat3 toSurface = transpose( mat3( tangent, bitangent, N ) );
+    const mat3 inverseLtc =
+         mat3( vec3( matrix.x, 0.0, matrix.y ), vec3( 0.0, 1.0, 0.0 ), vec3( matrix.z, 0.0, matrix.w ) );
+
+    const float lobe    = RectLightLtcFormFactor( light, inverseLtc * toSurface );
+    const vec3  fresnel = F0 * amplitude.x + ( vec3( 1.0 ) - F0 ) * amplitude.y;
+    return light.RectLuminance * fresnel * lobe;
+}
+
+// DefaultLit's whole response to a rect light: the diffuse half of EvaluateDirectLight at the vector
+// irradiance's direction, plus the specular lobe above.
+vec3 EvaluateRectLight( DesertLight light, vec3 view, vec3 N, vec3 F0, float metalness, float roughness,
+                        vec3 albedo )
+{
+    const float cosLi = max( dot( N, light.L ), 0.0 );
+    const vec3  H     = normalize( view + light.L );
+    // EvaluateDirectLight's energy split: what Fresnel reflects is not diffused, and a conductor diffuses none.
+    const vec3  kd      = ( 1.0 - fresnelSchlick( F0, max( dot( H, view ), 0.0 ) ) ) * ( 1.0 - metalness );
+    const vec3  diffuse = kd * albedo / PI * light.Radiance * cosLi;
+    return diffuse + EvaluateRectLightSpecular( light, view, N, F0, roughness );
+}
+
+#endif // RECT_LIGHT_GLSLH

@@ -191,6 +191,12 @@ namespace Desert::Core::Formats
         // already follows. A field sampled between texels (the clouds' world weather map) under "Nearest"
         // would otherwise render as texel-sized blocks with straight edges. Only meaningful with Sample.
         AlgorithmicLinear = 0x4,
+        // A COLOUR ATTACHMENT WITH A BINDLESS SLOT (UE: an RDG texture every reader binds by SRV). The bindless
+        // table refuses attachments because the render graph cannot order a read it does not see; an image with
+        // this bit is admitted because its writer declares every bindless reader to the graph itself: its raster
+        // pass is followed by declaration-only reads (SampledGraphics, SampledCompute) and the graph leaves it
+        // sampled (System::LightFunctionAtlas). Only with Image2DUsage::Attachment, Sample, one sample, colour.
+        GraphDeclaredBindless = 0x8,
     };
 
     // Which planes of an image a barrier or a view must name. The bit values mirror VK_IMAGE_ASPECT_*,
