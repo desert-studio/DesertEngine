@@ -46,7 +46,6 @@ namespace Desert::Graphic::API::Vulkan
         ComputePipeline& SetSampler( uint32_t binding, const RDG::SamplerDesc& desc ) override;
         ComputePipeline& SetOutput( uint32_t binding, Image* image, uint32_t mip = 0 ) override;
         ComputePipeline& SetStorageBuffer( uint32_t binding, ShaderResources::StorageBuffer* buffer ) override;
-        ComputePipeline& SetPushConstants( const void* data, uint32_t size ) override;
         void             Dispatch( uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) override;
         void             Record( GpuBatch& batch, uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) override;
 
@@ -153,6 +152,9 @@ namespace Desert::Graphic::API::Vulkan
         {
             return GetBuilt().Backend.get();
         }
+
+    protected:
+        ComputePipeline& SetPushBytes( const void* data, uint32_t size ) override;
 
     private:
         // Release's body: publishes a record with no handles (the backend kept); @p deferred retires the

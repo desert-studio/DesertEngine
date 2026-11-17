@@ -8,6 +8,7 @@
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ShaderPushBlock.hpp>
 
 #include <atomic>
 #include <optional>
@@ -564,8 +565,14 @@ namespace Desert::Graphic
         virtual ComputePipeline& SetOutput( uint32_t binding, Image* image, uint32_t mip = 0 ) = 0;
         /** Bind a read-write storage buffer at @p binding (e.g. a luminance histogram). */
         virtual ComputePipeline& SetStorageBuffer( uint32_t binding, ShaderResources::StorageBuffer* buffer ) = 0;
-        /** Set the raw push-constant block used by the next Dispatch (e.g. prefilter roughness). */
-        virtual ComputePipeline& SetPushConstants( const void* data, uint32_t size ) = 0;
+        /** Set the push-constant block used by the next Dispatch: the generated ShaderPush::<Shader> struct of
+         *  the pipeline's shader (Engine/Generated/ShaderPushConstants.gen.hpp), copied - never raw bytes
+         *  (SHADER-PUSH-GEN, as RDG::PassBindings::PushConstants). */
+        template <ShaderPush::Block T>
+        ComputePipeline& SetPushConstants( const T& push )
+        {
+            return SetPushBytes( &push, static_cast<uint32_t>( sizeof( T ) ) );
+        }
         /** Record + submit one immediate compute dispatch with the currently-bound resources. */
         virtual void Dispatch( uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ ) = 0;
         /** Record one dispatch into @p batch with the currently-bound resources — no submit, no wait. The
@@ -595,6 +602,10 @@ namespace Desert::Graphic
          */
         NO_DISCARD static Common::ResultStr<std::shared_ptr<ComputePipeline>>
         Create( const ComputePipelineSpecification& spec );
+
+    protected:
+        // SetPushConstants' copy of the block; protected so no caller pushes bytes that are not a generated block.
+        virtual ComputePipeline& SetPushBytes( const void* data, uint32_t size ) = 0;
     };
 
 } // namespace Desert::Graphic
