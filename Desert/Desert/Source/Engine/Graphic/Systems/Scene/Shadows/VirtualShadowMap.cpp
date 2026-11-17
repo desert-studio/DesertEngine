@@ -656,7 +656,7 @@ namespace Desert::Graphic::System
         const auto dispatch = [&]( const Kernel k, auto&& declare, const auto push, const glm::uvec3 groups )
         {
             using Push              = std::decay_t<decltype( push )>;
-            constexpr bool kHasPush = !std::is_same_v<Push, std::nullopt_t>;
+            static constexpr bool kHasPush = !std::is_same_v<Push, std::nullopt_t>;
             const KernelProgram& kernel = m_Kernels[k];
             graph.AddPass(
                  kKernelNames[k].Pass, RDG::PassFlags::Compute,
