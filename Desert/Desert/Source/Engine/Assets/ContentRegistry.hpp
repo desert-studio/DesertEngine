@@ -702,6 +702,28 @@ namespace Desert::Assets
             return closure;
         }
 
+        // THE ROWS A RECORD LIST NEEDS (WP-HLOD-WARMUP): Closure over the roots @p guids names - asset GUIDs as
+        // text, as GatherSceneDependencies states them - each with the kind its row states. A GUID no row answers
+        // for is dropped, as an edge to no row is: no file anyone could read.
+        inline std::vector<ClosureRow> ClosureOfGuids( const std::vector<std::string>& guids )
+        {
+            std::vector<ClosureRow> roots;
+            {
+                Detail::State&                    state = Detail::Get_();
+                const std::lock_guard<std::mutex> lock( state.Mutex );
+                for ( const std::string& text : guids )
+                {
+                    const auto guid = Common::Content::AssetGuidFromText( text );
+                    if ( !guid.IsSuccess() )
+                        continue;
+                    const auto raw = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
+                    if ( const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( raw ) )
+                        roots.push_back( { Common::AssetHandle( raw ), row->Kind } );
+                }
+            }
+            return Closure( roots );
+        }
+
         // THE MESH PICKERS' ROWS, split by the Skinned tag and not by extension (UE filters FAssetData by its
         // tags the same way): every mesh row of both mesh kinds whose header does (`skinned`) or does not flag
         // a skeleton. The header is read at scan time, so a mesh nobody has loaded is on the right list — the

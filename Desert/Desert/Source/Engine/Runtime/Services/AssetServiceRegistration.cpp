@@ -160,15 +160,15 @@ namespace Desert::Runtime
             return kind == KindName( ContentKind::StaticMesh ) || kind == KindName( ContentKind::SkinnedMesh );
         }
 
-        // Starts every row's worker read, then waits for each: one batch, no read on this thread.
-        std::size_t ReadBatch( const std::vector<Assets::ContentRegistry::ClosureRow>& rows )
+        // Starts every row's worker read, appending the loader handles to wait on; reads nothing on this thread.
+        void StartReads( const std::vector<Assets::ContentRegistry::ClosureRow>& rows,
+                         std::vector<Assets::AssetHandle>&                       awaited )
         {
             using Common::Content::ContentKind;
             using Common::Content::KindName;
-            auto*                            meshes    = Meshes();
-            auto*                            materials = Materials();
-            auto*                            textures  = Textures();
-            std::vector<Assets::AssetHandle> awaited;
+            auto* meshes    = Meshes();
+            auto* materials = Materials();
+            auto* textures  = Textures();
             for ( const auto& row : rows )
             {
                 if ( IsMeshKind( row.Kind ) && meshes != nullptr )
@@ -178,6 +178,13 @@ namespace Desert::Runtime
                 else if ( row.Kind == KindName( ContentKind::Texture ) && textures != nullptr )
                     textures->StartRead( row.Handle, awaited );
             }
+        }
+
+        // Starts every row's worker read, then waits for each: one batch, no read on this thread.
+        std::size_t ReadBatch( const std::vector<Assets::ContentRegistry::ClosureRow>& rows )
+        {
+            std::vector<Assets::AssetHandle> awaited;
+            StartReads( rows, awaited );
             std::sort( awaited.begin(), awaited.end() );
             awaited.erase( std::unique( awaited.begin(), awaited.end() ), awaited.end() );
             for ( const auto& read : awaited )
@@ -279,6 +286,47 @@ namespace Desert::Runtime
                 if ( IsMeshKind( row.Kind ) )
                     outcome.DrawableMeshes += meshes->Get( row.Handle ) != nullptr ? 1 : 0;
         return outcome;
+    }
+
+    void StartClosureReads( const std::vector<Assets::ContentRegistry::ClosureRow>& closure )
+    {
+        std::vector<Assets::AssetHandle> awaited; // nobody waits on these: the warmup polls ClosureArriving
+        StartReads( closure, awaited );
+    }
+
+    std::size_t ClosureArriving( const std::vector<Assets::ContentRegistry::ClosureRow>& closure,
+                                 const float                                             screenPixels )
+    {
+        using Common::Content::ContentKind;
+        using Common::Content::KindName;
+        auto*       meshes    = Meshes();
+        auto*       materials = Materials();
+        auto*       textures  = Textures();
+        std::size_t arriving  = 0;
+        for ( const auto& row : closure )
+        {
+            if ( IsMeshKind( row.Kind ) && meshes != nullptr )
+                arriving += meshes->Get( row.Handle ) == nullptr ? 1 : 0;
+            else if ( row.Kind == KindName( ContentKind::Material ) && materials != nullptr )
+                arriving += materials->IsPending( row.Handle ) ? 1 : 0;
+            else if ( row.Kind == KindName( ContentKind::Texture ) && textures != nullptr )
+            {
+                (void)textures->Require( row.Handle ); // the first ask starts the read, as a draw's does
+                arriving += textures->WarmthFor( row.Handle, screenPixels ) == TextureWarmth::Arriving ? 1 : 0;
+            }
+        }
+        return arriving;
+    }
+
+    std::vector<Assets::AssetHandle> ClosureTextures( const std::vector<Assets::ContentRegistry::ClosureRow>& closure )
+    {
+        using Common::Content::ContentKind;
+        using Common::Content::KindName;
+        std::vector<Assets::AssetHandle> textures;
+        for ( const auto& row : closure )
+            if ( row.Kind == KindName( ContentKind::Texture ) )
+                textures.push_back( row.Handle );
+        return textures;
     }
 
     ClosureResidency AwaitSceneClosure( const Core::Scene& scene )

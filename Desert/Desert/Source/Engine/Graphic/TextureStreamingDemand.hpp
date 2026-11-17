@@ -68,6 +68,24 @@ namespace Desert::Graphic
         /// override -- MaterialOverrides::Textures -- or a landscape layer). 0 = no asset: nothing.
         void NoteAsset( const Common::AssetHandle& asset, float screenPixels );
 
+        /// THE WARMUP'S STANDING ASK (WP-HLOD-WARMUP; UE UWorldPartitionHLODRuntimeSubsystem::OnBeginRenderViews):
+        /// bounds nothing draws yet that the world is about to show - a cell about to activate, an HLOD about to
+        /// stand in for its cell - with the texture assets they will sample. Every view measures each one as it
+        /// measures a draw (ScreenPixels at its lens) and notes its textures at that size, so the mips the first
+        /// frame after the swap samples are streamed before it.
+        struct WarmupAsk
+        {
+            glm::vec3                        Center{ 0.0f };
+            float                            Radius = 0.0f;
+            std::vector<Common::AssetHandle> Textures;
+            /// The largest size, in pixels, any view measured since the ask was made; 0 before the first view.
+            std::atomic<float> Pixels{ 0.0f };
+        };
+        /// Replaces every ask @p owner made (one owner per world streamer); an empty list withdraws them.
+        void SetWarmups( const void* owner, std::vector<std::shared_ptr<WarmupAsk>> asks );
+        /// One view of the frame (the renderer, per view): measures every standing ask and notes its textures.
+        void NoteWarmups( const Geometry::LODView& view, uint32_t viewHeight );
+
         /// The frame's demand per texture asset (largest screen size in pixels): every thread's notes merged
         /// once. The map is this object's own and reused; it holds until the next TakeFrame. One taker (the
         /// texture service's frame loop).
@@ -114,5 +132,8 @@ namespace Desert::Graphic
         std::shared_mutex                                                     m_FieldsLock;
         std::unordered_map<const void*, std::shared_ptr<InstanceFieldBounds>> m_Fields;
         PoolStats                                                             m_Pool;
+        /// The standing warmup asks, by owner (SetWarmups); read by NoteWarmups.
+        std::mutex                                                               m_WarmupsLock;
+        std::unordered_map<const void*, std::vector<std::shared_ptr<WarmupAsk>>> m_Warmups;
     };
 } // namespace Desert::Graphic

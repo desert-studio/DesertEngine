@@ -79,6 +79,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <span>
 #include <string>
 #include <utility>
@@ -177,10 +178,21 @@ namespace Desert::Core::Rules
     //  HoldRelease    1 = an Activated unit stays Activated this step even outside its band (something beneath
     //                     it is still drawn and would be drawn twice once it goes).
     // A gate only delays; it never starts a load, activates or releases anything by itself.
+    //
+    // THE LAST WORD, ASKED AT THE MOMENT OF THE CHANGE (WP-HLOD-WARMUP; UE UWorldPartitionHLODRuntimeSubsystem::
+    // CanMakeVisible / CanMakeInvisible, asked by the streaming policy for the cell it is about to show or hide):
+    //  MayActivate(unit) = a Loaded unit the step would activate now (wanted, not held above) may activate;
+    //                      false keeps it Loaded this step, counted in WaitingForGate.
+    //  MayRelease(unit)  = an Activated unit outside its band (not held above) may be released; false keeps it.
+    // Asked once per step per such unit, before the activation budget, so an asker can count the steps it held a
+    // unit for. Empty = always yes. The asker is the HLOD warmup (WorldPartitionHLODSwitch.hpp): it requests
+    // what the change is about to draw and answers yes once that is resident.
     struct ResidencyGate
     {
-        std::vector<std::uint8_t> HoldActivation;
-        std::vector<std::uint8_t> HoldRelease;
+        std::vector<std::uint8_t>             HoldActivation;
+        std::vector<std::uint8_t>             HoldRelease;
+        std::function<bool( std::size_t )> MayActivate;
+        std::function<bool( std::size_t )> MayRelease;
     };
 
     [[nodiscard]] inline std::size_t ResidencyUnitCount( const WorldPartitionPlan& plan )
@@ -392,7 +404,8 @@ namespace Desert::Core::Rules
             UnitResidency& unit = state.Units[index];
             if ( kept[index] || unit.State == Residency::Unloaded )
                 continue;
-            if ( unit.State == Residency::Activated && gate != nullptr && held( gate->HoldRelease, index ) )
+            if ( unit.State == Residency::Activated && gate != nullptr &&
+                 ( held( gate->HoldRelease, index ) || ( gate->MayRelease && !gate->MayRelease( index ) ) ) )
                 continue;
             switch ( unit.State )
             {
@@ -443,7 +456,8 @@ namespace Desert::Core::Rules
             UnitResidency& unit = state.Units[index];
             if ( unit.State != Residency::Loaded )
                 continue;
-            if ( gate != nullptr && held( gate->HoldActivation, index ) )
+            if ( gate != nullptr &&
+                 ( held( gate->HoldActivation, index ) || ( gate->MayActivate && !gate->MayActivate( index ) ) ) )
             {
                 ++step.WaitingForGate;
                 continue;

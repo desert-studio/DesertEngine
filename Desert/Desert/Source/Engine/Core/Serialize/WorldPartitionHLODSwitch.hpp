@@ -2,8 +2,9 @@
 // Ported from UE 5.8 Engine/Source/Runtime/Engine/Private/WorldPartition/HLOD/HLODRuntimeSubsystem.cpp:623-660
 // (UWorldPartitionHLODRuntimeSubsystem::OnCellShown / OnCellHidden over the per-cell FCellData), adapted: a
 // cell's visibility is READ from the residency state after each step instead of pushed by a level-streaming
-// callback, an HLOD object is an index the world maps to its entities, and there is no warmup (the HLOD draws
-// the very mesh assets its cell draws, so neither side waits for the other's resources).
+// callback, and an HLOD object is an index the world maps to its entities. The warmup is UE's too
+// (UWorldPartitionHLODRuntimeSubsystem::CanMakeVisible / CanMakeInvisible / PrepareToWarmup / OnBeginRenderViews),
+// gated by residency instead of a frame count: see THE WARMUP below.
 //
 // WHICH ONE IS DRAWN, A CELL OR ITS HLOD (WP11).
 //
@@ -31,6 +32,26 @@
 // HLOD cell is not Unloaded (HLODGate). So a parent hides only once its children are entities and shows again
 // in the frame its last child goes: at any distance exactly one of {cell, its HLOD, a parent} is drawn. Waiting
 // costs detail, never a hole: the held cell is drawn by the parent meanwhile.
+//
+// ── THE WARMUP (WP-HLOD-WARMUP) ─────────────────────────────────────────────────────────────────────
+//
+// A cell and its HLOD do NOT draw the same assets: a world cell draws its own meshes and their materials, the
+// HLOD draws what the builder made (Instancing: the cell's meshes; MeshMerge / MeshSimplify / Approximate /
+// Landscape: a built mesh with a baked material and its textures). Whichever side is about to be shown has
+// been drawn by nobody: its meshes may not be built, and its textures sit at their streaming tail (the mips
+// are streamed by what the frame draws, TextureService::UpdateStreaming) - so the first frames after a swap
+// would show a hole or a soft picture. UE asks for the resources before the swap and holds the swap meanwhile
+// (wp.Runtime.HLOD.WarmupEnabled, WarmupNumFrames frames). Here the same two questions are asked by the
+// residency step at the moment of the change (ResidencyGate::MayActivate / MayRelease):
+//  - A Loaded world cell about to activate: the world requests everything its read records name (WarmCell:
+//    the records' dependency closure read on workers, meshes built, textures asked for at the screen size every
+//    view measures the cell at) and the cell stays Loaded - its HLOD drawn - until that is resident.
+//  - An Activated world cell about to be released: the world requests its HLOD's own assets the same way
+//    (WarmHLOD) and the cell stays drawn until they are resident; then the HLOD is shown sharp.
+// The gate is the FACT of residency, not a frame count: a warmup ends the step its assets are resident, and
+// kWarmupMaxFrames only bounds it (a read that never lands, a pool too small to hold the asked mips), after
+// which the swap goes ahead and the overrun is reported (TakeWarmupOverruns). A cell with no HLOD is never
+// held: nothing stands in for it, so waiting would only leave its place empty longer.
 //
 // ── READ FROM THE STATE, NOT FROM EVENTS ────────────────────────────────────────────────────────────
 //
@@ -60,6 +81,7 @@
 #include <map>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::Core::Rules
@@ -70,6 +92,35 @@ namespace Desert::Core::Rules
     public:
         virtual ~HLODVisibilityWorld()                                = default;
         virtual void SetHLODVisible( std::size_t hlod, bool visible ) = 0;
+
+        // THE WARMUP PORT (see THE WARMUP). Each Warm call asks again, every step of the warmup, and answers
+        // whether everything the side about to be shown draws is resident now. The defaults are a world whose
+        // assets are resident the moment they are named (the suites' worlds): every warmup is done at once. The
+        // engine's streamer overrides all four.
+        // World cell @p unit (Loaded: its records are read) is about to be shown.
+        [[nodiscard]] virtual bool WarmCell( std::size_t /*unit*/ )
+        {
+            return true;
+        }
+        // HLOD @p hlod is about to be shown in place of its cell.
+        [[nodiscard]] virtual bool WarmHLOD( std::size_t /*hlod*/ )
+        {
+            return true;
+        }
+        // The warmup of that side ended (it was shown, or the change is no longer coming): its requests go.
+        virtual void EndCellWarmup( std::size_t /*unit*/ )
+        {
+        }
+        virtual void EndHLODWarmup( std::size_t /*hlod*/ )
+        {
+        }
+    };
+
+    // A warmup that reached kWarmupMaxFrames before its assets were resident: the swap went ahead anyway.
+    struct WarmupOverrun
+    {
+        std::size_t Unit = 0;
+        bool        Showing = false; // true: the cell was shown; false: its HLOD was
     };
 
     // UE's bIsCellVisible: the cell's own records are drawn.
@@ -92,6 +143,7 @@ namespace Desert::Core::Rules
             runtime.m_HLODOfUnit.assign( units, kNoRecord );
             runtime.m_UnitOfHLOD.assign( unitOfHLOD.begin(), unitOfHLOD.end() );
             runtime.m_Applied.assign( unitOfHLOD.size(), kNotApplied );
+            runtime.m_Warmup.assign( units, {} );
             for ( std::size_t hlod = 0; hlod < unitOfHLOD.size(); ++hlod )
             {
                 const std::size_t unit = unitOfHLOD[hlod];
@@ -128,6 +180,7 @@ namespace Desert::Core::Rules
             runtime.m_CellHeldByWorld.assign( hlodUnits, {} );
             runtime.m_CellHeldByCells.assign( hlodUnits, {} );
             runtime.m_Applied.assign( hierarchy.Nodes.size(), kNotApplied );
+            runtime.m_Warmup.assign( units, {} );
             for ( std::size_t hlod = 0; hlod < hierarchy.Nodes.size(); ++hlod )
             {
                 const HLODNode& node = hierarchy.Nodes[hlod];
@@ -297,6 +350,66 @@ namespace Desert::Core::Rules
             return cells;
         }
 
+        // THE WARMUP'S BOUND, in residency steps. UE's wp.Runtime.HLOD.WarmupNumFrames (5) is the whole wait there:
+        // UE waits that many frames and swaps. Here the wait ends when the assets are resident and this only
+        // bounds it: one second at 60 Hz, longer than a cooked cell's reads, cooks and mip uploads take on a warm
+        // machine, short enough that a pool which cannot hold the asked mips delays the swap by no more.
+        static constexpr std::uint32_t kWarmupMaxFrames = 60;
+
+        // Binds the warmup's two questions about the world's cells (see THE WARMUP) into @p gate, for the one
+        // step @p world is asked from; the gate must not outlive this runtime or @p world.
+        void AskWarmup( ResidencyGate& gate, HLODVisibilityWorld& world )
+        {
+            gate.MayActivate = [this, &world]( std::size_t unit ) { return WarmToShow( unit, world ); };
+            gate.MayRelease  = [this, &world]( std::size_t unit ) { return WarmToHide( unit, world ); };
+        }
+
+        // After the step: ends the warmups it finished (UE OnCellShown / OnCellHidden drop the cell from
+        // ObjectsToWarmup) - a cell warming to be shown that is no longer Loaded (shown, or gone), a cell warming
+        // its HLOD that is no longer Activated (released) or that the step did not ask about (back inside its
+        // band, so the swap is no longer coming).
+        void EndWarmups( const ResidencyState& state, HLODVisibilityWorld& world )
+        {
+            for ( std::size_t unit = 0; unit < m_Warmup.size(); ++unit )
+            {
+                Warmup&         warm = m_Warmup[unit];
+                const Residency now  = unit < state.Units.size() ? state.Units[unit].State : Residency::Unloaded;
+                const bool      showEnds = warm.Phase == WarmupPhase::Showing && now != Residency::Loaded;
+                const bool      hideEnds =
+                     warm.Phase == WarmupPhase::Hiding && ( now != Residency::Activated || !warm.Asked );
+                if ( showEnds )
+                    world.EndCellWarmup( unit );
+                if ( hideEnds )
+                    world.EndHLODWarmup( m_HLODOfUnit[unit] );
+                if ( showEnds || hideEnds )
+                    warm = Warmup{};
+                warm.Asked = false;
+            }
+        }
+
+        // The warmups that ran out of steps since the last call, in the order they did.
+        [[nodiscard]] std::vector<WarmupOverrun> TakeWarmupOverruns()
+        {
+            return std::exchange( m_Overruns, {} );
+        }
+
+        // The HLOD standing in for world unit @p unit, or kNoRecord.
+        [[nodiscard]] std::size_t HLODOf( std::size_t unit ) const
+        {
+            return m_HLODOfUnit.at( unit );
+        }
+
+        // A streamed hierarchy only: the HLOD residency unit HLOD @p hlod lives in (its entities are that unit's).
+        [[nodiscard]] std::size_t ResidesIn( std::size_t hlod ) const
+        {
+            return m_ResidesIn.at( hlod );
+        }
+
+        [[nodiscard]] bool Streamed() const
+        {
+            return !m_ResidesIn.empty();
+        }
+
         // What the last Sync applied; false before the first.
         [[nodiscard]] bool IsVisible( std::size_t hlod ) const
         {
@@ -323,6 +436,49 @@ namespace Desert::Core::Rules
         friend class Common::ResultStr<HLODRuntime>;
         HLODRuntime() = default;
 
+        enum class WarmupPhase : std::uint8_t
+        {
+            Idle,
+            Showing, // the cell is warming to be shown (MayActivate)
+            Hiding,  // its HLOD is warming to be shown in its place (MayRelease)
+        };
+        struct Warmup
+        {
+            WarmupPhase   Phase  = WarmupPhase::Idle;
+            std::uint32_t Frames = 0;     // steps asked so far
+            bool          Ready  = false; // resident, or out of steps: the answer stays yes until it ends
+            bool          Asked  = false; // asked in the current step
+        };
+
+        // One question of the step about one world unit; @p showing picks the side. The answer is yes for a unit
+        // no HLOD stands in for, and from the step its assets are resident or its steps ran out.
+        bool Warm( std::size_t unit, HLODVisibilityWorld& world, bool showing )
+        {
+            if ( unit >= m_HLODOfUnit.size() || m_HLODOfUnit[unit] == kNoRecord )
+                return true;
+            Warmup& warm = m_Warmup[unit];
+            warm.Phase   = showing ? WarmupPhase::Showing : WarmupPhase::Hiding;
+            warm.Asked   = true;
+            if ( warm.Ready )
+                return true;
+            ++warm.Frames;
+            const bool resident = showing ? world.WarmCell( unit ) : world.WarmHLOD( m_HLODOfUnit[unit] );
+            if ( !resident && warm.Frames < kWarmupMaxFrames )
+                return false;
+            if ( !resident )
+                m_Overruns.push_back( { unit, showing } );
+            warm.Ready = true;
+            return true;
+        }
+        bool WarmToShow( std::size_t unit, HLODVisibilityWorld& world )
+        {
+            return Warm( unit, world, true );
+        }
+        bool WarmToHide( std::size_t unit, HLODVisibilityWorld& world )
+        {
+            return Warm( unit, world, false );
+        }
+
         static constexpr std::uint8_t kNotApplied = 2;
 
         std::vector<std::size_t>  m_HLODOfUnit; // per unit: its HLOD, or kNoRecord
@@ -339,17 +495,24 @@ namespace Desert::Core::Rules
         std::vector<std::vector<std::size_t>> m_CellWaitsFor;
         std::vector<std::vector<std::size_t>> m_CellHeldByWorld;
         std::vector<std::vector<std::size_t>> m_CellHeldByCells;
+        // THE WARMUP: per world unit, the swap it is warming for; the overruns not yet taken.
+        std::vector<Warmup>        m_Warmup;
+        std::vector<WarmupOverrun> m_Overruns;
     };
 
-    // ONE FRAME OF A PARTITIONED WORLD WITH HLODs: the residency tick, then the switch on the state it left —
-    // in that order and in the same frame, which is the whole of "no hole, no double" (see the top of the file).
+    // ONE FRAME OF A PARTITIONED WORLD WITH HLODs: the residency tick (its swaps asked of the warmup), then the
+    // switch on the state it left — in that order and in the same frame, which is the whole of "no hole, no
+    // double" (see the top of the file).
     [[nodiscard]] inline Common::ResultStr<ResidencyTick>
     TickWithHLODs( ResidencyExecutor& executor, HLODRuntime& hlods, std::span<const StreamingSource> sources,
                    double nowSeconds, ResidencyWorld& world, HLODVisibilityWorld& hlodWorld )
     {
-        auto tick = executor.Tick( sources, nowSeconds, world );
+        ResidencyGate gate;
+        hlods.AskWarmup( gate, hlodWorld );
+        auto tick = executor.Tick( sources, nowSeconds, world, &gate );
         if ( !tick.IsSuccess() )
             return tick;
+        hlods.EndWarmups( executor.State(), hlodWorld );
         if ( auto synced = hlods.Sync( executor.State(), hlodWorld ); !synced.IsSuccess() )
             return Common::MakeError<ResidencyTick>( synced.GetError() );
         return tick;
@@ -369,9 +532,12 @@ namespace Desert::Core::Rules
         auto worldGate = hlods.WorldGate( hlodExecutor.State() );
         if ( !worldGate.IsSuccess() )
             return Common::MakeError<ResidencyTick>( worldGate.GetError() );
-        auto tick = executor.Tick( sources, nowSeconds, world, &worldGate.GetValue() );
+        ResidencyGate gate = worldGate.ExtractValue();
+        hlods.AskWarmup( gate, hlodWorld );
+        auto tick = executor.Tick( sources, nowSeconds, world, &gate );
         if ( !tick.IsSuccess() )
             return tick;
+        hlods.EndWarmups( executor.State(), hlodWorld );
         auto hlodGate = hlods.HLODGate( executor.State(), hlodExecutor.State() );
         if ( !hlodGate.IsSuccess() )
             return Common::MakeError<ResidencyTick>( hlodGate.GetError() );

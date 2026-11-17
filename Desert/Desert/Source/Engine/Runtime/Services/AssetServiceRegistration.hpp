@@ -125,6 +125,21 @@ namespace Desert::Runtime
     /// SyncLoadLedger counts no in-frame load), then the meshes are built so the first frame draws them.
     ClosureResidency AwaitClosure( const std::vector<Assets::ContentRegistry::ClosureRow>& closure );
 
+    /// THE WARMUP OF A CLOSURE (WP-HLOD-WARMUP): AwaitClosure's reads started on the workers and NOT waited
+    /// for - the HLOD warmup asks for what a cell or an HLOD is about to draw and polls ClosureArriving each frame.
+    void StartClosureReads( const std::vector<Assets::ContentRegistry::ClosureRow>& closure );
+
+    /// How many rows of @p closure would not yet draw as asked: a mesh not built (the ask builds one whose read
+    /// landed, as a draw's ask does), a material whose read is in flight, a texture not drawn at the mips a draw
+    /// @p screenPixels across needs or the pool grants (TextureService::WarmthFor; 0 pixels = no view measured the
+    /// subject yet, so every streamed texture is still arriving). Never blocks, never reads on this thread.
+    NO_DISCARD std::size_t ClosureArriving( const std::vector<Assets::ContentRegistry::ClosureRow>& closure,
+                                            float                                                   screenPixels );
+
+    /// The texture rows of @p closure: what a warmup's screen-size ask names (TextureStreamingDemand::SetWarmups).
+    NO_DISCARD std::vector<Assets::AssetHandle>
+               ClosureTextures( const std::vector<Assets::ContentRegistry::ClosureRow>& closure );
+
     /// Scene open: `AwaitClosure( SceneDependencies( scene ) )`, before the scene is initialised.
     ClosureResidency AwaitSceneClosure( const Core::Scene& scene );
 
