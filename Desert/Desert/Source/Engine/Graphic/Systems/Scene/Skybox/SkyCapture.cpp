@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/ComputeImages.hpp> // DispatchGroupCount, kComputeImagesWorkGroupSize
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -28,26 +29,6 @@ namespace Desert::Graphic::System
         // SkyCaptureDownsample's, SkyCaptureIrradiance's and BakeProceduralSky's LocalSize(8, 8, 1);
         // PrefilterEnvMap is 32x32 (kComputeImagesWorkGroupSize).
         constexpr uint32_t kSmallGroupSize = 8u;
-
-        // BakeProceduralSky's push block: the cloud gate (SkyCapture::m_CloudPush) and the rows this dispatch
-        // renders -- its z counts faces from FirstFace, its y rows from FirstRow.
-        struct FacesPush
-        {
-            glm::vec4 Clouds{ 0.0f };
-            uint32_t  FirstFace = 0u;
-            uint32_t  FirstRow  = 0u;
-            uint32_t  Pad[2]    = { 0u, 0u };
-        };
-
-        struct PrefilterPush
-        {
-            uint32_t Mip    = 0u;
-            uint32_t MaxMip = 0u;
-            // PrefilterEnvMap's sample count: 1 = UE's real-time count (32 below roughness 0.1, 64 above), the one
-            // a capture that runs on every sky change can pay; the .hdr file's cached bake takes the reference
-            // 1024.
-            uint32_t RealTime = 1u;
-        };
 
         const std::shared_ptr<Image2D>& SharedFallback2D()
         {
@@ -631,8 +612,11 @@ namespace Desert::Graphic::System
         const RDG::TextureRef  distantSky = textures.Import( distant, "Sky.DistantLight" );
         const uint32_t         face       = m_Size.Face;
         Program&               program    = m_Faces;
-        const FacesPush        push{ .Clouds = m_CloudPush, .FirstFace = firstFace, .FirstRow = firstRow };
-        const RDG::SamplerDesc ownSampler = GlobalTextureFilterSampler();
+        // BakeProceduralSky's push block: the cloud gate (SkyCapture::m_CloudPush) and the rows this dispatch
+        // renders -- its z counts faces from BakeFace.x, its y rows from BakeFace.y.
+        const ShaderPush::BakeProceduralSky push{ .BakeClouds = m_CloudPush,
+                                                  .BakeFace   = glm::uvec4( firstFace, firstRow, 0u, 0u ) };
+        const RDG::SamplerDesc              ownSampler = GlobalTextureFilterSampler();
 
         // FPS-DEVLOST19: the cloud images the pipeline route samples (BindFacesRoute), declared from the SAME list
         // the route was filled from, so the graph orders and barriers them against their writers this frame (the
@@ -671,7 +655,7 @@ namespace Desert::Graphic::System
                       .Sampler( SkyCaptureFacesShaderParameters::GlobalFilterSampler, ownSampler )
                       .Storage( SkyCaptureFacesShaderParameters::outputFaces, radiance, RDG::Access::StorageWrite,
                                 0 )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( FacesPush ) ) );
+                      .PushConstants<ShaderPush::BakeProceduralSky>();
                  for ( const RDG::TextureRef ref : routeReads )
                      pass.Read( ref, RDG::Access::SampledCompute );
              },
@@ -680,7 +664,7 @@ namespace Desert::Graphic::System
              {
                  DESERT_PROFILE_PASS( "Sky Capture: Faces" );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DispatchCompute(
                       bindings, *pipeline, DispatchGroupCount( face, kSmallGroupSize ),
                       DispatchGroupCount( rowCount, kSmallGroupSize ), faceCount );
@@ -874,15 +858,18 @@ namespace Desert::Graphic::System
                           .Sampler( SkyCapturePrefilterShaderParameters::LinearRepeatSampler, ownSampler )
                           .Storage( SkyCapturePrefilterShaderParameters::outputTexture, prefiltered,
                                     RDG::Access::StorageWrite, mip )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( PrefilterPush ) ) );
+                          .PushConstants<ShaderPush::PrefilterEnvMap>();
                  },
                  [pipeline = m_Prefilter.Pipeline, mip, face, mips,
                   realTime]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Sky Capture: Prefilter" );
-                     const PrefilterPush push{ mip, mips - 1u, realTime };
-                     RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     // realTime: PrefilterEnvMap's sample count - 1 = UE's real-time count (32 below roughness
+                     // 0.1, 64 above), the one a capture that runs on every sky change can pay; the .hdr file's
+                     // cached bake takes the reference 1024.
+                     const ShaderPush::PrefilterEnvMap push{ .mip = mip, .maxMip = mips - 1u, .realTime = realTime };
+                     RDG::PassBindings                 bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( push );
                      const uint32_t groups =
                           DispatchGroupCount( std::max( 1u, face >> mip ), kComputeImagesWorkGroupSize );
                      return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, groups, groups, 6u );

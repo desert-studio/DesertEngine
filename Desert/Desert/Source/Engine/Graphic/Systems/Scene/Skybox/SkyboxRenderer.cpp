@@ -1,4 +1,5 @@
 #include "SkyboxRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <utility>
@@ -217,10 +218,11 @@ namespace Desert::Graphic::System
     {
         auto& renderer = Renderer::GetInstance();
 
-        const SkyViewLutPush push{ .CameraPosWorld = cameraAndLight };
+        // xyz = camera position in WORLD UNITS (centimetres), w = the atmosphere light this LUT is for.
+        const ShaderPush::SkyViewLut push{ .CameraPositionWorld = cameraAndLight };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+        bindings.PushConstants( push );
         return renderer.DispatchCompute( bindings, pipeline, LutGroupCount( kSkyViewLutWidth ),
                                          LutGroupCount( kSkyViewLutHeight ), 1 );
     }
@@ -265,12 +267,14 @@ namespace Desert::Graphic::System
     {
         auto& renderer = Renderer::GetInstance();
 
-        SkyAerialPerspectivePush push{};
-        push.InverseViewProjection =
-             glm::inverse( m_ActiveCamera->GetProjectionMatrix() * m_ActiveCamera->GetViewMatrix() );
-        push.CameraPosWorld = glm::vec4( m_ActiveCamera->GetPosition(), 0.0f );
-        push.VolumeParams =
-             glm::vec4( m_Sky.AerialPerspectiveDistanceKm, m_Sky.AerialPerspectiveStartDepthKm, 0.0f, 0.0f );
+        // CameraPositionWorld: xyz in WORLD UNITS (centimetres), w unused; VolumeParams: x = volume depth (km),
+        // y = start depth (km), z/w reserved (0).
+        const ShaderPush::SkyAerialPerspectiveLut push{
+             .InverseViewProjection =
+                  glm::inverse( m_ActiveCamera->GetProjectionMatrix() * m_ActiveCamera->GetViewMatrix() ),
+             .CameraPositionWorld = glm::vec4( m_ActiveCamera->GetPosition(), 0.0f ),
+             .VolumeParams =
+                  glm::vec4( m_Sky.AerialPerspectiveDistanceKm, m_Sky.AerialPerspectiveStartDepthKm, 0.0f, 0.0f ) };
 
         // ONE INVOCATION PER FROXEL, ONE GROUP PER 4x4 COLUMNS x THE WHOLE DEPTH (FPS-SKY-APLUT): each
         // invocation marches its own slice's segment and the group chains a column's segments in shared
@@ -280,7 +284,7 @@ namespace Desert::Graphic::System
                        kAerialPerspectiveHeight % kAerialPerspectiveGroupColumns == 0 );
         static_assert( kAerialPerspectiveDepth == 16, "the shader's LocalSize z / AP_GROUP_SLICES is the depth" );
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+        bindings.PushConstants( push );
         return renderer.DispatchCompute( bindings, pipeline,
                                          kAerialPerspectiveWidth / kAerialPerspectiveGroupColumns,
                                          kAerialPerspectiveHeight / kAerialPerspectiveGroupColumns, 1 );
@@ -288,18 +292,16 @@ namespace Desert::Graphic::System
 
     RenderPassDeclaration::BlockDeclaration SkyboxRenderer::DeclareLutBlock( RenderPassDeclaration&    declared,
                                                                              ComputePipeline*          pipeline,
-                                                                             ShaderBindingLayoutCache& layout,
-                                                                             const uint32_t            pushBytes )
+                                                                             ShaderBindingLayoutCache& layout )
     {
-        // Each node's one binding block (block 0): the pipeline's shader layout and the push block its exec
-        // gives. Every LUT is a block entry naming the renderer's own image (imported by the graph, which orders,
+        // Each node's one binding block (block 0): the pipeline's shader layout (the caller adds the push block
+        // its exec gives). Every LUT is a block entry naming the renderer's own image (imported by the graph, which orders,
         // barriers and fault-isolates it; written as a storage image, sampled with the sampler the image carries
         // as its own: GlobalTextureFilterSampler); the pipeline route carries only the sky payload buffer, set
         // here in setup every frame.
         pipeline->SetStorageBuffer( kSkyPayloadBinding, m_SkyParams.get() );
         auto block = declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
                                         Renderer::GetPipelineRouteFill( *pipeline ) );
-        block.PushConstantBytes( pushBytes );
         return block;
     }
 
@@ -383,8 +385,8 @@ namespace Desert::Graphic::System
         const RDG::TextureRef cloudShadowMap = CloudShadowMapOrWhite( refs );
 
         const auto declareBlock = [this]( RenderPassDeclaration& declared, ComputePipeline* pipeline,
-                                          ShaderBindingLayoutCache& layout, const uint32_t pushBytes )
-        { return DeclareLutBlock( declared, pipeline, layout, pushBytes ); };
+                                          ShaderBindingLayoutCache& layout )
+        { return DeclareLutBlock( declared, pipeline, layout ); };
         const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
         {
             block.Texture( SkyboxLutReadShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
@@ -434,8 +436,8 @@ namespace Desert::Graphic::System
                 ComputeNodeDeclaration skyView( arena );
                 skyView.Name = "Sky: SkyViewLut";
                 cloudShadowRead(
-                     sampledLuts( declareBlock( skyView.Access, skyViewPipeline, m_SkyViewLutLayout,
-                                                static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) ) )
+                     sampledLuts( declareBlock( skyView.Access, skyViewPipeline, m_SkyViewLutLayout )
+                                       .PushConstants<ShaderPush::SkyViewLut>() ) )
                      .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut,
                                RDG::Access::StorageWrite, "Sky.SkyViewLut" );
                 skyView.Record = [this, skyViewPipeline, push0]( RDG::PassContext& context,
@@ -459,9 +461,9 @@ namespace Desert::Graphic::System
                 {
                     ComputeNodeDeclaration skyView1( arena );
                     skyView1.Name = "Sky: SkyViewLut1";
-                    cloudShadowRead( sampledLuts( declareBlock(
-                                          skyView1.Access, skyViewPipeline, m_SkyViewLutLayout,
-                                          static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) ) )
+                    cloudShadowRead(
+                         sampledLuts( declareBlock( skyView1.Access, skyViewPipeline, m_SkyViewLutLayout )
+                                           .PushConstants<ShaderPush::SkyViewLut>() ) )
                          .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut1,
                                    RDG::Access::StorageWrite, "Sky.SkyViewLut1" );
                     skyView1.Record = [this, skyViewPipeline,
@@ -484,9 +486,9 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration aerial( arena );
             aerial.Name = "Sky: AerialPerspectiveLut";
             shadowedFill( aerialPipeline );
-            cloudShadowRead( sampledLuts( declareBlock(
-                                  aerial.Access, aerialPipeline, m_AerialPerspectiveLayout,
-                                  static_cast<uint32_t>( sizeof( SkyAerialPerspectivePush ) ) ) ) )
+            cloudShadowRead(
+                 sampledLuts( declareBlock( aerial.Access, aerialPipeline, m_AerialPerspectiveLayout )
+                                   .PushConstants<ShaderPush::SkyAerialPerspectiveLut>() ) )
                  .Storage( SkyboxLutReadShaderParameters::AerialPerspectiveLutTexture, m_AerialPerspectiveLut,
                            RDG::Access::StorageWrite, "Sky.AerialPerspectiveLut" );
             aerial.Record = [this, aerialPipeline]( RDG::PassContext& context,

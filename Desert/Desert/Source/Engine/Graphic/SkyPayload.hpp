@@ -140,14 +140,9 @@ namespace Desert::Graphic
     inline constexpr uint32_t kSkyViewLutWidth  = 192;
     inline constexpr uint32_t kSkyViewLutHeight = 104;
 
-    // Push block of the SkyViewLut pass — mirrored by `PushConstant SkyViewPush` in SkyViewLut.shader.
-    // The LUT depends on the camera (its altitude picks the horizon warp), and the camera is the one
-    // per-frame quantity the shared payload deliberately does not carry.
-    struct SkyViewLutPush
-    {
-        glm::vec4 CameraPosWorld; // xyz = camera position in WORLD UNITS (centimetres), w unused
-    };
-    static_assert( sizeof( SkyViewLutPush ) == 16 );
+    // The SkyViewLut pass's push block is ShaderPush::SkyViewLut (generated from SkyViewLut.shader): the LUT
+    // depends on the camera (its altitude picks the horizon warp), and the camera is the one per-frame quantity
+    // the shared payload deliberately does not carry.
 
     // The camera aerial-perspective volume's extent — Hillaire's 32x32x16, mirrored by
     // SKY_AP_VOLUME_WIDTH/HEIGHT/DEPTH in Common/SkyScattering.glslh. Both sides must state the same
@@ -173,16 +168,9 @@ namespace Desert::Graphic
     inline constexpr uint32_t kDistantLightWidth       = 1;
     inline constexpr int32_t  kDistantLightSphereTexel = 0;
 
-    // Push block of the SkyAerialPerspectiveLut pass — mirrored by `PushConstant SkyApPush` in
-    // SkyAerialPerspectiveLut.shader. Everything here is per-VIEW and per-frame: the froxel grid is the
+    // The SkyAerialPerspectiveLut pass's push block is ShaderPush::SkyAerialPerspectiveLut (generated from
+    // SkyAerialPerspectiveLut.shader). Everything in it is per-VIEW and per-frame: the froxel grid is the
     // camera's own frustum, which is exactly what the shared sky payload does not carry.
-    struct SkyAerialPerspectivePush
-    {
-        glm::mat4 InverseViewProjection;
-        glm::vec4 CameraPosWorld; // xyz = camera position in WORLD UNITS (centimetres), w unused
-        glm::vec4 VolumeParams;   // x = volume depth (km), y = start depth (km), z/w reserved (0)
-    };
-    static_assert( sizeof( SkyAerialPerspectivePush ) == 96 );
 
     // @p towardSun must be normalized — the single normalization lives in ECS::Rules::AtmosphereSunDirection.
     inline SkyGpuPayload PackSky( const glm::vec3& towardSun, const SkySettings& sky, const SkySunInputs& sun,
