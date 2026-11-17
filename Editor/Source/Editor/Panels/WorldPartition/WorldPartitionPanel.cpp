@@ -730,7 +730,7 @@ namespace Desert::Editor
         auto build = HLODBuild::Start( *baseline, m_Scene->GetSceneName(), m_Assets );
         if ( !build )
             return Common::MakeError( build.GetError() );
-        m_Build = std::move( build.GetValue() );
+        m_Build = build.ExtractValue();
         // A world without landscape HLODs is built inside Start: its outcome is the button's answer now.
         if ( const std::optional<Common::BoolResultStr> done = m_Build->Tick() )
         {

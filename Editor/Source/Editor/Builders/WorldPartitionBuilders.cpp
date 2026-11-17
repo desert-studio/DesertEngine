@@ -32,7 +32,7 @@ namespace Desert::Editor
                 auto build = HLODBuild::Start( context.ScenePath, context.Scene->GetSceneName(), context.Assets );
                 if ( !build )
                     return Common::MakeError<BuilderStep>( build.GetError() );
-                m_Build = std::move( build.GetValue() );
+                m_Build = build.ExtractValue();
                 return Continue( context );
             }
 

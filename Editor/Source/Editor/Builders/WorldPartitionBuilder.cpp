@@ -9,12 +9,14 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <format>
 #include <string>
+#include <system_error>
 
 namespace Desert::Editor
 {
@@ -143,9 +145,13 @@ namespace Desert::Editor
             return Common::MakeError( "no scene is open" );
         // The scene the command line named, and no other: a refused load leaves the project's default (or the
         // Basic template) open, and a builder run on it would build and save a world nobody asked for.
-        const std::filesystem::path open      = m_Files.OpenScenePath();
-        const std::filesystem::path requested = ShotOptions::Get().Scene;
-        if ( open.empty() || open.stem() != requested.stem() )
+        // Resolved as ShotDirector::QueueScene resolves it (a relative --scene is project content), and compared as
+        // FILES: a name alone would take the project's default scene for a missing `--scene Sub/<same name>`.
+        const std::filesystem::path open = m_Files.OpenScenePath();
+        const std::filesystem::path requested =
+             Common::Constants::Path::ProjectDir() / std::filesystem::path( ShotOptions::Get().Scene );
+        std::error_code sameFileError;
+        if ( open.empty() || !std::filesystem::equivalent( open, requested, sameFileError ) )
             return Common::MakeError( std::format( "--scene '{}' did not open (the editor holds '{}'); the log above "
                                                    "says why, and the builder runs on nothing else",
                                                    requested.string(), open.string() ) );
@@ -268,6 +274,9 @@ namespace Desert::Editor
             auto post = m_Builder->PostRun( m_Context, static_cast<bool>( outcome ) );
             if ( !post && outcome )
                 outcome = Common::MakeError( "PostRun: " + post.GetError() );
+            // The builder's resources (a landscape bake's renderer) go now, while the device they were made on
+            // is certainly alive, not with the editor layer at exit.
+            m_Builder.reset();
         }
         const double seconds =
              std::chrono::duration<double>( std::chrono::steady_clock::now() - m_StartedAt ).count();
