@@ -707,8 +707,8 @@ namespace Desert::Core
         m_LastTick.LiveRecords           = Executor().LiveRecords();
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
-        m_LastTick.Streaming =
-             Rules::AssessStreaming( Executor().Plan(), m_Partition, m_Settings, Executor().State(), sources );
+        m_LastTick.Streaming = Rules::AssessStreaming( Executor().Plan(), m_Partition, m_Settings, Executor().State(),
+                                                       sources, Executor().UnitDataLayerStates() );
         const bool wasWaiting = m_FramesWaiting > 0;
         m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
         if ( m_FramesWaiting == 1 )
@@ -734,7 +734,7 @@ namespace Desert::Core
         for ( std::size_t index = 0; index < entities.size(); ++index )
         {
             auto completion = Rules::AssessSourceCompletion( Executor().Plan(), m_Partition, Executor().State(),
-                                                             m_LastSources[index] );
+                                                             m_LastSources[index], Executor().UnitDataLayerStates() );
             if ( !completion )
                 return Common::MakeError( "world streaming of '" + m_SceneName + "': " + completion.GetError() );
             wait.Sources.emplace( entities[index], completion.GetValue() );
@@ -748,7 +748,74 @@ namespace Desert::Core
                       "named an entity that just left (they read null until it returns).",
                       m_SceneName, done.DeferredReferences, done.UnboundReferences );
         }
+        SayDataLayerUnits();
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr WorldStreamer::SetDataLayerRuntimeState( const std::string_view layer,
+                                                                   const DataLayerRuntimeState state )
+    {
+        const std::optional<std::size_t> index = Rules::DataLayerIndexOf( m_Partition, layer );
+        if ( !index.has_value() )
+            return Common::MakeError( std::format( "world streaming of '{}': the world states no data layer '{}'",
+                                                   m_SceneName, layer ) );
+        const DataLayerRuntimeState before = Executor().DataLayerStates().at( *index );
+        if ( auto set = Executor().SetDataLayerState( *index, state ); !set.IsSuccess() )
+            return Common::MakeError( std::format( "world streaming of '{}': {}", m_SceneName, set.GetError() ) );
+        LOG_INFO( "[WorldPartition] '{0}': data layer '{1}' {2} -> {3}.", m_SceneName, layer,
+                  Rules::DataLayerRuntimeStateName( before ), Rules::DataLayerRuntimeStateName( state ) );
+        return BOOLSUCCESS;
+    }
+
+    std::optional<DataLayerRuntimeState> WorldStreamer::GetDataLayerRuntimeState( const std::string_view layer ) const
+    {
+        const std::optional<std::size_t> index = Rules::DataLayerIndexOf( m_Partition, layer );
+        if ( !index.has_value() || ( *m_Partition.DataLayers )[*index].Type != DataLayerType::Runtime )
+            return std::nullopt;
+        return m_Executor->DataLayerStates().at( *index ); // NOLINT(bugprone-unchecked-optional-access): began
+    }
+
+    DataLayerRuntimeState WorldStreamer::GetUnitEffectiveRuntimeState( const std::size_t unit ) const
+    {
+        return m_Executor->UnitDataLayerStates().at( unit ); // NOLINT(bugprone-unchecked-optional-access): began
+    }
+
+    // ONE LINE PER CHANGE OF A UNIT OF RUNTIME DATA LAYERS: not loaded (its layers are Unloaded), loaded and not
+    // activated (Loaded), activated - named as its cell file is (Rules::CellStem), so the log and the cooked
+    // directory say the same name.
+    void WorldStreamer::SayDataLayerUnits()
+    {
+        const Rules::WorldPartitionPlan& plan  = Executor().Plan();
+        const std::size_t                units = Rules::ResidencyUnitCount( plan );
+        m_SaidLayerUnit.resize( units, 0 );
+        for ( std::size_t unit = 0; unit < units; ++unit )
+        {
+            const std::vector<std::size_t> layers = Rules::UnitRuntimeDataLayers( plan, m_Partition, unit );
+            if ( layers.empty() )
+                continue;
+            const DataLayerRuntimeState wanted = Executor().UnitDataLayerStates().at( unit );
+            const Rules::Residency      now    = Executor().State().Units.at( unit ).State;
+            std::uint8_t                say    = 0;
+            std::string_view            what;
+            if ( wanted == DataLayerRuntimeState::Unloaded )
+                say = 1, what = "not loaded: its data layers are Unloaded";
+            else if ( wanted == DataLayerRuntimeState::Loaded && now == Rules::Residency::Loaded )
+                say = 2, what = "loaded, not activated: its data layers are Loaded";
+            else if ( now == Rules::Residency::Activated )
+                say = 3, what = "activated";
+            if ( say == 0 || m_SaidLayerUnit[unit] == say )
+                continue;
+            m_SaidLayerUnit[unit] = say;
+            std::string names;
+            for ( const std::size_t layer : layers )
+                names += ( names.empty() ? "" : ", " ) + ( *m_Partition.DataLayers )[layer].Name;
+            const std::string cell =
+                 unit < plan.AlwaysLoaded.size()
+                      ? "AlwaysLoaded" + Rules::DataLayersCellSuffix( m_Partition, layers ) + " (" +
+                             Rules::DescribeResidencyUnit( plan, unit ) + ")"
+                      : Rules::CellStem( m_Partition, plan.Cells.at( unit - plan.AlwaysLoaded.size() ) );
+            LOG_INFO( "[WorldPartition] '{0}': cell {1} (data layers {2}) {3}.", m_SceneName, cell, names, what );
+        }
     }
 
 #if DESERT_DEV_INSTRUMENTS
