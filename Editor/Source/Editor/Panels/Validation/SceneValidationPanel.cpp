@@ -100,7 +100,7 @@ namespace Desert::Editor
         if ( !check )
             return Common::MakeError( "Check World Partition: " + check.GetError() );
         const ::Desert::Core::WorldCells::WorldPartitionCheck& checked = check.GetValue();
-        (void)Core::WorldCells::ReportWorldPartitionCheck( checked );
+        (void)::Desert::Core::WorldCells::ReportWorldPartitionCheck( checked );
         for ( const ::Desert::Core::Rules::GenerationIssue& issue : checked.Issues )
         {
             Common::UUID entity = Common::UUID::Null();

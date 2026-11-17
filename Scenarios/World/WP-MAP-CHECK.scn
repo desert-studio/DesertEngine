@@ -7,7 +7,7 @@
 # LEAD: the `set` forms below follow WP-DATA-LAYERS.scn (a component added by `set`); if AlwaysLoaded / SocketAttachment /
 # Tag do not add that way on this build, use Details > Add Component on the selected cube. The palette entry
 # "Tools > Check World Partition" is NOT wired (REMAINDER): open the panel and press its "Check World Partition" button.
-# Expected panel row (G0_L4_1_1 = Main, level 4 of 2500 cm = 40000 cm cells, the cell of 60000,60000):
+# Expected panel row (G0_L0_24_24 = Main grid, level 0 of 2500 cm cells, the cell of the house at 60000,60000):
 #   "InvalidReferenceGridPlacement: AlwaysLoaded MapCheckProbe (9300002) references spatially loaded MapCheckHouse (9300001)
 #    (cell G0_L0_24_24) through SocketAttachment.Target: the whole composite is always loaded"
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
