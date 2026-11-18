@@ -7,7 +7,7 @@
 # Expected log lines (editor.log "[WorldPartition] 'WP_Protocol': ..."):
 #   "rebound 1 reference into G0L0(<x>,<z>)"   (the beacon's cell, as DescribeResidencyUnit spells it)
 #   "unbound 1 reference from G0L0(<x>,<z>); they read nil until it returns"
-# CONTENT the lead adds before the run (not in this sparse tree): Scripts/World/RefTurret.lua -
+# CONTENT (Content/Scripts/World): RefTurret.lua -
 #   Properties = { Target = Property.Entity( { tooltip = "What the turret tracks." } ) }
 #   function OnUpdate(dt) if Properties.Target and Properties.Target:valid() then <yaw self toward Target's position> end end
 # and Scripts/World/RefHardLink.lua - Properties = { Part = Property.Entity( { hard = true } ) }.
@@ -18,8 +18,9 @@
 Дано run View "View mode: Lit"
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
-Дано drop-mesh Content/Meshes/Cube.desmesh 1000,0,1000 --id 9200001
-Дано drop-mesh Content/Meshes/Cube.desmesh 27000,0,1000 --id 9200002
+Дано spawn Content/Meshes/Modeling/Box.stmesh 1000,0,1000 --id 9200001
+Дано spawn Content/Meshes/Modeling/Box.stmesh 27000,0,1000 --id 9200002
+Дано add-component 9200001 Script
 Дано set 9200001 Script.Scripts '[{"ScriptKey":"assets:Scripts/World/RefTurret.lua","Props":[{"Name":"Target","Type":7,"Ref":9200002}]}]'
 Когда run Mode "Select mode"
 Когда run Action "Play"
@@ -32,8 +33,9 @@
 Когда --subject viewport set Camera.Position 0,600,-500
 Когда advance 3
 Когда run Action "Stop"
-Дано drop-mesh Content/Meshes/Cube.desmesh 12700,0,1000 --id 9200003
-Дано drop-mesh Content/Meshes/Cube.desmesh 12900,0,1000 --id 9200004
+Дано spawn Content/Meshes/Modeling/Box.stmesh 12700,0,1000 --id 9200003
+Дано spawn Content/Meshes/Modeling/Box.stmesh 12900,0,1000 --id 9200004
+Когда add-component 9200003 Script
 Когда set 9200003 Script.Scripts '[{"ScriptKey":"assets:Scripts/World/RefHardLink.lua","Props":[{"Name":"Part","Type":7,"Ref":9200004}]}]'
 Когда run Scene "World Partition: Refresh"
 Тогда-вид refs_script_cluster карта WP: 9200003 и 9200004 (по разные стороны границы ячейки) лежат в ОДНОЙ ячейке - кластер по жёсткой EntityRef скрипта; без hard (Property.Entity()) они в соседних ячейках

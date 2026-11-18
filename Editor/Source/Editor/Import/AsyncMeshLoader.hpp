@@ -62,6 +62,15 @@ namespace Desert::Editor
             Pump();
         }
 
+        // An already-cooked mesh asset (.stmesh / .skmesh: UE dragging a StaticMesh asset, where no factory runs):
+        // there is nothing to import, so it goes straight to the main thread's spawn (PollCompleted), in drop
+        // order with the cooks, and IsBusy holds the control channel's reply until it is placed.
+        void RequestCooked( const std::string& assetPath, uint64_t userData )
+        {
+            std::lock_guard<std::mutex> lk( m_Mutex );
+            m_Completed.push( { assetPath, userData } );
+        }
+
         // Main thread, once per frame: take everything the workers have finished cooking.
         std::vector<Done> PollCompleted()
         {

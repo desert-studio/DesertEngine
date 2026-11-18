@@ -8,6 +8,7 @@
 #include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
+#include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
@@ -41,6 +42,7 @@
 #include "Editor/Panels/PropertyEditor/ReflectedFieldText.hpp"
 #include "Editor/Core/CommandHistory.hpp"
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/NumberText.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -67,6 +69,8 @@
 #include <ImGui/imgui_internal.h>
 
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <charconv>
 #include <cmath>
 #include <glm/gtc/quaternion.hpp>
@@ -1521,6 +1525,73 @@ namespace Desert::Editor
                     return Control::Response::Failure( request.Id, entity.GetError() );
                 const auto entityWord = ControlEntityId( request.Entity );
                 Core::SelectionManager::SetSelected( entityWord.GetValue() );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::Spawn:
+            {
+                // UE REMOTE CONTROL'S SpawnActor: the asset lands at the world point as a new entity through the
+                // viewport's own drop body (the mouse's and the palette's), so it is selected, one undo step,
+                // marks the scene and its World Partition cell like a drop by hand. The point is exact (no
+                // surface to rest on: the caller placed it); the id, when named, is the entity's UUID.
+                auto scene = m_Workspace.ActiveScene();
+                if ( !scene )
+                    return Control::Response::Failure( request.Id, "no scene is open" );
+                Common::UUID id;
+                if ( !request.Entity.empty() )
+                {
+                    const auto named = ControlEntityId( request.Entity );
+                    if ( !named || named.GetValue().IsNull() || request.Entity == "selected" )
+                        return Control::Response::Failure(
+                             request.Id, std::format( "spawn --id '{}': a new entity takes a non-zero decimal UUID",
+                                                      request.Entity ) );
+                    id = named.GetValue();
+                }
+                // The asset as the Content Browser names it: under the project's Content folder (`Content/...`
+                // or relative to it), or an absolute path.
+                std::filesystem::path asset( request.Path );
+                if ( asset.is_relative() )
+                {
+                    const auto first = asset.begin();
+                    asset            = ( first != asset.end() && *first == "Content" )
+                                            ? Common::Constants::Path::ASSETS_PATH / asset.lexically_relative( "Content" )
+                                            : Common::Constants::Path::ASSETS_PATH / asset;
+                }
+                if ( std::error_code ec; !std::filesystem::is_regular_file( asset, ec ) )
+                    return Control::Response::Failure( request.Id,
+                                                       std::format( "spawn: no asset file '{}'", asset.generic_string() ) );
+                const glm::vec3 point( request.Value[0], request.Value[1], request.Value[2] );
+                std::string     extension = asset.extension().string();
+                std::transform( extension.begin(), extension.end(), extension.begin(),
+                                []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+                // A PREFAB lands through the viewport's prefab drop; its entities' ids are minted by the
+                // instantiation (PrefabFactory, nested instances included), so it is addressed as 'selected'.
+                if ( extension == Common::Constants::Extensions::PREFAB_EXTENSION )
+                {
+                    if ( !id.IsNull() )
+                        return Control::Response::Failure(
+                             request.Id, "spawn --id: a prefab's entity ids are minted by its instantiation; "
+                                         "spawn it without --id and address its root as 'selected'" );
+                    if ( const auto placed =
+                              ViewportPanel::DropPrefabIntoActiveViewport( asset.generic_string(), point );
+                         !placed )
+                        return Control::Response::Failure( request.Id, placed.GetError() );
+                    return Control::Response::Success( request.Id );
+                }
+                const bool mesh = extension == Common::Constants::Extensions::STATIC_MESH ||
+                                  extension == Common::Constants::Extensions::SKINNED_MESH ||
+                                  extension == ".fbx" || extension == ".obj" || extension == ".gltf" ||
+                                  extension == ".glb" || extension == ".blend";
+                if ( !mesh )
+                    return Control::Response::Failure(
+                         request.Id, std::format( "spawn: '{}' is not a mesh (.stmesh, .skmesh, a model source) "
+                                                  "or a prefab - nothing to place",
+                                                  asset.generic_string() ) );
+                const ActorDrop::Target target{ point, std::nullopt };
+                if ( const auto placed =
+                          ViewportPanel::DropMeshIntoActiveViewport( asset.generic_string(), target, id );
+                     !placed )
+                    return Control::Response::Failure( request.Id, placed.GetError() );
                 return Control::Response::Success( request.Id );
             }
 
