@@ -195,6 +195,12 @@ namespace Desert::Graphic::RayTracing
 
     inline constexpr uint32_t kNoMetadataRecord = ~0u;
 
+    // DEFORM-RT-TRAMPLE: the pressed blade BLASes a grass level builds beside its standing one (press k / K, k
+    // = 1..K; GrassBladeRayTracing.hpp). RayTracingGpuInstances.shader holds their addresses in PressLo / PressHi
+    // (uvec4): at most 4.
+    inline constexpr uint32_t kRayTracingBladePressSteps = 4u;
+    static_assert( kRayTracingBladePressSteps >= 1u && kRayTracingBladePressSteps <= 4u );
+
     // A built BLAS as a ray query's hit sees it (RayTracingSceneMetadata.hpp): the vertex stream the attribute
     // fetch reads (normal, UV), the index buffer the BLAS was built from, and its segments in BLAS geometry order.
     // The attribute stream is the mesh's own vertex buffer (Desert::Vertex) for every kind: a deformed mesh's

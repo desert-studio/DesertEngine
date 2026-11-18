@@ -747,9 +747,15 @@ namespace Desert::Graphic::System
             GpuInstanceBladeShadowLod ShadowLod{};
             // Stable per section across frames: the view-variant key (several cascade views: Key * kCascadeViews + v).
             uint32_t Key = 0;
-            // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
-            // empty when the view has no TLAS. Owned by the grass renderer, this frame.
+            // GrassBlade only: the shared BLASes of the strip levels (GrassBladeRayTracing.hpp), levels *
+            // (1 + RayTracing::kRayTracingBladePressSteps): [step * levels + submesh], step 0 the standing blade,
+            // step k pressed k / K (DEFORM-RT-TRAMPLE); empty when the view has no TLAS. Owned by the grass
+            // renderer, this frame.
             std::span<const RayTracing::RayTracingGeometryResource* const> BladeGeometry;
+            // GrassBlade only: the variety's GrassBladeShapeGpu Size and Bend, which the TLAS rows' pressed fit
+            // evaluates the blade curve with (RayTracingGpuInstances.shader).
+            glm::vec4 BladeSize{ 0.0f };
+            glm::vec4 BladeBend{ 0.0f };
             // Where Instances holds each instance's LAST frame transform: instance i's previous world sits at
             // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
             // do not move (grass: only the wind moves them), the previous world is the world.
@@ -1251,6 +1257,12 @@ namespace Desert::Graphic::System
         void SetFrameDeformationField( const DeformationFieldReads& field )
         {
             m_FrameDeformationField = field;
+        }
+        // DEFORM-RT-TRAMPLE: the field SetFrameDeformationField handed this view's graph - the TLAS's grass rows
+        // read it (RayTracingSceneRenderer::AddPasses). Not IsValid() before AddFrameDeformationField ran.
+        [[nodiscard]] const DeformationFieldReads& GetFrameDeformationField() const
+        {
+            return m_FrameDeformationField;
         }
         // DEFORM-GRASS-2 (UE's VSM: a cached page is invalidated by the region that changed, not the whole map):
         // where this frame's deformation contacts write (DeformationFieldRenderer::PendingFootprints, (x, y, z,

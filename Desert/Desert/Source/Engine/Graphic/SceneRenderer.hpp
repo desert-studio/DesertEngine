@@ -2192,6 +2192,11 @@ namespace Desert::Graphic
         // the same bracket: AddFrameDeformationField applies that copy. The job never reads the world's log, which
         // the tick of the next frame appends to while this one records.
         bool m_FrameDeformationCaptured = false;
+        // DEFORM-RT-TRAMPLE: where this frame's deformation contacts write (DeformationFieldRenderer::
+        // PendingFootprints), taken before AddFrameDeformationField applies them (it consumes the pending
+        // contacts, and it now runs before the TLAS, ahead of the cascade cache plan that reads this). Empty: no
+        // capture this frame, or a reflection capture's face.
+        std::vector<glm::vec4> m_FramePendingFootprints;
         // The scene's surface cache (Scene::GetSurfaceCache), the same bracket: what this view reads and, the first
         // view of an engine frame, updates (AddFrameSurfaceCache), unless one is lent (m_SharedSurfaceCache).
         SurfaceCache::SurfaceCacheRenderer* m_FrameSurfaceCache = nullptr;

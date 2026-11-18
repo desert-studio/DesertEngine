@@ -1635,6 +1635,9 @@ namespace Desert::Graphic
                  Deformation::DeformationFieldParamsOf( m_DeformationFrame ? &*m_DeformationFrame : nullptr );
             reads.Params = graph.CreateBuffer( RDG::BufferDesc{ sizeof( params ) }, "Deformation.ReadParams" );
             graph.QueueBufferUpload( reads.Params, std::as_bytes( std::span( &params, 1 ) ) );
+            // No field: the default (min > max), nothing pressed.
+            if ( m_DeformationFrame )
+                reads.TrampleWindow = m_DeformationField.TrampledBox( frame.CameraPosition );
             m_Systems.Mesh->SetFrameDeformationField( reads );
         };
         // A reflection capture's face sees the ground as the scene's views do not need it to: no field of its own.

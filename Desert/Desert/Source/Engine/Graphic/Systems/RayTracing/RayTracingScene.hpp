@@ -285,12 +285,21 @@ namespace Desert::Graphic::RayTracing
     // after the CPU rows (its instance capacity, known on the CPU) and the indexed-indirect record whose count and
     // first instance it traces. "RayTracingScene.GpuInstances" writes one row per reserved slot: an instance the
     // GPU generated, or an inactive row (mask 0, no BLAS) past the drawn count.
+    // DEFORM-RT-TRAMPLE: a grass blade level's source also names its PRESSED primitives - kRayTracingBladePressSteps
+    // of them at [PressedPrimitive, PressedPrimitive + K), step k + 1 at PressedPrimitive + k, each the level's
+    // pressed BLAS of that step with its own segment run (so a hit on a pressed row reads the pressed blade's
+    // normals), laid right after the source's own run. They get no rows of their own: the source's rows the view's
+    // deformation field presses instance them (RayTracingGpuInstances.shader), with the blade's Size / Bend.
+    inline constexpr uint32_t kNoPressedPrimitive = ~0u;
     struct RayTracingGpuInstanceSource
     {
         uint32_t Primitive            = 0; // RayTracingGatherResult::Primitives index: BLAS, segment run, shadows
         const GpuInstanceRefs* Refs   = nullptr;
         uint32_t               Rows   = 0; // reserved rows: the producer's instance capacity
         uint32_t               Record = 0; // the indexed-indirect record (submesh) that states count and first
+        uint32_t  PressedPrimitive    = kNoPressedPrimitive; // a blade level's first pressed primitive; none: never
+        glm::vec4 BladeSize{ 0.0f }; // GrassBladeShapeGpu::Size of a blade level (PressedPrimitive set)
+        glm::vec4 BladeBend{ 0.0f }; // and its Bend
     };
 
     // A BLAS variant a gather resolved (RayTracingGeometryVariants::Resolve with masks set): the cache drops a

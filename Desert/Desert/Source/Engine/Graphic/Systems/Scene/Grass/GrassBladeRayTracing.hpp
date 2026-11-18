@@ -31,6 +31,11 @@ namespace Desert
 // level (RayTracingGpuInstanceSource, written on the GPU from the raster's mat4s and drawn count) instances it:
 // the mat4's affine part places, orients and scales the blade exactly as the vertex stage does. Not traced: the
 // per-blade curvature / bend spread and the wind (a static BLAS, UE's default).
+// DEFORM-RT-TRAMPLE (UE: the ray-tracing geometry takes the same deformation the raster evaluates): beside the
+// standing BLAS (step 0) each level builds kRayTracingBladePressSteps PRESSED ones, the same BladeAt laid along the
+// blade's own forward axis with press k / K. A TLAS row whose root the view's deformation field presses (only rows
+// inside the field's trampled box read it) instances the nearest step through an affine fit to its own pressed
+// curve (RayTracingGpuInstances.shader): trampling moves rows, it never builds a BLAS.
 //
 // A BLAS is built when its variety's shape, segment count or level opacity changes, and is RESIDENT on every
 // other frame: a still frame builds nothing, so the path tracer keeps accumulating.
@@ -99,10 +104,11 @@ namespace Desert::Graphic::System
             return m_Required;
         }
 
-        // The BLASes of variety @p key, one per submesh (level) of @p strip, built from @p shape: those that
-        // changed are queued for this frame's vertex pass and build, the others are resident. @p nonOpaque: bit i
-        // = level i's segment runs the alpha test (its section material is Masked, MeshRenderer::ShadingOf). Index
-        // i of the value is level i's BLAS, valid until the next BeginFrame that is not required.
+        // The BLASes of variety @p key, (1 + kRayTracingBladePressSteps) per submesh (level) of @p strip, built
+        // from @p shape: those that changed are queued for this frame's vertex pass and build, the others are
+        // resident. @p nonOpaque: bit i = level i's segments run the alpha test (its section material is Masked,
+        // MeshRenderer::ShadingOf). Index step * levels + i of the value is level i's BLAS of press step / K (step 0:
+        // standing, so [0, levels) are the standing levels), valid until the next BeginFrame that is not required.
         [[nodiscard]] Common::ResultStr<std::span<const RayTracing::RayTracingGeometryResource* const>>
         PrepareVariety( RDG::Builder& graph, uint64_t key, const Desert::Mesh& strip,
                         const GrassBladeShapeGpu& shape, uint64_t nonOpaque );
@@ -152,7 +158,7 @@ namespace Desert::Graphic::System
             RDG::BufferRef                                   Vertices;
             RDG::BufferRef                                   Indices;
             RDG::BufferRef                                   Storage;
-            glm::uvec4                                       Counts{ 0u }; // x = vertices, y = indices
+            glm::uvec4                                       Counts{ 0u }; // x = vertices, y = indices, z = press step, w = steps
         };
 
         [[nodiscard]] Common::BoolResultStr EnsurePipeline();

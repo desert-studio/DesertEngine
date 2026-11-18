@@ -975,8 +975,9 @@ namespace Desert::Graphic::ShaderPush
         std::uint32_t ThroughIds{};
         std::uint32_t ArgsWord{};
         std::uint32_t PressSteps{};
+        std::uint32_t PressSbtStride{};
     };
-    static_assert( sizeof( RayTracingGpuInstances ) == 120u, "RayTracingGpuInstances: std430 push block size" );
+    static_assert( sizeof( RayTracingGpuInstances ) == 124u, "RayTracingGpuInstances: std430 push block size" );
     template <> inline constexpr bool IsBlock<RayTracingGpuInstances> = true;
     static_assert( offsetof( RayTracingGpuInstances, BladeSize ) == 0u, "RayTracingGpuInstances::BladeSize: std430 offset" );
     static_assert( offsetof( RayTracingGpuInstances, BladeBend ) == 16u, "RayTracingGpuInstances::BladeBend: std430 offset" );
@@ -993,6 +994,7 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( RayTracingGpuInstances, ThroughIds ) == 108u, "RayTracingGpuInstances::ThroughIds: std430 offset" );
     static_assert( offsetof( RayTracingGpuInstances, ArgsWord ) == 112u, "RayTracingGpuInstances::ArgsWord: std430 offset" );
     static_assert( offsetof( RayTracingGpuInstances, PressSteps ) == 116u, "RayTracingGpuInstances::PressSteps: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, PressSbtStride ) == 120u, "RayTracingGpuInstances::PressSbtStride: std430 offset" );
 
     // Programs/ReflectionCapture/ReflectionCaptureBlend.shader (Compute)
     struct ReflectionCaptureBlend

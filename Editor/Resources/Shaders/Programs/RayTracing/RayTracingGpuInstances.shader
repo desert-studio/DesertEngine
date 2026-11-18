@@ -70,6 +70,8 @@ Shader "RayTracingGpuInstances"
             uint ThroughIds;   // 1: Ids holds each slot's row of Transforms
             uint ArgsWord;     // the source's first word of Arguments (a pooled producer's range)
             uint PressSteps;   // a grass blade source's pressed BLASes (0: not one, its rows are never pressed)
+            uint PressSbtStride; // pressed BLAS k + 1's segment run = SbtAndFlags + (k + 1) * PressSbtStride: its
+                                 // own records, so a hit on a pressed row reads the pressed blade's normals
         };
 
         #include <Mesh/Surface/GrassBlade.glslh>
@@ -78,10 +80,11 @@ Shader "RayTracingGpuInstances"
         // A pressed blade row: @p world the instance's transform is replaced by the fit of the pressed BLAS @p step
         // and its address returned through @p lo, @p hi. False: the row stands (outside the box, no press, or a
         // degenerate fit) and keeps the shared BLAS and its own transform.
-        bool PressedRow( inout mat4 world, out uint lo, out uint hi )
+        bool PressedRow( inout mat4 world, out uint lo, out uint hi, out uint sbt )
         {
-            lo = 0u;
-            hi = 0u;
+            lo  = 0u;
+            hi  = 0u;
+            sbt = SbtAndFlags;
             const vec3 root = world[3].xyz;
             if ( PressSteps == 0u || root.x < TrampleWindow.x || root.z < TrampleWindow.y ||
                  root.x > TrampleWindow.z || root.z > TrampleWindow.w )
@@ -106,6 +109,7 @@ Shader "RayTracingGpuInstances"
             world[2] = vec4( here.Tip / blas.Tip.z, 0.0 );
             lo       = PressLo[step - 1u];
             hi       = PressHi[step - 1u];
+            sbt      = SbtAndFlags + step * PressSbtStride;
             return ( lo | hi ) != 0u;
         }
 
@@ -128,18 +132,20 @@ Shader "RayTracingGpuInstances"
             uint addressLo = AddressLo;
             uint addressHi = AddressHi;
             mat4 pressed   = world;
-            uint pressedLo, pressedHi;
-            if ( PressedRow( pressed, pressedLo, pressedHi ) )
+            uint sbt       = SbtAndFlags;
+            uint pressedLo, pressedHi, pressedSbt;
+            if ( PressedRow( pressed, pressedLo, pressedHi, pressedSbt ) )
             {
                 world     = pressed;
                 addressLo = pressedLo;
                 addressHi = pressedHi;
+                sbt       = pressedSbt;
             }
             for ( uint r = 0u; r < 3u; ++r )
                 for ( uint c = 0u; c < 4u; ++c )
                     TlasRowWords[row + r * 4u + c] = floatBitsToUint( world[c][r] ); // row-major 3x4
             TlasRowWords[row + 12u] = IndexAndMask;
-            TlasRowWords[row + 13u] = SbtAndFlags;
+            TlasRowWords[row + 13u] = sbt;
             TlasRowWords[row + 14u] = addressLo;
             TlasRowWords[row + 15u] = addressHi;
         }

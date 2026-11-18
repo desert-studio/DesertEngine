@@ -3114,7 +3114,11 @@ namespace Desert::Graphic::System
                                                                     gpu->ShapeData, nonOpaque );
                 if ( blas )
                     for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                    {
                         section.BladeGeometry = blas.GetValue();
+                        section.BladeSize     = gpu->ShapeData.Size;
+                        section.BladeBend     = gpu->ShapeData.Bend;
+                    }
                 else
                     LOG_ERROR(
                          "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",

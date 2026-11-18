@@ -7,6 +7,7 @@
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/GpuDriven/GpuScene.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -18,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <format>
 #include <iterator>
 #include <unordered_set>
@@ -42,15 +44,26 @@ namespace Desert::Graphic::RayTracing
         constexpr uint32_t kGpuInstanceRowsGroupSize = 64; // the program's LocalSize
 
         // RayTracingGpuInstances.shader's buffers: bound through these members, checked against the shader's
-        // reflected layout when the program is created.
+        // reflected layout when the program is created. DEFORM-RT-TRAMPLE: the view's deformation field
+        // (FrameGraphRefs.hpp DeformationFieldReads) as the grass rows read it, point-sampled (texelFetch).
         struct GpuInstanceRowsShaderParameters
         {
             DESERT_SHADER_PARAMETER( StorageBuffer, Transforms );
             DESERT_SHADER_PARAMETER( StorageBuffer, Args );
             DESERT_SHADER_PARAMETER( StorageBuffer, TlasRows );
             DESERT_SHADER_PARAMETER( StorageBuffer, Ids );
-            static constexpr std::array kAll{ RDG::Erase( Transforms ), RDG::Erase( Args ), RDG::Erase( TlasRows ),
-                                              RDG::Erase( Ids ) };
+            DESERT_SHADER_PARAMETER( Texture, DeformHeight0 );
+            DESERT_SHADER_PARAMETER( Texture, DeformHeight1 );
+            DESERT_SHADER_PARAMETER( Texture, DeformDetail0 );
+            DESERT_SHADER_PARAMETER( Texture, DeformDetail1 );
+            DESERT_SHADER_PARAMETER( StorageBuffer, DeformationParams );
+            DESERT_SHADER_PARAMETER( Sampler, DeformationFieldSampler );
+            static constexpr std::array kAll{
+                 RDG::Erase( Transforms ),        RDG::Erase( Args ),
+                 RDG::Erase( TlasRows ),          RDG::Erase( Ids ),
+                 RDG::Erase( DeformHeight0 ),     RDG::Erase( DeformHeight1 ),
+                 RDG::Erase( DeformDetail0 ),     RDG::Erase( DeformDetail1 ),
+                 RDG::Erase( DeformationParams ), RDG::Erase( DeformationFieldSampler ) };
         };
 
         class GpuInstanceRows final : public RayTracingGpuInstanceRows
@@ -58,11 +71,13 @@ namespace Desert::Graphic::RayTracing
         public:
             Common::BoolResultStr Prepare( std::span<const RayTracingGpuInstanceSource> sources,
                                            std::span<const RayTracingPrimitive>         primitives,
+                                           const DeformationFieldReads&                 field,
                                            RayTracingInstanceList&                      list ) override
             {
                 m_Sources.clear();
-                m_Rows = 0;
-                m_Key  = 14695981039346656037ull;
+                m_Rows  = 0;
+                m_Key   = 14695981039346656037ull;
+                m_Field = field;
                 if ( sources.empty() )
                     return BOOLSUCCESS;
                 if ( !m_Program )
@@ -110,12 +125,29 @@ namespace Desert::Graphic::RayTracing
                     if ( source.Refs->Ids.IsValid() )
                         push.ThroughIds = 1u;
                     push.ArgsWord = static_cast<uint32_t>( source.Refs->ArgsOffset / 4u );
+                    if ( source.PressedPrimitive != kNoPressedPrimitive )
+                        if ( Common::BoolResultStr pressed = PressOf( source, primitive, primitives, field, push );
+                             !pressed )
+                            return pressed;
                     m_Sources.push_back( { *source.Refs, push } );
                     m_Rows += source.Rows;
                     for ( const uint64_t value : { address, uint64_t{ source.Rows }, uint64_t{ push.Record },
                                                    uint64_t{ push.IndexAndMask }, uint64_t{ push.SbtAndFlags },
                                                    uint64_t{ push.ArgsWord } } )
                         m_Key = ( m_Key ^ value ) * 1099511628211ull;
+                    // DEFORM-RT-TRAMPLE: the pressed BLASes the rows may trace, and the box whose rows read the
+                    // field - a box that moved presses other rows (another BLAS each): a build, not a refit.
+                    for ( uint32_t k = 0; k < push.PressSteps; ++k )
+                        m_Key = ( m_Key ^ ( uint64_t{ push.PressHi[k] } << 32u | push.PressLo[k] ) ) *
+                                1099511628211ull;
+                    if ( push.PressSteps > 0u )
+                        for ( const uint64_t value :
+                              { uint64_t{ push.PressSteps }, uint64_t{ push.PressSbtStride },
+                                uint64_t{ std::bit_cast<uint32_t>( push.TrampleWindow.x ) },
+                                uint64_t{ std::bit_cast<uint32_t>( push.TrampleWindow.y ) },
+                                uint64_t{ std::bit_cast<uint32_t>( push.TrampleWindow.z ) },
+                                uint64_t{ std::bit_cast<uint32_t>( push.TrampleWindow.w ) } } )
+                            m_Key = ( m_Key ^ value ) * 1099511628211ull;
                     list.InstancesByKind[static_cast<std::size_t>( RayTracingPrimitiveKind::GpuInstanced )] +=
                          source.Rows;
                 }
@@ -149,10 +181,25 @@ namespace Desert::Graphic::RayTracing
                              if ( source.Refs.Ids.IsValid() )
                                  ids = source.Refs.Ids;
                              pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Program ) )
-                                  .Storage( GpuInstanceRowsShaderParameters::Transforms, source.Refs.Instances, RDG::Access::StorageRead )
-                                  .Storage( GpuInstanceRowsShaderParameters::Args, source.Refs.Args, RDG::Access::StorageRead )
-                                  .Storage( GpuInstanceRowsShaderParameters::TlasRows, instances, RDG::Access::StorageWrite )
+                                  .Storage( GpuInstanceRowsShaderParameters::Transforms, source.Refs.Instances,
+                                            RDG::Access::StorageRead )
+                                  .Storage( GpuInstanceRowsShaderParameters::Args, source.Refs.Args,
+                                            RDG::Access::StorageRead )
+                                  .Storage( GpuInstanceRowsShaderParameters::TlasRows, instances,
+                                            RDG::Access::StorageWrite )
                                   .Storage( GpuInstanceRowsShaderParameters::Ids, ids, RDG::Access::StorageRead )
+                                  .Texture( GpuInstanceRowsShaderParameters::DeformHeight0, m_Field.Height[0],
+                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                                  .Texture( GpuInstanceRowsShaderParameters::DeformHeight1, m_Field.Height[1],
+                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                                  .Texture( GpuInstanceRowsShaderParameters::DeformDetail0, m_Field.Detail[0],
+                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                                  .Texture( GpuInstanceRowsShaderParameters::DeformDetail1, m_Field.Detail[1],
+                                            RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                                  .Storage( GpuInstanceRowsShaderParameters::DeformationParams, m_Field.Params,
+                                            RDG::Access::StorageRead )
+                                  .Sampler( GpuInstanceRowsShaderParameters::DeformationFieldSampler,
+                                            RDG::SamplerDesc::PointClamp() )
                                   .PushConstants<ShaderPush::RayTracingGpuInstances>();
                          }
                      },
@@ -175,6 +222,55 @@ namespace Desert::Graphic::RayTracing
             }
 
         private:
+            // DEFORM-RT-TRAMPLE: @p push of a grass blade level's source @p source (its standing primitive
+            // @p primitive) gets the level's pressed BLASes (RayTracingGpuInstanceSource::PressedPrimitive), their
+            // segment runs' stride after @p primitive's (a hit on a pressed row reads the pressed blade's
+            // normals), the blade's Size / Bend and @p field's trampled box. The gather lays them out so; anything
+            // else is an error, never a row traced with another blade's records.
+            static Common::BoolResultStr PressOf( const RayTracingGpuInstanceSource&   source,
+                                                  const RayTracingPrimitive&           primitive,
+                                                  std::span<const RayTracingPrimitive> primitives,
+                                                  const DeformationFieldReads&         field,
+                                                  ShaderPush::RayTracingGpuInstances&  push )
+            {
+                constexpr uint32_t kSteps = kRayTracingBladePressSteps;
+                if ( !field.IsValid() )
+                    return Common::MakeError( std::format(
+                         "a grass blade source (primitive {}) has pressed BLASes but the view's deformation field "
+                         "is not this graph's (AddFrameDeformationField did not run before the TLAS)",
+                         source.Primitive ) );
+                if ( static_cast<std::size_t>( source.PressedPrimitive ) + kSteps > primitives.size() )
+                    return Common::MakeError( std::format(
+                         "a grass blade source's pressed primitives [{}, +{}) lie past the {} primitives",
+                         source.PressedPrimitive, kSteps, primitives.size() ) );
+                const uint32_t stride = primitive.SegmentRecordCount;
+                for ( uint32_t k = 0; k < kSteps; ++k )
+                {
+                    const RayTracingPrimitive& pressed = primitives[source.PressedPrimitive + k];
+                    const uint64_t             first =
+                         uint64_t{ primitive.FirstSegmentRecord } + uint64_t{ k + 1u } * uint64_t{ stride };
+                    if ( pressed.Geometry == nullptr || pressed.SegmentRecordCount != stride ||
+                         pressed.FirstSegmentRecord != first || first > kMaxSegmentRecord )
+                        return Common::MakeError(
+                             std::format( "a grass blade source's pressed step {} (primitive {}) is not the "
+                                          "level's run {} + {} x "
+                                          "{}: geometry {}, run {} of {}",
+                                          k + 1u, source.PressedPrimitive + k, primitive.FirstSegmentRecord,
+                                          k + 1u, stride, pressed.Geometry != nullptr, pressed.FirstSegmentRecord,
+                                          pressed.SegmentRecordCount ) );
+                    const uint64_t address =
+                         static_cast<const RayTracingGeometryResource*>( pressed.Geometry )->GetDeviceAddress();
+                    push.PressLo[k] = static_cast<uint32_t>( address );
+                    push.PressHi[k] = static_cast<uint32_t>( address >> 32u );
+                }
+                push.BladeSize      = source.BladeSize;
+                push.BladeBend      = source.BladeBend;
+                push.TrampleWindow  = field.TrampleWindow;
+                push.PressSteps     = kSteps;
+                push.PressSbtStride = stride;
+                return BOOLSUCCESS;
+            }
+
             static constexpr const char* kProgramName = "RayTracingGpuInstances";
             struct Source
             {
@@ -184,6 +280,7 @@ namespace Desert::Graphic::RayTracing
             std::shared_ptr<ComputePipeline> m_Program;
             mutable ShaderBindingLayoutCache m_Layout;
             std::vector<Source>              m_Sources;
+            DeformationFieldReads            m_Field; // Prepare's, this graph's: AddPass binds it
             uint32_t                         m_Rows = 0;
             uint64_t                         m_Key  = 0;
         };
@@ -617,8 +714,8 @@ namespace Desert::Graphic::RayTracing
         bool build = relisted || m_BuildPending;
         if ( m_GpuInstanceRows )
         {
-            if ( const Common::BoolResultStr prepared =
-                      m_GpuInstanceRows->Prepare( m_Gather.GpuInstanced, m_Gather.Primitives, m_Instances );
+            if ( const Common::BoolResultStr prepared = m_GpuInstanceRows->Prepare(
+                      m_Gather.GpuInstanced, m_Gather.Primitives, meshes.GetFrameDeformationField(), m_Instances );
                  !prepared )
                 return Common::MakeError( std::format( "{}: {}", kGpuInstancesPassName, prepared.GetError() ) );
             // GPU-written rows that trace other BLASes are no move either.
