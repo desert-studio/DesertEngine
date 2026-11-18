@@ -365,10 +365,12 @@ namespace Desert::Editor
         class JsonFieldCommand final : public ICommand
         {
         public:
-            JsonFieldCommand( ReflectedEditRoute route, void* address, std::size_t ownerOffset, const TypeInfo& owner,
-                              const FieldInfo& field, Common::Json::Value before, Common::Json::Value after )
+            JsonFieldCommand( ReflectedEditRoute route, void* address, std::size_t ownerOffset,
+                              const TypeInfo& owner, const FieldInfo& field, Common::Json::Value before,
+                              Common::Json::Value after )
                  : m_Route( std::move( route ) ), m_Address( address ), m_OwnerOffset( ownerOffset ),
-                   m_Owner( owner ), m_Field( field ), m_Before( std::move( before ) ), m_After( std::move( after ) )
+                   m_Owner( owner ), m_Field( field ), m_Before( std::move( before ) ),
+                   m_After( std::move( after ) )
             {
             }
             bool Undo() override
@@ -401,8 +403,8 @@ namespace Desert::Editor
                 const bool routed  = m_Route(
                      [&]( void* object )
                      {
-                         written = static_cast<bool>(
-                              ReadFieldJson( m_Owner, static_cast<char*>( object ) + m_OwnerOffset, m_Field, value ) );
+                         written = static_cast<bool>( ReadFieldJson(
+                              m_Owner, static_cast<char*>( object ) + m_OwnerOffset, m_Field, value ) );
                      } );
                 return routed && written;
             }
@@ -567,10 +569,9 @@ namespace Desert::Editor
                 // A whole list or struct: its JSON form ('["Gameplay"]', '[{"ScriptKey":..}]').
                 auto json = Common::Json::Parse( text );
                 if ( !json )
-                    return Common::MakeError<bool>( std::format( "'{}.{}' is a {} and takes its JSON form: {}",
-                                                                 type->Name, field->Name,
-                                                                 field->IsContainer ? "list" : "struct",
-                                                                 json.GetError() ) );
+                    return Common::MakeError<bool>(
+                         std::format( "'{}.{}' is a {} and takes its JSON form: {}", type->Name, field->Name,
+                                      field->IsContainer ? "list" : "struct", json.GetError() ) );
                 Common::Json::Value before = FieldJson( *type, at, *field );
                 if ( auto read = ReadFieldJson( *type, at, *field, json.GetValue() ); !read )
                 {
