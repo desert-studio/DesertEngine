@@ -495,6 +495,11 @@ namespace Desert::Core::Rules
         // WorldPartitionSerialized::DataLayers, ascending and unique. Empty = no layer. Whatever the Reason: an
         // always-loaded composite belongs to its layers too, and the editor holds it by them (EditorRegions).
         std::vector<std::size_t> DataLayers;
+        // The HLOD layer that builds this composite's part of its cell's HLOD - its ANCHOR's HLODLayer block (UE
+        // AActor::HLODLayer), as an index into WorldPartitionSerialized::HLODLayers. nullopt = its partition's first
+        // HLOD setup's layer (Rules::GridHLODLayer), and also a name the world has no layer of (an Issue, never
+        // matched to some other layer by a guess).
+        std::optional<std::size_t> HLODLayer;
     };
 
     // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level and holds
@@ -646,6 +651,9 @@ namespace Desert::Core::Rules
          // The data layers an entity belongs to (WP-DATA-LAYERS): they decide what the editor holds, never whether
          // the entity is placed.
          { "DataLayers", ComponentLoading::Spatial },
+         // The HLOD layer that builds the entity's part of its cell's HLOD (WP-SETTINGS-UI, UE AActor::HLODLayer):
+         // it decides how the far cell stands in for it, never whether the entity is placed.
+         { "HLODLayer", ComponentLoading::Spatial },
          // Play chooses among ALL starts (a tag must name exactly one) before the streamer begins, so a
          // start in an unloaded cell would silently change which one wins, or make a tag unresolvable.
          { "PlayerStart", ComponentLoading::Global },
@@ -758,6 +766,7 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
     inline constexpr std::string_view kRuntimeGridComponent  = "RuntimeGrid";
     inline constexpr std::string_view kDataLayersComponent   = "DataLayers";
+    inline constexpr std::string_view kHLODLayerComponent    = "HLODLayer";
     inline constexpr std::string_view kStreamingSourceComponent = "StreamingSource";
     // UE ALocationVolume (WP-LOADER-ADAPTERS): an editor loader's box; the one editor-only record kind.
     inline constexpr std::string_view kLocationVolumeComponent = "LocationVolume";
@@ -1340,6 +1349,8 @@ namespace Desert::Core::Rules
         std::vector<std::string> DataLayers;
         // The LocationVolume block (WP-LOADER-ADAPTERS); absent = not a Location Volume.
         std::optional<DescriptorLocationVolume> LocationVolume;
+        // The HLODLayer block's layer name (WP-SETTINGS-UI, UE AActor::HLODLayer); absent = its grid's layer.
+        std::optional<std::string> HLODLayer;
 
         // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
         Common::Json::Issues Issues;
@@ -1430,6 +1441,12 @@ namespace Desert::Core::Rules
             volume->ReadInto( "Extent", box.Extent, issues );
             volume->ReadInto( "AutoLoad", box.AutoLoad, issues );
             out.LocationVolume = box;
+        }
+        if ( const auto hlod = Detail::BlockOf( record, kHLODLayerComponent, issues ); hlod.has_value() )
+        {
+            std::string name;
+            hlod->ReadInto( "Layer", name, issues );
+            out.HLODLayer = std::move( name );
         }
 
         if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
@@ -1861,6 +1878,21 @@ namespace Desert::Core::Rules
     {
         return std::format( "G{}_L{}_{}_{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z,
                             DataLayersCellSuffix( settings, cell.DataLayers ) );
+    }
+
+    // The index of the HLOD layer @p name names in @p settings (WorldPartitionSerialized::HLODLayers), or nullopt
+    // when the world states none of that name.
+    [[nodiscard]] inline std::optional<std::size_t> HLODLayerIndexOf( const WorldPartitionSerialized& settings,
+                                                                      std::string_view                name )
+    {
+        if ( !settings.HLODLayers.has_value() )
+            return std::nullopt;
+        const std::vector<HLODLayerSerialized>& layers = *settings.HLODLayers;
+        const auto found = std::find_if( layers.begin(), layers.end(),
+                                         [&]( const HLODLayerSerialized& layer ) { return layer.Name == name; } );
+        if ( found == layers.end() )
+            return std::nullopt;
+        return static_cast<std::size_t>( found - layers.begin() );
     }
 
     // The index of the layer @p name names in @p settings, or nullopt when the world states none of that name.
@@ -2704,6 +2736,30 @@ namespace Desert::Core::Rules
                                std::format( "the data layers of its composite's anchor Entities[{}]", held.Anchor ),
                                std::format( "{} layer(s) of its own", records[member].DataLayers.size() ) } );
             }
+        }
+
+        // ── 3c. The HLOD layer each composite is built by (WP-SETTINGS-UI, UE AActor::HLODLayer) ────────────
+        // Its anchor's HLODLayer block; absent = its grid's layer. A name the world does not state is an Issue with
+        // the record's path and the composite is built by its grid's layer (UE resolves an invalid HLOD layer
+        // reference to the default the same way) - the Issue is what says so. A member that states another layer
+        // than its anchor is an Issue too: the composite is one part of one cell's HLOD.
+        for ( PlannedComposite& held : plan.Composites )
+        {
+            const std::optional<std::string>& wanted = records[held.Anchor].HLODLayer;
+            if ( wanted.has_value() )
+            {
+                held.HLODLayer = HLODLayerIndexOf( settings, *wanted );
+                if ( !held.HLODLayer.has_value() )
+                    plan.Issues.push_back( { std::format( "Entities[{}].{}.Layer", held.Anchor, kHLODLayerComponent ),
+                                             "HLOD layer", *wanted, Common::Json::IssueKind::MissingReference } );
+            }
+            for ( const std::size_t member : held.Members )
+                if ( member != held.Anchor && records[member].HLODLayer.has_value() &&
+                     records[member].HLODLayer != wanted )
+                    plan.Issues.push_back(
+                         { std::format( "Entities[{}].{}.Layer", member, kHLODLayerComponent ),
+                           std::format( "the HLOD layer of its composite's anchor Entities[{}]", held.Anchor ),
+                           *records[member].HLODLayer } );
         }
 
         // ── 4a. The partitions (WP22, WP-HASH-SET; UE FRuntimePartitionDesc): Rules::CheckRuntimeGrids ──────

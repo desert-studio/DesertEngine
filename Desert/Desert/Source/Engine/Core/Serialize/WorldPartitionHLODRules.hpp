@@ -441,9 +441,8 @@ namespace Desert::Core::Rules
         return BOOLSUCCESS;
     }
 
-    // Refused, by name: a layer without a name or named twice, a ParentLayer that names no layer or itself or
-    // closes a loop, a SimplifyTrianglePercent missing on MeshSimplify, outside (0, 1], or stated on another
-    // type, and a grid whose HLODLayer names no layer.
+    // Refused, by name: a layer without a name or named twice, and what the long comment above lists (the
+    // builder, the spatial loading, the partitions' HLOD setups).
     [[nodiscard]] inline Common::BoolResultStr ValidateHLODLayers( const WorldPartitionSerialized& partition )
     {
         const std::vector<HLODLayerSerialized>  none;
@@ -614,6 +613,74 @@ namespace Desert::Core::Rules
             if ( GridHLODLayer( partition, runtime ) != nullptr )
                 return true;
         return false;
+    }
+
+    // The layer that builds composite @p composite of @p plan (WP-SETTINGS-UI, UE UHLODLayer::GetHLODLayer: the
+    // actor's own HLODLayer, else the default): its anchor's HLODLayer block when it names a layer of the world
+    // (PlannedComposite::HLODLayer), else its partition's first HLOD setup's. Null when neither states one. Call after ValidateHLODLayers.
+    [[nodiscard]] inline const HLODLayerSerialized* CompositeHLODLayer( const WorldPartitionSerialized& partition,
+                                                                        const PlannedComposite&         composite )
+    {
+        if ( composite.HLODLayer.has_value() && partition.HLODLayers.has_value() &&
+             *composite.HLODLayer < partition.HLODLayers->size() )
+            return &( *partition.HLODLayers )[*composite.HLODLayer];
+        return GridHLODLayer( partition, partition.RuntimePartitions.at( composite.Grid ) );
+    }
+
+    // ONE PART OF A CELL'S HLOD: the members one layer builds (UE FWorldPartitionHLODUtilities::CreateHLODActors
+    // groups a cell's actors by their HLOD layer and builds each group with its layer's builder).
+    struct CellHLODPart
+    {
+        const HLODLayerSerialized* Layer = nullptr;
+        std::vector<std::size_t>   Members; // record indices, in the order of the cell's members
+    };
+
+    // THE PARTS OF CELL @p cell OF @p plan: @p members (ResidencyUnitMembers of the cell) grouped by the layer that
+    // builds their composite (CompositeHLODLayer), in the order each layer is first met. The parts make ONE HLOD of
+    // the cell, streamed by its GRID's layer (WorldPartitionHLODHierarchy.hpp): in UE an actor's own layer also
+    // decides where its HLOD actor streams; here the cell's HLOD is one residency unit (one HLOD per cell unit,
+    // HLODRuntime), so the entity's layer decides how its part is BUILT - Instancing, MeshMerge, MeshSimplify and its
+    // triangle share - and the parents above the cell are its grid layer's chain. Empty when the grid states no
+    // layer and no composite names one. Refused, by the entity's path, when the grid states no layer and a composite
+    // names one (that cell has no HLOD to put the part in), and for a member of no composite of the cell.
+    [[nodiscard]] inline Common::ResultStr<std::vector<CellHLODPart>>
+    CellHLODParts( const WorldPartitionSerialized& partition, const WorldPartitionPlan& plan, const PlannedCell& cell,
+                   std::span<const std::size_t> members )
+    {
+        using Result                              = std::vector<CellHLODPart>;
+        const RuntimePartitionSerialized&   grid  = partition.RuntimePartitions.at( cell.Grid );
+        const HLODLayerSerialized* const    gridL = GridHLODLayer( partition, grid );
+        std::map<std::size_t, const HLODLayerSerialized*> layerOf; // record -> the layer that builds it
+        for ( const std::size_t c : cell.Composites )
+        {
+            const PlannedComposite&          composite = plan.Composites.at( c );
+            const HLODLayerSerialized* const layer     = CompositeHLODLayer( partition, composite );
+            if ( gridL == nullptr && layer != nullptr )
+                return Common::MakeError<Result>( std::format(
+                     "Entities[{}].{}.Layer names HLOD layer '{}', and its partition '{}' builds no HLOD; give the "
+                     "partition an HLOD setup (World Partition > HLOD setups) or clear the entity's HLOD Layer",
+                     composite.Anchor, kHLODLayerComponent, layer->Name, grid.Name ) );
+            for ( const std::size_t member : composite.Members )
+                layerOf[member] = layer;
+        }
+        Result parts;
+        if ( gridL == nullptr )
+            return Common::MakeSuccess( std::move( parts ) );
+        for ( const std::size_t member : members )
+        {
+            const auto found = layerOf.find( member );
+            if ( found == layerOf.end() )
+                return Common::MakeError<Result>(
+                     std::format( "record {} of a cell of partition '{}' is in none of the cell's composites", member,
+                                  grid.Name ) );
+            const auto part = std::find_if( parts.begin(), parts.end(),
+                                            [&]( const CellHLODPart& p ) { return p.Layer == found->second; } );
+            if ( part != parts.end() )
+                part->Members.push_back( member );
+            else
+                parts.push_back( CellHLODPart{ found->second, { member } } );
+        }
+        return Common::MakeSuccess( std::move( parts ) );
     }
 
     // WHAT A MESH LAYER HANDS THE GEOMETRY BUILDER: the instanced parts the Instancing pass already chose (so a

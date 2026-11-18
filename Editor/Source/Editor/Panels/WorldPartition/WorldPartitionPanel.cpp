@@ -37,6 +37,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Projects/WorldPartitionSettings.hpp>
+#include <Common/Json/Document.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -406,6 +407,7 @@ namespace Desert::Editor
                 ImGui::TextColored( ImVec4( 1.0f, 0.35f, 0.35f, 1.0f ), "%s", refused.c_str() );
             DrawHLODBuild();
             DrawRuntimeGrids();
+            DrawHLODLayers();
             DrawGridHLODLayers();
             DrawEditorHLODs();
             DrawDataLayers();
@@ -731,6 +733,457 @@ namespace Desert::Editor
         }
         if ( !m_GridEditStatus.empty() )
             ImGui::TextWrapped( "%s", m_GridEditStatus.c_str() );
+    }
+
+    namespace
+    {
+        // The settings object a layer starts with when its builder is picked (UE: picking UHLODLayer::
+        // HLODBuilderClass creates that class's UHLODBuilderSettings subclass with its defaults): MeshSimplify's
+        // starting triangle share (its Settings require one), MeshApproximate's UE defaults; none for Instancing
+        // (reads none), MeshMerge (none = one section per source material) and a project's builder (its settings are
+        // its own struct).
+        std::optional<Common::Json::Value> DefaultBuilderSettings( const ::Desert::Core::HLODLayerType type )
+        {
+            namespace Core = ::Desert::Core;
+            if ( type == Core::HLODLayerType::MeshSimplify )
+            {
+                Core::HLODMeshSimplifySettings settings;
+                settings.TrianglePercent = 0.5f; // UE UHLODBuilderMeshSimplifySettings' starting share
+                return Common::Json::FromStruct( settings );
+            }
+            if ( type == Core::HLODLayerType::MeshApproximate )
+                return Common::Json::FromStruct( Core::HLODApproximationSettings{} );
+            return std::nullopt;
+        }
+
+        // A number committed on Enter - one history entry per commit, never one per keystroke. @p scale shows it in
+        // other units (a share as percent).
+        bool CommitFloat( const char* label, float& value, const char* format, const float scale = 1.0f )
+        {
+            float shown = value * scale;
+            ImGui::SetNextItemWidth( 140.0f );
+            if ( !ImGui::InputFloat( label, &shown, 0.0f, 0.0f, format, ImGuiInputTextFlags_EnterReturnsTrue ) ||
+                 shown / scale == value )
+                return false;
+            value = shown / scale;
+            return true;
+        }
+
+        bool CommitInt( const char* label, int32_t& value )
+        {
+            int shown = value;
+            ImGui::SetNextItemWidth( 140.0f );
+            if ( !ImGui::InputInt( label, &shown, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue ) || shown == value )
+                return false;
+            value = shown;
+            return true;
+        }
+
+        // UE FMeshMergingSettings::bMergeMaterials + FMaterialProxySettings, as the mesh builders' settings show
+        // them: true once a change is committed to @p merge.
+        bool DrawMergeMaterials( std::optional<::Desert::Core::HLODMaterialMergeSerialized>& merge )
+        {
+            bool changed = false;
+            bool merged  = merge.has_value();
+            if ( ImGui::Checkbox( "Merge Materials", &merged ) )
+            {
+                if ( merged )
+                    merge.emplace();
+                else
+                    merge.reset();
+                changed = true;
+            }
+            if ( !merge.has_value() )
+                return changed;
+            ImGui::Indent();
+            changed |= CommitInt( "Texture size", merge->TextureSize );
+            changed |= ImGui::Checkbox( "Normal map", &merge->NormalMap );
+            changed |= ImGui::Checkbox( "ORM map (AO, roughness, metallic)", &merge->ORMMap );
+            changed |= ImGui::Checkbox( "Emissive map", &merge->EmissiveMap );
+            ImGui::Unindent();
+            return changed;
+        }
+
+        // THE LAYER'S BUILDER SETTINGS, drawn as the fields of its builder's own object (UE's HLOD layer Details:
+        // HLODBuilderSettings is the picked builder class's UHLODBuilderSettings subclass - MeshMerge's and
+        // MeshSimplify's merged material, MeshSimplify's triangle share, MeshApproximate's approximation), never as
+        // fields of the layer. Read as the builder reads them (Rules::ReadHLODBuilderSettings, strict): what it
+        // refuses is shown as its refusal and not edited over. @return the whole new Settings object once a field is
+        // committed.
+        std::optional<Common::Json::Value> DrawBuilderSettings( const ::Desert::Core::HLODLayerSerialized& layer )
+        {
+            namespace Core                    = ::Desert::Core;
+            namespace Rules                   = ::Desert::Core::Rules;
+            const Common::Json::Value* stated = layer.Settings.has_value() ? &*layer.Settings : nullptr;
+            const auto                 refuse = []( const std::string& why )
+            { ImGui::TextColored( ImVec4( 1.0f, 0.35f, 0.35f, 1.0f ), "%s", why.c_str() ); };
+            switch ( layer.Type )
+            {
+                case Core::HLODLayerType::Instancing:
+                    ImGui::TextDisabled( "Instancing reads no settings: each distinct mesh is one instanced batch." );
+                    return std::nullopt;
+                case Core::HLODLayerType::MeshMerge:
+                {
+                    Core::HLODMeshMergeSettings settings;
+                    if ( stated != nullptr )
+                    {
+                        auto read = Rules::ReadHLODBuilderSettings<Core::HLODMeshMergeSettings>( stated );
+                        if ( !read )
+                        {
+                            refuse( "MeshMerge: " + read.GetError() );
+                            return std::nullopt;
+                        }
+                        settings = read.ExtractValue();
+                    }
+                    if ( DrawMergeMaterials( settings.MergeMaterials ) )
+                        return Common::Json::FromStruct( settings );
+                    return std::nullopt;
+                }
+                case Core::HLODLayerType::MeshSimplify:
+                {
+                    Core::HLODMeshSimplifySettings settings;
+                    if ( stated != nullptr )
+                    {
+                        auto read = Rules::ReadHLODBuilderSettings<Core::HLODMeshSimplifySettings>( stated );
+                        if ( !read )
+                        {
+                            refuse( "MeshSimplify: " + read.GetError() );
+                            return std::nullopt;
+                        }
+                        settings = read.ExtractValue();
+                    }
+                    if ( !settings.TrianglePercent.has_value() )
+                        refuse( "MeshSimplify states no TrianglePercent: Build HLODs refuses the layer until one is "
+                                "set." );
+                    float percent = settings.TrianglePercent.value_or( 0.0f );
+                    bool  changed = CommitFloat( "Triangles kept", percent, "%.1f %%", 100.0f );
+                    if ( changed )
+                        settings.TrianglePercent = percent;
+                    changed |= DrawMergeMaterials( settings.MergeMaterials );
+                    if ( changed )
+                        return Common::Json::FromStruct( settings );
+                    return std::nullopt;
+                }
+                case Core::HLODLayerType::MeshApproximate:
+                {
+                    auto read = Rules::ReadHLODBuilderSettings<Core::HLODApproximationSettings>( stated );
+                    if ( !read )
+                    {
+                        refuse( "MeshApproximate: " + read.GetError() );
+                        return std::nullopt;
+                    }
+                    Core::HLODApproximationSettings settings = read.ExtractValue();
+                    bool                            changed  = false;
+                    changed |= CommitFloat( "Accuracy (cm)", settings.WorldSpaceApproximationAccuracy, "%.1f" );
+                    changed |= CommitInt( "Max voxel dimension", settings.ClampVoxelDimension );
+                    changed |= CommitFloat( "Winding threshold", settings.WindingThreshold, "%.2f" );
+                    changed |= ImGui::Checkbox( "Fill gaps", &settings.FillGaps );
+                    if ( settings.FillGaps )
+                        changed |= CommitFloat( "Gap distance (cm)", settings.GapDistance, "%.1f" );
+                    changed |= CommitFloat( "Geometric deviation (cm)", settings.GeometricDeviation, "%.1f" );
+                    changed |= CommitInt( "Texture size", settings.TextureSize );
+                    changed |= CommitInt( "Capture resolution", settings.CaptureResolution );
+                    constexpr const char* kNormals[] = { "Smooth", "Hard edges" };
+                    int                   normals    = static_cast<int>( settings.NormalMode );
+                    ImGui::SetNextItemWidth( 140.0f );
+                    if ( ImGui::Combo( "Normals", &normals, kNormals, IM_ARRAYSIZE( kNormals ) ) &&
+                         normals != static_cast<int>( settings.NormalMode ) )
+                    {
+                        settings.NormalMode = static_cast<Core::HLODApproximationNormals>( normals );
+                        changed             = true;
+                    }
+                    if ( settings.NormalMode == Core::HLODApproximationNormals::HardEdges )
+                        changed |= CommitFloat( "Hard normal angle (deg)", settings.HardNormalAngle, "%.0f" );
+                    if ( changed )
+                        return Common::Json::FromStruct( settings );
+                    return std::nullopt;
+                }
+                case Core::HLODLayerType::Custom:
+                {
+                    // A project builder's settings are its own struct, which the editor does not know: shown as
+                    // stated, set with `set world WorldPartition.HLODLayers` (ControlService).
+                    const std::string text = stated != nullptr ? Common::Json::Write( *stated ) : std::string( "none" );
+                    ImGui::TextWrapped( "Settings of builder '%s': %s", layer.Builder.value_or( "" ).c_str(),
+                                        text.c_str() );
+                    return std::nullopt;
+                }
+            }
+            return std::nullopt;
+        }
+    } // namespace
+
+    // UE's UHLODLayer, edited where UE's World Settings > World Partition Setup edits the partition: one row per
+    // layer of the world (Name, Builder = UE HLODBuilderClass, Spatially Loaded + Cell Size + Loading Range, who
+    // names it), New and Delete, under the table each layer's BUILDER SETTINGS (UE UHLODLayer::HLODBuilderSettings:
+    // the picked builder's own settings object, DrawBuilderSettings), and the world's ChunkRegionSize. Which layers
+    // a partition's cells are built with is its HLOD setups' choice (DrawGridHLODLayers). Every commit is ONE history
+    // entry through EditWorldPartition - refused whole, by name, by Rules::ValidateHLODLayers; what a builder says of
+    // its settings is the red list above the sections (Rules::HLODLayerBuilderIssues).
+    void WorldPartitionPanel::DrawHLODLayers()
+    {
+        if ( !ImGui::CollapsingHeader( "HLOD layers" ) )
+            return;
+        namespace Core                                         = ::Desert::Core;
+        const Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
+        static const std::vector<Core::HLODLayerSerialized> kNoLayers;
+        const std::vector<Core::HLODLayerSerialized>& layers = current.HLODLayers.value_or( kNoLayers );
+        // UE UHLODLayer's defaults for a spatially loaded layer (cm).
+        constexpr float kDefaultCellSize     = 25600.0f;
+        constexpr float kDefaultLoadingRange = 51200.0f;
+        // UE's builder class picker: every builder this process registered (Core::HLODBuilders).
+        const std::vector<std::string> builderNames = Core::HLODBuilders().Names();
+
+        // Who names each layer: the partitions' HLOD setups, and entities (their HLODLayer block - the plan's
+        // composites, which over the descriptor index include those not loaded, and the loaded ones).
+        std::vector<std::size_t> setupUsers( layers.size(), 0 ), entityUsers( layers.size(), 0 ),
+             liveUsers( layers.size(), 0 );
+        for ( std::size_t i = 0; i < layers.size(); ++i )
+            for ( const Core::RuntimePartitionSerialized& runtime : current.RuntimePartitions )
+                if ( runtime.HLODSetups.has_value() )
+                    for ( const Core::RuntimePartitionHLODSetupSerialized& setup : *runtime.HLODSetups )
+                        if ( setup.HLODLayer == layers[i].Name )
+                            ++setupUsers[i];
+        if ( m_EditPlan && m_EditPartition == current )
+            for ( const Core::Rules::PlannedComposite& composite : m_EditPlan->Composites )
+                if ( composite.HLODLayer.has_value() && *composite.HLODLayer < entityUsers.size() )
+                    entityUsers[*composite.HLODLayer] += composite.Members.size();
+        {
+            auto& registry = m_Scene->GetRegistry();
+            auto  view     = registry.view<::Desert::ECS::HLODLayerComponent>();
+            for ( const auto handle : view )
+                if ( const auto index = Core::Rules::HLODLayerIndexOf(
+                          current, view.get<::Desert::ECS::HLODLayerComponent>( handle ).Data.Layer );
+                     index.has_value() )
+                    ++liveUsers[*index];
+        }
+        const auto entitiesNaming = [&]( std::size_t i ) { return std::max( entityUsers[i], liveUsers[i] ); };
+        const auto usedBy         = [&]( std::size_t i )
+        {
+            return std::format( "{} HLOD setup(s), {} entit{}", setupUsers[i], entitiesNaming( i ),
+                                entitiesNaming( i ) == 1 ? "y" : "ies" );
+        };
+
+        std::optional<Core::WorldPartitionSerialized> after;
+        std::string                                   label;
+        const auto edit = [&]( std::string what ) -> std::vector<Core::HLODLayerSerialized>&
+        {
+            after = current;
+            label = std::move( what );
+            return *after->HLODLayers;
+        };
+        if ( layers.empty() )
+            ImGui::TextDisabled( "This world states no HLOD layer." );
+        else if ( ImGui::BeginTable( "##hlodlayers", 7,
+                                     ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            ImGui::TableSetupColumn( "Name" );
+            ImGui::TableSetupColumn( "Builder" );
+            ImGui::TableSetupColumn( "Spatially Loaded" );
+            ImGui::TableSetupColumn( "Cell size (cm)" );
+            ImGui::TableSetupColumn( "Loading range (cm)" );
+            ImGui::TableSetupColumn( "Used by" );
+            ImGui::TableSetupColumn( "" );
+            ImGui::TableHeadersRow();
+            constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
+            for ( std::size_t i = 0; i < layers.size() && !after; ++i )
+            {
+                const Core::HLODLayerSerialized& layer = layers[i];
+                ImGui::PushID( static_cast<int>( i ) );
+                ImGui::TableNextRow();
+
+                // Name: a rename carries every HLOD setup naming the layer; refused while an entity names it (an
+                // entity on disk cannot be renamed with the block, so its name would dangle).
+                ImGui::TableNextColumn();
+                char name[128];
+                std::snprintf( name, sizeof( name ), "%s", layer.Name.c_str() );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputText( "##name", name, sizeof( name ), kCommit ) && layer.Name != name )
+                {
+                    if ( entitiesNaming( i ) > 0 )
+                        m_HLODLayerStatus = std::format(
+                             "Rename '{}': {} entit{} name it as their HLOD Layer - give them another layer first.",
+                             layer.Name, entitiesNaming( i ), entitiesNaming( i ) == 1 ? "y" : "ies" );
+                    else
+                    {
+                        const std::string renamed( name );
+                        edit( std::format( "Rename HLOD layer {} to {}", layer.Name, renamed ) )[i].Name = renamed;
+                        for ( Core::RuntimePartitionSerialized& runtime : after->RuntimePartitions )
+                            if ( runtime.HLODSetups.has_value() )
+                                for ( Core::RuntimePartitionHLODSetupSerialized& setup : *runtime.HLODSetups )
+                                    if ( setup.HLODLayer == layer.Name )
+                                        setup.HLODLayer = renamed;
+                    }
+                }
+
+                // Builder (UE UHLODLayer::HLODBuilderClass): a built-in one is the layer's Type, a project's a Custom
+                // layer naming it. A new pick starts that builder's settings object (DefaultBuilderSettings), as UE
+                // creates the class's settings when the class is picked - one builder's settings never carry over
+                // to another's.
+                ImGui::TableNextColumn();
+                const std::string builder( Core::Rules::HLODBuilderNameOf( layer ) );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::BeginCombo( "##builder", builder.empty() ? "(none)" : builder.c_str() ) )
+                {
+                    std::optional<std::string> picked;
+                    for ( const std::string& candidate : builderNames )
+                        if ( ImGui::Selectable( candidate.c_str(), candidate == builder ) && candidate != builder )
+                            picked = candidate;
+                    ImGui::EndCombo();
+                    if ( picked )
+                    {
+                        Core::HLODLayerSerialized& changed =
+                             edit( std::format( "Set builder of HLOD layer {} to {}", layer.Name, *picked ) )[i];
+                        changed.Type    = Core::HLODLayerType::Custom;
+                        changed.Builder = *picked;
+                        for ( const auto& [type, builtIn] : Core::Rules::kBuiltInHLODBuilders )
+                            if ( builtIn == *picked )
+                            {
+                                changed.Type = type;
+                                changed.Builder.reset();
+                            }
+                        changed.Settings = DefaultBuilderSettings( changed.Type );
+                    }
+                }
+
+                // Spatially Loaded (UE UHLODLayer::bIsSpatiallyLoaded): both numbers or neither. Whether a setup
+                // chain may end on it is the partition's rule (Rules::ValidateHLODLayers names why it refuses).
+                ImGui::TableNextColumn();
+                bool spatial = layer.CellSize.has_value();
+                if ( ImGui::Checkbox( "##spatial", &spatial ) )
+                {
+                    Core::HLODLayerSerialized& changed =
+                         edit( std::format( "{} HLOD layer {} spatially loaded", spatial ? "Make" : "Stop making",
+                                            layer.Name ) )[i];
+                    if ( spatial )
+                    {
+                        changed.CellSize     = kDefaultCellSize;
+                        changed.LoadingRange = kDefaultLoadingRange;
+                    }
+                    else
+                    {
+                        changed.CellSize.reset();
+                        changed.LoadingRange.reset();
+                    }
+                }
+                ImGui::TableNextColumn();
+                if ( layer.CellSize.has_value() )
+                {
+                    float cell = *layer.CellSize;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##cell", &cell, 0.0f, 0.0f, "%.0f", kCommit ) && cell != *layer.CellSize )
+                        edit( std::format( "Set cell size of HLOD layer {}", layer.Name ) )[i].CellSize = cell;
+                }
+                else
+                    ImGui::TextDisabled( "-" );
+                ImGui::TableNextColumn();
+                if ( layer.LoadingRange.has_value() )
+                {
+                    float range = *layer.LoadingRange;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##range", &range, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                         range != *layer.LoadingRange )
+                        edit( std::format( "Set loading range of HLOD layer {}", layer.Name ) )[i].LoadingRange = range;
+                }
+                else
+                    ImGui::TextDisabled( "-" );
+
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted( usedBy( i ).c_str() );
+                ImGui::TableNextColumn();
+                if ( ImGui::SmallButton( "Delete" ) )
+                {
+                    if ( setupUsers[i] + entitiesNaming( i ) > 0 )
+                        m_HLODLayerStatus = std::format( "Delete '{}': it is named by {} - name another layer there "
+                                                         "first.",
+                                                         layer.Name, usedBy( i ) );
+                    else
+                    {
+                        std::vector<Core::HLODLayerSerialized>& list =
+                             edit( std::format( "Delete HLOD layer {}", layer.Name ) );
+                        list.erase( list.begin() + static_cast<std::ptrdiff_t>( i ) );
+                        if ( list.empty() )
+                            after->HLODLayers.reset(); // no layers is no key, never an empty list
+                    }
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+
+        // Each layer's builder settings, under the builder that reads them.
+        for ( std::size_t i = 0; i < layers.size() && !after; ++i )
+        {
+            const Core::HLODLayerSerialized& layer = layers[i];
+            const std::string_view           named = Core::Rules::HLODBuilderNameOf( layer );
+            ImGui::PushID( static_cast<int>( i ) );
+            if ( ImGui::TreeNode( "##buildersettings", "%s - %s settings", layer.Name.c_str(),
+                                  std::string( named ).c_str() ) )
+            {
+                if ( std::optional<Common::Json::Value> settings = DrawBuilderSettings( layer ); settings.has_value() )
+                    edit( std::format( "Set {} settings of HLOD layer {}", named, layer.Name ) )[i].Settings =
+                         std::move( settings );
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+        }
+
+        ImGui::SetNextItemWidth( 200.0f );
+        ImGui::InputTextWithHint( "##newhlodlayer", "New HLOD layer name", m_NewHLODLayer.data(),
+                                  m_NewHLODLayer.size() );
+        ImGui::SameLine();
+        if ( ImGui::Button( "New HLOD Layer" ) && !after )
+        {
+            // UE's new UHLODLayer: the Instancing builder, not spatially loaded (the last setup of a chain until it
+            // is given a cell size and range).
+            after = current;
+            if ( !after->HLODLayers )
+                after->HLODLayers.emplace();
+            Core::HLODLayerSerialized layer;
+            layer.Name = std::string( m_NewHLODLayer.data() );
+            label      = std::format( "New HLOD layer {}", layer.Name );
+            after->HLODLayers->push_back( std::move( layer ) );
+        }
+        // ChunkRegionSize: the side of the square region (cm) whose cells a packaged build ships in one content
+        // chunk; off = the world ships in the base chunk.
+        bool  chunked = current.ChunkRegionSize.has_value();
+        float region  = current.ChunkRegionSize.value_or( 0.0f );
+        if ( ImGui::Checkbox( "Chunked packaging", &chunked ) && !after )
+        {
+            after = current;
+            // A 1 km region to start from (the Protocol world's); the field below sets the real one.
+            after->ChunkRegionSize = chunked ? std::optional<float>( 100000.0f ) : std::nullopt;
+            label = chunked ? "Ship the world in chunks" : "Ship the world in the base chunk";
+        }
+        if ( current.ChunkRegionSize.has_value() )
+        {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 160.0f );
+            if ( ImGui::InputFloat( "Chunk region (cm)", &region, 0.0f, 0.0f, "%.0f",
+                                    ImGuiInputTextFlags_EnterReturnsTrue ) &&
+                 region != *current.ChunkRegionSize && !after )
+            {
+                if ( !( std::isfinite( region ) && region > 0.0f ) )
+                    m_HLODLayerStatus = std::format( "Chunk region {:f} cm: it must be positive and finite", region );
+                else
+                {
+                    after                  = current;
+                    after->ChunkRegionSize = region;
+                    label                  = "Set chunk region size";
+                }
+            }
+        }
+
+        if ( after )
+        {
+            const bool created = label.starts_with( "New HLOD layer" );
+            const auto edited  = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
+            m_HLODLayerStatus  = edited ? std::string() : edited.GetError();
+            m_EditPlanStale    = true; // the Used by counts are the plan's
+            if ( edited && created )
+                m_NewHLODLayer.fill( '\0' );
+        }
+        if ( !m_HLODLayerStatus.empty() )
+            ImGui::TextWrapped( "%s", m_HLODLayerStatus.c_str() );
     }
 
     Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()

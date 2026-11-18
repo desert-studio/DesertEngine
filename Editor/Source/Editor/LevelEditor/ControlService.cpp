@@ -205,6 +205,22 @@ namespace Desert::Editor
                                                    std::move( parsed.GetValue() ) );
                     return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
                 }
+                // `set world WorldPartition.HLODLayers <json list>`: the world's HLOD layers as a whole (the panel's
+                // HLOD layers section - New / Rename / Delete / Builder / Spatially Loaded / the builder's Settings -
+                // in one edit); `[]` states none, so no key is written. Refused by the same Rules::ValidateHLODLayers
+                // as the panel.
+                if ( property == "WorldPartition.HLODLayers" )
+                {
+                    auto parsed = Common::Json::Read<std::vector<::Desert::Core::HLODLayerSerialized>>( text );
+                    if ( !parsed )
+                        return Common::MakeError<bool>( "WorldPartition.HLODLayers: " + parsed.GetError() );
+                    after            = *current;
+                    after.HLODLayers = parsed.GetValue().empty()
+                                            ? std::nullopt
+                                            : std::optional<std::vector<::Desert::Core::HLODLayerSerialized>>(
+                                                   std::move( parsed.GetValue() ) );
+                    return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
+                }
                 if ( property == "WorldPartition.ChunkRegionSize" )
                 {
                     // The panel's DragFloat in text: centimetres, 0 clears it (the base archive), as the panel.
@@ -222,7 +238,7 @@ namespace Desert::Editor
                 if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
                     return Common::MakeError<bool>(
                          std::format( "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize, "
-                                      "WorldPartition.DataLayers or "
+                                      "WorldPartition.DataLayers, WorldPartition.HLODLayers or "
                                       "WorldPartition.RuntimePartitions.<Name>.<Field>",
                                       property ) );
                 const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );

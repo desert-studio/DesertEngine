@@ -597,6 +597,14 @@ namespace Desert::Migration
     //       the WP-INT-1117 integration's steps.)
     inline constexpr int kWorldPartitionVersionHLODBuilderSettings = 12;
 
+    //  13 - HLOD LAYER PER ENTITY (WP-SETTINGS-UI; UE AActor::HLODLayer). A record may state an `HLODLayer`
+    //       component naming one of the world's HLOD layers: its composite's part of its cell's HLOD is built by that
+    //       layer and its builder's Settings instead of its partition's first HLOD setup's (Rules::CellHLODParts).
+    //       ADDITIVE: a v12 record states none and is built by its partition's layer, exactly as before - the step
+    //       has no transform of its own, the stamp states WPAR 13. The number moves so a v12 build refuses a world
+    //       whose per-entity layers it would silently ignore. Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionEntityHLODLayer = 13;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -644,7 +652,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionHLODBuilderSettings == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionEntityHLODLayer == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1447,6 +1455,7 @@ namespace Desert::Migration
         bool        HLODMergeMaterialsRaised = false; // below kWorldPartitionVersionHLODMergeMaterials (additive)
         bool        HLODBuilderSettingsRaised   = false; // below kWorldPartitionVersionHLODBuilderSettings
         std::size_t HLODMergeMaterialsMoved     = 0; // layers whose MergeMaterials became Settings.MergeMaterials
+        bool        EntityHLODLayerRaised   = false; // below kWorldPartitionVersionEntityHLODLayer (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1517,7 +1526,7 @@ namespace Desert::Migration
                    LocationVolumesRaised || PrefabRuntimeBehaviorRaised || HLODBuildersRaised ||
                    ReflectedAssetRefsRaised || SunRotationRaised || VolumetricFogRaised || TracedRequestRaised ||
                    ComposedGIRaised || FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
-                   HLODBuilderSettingsRaised;
+                   HLODBuilderSettingsRaised || EntityHLODLayerRaised;
         }
     };
 

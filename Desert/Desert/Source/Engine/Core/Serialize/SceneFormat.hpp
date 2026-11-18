@@ -187,7 +187,11 @@ namespace Desert::Core
     // a layer member (Tools/SceneMigrator, MigrateHLODMergeMaterialsV11ToV12), and HLODLayerType gains
     // MeshApproximate (WP-HLOD-APPROX), whose builder's Settings are HLODApproximationSettings. The number moves
     // so a v11 build refuses a layer whose merged material it would read from the wrong place.
-    inline constexpr int kWorldPartitionVersion = 12;
+    // v13 (WP-SETTINGS-UI): a record may state an `HLODLayer` component (ECS::HLODLayerComponent, UE AActor::HLODLayer)
+    // naming one of the world's HLODLayers: its composite's part of its cell's HLOD is built by that layer instead of
+    // its grid's (Rules::CompositeHLODLayer). Additive - a v12 record states none and is built as before - so the step
+    // number moves so a v12 build refuses a world whose per-entity layers it would silently build by the grid's.
+    inline constexpr int kWorldPartitionVersion = 13;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are

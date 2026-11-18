@@ -5606,6 +5606,10 @@ namespace Desert::Migration
             // transform is MigrateScene's (a prefab states no World Partition block), the flag is every file's.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODBuilderSettings )
                 report.HLODBuilderSettingsRaised = true;
+            // v12 -> v13 is additive with no restatement at all: a record that states no HLODLayer component is
+            // built by its partition's layer, as it was.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionEntityHLODLayer )
+                report.EntityHLODLayerRaised = true;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.

@@ -247,6 +247,17 @@ namespace Desert::Core::Rules
         }
 
         // The builder @p layer is built by (HLODBuilderNameOf), or "builder '<name>' is not registered".
+        // Every registered builder's name, in order (UE: the UHLODBuilder subclasses the HLOD layer's builder class
+        // picker lists).
+        [[nodiscard]] std::vector<std::string> Names() const
+        {
+            std::vector<std::string> names;
+            names.reserve( m_Builders.size() );
+            for ( const auto& [name, builder] : m_Builders )
+                names.push_back( name );
+            return names;
+        }
+
         [[nodiscard]] Common::ResultStr<const IHLODBuilder*> BuilderOf( const HLODLayerSerialized& layer ) const
         {
             const std::string_view name = HLODBuilderNameOf( layer );
