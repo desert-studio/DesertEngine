@@ -1381,16 +1381,58 @@ namespace Desert::Editor
                         return Control::Response::Success( request.Id );
                     }
 
+                    // THE WORLD PARTITION SECTION'S "Is Spatially Loaded" ROW (UE AActor::bIsSpatiallyLoaded): a
+                    // checkbox over the AlwaysLoaded marker (WorldPartitionDetails.cpp), addressed by the name the
+                    // row shows. One undo step, as the checkbox records it.
+                    if ( typeName == "WorldPartition" && fieldPath == "IsSpatiallyLoaded" )
+                    {
+                        if ( request.Text != "true" && request.Text != "false" )
+                            return Control::Response::Failure(
+                                 request.Id,
+                                 std::format( "WorldPartition.IsSpatiallyLoaded is true or false, not '{}'",
+                                              request.Text ) );
+                        const bool         spatial  = request.Text == "true";
+                        const Common::UUID entityId = ControlEntityId( request.Entity ).GetValue();
+                        Core::SelectionManager::SetSelected( entityId );
+                        if ( spatial == !en.HasComponent<ECS::AlwaysLoadedComponent>() )
+                            return Control::Response::Success( request.Id );
+                        Commands::MutateEntityUndoable( entityId,
+                                                        [&en, spatial]
+                                                        {
+                                                            if ( spatial )
+                                                                en.RemoveComponent<ECS::AlwaysLoadedComponent>();
+                                                            else
+                                                                en.AddComponent<ECS::AlwaysLoadedComponent>();
+                                                        } );
+                        scene->MarkModifiedSubtree( en );
+                        return Control::Response::Success( request.Id );
+                    }
+
                     const ComponentEditorEntry* found = nullptr;
                     for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
                         if ( entry.DataPtr && ( entry.ReflectedTypeName == typeName || entry.Name == typeName ) &&
                              entry.Has( en ) )
                             found = &entry;
                     if ( found == nullptr )
-                        return Control::Response::Failure(
-                             request.Id,
-                             std::format( "entity {} has no reflected component '{}'; ask 'properties'",
-                                          request.Entity, typeName ) );
+                    {
+                        // A component with no reflected block (Script: a list of slots of variant values) is set
+                        // from its scene block's JSON for that member, as one undo step - selected first, as the
+                        // Details panel that edits it has it selected.
+                        const auto entityWord = ControlEntityId( request.Entity );
+                        Core::SelectionManager::SetSelected( entityWord.GetValue() );
+                        if ( const auto written = Commands::SetComponentBlockMember(
+                                  entityWord.GetValue(), typeName, fieldPath, request.Text );
+                             !written )
+                        {
+                            LOG_WARN( "[Control] set {} {} refused: {}", request.Entity, request.Property,
+                                      written.GetError() );
+                            return Control::Response::Failure( request.Id,
+                                                               std::format( "{} (entity {}; ask 'properties')",
+                                                                            written.GetError(), request.Entity ) );
+                        }
+                        scene->MarkModifiedSubtree( en );
+                        return Control::Response::Success( request.Id );
+                    }
 
                     // Selected first, as a person editing it in Details has it selected: the undo record
                     // and the panel's view of the edit are then the ones a hand edit produces.

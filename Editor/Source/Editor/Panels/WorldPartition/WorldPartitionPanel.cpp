@@ -993,7 +993,9 @@ namespace Desert::Editor
     // (Rules::HLODLayerBuilderIssues).
     void WorldPartitionPanel::DrawHLODLayers()
     {
-        if ( !ImGui::CollapsingHeader( "HLOD layers" ) )
+        // Open on arrival, as UE's details categories are (World Settings > World Partition Setup > HLOD layers):
+        // the layer table and each builder's settings are what this section is opened to see.
+        if ( !ImGui::CollapsingHeader( "HLOD layers", ImGuiTreeNodeFlags_DefaultOpen ) )
             return;
         namespace Core                                              = ::Desert::Core;
         const Core::WorldPartitionSerialized                current = *m_Scene->GetWorldPartition();
@@ -1191,8 +1193,8 @@ namespace Desert::Editor
             const Core::HLODLayerSerialized& layer = layers[i];
             const std::string_view           named = Core::Rules::HLODBuilderNameOf( layer );
             ImGui::PushID( static_cast<int>( i ) );
-            if ( ImGui::TreeNode( "##buildersettings", "%s - %s settings", layer.Name.c_str(),
-                                  std::string( named ).c_str() ) )
+            if ( ImGui::TreeNodeEx( "##buildersettings", ImGuiTreeNodeFlags_DefaultOpen, "%s - %s settings",
+                                    layer.Name.c_str(), std::string( named ).c_str() ) )
             {
                 if ( std::optional<Common::Json::Value> settings = DrawBuilderSettings( layer );
                      settings.has_value() )

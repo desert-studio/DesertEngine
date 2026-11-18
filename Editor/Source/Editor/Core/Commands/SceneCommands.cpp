@@ -3086,6 +3086,62 @@ namespace Desert::Editor::Commands
         OnStructuralChange(); // the mutation itself may have relocated component pools
     }
 
+    Common::BoolResultStr SetComponentBlockMember( const Common::UUID& uuid, std::string_view block,
+                                                   std::string_view member, std::string_view json )
+    {
+        if ( !Ready() )
+            return Common::MakeError<bool>( "no scene is open" );
+        auto e = FindEntity( uuid );
+        if ( !e )
+            return Common::MakeError<bool>( std::format( "no entity {}", static_cast<std::uint64_t>( Common::UUID( uuid ) ) ) );
+        ECS::Entity entity = *e;
+
+        const Core::Serialize::ComponentSerializer* serializer = nullptr;
+        for ( const auto& s : Core::Serialize::ComponentRegistry::Get().All() )
+            if ( s.Key == block && s.Has && s.Has( entity ) )
+                serializer = &s;
+        if ( serializer == nullptr || !serializer->Serialize || !serializer->Deserialize )
+            return Common::MakeError<bool>( std::format( "entity {} has no '{}' block; ask 'properties'",
+                                                         static_cast<std::uint64_t>( Common::UUID( uuid ) ), block ) );
+
+        auto parsed = Common::Json::Parse( json );
+        if ( !parsed )
+            return Common::MakeError<bool>( std::format( "'{}.{}' takes the JSON of its scene block: {}", block,
+                                                         member, parsed.GetError() ) );
+
+        // The block as the entity holds it now, with this one member replaced: every other member keeps its value
+        // (a reader fills a missing member with its default, which would be a second, silent edit).
+        const Common::Json::Value current = serializer->Serialize( entity, *s_AssetManager );
+        Common::Json::Object      merged;
+        bool known = std::find( serializer->DeclaredMembers.begin(), serializer->DeclaredMembers.end(), member ) !=
+                     serializer->DeclaredMembers.end();
+        Common::Json::Root( current ).ForEachMember(
+             [&]( std::string_view name, const Common::Json::Node& value )
+             {
+                 if ( name == member )
+                     known = true;
+                 else
+                     merged[std::string( name )] = value.Raw();
+             } );
+        if ( !known )
+            return Common::MakeError<bool>( std::format( "the '{}' block has no member '{}'", block, member ) );
+        merged[std::string( member )] = std::move( parsed.GetValue() );
+        const Common::Json::Value document( std::move( merged ) );
+
+        auto                 before = CaptureSubtree( entity );
+        Common::Json::Issues issues;
+        serializer->Deserialize( entity, Common::Json::Root( document, Common::Json::Path{}.Key( block ) ),
+                                 *s_AssetManager, issues );
+        if ( !issues.empty() )
+            // A block is read whole or not at all (ReadBlock), so a refusal left the component as it was.
+            return Common::MakeError<bool>( std::format( "'{}.{}' refused the JSON value: {}", block, member,
+                                                         Common::Json::Describe( issues.front() ) ) );
+        CommandHistory::Get().PushCommand(
+             std::make_unique<EntityStateCommand>( std::move( before ), CaptureSubtree( entity ) ) );
+        OnStructuralChange();
+        return Common::MakeSuccess( true );
+    }
+
     void MutateEntitiesUndoable( const std::vector<Common::UUID>& roots, const std::string& label,
                                  const std::function<void()>& mutate )
     {

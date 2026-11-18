@@ -395,6 +395,15 @@ namespace Desert::Editor::Commands
     void MutateEntitiesUndoable( const std::vector<Common::UUID>& roots, const std::string& label,
                                  const std::function<void()>& mutate );
 
+    // ONE MEMBER OF A COMPONENT THAT HAS NO REFLECTED BLOCK (Script: its slots are a list of variant values the
+    // reflection cannot spell), set from the JSON its scene block holds for that member - UE Remote Control's
+    // property set from JSON under one FScopedTransaction. The entity's block is written by its own
+    // ComponentSerializer, @p member is replaced by @p json, and the block is read back by the same serializer
+    // the scene load uses, so `set` accepts exactly what a scene file holds. One undo step (the Details panel's
+    // MutateEntityUndoable); a value the loader refuses changes nothing and records nothing.
+    [[nodiscard]] Common::BoolResultStr SetComponentBlockMember( const Common::UUID& uuid, std::string_view block,
+                                                                 std::string_view member, std::string_view json );
+
     // UE's actor editor context (FActorEditorContext / IActorEditorContextClient): what the editor stamps on every
     // entity it creates for the user - added, placed, pasted or duplicated - BEFORE the creation is recorded, so
     // the one undo step holds it. The Data Layers outliner installs the current data layers
