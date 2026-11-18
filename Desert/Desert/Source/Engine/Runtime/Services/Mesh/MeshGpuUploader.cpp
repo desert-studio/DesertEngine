@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <mutex>
-#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Runtime
 {

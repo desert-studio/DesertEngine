@@ -27,7 +27,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace
 {

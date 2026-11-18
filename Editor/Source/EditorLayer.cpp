@@ -41,7 +41,6 @@
 #include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
-#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Common/Core/JobSystem.hpp>
 

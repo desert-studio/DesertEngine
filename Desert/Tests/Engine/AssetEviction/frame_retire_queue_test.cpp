@@ -15,9 +15,6 @@
 #include <sstream>
 #include <string>
 #include "../../TestSupport/scratch_dir.hpp"
-#include <Engine/Runtime/Services/Material/MaterialService.hpp>
-#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
-#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace
 {

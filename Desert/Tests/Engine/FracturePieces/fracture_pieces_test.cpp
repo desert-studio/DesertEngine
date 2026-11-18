@@ -14,7 +14,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <Engine/Runtime/Services/Destruction/FractureService.hpp>
 
 namespace
 {

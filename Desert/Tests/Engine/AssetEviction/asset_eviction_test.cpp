@@ -69,7 +69,6 @@
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
-#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 using namespace Desert;
 using namespace Desert::Assets;

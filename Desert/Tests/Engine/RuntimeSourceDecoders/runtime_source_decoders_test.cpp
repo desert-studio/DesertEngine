@@ -43,7 +43,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <Engine/Runtime/Services/AnimatedImage/AnimatedImageService.hpp>
 
 namespace fs = std::filesystem;
 namespace CT = Desert::Tests::ConsumerText;
