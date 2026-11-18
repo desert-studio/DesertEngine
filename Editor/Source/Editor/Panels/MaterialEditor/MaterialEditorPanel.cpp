@@ -54,6 +54,8 @@
 #include <system_error>
 #include <vector>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor
 {

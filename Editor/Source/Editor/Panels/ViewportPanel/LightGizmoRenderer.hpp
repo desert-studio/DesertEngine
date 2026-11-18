@@ -4,7 +4,10 @@
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Camera.hpp>
+#include <Engine/ECS/Entity.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
 #include <ImGui/imgui.h>

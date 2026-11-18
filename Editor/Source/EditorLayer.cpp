@@ -162,6 +162,9 @@
 #include "Editor/LevelEditor/AssetEditorRegistrations.hpp"
 #include "Editor/Core/AssetOpen.hpp"
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/Video/VideoService.hpp>
 
 namespace Desert::Editor
 {

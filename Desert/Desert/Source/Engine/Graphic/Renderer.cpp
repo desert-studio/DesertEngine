@@ -20,6 +20,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace Desert::Graphic
 {

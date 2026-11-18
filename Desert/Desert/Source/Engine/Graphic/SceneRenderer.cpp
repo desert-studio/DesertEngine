@@ -75,6 +75,10 @@
 
 #include <cstring>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
+#include <Engine/Runtime/Services/Lights/RectLightLtcService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Graphic
 {

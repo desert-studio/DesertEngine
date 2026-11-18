@@ -23,6 +23,7 @@
 #include <cstring>
 #include <format>
 #include <span>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace
 {

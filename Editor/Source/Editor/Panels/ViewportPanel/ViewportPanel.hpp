@@ -7,7 +7,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Camera.hpp>
+#include <Engine/Core/Input.hpp>
+#include <Engine/ECS/Entity.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Scene.hpp>
 
 #include "Editor/Core/ActorDropPlacement.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
@@ -38,6 +42,11 @@
 #include "Tools/ToolCursor.hpp"
 #include "Tools/GizmoController.hpp"
 #include "Tools/PickingController.hpp"
+
+namespace Desert::Graphic
+{
+    class SceneRenderer;
+} // namespace Desert::Graphic
 
 namespace Desert::Input
 {

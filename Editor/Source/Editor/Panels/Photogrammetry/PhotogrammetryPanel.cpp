@@ -45,6 +45,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #endif
 
 namespace Desert::Editor

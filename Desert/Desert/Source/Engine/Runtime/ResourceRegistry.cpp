@@ -1,6 +1,29 @@
 #include "ResourceRegistry.hpp"
 
 #include <memory>
+#include <Engine/Runtime/Services/AnimatedImage/AnimatedImageService.hpp>
+#include <Engine/Runtime/Services/CloudLayout/CloudLayoutService.hpp>
+#include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
+#include <Engine/Runtime/Services/CloudNoise/CloudNoiseService.hpp>
+#include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
+#include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
+#include <Engine/Runtime/Services/Font/FontService.hpp>
+#include <Engine/Runtime/Services/Icon/IconService.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Landscape/LandscapeGrassTypeService.hpp>
+#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
+#include <Engine/Runtime/Services/Lights/RectLightLtcService.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
+#include <Engine/Runtime/Services/Subsurface/SubsurfaceProfileService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
+#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
+#include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
 
 namespace Desert::Runtime
 {

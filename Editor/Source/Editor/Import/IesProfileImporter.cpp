@@ -10,6 +10,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <system_error>
+#include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
 
 namespace Desert::Editor
 {

@@ -46,6 +46,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 using Desert::Core::Serialize::ReferenceOrigin;
 using Desert::Core::Serialize::ResolveSceneReference;

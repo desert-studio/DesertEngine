@@ -5,6 +5,9 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Assets
 {

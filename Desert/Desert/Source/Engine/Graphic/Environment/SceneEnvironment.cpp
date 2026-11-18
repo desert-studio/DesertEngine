@@ -12,6 +12,8 @@
 #include <Common/Core/Constants.hpp>
 
 #include <chrono>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 
 namespace Desert::Graphic
 {

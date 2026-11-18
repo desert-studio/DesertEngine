@@ -1,7 +1,8 @@
 #include "Editor/Panels/Debug/ParticleDebuggerPanel.hpp"
 
 #include <ImGui/imgui.h>
-#include <Engine/Desert.hpp>
+#include <Engine/ECS/Entity.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp>

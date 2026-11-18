@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace
 {

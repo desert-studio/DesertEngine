@@ -12,6 +12,7 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <algorithm>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace Desert::Graphic
 {

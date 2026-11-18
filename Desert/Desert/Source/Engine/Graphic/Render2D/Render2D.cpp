@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <bit>
 #include <format>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace
 {

@@ -67,6 +67,11 @@
 
 #include <algorithm>
 #include <limits>
+#include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
+#include <Engine/Runtime/Services/Font/FontService.hpp>
+#include <Engine/Runtime/Services/Icon/IconService.hpp>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
+#include <Engine/Runtime/Services/Video/VideoService.hpp>
 
 namespace Desert::Core::Serialize
 {

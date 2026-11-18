@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Runtime
 {

@@ -36,6 +36,7 @@
 #include <filesystem>
 #include <format>
 #include <string>
+#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
 
 namespace Desert::Editor
 {

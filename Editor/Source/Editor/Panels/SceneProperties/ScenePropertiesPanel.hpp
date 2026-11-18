@@ -1,6 +1,8 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Core/Scene.hpp>
 
 #include <Editor/Core/IPanel.hpp>
 

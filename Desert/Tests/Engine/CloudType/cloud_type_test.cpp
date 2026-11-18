@@ -60,6 +60,7 @@
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
 #include "../../TestSupport/runner.hpp"
+#include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
 
 using namespace Desert::Assets;
 using Desert::Graphic::CloudTypeBaseKm;

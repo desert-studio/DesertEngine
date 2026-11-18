@@ -49,6 +49,12 @@
 #include <vector>
 #include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Core/TextList.hpp>
+#include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
+#include <Engine/Runtime/Services/Icon/IconService.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
+#include <Engine/Runtime/Services/Video/VideoService.hpp>
 
 namespace Desert::Editor
 {

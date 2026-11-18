@@ -17,6 +17,9 @@
 
 #include <algorithm>
 #include <shared_mutex>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Subsurface/SubsurfaceProfileService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Runtime
 {

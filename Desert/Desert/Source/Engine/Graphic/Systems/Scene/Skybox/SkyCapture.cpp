@@ -20,6 +20,7 @@
 #include <bit>
 #include <format>
 #include <string>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace Desert::Graphic::System
 {

@@ -54,6 +54,8 @@
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/runner.hpp"
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

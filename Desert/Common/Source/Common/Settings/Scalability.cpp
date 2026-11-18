@@ -10,6 +10,7 @@
 #include <iterator>
 #include <limits>
 #include <type_traits>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Common::Scalability
 {

@@ -23,7 +23,7 @@
 // Launch via scripts/MacOS/RunRuntime.sh.
 
 #include <Engine/Core/PlayerStart.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Application.hpp>
 #include <Engine/EntryPoint.hpp>
 #include <Engine/Core/SaveGame.hpp>
 #include <Projects/ProjectContext.hpp>

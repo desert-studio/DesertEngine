@@ -52,6 +52,8 @@
 #include <string_view>
 #include <unordered_set>
 #include <vector>
+#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor::Tools
 {

@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <format>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 namespace Desert::Assets
 {

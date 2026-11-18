@@ -16,6 +16,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace
 {

@@ -85,6 +85,7 @@
 #include <functional>
 #include <limits>
 #include <optional>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 // Directional light is a CUSTOM entry: the reflected fields PLUS the one direction widget (a sun dial over the
 // entity's Rotation, the light's forward axis -Z, as UE). See MakeDirectionalLightEntry.

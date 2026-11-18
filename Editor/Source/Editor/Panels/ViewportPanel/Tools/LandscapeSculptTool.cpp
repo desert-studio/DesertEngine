@@ -23,6 +23,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
 
 namespace Desert::Editor::Tools
 {
