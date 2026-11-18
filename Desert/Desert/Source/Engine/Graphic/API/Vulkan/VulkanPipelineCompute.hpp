@@ -73,7 +73,7 @@ namespace Desert::Graphic::API::Vulkan
             // the deletion queue's last drain (VulkanLogicalDevice::Destroy -> VulkanContext::Shutdown), when
             // EngineContext names no device any more. VK_NULL_HANDLE only for a record made with no device,
             // which holds no handles.
-            VkDevice Device = VK_NULL_HANDLE;
+            VkDevice                            Device = VK_NULL_HANDLE;
             std::vector<DescriptorSetLayoutRef> Layouts;
             uint64_t                            ShaderGeneration = 0;
             // Co-owned: a rebuild against an unchanged shader generation shares it into the next record.
