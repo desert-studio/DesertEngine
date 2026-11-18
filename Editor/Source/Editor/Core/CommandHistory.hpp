@@ -158,6 +158,15 @@ namespace Desert::Editor
             Record( std::move( command ) );
         }
 
+        // A record that changes asset FILES on disk (the Content Browser's move / rename / delete to the Trash),
+        // no scene record: it stamps no entity file, so neither it nor its undo/redo makes the next save of a
+        // partitioned world rewrite every entity file (UE: an asset rename or delete is a package operation,
+        // not a transaction on the level's actors). Scenes name assets by GUID, so their bytes stay right.
+        void PushFileOperation( std::unique_ptr<ICommand> command )
+        {
+            Record( std::move( command ) );
+        }
+
     private:
         void PushFieldEdit( std::unique_ptr<ICommand> command )
         {

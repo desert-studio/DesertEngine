@@ -70,7 +70,7 @@ namespace Desert::Editor
         auto moved = Assets::ContentRegistry::MoveAsset( from, to );
         if ( !moved )
             return Common::MakeError<std::filesystem::path>( moved.GetError() );
-        CommandHistory::Get().PushCommand(
+        CommandHistory::Get().PushFileOperation(
              std::make_unique<AssetMoveCommand>( moved.ExtractValue(), std::move( label ) ) );
         return Common::MakeSuccess( to );
     }
@@ -126,7 +126,7 @@ namespace Desert::Editor
         auto moved = Assets::ContentRegistry::MoveFolder( from, to );
         if ( !moved )
             return Common::MakeError<std::filesystem::path>( moved.GetError() );
-        CommandHistory::Get().PushCommand(
+        CommandHistory::Get().PushFileOperation(
              std::make_unique<AssetFolderMoveCommand>( moved.ExtractValue(), std::move( label ) ) );
         return Common::MakeSuccess( to );
     }
@@ -201,7 +201,7 @@ namespace Desert::Editor
             std::string label = records.size() == 1
                                      ? std::format( "Delete {}", records.front().From.filename().string() )
                                      : std::format( "Delete {} assets", records.size() );
-            CommandHistory::Get().PushCommand(
+            CommandHistory::Get().PushFileOperation(
                  std::make_unique<AssetTrashCommand>( std::move( records ), std::move( label ) ) );
         }
         return refusals;

@@ -28,10 +28,12 @@
 Тогда refs_deferred турель у игрока стоит в исходном повороте (маяк в ячейке B не загружен, Target = nil); в логе "reference(s) from records just activated name an entity that is not resident"
 Когда --subject viewport set Camera.Position 26000,600,-500
 Когда --subject viewport set Camera.Direction 0,-0.3,1
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Тогда refs_rebound маяк в ячейке B на месте; турель повернулась на маяк; лог: "rebound 1 reference into G0L0(…)" (ячейка маяка)
 Когда --subject viewport set Camera.Position 0,600,-500
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Когда run Action "Stop"
 Дано spawn Content/Meshes/Modeling/Box.stmesh 12700,0,1000 --id 9200003
 Дано spawn Content/Meshes/Modeling/Box.stmesh 12900,0,1000 --id 9200004

@@ -1381,6 +1381,23 @@ namespace Desert::Editor
                         return Control::Response::Success( request.Id );
                     }
 
+                    // THE ENTITY'S NAME (UE the actor label: Outliner F2 / Details header): the TagComponent is no
+                    // scene block (the name is the record's own), so it is addressed as Tag.Tag and written by the
+                    // Outliner's rename command - one undo step, the entity's file marked for the partitioned
+                    // save.
+                    if ( typeName == "Tag" && fieldPath == "Tag" )
+                    {
+                        if ( request.Text.empty() )
+                            return Control::Response::Failure( request.Id,
+                                                               "Tag.Tag is the entity's name; it is not "
+                                                               "empty" );
+                        const auto entityWord = ControlEntityId( request.Entity );
+                        if ( !entityWord )
+                            return Control::Response::Failure( request.Id, entityWord.GetError() );
+                        Commands::Rename( entityWord.GetValue(), request.Text );
+                        return Control::Response::Success( request.Id );
+                    }
+
                     // THE WORLD PARTITION SECTION'S "Is Spatially Loaded" ROW (UE AActor::bIsSpatiallyLoaded): a
                     // checkbox over the AlwaysLoaded marker (WorldPartitionDetails.cpp), addressed by the name the
                     // row shows. One undo step, as the checkbox records it.

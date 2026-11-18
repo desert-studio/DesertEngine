@@ -16,6 +16,8 @@
 Когда select 200207
 Когда add-component 200207 HLODLayerData
 Когда set 200207 HLODLayerData.Layer "Far2"
+# The builder settings sit under the HLOD layers table, below the docked panel's fold: scroll it as a user would.
+Когда input scroll "World Partition" 140,300 -5
 Тогда 3_settings панель World Partition, раздел HLOD layers: строка Far2 (Builder MeshSimplify, Spatially Loaded снят, Used by "0 HLOD setup(s), 1 entity"); узел "Far2 - MeshSimplify settings": Triangles kept 50.0 %, Merge Materials снят; узел "HLOD_Main_Far - MeshMerge settings": Merge Materials отмечен, Texture size 1024, Normal map и ORM map отмечены; красного списка отказов сборщиков нет. Details дома 200207 - раздел World Partition: HLOD Layer Far2, ячейка Main
 Когда run Action "Undo"
 Когда run Action "Undo"

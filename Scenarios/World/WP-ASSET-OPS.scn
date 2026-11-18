@@ -16,13 +16,20 @@
 Когда run Scene "World Partition: Load All"
 Когда --subject viewport set Camera.Position 0,200000,-1
 Когда --subject viewport set Camera.Direction 0,-1,0.0001
+Дано run Panel "Open Assets"
 Тогда assetops_dup копия «WP_Protocol 2» открыта целиком, Content Browser в Scenes показывает «WP_Protocol 2.desce» и «WP_Protocol 2_HLOD»: тот же вид сверху, что assetops_orig; в логе нет отказа «listed entity files missing», рядом на диске __ExternalEntities__/WP_Protocol 2/ (с Descriptors.dedesc) и «WP_Protocol 2_HLOD/»
 Когда run Scene "Open Scene WP_Protocol.desce"
 Когда run "Content Browser" "Sync to Asset Scenes/WP_Protocol 2.desce"
 Когда run "Content Browser" "Delete (to the Trash)"
+Дано run Panel "Open Assets"
 Тогда assetops_deleted Content Browser в Scenes: нет «WP_Protocol 2.desce» и «WP_Protocol 2_HLOD» (файл и обе папки ушли в одну ячейку Saved/Trash), оригинал открыт как был
 Когда run Action "Undo"
 Когда run Scene "Open Scene WP_Protocol 2.desce"
+# The undo above is a recorded step, so opening another scene asks "Open Scene?" first; nothing of
+# WP_Protocol was edited, so the user answers Discard (the button at the modal centre, in points).
+Когда input move - 1037,680
+Когда input click - 1037,680
+Когда wait-idle 120
 Когда run Scene "World Partition: Load All"
 Когда --subject viewport set Camera.Position 0,200000,-1
 Когда --subject viewport set Camera.Direction 0,-1,0.0001
