@@ -859,6 +859,7 @@ namespace Desert::ECS
                                                                      .Tilt            = b.Tilt,
                                                                      .FacingJitter    = b.FacingJitter,
                                                                      .Stiffness       = b.Stiffness,
+                                                                     .TrampledLength  = b.TrampledLength,
                                                                      .Cards           = std::move( cards ),
                                                                      .MaxWidth        = maxWidth,
                                                                      .Clumping        = b.Clumping,

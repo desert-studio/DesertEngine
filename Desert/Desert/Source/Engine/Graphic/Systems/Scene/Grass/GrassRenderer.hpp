@@ -85,6 +85,7 @@ namespace Desert::Graphic::System
     {
         float Height = 45.0f, Curvature = 0.35f, CurvatureSpread = 0.4f;
         float BendSpread = 0.0f, Tilt = 0.0f, FacingJitter = 0.0f, Stiffness = 0.3f;
+        float TrampledLength = 0.4f; // the share of its length a pressed-flat blade keeps (DEFORM-LOOK-5)
         /// The material atlas's cards (u0, v tip, u1, v root) the blades draw from, and the widest one's width,
         /// cm at scale 1 (the bounds).
         std::vector<glm::vec4> Cards;

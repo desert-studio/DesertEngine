@@ -16,7 +16,7 @@
 struct GrassBladeShapeData
 {
     vec4 Size;                         // Height cm, Stiffness, Curvature, card count
-    vec4 Bend;                         // CurvatureSpread, BendSpread
+    vec4 Bend;                         // CurvatureSpread, BendSpread, TrampledLength
     vec4 Cards[GRASS_BLADE_MAX_CARDS]; // atlas rect: u0, v tip, u1, v root (texture space, v down the image)
     // The view's visibility buffer (GRASS-VIS, Common/VisibilityBuffer.glslh): x = the variety's first raster-stream
     // row (instance i is row x + i), y = the strip's level-0 segments, z = its bucket (= strip level) count.
@@ -127,23 +127,30 @@ BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, 
     // A pressed blade is a straight stalk laid from its root (the power goes to 1 as it is pressed flat).
     const float press = clamp( trample.z, 0.0, 1.0 );
     const float bend  = mix( 2.0 + 3.0 * shape.Bend.y * fract( model[1].w * 256.0 ), 1.0, press );
-    vec3        tip  = forward * ( height * lean );
-    // The wind at the tip, as a mesh vertex at the blade's height would sway, less what the stiffness resists.
+    // DEFORM-LOOK-5 (Ghost of Tsushima, GDC 2021: a trampled blade bends to the ground AND its visible height
+    // shrinks, so the ground shows between the laid blades): the blade's length goes from its height standing to
+    // the variety's TrampledLength share of it pressed flat - the same field value as the bend, one statement for
+    // every pass. A press of 0 keeps the length exactly (share 1): the untouched blade, the ray tracer's.
+    const float share = mix( 1.0, shape.Bend.z, press );
+    const float span  = height * share;
+    vec3        tip   = forward * ( span * lean );
+    // The wind at the tip, as a mesh vertex at the blade's height would sway, less what the stiffness resists
+    // (a shortened blade sways by its share).
     tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB, gust, localAir ) *
-           ( 1.0 - shape.Size.y );
+           ( ( 1.0 - shape.Size.y ) * share );
     // THE TRAMPLE (DEFORM-GRASS; UE/Fortnite interactive grass, Ghost of Tsushima's trampled blades): the press lays
     // the tip along the field's direction, across the blade's own up (a blade on a slope lies along the slope), and
     // presses its wind sway out with it; a flat blade reaches farther than the standing cap (0.95 -> 0.995: its rise
-    // falls to a tenth of its height) - it lies on the ground, keeping its length.
+    // falls to a tenth of its length) - it lies on the ground at its shortened length.
     if ( press > 0.0 )
     {
         vec3 lie = vec3( trample.x, 0.0, trample.y );
         lie -= up * dot( lie, up );
         lie = dot( lie, lie ) > 1e-6 ? normalize( lie ) : forward;
-        tip = mix( tip, lie * height, press );
+        tip = mix( tip, lie * span, press );
     }
-    const float reach = min( length( tip ) / max( height, 1e-3 ), mix( 0.95, 0.995, press ) );
-    const float rise  = height * sqrt( 1.0 - reach * reach );
+    const float reach = min( length( tip ) / max( span, 1e-3 ), mix( 0.95, 0.995, press ) );
+    const float rise  = span * sqrt( 1.0 - reach * reach );
 
     BladePoint p;
     p.Right    = right;

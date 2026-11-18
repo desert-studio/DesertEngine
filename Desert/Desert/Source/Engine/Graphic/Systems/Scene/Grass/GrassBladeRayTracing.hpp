@@ -41,7 +41,7 @@ namespace Desert::Graphic::System
     struct GrassBladeShapeGpu
     {
         glm::vec4                Size;    // Height, Stiffness, Curvature, card count
-        glm::vec4                Bend;    // CurvatureSpread, BendSpread
+        glm::vec4                Bend;    // CurvatureSpread, BendSpread, TrampledLength
         std::array<glm::vec4, 8> Cards{}; // u0, v tip, u1, v root (GRASS_BLADE_MAX_CARDS)
         // GRASS-VIS: x = the variety's first visibility-buffer raster-stream row, y = the strip's level-0
         // segments, z = its bucket count (GrassRenderer::PrepareVariety).
