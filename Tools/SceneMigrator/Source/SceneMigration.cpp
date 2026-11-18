@@ -5764,7 +5764,9 @@ namespace Desert::Migration
         std::size_t StateRuntimePartitionDebugColorsV9ToV10( WorldPartitionSerialized& partition )
         {
             std::size_t stated = 0;
-            for ( Core::RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
+            if ( !partition.RuntimePartitions )
+                return stated;
+            for ( Core::RuntimePartitionSerialized& runtime : *partition.RuntimePartitions )
             {
                 runtime.DebugColor = Core::SeededDebugColor( runtime.Name );
                 ++stated;

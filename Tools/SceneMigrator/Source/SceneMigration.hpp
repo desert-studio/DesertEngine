@@ -150,6 +150,8 @@ namespace Desert::Migration
         // Assets::PrefabData::RuntimeBehavior (WP v4). Optional HERE because this tool's read is strict (no
         // rfl::DefaultIfMissing) and no file before v4 states it; ToEnginePrefab writes it, Partitioned when absent.
         std::optional<Assets::PrefabRuntimeBehavior> RuntimeBehavior;
+        // Assets::PrefabData::Packed (WP-PACKED-PREFAB): carried as read, absent stays absent.
+        std::optional<Assets::PackedPrefabSer> Packed;
         // Pre-v26 files only; read so a refusal can name the version, never written.
         std::optional<int> SceneVersion;
         std::optional<int> UnitVersion;
@@ -163,7 +165,7 @@ namespace Desert::Migration
     {
         return Assets::PrefabData{ prefab.Header,   prefab.Bounds, prefab.Name,
                                    prefab.Entities, prefab.Root,
-                                   prefab.RuntimeBehavior.value_or( Assets::PrefabRuntimeBehavior::Partitioned ) };
+                                   prefab.RuntimeBehavior.value_or( Assets::PrefabRuntimeBehavior::Partitioned ), prefab.Packed };
     }
 
     // THE MINIMUM GENERATION THIS TOOL READS. A file stating less than this - on either integer - is
