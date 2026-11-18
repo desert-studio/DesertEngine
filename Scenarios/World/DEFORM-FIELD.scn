@@ -23,4 +23,4 @@
 Когда run View "View mode: Lit"
 Когда --subject viewport set Camera.Position 0,770,150
 Когда --subject viewport set Camera.Direction 0,-0.94,-0.35
-Тогда-вид 4_grass_lit DEFORM-GRASS, lit, from 4 m above the same row: where each print lies the grass is pressed flat, its blades laid outward from the print's centre (a round flattened patch about 0.8 m across, three in a row 1.5 m apart), standing grass all round; the blades' shadows lie flat with them; editor.log errors 0
+Тогда-вид 4_grass_lit DEFORM-GRASS, lit, from 4 m above the same row: where each print lies the grass is pressed flat, its blades laid outward from the print's centre and shortened to the variety's TrampledLength, the ground visible between them (three equally readable round flattened patches about 0.8 m across, in a row 1.5 m apart), standing grass all round; the blades' shadows lie flat with them; editor.log errors 0

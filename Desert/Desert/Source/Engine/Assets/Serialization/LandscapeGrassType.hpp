@@ -98,6 +98,10 @@ namespace Desert::Assets::Serialization
         float FacingJitter = 0.0f;
         /// 0..1: the share of the wind's sway the blade resists (1 = it does not move).
         float Stiffness = 0.3f;
+        /// (0..1]: the share of its length a blade pressed flat by the view's deformation field keeps (Ghost of
+        /// Tsushima: a trampled blade bends to the ground and its visible height shrinks, so the ground shows
+        /// between the laid blades; 1 = it lies at full length). Mesh/Surface/GrassBlade.glslh BladeAt.
+        float TrampledLength = 0.4f;
         /// 0..1: how strongly blades follow their clump - its facing, its height and its tint (0 = independent).
         float Clumping = 0.5f;
         /// The clump cell's side, cm.

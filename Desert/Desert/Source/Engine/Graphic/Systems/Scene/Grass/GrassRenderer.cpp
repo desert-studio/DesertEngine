@@ -1263,7 +1263,7 @@ namespace Desert::Graphic::System
             const size_t             cards = std::min( b.Cards.size(), gpu.ShapeData.Cards.size() );
             gpu.ShapeData =
                  GrassBladeShapeGpu{ glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
-                                     glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
+                                     glm::vec4( b.CurvatureSpread, b.BendSpread, b.TrampledLength, 0.0f ) };
             std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Cards.begin() );
             // FPS-GRASS-HULL: the cards' cooked hulls (UE SubUV cutout), when the Foliage quality draws them.
             static_assert( std::tuple_size_v<decltype( GrassBladeShapeGpu::Hull )> ==
