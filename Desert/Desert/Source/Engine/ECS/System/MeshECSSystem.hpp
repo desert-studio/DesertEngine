@@ -15,6 +15,7 @@
 #include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
 #include <Engine/Animation/Animator.hpp>
 
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>

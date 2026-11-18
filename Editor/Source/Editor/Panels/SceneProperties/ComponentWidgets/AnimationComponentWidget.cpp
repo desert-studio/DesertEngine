@@ -10,6 +10,7 @@
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
+#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>

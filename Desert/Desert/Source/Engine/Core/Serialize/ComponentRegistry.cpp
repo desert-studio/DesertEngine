@@ -33,6 +33,7 @@
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
