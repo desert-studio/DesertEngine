@@ -15,6 +15,10 @@
         {
             "Name": "RoughnessFactor",
             "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
         }
     ],
     "Textures": [
