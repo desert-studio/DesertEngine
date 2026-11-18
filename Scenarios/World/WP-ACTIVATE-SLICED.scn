@@ -18,6 +18,7 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Дано run Scene "Build HLODs"
+Дано wait-idle 2400
 Дано run Panel "Open World Partition"
 # Walk-up: the Plane 9000002 (Scripts/World/WPFly.lua, +X 125 m/s at 50 m, Main+Foliage - WP-SRC-ALTITUDE.scn) is the
 # source that reaches the heavy cell; its route must cross HEAVY (the lead places the Plane 250 m before it on -X).

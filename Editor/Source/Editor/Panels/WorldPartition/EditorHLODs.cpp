@@ -7,8 +7,10 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditorHLODComponent.hpp>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <unordered_map>
@@ -82,12 +84,12 @@ namespace Desert::Editor
             rows.emplace( row.Unit, &row );
 
         // Every record of the world, held or not: an HLOD record with one's id would be made over it the moment a
-        // region load brings it (Play refuses the same world by the same test).
+        // region load brings it (Play refuses the same world by the same test). The index lists each HLOD's record
+        // ids (StoredCellRecords checks its file against them), so the test needs no proxy file.
         const std::unordered_set<std::uint64_t> worldIds( m_World->RowIds.begin(), m_World->RowIds.end() );
-        const ::Desert::Core::SceneSerializer   serializer( &scene, assets );
-        std::vector<std::size_t>              units;
-        std::size_t                           missing = 0;
-        std::size_t                           records = 0;
+        std::vector<std::size_t>                units;
+        std::size_t                             missing = 0;
+        std::size_t                             records = 0;
         const auto refuse = [&]( const std::string& why )
         {
             Release( scene );
@@ -105,49 +107,29 @@ namespace Desert::Editor
             // A row without a file, or whose file lists no record, stands in for nothing (as in Play).
             if ( !row->second->File.has_value() || row->second->Ids.empty() )
                 continue;
-            // ONE CELL'S RECORDS ALIVE AT A TIME (WorldStreamer::CellHLOD): read, made, dropped before the next.
-            auto read = WC::StoredCellRecords( stored.GetValue(), *row->second );
-            if ( !read )
-                return refuse( name + ": " + read.GetError() );
-            const std::size_t hlod = m_HLODs.size();
-            MadeHLOD&         made = m_HLODs.emplace_back();
-            made.Unit              = unit;
-            for ( const ::Desert::Assets::EntityData& record : read.GetValue() )
+            MadeHLOD& made = m_HLODs.emplace_back();
+            made.Unit      = unit;
+            made.Row       = *row->second;
+            for ( const std::uint64_t id : made.Row.Ids )
             {
-                if ( !record.id.has_value() )
-                    continue;
-                if ( worldIds.contains( static_cast<std::uint64_t>( *record.id ) ) ||
-                     scene.FindEntityByID( *record.id ).has_value() )
+                if ( worldIds.contains( id ) || scene.FindEntityByID( Common::UUID( id ) ).has_value() )
                     return refuse(
                          std::format( "an HLOD record of {} has the id of a record of the world or of an "
                                       "entity the scene holds; rename the world",
                                       name ) );
-                made.Ids.push_back( *record.id );
+                made.Ids.emplace_back( id );
             }
-            // Listed before it is made: a refusal half-way destroys what was made of this cell too.
-            if ( auto instantiated = serializer.InstantiateRecords( read.GetValue(), scene.GetSceneName(), nullptr );
-                 !instantiated )
-                return refuse( name + ": " + instantiated.GetError() );
-            for ( const Common::UUID& id : m_HLODs[hlod].Ids )
-                if ( const auto entity = scene.FindEntityByID( id ) )
-                    TagTree( scene.GetRegistry(), entity->get().GetHandle(), hlod );
-            records += m_HLODs[hlod].Ids.size();
+            records += made.Ids.size();
             units.push_back( unit );
         }
         auto runtime = Rules::HLODRuntime::Make( plan, units );
         if ( !runtime )
             return refuse( runtime.GetError() );
         m_Runtime = runtime.ExtractValue();
-        // Hidden until the switch and the user's view say otherwise (Apply).
-        for ( MadeHLOD& made : m_HLODs )
-        {
-            for ( const Common::UUID& id : made.Ids )
-                if ( const auto entity = scene.FindEntityByID( id ) )
-                    scene.SetVisibleRecursive( entity->get(), false );
-            made.Drawn = false;
-        }
-        m_Status = std::format( "{} saved HLOD(s), {} record(s); {} cell(s) have no saved HLOD.", m_HLODs.size(),
-                                records, missing );
+        m_Reader  = std::move( stored.GetValue().Reader );
+        m_Assets  = assets;
+        m_Status  = std::format( "{} saved HLOD(s), {} record(s), each read when drawn; {} cell(s) have no saved HLOD.",
+                                 m_HLODs.size(), records, missing );
         LOG_INFO( "[WorldPartition] Editor HLODs of '{0}': {1}", path.string(), m_Status );
         return SyncHeld( scene, layerLoaded );
     }
@@ -155,20 +137,28 @@ namespace Desert::Editor
     void EditorHLODs::Release( ::Desert::Core::Scene& scene )
     {
         for ( const MadeHLOD& made : m_HLODs )
+        {
+            if ( made.State != Proxy::Made )
+                continue; // never made, or refused (MakeProxy destroyed what it made)
             for ( const Common::UUID& id : made.Ids )
                 if ( const auto found = scene.FindEntityByID( id ) )
                 {
                     const ECS::Entity entity = found->get();
                     scene.DestroyEntity( entity );
                 }
+        }
         Forget();
     }
 
     void EditorHLODs::Forget()
     {
+        // A read in flight is dropped with its future (a promise's future does not wait): its worker finishes and
+        // nobody takes what it read.
         m_HLODs.clear();
         m_Runtime.reset();
         m_World.reset();
+        m_Reader  = {};
+        m_Waiting = 0;
     }
 
     void EditorHLODs::ReleaseAll( ::Desert::Core::Scene& scene )
@@ -186,7 +176,7 @@ namespace Desert::Editor
     bool EditorHLODs::IsInScene( const ::Desert::Core::Scene& scene ) const
     {
         for ( const MadeHLOD& made : m_HLODs )
-            if ( !made.Ids.empty() )
+            if ( made.State == Proxy::Made && !made.Ids.empty() )
                 return scene.FindEntityByID( made.Ids.front() ).has_value();
         return true;
     }
@@ -224,18 +214,33 @@ namespace Desert::Editor
     void EditorHLODs::Apply( ::Desert::Core::Scene& scene, const EditorHLODView& view,
                              const std::optional<glm::vec3>& eye )
     {
+        m_Waiting = 0;
         if ( !m_World.has_value() )
             return;
-        const Rules::WorldPartitionPlan& plan = m_World->Plan;
-        for ( MadeHLOD& made : m_HLODs )
+        const Rules::WorldPartitionPlan& plan    = m_World->Plan;
+        bool                             madeOne = false;
+        for ( std::size_t hlod = 0; hlod < m_HLODs.size(); ++hlod )
         {
-            bool drawn = made.StandsIn && view.Show;
-            if ( drawn && eye.has_value() )
+            MadeHLOD& made   = m_HLODs[hlod];
+            bool      wanted = made.StandsIn && view.Show;
+            if ( wanted && eye.has_value() )
             {
                 const Rules::PlannedCell& cell = plan.Cells.at( made.Unit - plan.AlwaysLoaded.size() );
-                drawn = Rules::InEditorHLODRange( cell.Bounds, cell.Height, eye->x, eye->y, eye->z, view.MinDistance,
-                                                  view.MaxDistance );
+                wanted = Rules::InEditorHLODRange( cell.Bounds, cell.Height, eye->x, eye->y, eye->z,
+                                                   view.MinDistance, view.MaxDistance );
             }
+            if ( wanted && made.State == Proxy::Unread )
+                StartRead( made );
+            // One landed proxy made per frame: making its entities (and its mesh) is the main thread's part.
+            if ( !madeOne && made.State == Proxy::Reading &&
+                 made.Read.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
+            {
+                madeOne = true;
+                MakeProxy( scene, hlod );
+            }
+            if ( wanted && ( made.State == Proxy::Unread || made.State == Proxy::Reading ) )
+                ++m_Waiting;
+            const bool drawn = wanted && made.State == Proxy::Made;
             if ( made.Drawn == drawn )
                 continue;
             for ( const Common::UUID& id : made.Ids )
@@ -243,6 +248,53 @@ namespace Desert::Editor
                     scene.SetVisibleRecursive( entity->get(), drawn );
             made.Drawn = drawn;
         }
+    }
+
+    void EditorHLODs::StartRead( MadeHLOD& made )
+    {
+        made.State = Proxy::Reading;
+        made.Read  = Common::JobSystem::Get().Async(
+             [reader = m_Reader, row = made.Row]() noexcept -> ProxyRecords
+             {
+                 WC::StoredHLODs stored;
+                 stored.Reader = reader;
+                 return WC::StoredCellRecords( stored, row );
+             },
+             Common::JobPriority::Background );
+    }
+
+    void EditorHLODs::MakeProxy( ::Desert::Core::Scene& scene, const std::size_t hlod )
+    {
+        MadeHLOD&    made = m_HLODs[hlod];
+        ProxyRecords read = made.Read.get();
+        const auto   refuse = [&]( const std::string& why )
+        {
+            for ( const Common::UUID& id : made.Ids )
+                if ( const auto entity = scene.FindEntityByID( id ) )
+                    scene.DestroyEntity( entity->get() );
+            made.State = Proxy::Refused;
+            m_Status   = std::format( "The saved HLOD of {} was refused: {}", made.Row.Unit, why );
+            LOG_ERROR( "[WorldPartition] Editor HLOD of {0}: {1}", made.Row.Unit, why );
+        };
+        if ( !read )
+            return refuse( read.GetError() );
+        // Make checked these ids against the world; an entity made since (a paste, a new entity) is checked here.
+        for ( const Common::UUID& id : made.Ids )
+            if ( scene.FindEntityByID( id ).has_value() )
+                return refuse( "an HLOD record has the id of an entity the scene holds; rename the world" );
+        const ::Desert::Core::SceneSerializer serializer( &scene, m_Assets );
+        if ( auto instantiated = serializer.InstantiateRecords( read.GetValue(), scene.GetSceneName(), nullptr );
+             !instantiated )
+            return refuse( instantiated.GetError() );
+        // Hidden until Apply draws it (this frame, when it is still wanted).
+        for ( const Common::UUID& id : made.Ids )
+            if ( const auto entity = scene.FindEntityByID( id ) )
+            {
+                TagTree( scene.GetRegistry(), entity->get().GetHandle(), hlod );
+                scene.SetVisibleRecursive( entity->get(), false );
+            }
+        made.Drawn = false;
+        made.State = Proxy::Made;
     }
 
     std::size_t EditorHLODs::DrawnCount() const noexcept

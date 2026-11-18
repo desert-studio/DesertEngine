@@ -83,7 +83,8 @@ namespace Desert::Editor
         // (WorldPartitionPanel::TickBuild).
         // @p meshDropsLoading: a viewport's AsyncMeshLoader still imports or has not spawned a dropped mesh.
         void SampleFrameQuiescence( bool startupLoading, bool reflectionCapturesFilling, bool texturesStreaming,
-                                    bool hlodBuildRunning, bool miniMapBuildRunning, bool meshDropsLoading );
+                                    const Control::BackgroundReport& hlodBuild, bool miniMapBuildRunning,
+                                    bool meshDropsLoading, bool editorHLODsReading );
         // CAPTURING THE COMPOSITED FRAME, in two halves, because a swapchain image may only be touched
         // between its acquire and its present.
         //

@@ -11,6 +11,7 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Дано run Scene "Build HLODs"
+Дано wait-idle 2400
 Дано run Panel "Open World Partition"
 Дано set 9000002 StreamingSourceData.Enabled false
 Когда run Mode "Select mode"

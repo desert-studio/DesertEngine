@@ -111,10 +111,25 @@ namespace Desert::Editor
         /// whether the panel's window is open or not.
         void TickBuild();
 
-        /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
+        /// A Build HLODs is running (a worker phase or a bake): its cell files are not all written yet. The editor
+        /// reports it as background work - the command answers at once (ControlPipeline
+        /// BackgroundWork::HLODBuild).
         [[nodiscard]] bool IsBuildingHLODs() const noexcept
         {
             return m_Builder != nullptr;
+        }
+
+        /// Where the running Build HLODs is, in words (WorldPartitionHLODBuilder::Progress); "" when none runs.
+        [[nodiscard]] std::string HLODBuildProgress() const
+        {
+            return m_Builder ? m_Builder->Progress() : std::string();
+        }
+
+        /// How the last Build HLODs ended - what it built, or why it was refused; "" before the first one ends and
+        /// from the start of the next.
+        [[nodiscard]] const std::string& HLODBuildOutcome() const noexcept
+        {
+            return m_HLODBuildOutcome;
         }
 
         /// THE EDITOR'S HLODs (WP-EDITOR-HLOD, EditorHLODs.hpp): made for the scene once it is in Edit (again
@@ -141,6 +156,9 @@ namespace Desert::Editor
         void TickMiniMap();
         /// A Build Minimap is running: its texture is not written yet.
         [[nodiscard]] bool IsBuildingMiniMap() const noexcept { return m_MiniMapBuild != nullptr; }
+        /// Whether a saved HLOD the editor wants drawn is still being read or made (EditorHLODs::WaitingCount):
+        /// a frame drawn now shows its cell without it.
+        [[nodiscard]] bool IsReadingEditorHLODs() const noexcept { return m_EditorHLODs.WaitingCount() > 0; }
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -291,6 +309,7 @@ namespace Desert::Editor
         std::filesystem::path     m_StatusScene;         // the scene file the status was asked for
         std::size_t               m_StaleNotified = 0;   // stale rows the last notification counted
         std::string               m_HLODBuildStatus;     // the last build / delete refusal
+        std::string               m_HLODBuildOutcome;    // HLODBuildOutcome: the last build's summary or refusal
         // The saved HLODs of the cells the editor does not hold, and whether they must be made (again).
         void DrawEditorHLODs();
         // Whether each of the world's data layers is loaded in the editor for this user (empty: not partitioned).

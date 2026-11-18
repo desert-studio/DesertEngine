@@ -3,7 +3,10 @@
 # Play from Here looks through Camera 1003 (Auto Activate for Player, a child of the Player cube). In Play the
 # viewport subject IS that view target: `--subject viewport set Camera.*` moves camera 1003 (world pose -> its
 # local transform under the walking Player), so the view stays 400 m above the Player while it walks.
-# WP_Protocol_HLOD/ is a build product (not in git): the first step builds it (the reply waits for the bake).
+# WP_Protocol_HLOD/ is a build product: the first step builds it. Build HLODs answers at once and runs as background
+# work (its plan and its cell writes on a JobSystem worker, its bakes over editor frames - WP-HLOD-HANG), the editor
+# drawing all the while; wait-idle polls `state` until it and the editor HLODs in view are done (EditorHLODs reads
+# only the index at once, each drawn HLOD's proxy file on a worker) and prints its progress and outcome.
 # Paint (Foliage grid), VELOCITY and FAR-2 are separate scenarios (see the brief's REMAINDER).
 # WP22-LIT: Load All before AND after the palette edit (a new unsaved entity no longer blocks it), a paint stroke
 # on the loaded Main cells, a lit frame from 400 m; the boulder_01 type the palette made goes to the Trash at the end.
@@ -11,7 +14,9 @@
 # one 625 m slab (now 1.5 m; Player/Plane were 200 m, now 2 m). Sun: DirectionLight takes Rotation (was 0 = horizon), now pitch -50 deg.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Scene "Build HLODs"
+Дано wait-idle 2400
 Дано run Panel "Open World Partition"
+Тогда wp22_hlod_built Build HLODs ответил сразу, wait-idle дождался итога (line_*_wait-idle.txt: прогресс по стадиям, finished «built N of M HLOD cells … read back: 0 stale cells»), редактор рисует: вьюпорт - HLOD мира видны вдали (ячейки не загружены, без дыр), панель World Partition - строка «N of M saved HLOD(s) drawn», N > 0
 Дано run Scene "World Partition: Load All"
 Когда run Foliage "Add mesh to the palette: boulder_01"
 Когда run Scene "World Partition: Load All"
