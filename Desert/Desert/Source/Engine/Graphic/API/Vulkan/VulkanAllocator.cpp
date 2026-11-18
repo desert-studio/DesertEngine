@@ -13,6 +13,7 @@
 #include <Common/Utilities/ProcessMemory.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <array>
 #include <limits>
@@ -385,6 +386,11 @@ namespace Desert::Graphic::API::Vulkan
             RT_DestroyBuffer( buffer, allocation );
             return;
         }
+        // The one buffer this allocator destroys outside its queue: the blocking upload that read it was waited
+        // (flushed). Named, so a use-after-free hunt can rule it in or out (GPUSCENE-UAF-2).
+        LOG_DEBUG(
+             "[VulkanAllocator] staging buffer '{}' ({} bytes) destroyed at once: its blocking upload was waited",
+             m_Ledger.TagOf( LedgerKey( allocation ) ), AllocationSize( allocation ) );
         m_Ledger.Release( LedgerKey( allocation ) );
         vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
     }
@@ -838,8 +844,19 @@ namespace Desert::Graphic::API::Vulkan
         const Engine::FrameManager& frames         = Engine::FrameManager::GetInstance();
         const uint64_t              current        = frames.GetAbsoluteFrameCount();
         const uint32_t              framesInFlight = frames.GetMaxFramesInFlight();
-        (void)DestroyQueued( [current, framesInFlight]( uint64_t queued )
-                             { return IsRetired( queued, current, framesInFlight ); } );
+        // DESTROYED ON THE SUBMIT THREAD, IN QUEUE ORDER (GPUSCENE-UAF-MAC; UE: deferred deletes are flushed on the
+        // RHI thread between command list submissions, VulkanRdgTransientAllocator::BeginFrameSlot does the same).
+        // A retired entry is unused by every frame the fence covers, but MoltenVK encodes a command buffer inside
+        // vkQueueSubmit and makes every live buffer-device-address buffer resident in each dispatch
+        // (useResources): a vkDestroyBuffer / vkFreeMemory on this thread while the submit thread encodes the
+        // previous frame freed an MTLBuffer that encoder had already collected (AGXG13XFamilyBuffer zombie). Run
+        // after everything handed to the submit thread so far, the destruction can no longer overlap a submit.
+        VulkanFrameLoop::DeferRelease(
+             [this, current, framesInFlight]()
+             {
+                 (void)DestroyQueued( [current, framesInFlight]( uint64_t queued )
+                                      { return IsRetired( queued, current, framesInFlight ); } );
+             } );
         ScheduleMemorySampling();
     }
 
