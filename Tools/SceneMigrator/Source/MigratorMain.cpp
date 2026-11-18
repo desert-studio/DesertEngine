@@ -604,6 +604,13 @@ namespace
                              Desert::Migration::kWorldPartitionVersionHLODBuilders )
                 << "->v" << Desert::Migration::kWorldPartitionVersionHLODMergeMaterials
                 << " (merged HLOD materials: additive, nothing restated)";
+        if ( report.HLODBuilderSettingsRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionHLODMergeMaterials )
+                << "->v" << Desert::Migration::kWorldPartitionVersionHLODBuilderSettings << " ("
+                << report.HLODMergeMaterialsMoved
+                << " mesh layer(s)' MergeMaterials restated as Settings.MergeMaterials)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

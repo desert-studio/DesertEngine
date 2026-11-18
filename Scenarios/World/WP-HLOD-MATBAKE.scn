@@ -1,9 +1,10 @@
 # WP-HLOD-MATBAKE: a MeshSimplify HLOD layer with MergeMaterials - one atlas, one baked material, one draw per HLOD.
 # World: Scenes/WP_Protocol (see SCOPE-FAR-HLOD.scn). ITS FAR LAYER IS RESTATED AT LAND (content repo, migrated only
 # when merged - owner 10-26): HLOD_Main_Far becomes
-#   { "Name": "HLOD_Main_Far", "Type": "MeshSimplify", "SimplifyTrianglePercent": 0.25,
-#     "MergeMaterials": { "TextureSize": 1024, "NormalMap": true, "ORMMap": true, "EmissiveMap": false } }
-# and the file states WPAR 4 (Tools/SceneMigrator, kWorldPartitionVersionHLODMergeMaterials).
+#   { "Name": "HLOD_Main_Far", "Type": "MeshSimplify", "Settings": { "TrianglePercent": 0.25,
+#     "MergeMaterials": { "TextureSize": 1024, "NormalMap": true, "ORMMap": true, "EmissiveMap": false } } }
+# (WP v12: MergeMaterials is the mesh builder's Settings, UE UHLODBuilderMeshSimplifySettings; a v9..v11 layer-level
+# MergeMaterials is moved there by Tools/SceneMigrator, kWorldPartitionVersionHLODBuilderSettings).
 # Expected in editor.log during Build HLODs:
 #   "[Build HLODs] 'WP_Protocol': baking the merged materials of 16 mesh HLOD(s)"
 #   16 x "[Build HLODs] baked HLOD_<key>: 1024x1024 BaseColor + ORM + Normal -> .../M_HLOD_<key>.demat"
