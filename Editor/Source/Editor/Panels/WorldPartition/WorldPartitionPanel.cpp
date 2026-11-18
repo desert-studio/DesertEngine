@@ -1365,7 +1365,7 @@ namespace Desert::Editor
     }
 
     // The running build (WorldPartitionHLODBuilder): the landscape bake, then the mesh HLODs' merged materials,
-    // then the build that binds both.
+    // then the approximated cells' capture, then the build that binds them.
     void WorldPartitionPanel::TickBuild()
     {
         if ( !m_Builder || !m_Builder->Tick() )
@@ -1481,29 +1481,36 @@ namespace Desert::Editor
 
     Common::BoolResultStr WorldPartitionPanel::ConvertSceneToWorldPartition()
     {
-        if ( !m_Scene )
+        if ( auto converted = ConvertToWorldPartition( m_Scene ); !converted )
+            return converted;
+        m_EditPlanStale = true;
+        m_FocusPending  = true;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr ConvertToWorldPartition( const std::shared_ptr<::Desert::Core::Scene>& scene )
+    {
+        if ( !scene )
             return Common::MakeError( kConvertButtonLabel + ": there is no active scene." );
 
-        const auto converted = ::Desert::Core::Rules::ConvertToWorldPartition( m_Scene->GetSceneName(),
-                                                                               m_Scene->GetWorldPartition() );
+        const auto converted = ::Desert::Core::Rules::ConvertToWorldPartition( scene->GetSceneName(),
+                                                                               scene->GetWorldPartition() );
         if ( !converted.IsSuccess() )
             return Common::MakeError( converted.GetError() );
 
-        std::optional<::Desert::Core::WorldPartitionSerialized> before = m_Scene->GetWorldPartition();
+        std::optional<::Desert::Core::WorldPartitionSerialized> before = scene->GetWorldPartition();
         const ::Desert::Core::WorldPartitionSerialized&         after  = converted.GetValue();
-        m_Scene->SetWorldPartition( after );
+        scene->SetWorldPartition( after );
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
         CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
-             "Convert to World Partition", m_Scene, std::move( before ), after ) );
+             "Convert to World Partition", scene, std::move( before ), after ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
-        if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )
+        if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *scene ); !filed )
             return Common::MakeFormattedError<bool>( "{}: the world is partitioned but its foliage is not: {}",
                                                      kConvertButtonLabel, filed.GetError() );
 
-        m_EditPlanStale = true;
-        m_FocusPending  = true;
         return BOOLSUCCESS;
     }
 

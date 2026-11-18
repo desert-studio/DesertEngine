@@ -1,4 +1,7 @@
 // SCENE FILES — see SceneFiles.hpp. Moved out of EditorLayer.cpp unchanged (EDL-4).
+#include <Editor/Core/BuilderRunOptions.hpp>
+#include <Editor/Core/CommandLine.hpp>
+#include <Editor/Core/Control/ControlChannelOptions.hpp>
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
@@ -280,7 +283,11 @@ namespace Desert::Editor
         // happened — a refused save must not leave the launcher showing a world that was never
         // written. The failure is a toast and nothing more: the scene IS saved, and a launcher tile
         // without a picture is a state the launcher already draws.
-        if ( verdict.MarkSceneSaved )
+        // Not from an unattended session (CommandLine.hpp::IsUnattendedSession): a builder run's window was never
+        // shown, and its picture would be of nothing.
+        if ( verdict.MarkSceneSaved &&
+             !IsUnattendedSession( ShotOptions::Get(), Control::ControlChannelOptions::Get().Requested(),
+                                   BuilderRunOptions::Get().Active() ) )
             if ( const auto thumbnail = m_Capture.WriteProjectThumbnail(); !thumbnail.IsSuccess() )
                 Editor::ToastManager::Push(
                      std::format( "The scene was saved, but the project thumbnail was not: {}",

@@ -45,6 +45,12 @@ namespace Desert::Assets
 
 namespace Desert::Editor
 {
+    /// UE's "Convert Level to World Partition" on @p scene, as one undoable history entry: Rules::ConvertToWorld-
+    /// Partition's answer stored on the scene, and its foliage refiled by the new grid (FO-6, its own undo step).
+    /// Refuses, by name, a scene that is already partitioned. The panel's button and the Convert builder
+    /// (Editor/Builders/WorldPartitionBuilders.cpp) both run it.
+    [[nodiscard]] Common::BoolResultStr ConvertToWorldPartition( const std::shared_ptr<::Desert::Core::Scene>& scene );
+
     class WorldPartitionPanel final : public IPanel
     {
     public:
