@@ -28,5 +28,5 @@
 # Restore the scene: membership first (deleting a layer an entity names would leave a dangling name - an Issue).
 Когда set 9000001 DataLayersData.Layers []
 Когда set world WorldPartition.DataLayers []
-Когда run Scene "Save"
+Когда run Action "Save Scene"
 Тогда dl_restored раздел Data Layers: "This world has no data layers."; мир как в начале

@@ -21,7 +21,7 @@
 Дано set world WorldPartition.DataLayers '[{"Name":"Night","InitiallyLoadedInEditor":true,"Type":"Runtime","InitialRuntimeState":"Activated"}]'
 Дано add-component 200414 DataLayersData
 Дано set 200414 DataLayersData.Layers '["Night"]'
-Дано run Scene "Save"
+Дано run Action "Save Scene"
 Дано run Scene "Build HLODs"
 Дано wait-idle 2400
 Дано set 1003 CameraData.Far 800000
@@ -42,7 +42,7 @@
 Когда set 200414 DataLayersData.Layers []
 Когда set world WorldPartition.DataLayers []
 Когда set 1003 CameraData.Far 306000
-Когда run Scene "Save"
+Когда run Action "Save Scene"
 Когда run Scene "Build HLODs"
 Когда wait-idle 2400
 Тогда hlod_dl_restored мир как в начале: в разделе Data Layers "This world has no data layers."; Build HLODs без строк _DL

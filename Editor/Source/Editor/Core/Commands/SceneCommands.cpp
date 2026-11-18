@@ -3096,8 +3096,8 @@ namespace Desert::Editor::Commands
             return Common::MakeError<bool>( std::format( "no entity {}", static_cast<std::uint64_t>( Common::UUID( uuid ) ) ) );
         ECS::Entity entity = *e;
 
-        const Core::Serialize::ComponentSerializer* serializer = nullptr;
-        for ( const auto& s : Core::Serialize::ComponentRegistry::Get().All() )
+        const ::Desert::Core::Serialize::ComponentSerializer* serializer = nullptr;
+        for ( const auto& s : ::Desert::Core::Serialize::ComponentRegistry::Get().All() )
             if ( s.Key == block && s.Has && s.Has( entity ) )
                 serializer = &s;
         if ( serializer == nullptr || !serializer->Serialize || !serializer->Deserialize )

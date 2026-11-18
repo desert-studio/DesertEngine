@@ -1392,7 +1392,8 @@ namespace Desert::Editor
                                  std::format( "WorldPartition.IsSpatiallyLoaded is true or false, not '{}'",
                                               request.Text ) );
                         const bool         spatial  = request.Text == "true";
-                        const Common::UUID entityId = ControlEntityId( request.Entity ).GetValue();
+                        const auto         entityWord = ControlEntityId( request.Entity );
+                        const Common::UUID entityId   = entityWord.GetValue();
                         Core::SelectionManager::SetSelected( entityId );
                         if ( spatial == !en.HasComponent<ECS::AlwaysLoadedComponent>() )
                             return Control::Response::Success( request.Id );

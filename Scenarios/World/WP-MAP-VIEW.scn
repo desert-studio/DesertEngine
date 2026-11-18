@@ -20,6 +20,6 @@
 Тогда map_zoomed тот же вид ближе: белые прямоугольники отпечатков загруженных сущностей с именами внутри тех, где имя помещается
 # Lead: the bench entity of WP_Protocol (Outliner tag "Bench") - its id here; any change of its mesh record makes its cell's HLOD stale.
 Когда set Bench StaticMesh.Scale 1,1.5,1
-Когда run Scene "Save"
+Когда run Action "Save Scene"
 Когда run Scene "World Partition: Refresh"
 Тогда map_footprints_stale прямоугольники и имена сущностей; ячейка скамейки обведена толстой пурпурной рамкой (HLOD stale), в легенде "HLOD stale (Build HLODs again) (1)"
