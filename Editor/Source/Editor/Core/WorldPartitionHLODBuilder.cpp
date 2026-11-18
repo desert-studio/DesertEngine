@@ -17,9 +17,11 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <span>
 #include <system_error>
@@ -91,9 +93,65 @@ namespace Desert::Editor
     {
     }
 
-    WorldPartitionHLODBuilder::~WorldPartitionHLODBuilder() = default;
+    // What Plan gathered for the bakes, handed to the editor's thread by StartBakes.
+    struct WorldPartitionHLODBuilder::Planned
+    {
+        std::string                                  Text;     // the saved scene text the material bake reads
+        std::optional<::Desert::Core::LoadableScene> Loadable; // the landscape bake's world
+        std::optional<::Desert::Core::LoadableScene> Captured; // the approximation capture's own parse of Text
+        std::vector<LandscapeHLODBakeTile>           Areas;
+        std::vector<HLODMaterialBakeJob>             MeshJobs;
+        std::vector<HLODApproximateBakeCell>         Approximations;
+    };
+
+    WorldPartitionHLODBuilder::~WorldPartitionHLODBuilder()
+    {
+        m_Cancel = true;
+        if ( m_Work.valid() )
+            m_Work.wait();
+    }
 
     Common::BoolResultStr WorldPartitionHLODBuilder::Start( const Assets::AssetManager* assets )
+    {
+        std::error_code ec;
+        if ( !std::filesystem::is_regular_file( m_ScenePath, ec ) )
+            return Common::MakeError( "Build HLODs: '" + m_ScenePath.string() + "' is not a saved scene file" );
+        m_Assets = assets;
+        m_Stage  = Stage::Planning;
+        RunOnWorker( &WorldPartitionHLODBuilder::Plan );
+        LOG_INFO( "[Build HLODs] '{0}': started (reading the saved world on a worker)",
+                  m_ScenePath.stem().string() );
+        return BOOLSUCCESS;
+    }
+
+    void WorldPartitionHLODBuilder::RunOnWorker( Common::BoolResultStr ( WorldPartitionHLODBuilder::*phase )() )
+    {
+        m_CellsDone = 0;
+        m_Work      = Common::JobSystem::Get().Async( [this, phase]() noexcept { return ( this->*phase )(); },
+                                                 Common::JobPriority::Background );
+    }
+
+    std::string WorldPartitionHLODBuilder::Progress() const
+    {
+        switch ( m_Stage )
+        {
+            case Stage::Planning:
+                return std::format( "reading the saved world: {} HLOD cell(s) checked", m_CellsDone.load() );
+            case Stage::Baking:
+                if ( m_Bake )
+                    return "baking the landscape tiles' BaseColor";
+                if ( m_MeshBake )
+                    return "baking the mesh HLODs' merged materials";
+                if ( m_ApproxBake )
+                    return "capturing the approximated cells' textures";
+                return "starting to write the HLOD cells";
+            case Stage::Writing:
+                return std::format( "building and writing the HLOD cells: {} written", m_CellsDone.load() );
+        }
+        return {};
+    }
+
+    Common::BoolResultStr WorldPartitionHLODBuilder::Plan()
     {
         auto saved = ReadSavedWorld( m_ScenePath );
         if ( !saved )
@@ -198,42 +256,57 @@ namespace Desert::Editor
         if ( auto probe =
                   WC::BuildWorldHLODs( world.Loadable.Scene, world.Descriptors, registries, WC::PrefabFileReader(),
                                        probeBuilders, previous ? &*previous : nullptr,
-                                       []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
+                                       [this]( WC::CookedFile ) -> Common::BoolResultStr
+                                       {
+                                           if ( m_Cancel )
+                                               return Common::MakeError( "the build was cancelled" );
+                                           ++m_CellsDone;
+                                           return BOOLSUCCESS;
+                                       } );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );
-        if ( areas.empty() && meshJobs.empty() && approximations.empty() )
-        {
-            m_Done    = true;
-            auto done = Finish( {}, {}, {} );
-            m_ApproxShells.clear();
-            return done;
-        }
+        auto plan = std::make_unique<Planned>();
         if ( !approximations.empty() )
         {
             // Its own parse of the same saved text: the landscape bake takes the first.
             auto captured = ::Desert::Core::ParseLoadableScene( m_ScenePath.string(), world.Text );
             if ( !captured )
                 return Common::MakeError( "Build HLODs: " + captured.GetError() );
-            LOG_INFO( "[Build HLODs] '{0}': capturing the textures of {1} approximated cell(s)",
-                      m_ScenePath.stem().string(), approximations.size() );
-            m_ApproxBake = std::make_unique<HLODApproximateBake>( m_ScenePath, captured.ExtractValue(),
-                                                                  std::move( approximations ), assets );
+            plan->Captured = captured.ExtractValue();
         }
-        if ( !meshJobs.empty() )
+        plan->Text           = std::move( world.Text );
+        plan->Loadable       = std::move( world.Loadable );
+        plan->Areas          = std::move( areas );
+        plan->MeshJobs       = std::move( meshJobs );
+        plan->Approximations = std::move( approximations );
+        m_Plan               = std::move( plan );
+        return BOOLSUCCESS;
+    }
+
+    void WorldPartitionHLODBuilder::StartBakes()
+    {
+        const std::unique_ptr<Planned> plan = std::move( m_Plan );
+        if ( !plan->Approximations.empty() )
+        {
+            LOG_INFO( "[Build HLODs] '{0}': capturing the textures of {1} approximated cell(s)",
+                      m_ScenePath.stem().string(), plan->Approximations.size() );
+            m_ApproxBake = std::make_unique<HLODApproximateBake>( m_ScenePath, std::move( *plan->Captured ),
+                                                                  std::move( plan->Approximations ), m_Assets );
+        }
+        if ( !plan->MeshJobs.empty() )
         {
             LOG_INFO( "[Build HLODs] '{0}': baking the merged materials of {1} mesh HLOD(s)",
-                      m_ScenePath.stem().string(), meshJobs.size() );
-            m_MeshBake =
-                 std::make_unique<HLODMaterialBake>( m_ScenePath, world.Text, std::move( meshJobs ), assets );
+                      m_ScenePath.stem().string(), plan->MeshJobs.size() );
+            m_MeshBake = std::make_unique<HLODMaterialBake>( m_ScenePath, plan->Text, std::move( plan->MeshJobs ),
+                                                             m_Assets );
         }
-        if ( !areas.empty() )
+        if ( !plan->Areas.empty() )
         {
             LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)",
-                      m_ScenePath.stem().string(), areas.size() );
-            m_Bake = std::make_unique<LandscapeHLODBake>( m_ScenePath, std::move( world.Loadable ),
-                                                          std::move( areas ), assets );
+                      m_ScenePath.stem().string(), plan->Areas.size() );
+            m_Bake = std::make_unique<LandscapeHLODBake>( m_ScenePath, std::move( *plan->Loadable ),
+                                                          std::move( plan->Areas ), m_Assets );
         }
-        return BOOLSUCCESS;
     }
 
     bool WorldPartitionHLODBuilder::Refuse( std::string error )
@@ -243,6 +316,7 @@ namespace Desert::Editor
         m_ApproxBake.reset();
         m_LandscapeBaked.clear();
         m_MeshBaked.clear();
+        m_Approximated.clear();
         m_ApproxShells.clear();
         m_Done  = true;
         m_Error = std::move( error );
@@ -253,9 +327,31 @@ namespace Desert::Editor
     {
         if ( m_Done )
             return true;
+        // A worker phase in flight is polled, never waited for: the editor draws on while it runs.
+        if ( m_Work.valid() )
+        {
+            if ( m_Work.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+                return false;
+            const Common::BoolResultStr result = m_Work.get();
+            if ( m_Stage == Stage::Writing )
+            {
+                m_Done = true;
+                if ( !result )
+                    m_Error = result.GetError();
+                m_LandscapeBaked.clear();
+                m_MeshBaked.clear();
+                m_Approximated.clear();
+                m_ApproxShells.clear();
+                return true;
+            }
+            if ( !result )
+                return Refuse( result.GetError() );
+            StartBakes();
+            m_Stage = Stage::Baking;
+            return false; // the bakes run from the next frame on; with none to run, Finish starts then
+        }
         // The landscape bake first, then the merged materials, then the approximated cells' capture; what a
-        // finished stage wrote waits in m_LandscapeBaked / m_MeshBaked for the later ones.
-        std::vector<HLODApproximateBaked> approximated;
+        // finished stage wrote waits in m_LandscapeBaked / m_MeshBaked / m_Approximated for Finish.
         if ( m_Bake )
         {
             if ( !m_Bake->Tick() )
@@ -285,24 +381,18 @@ namespace Desert::Editor
             const std::unique_ptr<HLODApproximateBake> bake = std::move( m_ApproxBake );
             if ( bake->Error() )
                 return Refuse( "Build HLODs: the approximation capture was refused: " + *bake->Error() );
-            approximated = bake->Baked();
+            m_Approximated = bake->Baked();
         }
-        m_Done                                               = true;
-        const std::vector<LandscapeHLODBaked> landscapeBaked = std::move( m_LandscapeBaked );
-        const std::vector<HLODMaterialBaked>  meshBaked      = std::move( m_MeshBaked );
-        m_LandscapeBaked.clear();
-        m_MeshBaked.clear();
-        if ( auto done = Finish( landscapeBaked, meshBaked, approximated ); !done )
-            m_Error = done.GetError();
-        m_ApproxShells.clear();
-        return true;
+        m_Stage = Stage::Writing;
+        RunOnWorker( &WorldPartitionHLODBuilder::Finish );
+        return false;
     }
 
-    Common::BoolResultStr
-    WorldPartitionHLODBuilder::Finish( const std::vector<LandscapeHLODBaked>&   baked,
-                                       const std::vector<HLODMaterialBaked>&    meshBaked,
-                                       const std::vector<HLODApproximateBaked>& approximated )
+    Common::BoolResultStr WorldPartitionHLODBuilder::Finish()
     {
+        const std::vector<LandscapeHLODBaked>&   baked        = m_LandscapeBaked;
+        const std::vector<HLODMaterialBaked>&    meshBaked    = m_MeshBaked;
+        const std::vector<HLODApproximateBaked>& approximated = m_Approximated;
         auto saved = ReadSavedWorld( m_ScenePath );
         if ( !saved )
             return Common::MakeError( "Build HLODs: " + saved.GetError() );
@@ -331,7 +421,7 @@ namespace Desert::Editor
         };
         builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( landscape ) );
         // Each merged-material mesh HLOD is the very mesh its bake was made for, bound to the material the bake
-        // wrote (UE FMeshMergingSettings::bMergeMaterials). Each approximated cell's shell - Start's, by its key
+        // wrote (UE FMeshMergingSettings::bMergeMaterials). Each approximated cell's shell - Plan's, by its key
         // (wrapped again only if Start did not see it) - bound to the one material its capture wrote. One that was
         // not baked is refused by name: drawn without its material it would stand in grey.
         const ::Desert::Core::Rules::HLODMeshBuilder mesh =
@@ -386,6 +476,9 @@ namespace Desert::Editor
                                           WC::PrefabFileReader(), builders, previous ? &*previous : nullptr,
                                           [&]( WC::CookedFile file ) -> Common::BoolResultStr
                                           {
+                                              if ( m_Cancel )
+                                                  return Common::MakeError( "the build was cancelled" );
+                                              ++m_CellsDone;
                                               bytes += file.Bytes.size();
                                               ++files;
                                               LOG_INFO( "[Build HLODs] {0}: {1} bytes",
@@ -430,6 +523,10 @@ namespace Desert::Editor
         if ( !stale.GetValue().empty() )
             return Common::MakeError(
                  std::format( "Build HLODs: {} cell(s) read back stale", stale.GetValue().size() ) );
+        m_Summary = std::format( "Build HLODs '{}': built {} of {} HLOD cells ({}); {} file(s), {} bytes written; "
+                                 "read back: 0 stale cells",
+                                 m_ScenePath.stem().string(), result.Built.size(), result.Index.Cells.size(),
+                                 m_Options.ForceAll ? "force all" : "others up to date", files, bytes );
         return BOOLSUCCESS;
     }
 

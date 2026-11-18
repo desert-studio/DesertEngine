@@ -22,6 +22,7 @@
 Дано set 200414 DataLayersData.Layers ["Night"]
 Дано run Scene "Save"
 Дано run Scene "Build HLODs"
+Дано wait-idle 2400
 Дано set 1003 CameraData.Far 800000
 Когда run Mode "Select mode"
 Когда run Action "Play"
@@ -42,4 +43,5 @@
 Когда set 1003 CameraData.Far 306000
 Когда run Scene "Save"
 Когда run Scene "Build HLODs"
+Когда wait-idle 2400
 Тогда hlod_dl_restored мир как в начале: в разделе Data Layers "This world has no data layers."; Build HLODs без строк _DL

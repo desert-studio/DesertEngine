@@ -17,6 +17,7 @@
 Дано set 200222 RuntimeGridData.Grid "Persistent"
 Дано run Scene "Save"
 Дано run Scene "Build HLODs"
+Дано wait-idle 2400
 Тогда hashset_panel панель World Partition, раздел Runtime partitions: 4 строки, у Main/Foliage/LandscapeTiles тип LHGrid с размерами ячеек, у Persistent тип Persistent и прочерки вместо размеров; раздел HLOD setups per partition: Main (LHGrid) - HLOD0 'Near' = HLOD_Main, HLOD1 'Far' = HLOD_Main_Far; Persistent (Persistent) - "always loaded: no HLOD stands in for it"
 Когда run Mode "Select mode"
 Когда run Action "Play"

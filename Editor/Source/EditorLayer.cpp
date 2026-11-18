@@ -722,13 +722,16 @@ namespace Desert::Editor
     // `quit` whose reply has gone out comes back as the status to close with.
     void EditorLayer::SampleControlQuiescence()
     {
-        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling(),
-                                         m_Startup.ReflectionCapturesFilling(),
-                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
-                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
-                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
-                                         ViewportPanel::AnyMeshDropLoading(),
-                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsReadingEditorHLODs() );
+        m_Control.SampleFrameQuiescence(
+             m_Startup.StartupLoading() || m_Startup.ContentSettling(), m_Startup.ReflectionCapturesFilling(),
+             Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
+             m_WorldPartitionPanel ? Control::BackgroundReport{ m_WorldPartitionPanel->IsBuildingHLODs(),
+                                                                m_WorldPartitionPanel->HLODBuildProgress(),
+                                                                m_WorldPartitionPanel->HLODBuildOutcome() }
+                                   : Control::BackgroundReport{},
+             m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
+             ViewportPanel::AnyMeshDropLoading(),
+             m_WorldPartitionPanel && m_WorldPartitionPanel->IsReadingEditorHLODs() );
     }
 
     bool EditorLayer::AdmitShotFrame()

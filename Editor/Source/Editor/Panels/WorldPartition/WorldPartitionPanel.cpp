@@ -2078,7 +2078,8 @@ namespace Desert::Editor
     Common::BoolResultStr WorldPartitionPanel::BuildHLODs( HLODBuildOptions options )
     {
         if ( m_Builder )
-            return Common::MakeError( "Build HLODs: a build is already running (its landscape bake)." );
+            return Common::MakeError(
+                 std::format( "Build HLODs: a build is already running ({})", m_Builder->Progress() ) );
         if ( !m_Scene )
             return Common::MakeError( "Build HLODs: there is no active scene." );
         const auto& baseline = m_Scene->Packages()->BaselinePath();
@@ -2101,6 +2102,7 @@ namespace Desert::Editor
         m_Builder = std::move( builder );
         m_SavePrompt.reset();
         m_HLODBuildStatus.clear();
+        m_HLODBuildOutcome.clear();
         return BOOLSUCCESS;
     }
 
@@ -2138,8 +2140,9 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
-    // The running build (WorldPartitionHLODBuilder): the landscape bake, then the mesh HLODs' merged materials,
-    // then the approximated cells' capture, then the build that binds them.
+    // The running build (WorldPartitionHLODBuilder): its plan on a worker, the landscape bake, then the mesh
+    // HLODs' merged materials, then the approximated cells' capture, then the build that binds them on a worker
+    // again.
     void WorldPartitionPanel::TickBuild()
     {
         if ( !m_Builder || !m_Builder->Tick() )
@@ -2151,10 +2154,12 @@ namespace Desert::Editor
         if ( builder->Error() )
         {
             LOG_ERROR( "[Build HLODs] {0}", *builder->Error() );
-            m_HLODBuildStatus = *builder->Error();
+            m_HLODBuildStatus  = *builder->Error();
+            m_HLODBuildOutcome = *builder->Error();
             ToastManager::Push( *builder->Error(), ToastLevel::Error, 8.0f );
             return;
         }
+        m_HLODBuildOutcome = builder->Summary();
         ToastManager::Push( "Build HLODs: done", ToastLevel::Success );
     }
 
@@ -2203,7 +2208,8 @@ namespace Desert::Editor
             if ( ImGui::CollapsingHeader( "HLODs", ImGuiTreeNodeFlags_DefaultOpen ) )
             {
                 if ( m_Builder )
-                    ImGui::TextUnformatted( "Building HLODs (landscape bake)..." );
+                    ImGui::TextWrapped( "%s",
+                                        std::format( "Building HLODs: {}...", m_Builder->Progress() ).c_str() );
                 else if ( !m_HLODStatusError.empty() )
                     ImGui::TextWrapped( "HLOD status: %s", m_HLODStatusError.c_str() );
                 else if ( m_HLODStatus && !m_HLODStatus->Built )

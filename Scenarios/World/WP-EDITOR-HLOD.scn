@@ -10,6 +10,7 @@
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Дано run Scene "Build HLODs"
+Дано wait-idle 2400
 Дано set world WorldPartitionEditor.ShowHLODs true
 Дано set world WorldPartitionEditor.HLODMinDrawDistance 0
 Дано set world WorldPartitionEditor.HLODMaxDrawDistance 0

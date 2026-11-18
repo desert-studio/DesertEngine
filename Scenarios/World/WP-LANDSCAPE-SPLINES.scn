@@ -16,6 +16,7 @@
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Дано run Scene "World Partition: Build HLODs"
+Дано wait-idle 2400
 Дано run Mode "Select mode"
 Дано run Action "Play"
 Дано advance 2

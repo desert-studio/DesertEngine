@@ -633,7 +633,8 @@ namespace Desert::Editor
     }
 
     void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
-                                                const bool texturesStreaming, const bool hlodBuildRunning,
+                                                const bool                       texturesStreaming,
+                                                const Control::BackgroundReport& hlodBuild,
                                                 const bool miniMapBuildRunning, const bool meshDropsLoading,
                                                 const bool editorHLODsReading )
     {
@@ -693,10 +694,6 @@ namespace Desert::Editor
         // first Starter shot after boot came back with a black sky that the next frame had filled.
         quiescence.Set( Control::PendingWork::ReflectionCaptures, reflectionCapturesFilling );
         quiescence.Set( Control::PendingWork::TexturesStreaming, texturesStreaming );
-        // UE's Build HLODs is one modal step: it returns once the HLOD packages are on disk. Here the landscape
-        // BaseColor bake runs over editor frames (TickBuild), so the reply to `run "Build HLODs"` waits for it -
-        // a Save or quit answered earlier cut the bake and no <Scene>_HLOD/ was written (WP-PROTOCOL.scn).
-        quiescence.Set( Control::PendingWork::HLODBuild, hlodBuildRunning );
         // UE's HLOD editor subsystem loads an HLOD actor's package when it is to be shown; here its proxy file is
         // read on a worker (EditorHLODs), so a frame - and the reply to Build HLODs or a region change - waits for
         // the HLODs in view as it waits for streaming textures.
@@ -713,6 +710,13 @@ namespace Desert::Editor
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
+        // Build HLODs the same way (UE runs it as the World Partition builder commandlet's job behind a progress
+        // notification): its world reads, cell builds and writes run on a JobSystem worker and its bakes over
+        // editor frames, minutes on a large world, so `run "Build HLODs"` answers "started" and the editor stays
+        // responsive; a client polls `state` (DesertCtl wait-idle) for its progress and outcome. Waiting for idle
+        // also covers the editor HLODs it leaves to read (PendingWork::EditorHLODs) - and a Save or quit sent only
+        // after it.
+        quiescence.Set( Control::BackgroundWork::HLODBuild, hlodBuild );
         m_FrameQuiescence = quiescence;
     }
 

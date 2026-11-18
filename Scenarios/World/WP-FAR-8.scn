@@ -20,6 +20,7 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Дано run Scene "Build HLODs"
+Дано wait-idle 2400
 Дано set 9000001 StreamingSourceData.Enabled false
 Дано set 9000002 StreamingSourceData.Enabled true
 Дано set 9000002 StreamingSourceData.ShapeOffset 0,195000,0

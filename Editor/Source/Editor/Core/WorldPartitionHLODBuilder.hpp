@@ -13,12 +13,15 @@
 // the builder version). A build rebuilds only the rows whose checksum changed and keeps every other row and its
 // file, as UE skips an HLOD actor whose hash is unchanged; ForceAll rebuilds every row.
 //
-// TWO PHASES, as before: Start checks the world and starts what the stale rows bake over the next editor frames -
-// their landscape tiles' BaseColor (LandscapeHLODBake), their mesh HLODs' merged materials (HLODMaterialBake,
-// WP-HLOD-MATBAKE) and their MeshApproximate cells' captured textures (HLODApproximateBake, WP-HLOD-APPROX), in
-// that order; Tick finishes them - the stale rows are built with each HLOD bound to the material its bake wrote,
-// written cell by cell, the index saved and everything read back and checked stale-free. A build with nothing to
-// bake finishes inside Start.
+// THREE STAGES, none on the editor's thread for longer than a frame (WP-HLOD-HANG: a 598-cell world held it 6 min
+// in the first phase and 10 min in the last). Plan, on a JobSystem worker: the world is read and the builders run
+// over the stale rows to gather what they bake. The bakes, over editor frames: their landscape tiles' BaseColor
+// (LandscapeHLODBake), their mesh HLODs' merged materials (HLODMaterialBake, WP-HLOD-MATBAKE) and their
+// MeshApproximate cells' captured textures (HLODApproximateBake, WP-HLOD-APPROX), in that order. Finish, on a
+// worker again: the stale rows are built with each HLOD bound to the material its bake wrote, written cell by
+// cell, the index saved and everything read back and checked stale-free. A build with nothing to bake goes from
+// Plan straight to Finish. The editor answers Build HLODs at once and reports the run as background work
+// (Progress).
 
 #include "HLODApproximateBake.hpp"
 #include "HLODMaterialBake.hpp"
@@ -28,8 +31,10 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <filesystem>
+#include <future>
 #include <map>
 #include <memory>
 #include <optional>
@@ -65,12 +70,15 @@ namespace Desert::Editor
         WorldPartitionHLODBuilder( const WorldPartitionHLODBuilder& )            = delete;
         WorldPartitionHLODBuilder& operator=( const WorldPartitionHLODBuilder& ) = delete;
 
-        /// Starts Build HLODs of the world saved at the scene path. Refused, by name, for a world the build refuses
-        /// (no WorldPartition block, no grid with an HLOD layer, a descriptor index that is not the world's...). A
-        /// previous index that does not read is not refused: every row is built again, and the log says why.
+        /// Starts Build HLODs of the world saved at the scene path: its first phase goes to a JobSystem worker and
+        /// this returns at once. Refused here only for a scene file that is not there; a world the build refuses
+        /// (no WorldPartition block, no grid with an HLOD layer, a descriptor index that is not the world's...)
+        /// ends the build with Error() from Tick. A previous index that does not read is not refused: every row is
+        /// built again, and the log says why.
         [[nodiscard]] Common::BoolResultStr Start( const Assets::AssetManager* assets );
 
-        /// One editor frame of the build. True once it has finished; Error() then says whether it failed.
+        /// One editor frame of the build: polls the worker phase, or advances a bake by a frame. Never blocks on
+        /// the worker. True once it has finished; Error() then says whether it failed.
         [[nodiscard]] bool Tick();
 
         /// Why the finished build failed; empty for a build that succeeded or is still running.
@@ -79,18 +87,53 @@ namespace Desert::Editor
             return m_Error;
         }
 
+        /// What a build that succeeded built and wrote, in words (UE's builder log summary); empty before.
+        [[nodiscard]] const std::string& Summary() const
+        {
+            return m_Summary;
+        }
+
+        /// Where a running build is, in words (UE's slow-task progress text): its stage, and on a worker phase how
+        /// many cells it has done.
+        [[nodiscard]] std::string Progress() const;
+
     private:
-        // The second phase: build the stale rows (each landscape HLOD bound to its @p baked material, each
-        // merged-material mesh HLOD to its @p meshBaked one, each approximated cell's shell to its @p approximated
-        // one), write, read back.
-        [[nodiscard]] Common::BoolResultStr Finish( const std::vector<LandscapeHLODBaked>&   baked,
-                                                    const std::vector<HLODMaterialBaked>&    meshBaked,
-                                                    const std::vector<HLODApproximateBaked>& approximated );
+        // THE TWO WORKER PHASES (UE builds HLODs in the builder commandlet's own process, never on the editor's
+        // game thread). Plan: read the saved world and the previous index, and run the builders over the rows to
+        // build to gather what they bake (m_Plan). Finish: build the stale rows (each landscape HLOD bound to the
+        // material m_LandscapeBaked holds for it, each merged-material mesh HLOD to its m_MeshBaked one, each
+        // approximated cell's shell to its m_Approximated one), write each cell's file, write the index, read
+        // back. Both run with the builder's members to themselves: Tick touches nothing they use until m_Work is
+        // ready.
+        [[nodiscard]] Common::BoolResultStr Plan();
+        [[nodiscard]] Common::BoolResultStr Finish();
+        // On the editor's thread once Plan has landed: the bakes it gathered, which render over editor frames.
+        void StartBakes();
+        // Runs @p phase on a JobSystem Background worker as m_Work.
+        void RunOnWorker( Common::BoolResultStr ( WorldPartitionHLODBuilder::*phase )() );
         // A stage's bake was refused: every later stage is dropped and the build ends with @p error.
         bool Refuse( std::string error );
 
+        enum class Stage
+        {
+            Planning, // Plan on the worker
+            Baking,   // the bakes over editor frames
+            Writing   // Finish on the worker
+        };
+
+        struct Planned; // what Plan hands the bakes (defined beside it)
+
         std::filesystem::path              m_ScenePath;
         HLODBuildOptions                   m_Options;
+        const Assets::AssetManager*        m_Assets = nullptr;
+        Stage                              m_Stage  = Stage::Planning;
+        std::future<Common::BoolResultStr> m_Work; // the worker phase in flight, if any
+        std::unique_ptr<Planned>           m_Plan; // Plan's result, until StartBakes takes it
+        // Cells built so far by the worker phase in flight (its sink counts them), for Progress.
+        std::atomic<std::size_t> m_CellsDone{ 0 };
+        // Set by the destructor (the editor closing, a scene unloading the panel): the worker phase's sink refuses
+        // the next cell, so the destructor's wait is one cell long, not the rest of the build.
+        std::atomic<bool>                  m_Cancel{ false };
         std::unique_ptr<LandscapeHLODBake> m_Bake; // the landscape BaseColor bake of the stale rows' tiles
         // The merged-material bake of the stale rows' mesh HLODs (WP-HLOD-MATBAKE), run after the landscape bake;
         // what the landscape bake wrote waits in m_LandscapeBaked until it is done.
@@ -102,9 +145,11 @@ namespace Desert::Editor
         std::map<std::string, ::Desert::Assets::StaticMeshComponentSer> m_ApproxShells;
         // What a finished stage wrote, waiting for the later stages.
         std::vector<LandscapeHLODBaked>   m_LandscapeBaked;
-        std::vector<HLODMaterialBaked>     m_MeshBaked;
-        bool                               m_Done = false;
-        std::optional<std::string>         m_Error;
+        std::vector<HLODMaterialBaked>    m_MeshBaked;
+        std::vector<HLODApproximateBaked> m_Approximated;
+        bool                              m_Done = false;
+        std::optional<std::string>        m_Error;
+        std::string                       m_Summary;
     };
 
     /// Which of the HLOD rows of the world saved at @p scenePath are missing or stale (UE's World Partition

@@ -11,6 +11,7 @@
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Дано run Scene "Build HLODs"
+Дано wait-idle 2400
 Дано run Scene "Build Minimap"
 Дано run Scene "World Partition: Refresh"
 Тогда map_minimap панель World Partition: под сеткой ячеек - вид мира сверху (ландшафт, дороги, дома), сетка ячеек и цвета состояний поверх; у ячеек с HLOD голубая внутренняя рамка, в легенде строки "HLOD built (N)" и "HLOD stale (Build HLODs again) (0)"
