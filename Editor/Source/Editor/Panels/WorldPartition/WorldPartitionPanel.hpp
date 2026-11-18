@@ -18,8 +18,7 @@
 //          handed in once, because Play's stop and a streaming error both destroy it from the editor's side.
 
 #include <Editor/Core/IPanel.hpp>
-#include "HLODMaterialBake.hpp"
-#include "LandscapeHLODBake.hpp"
+#include <Editor/Core/WorldPartitionHLODBuilder.hpp>
 #include "WorldPartitionMap.hpp"
 
 #include <Engine/Core/Serialize/EditorRegions.hpp>
@@ -71,24 +70,35 @@ namespace Desert::Editor
         /// the button and the command palette both show the same sentence.
         [[nodiscard]] Common::BoolResultStr ConvertSceneToWorldPartition();
 
-        /// UE's Build > Build HLODs (WP-FAR-6B, lead D1): every cell's HLOD of the world SAVED at the scene's
-        /// file (scene + entity files, as WorldCook reads it), built by Core::HLODBuilders and written to
-        /// `<Scene>_HLOD/` (WorldCells::BuiltHLODWriter, cell by cell); read back and checked stale-free. Refused,
-        /// by name, for a scene not opened from a file or a world the build refuses. Two phases: this call checks
-        /// the world and starts the landscape tiles' BaseColor bake (LandscapeHLODBake, over the next editor
-        /// frames); TickBuild finishes it — the HLODs are built with each landscape HLOD bound to its baked
-        /// material, written and read back. A world without landscape HLODs is built here at once.
-        [[nodiscard]] Common::BoolResultStr BuildHLODs();
+        /// UE's Build > Build HLODs (WorldPartitionHLODBuilder, WP-HLOD-BUILD): the HLOD rows of the world SAVED at
+        /// the scene's file whose checksum changed - records, the saved meshes / materials / textures they use, the
+        /// HLOD layer settings - are built and saved beside it, every other row is kept; @p options.ForceAll
+        /// rebuilds every row. A scene with unsaved changes (or never saved) is not refused: this window asks to
+        /// Save and build, as UE prompts to save the map before it builds HLODs from it. Refused, by name, while a
+        /// build runs or for a world the build refuses. The landscape bake runs over the next editor frames.
+        [[nodiscard]] Common::BoolResultStr BuildHLODs( HLODBuildOptions options = {} );
+
+        /// The prompt's "Save and build" (and the palette's): the scene saved through the editor's one save path
+        /// (SetSceneSaver), then BuildHLODs with the options the prompt was raised for.
+        [[nodiscard]] Common::BoolResultStr SaveAndBuildHLODs();
+
+        /// UE's -DeleteHLODs on this scene's world (WorldPartitionHLODBuilder.hpp DeleteHLODs). Refused while a
+        /// build runs and for a scene not opened from a file.
+        [[nodiscard]] Common::BoolResultStr DeleteHLODs();
+
+        /// The editor's one save of the open scene (SceneFiles::SaveOpenScene): true when it saved.
+        using SceneSaver = std::function<bool()>;
+        void SetSceneSaver( SceneSaver save )
+        {
+            m_SaveScene = std::move( save );
+        }
 
         /// Advances a running Build HLODs (its bake) by one editor frame; called every frame by EditorLayer,
         /// whether the panel's window is open or not.
         void TickBuild();
 
         /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
-        [[nodiscard]] bool IsBuildingHLODs() const noexcept
-        {
-            return m_Bake != nullptr || m_MeshBake != nullptr;
-        }
+        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Builder != nullptr; }
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -171,10 +181,13 @@ namespace Desert::Editor
         // (EditorRegions::LoadHeld); on success it becomes this user's state and is kept for the next open
         // (EditorLoadedRegions), on a refusal nothing changes. The undo history is reset when anything moved.
         [[nodiscard]] Common::BoolResultStr Reload( ::Desert::Core::EditorRegions::HeldRegions next );
-        // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
-        // material), write, read back.
-        [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked,
-                                                              const std::vector<HLODMaterialBaked>&  meshBaked );
+        // The HLODs section (Edit, a world with an HLOD layer): "N stale HLOD", Build HLODs / Force all / Delete
+        // HLODs, and the Save and build prompt.
+        void DrawHLODBuild();
+        // The saved world's HLOD status (HLODStatusOf), asked again when something it reads may have changed: the
+        // plan was remade, a build or delete finished, or the content registry saw a file written (a mesh or a
+        // material saved). More stale rows than before raise the notification.
+        void RefreshHLODStatus();
         void DrawMap( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                       const ::Desert::Core::WorldPartitionSerialized&  partition,
                       const ::Desert::Core::Rules::ResidencyState*     residency,
@@ -183,12 +196,19 @@ namespace Desert::Editor
         std::shared_ptr<::Desert::Core::Scene> m_Scene;
         ::Desert::Assets::AssetManager*        m_Assets;
         StreamerGetter                         m_Streamer;
-        // The landscape BaseColor bake of a running Build HLODs (BuildHLODs -> TickBuild).
-        std::unique_ptr<LandscapeHLODBake> m_Bake;
-        // The merged-material bake of the mesh HLODs (WP-HLOD-MATBAKE), run after the landscape bake; what the
-        // landscape bake wrote waits here until it is done.
-        std::unique_ptr<HLODMaterialBake> m_MeshBake;
-        std::vector<LandscapeHLODBaked>   m_LandscapeBaked;
+        // The running Build HLODs (BuildHLODs -> TickBuild).
+        std::unique_ptr<WorldPartitionHLODBuilder> m_Builder;
+        SceneSaver                                 m_SaveScene;
+        // A Build HLODs asked for on a scene with unsaved changes: the options it is to run with once saved.
+        std::optional<HLODBuildOptions> m_SavePrompt;
+        // The saved world's HLOD status, or why there is none, and what it was asked against.
+        std::optional<HLODStatus> m_HLODStatus;
+        std::string               m_HLODStatusError;
+        bool                      m_HLODStatusStale = true;
+        uint64_t                  m_RegistrySerial  = 0;     // ContentRegistry::WriteSerial at the last status
+        std::filesystem::path     m_StatusScene;             // the scene file the status was asked for
+        std::size_t               m_StaleNotified = 0;       // stale rows the last notification counted
+        std::string               m_HLODBuildStatus;         // the last build / delete refusal
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;

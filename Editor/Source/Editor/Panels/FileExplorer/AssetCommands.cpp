@@ -59,14 +59,33 @@ namespace Desert::Editor
                                                                 "Partition window does not exist" );
                                   return WorldPartition()->ConvertSceneToWorldPartition();
                               } } );
-        // UE's Build > Build HLODs: builds every cell's HLOD of the saved world and writes them beside it.
-        commands.push_back( { "Scene", std::string( ::Desert::Core::Rules::kBuildHLODsLabel ), [this]
-                              {
-                                  if ( WorldPartition() == nullptr )
-                                      return Common::MakeError( "Build HLODs: the World Partition window does "
-                                                                "not exist" );
-                                  return WorldPartition()->BuildHLODs();
-                              } } );
+        // UE's Build > Build HLODs (WorldPartitionHLODBuilder): the stale HLODs of the saved world built and
+        // saved beside it; force all rebuilds every one; Save and build saves the scene first; Delete HLODs
+        // removes them (UE's -DeleteHLODs).
+        const std::array<std::pair<std::string_view, int>, 4> hlodEntries{ {
+             { ::Desert::Core::Rules::kBuildHLODsLabel, 0 },
+             { ::Desert::Core::Rules::kBuildAllHLODsLabel, 1 },
+             { ::Desert::Core::Rules::kSaveAndBuildHLODsLabel, 2 },
+             { ::Desert::Core::Rules::kDeleteHLODsLabel, 3 },
+        } };
+        for ( const auto& [label, which] : hlodEntries )
+            commands.push_back( { "Scene", std::string( label ), [this, label = label, which = which]
+                                  {
+                                      if ( WorldPartition() == nullptr )
+                                          return Common::MakeError( std::format(
+                                               "{}: the World Partition window does not exist", label ) );
+                                      switch ( which )
+                                      {
+                                          case 0:
+                                              return WorldPartition()->BuildHLODs();
+                                          case 1:
+                                              return WorldPartition()->BuildHLODs( HLODBuildOptions{ true } );
+                                          case 2:
+                                              return WorldPartition()->SaveAndBuildHLODs();
+                                          default:
+                                              return WorldPartition()->DeleteHLODs();
+                                      }
+                                  } } );
 
         // The World Partition window's region buttons (UE's "Load Region from Selection" / "Unload All" /
         // "Load All" in the World Partition editor), offered unconditionally for the same reason as Convert.
