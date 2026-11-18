@@ -14,17 +14,17 @@
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Дано select 200408
-Дано run Scene "World Partition: Pin the selected entities"
+Дано run Scene "World Partition: Pin Selected"
 Дано run Scene "World Partition: Unload All"
 Дано select 200408
 Дано --subject selection set Translation 6464,-1004.1875,2261
-Тогда outliner_wp Outliner: строка "Main C08_08_B00" с оранжевой "*" (не сохранён) и закрашенной булавкой в колонке Pin; после загруженного дерева (всегда-загруженная часть + дом) - серые строки невыгруженных сущностей с типом (Static Mesh) и ячейкой "[L0 (x, z)]"; в шапке колонки Pin (булавка) и Data Layers; над таблицей флажки Unsaved и Unloaded и "N not loaded"; строка состояния World Partition: "... 1 pinned ..."
-Когда run Scene "World Partition: Unpin the selected entities"
+Тогда outliner_wp Outliner: строка "Main C08_08_B00" с оранжевой "*" (не сохранён) и закрашенной булавкой в колонке Pin; после загруженного дерева (всегда-загруженная часть + дом) - серые строки невыгруженных сущностей с типом (Static Mesh) и ячейкой "[L0 (x, z)]"; в шапке колонки Pin (булавка) и Data Layers; над таблицей флажки Unsaved и Unloaded и "N not loaded"; строка состояния World Partition: "... held by entity lists and pins ..." (1 композит)
+Когда run Scene "World Partition: Unpin Selected"
 Тогда outliner_prompt модальный диалог "Unsaved Entities": "1 unsaved entity: Main C08_08_B00", кнопки Save / Discard / Cancel; в мире ничего не выгружено (дом на месте, сдвинут)
 Когда input key - - Escape
 Тогда outliner_cancel диалога нет; строка состояния World Partition: "Cancelled: nothing was loaded or unloaded."; дом по-прежнему с "*" и закрашенной булавкой
 Когда run Action "Undo"
-Когда run Scene "World Partition: Unpin the selected entities"
+Когда run Scene "World Partition: Unpin Selected"
 Тогда outliner_unloaded без диалога: загружена только всегда-загруженная часть, дом - серая строка в Outliner (булавка пустая), "*" нет ни у одной строки
 Когда run Scene "World Partition: Load All"
 Тогда outliner_restored весь мир загружен, серых строк нет; дом на исходном месте

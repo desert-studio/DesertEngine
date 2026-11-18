@@ -116,10 +116,6 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr SetPinned( std::uint64_t record, bool pinned );
         /// Every record of @p records pinned or unpinned in one change (one reload, one prompt).
         [[nodiscard]] Common::BoolResultStr SetPinned( std::span<const std::uint64_t> records, bool pinned );
-        /// UE's outliner context menu Pin / Unpin on the selected actors: the selected entities that are records
-        /// of the world's files. Refused, naming it, for a selected entity no file states as a record (made since
-        /// the last save, or a part of a prefab instance - pin the record that states it).
-        [[nodiscard]] Common::BoolResultStr PinSelection( bool pinned );
         /// Whether Play runs the window's scene (its streamer exists): the editor's loaded part, its pins and its
         /// unsaved state are Edit's, and the outliner's World Partition mode is off.
         [[nodiscard]] bool Playing() const

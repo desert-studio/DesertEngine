@@ -87,20 +87,6 @@ namespace Desert::Editor
                                            WorldPartitionPanel::RegionRequest{ {}, which == 2 } );
                                   } } );
 
-        // UE's Scene Outliner context menu Pin / Unpin on the selected actors (the pinned actors loader adapter):
-        // the selected records are held whatever the regions, or left to them again.
-        for ( const bool pin : { true, false } )
-            commands.push_back( { "Scene",
-                                  pin ? std::string( "World Partition: Pin the selected entities" )
-                                      : std::string( "World Partition: Unpin the selected entities" ),
-                                  [this, pin]
-                                  {
-                                      if ( WorldPartition() == nullptr )
-                                          return Common::MakeError( "pin: the World Partition window does not "
-                                                                    "exist" );
-                                      return WorldPartition()->PinSelection( pin );
-                                  } } );
-
         // The Data Layers section's Loaded toggle (UE's Data Layer Outliner), one pair per layer of the world the
         // window follows: what the editor holds of the world again, under this user's changed layer state.
         if ( WorldPartition() != nullptr )

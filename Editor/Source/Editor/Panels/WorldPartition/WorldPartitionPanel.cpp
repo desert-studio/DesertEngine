@@ -1164,15 +1164,6 @@ namespace Desert::Editor
         return Reload( std::move( next ), ::Desert::Core::EditorRegions::UnsavedPolicy::Ask );
     }
 
-    Common::BoolResultStr WorldPartitionPanel::PinSelection( const bool pinned )
-    {
-        // The outliner's context menu and the Loaders list pin through the one path (SetSelectedPinned).
-        if ( Playing() )
-            return Common::MakeError<bool>( std::format( "{}: not during Play - the played world is all loaded.",
-                                                         pinned ? "Pin" : "Unpin" ) );
-        return SetSelectedPinned( Core::SelectionManager::GetSelection(), pinned );
-    }
-
     void WorldPartitionPanel::DrawUnloadPrompt()
     {
         constexpr const char* kPrompt = "Unsaved Entities##WorldPartitionUnload";
