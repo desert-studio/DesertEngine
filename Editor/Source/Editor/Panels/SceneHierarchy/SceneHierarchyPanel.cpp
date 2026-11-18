@@ -269,10 +269,14 @@ namespace Desert::Editor
                                        [&]( const ::Desert::Core::Serialize::ComponentSerializer& serializer )
                                        { return serializer.Key == kTypePrecedence[rule].Key; } );
                     if ( match == all.end() )
+                    {
                         LOG_ERROR( "[Outliner] type rule '{}' names no registered component",
                                    kTypePrecedence[rule].Key );
+                    }
                     else
+                    {
                         found[rule] = &*match;
+                    }
                 }
                 return found;
             }();

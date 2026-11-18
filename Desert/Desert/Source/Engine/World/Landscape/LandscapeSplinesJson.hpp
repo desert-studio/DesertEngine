@@ -56,10 +56,10 @@ namespace Desert::World::Landscape
                                         .Set( "SplineMeshes", Common::Json::Value( std::move( meshes ) ) )
                                         .Build() );
         }
-        Common::Json::Object splines;
-        splines["ControlPoints"] = Common::Json::Value( std::move( points ) );
-        splines["Segments"]      = Common::Json::Value( std::move( segments ) );
-        return splines;
+        Common::Json::Object object;
+        object["ControlPoints"] = Common::Json::Value( std::move( points ) );
+        object["Segments"]      = Common::Json::Value( std::move( segments ) );
+        return object;
     }
 
     // The splines are read whole or not at all, like the stack: an unreadable field, or a set

@@ -43,6 +43,24 @@ namespace Desert::Editor
                 list += std::format( "\n  {} - {}", row.Name, row.Summary );
             return list;
         }
+
+        // The editor's load (EditorRegions::LoadHeld) of what a builder step holds. An entity that differs from its
+        // file and would leave is refused, not dropped: UE saves the dirty packages before a builder runs, so a
+        // builder never unloads an unsaved edit - the user saves (or discards) and runs it again.
+        Common::ResultStr<Core::EditorRegions::RegionOutcome> HoldForBuilder( Core::Scene& scene,
+                                                                             Assets::AssetManager* assets,
+                                                                             const Core::EditorRegions::HeldRegions& held )
+        {
+            auto loaded = Core::EditorRegions::LoadHeld( scene, assets, held, Core::EditorRegions::UnsavedPolicy::Ask );
+            if ( !loaded || loaded.GetValue().Unsaved.empty() )
+                return loaded;
+            std::string names;
+            for ( const Core::EditorRegions::UnsavedEntity& entity : loaded.GetValue().Unsaved )
+                names += std::format( "{}{}", names.empty() ? "" : ", ", entity.Name );
+            return Common::MakeError<Core::EditorRegions::RegionOutcome>( std::format(
+                 "{} entit{} differ from their files and would be unloaded ({}): save the world first",
+                 loaded.GetValue().Unsaved.size(), loaded.GetValue().Unsaved.size() == 1 ? "y" : "ies", names ) );
+        }
     } // namespace
 
     Common::BoolResultStr IWorldPartitionBuilder::PreRun( BuilderContext& /*context*/ )
@@ -130,7 +148,7 @@ namespace Desert::Editor
         if ( !step )
             return Finish( Common::MakeError( step.GetError() ) );
         if ( step.GetValue() )
-            return Finish( BOOLSUCCESS );
+            return Finish( Common::MakeSuccess( true ) );
         return std::nullopt;
     }
 
@@ -213,7 +231,8 @@ namespace Desert::Editor
         {
             if ( mode == BuilderLoadingMode::EntireWorld && fromFiles )
             {
-                auto loaded = Core::EditorRegions::LoadWholeWorld( *scene, m_Assets.get(), m_Layers );
+                auto loaded = HoldForBuilder( *scene, m_Assets.get(),
+                                              Core::EditorRegions::HeldRegions{ .Whole = true, .DataLayers = m_Layers } );
                 if ( !loaded )
                     return Common::MakeError( "loading the entire world: " + loaded.GetError() );
                 if ( loaded.GetValue().Loaded > 0 || loaded.GetValue().Unloaded > 0 )
@@ -241,9 +260,10 @@ namespace Desert::Editor
         {
             if ( !cell.Whole )
             {
-                auto loaded = Core::EditorRegions::LoadRegions(
-                     *m_Context.Scene, m_Assets.get(), std::span<const Core::Rules::CellBounds>( &cell.Bounds, 1 ),
-                     m_Layers );
+                auto loaded = HoldForBuilder(
+                     *m_Context.Scene, m_Assets.get(),
+                     Core::EditorRegions::HeldRegions{ .Regions    = { Core::EditorRegions::RegionLoader{ cell.Bounds } },
+                                                       .DataLayers = m_Layers } );
                 if ( !loaded )
                     return Common::MakeError<bool>(
                          std::format( "cell {}/{}: loading it: {}", cell.Index + 1, cell.Count, loaded.GetError() ) );

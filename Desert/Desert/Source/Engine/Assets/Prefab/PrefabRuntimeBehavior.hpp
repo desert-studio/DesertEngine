@@ -20,7 +20,7 @@
 
 namespace Desert::Assets
 {
-    enum class PrefabRuntimeBehavior : std::uint8_t
+    enum class PrefabRuntimeBehavior
     {
         // UE ELevelInstanceRuntimeBehavior::Partitioned: the body's top-level records leave the instance root and
         // each is placed by its own bounds, so a prefab spanning many cells streams cell by cell. Moving the root

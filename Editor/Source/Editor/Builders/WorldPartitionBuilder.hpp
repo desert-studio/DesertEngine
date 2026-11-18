@@ -69,7 +69,7 @@ namespace Desert::Editor
     /// What a builder works on (UE: the UWorld and the package helper the commandlet hands RunInternal).
     struct BuilderContext
     {
-        std::shared_ptr<Core::Scene>            Scene;     // the open scene: the world, or the region of it loaded
+        std::shared_ptr<::Desert::Core::Scene>         Scene;     // the open scene: the world, or the region of it loaded
         Assets::AssetManager*                   Assets = nullptr;
         std::filesystem::path                   ScenePath; // the world's file, as the editor opened it
         const BuilderRunOptions*                Options = nullptr;
@@ -79,7 +79,7 @@ namespace Desert::Editor
     /// One region of a run: a square of the ground (IterativeCells2D), or the whole world (Whole).
     struct BuilderCell
     {
-        Core::Rules::CellBounds Bounds; // X/Z, cm; unused when Whole
+        ::Desert::Core::Rules::CellBounds Bounds; // X/Z, cm; unused when Whole
         std::size_t             Index = 0;
         std::size_t             Count = 1;
         bool                    Whole = true;
@@ -123,7 +123,7 @@ namespace Desert::Editor
 
     /// PURE. The squares of side @p cellSize (cm) an IterativeCells2D run visits over @p world: aligned to
     /// multiples of the side (UE's iterative cells are), row by row in X then Z, every square that meets the world.
-    [[nodiscard]] std::vector<Core::Rules::CellBounds> IterativeCells2D( const Core::Rules::CellBounds& world,
+    [[nodiscard]] std::vector<::Desert::Core::Rules::CellBounds> IterativeCells2D( const ::Desert::Core::Rules::CellBounds& world,
                                                                          float                           cellSize );
 
     /// THE RUN (UE UWorldPartitionBuilderCommandlet::Main). A member of EditorLayer; idle unless the command line
@@ -153,7 +153,7 @@ namespace Desert::Editor
         const WorldPartitionBuilderRow*          m_Row = nullptr;
         std::unique_ptr<IWorldPartitionBuilder>  m_Builder;
         BuilderContext                           m_Context;
-        Core::EditorRegions::DataLayerOverrides  m_Layers; // every data layer of the world loaded
+        ::Desert::Core::EditorRegions::DataLayerOverrides m_Layers; // every data layer of the world loaded
         std::vector<BuilderCell>                 m_Cells;
         std::size_t                              m_Next     = 0;
         bool                                     m_Pending  = false;

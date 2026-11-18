@@ -127,7 +127,7 @@ namespace Desert::Editor
                              { AppendMeshToCollisionCommands( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Modeling (Bake)", [this, &workspace]( Out& out )
                              { AppendBakeCommands( out, workspace.ActiveScene(), m_Modules.AssetsSlot ); } );
-        m_Commands.Register( "Entity (collapse)", []( Out& out ) { EntityCommands::AppendCollapse( out ); } );
+        m_Commands.Register( "Entity (collapse)", [this]( Out& out ) { m_EntityCommands.AppendCollapse( out ); } );
         m_Commands.Register( "Menu", [this]( Out& out ) { m_Modules.Menu.AppendMenuCommands( out ); } );
         m_Commands.Register( "Level viewport", []( Out& out ) { AppendViewportCommands( out ); } );
         m_Commands.Register( "Modeling (Select Elements)",

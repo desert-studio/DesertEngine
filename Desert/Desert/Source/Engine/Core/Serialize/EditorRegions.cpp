@@ -219,7 +219,7 @@ namespace Desert::Core::EditorRegions
                 std::size_t                              rebound = 0;
                 for ( const auto& [holder, target] : selected.GetValue().Observations )
                 {
-                    if ( !held.contains( holder ) || !wanted.contains( holder ) )
+                    if ( !made.contains( holder ) || !wanted.contains( holder ) )
                         continue; // the holder arrives with it (it reads it at its start) or leaves too
                     const bool arrives = arrived.contains( target );
                     if ( !arrives && !left.contains( target ) )

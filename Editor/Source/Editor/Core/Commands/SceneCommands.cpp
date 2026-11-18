@@ -2943,10 +2943,14 @@ namespace Desert::Editor::Commands
              std::make_unique<PrefabPackModeCommand>( std::move( switches ), packed ) );
         OnStructuralChange();
         if ( !refusals.empty() )
+        {
             LOG_WARN( "[Prefab] {} instance(s) {}; not changed: {}", switched.size(),
                       packed ? "packed" : "unpacked", refused );
+        }
         else
+        {
             LOG_INFO( "[Prefab] {} instance(s) {}.", switched.size(), packed ? "packed" : "unpacked" );
+        }
         return Common::MakeSuccess( switched.size() );
     }
 

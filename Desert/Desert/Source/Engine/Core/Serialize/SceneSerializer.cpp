@@ -771,18 +771,24 @@ namespace Desert::Core
             if ( entityData->PrefabPacked.value_or( false ) )
             {
                 if ( entityData->PrefabOverrides.has_value() && !entityData->PrefabOverrides->empty() )
+                {
                     LOG_ERROR(
                          "SceneSerializer: the instance of '{0}' is saved packed AND with {1} override(s); a "
                          "packed instance draws its source as it is, so it is placed unpacked to keep them.",
                          *entityData->PrefabPath, entityData->PrefabOverrides->size() );
+                }
                 else if ( auto packed = Runtime::Factory::PrefabFactory::InstantiatePacked(
                                prefabAsset, *m_Scene, *m_AssetManager, entityData->id );
                           packed )
+                {
                     prefabRoot = packed.GetValue();
+                }
                 else
+                {
                     LOG_ERROR( "SceneSerializer: the instance of '{0}' is saved packed and cannot be: {1}. It is "
                                "placed unpacked.",
                                *entityData->PrefabPath, packed.GetError() );
+                }
             }
             if ( !prefabRoot )
                 prefabRoot = Runtime::Factory::PrefabFactory::Instantiate( *prefabAsset, *m_Scene, *m_AssetManager,
