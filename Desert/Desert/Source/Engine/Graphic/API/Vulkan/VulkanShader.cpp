@@ -99,8 +99,12 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !Modules.empty() )
         {
-            auto device =
-                 SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+            // THROUGH THE ALLOCATOR'S DEVICE, as ~VulkanBuiltPipeline: a retired pipeline holds its program, and
+            // ~VulkanLogicalDevice drains the deletion queue after the engine's weak device handle has expired
+            // (crash 20261118-161945, WP-INT-1117: every editor quit after a pipeline was replaced).
+            VkDevice device = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                                   ->GetVulkanAllocator()
+                                   ->GetDevice();
             for ( auto module : Modules )
                 vkDestroyShaderModule( device, module, nullptr );
         }
