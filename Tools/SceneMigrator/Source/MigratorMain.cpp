@@ -610,6 +610,10 @@ namespace
                              Desert::Migration::kWorldPartitionVersionHLODMergeMaterials )
                 << "->v" << Desert::Migration::kWorldPartitionVersionDebugColors << " ("
                 << report.DebugColorsStated << " runtime partition DebugColor(s) stated)";
+        if ( report.MiniMapRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion, Desert::Migration::kWorldPartitionVersionDebugColors )
+                << "->v" << Desert::Migration::kWorldPartitionVersionMiniMap << " (minimap: additive, nothing restated)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks

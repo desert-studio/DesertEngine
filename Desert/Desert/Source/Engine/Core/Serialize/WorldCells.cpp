@@ -1630,6 +1630,9 @@ namespace Desert::Core::WorldCells
                 layer.InitialRuntimeState.reset();
             }
         built.DataLayersLogicOperator = WorldPartitionDataLayersLogicOperator::Or;
+        // The minimap (WP v11) is a picture OF the world, never a source of its HLODs: hashing it made every HLOD
+        // stale the moment Build Minimap ran. A world without one writes no key, so its checksums are unchanged.
+        built.MiniMap.reset();
         text += Common::Json::Write( built );
         return Common::Utils::Crc32c( text.data(), text.size() );
     }

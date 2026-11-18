@@ -67,6 +67,25 @@ namespace Desert::Editor
                                                                 "not exist" );
                                   return WorldPartition()->BuildHLODs();
                               } } );
+        // The World Partition window's Refresh: the map, its held cells and its HLOD overlay read again from the
+        // world's saved files (after a save, a cell whose records changed shows its HLOD stale).
+        commands.push_back( { "Scene", std::string( "World Partition: Refresh" ), [this]() -> Common::BoolResultStr
+                              {
+                                  if ( WorldPartition() == nullptr )
+                                      return Common::MakeError( "World Partition: Refresh: the World Partition "
+                                                                "window does not exist" );
+                                  WorldPartition()->Refresh();
+                                  return Common::MakeSuccess( true );
+                              } } );
+        // UE's Build > Build Minimap (UWorldPartitionMiniMapBuilder): the saved world captured from above, tile by
+        // tile with each tile's region loaded, into <stem>_MiniMap.detex, referenced from the WorldPartition block.
+        commands.push_back( { "Scene", std::string( "Build Minimap" ), [this]() -> Common::BoolResultStr
+                              {
+                                  if ( WorldPartition() == nullptr )
+                                      return Common::MakeError( "Build Minimap: the World Partition window does "
+                                                                "not exist" );
+                                  return WorldPartition()->BuildMiniMap();
+                              } } );
 
         // The World Partition window's region buttons (UE's "Load Region from Selection" / "Unload All" /
         // "Load All" in the World Partition editor), offered unconditionally for the same reason as Convert.

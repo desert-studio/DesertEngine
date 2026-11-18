@@ -5568,6 +5568,9 @@ namespace Desert::Migration
             // scene's block).
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDebugColors )
                 report.DebugColorsRaised = true;
+            // v10 -> v11 is additive the same way: a v10 world has no minimap, and the rewrite states none.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionMiniMap )
+                report.MiniMapRaised = true;
         }
 
         // v9 -> v10 (WP-DEBUG-DRAW): every runtime partition states Core::SeededDebugColor of its name - what the

@@ -20,14 +20,17 @@
 #include <Editor/Core/IPanel.hpp>
 #include "HLODMaterialBake.hpp"
 #include "LandscapeHLODBake.hpp"
+#include "MiniMapBuilder.hpp"
 #include "WorldPartitionMap.hpp"
 
 #include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -91,6 +94,19 @@ namespace Desert::Editor
         {
             return m_Bake != nullptr || m_MeshBake != nullptr;
         }
+
+        /// UE's Build > Build Minimap (UWorldPartitionMiniMapBuilder): the world SAVED at the scene's file captured
+        /// from above, one BuilderCellSize square at a time with that square's region loaded (MiniMapBuilder), into
+        /// `<stem>_MiniMap.detex`; the WorldPartition block's MiniMap then references it with the world rectangle it
+        /// spans (one undoable edit). The rectangle is every placed composite of the world on disk; the settings
+        /// (WorldUnitsPerPixel, BuilderCellSize) are the block's MiniMap's when it has one. Refused, by name, for a
+        /// scene not partitioned, not saved or with unsaved changes, a world placing nothing, one too wide for the
+        /// texture at its WorldUnitsPerPixel, and while Build HLODs bakes. TickMiniMap finishes it.
+        [[nodiscard]] Common::BoolResultStr BuildMiniMap();
+        /// Advances a running Build Minimap by one editor frame; called every frame by EditorLayer.
+        void TickMiniMap();
+        /// A Build Minimap is running: its texture is not written yet.
+        [[nodiscard]] bool IsBuildingMiniMap() const noexcept { return m_MiniMapBuild != nullptr; }
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -184,6 +200,12 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr SetLoaderLoaded( const std::string& name, bool loaded );
         /// Removes a region or an entity list (a volume is removed by deleting its entity, the pins by Unpin All).
         [[nodiscard]] Common::BoolResultStr RemoveLoader( const std::string& name );
+        /// The panel's Refresh: the Edit plan, what the editor holds of each cell and the HLOD overlay are read again
+        /// from the world's saved files on the next frame (after a save, an edited cell's HLOD shows stale).
+        void Refresh()
+        {
+            m_EditPlanStale = true;
+        }
         // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
         // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -202,6 +224,11 @@ namespace Desert::Editor
         // prompt (DrawUnloadPrompt), whose answer is this call again (WP-OUTLINER).
         [[nodiscard]] Common::BoolResultStr Reload( ::Desert::Core::EditorRegions::HeldRegions   next,
                                                     ::Desert::Core::EditorRegions::UnsavedPolicy policy );
+        // The HLOD overlay of the Edit plan over the index: which cells' HLODs are built, and which are stale against
+        // the SAVED world (WorldCells::StaleHLODCells, as Build HLODs and the cook judge them). Nothing when no HLOD
+        // was built for the world; a refusal is m_HLODStatus.
+        void ReadHLODOverlay( const std::filesystem::path&                             scenePath,
+                              std::span<const ::Desert::Core::Rules::EntityDescriptor> descriptors );
         // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
         // material), write, read back.
         [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked,
@@ -220,6 +247,13 @@ namespace Desert::Editor
         // landscape bake wrote waits here until it is done.
         std::unique_ptr<HLODMaterialBake> m_MeshBake;
         std::vector<LandscapeHLODBaked>   m_LandscapeBaked;
+        // A running Build Minimap (TickMiniMap), the saved scene it captures, and why the last one was refused.
+        std::unique_ptr<MiniMapBuilder> m_MiniMapBuild;
+        std::filesystem::path          m_MiniMapScene;
+        std::string                    m_MiniMapStatus;
+        // The map's picture: the MiniMap texture path it resolved, and its handle (TextureService::HandleForPath).
+        std::string                                    m_MiniMapPath;
+        std::optional<::Desert::Assets::AssetHandle> m_MiniMapHandle;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;
@@ -273,7 +307,8 @@ namespace Desert::Editor
         bool m_PlanFromIndex = false;
         // Edit over the index: what the editor holds of each cell of m_EditPlan (empty otherwise).
         std::vector<WorldPartitionMap::CellState> m_EditCells;
-        // Edit over the index: the id of each record of m_EditPlan, and the world's Location Volumes as saved.
+        // Edit over the index: the id of each record of m_EditPlan in descriptor row order (the plan's record indices -
+        // what the loaders select and the footprints test as held), and the world's Location Volumes as saved.
         std::vector<std::uint64_t>                                 m_RowIds;
         std::vector<::Desert::Core::EditorRegions::LocationVolume> m_Volumes;
         // The volumes were read once for this scene: the open applied their Auto Load, so a volume saved after it
@@ -288,6 +323,11 @@ namespace Desert::Editor
         // The loader row named @p name of what the editor holds now, or none.
         [[nodiscard]] std::optional<::Desert::Core::EditorRegions::LoaderRow>
         FindLoader( const std::string& name ) const;
+        // Edit over the index: each record's tag, in the same row order (the footprints' labels).
+        std::vector<std::string> m_EditTags;
+        // Edit over the index, a world whose HLODs were built: each plan cell's HLOD overlay (ReadHLODOverlay).
+        std::vector<WorldPartitionMap::HLODState> m_HLODCells;
+        std::string                               m_HLODStatus; ///< why the HLOD overlay could not be read
 
         WorldPartitionMap::View m_View;
         bool                    m_FocusPending = true; // fit the plan once the canvas has a size
