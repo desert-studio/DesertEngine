@@ -21,6 +21,17 @@ if(DESERT_COMPILER_LAUNCHER)
     if(NOT WIN32 AND DESERT_COMPILER_LAUNCHER MATCHES "ccache$")
         set(_desert_launcher "${CMAKE_SOURCE_DIR}/scripts/Dev/ccache_launcher.sh" "${DESERT_COMPILER_LAUNCHER}")
     endif()
+    # ccache with MSVC: the cache settings travel on its command line (ccache KEY=VALUE compiler ...), so they are the
+    # build's own, not the machine's ccache.conf (BUILD-FAST-WIN, measured with CCACHE_DEBUG on one TU, 11-18):
+    #   depend_mode=false  depend mode takes a source's headers from /showIncludes lines that start with
+    #                      msvc_dep_prefix ("Note: including file:"); a localized cl (the Russian-only BuildTools
+    #                      here print the prefix in CP866; no 1033 pack, VSLANG ignored) matches none, so the manifest held no header and
+    #                      an edited header outside the PCH could be served stale (11-04). Preprocessor mode reads
+    #                      the #line output instead, whatever the language.
+    #   max_size=20G       an MSVC PCH result is ~1 GB raw / ~180 MB compressed; at 3 GB the cache evicted itself (9095 cleanups).
+    if(WIN32 AND DESERT_COMPILER_LAUNCHER MATCHES "ccache(\\.exe)?$")
+        set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}" depend_mode=false max_size=20G)
+    endif()
     set(CMAKE_C_COMPILER_LAUNCHER   ${_desert_launcher})
     set(CMAKE_CXX_COMPILER_LAUNCHER ${_desert_launcher})
     set(CMAKE_OBJCXX_COMPILER_LAUNCHER ${_desert_launcher})
