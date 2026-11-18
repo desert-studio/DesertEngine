@@ -329,7 +329,10 @@ namespace Desert::Graphic::RayTracing
                 // the raster's blade code (GrassBladeRayTracing.hpp), its rows bucket b's instances (record b).
                 const std::size_t levels = std::min<std::size_t>( data->Mesh->GetSubmeshes().size(), 64 );
                 const uint64_t    all    = levels >= 64 ? ~0ull : ( ( 1ull << levels ) - 1ull );
-                if ( data->BladeGeometry.size() != levels || data->BucketCapacities.size() != levels )
+                // BladeGeometry: [step * levels + b], step 0 standing, 1..K pressed (MeshRenderer.hpp).
+                const std::size_t steps = kRayTracingBladePressSteps;
+                if ( data->BladeGeometry.size() != levels * ( 1u + steps ) ||
+                     data->BucketCapacities.size() != levels )
                 {
                     Count( out, RayTracingSkip::NoGeometry );
                     continue;
@@ -354,10 +357,28 @@ namespace Desert::Graphic::RayTracing
                                                        .NonOpaque = masks.NonOpaque & level };
                     primitive.Kind                 = RayTracingPrimitiveKind::GpuInstanced;
                     AppendSegmentRecords( *data->Mesh, sections, primitive, out );
-                    out.GpuInstanced.push_back( { .Primitive = index,
-                                                  .Refs      = data->Refs,
-                                                  .Rows      = data->BucketCapacities[b],
-                                                  .Record    = static_cast<uint32_t>( b ) } );
+                    // DEFORM-RT-TRAMPLE: the level's pressed BLASes, each with its own segment run right after
+                    // this one (RayTracingGpuInstanceSource::PressedPrimitive). A missing one: no row is pressed.
+                    uint32_t pressed = static_cast<uint32_t>( out.Primitives.size() );
+                    for ( std::size_t k = 1; k <= steps; ++k )
+                        if ( data->BladeGeometry[k * levels + b] == nullptr )
+                            pressed = kNoPressedPrimitive;
+                    if ( pressed != kNoPressedPrimitive )
+                        for ( std::size_t k = 1; k <= steps; ++k )
+                        {
+                            // Copied by value: emplace_back may move the rest primitive.
+                            RayTracingPrimitive step = out.Primitives[index];
+                            step.Geometry            = data->BladeGeometry[k * levels + b];
+                            AppendSegmentRecords( *data->Mesh, sections, step, out );
+                            out.Primitives.push_back( step );
+                        }
+                    out.GpuInstanced.push_back( { .Primitive        = index,
+                                                  .Refs             = data->Refs,
+                                                  .Rows             = data->BucketCapacities[b],
+                                                  .Record           = static_cast<uint32_t>( b ),
+                                                  .PressedPrimitive = pressed,
+                                                  .BladeSize        = data->BladeSize,
+                                                  .BladeBend        = data->BladeBend } );
                 }
                 continue;
             }
@@ -490,6 +511,9 @@ namespace Desert::Graphic::RayTracing
             key.Value( data.BladeGeometry.size() );
             for ( const RayTracingGeometryResource* geometry : data.BladeGeometry )
                 key.Pointer( geometry );
+            for ( const glm::vec4& value : { data.BladeSize, data.BladeBend } )
+                for ( int c = 0; c < 4; ++c )
+                    key.Float( value[c] );
             key.Value( data.BucketCapacities.size() );
             for ( const uint32_t capacity : data.BucketCapacities )
                 key.Value( capacity );

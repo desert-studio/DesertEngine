@@ -110,15 +110,18 @@ namespace Desert::Graphic::System
                                            .NonOpaque = nonOpaque };
         VarietyState&               state = m_Varieties[key];
         state.Seen                        = true;
-        if ( state.Targets.size() != levels.size() )
+        // Step 0 (the standing blade) at [0, levels), pressed step k at [k * levels, (k + 1) * levels).
+        constexpr uint32_t kSteps  = RayTracing::kRayTracingBladePressSteps;
+        const std::size_t  targets = levels.size() * ( 1u + kSteps );
+        if ( state.Targets.size() != targets )
         {
-            state.Targets.resize( levels.size() );
-            state.Geometry.resize( levels.size() );
-            for ( std::size_t b = 0; b < levels.size(); ++b )
+            state.Targets.resize( targets );
+            state.Geometry.resize( targets );
+            for ( std::size_t t = 0; t < targets; ++t )
             {
-                if ( !state.Targets[b] )
-                    state.Targets[b] = RayTracing::CreateRayTracingDynamicMeshGeometry( "GrassBlade" );
-                state.Geometry[b] = state.Targets[b].get();
+                if ( !state.Targets[t] )
+                    state.Targets[t] = RayTracing::CreateRayTracingDynamicMeshGeometry( "GrassBlade" );
+                state.Geometry[t] = state.Targets[t].get();
             }
         }
         // The levels hold state.Key only once the graph that built them ended (IsBuilt): a build still pending
@@ -134,11 +137,13 @@ namespace Desert::Graphic::System
             shapeRef = graph.CreateBuffer( RDG::BufferDesc{ sizeof( GrassBladeShapeGpu ) }, "Grass.Blade.Shape" );
             graph.QueueBufferUpload( shapeRef, std::as_bytes( std::span( &shape, 1 ) ) );
         }
-        for ( std::size_t b = 0; b < levels.size(); ++b )
+        for ( std::size_t t = 0; t < targets; ++t )
         {
-            RayTracing::RayTracingDynamicMeshGeometryTarget& target  = *state.Targets[b];
+            const std::size_t                                b       = t % levels.size();
+            const uint32_t                                   step    = static_cast<uint32_t>( t / levels.size() );
+            RayTracing::RayTracingDynamicMeshGeometryTarget& target  = *state.Targets[t];
             const RDG::BufferRef                             storage = graph.RegisterExternal(
-                 target.GetStorage(), std::format( "Grass.Blade.RayTracing.BLAS.{}.{}", key, b ) );
+                 target.GetStorage(), std::format( "Grass.Blade.RayTracing.BLAS.{}.{}", key, t ) );
             if ( same )
             {
                 m_Resident.push_back( storage );
@@ -178,7 +183,8 @@ namespace Desert::Graphic::System
             {
                 state.Valid = false;
                 return Common::MakeFormattedError<Value>(
-                     "{}: variety {} level {}: {}", kGrassBladeRayTracingVerticesPass, key, b, plan.GetError() );
+                     "{}: variety {} level {} step {}: {}", kGrassBladeRayTracingVerticesPass, key, b, step,
+                 plan.GetError() );
             }
 
             LevelWork& job   = m_Work.emplace_back();
@@ -192,12 +198,12 @@ namespace Desert::Graphic::System
                  graph.CreateBuffer( RDG::BufferDesc{ layout.IndexBytes }, "Grass.Blade.StripIndices" );
             graph.QueueBufferUpload( job.StripIndices, std::as_bytes( std::span( level.Indices ) ) );
             job.Vertices = graph.RegisterExternal(
-                 target.GetVertices(), std::format( "Grass.Blade.RayTracing.Vertices.{}.{}", key, b ) );
+                 target.GetVertices(), std::format( "Grass.Blade.RayTracing.Vertices.{}.{}", key, t ) );
             job.Indices = graph.RegisterExternal( target.GetIndices(),
-                                                  std::format( "Grass.Blade.RayTracing.Indices.{}.{}", key, b ) );
+                                                  std::format( "Grass.Blade.RayTracing.Indices.{}.{}", key, t ) );
             job.Storage = storage;
             job.Counts  = glm::uvec4( static_cast<uint32_t>( level.Vertices.size() ),
-                                      static_cast<uint32_t>( level.Indices.size() * 3u ), 0u, 0u );
+                                      static_cast<uint32_t>( level.Indices.size() * 3u ), step, kSteps );
         }
         if ( !same )
         {

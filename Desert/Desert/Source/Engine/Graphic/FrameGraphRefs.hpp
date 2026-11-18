@@ -822,6 +822,10 @@ namespace Desert::Graphic
         std::array<RDG::TextureRef, 2> Height{};
         std::array<RDG::TextureRef, 2> Detail{};
         RDG::BufferRef                 Params;
+        // DEFORM-RT-TRAMPLE: the world X, Z box (cm; xy minimum, zw maximum) a blade root must lie in to read a
+        // press (DeformationFieldRenderer::TrampledBox); min > max (the default): nothing pressed. The TLAS's grass
+        // rows read the field only inside it (RayTracingGpuInstances.shader).
+        glm::vec4 TrampleWindow{ 1.0f, 1.0f, -1.0f, -1.0f };
 
         [[nodiscard]] bool IsValid() const
         {

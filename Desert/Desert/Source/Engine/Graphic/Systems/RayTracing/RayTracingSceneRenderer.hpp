@@ -41,6 +41,11 @@
 //
 // Device-free: the API object behind the TLAS is a RayTracingSceneTarget (VulkanRayTracingScene); this file only
 // encodes the instance rows and declares the graph work, so the RenderGraphCompile suite can compile it.
+namespace Desert::Graphic
+{
+    struct DeformationFieldReads;
+}
+
 namespace Desert::Graphic::System
 {
     class MeshRenderer;
@@ -141,9 +146,14 @@ namespace Desert::Graphic::RayTracing
     public:
         virtual ~RayTracingGpuInstanceRows() = default;
         // This frame's sources: each traced source's rows counted in @p list.InstancesByKind (GpuInstanced), each
-        // one that cannot be traced counted in @p list.Skipped. Errors: the program could not be made.
+        // one that cannot be traced counted in @p list.Skipped. DEFORM-RT-TRAMPLE: a grass blade level's rows read
+        // @p field (the view's deformation field, MeshRenderer::GetFrameDeformationField; this graph's, held until
+        // AddPass) and the ones it presses instance the level's pressed BLASes. Errors: the program could not be
+        // made, or a source has pressed BLASes while @p field is not this graph's (AddFrameDeformationField did not
+        // run before the TLAS).
         [[nodiscard]] virtual Common::BoolResultStr Prepare( std::span<const RayTracingGpuInstanceSource> sources,
                                                              std::span<const RayTracingPrimitive> primitives,
+                                                             const DeformationFieldReads&         field,
                                                              RayTracingInstanceList&              list ) = 0;
         // The rows the prepared sources take, after the CPU rows.
         [[nodiscard]] virtual uint32_t GetRows() const = 0;

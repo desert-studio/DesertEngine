@@ -2249,6 +2249,16 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
+        // DEFORM-RT-TRAMPLE (UE: one deformation evaluation shared by the raster and the ray-tracing geometry):
+        // the deformation field before the TLAS, whose grass rows read it (RayTracingGpuInstances.shader), as well
+        // as before any mesh pass - the grass blades of the view, its cascades and its virtual shadow read it
+        // (MeshRenderer::SetFrameDeformationField). Where its contacts write is taken first: the update consumes
+        // them, and the cascade cache plan below reads it.
+        m_FramePendingFootprints = m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
+                                        ? m_DeformationField.PendingFootprints()
+                                        : std::vector<glm::vec4>{};
+        AddFrameDeformationField( graph, textures, frame );
+
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
         {
@@ -2450,9 +2460,7 @@ namespace Desert::Graphic
                 // after. DEFORM-GRASS-2: where this frame's deformation contacts write first (AddFrameDeformationField
                 // applies them later in this frame, before the shadow depths), so a standing cache redraws those
                 // texels alone; a reflection capture's face keeps no field and hands none.
-                localShadowMeshes->SetCascadeFootprints( m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
-                                                              ? m_DeformationField.PendingFootprints()
-                                                              : std::vector<glm::vec4>{} );
+                localShadowMeshes->SetCascadeFootprints( m_FramePendingFootprints );
                 localShadowMeshes->PlanCascadeCache();
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
@@ -2529,9 +2537,7 @@ namespace Desert::Graphic
         // The virtual shadow map's cluster path is this frame's only if its VSM cut sets it again: a frame whose
         // method is not VirtualMaps (or whose cut is refused) holds no last frame's issue or refused groups.
         m_Systems.Mesh->ResetVirtualShadowGeometry();
-        // DEFORM-GRASS: the deformation field before any mesh pass - the grass blades of the view, its cascades and
-        // its virtual shadow read it (MeshRenderer::SetFrameDeformationField).
-        AddFrameDeformationField( graph, textures, frame );
+        // The deformation field was added before the TLAS (AddFrameDeformationField above).
         AddFrameDrawBins( graph, textures, frame );
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Virtual geometry" );
         AddFrameVirtualGeometry( graph, frame );

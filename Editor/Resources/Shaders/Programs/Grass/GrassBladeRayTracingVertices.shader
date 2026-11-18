@@ -5,6 +5,9 @@
 // no wind, written in blade space. Every TLAS row of the variety's level instances it through the raster's mat4,
 // whose affine part places, scales and orients the blade exactly as the vertex stage does; the per-blade curvature
 // and bend draws and the wind are not traced (the shared BLAS is static).
+// DEFORM-RT-TRAMPLE: beside it, the level's PRESSED blades - the same BladeAt with a press of step / steps along the
+// blade's own forward axis (Counts.z of Counts.w, GrassBladeRayTracingPress); a TLAS row whose root the deformation
+// field presses instances the nearest one through the affine fit of RayTracingGpuInstances.shader.
 //
 // Input: the blade strip's level as the raster draws it (GrassRenderer::BladeStrip, MakeGrassBladeStripLevel):
 // Desert::Vertex with position (side -1/+1, height share t, 0), and its indices. Output: the shaped vertices
@@ -42,16 +45,10 @@ Shader "GrassBladeRayTracingVertices"
 
         PushConstant PushConstants
         {
-            uvec4 Counts; // x = the level's vertices, y = its indices
+            uvec4 Counts; // x = the level's vertices, y = its indices, z = the press step (0: standing), w = steps
         };
 
         const uint kVertexWords = 14u;
-        // The per-blade curvature draw (instance column 1's w) of the median blade: a lean draw of 1/2 (the
-        // variety's Curvature, CurvatureSpread cancels to 1/256 of itself) and a bend draw of 1/2 (its low bits:
-        // fract(w * 256) = 1/2).
-        const float kMedianCurvatureDraw = 0.5 + 0.5 / 256.0;
-        // The median card draw: the shared BLAS is the variety's middle card.
-        const float kMedianCardDraw = 0.5;
 
         void main()
         {
@@ -63,11 +60,11 @@ Shader "GrassBladeRayTracingVertices"
             const uint  r    = i * kVertexWords;
             const float side = uintBitsToFloat( StripVertices[r + 0u] );
             const float t    = uintBitsToFloat( StripVertices[r + 1u] );
-            const mat4  model =
-                 mat4( vec4( 1.0, 0.0, 0.0, kMedianCardDraw ), vec4( 0.0, 1.0, 0.0, kMedianCurvatureDraw ),
-                       vec4( 0.0, 0.0, 1.0, 0.0 ), vec4( 0.0, 0.0, 0.0, 1.0 ) );
-            const BladePoint blade  =
-                 BladeAt( Blade, model, side, t, vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec2( 0.0 ), vec3( 0.0 ) );
+            const mat4  model = GrassBladeRayTracingModel();
+            // A press with no direction lays the blade along its forward axis (BladeCurveAt).
+            const vec3       trample = vec3( 0.0, 0.0, GrassBladeRayTracingPress( Counts.z, Counts.w ) );
+            const BladePoint blade   =
+                 BladeAt( Blade, model, side, t, vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ), vec2( 0.0 ), trample );
             const vec3       normal = BladeNormal( blade, side );
             const vec3       along  = normalize( blade.Along );
             const float      words[12] = float[12]( blade.Position.x, blade.Position.y, blade.Position.z, normal.x,
@@ -77,7 +74,7 @@ Shader "GrassBladeRayTracingVertices"
                 Vertices[r + w] = floatBitsToUint( words[w] );
             // The card's atlas coordinate, in the stored (V-flipped) form the ray hit unpacks with
             // DesertMeshTextureUV, so the hit samples the same scan the raster draws.
-            const vec2 uv     = BladeCardUV( BladeCard( Blade, kMedianCardDraw ), side, t );
+            const vec2 uv     = BladeCardUV( BladeCard( Blade, kGrassBladeRayTracingCardDraw ), side, t );
             Vertices[r + 12u] = floatBitsToUint( uv.x );
             Vertices[r + 13u] = floatBitsToUint( 1.0 - uv.y );
         }
