@@ -85,10 +85,16 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
     // A MegaLights emissive light source (EMISSION_IS_LIGHT, ShadingModels/ShadingModelContract.glslh) is counted
     // by MegaLights' own samples of it: the screen hit takes none of it, or the lamp would light the room twice.
     emissive = textureLod( GBufferEmissiveTexture, uv, 0.0 ).rgb;
-    const ivec2 texel = min( ivec2( uv * vec2( textureSize( GBufferShadingWordTexture, 0 ) ) ),
-                             textureSize( GBufferShadingWordTexture, 0 ) - ivec2( 1 ) );
-    if ( DesertEmissionIsLight( texelFetch( GBufferShadingWordTexture, texel, 0 ).rg ) )
-        emissive = vec3( 0.0 );
+    // FPS-RC-TRACE-2: only an emitting pixel can be a MegaLights emitter, and zeroing a black emission changes
+    // nothing, so the word is fetched for those alone (the radiance cache's trace paid the fetch on every screen
+    // hit since EMISSIVE-MEGALIGHTS-4, almost none of which emit).
+    if ( any( notEqual( emissive, vec3( 0.0 ) ) ) )
+    {
+        const ivec2 extent = textureSize( GBufferShadingWordTexture, 0 );
+        const ivec2 texel  = min( ivec2( uv * vec2( extent ) ), extent - ivec2( 1 ) );
+        if ( DesertEmissionIsLight( texelFetch( GBufferShadingWordTexture, texel, 0 ).rg ) )
+            emissive = vec3( 0.0 );
+    }
 #endif
 }
 
