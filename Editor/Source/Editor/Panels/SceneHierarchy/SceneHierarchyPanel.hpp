@@ -1,6 +1,7 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include <Engine/ECS/Entity.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 
 #include <Common/Core/Constants.hpp>

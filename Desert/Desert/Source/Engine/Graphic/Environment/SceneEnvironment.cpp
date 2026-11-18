@@ -10,6 +10,7 @@
 #include <Common/Core/Constants.hpp>
 
 #include <chrono>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace Desert::Graphic
 {

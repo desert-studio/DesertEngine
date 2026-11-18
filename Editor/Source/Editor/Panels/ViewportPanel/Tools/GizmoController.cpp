@@ -28,6 +28,7 @@
 #include <cmath>
 #include <functional>
 #include <vector>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor::Tools
 {

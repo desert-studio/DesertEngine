@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialCubemapSphere.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>

@@ -6,6 +6,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <filesystem>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Editor::TextureDnD
 {

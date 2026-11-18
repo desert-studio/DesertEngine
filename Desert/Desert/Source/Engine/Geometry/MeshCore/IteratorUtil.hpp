@@ -30,7 +30,7 @@ namespace Desert::Geometry
 
         bool operator==( const MappedIterator& Other ) const
         {
-            return m_Cur == Other.Cur;
+            return m_Cur == Other.m_Cur;
         }
         bool operator!=( const MappedIterator& Other ) const
         {
@@ -71,7 +71,7 @@ namespace Desert::Geometry
 
         bool operator==( const FilteredIterator& Other ) const
         {
-            return m_Cur == Other.Cur;
+            return m_Cur == Other.m_Cur;
         }
         bool operator!=( const FilteredIterator& Other ) const
         {
@@ -143,11 +143,11 @@ namespace Desert::Geometry
 
         bool operator==( const ExpandIterator& Other ) const
         {
-            return m_Cur == Other.Cur;
+            return m_Cur == Other.m_Cur;
         }
         bool operator!=( const ExpandIterator& Other ) const
         {
-            return m_Cur != Other.Cur;
+            return m_Cur != Other.m_Cur;
         }
 
         OutputType operator*() const
@@ -210,17 +210,17 @@ namespace Desert::Geometry
         ExpandEnumerable( const InputIteratorT& BeginIn, const InputIteratorT& EndIn,
                           ExpandFunctionT ExpandFuncIn )
         {
-            this->BeginItr   = BeginIn;
-            this->EndItr     = EndIn;
-            this->ExpandFunc = ExpandFuncIn;
+            this->m_BeginItr   = BeginIn;
+            this->m_EndItr     = EndIn;
+            this->m_ExpandFunc = ExpandFuncIn;
         }
 
         template <typename IteratorSource>
         ExpandEnumerable( const IteratorSource& Source, ExpandFunctionT ExpandFuncIn )
         {
-            this->BeginItr   = Source.begin();
-            this->EndItr     = Source.end();
-            this->ExpandFunc = ExpandFuncIn;
+            this->m_BeginItr   = Source.begin();
+            this->m_EndItr     = Source.end();
+            this->m_ExpandFunc = ExpandFuncIn;
         }
 
         ExpandIteratorT begin()
@@ -255,7 +255,7 @@ namespace Desert::Geometry
 
         bool operator==( const PairExpandIterator& Other ) const
         {
-            return m_Cur == Other.Cur;
+            return m_Cur == Other.m_Cur;
         }
         bool operator!=( const PairExpandIterator& Other ) const
         {
@@ -344,9 +344,9 @@ namespace Desert::Geometry
         PairExpandEnumerable( const InputIteratorT& BeginIn, const InputIteratorT& EndIn,
                               ExpandFunctionT ExpandFuncIn )
         {
-            this->BeginItr   = BeginIn;
-            this->EndItr     = EndIn;
-            this->ExpandFunc = ExpandFuncIn;
+            this->m_BeginItr   = BeginIn;
+            this->m_EndItr     = EndIn;
+            this->m_ExpandFunc = ExpandFuncIn;
         }
 
         template <typename IteratorSource>

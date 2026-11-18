@@ -30,6 +30,8 @@
 #include <format>
 #include <thread>
 #include <utility>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Engine
 {

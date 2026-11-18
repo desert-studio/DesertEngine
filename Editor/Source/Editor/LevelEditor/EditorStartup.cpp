@@ -41,11 +41,14 @@
 #include <Engine/Core/SceneAssetRoots.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Editor
 {

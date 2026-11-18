@@ -23,6 +23,7 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor
 {

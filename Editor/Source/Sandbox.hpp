@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Application.hpp>
 #include <Engine/EntryPoint.hpp>
 
 #include <Editor/Core/CommandLine.hpp>

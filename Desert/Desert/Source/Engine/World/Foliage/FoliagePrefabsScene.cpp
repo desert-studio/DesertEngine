@@ -12,6 +12,7 @@
 #include <glm/matrix.hpp>
 
 #include <vector>
+#include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
 
 namespace Desert::World::Foliage
 {

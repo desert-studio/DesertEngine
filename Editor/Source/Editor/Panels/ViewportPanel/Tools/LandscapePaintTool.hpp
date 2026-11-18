@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Common/Core/Math/Ray.hpp>
 

@@ -37,6 +37,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::ECS
 {

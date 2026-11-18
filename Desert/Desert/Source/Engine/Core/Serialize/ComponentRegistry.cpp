@@ -33,6 +33,7 @@
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
@@ -67,6 +68,11 @@
 
 #include <algorithm>
 #include <limits>
+#include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
+#include <Engine/Runtime/Services/Font/FontService.hpp>
+#include <Engine/Runtime/Services/Icon/IconService.hpp>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
+#include <Engine/Runtime/Services/Video/VideoService.hpp>
 
 namespace Desert::Core::Serialize
 {

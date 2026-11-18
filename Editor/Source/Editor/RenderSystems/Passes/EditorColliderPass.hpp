@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 
 #include <cstdint>

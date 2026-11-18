@@ -4,6 +4,7 @@
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Libraries/ScriptWorld.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 
 namespace Desert::Libraries
 {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+
 #include <Engine/Runtime/SelectionContext.hpp>
 
 #include <algorithm>
