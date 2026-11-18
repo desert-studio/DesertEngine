@@ -1,4 +1,5 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
+#include "Editor/Panels/WorldPartition/EditorHLODs.hpp"
 
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryWorldPartition.hpp>
 
@@ -105,6 +106,8 @@ namespace Desert::Editor
         // Snapshot the authored scene so Stop can restore it exactly (play-time edits are discarded). Timed
         // like a load: it is the other half of the round trip Stop pays.
         Desert::Core::SceneLoadPhases       phases( "Play start" );
+        // The editor's HLODs leave first (WP-EDITOR-HLOD): Play streams the world's own, which share their ids.
+        Editor::EditorHLODs::ReleaseAll( *scene );
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         m_PlayWorld.Begin( serializer.SerializeToJson() );
         PlayKeptChanges::Clear(); // a new session keeps nothing an earlier one left unapplied

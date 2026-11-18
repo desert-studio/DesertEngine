@@ -6,6 +6,7 @@
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <rflcpp/rfl/to_generic.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 #include <regex>
@@ -5389,6 +5390,43 @@ namespace Desert::Migration
         return Common::MakeSuccess( moved );
     }
 
+    Common::ResultStr<std::size_t> MigrateHLODMergeMaterialsV11ToV12( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->HLODLayers.has_value() )
+            return Common::MakeSuccess( std::size_t{ 0 } );
+        std::size_t moved = 0;
+        for ( HLODLayerSerialized& layer : *scene.WorldPartition->HLODLayers )
+        {
+            if ( !layer.MergeMaterials.has_value() )
+                continue;
+            if ( layer.Type != Core::HLODLayerType::MeshMerge && layer.Type != Core::HLODLayerType::MeshSimplify )
+                return Common::MakeError<std::size_t>(
+                     std::format( "HLOD layer '{}' states MergeMaterials, which a v9..v11 world states only on a "
+                                  "MeshMerge or MeshSimplify layer",
+                                  layer.Name ) );
+            // MeshMerge stated no Settings before v12; MeshSimplify's are {"TrianglePercent": ...} (v8).
+            rfl::Generic::Object settings;
+            if ( layer.Settings.has_value() )
+            {
+                const auto object = layer.Settings->to_object();
+                if ( !object )
+                    return Common::MakeError<std::size_t>(
+                         std::format( "HLOD layer '{}': its Settings is not an object", layer.Name ) );
+                settings = object.value();
+                if ( settings.get( "MergeMaterials" ).has_value() )
+                    return Common::MakeError<std::size_t>(
+                         std::format( "HLOD layer '{}' states both MergeMaterials and Settings.MergeMaterials; a "
+                                      "v11 world states only the first",
+                                      layer.Name ) );
+            }
+            settings["MergeMaterials"] = rfl::to_generic( *layer.MergeMaterials );
+            layer.Settings             = rfl::Generic( std::move( settings ) );
+            layer.MergeMaterials       = std::nullopt;
+            ++moved;
+        }
+        return Common::MakeSuccess( moved );
+    }
+
     LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
                                                                   const std::filesystem::path&     sourceFile )
     {
@@ -5711,6 +5749,14 @@ namespace Desert::Migration
             // v10 -> v11 is additive the same way: a v10 world has no minimap, and the rewrite states none.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionMiniMap )
                 report.MiniMapRaised = true;
+            // v11 -> v12 restates a mesh layer's MergeMaterials as its builder's Settings.MergeMaterials; the
+            // transform is MigrateScene's (a prefab states no World Partition block), the flag is every file's.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODBuilderSettings )
+                report.HLODBuilderSettingsRaised = true;
+            // v12 -> v13 is additive with no restatement at all: a record that states no HLODLayer component is
+            // built by its partition's layer, as it was.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionEntityHLODLayer )
+                report.EntityHLODLayerRaised = true;
         }
 
         // v9 -> v10 (WP-DEBUG-DRAW): every runtime partition states Core::SeededDebugColor of its name - what the
@@ -6090,6 +6136,14 @@ namespace Desert::Migration
         }
         if ( report.Refused.empty() && report.DebugColorsRaised && scene.WorldPartition.has_value() )
             report.DebugColorsStated = StateRuntimePartitionDebugColorsV9ToV10( *scene.WorldPartition );
+        if ( report.Refused.empty() && report.HLODBuilderSettingsRaised )
+        {
+            auto moved = MigrateHLODMergeMaterialsV11ToV12( scene );
+            if ( moved )
+                report.HLODMergeMaterialsMoved = moved.GetValue();
+            else
+                report.Refused = std::format( "{}: {}", scene.SceneName, moved.GetError() );
+        }
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
         if ( report.Refused.empty() )

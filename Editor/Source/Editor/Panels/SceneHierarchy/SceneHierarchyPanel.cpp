@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <format>
 #include <string_view>
+#include <Engine/ECS/EditorHLODComponent.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
@@ -1212,7 +1213,9 @@ namespace Desert::Editor
 
         // Entity / selection counters (compact, above the table).
         {
-            const size_t total = m_Scene->GetAllEntities().size();
+            // The editor HLODs (WP-EDITOR-HLOD) are not the world's: counted no more than they are listed.
+            const size_t total =
+                 m_Scene->GetAllEntities().size() - m_Scene->GetRegistry().view<ECS::EditorHLODComponent>().size();
             const size_t sel   = Core::SelectionManager::Count();
             if ( sel > 0 )
                 ImGui::TextDisabled( "%zu entities, %zu selected", total, sel );
@@ -1350,7 +1353,8 @@ namespace Desert::Editor
                     ECS::Entity entity( entityHandle, registry );
                     bool        hasParent = entity.HasComponent<ECS::RelationshipComponent>() &&
                                      entity.GetComponent<ECS::RelationshipComponent>().Parent != entt::null;
-                    if ( !hasParent )
+                    // An editor HLOD (WP-EDITOR-HLOD) is not the world's: the Outliner does not list it.
+                    if ( !hasParent && !entity.HasComponent<ECS::EditorHLODComponent>() )
                         DrawEntityNode( entity );
                 }
 

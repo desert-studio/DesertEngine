@@ -59,14 +59,33 @@ namespace Desert::Editor
                                                                 "Partition window does not exist" );
                                   return WorldPartition()->ConvertSceneToWorldPartition();
                               } } );
-        // UE's Build > Build HLODs: builds every cell's HLOD of the saved world and writes them beside it.
-        commands.push_back( { "Scene", std::string( ::Desert::Core::Rules::kBuildHLODsLabel ), [this]
-                              {
-                                  if ( WorldPartition() == nullptr )
-                                      return Common::MakeError( "Build HLODs: the World Partition window does "
-                                                                "not exist" );
-                                  return WorldPartition()->BuildHLODs();
-                              } } );
+        // UE's Build > Build HLODs (WorldPartitionHLODBuilder): the stale HLODs of the saved world built and
+        // saved beside it; force all rebuilds every one; Save and build saves the scene first; Delete HLODs
+        // removes them (UE's -DeleteHLODs).
+        const std::array<std::pair<std::string_view, int>, 4> hlodEntries{ {
+             { ::Desert::Core::Rules::kBuildHLODsLabel, 0 },
+             { ::Desert::Core::Rules::kBuildAllHLODsLabel, 1 },
+             { ::Desert::Core::Rules::kSaveAndBuildHLODsLabel, 2 },
+             { ::Desert::Core::Rules::kDeleteHLODsLabel, 3 },
+        } };
+        for ( const auto& [label, which] : hlodEntries )
+            commands.push_back( { "Scene", std::string( label ), [this, label = label, which = which]
+                                  {
+                                      if ( WorldPartition() == nullptr )
+                                          return Common::MakeError( std::format(
+                                               "{}: the World Partition window does not exist", label ) );
+                                      switch ( which )
+                                      {
+                                          case 0:
+                                              return WorldPartition()->BuildHLODs();
+                                          case 1:
+                                              return WorldPartition()->BuildHLODs( HLODBuildOptions{ true } );
+                                          case 2:
+                                              return WorldPartition()->SaveAndBuildHLODs();
+                                          default:
+                                              return WorldPartition()->DeleteHLODs();
+                                      }
+                                  } } );
         // The World Partition window's Refresh: the map, its held cells and its HLOD overlay read again from the
         // world's saved files (after a save, a cell whose records changed shows its HLOD stale).
         commands.push_back( { "Scene", std::string( "World Partition: Refresh" ), [this]() -> Common::BoolResultStr
@@ -105,6 +124,16 @@ namespace Desert::Editor
                                       return WorldPartition()->LoadRegion(
                                            WorldPartitionPanel::RegionRequest{ {}, which == 2 } );
                                   } } );
+
+        // UE's Show HLODs (WP-EDITOR-HLOD; the window's checkbox, View > Show > HLODs): this user's preference.
+        for ( const bool show : { true, false } )
+            commands.push_back(
+                 { "Scene", std::string( show ? "World Partition: Show HLODs" : "World Partition: Hide HLODs" ),
+                   [show]
+                   {
+                       WorldPartitionPanel::SetShowHLODs( show );
+                       return BOOLSUCCESS;
+                   } } );
 
         // The Data Layers section's Loaded toggle (UE's Data Layer Outliner), one pair per layer of the world the
         // window follows: what the editor holds of the world again, under this user's changed layer state.

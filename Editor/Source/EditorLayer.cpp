@@ -26,6 +26,7 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
+#include <Editor/Core/BuilderRunOptions.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -237,7 +238,8 @@ namespace Desert::Editor
         const std::filesystem::path machineJson =
              std::filesystem::path( ProjectContext::ConfigDirectory() ) / "machine.json";
         const bool unattended = Editor::IsUnattendedSession( Editor::ShotOptions::Get(),
-                                                             Control::ControlChannelOptions::Get().Requested() );
+                                                             Control::ControlChannelOptions::Get().Requested(),
+                                                             Editor::BuilderRunOptions::Get().Active() );
         if ( unattended )
         {
             m_UnattendedMachineJson  = machineJson;
@@ -376,7 +378,9 @@ namespace Desert::Editor
             m_FileExplorerPanel              = handles.FileExplorer;
             m_WorldPartitionPanel            = handles.WorldPartition;
             if ( m_WorldPartitionPanel )
-                m_WorldPartitionPanel->SetSaveOpenScene( [this] { return m_SceneFiles.SaveOpenScene(); } );
+                // The one save path (Ctrl+S, File -> Save, the palette): Save and build HLODs, and the Save of
+                // the unsaved-entities prompt a region change raises.
+                m_WorldPartitionPanel->SetSceneSaver( [this] { return m_SceneFiles.SaveOpenScene(); } );
         }
 
         // ── WHICH EDITOR OPENS WHICH KIND OF SUBJECT, AND HOW A PATH BECOMES ONE OF THEM ──────────────────
@@ -626,10 +630,20 @@ namespace Desert::Editor
         {
             m_WorldPartitionPanel->TickBuild();
             m_WorldPartitionPanel->TickMiniMap();
+            // The saved HLODs of the cells the editor does not hold (WP-EDITOR-HLOD), before the scene is drawn.
+            m_WorldPartitionPanel->TickEditorHLODs();
         }
         // A running "Bake Material to Textures" records its offscreen frames here (Editor/Baking/MaterialBaking).
         if ( m_AssetManager )
             ::Desert::Editor::Baking::TickBakeOfSelection( *m_AssetManager );
+        // A builder run: one step per frame once the named scene has opened and settled; its last step closes the
+        // editor with the builder's status (the window was never shown).
+        if ( const std::optional<int> finished =
+                  m_BuilderRun.Tick( !m_Startup.ContentSettling() && !m_SceneFiles.HasPendingRequests() ) )
+        {
+            m_Application->Close( *finished );
+            return BOOLSUCCESS;
+        }
 
         m_Dock.UpdateContextualPanels();
 
@@ -944,7 +958,8 @@ namespace Desert::Editor
         // A failure is logged and nothing else. Refusing to shut down because a picture could not
         // be written would be the tail wagging the dog.
         if ( !Editor::IsUnattendedSession( Editor::ShotOptions::Get(),
-                                           Control::ControlChannelOptions::Get().Requested() ) )
+                                           Control::ControlChannelOptions::Get().Requested(),
+                                           Editor::BuilderRunOptions::Get().Active() ) )
             if ( const auto thumbnail = m_Capture.WriteProjectThumbnail(); !thumbnail.IsSuccess() )
                 LOG_WARN( "[Project] the tile thumbnail was not written on exit: {}", thumbnail.GetError() );
 

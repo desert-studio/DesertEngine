@@ -170,35 +170,46 @@ namespace Desert::Core
     // Type LHGrid / Persistent, the LHGrid block, HLODSetups), a grid's one HLODLayer and the layers' ParentLayer
     // chain are the partition's ordered HLOD setups (Tools/SceneMigrator, MigrateRuntimePartitionsV4ToV5).
     // v6 (WP-LOADER-ADAPTERS): a record may state a `LocationVolume` component (ECS::LocationVolumeComponent, UE
-    // ALocationVolume: an editor loader's box, left out by the cook). Additive - a v5 file states none and reads the
-    // same - so the step (Tools/SceneMigrator, kWorldPartitionVersionLocationVolumes) states the tag and changes
-    // nothing else; the number moves so a v5 build refuses a world whose volumes it would cook as entities.
-    // v7 (WP21-WHOLE; UE ALevelInstance::DesiredRuntimeBehavior): a prefab states its `RuntimeBehavior`
+    // ALocationVolume: an editor loader's box, left out by the cook). Additive - a v5 file states none and reads
+    // the same - so the step (Tools/SceneMigrator, kWorldPartitionVersionLocationVolumes) states the tag and
+    // changes nothing else; the number moves so a v5 build refuses a world whose volumes it would cook as
+    // entities. v7 (WP21-WHOLE; UE ALevelInstance::DesiredRuntimeBehavior): a prefab states its `RuntimeBehavior`
     // (Assets::PrefabRuntimeBehavior: Partitioned or Standalone) and an instance record may override it with its
     // own `RuntimeBehavior`. A Standalone instance is expanded with its body kept under its root - one composite,
     // one cell, one HLOD source, carried by the root (Core::WorldCells::ExpandPrefabInstances). The step (Tools/
     // SceneMigrator, kWorldPartitionVersionPrefabRuntimeBehavior) states Partitioned on every prefab (what each
     // meant) and Standalone on every nested instance record inside a prefab (a nested body was always kept whole
     // under its root, and a Partitioned nested instance now opens into the outer world).
-    // v8 (WP-HLOD-BUILDERS): an HLOD layer's builder is a registered one (UE UHLODLayer::HLODBuilderClass) with its
-    // own settings object (UE HLODBuilderSettings): the layer states `Settings`, read by its builder alone, and a
-    // Custom layer its `Builder`. MeshSimplify's SimplifyTrianglePercent is its builder's Settings.TrianglePercent
-    // (Tools/SceneMigrator, MigrateHLODBuilderSettingsV7ToV8); the number moves so a v7 build refuses a layer it
-    // cannot build.
-    // v9 (WP-HLOD-MATBAKE): an HLOD layer may state `MergeMaterials` (HLODMaterialMergeSerialized). Additive - a
-    // v8 layer states none and builds one section per material, as it did - so the step (Tools/SceneMigrator,
-    // kWorldPartitionVersionHLODMergeMaterials) states the tag and changes nothing else; the number moves so a v8
-    // build refuses a world whose merged material it would silently drop.
+    // v8 (WP-HLOD-BUILDERS): an HLOD layer's builder is a registered one (UE UHLODLayer::HLODBuilderClass) with
+    // its own settings object (UE HLODBuilderSettings): the layer states `Settings`, read by its builder alone,
+    // and a Custom layer its `Builder`. MeshSimplify's SimplifyTrianglePercent is its builder's
+    // Settings.TrianglePercent (Tools/SceneMigrator, MigrateHLODBuilderSettingsV7ToV8); the number moves so a v7
+    // build refuses a layer it cannot build. v9 (WP-HLOD-MATBAKE): an HLOD layer may state `MergeMaterials`
+    // (HLODMaterialMergeSerialized). Additive - a v8 layer states none and builds one section per material, as it
+    // did - so the step (Tools/SceneMigrator, kWorldPartitionVersionHLODMergeMaterials) states the tag and changes
+    // nothing else; the number moves so a v8 build refuses a world whose merged material it would silently drop.
     // v10 (WP-DEBUG-DRAW): a runtime partition states its `DebugColor` (UE FSpatialHashRuntimeGrid::DebugColor) -
     // the gameplay debugger's World Partition category colours a partition's cells by it, and a data layer's cells
-    // by the layer's DebugColor (v4). The step (Tools/SceneMigrator, StateRuntimePartitionDebugColorsV9ToV10) states
-    // SeededDebugColor of each partition's name; nothing else changes.
-    // v11 (WP-MAP-VIEW): the block may state `MiniMap` (WorldPartitionMiniMapSerialized, UE AWorldPartitionMiniMap):
-    // the texture Build Minimap captured and the world rectangle it spans. Additive - a v10 file states none and the
-    // map simply has no picture under its grid - so the step (Tools/SceneMigrator, kWorldPartitionVersionMiniMap)
-    // states the tag and changes nothing else; the number moves because the read is strict and a v10 build would
-    // refuse the key without naming the migrator.
-    inline constexpr int kWorldPartitionVersion = 11;
+    // by the layer's DebugColor (v4). The step (Tools/SceneMigrator, StateRuntimePartitionDebugColorsV9ToV10)
+    // states SeededDebugColor of each partition's name; nothing else changes. v11 (WP-MAP-VIEW): the block may
+    // state `MiniMap` (WorldPartitionMiniMapSerialized, UE AWorldPartitionMiniMap): the texture Build Minimap
+    // captured and the world rectangle it spans. Additive - a v10 file states none and the map simply has no
+    // picture under its grid - so the step (Tools/SceneMigrator, kWorldPartitionVersionMiniMap) states the tag and
+    // changes nothing else; the number moves because the read is strict and a v10 build would refuse the key
+    // without naming the migrator. v12 (WP-INT-HLOD; UE UHLODLayer::HLODBuilderSettings): every built-in HLOD
+    // builder reads its own settings object, as UE's UHLODBuilderMeshMergeSettings /
+    // UHLODBuilderMeshSimplifySettings / UHLODBuilderMeshApproximateSettings do. A mesh layer's merged material
+    // (HLODMaterialMergeSerialized, UE FMeshMergingSettings::bMergeMaterials + MaterialSettings) is its builder's
+    // Settings.MergeMaterials, no longer a layer member (Tools/SceneMigrator, MigrateHLODMergeMaterialsV11ToV12),
+    // and HLODLayerType gains MeshApproximate (WP-HLOD-APPROX), whose builder's Settings are
+    // HLODApproximationSettings. The number moves so a v11 build refuses a layer whose merged material it would
+    // read from the wrong place. v13 (WP-SETTINGS-UI): a record may state an `HLODLayer` component
+    // (ECS::HLODLayerComponent, UE AActor::HLODLayer) naming one of the world's HLODLayers: its composite's part
+    // of its cell's HLOD is built by that layer instead of its grid's (Rules::CompositeHLODLayer). Additive - a
+    // v12 record states none and is built as before - so the step (Tools/SceneMigrator,
+    // kWorldPartitionVersionEntityHLODLayer) states the tag and changes nothing else; the number moves so a v12
+    // build refuses a world whose per-entity layers it would silently build by the grid's.
+    inline constexpr int kWorldPartitionVersion = 13;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -356,11 +367,13 @@ namespace Desert::Core
     //   MeshMerge    - UHLODBuilderMeshMerge: every mesh the cell draws merged into ONE mesh in world space,
     //                  one section per distinct material; geometry unchanged, one draw per material.
     //   MeshSimplify - UHLODBuilderMeshSimplify: the merged mesh, then simplified (QEM, the editor's own
-    //                  Simplify - Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp) down to its Settings'
-    //                  TrianglePercent of its triangles (Core::HLODMeshSimplifySettings). What a far cell should
-    //                  cost.
-    //   Custom       - UE EHLODLayerType::Custom + HLODBuilderClass: the builder the layer's `Builder`
-    //                  names, which a project or game module registered (Rules::HLODBuilderRegistry::Register).
+    //                  Simplify - Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp) down to
+    //                  SimplifyTrianglePercent of its triangles. What a far cell should cost.
+    //   MeshApproximate - UHLODBuilderMeshApproximate (UE IGeometryProcessing_ApproximateActors): the merged mesh
+    //                  voxel-wrapped into ONE closed shell (fast winding number -> Marching Cubes), gaps closed
+    //                  morphologically, inner cavities dropped, simplified to a geometric tolerance, auto-UV'd and
+    //                  textured by a capture of the source meshes (BaseColor, Normal, ORM) - one mesh and one
+    //                  material per cell, what a dense quarter costs from far away (HLODApproximate.hpp).
     // The built mesh is stored INSIDE the cell's HLOD file, as a StaticMesh record's EditMesh: UE writes its
     // merged UStaticMesh into the HLOD actor's own package for the same reason - it is derived from the cell
     // and belongs to nobody else.
@@ -369,6 +382,7 @@ namespace Desert::Core
         Instancing,
         MeshMerge,
         MeshSimplify,
+        MeshApproximate,
         Custom,
     };
 
@@ -376,7 +390,7 @@ namespace Desert::Core
     // (TextureSize, bNormalMap, bMetallicMap / bRoughnessMap / bAmbientOcclusionMap, bEmissiveMap), the pattern:
     // the built mesh gets ONE UV atlas (MeshMerge: the source UV islands packed by UVPacker; MeshSimplify: AutoUV
     // on the simplified mesh) and ONE section, and Build HLODs bakes every source material into that atlas
-    // (Editor/Panels/WorldPartition/HLODMaterialBake.hpp) as M_<key>.demat over T_<key>_{BaseColor, ORM, Normal,
+    // (Editor/Core/HLODMaterialBake.hpp) as M_<key>.demat over T_<key>_{BaseColor, ORM, Normal,
     // Emissive}.detex beside the built HLODs - one draw per built mesh instead of one per material. BaseColor is
     // always baked; a channel switched off is not baked and the material keeps that input's constant default
     // (StandardSurface: flat normal, roughness 0.5, metallic 0, no emission).
@@ -392,6 +406,47 @@ namespace Desert::Core
         bool operator==( const HLODMaterialMergeSerialized& ) const = default;
     };
 
+    // How a MeshApproximate shell's normals are split - UE FMeshApproximationSettings::bEstimateHardNormals.
+    enum class HLODApproximationNormals
+    {
+        Smooth,    // one normal per vertex: the shell shades as one smooth surface
+        HardEdges, // split where two faces meet sharper than HardNormalAngle (walls and roofs keep their edges)
+    };
+
+    // UE FMeshApproximationSettings (Engine/Classes/Engine/MeshMerging.h) - a MeshApproximate layer's builder
+    // Settings (UE UHLODBuilderMeshApproximateSettings::MeshApproximationSettings, WP v12): the fields the
+    // approximation reads, in centimetres where UE states metres. Every field is read by
+    // Core::BuildApproximateShell or the capture bake (Editor HLODApproximateBake); ranges are refused by
+    // Rules::ValidateHLODApproximation.
+    struct HLODApproximationSettings
+    {
+        // UE ApproximationAccuracy: the voxel size of the wrap, cm (> 0). The shell is within about this of the
+        // source surface, and the capture accepts a photo texel whose surface lies within it.
+        float WorldSpaceApproximationAccuracy = 100.0f;
+        // UE ClampVoxelDimension: the most voxels along the cell's longest side, 8..1024; a cell larger than
+        // ClampVoxelDimension x accuracy is wrapped at the coarser size this allows.
+        int32_t ClampVoxelDimension = 1024;
+        // UE WindingThreshold: the fast winding number the solid starts at (0.5 = inside a closed surface).
+        float WindingThreshold = 0.5f;
+        // UE bFillGaps + GapDistance: a morphological close (dilate, then contract) by GapDistance cm, so a
+        // street narrower than 2 x GapDistance between two houses is filled and the quarter is one shell.
+        bool  FillGaps    = true;
+        float GapDistance = 10.0f;
+        // UE GeometricDeviation (SimplifyMethod GeometricTolerance): the simplified shell stays within this many
+        // cm of the unsimplified one (> 0).
+        float GeometricDeviation = 10.0f;
+        // UE MaterialSettings.TextureSize: the baked BaseColor / Normal / ORM side, texels (power of two,
+        // 64..8192); also the auto-UV packing resolution.
+        int32_t TextureSize = 1024;
+        // UE RenderCaptureResolution: the side of each capture photo of the source meshes, pixels (64..8192).
+        int32_t CaptureResolution = 2048;
+        // UE bEstimateHardNormals + HardNormalAngle (degrees, (0, 180)).
+        HLODApproximationNormals NormalMode      = HLODApproximationNormals::HardEdges;
+        float                    HardNormalAngle = 60.0f;
+
+        bool operator==( const HLODApproximationSettings& ) const = default;
+    };
+
     struct HLODLayerSerialized
     {
         std::string   Name;
@@ -402,13 +457,11 @@ namespace Desert::Core
         std::optional<std::string> Builder;
         // UE UHLODLayer::HLODBuilderSettings (WP v8): the builder's own settings object (UE: the
         // UHLODBuilderSettings subclass its GetSettingsClass names), read and checked by that builder alone
-        // (IHLODBuilder::ValidateSettings) - MeshSimplify's is {"TrianglePercent": ...}. A builder that reads
-        // none refuses any, so a number nobody reads cannot sit in a file looking like a setting. Absent = the
-        // layer states none.
+        // (IHLODBuilder::ValidateSettings) - MeshMerge's is {"MergeMaterials": {...}}
+        // (HLODMaterialMergeSerialized, optional), MeshSimplify's {"TrianglePercent": ..., "MergeMaterials":
+        // {...}}, MeshApproximate's the HLODApproximationSettings (WP v12). A builder that reads none refuses any,
+        // so a number nobody reads cannot sit in a file looking like a setting. Absent = the layer states none.
         std::optional<Common::Json::Value> Settings;
-        // MeshMerge / MeshSimplify only (refused on Instancing, whose instances keep their own materials):
-        // ABSENT = one section per distinct source material (one draw each); STATED = one baked material.
-        std::optional<HLODMaterialMergeSerialized> MergeMaterials;
         // UE UHLODLayer::bIsSpatiallyLoaded / CellSize / LoadingRange (WP-FAR-8): BOTH stated = the HLODs this
         // layer builds are SPATIALLY LOADED - each lives in a square cell of CellSize cm (by the centre of what it
         // stands in for) and is streamed by the same residency as a grid cell, within LoadingRange cm of a
@@ -428,8 +481,7 @@ namespace Desert::Core
                  Settings.has_value() == other.Settings.has_value() &&
                  ( !Settings.has_value() || Common::Json::Same( *Settings, *other.Settings ) );
             return Name == other.Name && Type == other.Type && Builder == other.Builder && sameSettings &&
-                   MergeMaterials == other.MergeMaterials && CellSize == other.CellSize &&
-                   LoadingRange == other.LoadingRange;
+                   CellSize == other.CellSize && LoadingRange == other.LoadingRange;
         }
     };
 

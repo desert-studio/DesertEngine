@@ -360,7 +360,7 @@ TEST( CommandLine, AControlChannelRunIsUnattendedEvenWithNoCaptureFlagAtAll )
     const CommandLineOptions options = ParseOk( { "--control-socket", "/tmp/desert.sock" } );
 
     ASSERT_FALSE( options.Shot.Active() ) << "this run takes no capture; that is the whole point of it";
-    EXPECT_TRUE( IsUnattendedSession( options.Shot, !options.ControlSocket.empty() ) );
+    EXPECT_TRUE( IsUnattendedSession( options.Shot, !options.ControlSocket.empty(), options.Builder.Active() ) );
 }
 
 // The two originals still count, including `--shot-sequence` alone — a motion study is as unattended as
@@ -370,7 +370,7 @@ TEST( CommandLine, EitherFlavourOfCaptureIsStillUnattended )
     for ( const Args& argv : { Args{ "--shot", "/tmp/out.png" }, Args{ "--shot-sequence", "/tmp/seq" } } )
     {
         const CommandLineOptions options = ParseOk( argv );
-        EXPECT_TRUE( IsUnattendedSession( options.Shot, !options.ControlSocket.empty() ) );
+        EXPECT_TRUE( IsUnattendedSession( options.Shot, !options.ControlSocket.empty(), options.Builder.Active() ) );
     }
 }
 
@@ -387,7 +387,7 @@ TEST( CommandLine, AnOrdinaryInteractiveRunIsNotUnattended )
             Args{ "--camera", "0,200,0", "--look", "0,0,-1" } } )
     {
         const CommandLineOptions options = ParseOk( argv );
-        EXPECT_FALSE( IsUnattendedSession( options.Shot, !options.ControlSocket.empty() ) );
+        EXPECT_FALSE( IsUnattendedSession( options.Shot, !options.ControlSocket.empty(), options.Builder.Active() ) );
     }
 }
 

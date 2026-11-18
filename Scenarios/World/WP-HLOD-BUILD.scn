@@ -1,0 +1,27 @@
+# WP-HLOD-BUILD: Build HLODs as a service (Editor/Core/WorldPartitionHLODBuilder) - incremental by the HLOD checksum,
+# which now holds the saved content of every mesh / material / texture a cell's records name (UE: the HLOD hash).
+# A static mesh that stands in some Main cells of WP_Protocol is changed and saved through the Assets palette (UE Asset
+# Actions > Nanite > Enable: SetStoredVirtualGeometry rewrites the .stmesh and notes it in the content registry):
+# exactly the cells that use it and their HLOD_Main_Far parent go stale; Build HLODs rebuilds only them.
+# LEAD (review, unbuilt): the guessed «Open Static Mesh Editor» / StaticMesh "Scale" / «Save Asset» steps did not
+# exist in DesertCtl; they are replaced by real palette entries. MESH below is a placeholder: put the folder and file
+# of a .stmesh that WP_Protocol's Main-grid records draw (WP_Protocol.desce names no .stmesh directly - look in its
+# external entity files), and the stale count S (its cells + parents) into hlodbuild_stale / hlodbuild_incremental.
+# A build with landscape tiles bakes over editor frames: each «Тогда» after a build waits for its «built X of N» line.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Дано run Scene "Build HLODs (force all)"
+Тогда 0_fresh World Partition panel, HLODs section: «0 stale HLOD»; log «built N of N HLOD cells (force all)», read back 0 stale
+Дано run Assets "Open folder: Meshes"
+Дано run Assets "Select asset MESH.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Тогда hlodbuild_stale World Partition panel, HLODs section: «S stale HLOD» (the mesh's Main cells + their HLOD_Main_Far parent; hover lists them); a toast «World Partition: S stale HLOD - Build HLODs»
+Когда run Scene "Build HLODs"
+Тогда hlodbuild_incremental log «built S of N HLOD cells (others up to date)», read back 0 stale; panel «0 stale HLOD»
+Когда run Scene "Delete HLODs"
+Тогда hlodbuild_deleted log «[Delete HLODs] 'WP_Protocol': K file(s) removed»; panel «HLODs not built: N stale HLOD»; WP_Protocol_HLOD/ is gone
+Когда run Scene "Save and Build HLODs"
+Тогда hlodbuild_rebuilt log «built N of N HLOD cells (others up to date)» after the scene save; panel «0 stale HLOD»
+# Restore the mesh as it was (its HLODs go stale again until the next Build HLODs).
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Когда run Scene "Build HLODs"

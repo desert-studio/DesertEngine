@@ -400,6 +400,9 @@ namespace Desert::Editor
         {
             if ( ImGui::MenuItem( "Perf HUD", "", &EditorPreferences::Get().ShowPerfHud, true ) )
                 EditorPreferences::Save(); // persist the toggle like the rest of the user prefs
+            // UE's Show HLODs (WP-EDITOR-HLOD): the saved HLODs of the cells the editor does not hold.
+            if ( ImGui::MenuItem( "HLODs", "", &EditorPreferences::Get().ShowHLODsInEditor, true ) )
+                EditorPreferences::Save();
             ImGui::EndMenu();
         }
 

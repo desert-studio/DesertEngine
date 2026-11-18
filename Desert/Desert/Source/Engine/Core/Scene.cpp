@@ -1,6 +1,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
+#include <Engine/ECS/EditorHLODComponent.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
@@ -198,6 +199,11 @@ namespace Desert::Core
 
         for ( const auto& entity : GetAllEntities() )
         {
+            // AN EDITOR HLOD IS NOT THE WORLD'S (ECS/EditorHLODComponent.hpp; UE's editor HLODs are neither
+            // selectable nor traced): no trace meets one, drawn or hidden - a hidden one stands exactly where the
+            // held cell's own entities stand, and would take their clicks and the foliage brush's hits.
+            if ( entity.HasComponent<ECS::EditorHLODComponent>() )
+                continue;
             ::Desert::Mesh* mesh    = nullptr;
             bool            skinned = false;
             if ( entity.HasComponent<ECS::StaticMeshComponent>() )

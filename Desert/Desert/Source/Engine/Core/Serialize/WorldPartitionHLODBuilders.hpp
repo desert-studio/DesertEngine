@@ -42,9 +42,10 @@ namespace Desert::Core::Rules
 {
     // UE FHLODBuildContext: what one HLOD is built from. The cell's records and their composed WORLD matrices, the
     // members the HLOD stands in for, the nearest it is ever drawn from (cm; the source cell's grid LoadingRange,
-    // HLODMinVisibleDistance), the layer's Settings (null when it states none), its MergeMaterials (null when it
-    // states none), the asset registries a builder reads meshes through and the mesh geometry the registry states
-    // (HLODBuilderRegistry::MeshGeometry; empty = BuildHLODMesh over Registries).
+    // HLODMinVisibleDistance), the layer's Settings (null when it states none; the merged material and the
+    // approximation are the mesh builders' own Settings, WP v12), the asset registries a builder reads meshes
+    // through and the mesh geometry the registry states (HLODBuilderRegistry::MeshGeometry; empty = BuildHLODMesh
+    // over Registries).
     struct HLODBuildContext
     {
         std::span<const Assets::EntityData>           Records;
@@ -52,7 +53,6 @@ namespace Desert::Core::Rules
         std::span<const std::size_t>                  Members;
         float                                         MinVisibleDistance = 0.0f; // cm
         const Common::Json::Value*                    Settings           = nullptr;
-        const HLODMaterialMergeSerialized*            MergeMaterials     = nullptr;
         std::span<const Common::Utils::AssetRegistry> Registries;
         HLODMeshBuilder                               Geometry;
     };
@@ -106,14 +106,17 @@ namespace Desert::Core::Rules
         }
     };
 
-    // THE MESH LAYERS' SHARED PASS (UE UHLODBuilderMeshMerge / UHLODBuilderMeshSimplify): every gathered batch
-    // that casts shadows becomes one built mesh and every batch that does not becomes another (a merged mesh has
-    // one CastShadows), each standing in for the union of its batches' sources, in member order. The holes and
-    // counts are the gathered ones. @p trianglePercent absent = merge only.
+    // THE MESH LAYERS' SHARED PASS (UE UHLODBuilderMeshMerge / MeshSimplify / MeshApproximate): every gathered
+    // batch that casts shadows becomes one built mesh and every batch that does not becomes another (a merged mesh
+    // has one CastShadows), each standing in for the union of its batches' sources, in member order. The holes and
+    // counts are the gathered ones. @p shape is the builder's own settings as the geometry reads them
+    // (TrianglePercent, MergeMaterials, Approximation; its Parts are filled here per mesh). An approximated shape
+    // wraps the cell into ONE shell (UE UHLODBuilderMeshApproximate builds one mesh per HLOD actor): its parts are
+    // not split by shadow casting, and the shell casts.
     [[nodiscard]] inline Common::ResultStr<InstancingHLOD> MergeHLODBatches( const HLODBuildContext& context,
                                                                              InstancingHLOD          gathered,
-                                                                             std::optional<float> trianglePercent,
-                                                                             const HLODMeshBuilder& geometry )
+                                                                             const HLODMeshRequest&  shape,
+                                                                             const HLODMeshBuilder&  geometry )
     {
         if ( gathered.Batches.empty() )
             return Common::MakeSuccess( std::move( gathered ) );
@@ -121,24 +124,24 @@ namespace Desert::Core::Rules
         merged.NotInstanced   = std::move( gathered.NotInstanced );
         merged.Instances      = gathered.Instances;
         merged.FoliageLeftOut = gathered.FoliageLeftOut;
+        const bool oneShell   = shape.Approximation.has_value();
         for ( const bool shadows : { true, false } )
         {
+            if ( oneShell && !shadows )
+                break;
             std::vector<Assets::InstancedStaticMeshComponentSer> parts;
             std::vector<std::size_t>                             sources;
             for ( const HLODBatch& batch : gathered.Batches )
             {
-                if ( batch.Block.CastShadows.value_or( true ) != shadows )
+                if ( !oneShell && batch.Block.CastShadows.value_or( true ) != shadows )
                     continue;
                 parts.push_back( batch.Block );
                 sources.insert( sources.end(), batch.Sources.begin(), batch.Sources.end() );
             }
             if ( parts.empty() )
                 continue;
-            HLODMeshRequest request;
-            request.TrianglePercent = trianglePercent;
-            if ( context.MergeMaterials != nullptr )
-                request.MergeMaterials = *context.MergeMaterials;
-            request.Parts = parts;
+            HLODMeshRequest request = shape;
+            request.Parts           = parts;
             auto built              = geometry( request );
             if ( !built )
                 return Common::MakeError<InstancingHLOD>( built.GetError() );
@@ -296,7 +299,8 @@ namespace Desert::Core::Rules
 
         // The geometry the mesh builders build through (HLODBuildContext::Geometry). None = BuildHLODMesh over the
         // cook's registries, which bakes no material: the editor's Build HLODs states its own for one build, which
-        // bakes a MergeMaterials layer's material and binds it (WP-HLOD-MATBAKE, WorldPartitionPanel).
+        // bakes a mesh builder's Settings.MergeMaterials and binds it (WP-HLOD-MATBAKE,
+        // WorldPartitionHLODBuilder).
         void SetMeshGeometry( HLODMeshBuilder geometry )
         {
             m_MeshGeometry = std::move( geometry );
@@ -307,6 +311,17 @@ namespace Desert::Core::Rules
         }
 
         // The builder @p layer is built by (HLODBuilderNameOf), or "builder '<name>' is not registered".
+        // Every registered builder's name, in order (UE: the UHLODBuilder subclasses the HLOD layer's builder
+        // class picker lists).
+        [[nodiscard]] std::vector<std::string> Names() const
+        {
+            std::vector<std::string> names;
+            names.reserve( m_Builders.size() );
+            for ( const auto& [name, builder] : m_Builders )
+                names.push_back( name );
+            return names;
+        }
+
         [[nodiscard]] Common::ResultStr<const IHLODBuilder*> BuilderOf( const HLODLayerSerialized& layer ) const
         {
             const std::string_view name = HLODBuilderNameOf( layer );
@@ -363,9 +378,9 @@ namespace Desert::Core::Rules
 
     // THE HLOD OF ONE CELL BY ITS LAYER (UE UHLODBuilder::Build over the cell's actors): the Instancing pass
     // gathers the sources and the holes, the layer's builder makes the HLOD of them, the landscape builder (when
-    // the registry has one) adds a batch per landscape tile and the landscape spline builder one per spline. @p context.Settings is the layer's. Refused, by
-    // the layer's name, when its builder is not registered or refuses; call after HLODLayerBuilderIssues found
-    // none.
+    // the registry has one) adds a batch per landscape tile and the landscape spline builder one per spline.
+    // @p context.Settings is the layer's. Refused, by the layer's name, when its builder is not registered or
+    // refuses; call after HLODLayerBuilderIssues found none.
     [[nodiscard]] inline Common::ResultStr<InstancingHLOD>
     BuildCellHLOD( const HLODLayerSerialized& layer, const HLODBuilderRegistry& builders,
                    const HLODBuildContext& context, const CustomShaderSource& customShader,

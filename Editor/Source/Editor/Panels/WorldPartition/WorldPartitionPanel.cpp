@@ -12,11 +12,14 @@
 
 #include <cstdint>
 #include "EditorLoadedRegions.hpp"
+#include "EditorHLODs.hpp"
+#include <Editor/Core/EditorPreferences.hpp>
 
 #include "../../Core/CommandHistory.hpp"
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Commands/WorldPartitionEditCommand.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
+#include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 
 #include <algorithm>
@@ -39,6 +42,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
+#include <Common/Json/Document.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -168,6 +172,10 @@ namespace Desert::Editor
     {
         if ( scene == m_Scene )
             return;
+        // The editor HLODs belong to the scene they were made in: they leave it with the window's attention.
+        if ( m_Scene )
+            m_EditorHLODs.Release( *m_Scene );
+        m_EditorHLODsStale = true;
         m_Scene         = scene;
         m_EditPlanStale = true;
         m_FocusPending  = true;
@@ -201,6 +209,7 @@ namespace Desert::Editor
 
     void WorldPartitionPanel::RebuildEditPlan()
     {
+        m_HLODStatusStale = true; // what the plan is remade for (a save, a region load, Refresh) may move it
         m_EditPlanStale = false;
         m_EditPlan.reset();
         m_PlanSource.reset();
@@ -216,7 +225,7 @@ namespace Desert::Editor
         m_Volumes.clear();
         m_EditTags.clear();
         m_HLODCells.clear();
-        m_HLODStatus.clear();
+        m_HLODOverlayStatus.clear();
         // A PARTITIONED WORLD OPENED FROM ITS FILES IS PLANNED OVER ITS DESCRIPTOR INDEX (WP20, UE's World
         // Partition editor draws every actor descriptor, loaded or not): the scene may hold only a region of it,
         // and the map is where the next region is chosen. An entity's unsaved move shows after its save.
@@ -303,7 +312,7 @@ namespace Desert::Editor
     {
         namespace WC = ::Desert::Core::WorldCells;
         m_HLODCells.clear();
-        m_HLODStatus.clear();
+        m_HLODOverlayStatus.clear();
         // No Build HLODs yet: the world has no HLOD to show, built or stale.
         std::error_code ec;
         if ( !std::filesystem::exists(
@@ -312,7 +321,7 @@ namespace Desert::Editor
         auto stored = WC::ReadBuiltHLODs( scenePath );
         if ( !stored )
         {
-            m_HLODStatus = "HLOD overlay: " + stored.GetError();
+            m_HLODOverlayStatus = "HLOD overlay: " + stored.GetError();
             return;
         }
         // Judged against the SAVED world, read exactly as Build HLODs reads it, so a cell is stale here exactly when
@@ -320,13 +329,13 @@ namespace Desert::Editor
         auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( scenePath );
         if ( !text )
         {
-            m_HLODStatus = "HLOD overlay: " + text.GetError();
+            m_HLODOverlayStatus = "HLOD overlay: " + text.GetError();
             return;
         }
         auto saved = ::Desert::Core::ParseLoadableScene( scenePath.string(), text.GetValue() );
         if ( !saved )
         {
-            m_HLODStatus = "HLOD overlay: " + saved.GetError();
+            m_HLODOverlayStatus = "HLOD overlay: " + saved.GetError();
             return;
         }
         const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
@@ -335,14 +344,14 @@ namespace Desert::Editor
         auto cut = WC::ExpandWorldForCook( saved.GetValue().Scene, descriptors, WC::PrefabFileReader() );
         if ( !cut )
         {
-            m_HLODStatus = "HLOD overlay: " + cut.GetError();
+            m_HLODOverlayStatus = "HLOD overlay: " + cut.GetError();
             return;
         }
         auto stale = WC::StaleHLODCells( stored.GetValue().Index, cut.GetValue().World.Scene,
                                          cut.GetValue().Descriptors, registries );
         if ( !stale )
         {
-            m_HLODStatus = "HLOD overlay: " + stale.GetError();
+            m_HLODOverlayStatus = "HLOD overlay: " + stale.GetError();
             return;
         }
         std::vector<std::string> built;
@@ -467,8 +476,11 @@ namespace Desert::Editor
             for ( const std::string& refused : ::Desert::Core::Rules::HLODLayerBuilderIssues(
                        *m_Scene->GetWorldPartition(), ::Desert::Core::HLODBuilders() ) )
                 ImGui::TextColored( ImVec4( 1.0f, 0.35f, 0.35f, 1.0f ), "%s", refused.c_str() );
+            DrawHLODBuild();
             DrawRuntimeGrids();
+            DrawHLODLayers();
             DrawGridHLODLayers();
+            DrawEditorHLODs();
             DrawDataLayers();
         }
 
@@ -543,8 +555,8 @@ namespace Desert::Editor
                              plan->AlwaysLoaded.size(), gridLevels,
                              static_cast<double>( shown.CellSize ) / 100.0 );
 
-        if ( !playing && !m_HLODStatus.empty() )
-            ImGui::TextColored( ImVec4( 1.0f, 0.5f, 0.35f, 1.0f ), "%s", m_HLODStatus.c_str() );
+        if ( !playing && !m_HLODOverlayStatus.empty() )
+            ImGui::TextColored( ImVec4( 1.0f, 0.5f, 0.35f, 1.0f ), "%s", m_HLODOverlayStatus.c_str() );
         if ( m_MiniMapBuild )
             ImGui::Text( "Build Minimap: tile %zu of %zu", m_MiniMapBuild->TilesDone() + 1, m_MiniMapBuild->TileCount() );
         else if ( !m_MiniMapStatus.empty() )
@@ -829,6 +841,466 @@ namespace Desert::Editor
         return chosen != stated ? std::optional<glm::vec3>( chosen ) : std::nullopt;
     }
 
+    namespace
+    {
+        // The settings object a layer starts with when its builder is picked (UE: picking UHLODLayer::
+        // HLODBuilderClass creates that class's UHLODBuilderSettings subclass with its defaults): MeshSimplify's
+        // starting triangle share (its Settings require one), MeshApproximate's UE defaults; none for Instancing
+        // (reads none), MeshMerge (none = one section per source material) and a project's builder (its settings
+        // are its own struct).
+        std::optional<Common::Json::Value> DefaultBuilderSettings( const ::Desert::Core::HLODLayerType type )
+        {
+            namespace Core = ::Desert::Core;
+            if ( type == Core::HLODLayerType::MeshSimplify )
+            {
+                Core::HLODMeshSimplifySettings settings;
+                settings.TrianglePercent = 0.5f; // UE UHLODBuilderMeshSimplifySettings' starting share
+                return Common::Json::FromStruct( settings );
+            }
+            if ( type == Core::HLODLayerType::MeshApproximate )
+                return Common::Json::FromStruct( Core::HLODApproximationSettings{} );
+            return std::nullopt;
+        }
+
+        // A number committed on Enter - one history entry per commit, never one per keystroke. @p scale shows it
+        // in other units (a share as percent).
+        bool CommitFloat( const char* label, float& value, const char* format, const float scale = 1.0f )
+        {
+            float shown = value * scale;
+            ImGui::SetNextItemWidth( 140.0f );
+            if ( !ImGui::InputFloat( label, &shown, 0.0f, 0.0f, format, ImGuiInputTextFlags_EnterReturnsTrue ) ||
+                 shown / scale == value )
+                return false;
+            value = shown / scale;
+            return true;
+        }
+
+        bool CommitInt( const char* label, int32_t& value )
+        {
+            int shown = value;
+            ImGui::SetNextItemWidth( 140.0f );
+            if ( !ImGui::InputInt( label, &shown, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue ) || shown == value )
+                return false;
+            value = shown;
+            return true;
+        }
+
+        // UE FMeshMergingSettings::bMergeMaterials + FMaterialProxySettings, as the mesh builders' settings show
+        // them: true once a change is committed to @p merge.
+        bool DrawMergeMaterials( std::optional<::Desert::Core::HLODMaterialMergeSerialized>& merge )
+        {
+            bool changed = false;
+            bool merged  = merge.has_value();
+            if ( ImGui::Checkbox( "Merge Materials", &merged ) )
+            {
+                if ( merged )
+                    merge.emplace();
+                else
+                    merge.reset();
+                changed = true;
+            }
+            if ( !merge.has_value() )
+                return changed;
+            ImGui::Indent();
+            changed |= CommitInt( "Texture size", merge->TextureSize );
+            changed |= ImGui::Checkbox( "Normal map", &merge->NormalMap );
+            changed |= ImGui::Checkbox( "ORM map (AO, roughness, metallic)", &merge->ORMMap );
+            changed |= ImGui::Checkbox( "Emissive map", &merge->EmissiveMap );
+            ImGui::Unindent();
+            return changed;
+        }
+
+        // THE LAYER'S BUILDER SETTINGS, drawn as the fields of its builder's own object (UE's HLOD layer Details:
+        // HLODBuilderSettings is the picked builder class's UHLODBuilderSettings subclass - MeshMerge's and
+        // MeshSimplify's merged material, MeshSimplify's triangle share, MeshApproximate's approximation), never
+        // as fields of the layer. Read as the builder reads them (Rules::ReadHLODBuilderSettings, strict): what it
+        // refuses is shown as its refusal and not edited over. @return the whole new Settings object once a field
+        // is committed.
+        std::optional<Common::Json::Value> DrawBuilderSettings( const ::Desert::Core::HLODLayerSerialized& layer )
+        {
+            namespace Core                    = ::Desert::Core;
+            namespace Rules                   = ::Desert::Core::Rules;
+            const Common::Json::Value* stated = layer.Settings.has_value() ? &*layer.Settings : nullptr;
+            const auto                 refuse = []( const std::string& why )
+            { ImGui::TextColored( ImVec4( 1.0f, 0.35f, 0.35f, 1.0f ), "%s", why.c_str() ); };
+            switch ( layer.Type )
+            {
+                case Core::HLODLayerType::Instancing:
+                    ImGui::TextDisabled(
+                         "Instancing reads no settings: each distinct mesh is one instanced batch." );
+                    return std::nullopt;
+                case Core::HLODLayerType::MeshMerge:
+                {
+                    Core::HLODMeshMergeSettings settings;
+                    if ( stated != nullptr )
+                    {
+                        auto read = Rules::ReadHLODBuilderSettings<Core::HLODMeshMergeSettings>( stated );
+                        if ( !read )
+                        {
+                            refuse( "MeshMerge: " + read.GetError() );
+                            return std::nullopt;
+                        }
+                        settings = read.ExtractValue();
+                    }
+                    if ( DrawMergeMaterials( settings.MergeMaterials ) )
+                        return Common::Json::FromStruct( settings );
+                    return std::nullopt;
+                }
+                case Core::HLODLayerType::MeshSimplify:
+                {
+                    Core::HLODMeshSimplifySettings settings;
+                    if ( stated != nullptr )
+                    {
+                        auto read = Rules::ReadHLODBuilderSettings<Core::HLODMeshSimplifySettings>( stated );
+                        if ( !read )
+                        {
+                            refuse( "MeshSimplify: " + read.GetError() );
+                            return std::nullopt;
+                        }
+                        settings = read.ExtractValue();
+                    }
+                    if ( !settings.TrianglePercent.has_value() )
+                        refuse(
+                             "MeshSimplify states no TrianglePercent: Build HLODs refuses the layer until one is "
+                             "set." );
+                    float percent = settings.TrianglePercent.value_or( 0.0f );
+                    bool  changed = CommitFloat( "Triangles kept", percent, "%.1f %%", 100.0f );
+                    if ( changed )
+                        settings.TrianglePercent = percent;
+                    changed |= DrawMergeMaterials( settings.MergeMaterials );
+                    if ( changed )
+                        return Common::Json::FromStruct( settings );
+                    return std::nullopt;
+                }
+                case Core::HLODLayerType::MeshApproximate:
+                {
+                    auto read = Rules::ReadHLODBuilderSettings<Core::HLODApproximationSettings>( stated );
+                    if ( !read )
+                    {
+                        refuse( "MeshApproximate: " + read.GetError() );
+                        return std::nullopt;
+                    }
+                    Core::HLODApproximationSettings settings = read.ExtractValue();
+                    bool                            changed  = false;
+                    changed |= CommitFloat( "Accuracy (cm)", settings.WorldSpaceApproximationAccuracy, "%.1f" );
+                    changed |= CommitInt( "Max voxel dimension", settings.ClampVoxelDimension );
+                    changed |= CommitFloat( "Winding threshold", settings.WindingThreshold, "%.2f" );
+                    changed |= ImGui::Checkbox( "Fill gaps", &settings.FillGaps );
+                    if ( settings.FillGaps )
+                        changed |= CommitFloat( "Gap distance (cm)", settings.GapDistance, "%.1f" );
+                    changed |= CommitFloat( "Geometric deviation (cm)", settings.GeometricDeviation, "%.1f" );
+                    changed |= CommitInt( "Texture size", settings.TextureSize );
+                    changed |= CommitInt( "Capture resolution", settings.CaptureResolution );
+                    constexpr const char* kNormals[] = { "Smooth", "Hard edges" };
+                    int                   normals    = static_cast<int>( settings.NormalMode );
+                    ImGui::SetNextItemWidth( 140.0f );
+                    if ( ImGui::Combo( "Normals", &normals, kNormals, IM_ARRAYSIZE( kNormals ) ) &&
+                         normals != static_cast<int>( settings.NormalMode ) )
+                    {
+                        settings.NormalMode = static_cast<Core::HLODApproximationNormals>( normals );
+                        changed             = true;
+                    }
+                    if ( settings.NormalMode == Core::HLODApproximationNormals::HardEdges )
+                        changed |= CommitFloat( "Hard normal angle (deg)", settings.HardNormalAngle, "%.0f" );
+                    if ( changed )
+                        return Common::Json::FromStruct( settings );
+                    return std::nullopt;
+                }
+                case Core::HLODLayerType::Custom:
+                {
+                    // A project builder's settings are its own struct, which the editor does not know: shown as
+                    // stated, set with `set world WorldPartition.HLODLayers` (ControlService).
+                    const std::string text =
+                         stated != nullptr ? Common::Json::Write( *stated ) : std::string( "none" );
+                    ImGui::TextWrapped( "Settings of builder '%s': %s", layer.Builder.value_or( "" ).c_str(),
+                                        text.c_str() );
+                    return std::nullopt;
+                }
+            }
+            return std::nullopt;
+        }
+    } // namespace
+
+    // UE's UHLODLayer, edited where UE's World Settings > World Partition Setup edits the partition: one row per
+    // layer of the world (Name, Builder = UE HLODBuilderClass, Spatially Loaded + Cell Size + Loading Range, who
+    // names it), New and Delete, under the table each layer's BUILDER SETTINGS (UE
+    // UHLODLayer::HLODBuilderSettings: the picked builder's own settings object, DrawBuilderSettings), and the
+    // world's ChunkRegionSize. Which layers a partition's cells are built with is its HLOD setups' choice
+    // (DrawGridHLODLayers). Every commit is ONE history entry through EditWorldPartition - refused whole, by name,
+    // by Rules::ValidateHLODLayers; what a builder says of its settings is the red list above the sections
+    // (Rules::HLODLayerBuilderIssues).
+    void WorldPartitionPanel::DrawHLODLayers()
+    {
+        if ( !ImGui::CollapsingHeader( "HLOD layers" ) )
+            return;
+        namespace Core                                              = ::Desert::Core;
+        const Core::WorldPartitionSerialized                current = *m_Scene->GetWorldPartition();
+        static const std::vector<Core::HLODLayerSerialized> kNoLayers;
+        const std::vector<Core::HLODLayerSerialized>&       layers = current.HLODLayers.value_or( kNoLayers );
+        // UE UHLODLayer's defaults for a spatially loaded layer (cm).
+        constexpr float kDefaultCellSize     = 25600.0f;
+        constexpr float kDefaultLoadingRange = 51200.0f;
+        // UE's builder class picker: every builder this process registered (Core::HLODBuilders).
+        const std::vector<std::string> builderNames = Core::HLODBuilders().Names();
+
+        // Who names each layer: the partitions' HLOD setups, and entities (their HLODLayer block - the plan's
+        // composites, which over the descriptor index include those not loaded, and the loaded ones).
+        std::vector<std::size_t> setupUsers( layers.size(), 0 ), entityUsers( layers.size(), 0 ),
+             liveUsers( layers.size(), 0 );
+        for ( std::size_t i = 0; i < layers.size(); ++i )
+            for ( const Core::RuntimePartitionSerialized& runtime : current.RuntimePartitions )
+                if ( runtime.HLODSetups.has_value() )
+                    for ( const Core::RuntimePartitionHLODSetupSerialized& setup : *runtime.HLODSetups )
+                        if ( setup.HLODLayer == layers[i].Name )
+                            ++setupUsers[i];
+        if ( m_EditPlan && m_EditPartition == current )
+            for ( const Core::Rules::PlannedComposite& composite : m_EditPlan->Composites )
+                if ( composite.HLODLayer.has_value() && *composite.HLODLayer < entityUsers.size() )
+                    entityUsers[*composite.HLODLayer] += composite.Members.size();
+        {
+            auto& registry = m_Scene->GetRegistry();
+            auto  view     = registry.view<::Desert::ECS::HLODLayerComponent>();
+            for ( const auto handle : view )
+                if ( const auto index = Core::Rules::HLODLayerIndexOf(
+                          current, view.get<::Desert::ECS::HLODLayerComponent>( handle ).Data.Layer );
+                     index.has_value() )
+                    ++liveUsers[*index];
+        }
+        const auto entitiesNaming = [&]( std::size_t i ) { return std::max( entityUsers[i], liveUsers[i] ); };
+        const auto usedBy         = [&]( std::size_t i )
+        {
+            return std::format( "{} HLOD setup(s), {} entit{}", setupUsers[i], entitiesNaming( i ),
+                                entitiesNaming( i ) == 1 ? "y" : "ies" );
+        };
+
+        std::optional<Core::WorldPartitionSerialized> after;
+        std::string                                   label;
+        const auto edit = [&]( std::string what ) -> std::vector<Core::HLODLayerSerialized>&
+        {
+            after = current;
+            label = std::move( what );
+            return *after->HLODLayers;
+        };
+        if ( layers.empty() )
+            ImGui::TextDisabled( "This world states no HLOD layer." );
+        else if ( ImGui::BeginTable( "##hlodlayers", 7,
+                                     ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            ImGui::TableSetupColumn( "Name" );
+            ImGui::TableSetupColumn( "Builder" );
+            ImGui::TableSetupColumn( "Spatially Loaded" );
+            ImGui::TableSetupColumn( "Cell size (cm)" );
+            ImGui::TableSetupColumn( "Loading range (cm)" );
+            ImGui::TableSetupColumn( "Used by" );
+            ImGui::TableSetupColumn( "" );
+            ImGui::TableHeadersRow();
+            constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
+            for ( std::size_t i = 0; i < layers.size() && !after; ++i )
+            {
+                const Core::HLODLayerSerialized& layer = layers[i];
+                ImGui::PushID( static_cast<int>( i ) );
+                ImGui::TableNextRow();
+
+                // Name: a rename carries every HLOD setup naming the layer; refused while an entity names it (an
+                // entity on disk cannot be renamed with the block, so its name would dangle).
+                ImGui::TableNextColumn();
+                char name[128];
+                std::snprintf( name, sizeof( name ), "%s", layer.Name.c_str() );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputText( "##name", name, sizeof( name ), kCommit ) && layer.Name != name )
+                {
+                    if ( entitiesNaming( i ) > 0 )
+                        m_HLODLayerStatus = std::format( "Rename '{}': {} entit{} name it as their HLOD Layer - "
+                                                         "give them another layer first.",
+                                                         layer.Name, entitiesNaming( i ),
+                                                         entitiesNaming( i ) == 1 ? "y" : "ies" );
+                    else
+                    {
+                        const std::string renamed( name );
+                        edit( std::format( "Rename HLOD layer {} to {}", layer.Name, renamed ) )[i].Name = renamed;
+                        for ( Core::RuntimePartitionSerialized& runtime : after->RuntimePartitions )
+                            if ( runtime.HLODSetups.has_value() )
+                                for ( Core::RuntimePartitionHLODSetupSerialized& setup : *runtime.HLODSetups )
+                                    if ( setup.HLODLayer == layer.Name )
+                                        setup.HLODLayer = renamed;
+                    }
+                }
+
+                // Builder (UE UHLODLayer::HLODBuilderClass): a built-in one is the layer's Type, a project's a
+                // Custom layer naming it. A new pick starts that builder's settings object
+                // (DefaultBuilderSettings), as UE creates the class's settings when the class is picked - one
+                // builder's settings never carry over to another's.
+                ImGui::TableNextColumn();
+                const std::string builder( Core::Rules::HLODBuilderNameOf( layer ) );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::BeginCombo( "##builder", builder.empty() ? "(none)" : builder.c_str() ) )
+                {
+                    std::optional<std::string> picked;
+                    for ( const std::string& candidate : builderNames )
+                        if ( ImGui::Selectable( candidate.c_str(), candidate == builder ) && candidate != builder )
+                            picked = candidate;
+                    ImGui::EndCombo();
+                    if ( picked )
+                    {
+                        Core::HLODLayerSerialized& changed =
+                             edit( std::format( "Set builder of HLOD layer {} to {}", layer.Name, *picked ) )[i];
+                        changed.Type    = Core::HLODLayerType::Custom;
+                        changed.Builder = *picked;
+                        for ( const auto& [type, builtIn] : Core::Rules::kBuiltInHLODBuilders )
+                            if ( builtIn == *picked )
+                            {
+                                changed.Type = type;
+                                changed.Builder.reset();
+                            }
+                        changed.Settings = DefaultBuilderSettings( changed.Type );
+                    }
+                }
+
+                // Spatially Loaded (UE UHLODLayer::bIsSpatiallyLoaded): both numbers or neither. Whether a setup
+                // chain may end on it is the partition's rule (Rules::ValidateHLODLayers names why it refuses).
+                ImGui::TableNextColumn();
+                bool spatial = layer.CellSize.has_value();
+                if ( ImGui::Checkbox( "##spatial", &spatial ) )
+                {
+                    Core::HLODLayerSerialized& changed = edit( std::format(
+                         "{} HLOD layer {} spatially loaded", spatial ? "Make" : "Stop making", layer.Name ) )[i];
+                    if ( spatial )
+                    {
+                        changed.CellSize     = kDefaultCellSize;
+                        changed.LoadingRange = kDefaultLoadingRange;
+                    }
+                    else
+                    {
+                        changed.CellSize.reset();
+                        changed.LoadingRange.reset();
+                    }
+                }
+                ImGui::TableNextColumn();
+                if ( layer.CellSize.has_value() )
+                {
+                    float cell = *layer.CellSize;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##cell", &cell, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                         cell != *layer.CellSize )
+                        edit( std::format( "Set cell size of HLOD layer {}", layer.Name ) )[i].CellSize = cell;
+                }
+                else
+                    ImGui::TextDisabled( "-" );
+                ImGui::TableNextColumn();
+                if ( layer.LoadingRange.has_value() )
+                {
+                    float range = *layer.LoadingRange;
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    if ( ImGui::InputFloat( "##range", &range, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                         range != *layer.LoadingRange )
+                        edit( std::format( "Set loading range of HLOD layer {}", layer.Name ) )[i].LoadingRange =
+                             range;
+                }
+                else
+                    ImGui::TextDisabled( "-" );
+
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted( usedBy( i ).c_str() );
+                ImGui::TableNextColumn();
+                if ( ImGui::SmallButton( "Delete" ) )
+                {
+                    if ( setupUsers[i] + entitiesNaming( i ) > 0 )
+                        m_HLODLayerStatus =
+                             std::format( "Delete '{}': it is named by {} - name another layer there "
+                                          "first.",
+                                          layer.Name, usedBy( i ) );
+                    else
+                    {
+                        std::vector<Core::HLODLayerSerialized>& list =
+                             edit( std::format( "Delete HLOD layer {}", layer.Name ) );
+                        list.erase( list.begin() + static_cast<std::ptrdiff_t>( i ) );
+                        if ( list.empty() )
+                            after->HLODLayers.reset(); // no layers is no key, never an empty list
+                    }
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+
+        // Each layer's builder settings, under the builder that reads them.
+        for ( std::size_t i = 0; i < layers.size() && !after; ++i )
+        {
+            const Core::HLODLayerSerialized& layer = layers[i];
+            const std::string_view           named = Core::Rules::HLODBuilderNameOf( layer );
+            ImGui::PushID( static_cast<int>( i ) );
+            if ( ImGui::TreeNode( "##buildersettings", "%s - %s settings", layer.Name.c_str(),
+                                  std::string( named ).c_str() ) )
+            {
+                if ( std::optional<Common::Json::Value> settings = DrawBuilderSettings( layer );
+                     settings.has_value() )
+                    edit( std::format( "Set {} settings of HLOD layer {}", named, layer.Name ) )[i].Settings =
+                         std::move( settings );
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+        }
+
+        ImGui::SetNextItemWidth( 200.0f );
+        ImGui::InputTextWithHint( "##newhlodlayer", "New HLOD layer name", m_NewHLODLayer.data(),
+                                  m_NewHLODLayer.size() );
+        ImGui::SameLine();
+        if ( ImGui::Button( "New HLOD Layer" ) && !after )
+        {
+            // UE's new UHLODLayer: the Instancing builder, not spatially loaded (the last setup of a chain until
+            // it is given a cell size and range).
+            after = current;
+            if ( !after->HLODLayers )
+                after->HLODLayers.emplace();
+            Core::HLODLayerSerialized layer;
+            layer.Name = std::string( m_NewHLODLayer.data() );
+            label      = std::format( "New HLOD layer {}", layer.Name );
+            after->HLODLayers->push_back( std::move( layer ) );
+        }
+        // ChunkRegionSize: the side of the square region (cm) whose cells a packaged build ships in one content
+        // chunk; off = the world ships in the base chunk.
+        bool  chunked = current.ChunkRegionSize.has_value();
+        float region  = current.ChunkRegionSize.value_or( 0.0f );
+        if ( ImGui::Checkbox( "Chunked packaging", &chunked ) && !after )
+        {
+            after = current;
+            // A 1 km region to start from (the Protocol world's); the field below sets the real one.
+            after->ChunkRegionSize = chunked ? std::optional<float>( 100000.0f ) : std::nullopt;
+            label                  = chunked ? "Ship the world in chunks" : "Ship the world in the base chunk";
+        }
+        if ( current.ChunkRegionSize.has_value() )
+        {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( 160.0f );
+            if ( ImGui::InputFloat( "Chunk region (cm)", &region, 0.0f, 0.0f, "%.0f",
+                                    ImGuiInputTextFlags_EnterReturnsTrue ) &&
+                 region != *current.ChunkRegionSize && !after )
+            {
+                if ( !( std::isfinite( region ) && region > 0.0f ) )
+                    m_HLODLayerStatus =
+                         std::format( "Chunk region {:f} cm: it must be positive and finite", region );
+                else
+                {
+                    after                  = current;
+                    after->ChunkRegionSize = region;
+                    label                  = "Set chunk region size";
+                }
+            }
+        }
+
+        if ( after )
+        {
+            const bool created = label.starts_with( "New HLOD layer" );
+            const auto edited  = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
+            m_HLODLayerStatus  = edited ? std::string() : edited.GetError();
+            m_EditPlanStale    = true; // the Used by counts are the plan's
+            if ( edited && created )
+                m_NewHLODLayer.fill( '\0' );
+        }
+        if ( !m_HLODLayerStatus.empty() )
+            ImGui::TextWrapped( "%s", m_HLODLayerStatus.c_str() );
+    }
+
     Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()
     {
         if ( !m_Selection )
@@ -909,6 +1381,9 @@ namespace Desert::Editor
              outcome.Selection.ByEntities, outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
              outcome.Selection.UnloadedByDataLayers );
         m_EditPlanStale = true;
+        // The HLODs of the cells that arrived hide and those of the cells that left show, before the next frame.
+        if ( const auto synced = m_EditorHLODs.SyncHeld( *m_Scene, EditorLayersLoaded() ); !synced )
+            m_RegionStatus += " " + synced.GetError();
         // The next open of this world holds what it holds now (UE's per-user loaded regions and volumes). The change
         // itself stands either way; a refusal here is the status line's, so the user knows the next open will differ.
         m_Held     = std::move( next );
@@ -1020,7 +1495,9 @@ namespace Desert::Editor
         if ( auto onDisk = ReadWorldOnDisk( "Unload Selected" ); !onDisk )
             return onDisk;
         const std::vector<std::uint64_t> ids = IdsOf( selected );
-        if ( auto reloaded = Reload( Regions::WithoutEntities( Held(), *m_EditPlan, m_RowIds, ids ) ); !reloaded )
+        if ( auto reloaded = Reload( Regions::WithoutEntities( Held(), *m_EditPlan, m_RowIds, ids ),
+                                     Regions::UnsavedPolicy::Ask );
+             !reloaded )
             return reloaded;
         const std::size_t held = static_cast<std::size_t>(
              std::count_if( selected.begin(), selected.end(),
@@ -1300,7 +1777,7 @@ namespace Desert::Editor
         bool save    = false;
         bool discard = false;
         bool cancel  = false;
-        ImGui::BeginDisabled( !m_SaveOpenScene );
+        ImGui::BeginDisabled( !m_SaveScene );
         save = ImGui::Button( "Save", ImVec2( 100.0f, 0.0f ) );
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -1315,7 +1792,7 @@ namespace Desert::Editor
             ImGui::CloseCurrentPopup();
             if ( cancel )
                 m_RegionStatus = "Cancelled: nothing was loaded or unloaded.";
-            else if ( save && !m_SaveOpenScene() )
+            else if ( save && !m_SaveScene() )
                 m_RegionStatus = "The world was not saved (see the log): nothing was loaded or unloaded.";
             else if ( const auto changed =
                            Reload( std::move( pending.Next ), save ? ::Desert::Core::EditorRegions::UnsavedPolicy::Ask
@@ -1324,6 +1801,116 @@ namespace Desert::Editor
                 m_RegionStatus = changed.GetError();
         }
         ImGui::EndPopup();
+    }
+
+    void WorldPartitionPanel::TickEditorHLODs()
+    {
+        if ( !m_Scene )
+            return;
+        // Play streams the world's own HLODs (PlaySession destroyed these before its snapshot), and Stop's restore
+        // is a load: they are made again once the editor is back in Edit.
+        if ( m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit )
+        {
+            m_EditorHLODs.Forget();
+            m_EditorHLODsStale = true;
+            return;
+        }
+        if ( m_EditorHLODs.Count() > 0 && !m_EditorHLODs.IsInScene( *m_Scene ) )
+        {
+            m_EditorHLODs.Forget(); // a load, or a Play refused after PlaySession released them
+            m_EditorHLODsStale = true;
+        }
+        if ( m_EditorHLODsStale && !IsBuildingHLODs() )
+        {
+            m_EditorHLODsStale = false;
+            if ( const auto made = m_EditorHLODs.Make( *m_Scene, m_Assets, EditorLayersLoaded() ); !made )
+                LOG_ERROR( "[WorldPartition] {0}", made.GetError() );
+        }
+        const EditorPreferences& prefs = EditorPreferences::Get();
+        std::optional<glm::vec3> eye;
+        if ( const auto camera = m_Scene->GetActiveCamera() )
+            eye = glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] );
+        m_EditorHLODs.Apply( *m_Scene,
+                             EditorHLODView{ prefs.ShowHLODsInEditor, prefs.HLODInEditorMinDrawDistance,
+                                             prefs.HLODInEditorMaxDrawDistance },
+                             eye );
+    }
+
+    std::vector<bool> WorldPartitionPanel::EditorLayersLoaded()
+    {
+        if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() )
+            return {};
+        return ::Desert::Core::EditorRegions::DataLayersLoadedInEditor( *m_Scene->GetWorldPartition(),
+                                                                        Held().DataLayers );
+    }
+
+    void WorldPartitionPanel::SetShowHLODs( const bool show )
+    {
+        EditorPreferences::Get().ShowHLODsInEditor = show;
+        EditorPreferences::Save();
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::SetEditorProperty( const std::string& property,
+                                                                  const std::string& text )
+    {
+        float values[4] = {};
+        if ( property == "WorldPartitionEditor.Selection" )
+        {
+            if ( std::sscanf( text.c_str(), "%f,%f,%f,%f", &values[0], &values[1], &values[2], &values[3] ) != 4 ||
+                 values[0] > values[2] || values[1] > values[3] )
+                return Common::MakeError( std::format(
+                     "WorldPartitionEditor.Selection: '{}' is not minX,minZ,maxX,maxZ (cm, min <= max)", text ) );
+            m_Selection = ::Desert::Core::Rules::CellBounds{ values[0], values[1], values[2], values[3] };
+            return BOOLSUCCESS;
+        }
+        if ( property == "WorldPartitionEditor.ShowHLODs" )
+        {
+            if ( text != "true" && text != "false" )
+                return Common::MakeError(
+                     std::format( "WorldPartitionEditor.ShowHLODs: '{}' is not true or false", text ) );
+            SetShowHLODs( text == "true" );
+            return BOOLSUCCESS;
+        }
+        if ( property == "WorldPartitionEditor.HLODMinDrawDistance" ||
+             property == "WorldPartitionEditor.HLODMaxDrawDistance" )
+        {
+            if ( std::sscanf( text.c_str(), "%f", &values[0] ) != 1 || values[0] < 0.0f )
+                return Common::MakeError(
+                     std::format( "{}: '{}' is not a distance in cm (0 or more)", property, text ) );
+            EditorPreferences& prefs = EditorPreferences::Get();
+            if ( property == "WorldPartitionEditor.HLODMinDrawDistance" )
+                prefs.HLODInEditorMinDrawDistance = values[0];
+            else
+                prefs.HLODInEditorMaxDrawDistance = values[0];
+            EditorPreferences::Save();
+            return BOOLSUCCESS;
+        }
+        return Common::MakeError( std::format( "'{}' is not WorldPartitionEditor.Selection, .ShowHLODs, "
+                                               ".HLODMinDrawDistance or .HLODMaxDrawDistance",
+                                               property ) );
+    }
+
+    // UE's Show HLODs and HLOD-in-editor draw distances (UWorldPartitionEditorPerProjectUserSettings), beside the
+    // grids whose HLODs they show. This user's, not the world's: no undo entry.
+    void WorldPartitionPanel::DrawEditorHLODs()
+    {
+        if ( !ImGui::CollapsingHeader( "HLODs in the editor" ) )
+            return;
+        EditorPreferences& prefs = EditorPreferences::Get();
+        bool               show  = prefs.ShowHLODsInEditor;
+        if ( ImGui::Checkbox( "Show HLODs", &show ) )
+            SetShowHLODs( show );
+        ImGui::DragFloat( "Min draw distance", &prefs.HLODInEditorMinDrawDistance, 100.0f, 0.0f, FLT_MAX,
+                          "%.0f cm" );
+        if ( ImGui::IsItemDeactivatedAfterEdit() )
+            EditorPreferences::Save();
+        ImGui::DragFloat( "Max draw distance (0 = no limit)", &prefs.HLODInEditorMaxDrawDistance, 100.0f, 0.0f,
+                          FLT_MAX, "%.0f cm" );
+        if ( ImGui::IsItemDeactivatedAfterEdit() )
+            EditorPreferences::Save();
+        const std::string line = std::format( "{} of {} saved HLOD(s) drawn. {}", m_EditorHLODs.DrawnCount(),
+                                              m_EditorHLODs.Count(), m_EditorHLODs.Status() );
+        ImGui::TextWrapped( "%s", line.c_str() );
     }
 
     std::vector<std::string> WorldPartitionPanel::DataLayerNames() const
@@ -1525,286 +2112,192 @@ namespace Desert::Editor
             ImGui::TextWrapped( "%s", m_DataLayerStatus.c_str() );
     }
 
-    Common::BoolResultStr WorldPartitionPanel::BuildHLODs()
+    Common::BoolResultStr WorldPartitionPanel::BuildHLODs( HLODBuildOptions options )
     {
-        namespace WC = ::Desert::Core::WorldCells;
-        if ( m_Bake || m_MeshBake )
-            return Common::MakeError( "Build HLODs: a build is already running (its material bake)." );
+        if ( m_Builder )
+            return Common::MakeError( "Build HLODs: a build is already running (its landscape bake)." );
         if ( !m_Scene )
             return Common::MakeError( "Build HLODs: there is no active scene." );
         const auto& baseline = m_Scene->Packages()->BaselinePath();
-        if ( !baseline )
-            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
-                                      "' is not saved; save it first (the HLODs are built from its files)" );
-        if ( m_Scene->Packages()->HasUnsavedChanges(
-                  ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
-            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
-                                      "' has unsaved changes; save the scene first (the HLODs are built from its "
-                                      "files)" );
-        const std::filesystem::path& path = *baseline;
-        // The saved world, read exactly as WorldCook reads it, so the checksums the build stores are the ones
-        // a cook of the same files computes.
-        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
-        if ( !text )
-            return Common::MakeError( "Build HLODs: " + text.GetError() );
-        auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
-        if ( !scene )
-            return Common::MakeError( "Build HLODs: " + scene.GetError() );
-        auto descriptors = ::Desert::Core::DescriptorIndex::Refresh( path );
-        if ( !descriptors )
-            return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
-        const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
-        // Phase 1: the landscape HLODs' areas, from the same request the build makes for each: the process's
-        // builders (Core::HLODBuilders) with a landscape builder that also keeps each tile's area.
-        ::Desert::Core::Rules::HLODBuilderRegistry  builders = ::Desert::Core::HLODBuilders();
-        std::vector<LandscapeHLODBakeTile>          areas;
-        ::Desert::Core::Rules::LandscapeHLODBuilder collect;
-        collect = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+        // The build reads the saved files: a world with unsaved changes asks to Save and build (UE prompts to save
+        // the map before it builds HLODs) instead of being refused.
+        if ( !baseline || m_Scene->Packages()->HasUnsavedChanges(
+                               ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
         {
-            auto area = ::Desert::Core::LandscapeHLODTileAreaOf( request );
-            if ( !area )
-                return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( area.GetError() );
-            auto mesh = ::Desert::Core::BuildLandscapeHLODMesh( request );
-            if ( !mesh )
-                return mesh;
-            const bool known = std::any_of( areas.begin(), areas.end(),
-                                            [&]( const auto& seen ) {
-                                                return static_cast<uint64_t>( seen.Area.Tile ) ==
-                                                       static_cast<uint64_t>( area.GetValue().Tile );
-                                            } );
-            if ( known )
-                return mesh;
-            // The bake states the normal map in the tangent frame of this very mesh.
-            if ( !mesh.GetValue().EditMesh )
-                return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>(
-                     std::format( "the landscape HLOD of tile {} carries no mesh",
-                                  static_cast<uint64_t>( area.GetValue().Tile ) ) );
-            areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
-            return mesh;
-        };
-        builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( collect ) );
-        // Phase 1, meshes: every mesh HLOD whose layer merges materials, built once with its bake source
-        // (BuildHLODMeshForBake); FinishBuildHLODs binds the material its bake writes.
-        std::vector<HLODMaterialBakeJob>             meshJobs;
-        const ::Desert::Core::Rules::HLODMeshBuilder collectMesh =
-             [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
-             -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
-        {
-            using Block = ::Desert::Assets::StaticMeshComponentSer;
-            if ( !request.MergeMaterials.has_value() )
-                return ::Desert::Core::BuildHLODMesh( request, registries );
-            auto built = ::Desert::Core::BuildHLODMeshForBake( request, registries );
-            if ( !built )
-                return Common::MakeError<Block>( built.GetError() );
-            // ResultStr::GetValue is const-only: the build is taken out to move its bake source into the job.
-            ::Desert::Core::HLODMeshBuild build = built.ExtractValue();
-            if ( !build.Bake.has_value() )
-                return Common::MakeError<Block>( "a merged-material HLOD mesh came back without its bake source" );
-            const std::string& key = build.Bake->Key;
-            const bool known = std::any_of( meshJobs.begin(), meshJobs.end(), [&]( const HLODMaterialBakeJob& job )
-                                            { return job.Source.Key == key; } );
-            if ( !known )
-                meshJobs.push_back( HLODMaterialBakeJob{ std::move( *build.Bake ), build.Mesh } );
-            return Common::MakeSuccess( std::move( build.Mesh ) );
-        };
-        builders.SetMeshGeometry( collectMesh );
-        ::Desert::Core::Rules::HLODBuilderRegistry probeBuilders = builders;
-        probeBuilders.SetLandscapeSplineBuilder( nullptr );
-        if ( auto probe = WC::BuildWorldHLODs(
-                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), probeBuilders,
-                  // The probe only gathers the landscape tiles to bake: its files are dropped, so the splines'
-                  // meshes are not built for it (probeBuilders states no spline builder: they stay named holes).
-                  []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
-             !probe )
-            return Common::MakeError( "Build HLODs: " + probe.GetError() );
-        if ( areas.empty() && meshJobs.empty() )
-            return FinishBuildHLODs( {}, {} );
-        if ( !meshJobs.empty() )
-        {
-            LOG_INFO( "[Build HLODs] '{0}': baking the merged materials of {1} mesh HLOD(s)",
-                      m_Scene->GetSceneName(), meshJobs.size() );
-            m_MeshBake =
-                 std::make_unique<HLODMaterialBake>( path, text.GetValue(), std::move( meshJobs ), m_Assets );
+            m_SavePrompt = options;
+            const std::string ask =
+                 std::format( "Build HLODs: '{}' has unsaved changes - Save and build? (World Partition window)",
+                              m_Scene->GetSceneName() );
+            LOG_INFO( "[Build HLODs] {0}", ask );
+            ToastManager::Push( ask, ToastLevel::Warning, 6.0f );
+            return BOOLSUCCESS;
         }
-        if ( !areas.empty() )
-        {
-            LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)",
-                      m_Scene->GetSceneName(), areas.size() );
-            ::Desert::Core::LoadableScene saved = std::move( scene.GetValue() );
-            m_Bake = std::make_unique<LandscapeHLODBake>( path, std::move( saved ), std::move( areas ), m_Assets );
-        }
+        auto builder = std::make_unique<WorldPartitionHLODBuilder>( *baseline, options );
+        if ( auto started = builder->Start( m_Assets ); !started )
+            return Common::MakeError( started.GetError() );
+        m_Builder = std::move( builder );
+        m_SavePrompt.reset();
+        m_HLODBuildStatus.clear();
         return BOOLSUCCESS;
     }
 
-    // The landscape bake first, then the mesh HLODs' merged materials, then the build that binds both.
+    Common::BoolResultStr WorldPartitionPanel::SaveAndBuildHLODs()
+    {
+        const HLODBuildOptions options = m_SavePrompt.value_or( HLODBuildOptions{} );
+        m_SavePrompt.reset();
+        if ( !m_Scene )
+            return Common::MakeError( "Save and build: there is no active scene." );
+        if ( !m_SaveScene )
+            return Common::MakeError( "Save and build: the editor gave the World Partition window no scene save" );
+        if ( !m_SaveScene() )
+            return Common::MakeError( "Save and build: the scene was NOT saved; the log line above says why." );
+        m_HLODStatusStale = true;
+        return BuildHLODs( options );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::DeleteHLODs()
+    {
+        if ( m_Builder )
+            return Common::MakeError( "Delete HLODs: a build is running; delete once it has finished." );
+        if ( !m_Scene )
+            return Common::MakeError( "Delete HLODs: there is no active scene." );
+        const auto& baseline = m_Scene->Packages()->BaselinePath();
+        if ( !baseline )
+            return Common::MakeError( "Delete HLODs: '" + m_Scene->GetSceneName() +
+                                      "' is not saved, so it has no built HLODs" );
+        auto removed = ::Desert::Editor::DeleteHLODs( *baseline );
+        if ( !removed )
+            return Common::MakeError( removed.GetError() );
+        m_HLODStatusStale  = true;
+        m_EditorHLODsStale = true; // the editor shows what is on disk (EditorHLODs)
+        ToastManager::Push( std::format( "Delete HLODs: {} file(s) removed", removed.GetValue() ),
+                            ToastLevel::Info );
+        return BOOLSUCCESS;
+    }
+
+    // The running build (WorldPartitionHLODBuilder): the landscape bake, then the mesh HLODs' merged materials,
+    // then the approximated cells' capture, then the build that binds them.
     void WorldPartitionPanel::TickBuild()
     {
-        std::vector<HLODMaterialBaked> meshBaked;
-        if ( m_Bake )
-        {
-            if ( !m_Bake->Tick() )
-                return;
-            const std::unique_ptr<LandscapeHLODBake> bake = std::move( m_Bake );
-            if ( bake->Error() )
-            {
-                LOG_ERROR( "[Build HLODs] the landscape bake was refused: {0}", *bake->Error() );
-                m_MeshBake.reset();
-                return;
-            }
-            m_LandscapeBaked = bake->Baked();
-            if ( m_MeshBake )
-                return; // the mesh HLODs' materials bake from the next frame on
-        }
-        else if ( m_MeshBake )
-        {
-            if ( !m_MeshBake->Tick() )
-                return;
-            const std::unique_ptr<HLODMaterialBake> bake = std::move( m_MeshBake );
-            if ( bake->Error() )
-            {
-                LOG_ERROR( "[Build HLODs] the merged material bake was refused: {0}", *bake->Error() );
-                m_LandscapeBaked.clear();
-                return;
-            }
-            meshBaked = bake->Baked();
-        }
-        else
+        if ( !m_Builder || !m_Builder->Tick() )
             return;
-        const std::vector<LandscapeHLODBaked> landscapeBaked = std::move( m_LandscapeBaked );
-        m_LandscapeBaked.clear();
-        if ( auto done = FinishBuildHLODs( landscapeBaked, meshBaked ); !done )
-            LOG_ERROR( "[Build HLODs] {0}", done.GetError() );
+        const std::unique_ptr<WorldPartitionHLODBuilder> builder = std::move( m_Builder );
+        m_HLODStatusStale                                        = true;
+        // The editor shows the HLODs on disk, whatever this build wrote or refused (EditorHLODs).
+        m_EditorHLODsStale = true;
+        if ( builder->Error() )
+        {
+            LOG_ERROR( "[Build HLODs] {0}", *builder->Error() );
+            m_HLODBuildStatus = *builder->Error();
+            ToastManager::Push( *builder->Error(), ToastLevel::Error, 8.0f );
+            return;
+        }
+        ToastManager::Push( "Build HLODs: done", ToastLevel::Success );
     }
 
-    Common::BoolResultStr WorldPartitionPanel::FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked,
-                                                                 const std::vector<HLODMaterialBaked>&  meshBaked )
+    void WorldPartitionPanel::RefreshHLODStatus()
     {
-        namespace WC = ::Desert::Core::WorldCells;
-        if ( !m_Scene )
-            return Common::MakeError( "Build HLODs: there is no active scene." );
+        m_HLODStatusStale = false;
+        m_RegistrySerial  = ::Desert::Assets::ContentRegistry::WriteSerial();
+        m_HLODStatus.reset();
+        m_HLODStatusError.clear();
         const auto& baseline = m_Scene->Packages()->BaselinePath();
         if ( !baseline )
-            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
-                                      "' is not saved; save it first (the HLODs are built from its files)" );
-        if ( m_Scene->Packages()->HasUnsavedChanges(
-                  ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
-            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
-                                      "' has unsaved changes; save the scene first (the HLODs are built from its "
-                                      "files)" );
-        const std::filesystem::path& path = *baseline;
-        // The saved world, read exactly as WorldCook reads it, so the checksums the build stores are the ones
-        // a cook of the same files computes.
-        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
-        if ( !text )
-            return Common::MakeError( "Build HLODs: " + text.GetError() );
-        auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
-        if ( !scene )
-            return Common::MakeError( "Build HLODs: " + scene.GetError() );
-        auto descriptors = ::Desert::Core::DescriptorIndex::Refresh( path );
-        if ( !descriptors )
-            return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
-        const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
-        ::Desert::Core::Rules::HLODBuilderRegistry builders = ::Desert::Core::HLODBuilders();
-        // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The slot
-        // does not enter HLODBuildChecksum (it hashes the member records), so binding changes no staleness.
-        ::Desert::Core::Rules::LandscapeHLODBuilder landscape;
-        landscape = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
         {
-            auto mesh = ::Desert::Core::BuildLandscapeHLODMesh( request );
-            if ( !mesh )
-                return mesh;
-            const auto& id = request.Records[request.Tile].id;
-            for ( const LandscapeHLODBaked& tile : baked )
-                if ( id && static_cast<uint64_t>( tile.Tile ) == static_cast<uint64_t>( *id ) )
-                {
-                    ::Desert::Assets::StaticMeshComponentSer block = mesh.GetValue();
-                    block.MaterialSlots                            = std::vector<::Desert::Assets::AssetGuidRef>{
-                         ::Desert::Assets::AssetGuidRef{ tile.MaterialGuid, tile.MaterialPath } };
-                    return Common::MakeSuccess( std::move( block ) );
-                }
-            return mesh;
-        };
-        builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( landscape ) );
-        // Each merged-material mesh HLOD is the very mesh its bake was made for, bound to the material the bake
-        // wrote (UE FMeshMergingSettings::bMergeMaterials). One that was not baked is refused by name: drawn
-        // without its material it would stand in grey.
-        const ::Desert::Core::Rules::HLODMeshBuilder mesh =
-             [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
-             -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
-        {
-            if ( !request.MergeMaterials.has_value() )
-                return ::Desert::Core::BuildHLODMesh( request, registries );
-            const std::string key = ::Desert::Core::HLODMeshKey( request );
-            for ( const HLODMaterialBaked& entry : meshBaked )
-                if ( entry.Key == key )
-                    return Common::MakeSuccess( entry.Mesh );
-            return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( std::format(
-                 "the merged material of mesh HLOD {} was not baked (the saved world changed during the build?); "
-                 "run Build HLODs again",
-                 key ) );
-        };
-        builders.SetMeshGeometry( mesh );
-        // Each cell's file is written the moment it is built and freed with it (UE builds and saves its HLOD
-        // actors cell by cell), so the world's HLODs are never in memory at once.
-        const std::filesystem::path dir    = WC::BuiltHLODDirectory( path );
-        const WC::BuiltHLODSink     writer = WC::BuiltHLODWriter( path );
-        std::size_t                 bytes  = 0;
-        std::size_t                 files  = 0;
-        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(),
-                                          builders,
-                                          [&]( WC::CookedFile file ) -> Common::BoolResultStr
-                                          {
-                                              bytes += file.Bytes.size();
-                                              ++files;
-                                              LOG_INFO( "[Build HLODs] {0}: {1} bytes",
-                                                        ( dir / file.Name ).string(), file.Bytes.size() );
-                                              return writer( std::move( file ) );
-                                          } );
-        if ( !built )
-            return Common::MakeError( "Build HLODs: " + built.GetError() );
-        if ( auto written = WC::WriteBuiltHLODIndex( path, built.GetValue() ); !written )
-            return Common::MakeError( written.GetError() );
-        // Read back what was written and check it against the world it was built from.
-        auto stored = WC::ReadBuiltHLODs( path );
-        if ( !stored )
-            return Common::MakeError( "Build HLODs: " + stored.GetError() );
-        std::size_t records = 0;
-        for ( const WC::BuiltHLODCell& cell : stored.GetValue().Index.Cells )
-        {
-            auto cellRecords = WC::StoredCellRecords( stored.GetValue(), cell );
-            if ( !cellRecords )
-                return Common::MakeError( "Build HLODs: read back: " + cellRecords.GetError() );
-            records += cellRecords.GetValue().size();
+            m_HLODStatusError = "the scene is not saved, so it has no built HLODs";
+            return;
         }
-        // Against the world the build cut: prefab instances expanded as the cook expands them (WP21).
-        auto cut = WC::ExpandWorldForCook( scene.GetValue().Scene, planned, WC::PrefabFileReader() );
-        if ( !cut )
-            return Common::MakeError( "Build HLODs: read back: " + cut.GetError() );
-        auto stale = WC::StaleHLODCells( stored.GetValue().Index, cut.GetValue().World.Scene,
-                                         cut.GetValue().Descriptors, registries );
-        if ( !stale )
-            return Common::MakeError( "Build HLODs: read back: " + stale.GetError() );
-        for ( const std::string& unit : stale.GetValue() )
-            LOG_ERROR( "[Build HLODs] {0}: the HLOD read back is stale", unit );
-        LOG_INFO(
-             "[Build HLODs] '{0}': {1} cell(s), {2} file(s), {3} bytes, {4} HLOD record(s) in {5}; read back: "
-             "{6} stale cell(s)",
-             m_Scene->GetSceneName(), stored.GetValue().Index.Cells.size(), files, bytes, records, dir.string(),
-             stale.GetValue().size() );
-        if ( !stale.GetValue().empty() )
-            return Common::MakeError(
-                 std::format( "Build HLODs: {} cell(s) read back stale", stale.GetValue().size() ) );
-        return BOOLSUCCESS;
+        if ( *baseline != m_StatusScene )
+        {
+            m_StatusScene   = *baseline;
+            m_StaleNotified = 0;
+        }
+        auto status = HLODStatusOf( *baseline );
+        if ( !status )
+        {
+            m_HLODStatusError = status.GetError();
+            return;
+        }
+        const std::size_t stale = status.GetValue().Stale.size();
+        // The notification (UE: "HLODs need to be rebuilt"): more rows stale than the last count said.
+        if ( stale > m_StaleNotified )
+            ToastManager::Push( std::format( "World Partition: {} stale HLOD - Build HLODs", stale ),
+                                ToastLevel::Warning, 6.0f );
+        m_StaleNotified = stale;
+        m_HLODStatus    = status.ExtractValue();
+    }
+
+    void WorldPartitionPanel::DrawHLODBuild()
+    {
+        constexpr const char* kSaveAndBuildPopup = "Save and build HLODs";
+        if ( ::Desert::Core::Rules::AnyGridHLODLayer( *m_Scene->GetWorldPartition() ) )
+        {
+            // A mesh, material or texture saved since the last status may have made rows stale.
+            if ( ::Desert::Assets::ContentRegistry::WriteSerial() != m_RegistrySerial )
+                m_HLODStatusStale = true;
+            if ( m_HLODStatusStale && !m_Builder )
+                RefreshHLODStatus();
+            if ( ImGui::CollapsingHeader( "HLODs", ImGuiTreeNodeFlags_DefaultOpen ) )
+            {
+                if ( m_Builder )
+                    ImGui::TextUnformatted( "Building HLODs (landscape bake)..." );
+                else if ( !m_HLODStatusError.empty() )
+                    ImGui::TextWrapped( "HLOD status: %s", m_HLODStatusError.c_str() );
+                else if ( m_HLODStatus && !m_HLODStatus->Built )
+                    ImGui::Text( "HLODs not built: %zu stale HLOD", m_HLODStatus->Stale.size() );
+                else if ( m_HLODStatus )
+                    ImGui::Text( "%zu stale HLOD", m_HLODStatus->Stale.size() );
+                if ( m_HLODStatus && !m_HLODStatus->Stale.empty() && ImGui::IsItemHovered() )
+                {
+                    ImGui::BeginTooltip();
+                    for ( const std::string& unit : m_HLODStatus->Stale )
+                        ImGui::TextUnformatted( unit.c_str() );
+                    ImGui::EndTooltip();
+                }
+                ImGui::BeginDisabled( m_Builder != nullptr );
+                if ( ImGui::Button( std::string( ::Desert::Core::Rules::kBuildHLODsLabel ).c_str() ) )
+                    if ( auto started = BuildHLODs(); !started )
+                        m_HLODBuildStatus = started.GetError();
+                ImGui::SameLine();
+                if ( ImGui::Button( "Force all" ) )
+                    if ( auto started = BuildHLODs( HLODBuildOptions{ true } ); !started )
+                        m_HLODBuildStatus = started.GetError();
+                ImGui::SameLine();
+                if ( ImGui::Button( std::string( ::Desert::Core::Rules::kDeleteHLODsLabel ).c_str() ) )
+                    if ( auto removed = DeleteHLODs(); !removed )
+                        m_HLODBuildStatus = removed.GetError();
+                ImGui::EndDisabled();
+                if ( !m_HLODBuildStatus.empty() )
+                    ImGui::TextWrapped( "%s", m_HLODBuildStatus.c_str() );
+            }
+        }
+        if ( m_SavePrompt && !ImGui::IsPopupOpen( kSaveAndBuildPopup ) )
+            ImGui::OpenPopup( kSaveAndBuildPopup );
+        if ( ImGui::BeginPopupModal( kSaveAndBuildPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
+        {
+            ImGui::TextUnformatted( "The world has unsaved changes; HLODs are built from its saved files." );
+            if ( ImGui::Button( "Save and build" ) )
+            {
+                ImGui::CloseCurrentPopup();
+                if ( auto started = SaveAndBuildHLODs(); !started )
+                    m_HLODBuildStatus = started.GetError();
+            }
+            ImGui::SameLine();
+            if ( ImGui::Button( "Cancel" ) )
+            {
+                m_SavePrompt.reset();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
     }
 
     Common::BoolResultStr WorldPartitionPanel::BuildMiniMap()
     {
         if ( m_MiniMapBuild )
             return Common::MakeError( "Build Minimap: a build is already running" );
-        if ( m_Bake )
-            return Common::MakeError( "Build Minimap: Build HLODs is still baking; build the minimap after it" );
+        if ( m_Builder )
+            return Common::MakeError( "Build Minimap: Build HLODs is still running; build the minimap after it" );
         if ( !m_Scene )
             return Common::MakeError( "Build Minimap: there is no active scene." );
         if ( !m_Scene->GetWorldPartition() )
@@ -1904,29 +2397,36 @@ namespace Desert::Editor
 
     Common::BoolResultStr WorldPartitionPanel::ConvertSceneToWorldPartition()
     {
-        if ( !m_Scene )
+        if ( auto converted = ConvertToWorldPartition( m_Scene ); !converted )
+            return converted;
+        m_EditPlanStale = true;
+        m_FocusPending  = true;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr ConvertToWorldPartition( const std::shared_ptr<::Desert::Core::Scene>& scene )
+    {
+        if ( !scene )
             return Common::MakeError( kConvertButtonLabel + ": there is no active scene." );
 
-        const auto converted = ::Desert::Core::Rules::ConvertToWorldPartition( m_Scene->GetSceneName(),
-                                                                               m_Scene->GetWorldPartition() );
+        const auto converted =
+             ::Desert::Core::Rules::ConvertToWorldPartition( scene->GetSceneName(), scene->GetWorldPartition() );
         if ( !converted.IsSuccess() )
             return Common::MakeError( converted.GetError() );
 
-        std::optional<::Desert::Core::WorldPartitionSerialized> before = m_Scene->GetWorldPartition();
+        std::optional<::Desert::Core::WorldPartitionSerialized> before = scene->GetWorldPartition();
         const ::Desert::Core::WorldPartitionSerialized&         after  = converted.GetValue();
-        m_Scene->SetWorldPartition( after );
+        scene->SetWorldPartition( after );
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
         CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
-             "Convert to World Partition", m_Scene, std::move( before ), after ) );
+             "Convert to World Partition", scene, std::move( before ), after ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
-        if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )
+        if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *scene ); !filed )
             return Common::MakeFormattedError<bool>( "{}: the world is partitioned but its foliage is not: {}",
                                                      kConvertButtonLabel, filed.GetError() );
 
-        m_EditPlanStale = true;
-        m_FocusPending  = true;
         return BOOLSUCCESS;
     }
 

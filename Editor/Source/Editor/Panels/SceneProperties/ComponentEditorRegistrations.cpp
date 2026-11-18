@@ -174,6 +174,11 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::LocationVolumeComponent, Dat
                                      "Location Volume" )
 // UE's Actor > World Partition > Data Layers: the layers of the world the entity belongs to (WP-DATA-LAYERS). A
 // custom entry for the pick of the world's layer names: see MakeDataLayersEntry below.
+// UE's Actor > World Partition > HLOD Layer (WP-SETTINGS-UI): the layer that builds the entity's part of its cell's
+// HLOD. Its one field is Hidden - Details > World Partition draws it as a pick of the world's layers
+// (WorldPartitionDetails.cpp); the entry is what Add Component, Remove and DesertCtl `set ... HLODLayerData.Layer`
+// address it by.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::HLODLayerComponent, Data, "HLODLayerData", "HLOD Layer" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
 // piece of behaviour behind them belongs to the Animator's control list rather than to this page. The entry
 // next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line
