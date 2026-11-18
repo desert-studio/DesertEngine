@@ -274,6 +274,12 @@ namespace Desert::Assets
         // (PrefabData::RuntimeBehavior, UE ALevelInstance::DesiredRuntimeBehavior). Absent = the prefab's. World
         // Partition v4 (WP21-WHOLE). A NAMED field for the reason PrefabOverrides is one.
         std::optional<PrefabRuntimeBehavior> RuntimeBehavior;
+
+        // Set ONLY on a record that carries a PrefabPath, and written only when true: the instance draws its
+        // prefab's PACKED form (PackedPrefab.hpp, UE APackedLevelActor) - one instanced draw per mesh group -
+        // instead of one entity per record. A packed instance carries no override (Unpack to edit is how one is
+        // made), so a record never states both. Absent = unpacked, so no existing file changes a byte.
+        std::optional<bool> PrefabPacked;
     };
 
     // THE SCENE'S RECORD ORDER (scene v25): a .desce lists its records by ascending id, so the file order is a
@@ -402,6 +408,25 @@ namespace Desert::Assets
         glm::vec3 Max{ 0.0f };
     };
 
+    // THE PACKED FORM OF THE PREFAB (Engine/Assets/Prefab/PackedPrefab.hpp states the design), stated beside the
+    // body it was derived from as Bounds is: one group per (mesh, material slots, primitive, shadow flags), its
+    // instances in the prefab ROOT's frame - the InstancedStaticMesh block ComponentRegistry reads, with relative
+    // matrices the packed instance composes with its root's world. Written by the one prefab writer from the body
+    // it writes (PrefabAsset::Serialize); read back only while SourceHash is the body's checksum.
+    struct PackedPrefabGroupSer
+    {
+        std::string                     Name; // the first source's tag and the instance count
+        InstancedStaticMeshComponentSer Block;
+    };
+
+    struct PackedPrefabSer
+    {
+        std::string                       SourceHash; // PrefabSourceHash of the body it was built from
+        std::vector<PackedPrefabGroupSer> Groups;
+        // Why this prefab cannot be packed, naming every entity and what it carries; no group then.
+        std::optional<std::string> Refused;
+    };
+
     struct PrefabData
     {
         // First member: the header (Common/Content/TextAssetHeader.hpp) - the prefab's GUID and the two
@@ -418,5 +443,7 @@ namespace Desert::Assets
         // (EntityData::RuntimeBehavior) - PrefabRuntimeBehavior.hpp. World Partition v4 (WP21-WHOLE): stated by
         // every file the migrator wrote; Partitioned is what every prefab before it meant.
         PrefabRuntimeBehavior RuntimeBehavior = PrefabRuntimeBehavior::Partitioned;
+        // The packed form (PackedPrefabSer above). Absent in a file written before it: the reader then packs.
+        std::optional<PackedPrefabSer> Packed;
     };
 } // namespace Desert::Assets

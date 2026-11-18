@@ -323,6 +323,33 @@ namespace Desert::Editor::Commands
     [[nodiscard]] Common::ResultStr<Common::UUID>
     CollapseIntoInstancedMesh( const std::vector<Common::UUID>& uuids );
 
+    /**
+     * @brief PACK / UNPACK PREFAB INSTANCES (UE: a Packed Level Actor, and "Edit" on it).
+     *
+     * Every prefab instance root among @p uuids that is not already in the asked mode is rebuilt in it under the
+     * same UUID, parent and placement: packed, it draws its prefab's packed form (one ISM per mesh group,
+     * Assets::PackPrefab); unpacked, every record is an entity again, ready to be edited in place and committed,
+     * after which every packed instance of the prefab is rebuilt from the new form. Packing refuses an instance
+     * whose prefab cannot pack (the packer's reason, naming the entity and what it carries) and one that holds
+     * overrides (a packed instance draws its source as it is) - before anything is destroyed. An instance
+     * nested inside another instance is refused (switch the outer one).
+     *
+     * One undo step, its own record: a packed instance is always rebuilt from its prefab (its component is
+     * runtime-only, so no snapshot can bring one back), and the unpacked subtree it replaced is restored with its
+     * ids. The switched instances are selected. @return how many instances changed mode, or why none did.
+     */
+    [[nodiscard]] Common::ResultStr<std::size_t> SetPrefabInstancesPacked( const std::vector<Common::UUID>& uuids,
+                                                                           bool packed );
+
+    // Select every instance root of the prefab @p like is an instance root of (UE: Select > All of the same
+    // Level Instance). @return how many were selected, or why none could be.
+    [[nodiscard]] Common::ResultStr<std::size_t> SelectPrefabInstancesLike( const Common::UUID& like );
+
+    // Apply to Prefab from anywhere inside an unpacked instance: the nearest prefab root at or above @p inside is
+    // written to its prefab (ApplyPrefabInstance), after which every packed instance of that prefab is rebuilt
+    // from the new form (PrefabFactory::RefreshPackedInstances). @return the instance root applied.
+    [[nodiscard]] Common::ResultStr<Common::UUID> ApplyEnclosingPrefabInstance( const Common::UUID& inside );
+
     // A tool that turns an entity into a DIFFERENT one (UE's Mesh To Volume: the static mesh actor becomes a
     // volume actor): @p source is removed with its subtree and a new root entity named @p name is created and
     // handed to @p build, as ONE undo step - undo brings the source back with its UUID and removes the new

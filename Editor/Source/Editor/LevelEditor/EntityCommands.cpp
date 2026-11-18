@@ -470,6 +470,45 @@ namespace Desert::Editor
                        return Common::MakeSuccess( true );
                    } } );
         }
+        // UE: Level Instance > Create Packed Level Actor, and Edit on one (WP-PACKED-PREFAB).
+        commands.push_back( { "Entity", "Pack Prefab Instances", []
+                              {
+                                  const auto switched = Commands::SetPrefabInstancesPacked(
+                                       Core::SelectionManager::GetSelection(), true );
+                                  if ( !switched.IsSuccess() )
+                                      return Common::MakeError<bool>( switched.GetError() );
+                                  return Common::MakeSuccess( true );
+                              } } );
+        commands.push_back( { "Entity", "Unpack Prefab Instances to Edit", []
+                              {
+                                  const auto switched = Commands::SetPrefabInstancesPacked(
+                                       Core::SelectionManager::GetSelection(), false );
+                                  if ( !switched.IsSuccess() )
+                                      return Common::MakeError<bool>( switched.GetError() );
+                                  return Common::MakeSuccess( true );
+                              } } );
+        // Seeded by the primary selection, like "Select all with the same static mesh" above.
+        if ( MainScene() )
+        {
+            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
+            {
+                const Common::UUID seed = *primary;
+                commands.push_back( { "Entity", "Select all instances of the same prefab", [seed]
+                                      {
+                                          const auto selected = Commands::SelectPrefabInstancesLike( seed );
+                                          if ( !selected.IsSuccess() )
+                                              return Common::MakeError<bool>( selected.GetError() );
+                                          return Common::MakeSuccess( true );
+                                      } } );
+                commands.push_back( { "Entity", "Apply to Prefab", [seed]
+                                      {
+                                          const auto applied = Commands::ApplyEnclosingPrefabInstance( seed );
+                                          if ( !applied.IsSuccess() )
+                                              return Common::MakeError<bool>( applied.GetError() );
+                                          return Common::MakeSuccess( true );
+                                      } } );
+            }
+        }
     }
 
     Common::BoolResultStr EntityCommands::RotateSelectedControl( int axis, float degrees )

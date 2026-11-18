@@ -8,7 +8,10 @@
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 
+#include <Engine/Assets/Prefab/PackedPrefab.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Runtime/Factory/PrefabFactory.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -164,8 +167,52 @@ namespace Desert::Editor
             ImGui::Separator();
         }
 
+        // ── Packed (UE Packed Level Actor): the mode, and the switch ─────
+        const auto* packedInstance =
+             entity.GetRegistry()->try_get<::Desert::Runtime::Factory::PackedPrefabComponent>(
+                  entity.GetHandle() );
+        const Common::UUID instanceId = entity.HasComponent<ECS::UUIDComponent>()
+                                             ? entity.GetComponent<ECS::UUIDComponent>().UUID
+                                             : Common::UUID::Null();
+        if ( packedInstance != nullptr )
+        {
+            ImGui::TextUnformatted( std::format( "Packed: {} ISM", packedInstance->Groups.size() ).c_str() );
+            if ( packedInstance->Form )
+                Utils::ImGuiUtilities::Tooltip(
+                     std::format( "{} instances in {} instanced draw(s), packed from source checksum {}",
+                                  ::Desert::Assets::PackedInstanceCount( *packedInstance->Form ),
+                                  packedInstance->Groups.size(), packedInstance->Form->SourceHash )
+                          .c_str() );
+            if ( valid && asset->GetPacked() && asset->GetPacked()->Refused.has_value() )
+                ImGui::TextWrapped( "The prefab changed and no longer packs: %s",
+                                    asset->GetPacked()->Refused->c_str() );
+            if ( ImGui::Button( "Unpack to edit" ) )
+            {
+                if ( const auto switched = Commands::SetPrefabInstancesPacked( { instanceId }, false ); !switched )
+                    LOG_ERROR( "[Prefab] Unpack refused: {}", switched.GetError() );
+                Utils::ImGuiUtilities::PopID();
+                return; // the instance was rebuilt; this entity handle is gone
+            }
+            Utils::ImGuiUtilities::Tooltip(
+                 "Every entity of the prefab again, to edit the source in place; commit it "
+                 "and every packed instance is rebuilt" );
+        }
+        else if ( valid )
+        {
+            const auto form = asset->GetPacked();
+            if ( form && form->Refused.has_value() )
+                ImGui::TextWrapped( "Cannot pack: %s", form->Refused->c_str() );
+            else if ( ImGui::Button( "Pack" ) )
+            {
+                if ( const auto switched = Commands::SetPrefabInstancesPacked( { instanceId }, true ); !switched )
+                    LOG_ERROR( "[Prefab] Pack refused: {}", switched.GetError() );
+                Utils::ImGuiUtilities::PopID();
+                return; // the instance was rebuilt; this entity handle is gone
+            }
+        }
+
         // ── Action buttons ────────────────────────────────────────────────
-        if ( valid )
+        if ( valid && packedInstance == nullptr )
         {
             if ( ImGui::Button( ICON_MDI_REFRESH " Apply to Prefab" ) )
             {

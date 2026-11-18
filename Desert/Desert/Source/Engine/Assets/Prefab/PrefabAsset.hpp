@@ -10,6 +10,7 @@
 
 #include <Common/Core/Math/AABB.hpp>
 
+#include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -58,6 +59,15 @@ namespace Desert::Assets
         const std::vector<EntityData>& GetEntities() const
         {
             return m_EntityData;
+        }
+
+        // THE PACKED FORM (PackedPrefab.hpp): what every packed instance of this prefab draws. Set whenever the
+        // body is (Load, CreateFromEntity) and released with it; the file's stated form is adopted only while its
+        // checksum is the body's, so it is never older than the entities above. A NEW pointer each time the body
+        // changes, which is what a packed instance compares (PrefabFactory::RefreshPackedInstances).
+        [[nodiscard]] std::shared_ptr<const PackedPrefabSer> GetPacked() const
+        {
+            return m_Packed;
         }
 
         void CreateFromEntity( ECS::Entity rootEntity, const AssetManager& assetManager );
@@ -146,5 +156,9 @@ namespace Desert::Assets
         // Set by CreateFromEntity and cleared by Load: this payload came from a live entity and no file
         // holds it yet, so releasing it destroys the only copy.
         bool m_CapturedInMemory = false;
+
+        // The stated form when its checksum is the body's, otherwise the body packed afresh (said on the log).
+        void                                   AdoptOrRepack( std::optional<PackedPrefabSer> stated );
+        std::shared_ptr<const PackedPrefabSer> m_Packed;
     };
 } // namespace Desert::Assets
