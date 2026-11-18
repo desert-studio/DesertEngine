@@ -5,7 +5,8 @@
 # Content (authored once, before the first run; content, not code): Content/Prefabs/Fence_Run.deprefab = an empty
 # root "Fence_Run" with 20 posts (Post_01..Post_20, one post mesh) and 20 boards (Board_01..Board_20, one board mesh)
 # as its direct children: 2 mesh groups, 40 instances. Content/Scenes/WP_PackedPrefab.desce holds 10 instances of it
-# in a row, saved unpacked, the camera looking along the row. Every name is unique INSIDE the prefab, so once one
+# in a row (2000 cm apart along X: one continuous fence), saved unpacked; the scenario puts the viewport camera at
+# the row's near end looking along it. Posts are Cylinder primitives, boards Cube primitives (two mesh groups). Every name is unique INSIDE the prefab, so once one
 # instance is unpacked "Board_10" names exactly one entity (the packed ones draw it as an instance of "Board_01 x20").
 #
 # What is proven: [packed_draws] packing leaves the picture as it was and the frame's static draws fall from one per
@@ -15,11 +16,13 @@
 # -> Apply to Prefab: the 9 instances that stayed packed are rebuilt from the new form and lose board 10 too.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_PackedPrefab.desce
 Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -600,250,-700
+Дано --subject viewport set Camera.Direction 1,-0.12,0.35
 Дано run Entity "Fence_Run"
 Дано run Entity "Select all instances of the same prefab"
 Тогда packed_before десять экземпляров Fence_Run стоят в ряд раскрытыми: 400 статических мешей (по одному на столб и доску), выделены все десять корней
 Когда run Entity "Pack Prefab Instances"
-Дано run Panel "Details"
+Дано run Panel "Open Details"
 Тогда packed_draws забор выглядит как на packed_before (та же геометрия, те же материалы и тени); статических draw — по одному на группу (2 ISM на экземпляр) вместо 40; Details выбранного экземпляра «Packed: 2 ISM»; в логе «[Prefab] 10 instance(s) packed.»
 Когда run Action "Undo"
 Тогда packed_undo одна отмена: экземпляры снова раскрыты (40 сущностей под каждым корнем), картинка как на packed_before
@@ -28,8 +31,10 @@
 Когда run Action "Save Scene"
 Когда run Scene "Open Scene Starter.desce"
 Когда run Scene "Open Scene WP_PackedPrefab.desce"
+Дано --subject viewport set Camera.Position -600,250,-700
+Дано --subject viewport set Camera.Direction 1,-0.12,0.35
 Дано run Entity "Fence_Run"
-Дано run Panel "Details"
+Дано run Panel "Open Details"
 Тогда packed_reload после повторного открытия экземпляры упакованы (Details «Packed: 2 ISM»; у записей в .desce "PrefabPacked": true и нет PrefabOverrides), картинка как на packed_draws
 Когда run Entity "Unpack Prefab Instances to Edit"
 Когда run Entity "Delete Board_10"

@@ -15,7 +15,7 @@
 Дано set world WorldPartition.DataLayers '[{"Name":"Gameplay","InitiallyLoadedInEditor":true},{"Name":"Props","InitiallyLoadedInEditor":true}]'
 Дано add-component 9000001 DataLayersData
 Дано set 9000001 DataLayersData.Layers '["Gameplay"]'
-Дано run Scene "Save"
+Дано run Action "Save Scene"
 Дано --subject viewport set Camera.Position 0,40000,-40000
 Дано --subject viewport set Camera.Direction 0,-1,1
 Тогда dl_all_loaded вид сверху 400 м: весь мир загружен (Load All), игрок-куб 9000001 виден; в панели World Partition раздел Data Layers - две строки Gameplay и Props, у обеих Loaded и Initially Loaded отмечены, у Gameplay в Entities 1

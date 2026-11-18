@@ -43,6 +43,5 @@
 # Restore the frozen world: the volume leaves, the user's loaders go.
 Когда run Scene "World Partition: Unload All"
 Когда run Scene "World Partition: Unpin All"
-Когда run Entity "Location Volume"
-Когда run Action "Delete"
+Когда run Entity "Delete Location Volume"
 Когда run Action "Save Scene"

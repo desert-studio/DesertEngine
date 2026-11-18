@@ -18,13 +18,21 @@
 Дано run Scene "World Partition: Unload All"
 Дано select 200408
 Дано --subject selection set Translation 6464,-1004.1875,2261
-Тогда outliner_wp Outliner: строка "Main C08_08_B00" с оранжевой "*" (не сохранён) и закрашенной булавкой в колонке Pin; после загруженного дерева (всегда-загруженная часть + дом) - серые строки невыгруженных сущностей с типом (Static Mesh) и ячейкой "[L0 (x, z)]"; в шапке колонки Pin (булавка) и Data Layers; над таблицей флажки Unsaved и Unloaded и "N not loaded"; строка состояния World Partition: "... held by entity lists and pins ..." (1 композит)
+Дано run Panel "Open World Partition"
+Тогда outliner_wp_status панель World Partition: строка состояния "... held by entity lists and pins ..." (1 композит)
+Дано run Panel "Open Scene Outliner"
+Тогда outliner_wp Outliner: строка "Main C08_08_B00" с оранжевой "*" (не сохранён) и закрашенной булавкой в колонке Pin; после загруженного дерева (всегда-загруженная часть + дом) - серые строки невыгруженных сущностей с типом (Static Mesh) и ячейкой "[L0 (x, z)]"; в шапке колонки Pin (булавка) и Data Layers; над таблицей флажки Unsaved и Unloaded и "N not loaded"
 Когда run Scene "World Partition: Unpin Selected"
 Тогда outliner_prompt модальный диалог "Unsaved Entities": "1 unsaved entity: Main C08_08_B00", кнопки Save / Discard / Cancel; в мире ничего не выгружено (дом на месте, сдвинут)
 Когда input key - - Escape
-Тогда outliner_cancel диалога нет; строка состояния World Partition: "Cancelled: nothing was loaded or unloaded."; дом по-прежнему с "*" и закрашенной булавкой
+Дано run Panel "Open World Partition"
+Тогда outliner_cancel диалога нет; строка состояния World Partition: "Cancelled: nothing was loaded or unloaded."
+Дано run Panel "Open Scene Outliner"
+Тогда outliner_cancel_rows Outliner: дом "Main C08_08_B00" по-прежнему с "*" и закрашенной булавкой
 Когда run Action "Undo"
 Когда run Scene "World Partition: Unpin Selected"
+Дано run Panel "Open Scene Outliner"
 Тогда outliner_unloaded без диалога: загружена только всегда-загруженная часть, дом - серая строка в Outliner (булавка пустая), "*" нет ни у одной строки
 Когда run Scene "World Partition: Load All"
+Дано run Panel "Open Scene Outliner"
 Тогда outliner_restored весь мир загружен, серых строк нет; дом на исходном месте

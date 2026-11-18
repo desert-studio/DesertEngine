@@ -1287,7 +1287,7 @@ namespace Desert::Editor
             const ImGuiTableColumnFlags worldOnly =
                  m_WorldMode ? ImGuiTableColumnFlags_None : ImGuiTableColumnFlags_Disabled;
             const OutlinerColumnWidths split =
-                 OutlinerColumns( ImGui::GetContentRegionAvail().x - chrome - gutters - layersWidth, typeWidth,
+                 OutlinerColumns( ImGui::GetContentRegionAvail().x - chrome - gutters, typeWidth, layersWidth,
                                   kOutlinerNameMinEm * ImGui::GetFontSize() );
 
             ImGui::PushStyleVar( ImGuiStyleVar_CellPadding, ImVec2( kCellPadX, 2.0f ) );
@@ -1315,8 +1315,10 @@ namespace Desert::Editor
                      ICON_MDI_PIN "##pinned",
                      ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize | worldOnly, gutterWidth );
                 ImGui::TableSetupColumn(
-                     "Data Layers", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize | worldOnly,
-                     layersWidth );
+                     "Data Layers",
+                     ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize |
+                          ( split.Layers > 0.0f ? ImGuiTableColumnFlags_None : ImGuiTableColumnFlags_Disabled ),
+                     split.Layers );
                 ImGui::TableHeadersRow();
 
                 auto& registry = m_Scene->GetRegistry();

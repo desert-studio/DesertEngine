@@ -73,7 +73,7 @@ TEST( OutlinerTypeColumn, NameKeepsItsMinimumAndTypeGivesWay )
     constexpr float kNameMin = 130.0f;
     for ( const float available : { 0.0f, 60.0f, 130.0f, 131.0f, 180.0f, 250.0f, 260.0f, 600.0f } )
     {
-        const OutlinerColumnWidths split = OutlinerColumns( available, kType, kNameMin );
+        const OutlinerColumnWidths split = OutlinerColumns( available, kType, 0.0f, kNameMin );
         EXPECT_FLOAT_EQ( split.Name + split.Type, available ) << available << ": the columns fill the table";
         EXPECT_GE( split.Type, 0.0f ) << available;
         EXPECT_LE( split.Type, kType ) << available << ": never wider than its widest name needs";
@@ -82,9 +82,10 @@ TEST( OutlinerTypeColumn, NameKeepsItsMinimumAndTypeGivesWay )
         else
             EXPECT_FLOAT_EQ( split.Type, 0.0f ) << available << ": Type is dropped before Name loses room";
     }
-    EXPECT_FLOAT_EQ( OutlinerColumns( 600.0f, kType, kNameMin ).Type, kType ) << "a wide panel prints every type";
-    EXPECT_FLOAT_EQ( OutlinerColumns( 180.0f, kType, kNameMin ).Type, 50.0f ) << "Type shrinks, not Name";
-    EXPECT_FLOAT_EQ( OutlinerColumns( -5.0f, kType, kNameMin ).Name, 0.0f ) << "no negative width";
+    EXPECT_FLOAT_EQ( OutlinerColumns( 600.0f, kType, 0.0f, kNameMin ).Type, kType )
+         << "a wide panel prints every type";
+    EXPECT_FLOAT_EQ( OutlinerColumns( 180.0f, kType, 0.0f, kNameMin ).Type, 50.0f ) << "Type shrinks, not Name";
+    EXPECT_FLOAT_EQ( OutlinerColumns( -5.0f, kType, 0.0f, kNameMin ).Name, 0.0f ) << "no negative width";
 }
 
 TEST( OutlinerTypeColumn, CensusIsCompleteAndUnambiguous )

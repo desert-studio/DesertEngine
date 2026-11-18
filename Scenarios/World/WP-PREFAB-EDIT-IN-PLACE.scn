@@ -8,7 +8,7 @@
 # Names repeat across instances: `run Entity "<name>"` takes the palette's first match.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Assets "Open folder: Prefabs"
-Дано run Assets "Select asset Prefabs/WP21_Span.deprefab"
+Дано run "Content Browser" "Sync to Asset Prefabs/WP21_Span.deprefab"
 Дано run Entity "Place a cube on the surface at the viewport centre"
 Дано --subject selection set Translation 0,0,0
 Дано run Entity "Replace selected entities with the selected prefab"
