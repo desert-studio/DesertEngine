@@ -82,12 +82,12 @@ namespace Desert::Migration
         std::string                 Name;
         Core::HLODLayerType         Type = Core::HLODLayerType::Instancing;
         std::optional<std::string>  Builder;
-        std::optional<rfl::Generic> Settings;
+        std::optional<rfl::Generic>                      Settings;
         std::optional<float>        CellSize;
         std::optional<float>        LoadingRange;
         std::optional<std::string>  ParentLayer;             // WP v1..v4 files only
         std::optional<float>        SimplifyTrianglePercent; // WP v1..v7 files only
-        std::optional<Core::HLODMaterialMergeSerialized> MergeMaterials; // WP v9..v11 files only
+        std::optional<Core::HLODMaterialMergeSerialized> MergeMaterials;          // WP v9..v11 files only
     };
     static_assert(
          rfl::named_tuple_t<HLODLayerSerialized>::size() ==
@@ -588,13 +588,13 @@ namespace Desert::Migration
     inline constexpr int kWorldPartitionVersionHLODMergeMaterials = 9;
 
     //  12 - EVERY MESH BUILDER READS ITS OWN SETTINGS (WP-INT-HLOD; UE UHLODLayer::HLODBuilderSettings:
-    //       UHLODBuilderMeshMergeSettings / UHLODBuilderMeshSimplifySettings / UHLODBuilderMeshApproximateSettings).
-    //       A MeshMerge or MeshSimplify layer's `MergeMaterials` is its builder's Settings.MergeMaterials: every
-    //       layer stating it states Settings {..., "MergeMaterials": <the same object>} instead
-    //       (MigrateHLODMergeMaterialsV11ToV12). HLODLayerType gains MeshApproximate (WP-HLOD-APPROX), whose
-    //       Settings are Core::HLODApproximationSettings - additive, no v11 layer states it. Scenes only carry
-    //       layers; a prefab's chain raises the number and changes nothing. (v10 and v11 are the WP-INT-1117
-    //       integration's steps.)
+    //       UHLODBuilderMeshMergeSettings / UHLODBuilderMeshSimplifySettings /
+    //       UHLODBuilderMeshApproximateSettings). A MeshMerge or MeshSimplify layer's `MergeMaterials` is its
+    //       builder's Settings.MergeMaterials: every layer stating it states Settings {..., "MergeMaterials": <the
+    //       same object>} instead (MigrateHLODMergeMaterialsV11ToV12). HLODLayerType gains MeshApproximate
+    //       (WP-HLOD-APPROX), whose Settings are Core::HLODApproximationSettings - additive, no v11 layer states
+    //       it. Scenes only carry layers; a prefab's chain raises the number and changes nothing. (v10 and v11 are
+    //       the WP-INT-1117 integration's steps.)
     inline constexpr int kWorldPartitionVersionHLODBuilderSettings = 12;
 
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
@@ -1092,8 +1092,8 @@ namespace Desert::Migration
     // (kWorldPartitionVersionHLODBuilders); how many layers moved. Refused, by layer, when a layer states both.
     Common::ResultStr<std::size_t> MigrateHLODBuilderSettingsV7ToV8( SceneSerialized& scene );
 
-    // Restates every MeshMerge / MeshSimplify layer's MergeMaterials as its Settings' "MergeMaterials" and clears it
-    // (kWorldPartitionVersionHLODBuilderSettings); how many layers moved. Refused, by layer, when another type
+    // Restates every MeshMerge / MeshSimplify layer's MergeMaterials as its Settings' "MergeMaterials" and clears
+    // it (kWorldPartitionVersionHLODBuilderSettings); how many layers moved. Refused, by layer, when another type
     // states it (a v9..v11 build refused that layer too), when its Settings is not an object or already states
     // "MergeMaterials".
     Common::ResultStr<std::size_t> MigrateHLODMergeMaterialsV11ToV12( SceneSerialized& scene );
@@ -1445,8 +1445,8 @@ namespace Desert::Migration
         bool        HLODBuildersRaised          = false; // below kWorldPartitionVersionHLODBuilders
         std::size_t HLODSimplifySettingsMoved   = 0;     // layers whose SimplifyTrianglePercent became Settings
         bool        HLODMergeMaterialsRaised = false; // below kWorldPartitionVersionHLODMergeMaterials (additive)
-        bool        HLODBuilderSettingsRaised = false; // below kWorldPartitionVersionHLODBuilderSettings
-        std::size_t HLODMergeMaterialsMoved   = 0;     // layers whose MergeMaterials became Settings.MergeMaterials
+        bool        HLODBuilderSettingsRaised   = false; // below kWorldPartitionVersionHLODBuilderSettings
+        std::size_t HLODMergeMaterialsMoved     = 0; // layers whose MergeMaterials became Settings.MergeMaterials
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1512,11 +1512,11 @@ namespace Desert::Migration
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
-                   RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised || RuntimeDataLayersRaised ||
-                   DataLayerOutlinerRaised || RuntimePartitionsRaised || LocationVolumesRaised ||
-                   PrefabRuntimeBehaviorRaised || HLODBuildersRaised || ReflectedAssetRefsRaised ||
-                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
+                   RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised ||
+                   RuntimeDataLayersRaised || DataLayerOutlinerRaised || RuntimePartitionsRaised ||
+                   LocationVolumesRaised || PrefabRuntimeBehaviorRaised || HLODBuildersRaised ||
+                   ReflectedAssetRefsRaised || SunRotationRaised || VolumetricFogRaised || TracedRequestRaised ||
+                   ComposedGIRaised || FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
                    HLODBuilderSettingsRaised;
         }
     };

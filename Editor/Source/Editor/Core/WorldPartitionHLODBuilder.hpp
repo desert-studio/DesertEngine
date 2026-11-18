@@ -101,7 +101,7 @@ namespace Desert::Editor
         std::map<std::string, ::Desert::Assets::StaticMeshComponentSer> m_ApproxShells;
         // What a finished stage wrote, waiting for the later stages.
         std::vector<LandscapeHLODBaked>   m_LandscapeBaked;
-        std::vector<HLODMaterialBaked>    m_MeshBaked;
+        std::vector<HLODMaterialBaked>     m_MeshBaked;
         bool                               m_Done = false;
         std::optional<std::string>         m_Error;
     };

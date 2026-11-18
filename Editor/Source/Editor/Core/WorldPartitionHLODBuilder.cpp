@@ -153,21 +153,23 @@ namespace Desert::Editor
                 auto merged = ::Desert::Core::MergeHLODParts( request, registries );
                 if ( !merged )
                     return Common::MakeError<Block>( merged.GetError() );
-                auto shell = ::Desert::Core::BuildApproximateShell( merged.GetValue().Mesh, *request.Approximation );
+                auto shell =
+                     ::Desert::Core::BuildApproximateShell( merged.GetValue().Mesh, *request.Approximation );
                 if ( !shell )
                     return Common::MakeError<Block>( "the approximation was refused: " + shell.GetError() );
                 const ::Desert::Core::ApproximateShell& built = shell.GetValue();
-                LOG_INFO( "[Build HLODs] approximation A{0}: {1} source triangles -> {2} wrapped ({3} voxels along "
-                          "the longest side, {4} inner cavities removed) -> {5} triangles within {6:.1f} cm",
-                          key, built.SourceTriangles, built.WrappedTriangles, built.VoxelCount,
-                          built.CavitiesRemoved, built.Triangles, built.Deviation );
+                LOG_INFO(
+                     "[Build HLODs] approximation A{0}: {1} source triangles -> {2} wrapped ({3} voxels along "
+                     "the longest side, {4} inner cavities removed) -> {5} triangles within {6:.1f} cm",
+                     key, built.SourceTriangles, built.WrappedTriangles, built.VoxelCount, built.CavitiesRemoved,
+                     built.Triangles, built.Deviation );
                 Block block;
                 block.EditMesh = ::Desert::Geometry::ToSerialized( built.Mesh );
-                approximations.push_back( HLODApproximateBakeCell{
-                     key, *request.Approximation,
-                     std::vector<::Desert::Assets::InstancedStaticMeshComponentSer>( request.Parts.begin(),
-                                                                                     request.Parts.end() ),
-                     *block.EditMesh } );
+                approximations.push_back(
+                     HLODApproximateBakeCell{ key, *request.Approximation,
+                                              std::vector<::Desert::Assets::InstancedStaticMeshComponentSer>(
+                                                   request.Parts.begin(), request.Parts.end() ),
+                                              *block.EditMesh } );
                 m_ApproxShells.emplace( key, block );
                 return Common::MakeSuccess( std::move( block ) );
             }
@@ -334,9 +336,10 @@ namespace Desert::Editor
             using Block = ::Desert::Assets::StaticMeshComponentSer;
             if ( request.Approximation.has_value() )
             {
-                const std::string key   = ::Desert::Core::HLODApproximationKey( request );
-                const auto        found = std::find_if( approximated.begin(), approximated.end(),
-                                                        [&]( const HLODApproximateBaked& cell ) { return cell.Key == key; } );
+                const std::string key = ::Desert::Core::HLODApproximationKey( request );
+                const auto        found =
+                     std::find_if( approximated.begin(), approximated.end(),
+                                   [&]( const HLODApproximateBaked& cell ) { return cell.Key == key; } );
                 if ( found == approximated.end() )
                     return Common::MakeError<Block>( std::format(
                          "approximation A{} has no captured material (the saved world changed during the build?); "

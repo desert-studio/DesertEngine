@@ -1,15 +1,15 @@
 #pragma once
 
 // THE MESH APPROXIMATE HLOD'S TEXTURES, CAPTURED (UE FApproximateActorsImpl: FSceneCapturePhotoSet +
-// FRenderCaptureMapBaker): an offscreen scene holding ONLY the approximated cell's own parts (UE photographs the HLOD's own
-// actors: a neighbouring cell's wall inside the frame would be captured onto this shell) is photographed around
-// each approximated cell from the directions
+// FRenderCaptureMapBaker): an offscreen scene holding ONLY the approximated cell's own parts (UE photographs the
+// HLOD's own actors: a neighbouring cell's wall inside the frame would be captured onto this shell) is
+// photographed around each approximated cell from the directions
 // ::Desert::Core::HLODCaptureViews gives - orthographic, framing the cell's merged source - and each photo's
-// G-buffer (BaseColor + Metallic, world Normal + Roughness, material AO; Mesh/Surface/GBufferOutputs.glslh) is read
-// back. ::Desert::Core::BakeApproximationTextures projects the shell's texels into those photos; the maps are saved
-// beside the built HLODs as `T_A<key>_BaseColor.detex`, `T_A<key>_Normal.detex`, `T_A<key>_ORM.detex` and bound by
-// `M_A<key>.demat` (StandardSurface), the one material of the cell's shell. Recorded into the editor's own frames
-// like LandscapeHLODBake: Tick() once per editor frame until it answers true.
+// G-buffer (BaseColor + Metallic, world Normal + Roughness, material AO; Mesh/Surface/GBufferOutputs.glslh) is
+// read back. ::Desert::Core::BakeApproximationTextures projects the shell's texels into those photos; the maps are
+// saved beside the built HLODs as `T_A<key>_BaseColor.detex`, `T_A<key>_Normal.detex`, `T_A<key>_ORM.detex` and
+// bound by `M_A<key>.demat` (StandardSurface), the one material of the cell's shell. Recorded into the editor's
+// own frames like LandscapeHLODBake: Tick() once per editor frame until it answers true.
 
 #include <Engine/Core/HLODApproximate.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
@@ -49,10 +49,10 @@ namespace Desert::Editor
     // parts its shell was wrapped from (re-merged here as the surface the photos must see) and the shell itself.
     struct HLODApproximateBakeCell
     {
-        std::string                                            Key;
-        ::Desert::Core::HLODApproximationSettings              Settings;
+        std::string                                                    Key;
+        ::Desert::Core::HLODApproximationSettings                      Settings;
         std::vector<::Desert::Assets::InstancedStaticMeshComponentSer> Parts;
-        ::Desert::Geometry::MeshSavedForm                      Shell;
+        ::Desert::Geometry::MeshSavedForm                              Shell;
     };
 
     // The material one cell's shell binds, as a StaticMesh slot states it.
@@ -100,10 +100,10 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr SaveCell();
         void                                Fail( std::string error );
 
-        std::filesystem::path                           m_ScenePath;
-        std::optional<::Desert::Core::LoadableScene>    m_Saved;
-        std::vector<HLODApproximateBakeCell>            m_Cells;
-        const Assets::AssetManager*                     m_Assets = nullptr;
+        std::filesystem::path                        m_ScenePath;
+        std::optional<::Desert::Core::LoadableScene> m_Saved;
+        std::vector<HLODApproximateBakeCell>         m_Cells;
+        const Assets::AssetManager*                  m_Assets = nullptr;
 
         std::unique_ptr<Graphic::SceneRenderer>         m_Renderer;
         std::shared_ptr<::Desert::Core::Scene>          m_Scene;
@@ -118,11 +118,11 @@ namespace Desert::Editor
         std::size_t                                     m_View           = 0; // its view being captured
         int                                             m_WarmFrames     = 0;
         bool                                            m_FirstFrame     = true;
-        ::Desert::Geometry::DynamicMesh3                m_Source; // the current cell's merged parts
-        std::vector<Common::UUID>                       m_CellRecords; // the current cell's part records in m_Scene
-        std::vector<::Desert::Core::HLODCaptureView>    m_Views;
-        std::vector<::Desert::Core::HLODCapturePhoto>   m_Photos;
-        std::vector<HLODApproximateBaked>               m_Baked;
-        std::optional<std::string>                      m_Error;
+        ::Desert::Geometry::DynamicMesh3                m_Source;    // the current cell's merged parts
+        std::vector<Common::UUID>                     m_CellRecords; // the current cell's part records in m_Scene
+        std::vector<::Desert::Core::HLODCaptureView>  m_Views;
+        std::vector<::Desert::Core::HLODCapturePhoto> m_Photos;
+        std::vector<HLODApproximateBaked>             m_Baked;
+        std::optional<std::string>                    m_Error;
     };
 } // namespace Desert::Editor

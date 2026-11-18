@@ -115,9 +115,9 @@ namespace Desert::Editor
             return parsed.GetValue().Header;
         }
 
-        // The bake scene starts EMPTY (no record, no partition): StartCell instantiates one cell's parts at a time,
-        // as UE captures only the HLOD's own actors, so neither a neighbouring cell nor the landscape stands in
-        // front of the cell in its photos.
+        // The bake scene starts EMPTY (no record, no partition): StartCell instantiates one cell's parts at a
+        // time, as UE captures only the HLOD's own actors, so neither a neighbouring cell nor the landscape stands
+        // in front of the cell in its photos.
         void KeepNoRecords( ::Desert::Core::LoadableScene& loaded )
         {
             loaded.Scene.Entities.clear();
@@ -173,7 +173,7 @@ namespace Desert::Editor
     // The cell's parts merged again (the surface the photos must see) and its views framed around them.
     Common::BoolResultStr HLODApproximateBake::StartCell()
     {
-        const HLODApproximateBakeCell&        cell = m_Cells[m_Next];
+        const HLODApproximateBakeCell&         cell = m_Cells[m_Next];
         ::Desert::Core::Rules::HLODMeshRequest request;
         request.Approximation = cell.Settings;
         request.Parts         = cell.Parts;
@@ -255,7 +255,8 @@ namespace Desert::Editor
         auto render = ::Desert::Geometry::ToRenderMesh( shell.GetValue() );
         if ( !render )
             return Common::MakeError( "the cell's shell has no render form: " + render.GetError() );
-        auto maps = ::Desert::Core::BakeApproximationTextures( render.GetValue(), m_Source, m_Photos, cell.Settings );
+        auto maps =
+             ::Desert::Core::BakeApproximationTextures( render.GetValue(), m_Source, m_Photos, cell.Settings );
         if ( !maps )
             return Common::MakeError( maps.GetError() );
         const ::Desert::Core::HLODBakedTextures& baked = maps.GetValue();
@@ -335,7 +336,8 @@ namespace Desert::Editor
         material.Header = ExistingMaterialHeader( matFile ); // the GUID survives a re-bake
         material.Shader =
              Assets::AssetGuidRef{ std::string( kSurfaceShaderGuid ), std::string( kSurfaceShaderPath ) };
-        const auto slot = []( std::string_view slotName, const std::string& guid, const std::filesystem::path& file )
+        const auto slot =
+             []( std::string_view slotName, const std::string& guid, const std::filesystem::path& file )
         {
             Assets::MaterialAssetRef ref;
             ref.Name = std::string( slotName );
@@ -362,11 +364,11 @@ namespace Desert::Editor
         const auto materialForm = ::Desert::Core::Serialize::StoredFormFor( "MaterialAsset" );
         if ( !materialForm )
             return Common::MakeError( "the material reference has no stored form (StoredAssetForm.cpp)" );
-        m_Baked.push_back( HLODApproximateBaked{
-             .Key          = cell.Key,
-             .MaterialGuid = material.Header->Guid,
-             .MaterialPath = ::Desert::Core::Serialize::RenderStoredForm(
-                  *materialForm, Common::AssetHandle::StableKeyForPath( matFile ) ) } );
+        m_Baked.push_back(
+             HLODApproximateBaked{ .Key          = cell.Key,
+                                   .MaterialGuid = material.Header->Guid,
+                                   .MaterialPath = ::Desert::Core::Serialize::RenderStoredForm(
+                                        *materialForm, Common::AssetHandle::StableKeyForPath( matFile ) ) } );
         LOG_INFO( "[Build HLODs] captured approximation {0}: {1} photos, {2} texels seen, {3} filled -> {4}, {5}, "
                   "{6}, {7}",
                   name, m_Photos.size(), baked.CapturedTexels, baked.FilledTexels, texFile.generic_string(),
@@ -454,7 +456,8 @@ namespace Desert::Editor
                     return true;
                 }
                 const std::size_t count = static_cast<std::size_t>( m_ReadbackWidth ) * m_ReadbackHeight;
-                if ( pixels.GetValue().size() != count * 4 || bBytes.GetValue().size() != count * kHalfTexelBytes ||
+                if ( pixels.GetValue().size() != count * 4 ||
+                     bBytes.GetValue().size() != count * kHalfTexelBytes ||
                      eBytes.GetValue().size() != count * kHalfTexelBytes )
                 {
                     Fail( std::format( "approximation {}: the readbacks hold {} / {} / {} bytes, expected {}x{}",
