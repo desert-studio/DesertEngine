@@ -960,6 +960,11 @@ namespace Desert::Graphic::ShaderPush
     // Programs/RayTracing/RayTracingGpuInstances.shader (Compute)
     struct RayTracingGpuInstances
     {
+        glm::vec4 BladeSize{};
+        glm::vec4 BladeBend{};
+        glm::vec4 TrampleWindow{};
+        glm::uvec4 PressLo{};
+        glm::uvec4 PressHi{};
         std::uint32_t RowBase{};
         std::uint32_t Rows{};
         std::uint32_t Record{};
@@ -969,18 +974,25 @@ namespace Desert::Graphic::ShaderPush
         std::uint32_t AddressHi{};
         std::uint32_t ThroughIds{};
         std::uint32_t ArgsWord{};
+        std::uint32_t PressSteps{};
     };
-    static_assert( sizeof( RayTracingGpuInstances ) == 36u, "RayTracingGpuInstances: std430 push block size" );
+    static_assert( sizeof( RayTracingGpuInstances ) == 120u, "RayTracingGpuInstances: std430 push block size" );
     template <> inline constexpr bool IsBlock<RayTracingGpuInstances> = true;
-    static_assert( offsetof( RayTracingGpuInstances, RowBase ) == 0u, "RayTracingGpuInstances::RowBase: std430 offset" );
-    static_assert( offsetof( RayTracingGpuInstances, Rows ) == 4u, "RayTracingGpuInstances::Rows: std430 offset" );
-    static_assert( offsetof( RayTracingGpuInstances, Record ) == 8u, "RayTracingGpuInstances::Record: std430 offset" );
-    static_assert( offsetof( RayTracingGpuInstances, IndexAndMask ) == 12u, "RayTracingGpuInstances::IndexAndMask: std430 offset" );
-    static_assert( offsetof( RayTracingGpuInstances, SbtAndFlags ) == 16u, "RayTracingGpuInstances::SbtAndFlags: std430 offset" );
-    static_assert( offsetof( RayTracingGpuInstances, AddressLo ) == 20u, "RayTracingGpuInstances::AddressLo: std430 offset" );
-    static_assert( offsetof( RayTracingGpuInstances, AddressHi ) == 24u, "RayTracingGpuInstances::AddressHi: std430 offset" );
-    static_assert( offsetof( RayTracingGpuInstances, ThroughIds ) == 28u, "RayTracingGpuInstances::ThroughIds: std430 offset" );
-    static_assert( offsetof( RayTracingGpuInstances, ArgsWord ) == 32u, "RayTracingGpuInstances::ArgsWord: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, BladeSize ) == 0u, "RayTracingGpuInstances::BladeSize: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, BladeBend ) == 16u, "RayTracingGpuInstances::BladeBend: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, TrampleWindow ) == 32u, "RayTracingGpuInstances::TrampleWindow: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, PressLo ) == 48u, "RayTracingGpuInstances::PressLo: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, PressHi ) == 64u, "RayTracingGpuInstances::PressHi: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, RowBase ) == 80u, "RayTracingGpuInstances::RowBase: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, Rows ) == 84u, "RayTracingGpuInstances::Rows: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, Record ) == 88u, "RayTracingGpuInstances::Record: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, IndexAndMask ) == 92u, "RayTracingGpuInstances::IndexAndMask: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, SbtAndFlags ) == 96u, "RayTracingGpuInstances::SbtAndFlags: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, AddressLo ) == 100u, "RayTracingGpuInstances::AddressLo: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, AddressHi ) == 104u, "RayTracingGpuInstances::AddressHi: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, ThroughIds ) == 108u, "RayTracingGpuInstances::ThroughIds: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, ArgsWord ) == 112u, "RayTracingGpuInstances::ArgsWord: std430 offset" );
+    static_assert( offsetof( RayTracingGpuInstances, PressSteps ) == 116u, "RayTracingGpuInstances::PressSteps: std430 offset" );
 
     // Programs/ReflectionCapture/ReflectionCaptureBlend.shader (Compute)
     struct ReflectionCaptureBlend

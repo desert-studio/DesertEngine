@@ -1,0 +1,49 @@
+// THE TRAMPLE READ OF THE VIEW'S DEFORMATION FIELD - the one statement every reader of the press makes
+// (DEFORM-RT-TRAMPLE): the raster's blade cells through DeformationFieldRead.glslh (the set-0 scene slots), the ray
+// tracer's TLAS rows (Programs/RayTracing/RayTracingGpuInstances.shader) through bindings of their own. The field
+// is the two-level toroidal clipmap of Graphic/Deformation/DeformationFieldRenderer.hpp: Height = (sink cm, rim cm,
+// compaction, flatten), Detail = (flatten direction X, Z 0.5-biased, wetness, touched); @p windows xy level 0's
+// minimum cell, zw level 1's; @p levels x, y their texel (cm), z, w their resolution (0: no field this frame).
+#ifndef DEFORMATION_FIELD_TRAMPLE_GLSLH
+#define DEFORMATION_FIELD_TRAMPLE_GLSLH
+
+bool DeformationFieldCovers( ivec2 cell, ivec2 window, int n )
+{
+    return all( greaterThanEqual( cell, window ) ) && all( lessThan( cell, window + ivec2( n ) ) );
+}
+
+// THE TRAMPLE at the world point @p root (a blade's root): xy = the world X, Z direction the strongest contact
+// pressed the grass (unit), z = how flat it is pressed, 0 standing .. 1 flat. Level 0 where its window covers the
+// point, level 1 farther out, (0, 0, 0) outside both: the one cell under the root, unfiltered (the field's own
+// texelFetch, as the "Deformation Field" view reads it).
+vec3 DeformationFieldTrampleFrom( texture2D height0, texture2D height1, texture2D detail0, texture2D detail1,
+                                  sampler fieldSampler, ivec4 windows, vec4 levels, vec3 root )
+{
+    const int n0 = int( levels.z );
+    if ( n0 > 0 )
+    {
+        const ivec2 cell = ivec2( floor( root.xz / levels.x ) );
+        if ( DeformationFieldCovers( cell, windows.xy, n0 ) )
+        {
+            const ivec2 texel   = cell & ivec2( n0 - 1 );
+            const float flatten = texelFetch( sampler2D( height0, fieldSampler ), texel, 0 ).a;
+            const vec2  along   = texelFetch( sampler2D( detail0, fieldSampler ), texel, 0 ).xy;
+            return vec3( along * 2.0 - 1.0, clamp( flatten, 0.0, 1.0 ) );
+        }
+    }
+    const int n1 = int( levels.w );
+    if ( n1 > 0 )
+    {
+        const ivec2 cell = ivec2( floor( root.xz / levels.y ) );
+        if ( DeformationFieldCovers( cell, windows.zw, n1 ) )
+        {
+            const ivec2 texel   = cell & ivec2( n1 - 1 );
+            const float flatten = texelFetch( sampler2D( height1, fieldSampler ), texel, 0 ).a;
+            const vec2  along   = texelFetch( sampler2D( detail1, fieldSampler ), texel, 0 ).xy;
+            return vec3( along * 2.0 - 1.0, clamp( flatten, 0.0, 1.0 ) );
+        }
+    }
+    return vec3( 0.0 );
+}
+
+#endif // DEFORMATION_FIELD_TRAMPLE_GLSLH

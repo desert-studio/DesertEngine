@@ -98,46 +98,60 @@ struct BladePoint
     vec3 Right; // unit, across the blade
 };
 
-// The blade of @p shape at height share @p t, @p side across, for the instance matrix @p model (GrassGenerate:
-// root in column 3, the width axis in column 0 scaled by the width multiplier, the up and forward axes in columns
-// 1 and 2 scaled by the height multiplier, the per-blade draws in the columns' w): a curve from the root whose tip
-// leans forward by the curvature and sways with the wind, its upright reach shortened so the blade keeps its
-// length as it bends. The lean grows as t^bend: 2 is an even arc, a larger power a straight stalk that bends near
-// its tip (GoT's per-blade bend). Without wind the position is affine in the matrix's columns: the blade of an
-// identity matrix, transformed by the matrix, is the blade of that matrix (the ray tracer's shared BLAS).
+// THE BLADE'S CURVE - one statement for the raster's BladeAt and the ray tracer's trampled TLAS rows
+// (DEFORM-RT-TRAMPLE, Programs/RayTracing/RayTracingGpuInstances.shader). For the instance matrix @p model
+// (GrassGenerate: root in column 3, the width axis in column 0 scaled by the width multiplier, the up and forward
+// axes in columns 1 and 2 scaled by the height multiplier, the per-blade draws in the columns' w) and the variety's
+// @p size, @p bend (GrassBladeShapeData's Size, Bend) the blade is Root + Up * (Rise * t) + Tip * t^Bend + across:
+// a curve from the root whose tip leans forward by the curvature and sways with the wind, its upright reach
+// shortened so the blade keeps its length as it bends. The lean grows as t^bend: 2 is an even arc, a larger power a
+// straight stalk that bends near its tip (GoT's per-blade bend). Without wind the curve is affine in the matrix's
+// columns: the blade of an identity matrix, transformed by the matrix, is the blade of that matrix (the ray
+// tracer's shared BLAS).
 // @p localAir is the scene's local wind at the root (Common/LocalWind.glslh LocalWindXZ of vec3( model[3] )).
-// @p trample is the view's deformation field at the root (DEFORM-GRASS, Deformation/DeformationFieldRead.glslh
-// DeformationFieldTrampleAt: xy the world X, Z direction a contact pressed the grass, z how flat, 0..1); (0, 0, 0)
-// where nothing pressed it - the ray tracer's shared blade, which stands as at rest.
-BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, vec4 windA, vec4 windB, vec4 gust,
-                    vec2 localAir, vec3 trample )
+// @p trample is the view's deformation field at the root (DEFORM-GRASS, Deformation/DeformationFieldTrample.glslh
+// DeformationFieldTrampleFrom: xy the world X, Z direction a contact pressed the grass, z how flat, 0..1); (0, 0, 0)
+// where nothing pressed it. A press with no direction (xy 0) lays the blade along its own forward axis: the ray
+// tracer's pressed BLASes (GrassBladeRayTracing.hpp), which its TLAS rows turn to the field's direction.
+struct BladeCurve
 {
-    const vec3  root    = vec3( model[3] );
+    vec3  Root;
+    vec3  Up;    // unit
+    vec3  Right; // unit, across the blade
+    vec3  Tip;   // the tip's offset beyond the upright rise
+    float Rise;  // the upright reach (cm)
+    float Bend;  // the power t is raised to along Tip
+};
+BladeCurve BladeCurveAt( vec4 size, vec4 bend, mat4 model, vec4 windA, vec4 windB, vec4 gust, vec2 localAir,
+                         vec3 trample )
+{
     const float heightK = length( model[1].xyz );
     const vec3  up      = model[1].xyz / max( heightK, 1e-6 );
-    const vec3  right   = model[0].xyz / max( length( model[0].xyz ), 1e-6 );
     const vec3  forward = model[2].xyz / max( length( model[2].xyz ), 1e-6 );
-    const float height  = shape.Size.x * heightK;
-    const float width   = BladeWidth( shape, model );
+    const float height  = size.x * heightK;
 
+    BladeCurve c;
+    c.Root  = vec3( model[3] );
+    c.Up    = up;
+    c.Right = model[0].xyz / max( length( model[0].xyz ), 1e-6 );
     // The rest lean: the variety's curvature, varied per blade by CurvatureSpread either way. The bend's power
     // draws from the curvature draw's low 16 bits (it is a 24-bit fraction, so they are independent of the
     // top bits the lean mostly reads).
-    const float lean = shape.Size.z * ( 1.0 + shape.Bend.x * ( 2.0 * model[1].w - 1.0 ) );
+    const float lean = size.z * ( 1.0 + bend.x * ( 2.0 * model[1].w - 1.0 ) );
     // A pressed blade is a straight stalk laid from its root (the power goes to 1 as it is pressed flat).
     const float press = clamp( trample.z, 0.0, 1.0 );
-    const float bend  = mix( 2.0 + 3.0 * shape.Bend.y * fract( model[1].w * 256.0 ), 1.0, press );
+    c.Bend            = mix( 2.0 + 3.0 * bend.y * fract( model[1].w * 256.0 ), 1.0, press );
     // DEFORM-LOOK-5 (Ghost of Tsushima, GDC 2021: a trampled blade bends to the ground AND its visible height
     // shrinks, so the ground shows between the laid blades): the blade's length goes from its height standing to
     // the variety's TrampledLength share of it pressed flat - the same field value as the bend, one statement for
-    // every pass. A press of 0 keeps the length exactly (share 1): the untouched blade, the ray tracer's.
-    const float share = mix( 1.0, shape.Bend.z, press );
+    // every pass. A press of 0 keeps the length exactly (share 1): the untouched blade.
+    const float share = mix( 1.0, bend.z, press );
     const float span  = height * share;
     vec3        tip   = forward * ( span * lean );
     // The wind at the tip, as a mesh vertex at the blade's height would sway, less what the stiffness resists
     // (a shortened blade sways by its share).
-    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB, gust, localAir ) *
-           ( ( 1.0 - shape.Size.y ) * share );
+    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), c.Root, windA, windB, gust, localAir ) *
+           ( ( 1.0 - size.y ) * share );
     // THE TRAMPLE (DEFORM-GRASS; UE/Fortnite interactive grass, Ghost of Tsushima's trampled blades): the press lays
     // the tip along the field's direction, across the blade's own up (a blade on a slope lies along the slope), and
     // presses its wind sway out with it; a flat blade reaches farther than the standing cap (0.95 -> 0.995: its rise
@@ -150,14 +164,44 @@ BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, 
         tip = mix( tip, lie * span, press );
     }
     const float reach = min( length( tip ) / max( span, 1e-3 ), mix( 0.95, 0.995, press ) );
-    const float rise  = span * sqrt( 1.0 - reach * reach );
+    c.Tip             = tip;
+    c.Rise            = span * sqrt( 1.0 - reach * reach );
+    return c;
+}
+
+// The blade of @p shape at height share @p t, @p side across, for the instance matrix @p model: BladeCurveAt's
+// curve, as wide as the instance's card (BladeWidth).
+BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, vec4 windA, vec4 windB, vec4 gust,
+                    vec2 localAir, vec3 trample )
+{
+    const BladeCurve c     = BladeCurveAt( shape.Size, shape.Bend, model, windA, windB, gust, localAir, trample );
+    const float      width = BladeWidth( shape, model );
 
     BladePoint p;
-    p.Right    = right;
-    p.Position = root + up * ( rise * t ) + tip * pow( t, bend ) +
-                 right * ( 0.5 * width * side );
-    p.Along    = up * rise + tip * ( bend * pow( t, bend - 1.0 ) );
+    p.Right    = c.Right;
+    p.Position = c.Root + c.Up * ( c.Rise * t ) + c.Tip * pow( t, c.Bend ) + c.Right * ( 0.5 * width * side );
+    p.Along    = c.Up * c.Rise + c.Tip * ( c.Bend * pow( t, c.Bend - 1.0 ) );
     return p;
+}
+
+// THE RAY TRACER'S BLADE INSTANCE (GrassBladeRayTracing.hpp): the identity instance with the median per-blade draws
+// every shared and pressed BLAS is shaped for (GrassBladeRayTracingVertices.shader) and every trampled TLAS row is
+// fitted against (RayTracingGpuInstances.shader). Column 0's w: the median card draw; column 1's w: the median
+// curvature draw - a lean draw of 1/2 (the variety's Curvature, CurvatureSpread cancels to 1/256 of itself) and a
+// bend draw of 1/2 (its low bits: fract(w * 256) = 1/2).
+const float kGrassBladeRayTracingCardDraw      = 0.5;
+const float kGrassBladeRayTracingCurvatureDraw = 0.5 + 0.5 / 256.0;
+mat4        GrassBladeRayTracingModel()
+{
+    return mat4( vec4( 1.0, 0.0, 0.0, kGrassBladeRayTracingCardDraw ),
+                 vec4( 0.0, 1.0, 0.0, kGrassBladeRayTracingCurvatureDraw ), vec4( 0.0, 0.0, 1.0, 0.0 ),
+                 vec4( 0.0, 0.0, 0.0, 1.0 ) );
+}
+// The press the ray tracer's blade BLAS @p step of @p steps is shaped for: step 0 the standing blade (0), step
+// @p steps flat (1).
+float GrassBladeRayTracingPress( uint step, uint steps )
+{
+    return steps > 0u ? float( min( step, steps ) ) / float( steps ) : 0.0;
 }
 
 // The blade's shading normal at @p side: its face normal, tilted across its width so the flat strip shades as a
