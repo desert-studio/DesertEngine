@@ -126,6 +126,11 @@ namespace Desert::Graphic::API::Vulkan
             return m_CaptureStaging != VK_NULL_HANDLE;
         }
 
+        /// Release a recorded capture that will not be collected (the frame it was recorded on was judged and
+        /// is not the answer; the swapchain is being released). The caller has waited for the device: the copy
+        /// into the staging buffer must be finished. No-op when nothing is recorded.
+        void DiscardFrameCapture();
+
         /// Collect what RecordFrameCapture asked for, as tightly packed 8-bit RGBA. Call after the present
         /// that carried the copy; it waits for the device first. Releases the staging buffer either way,
         /// so a failed capture cannot leak one per attempt.

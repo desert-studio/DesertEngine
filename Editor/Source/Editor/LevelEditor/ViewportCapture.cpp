@@ -267,26 +267,58 @@ namespace Desert::Editor
     }
 
     // The record half of a window capture, on the frame the control channel's gate named (see
-    // EditorLayer::RecordWindowCaptureIfDue): a swapchain image may only be touched between acquire and present.
-    void ViewportCapture::RecordWindowCapture()
+    // ControlService::RecordWindowCaptureIfDue): a swapchain image may only be touched between acquire and
+    // present. On the render task, behind the frame's interface.
+    void ViewportCapture::RecordWindowCapture( const uint64_t frame )
     {
         auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
              EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() );
+        WindowCaptureRecord record{ .Frame = frame };
         if ( !swapChain )
-        {
-            m_CaptureError = "there is no Vulkan swapchain to capture the presented frame from.";
+            record.Error = "there is no Vulkan swapchain to capture the presented frame from.";
+        // ONE COPY AT A TIME, AND THE EARLIER FRAME KEEPS IT. With GameRenderPipelining this frame is built before
+        // the previous one is announced, so the previous frame's copy may still wait for its judgement: that copy
+        // is the one a discharge on the previous frame will collect. This frame records nothing - it is not a
+        // refusal, the frame simply holds no capture and cannot be the answer (PendingWork::WindowCapture).
+        else if ( swapChain->HasPendingCapture() )
             return;
-        }
+        else if ( const auto recorded = swapChain->RecordFrameCapture(); !recorded )
+            record.Error = recorded.GetError();
+        else
+            record.InFlight = true;
 
-        if ( const auto recorded = swapChain->RecordFrameCapture(); !recorded )
-        {
-            m_CaptureError = recorded.GetError();
-            return;
-        }
-        m_CaptureError.clear();
+        const std::scoped_lock lock( m_WindowRecordLock );
+        m_WindowRecord = std::move( record );
     }
 
-    bool ViewportCapture::WriteWindowPng( const std::string& path, std::string& outError )
+    ViewportCapture::WindowCaptureRecord ViewportCapture::WindowRecord() const
+    {
+        const std::scoped_lock lock( m_WindowRecordLock );
+        return m_WindowRecord;
+    }
+
+    bool ViewportCapture::WindowCaptureRecordedFor( const uint64_t frame ) const
+    {
+        return WindowRecord().Frame == frame;
+    }
+
+    void ViewportCapture::DiscardWindowCapture( const uint64_t frame )
+    {
+        const WindowCaptureRecord record = WindowRecord();
+        if ( record.Frame != frame || !record.InFlight )
+            return;
+        // The slot is this frame's copy, so no record half touches the swapchain until it is released; joined
+        // anyway, because the device-idle wait below must not race a submit on the render task.
+        ::Desert::Engine::RenderTask::Get().Join();
+        Graphic::Renderer::GetInstance().WaitDeviceIdle();
+        if ( auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
+                  EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() ) )
+            swapChain->DiscardFrameCapture();
+        const std::scoped_lock lock( m_WindowRecordLock );
+        m_WindowRecord.InFlight = false;
+    }
+
+    bool ViewportCapture::WriteWindowPng( const std::string& path, const uint64_t frame, std::string& outError )
     {
         // THE WHOLE EDITOR, INTERFACE INCLUDED — which is what WriteViewportPng next door cannot do and
         // never could. That one reads the scene's own final image; ImGui is recorded into the SWAPCHAIN
@@ -300,10 +332,17 @@ namespace Desert::Editor
         // frame's jobs - the copy, the submit, the present - are joined first, so the error and the staging
         // buffer read below are the ones that job left (UE: FlushRenderingCommands before a screenshot is read).
         ::Desert::Engine::RenderTask::Get().Join();
-        if ( !m_CaptureError.empty() )
+        const WindowCaptureRecord record = WindowRecord();
+        if ( record.Frame != frame )
         {
-            outError = m_CaptureError;
-            m_CaptureError.clear();
+            outError = std::format( "frame {} was judged without a capture of its own (the last one recorded is "
+                                    "frame {}); the gate admits a shot frame only with its copy.",
+                                    frame, record.Frame );
+            return false;
+        }
+        if ( !record.Error.empty() )
+        {
+            outError = record.Error;
             return false;
         }
 
@@ -333,6 +372,12 @@ namespace Desert::Editor
         uint32_t   width  = 0;
         uint32_t   height = 0;
         const auto pixels = swapChain->TakeCapturedFrameRGBA8( width, height );
+        {
+            // Collected: TakeCapturedFrameRGBA8 releases the staging on every path. A return above leaves the copy
+            // in flight, and the frame's announcement discards it (ControlService::OnFramePresented).
+            const std::scoped_lock lock( m_WindowRecordLock );
+            m_WindowRecord.InFlight = false;
+        }
         if ( !pixels )
         {
             outError = pixels.GetError();

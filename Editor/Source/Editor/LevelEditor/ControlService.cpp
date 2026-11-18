@@ -78,6 +78,13 @@ namespace Desert::Editor
 {
     namespace
     {
+        // The census entries only the frame itself decides, written when it is announced (OnFramePresented's
+        // noteAfterFrame): a frame being built cannot know them, so the window capture's expectation leaves them
+        // out (RecordWindowCaptureIfDue).
+        constexpr Control::PendingWork kDecidedByTheFrame[] = {
+             Control::PendingWork::Displacement, Control::PendingWork::SubsurfaceHistory,
+             Control::PendingWork::MaterialPipelines, Control::PendingWork::GrassInstances };
+
         // Subject::Entity — the entity named by its decimal UUID, in the open scene.
         // The entity a request names: its decimal UUID, or `selected` - the one selected entity, so a scripted
         // scenario can address what it just created without knowing the UUID the editor generated.
@@ -749,6 +756,28 @@ namespace Desert::Editor
         // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
         noteAfterFrame( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
+        // THE WINDOW SHOT'S OWN AFTER-THE-FRAME ENTRY. Its copy is recorded while the frame is built, on a frame
+        // EXPECTED to settle (RecordWindowCaptureIfDue) - expected, because the four entries above are known only
+        // now. A frame judged settled that recorded nothing answered with no picture ("no frame capture was
+        // recorded for this frame": every shot.window of the WP sweep, 11-18); it is not the answer, the next one
+        // holding its copy is. Judged only, never in the live census: `state` and the expectation read that one.
+        const bool windowShotWaits = m_ControlInFlight &&
+                                     m_ControlInFlight->Operation == Control::Op::ShotWindow &&
+                                     m_ControlGate.Holding() == Control::GateSubject::Effect;
+        judged.Set( Control::PendingWork::WindowCapture,
+                    windowShotWaits && !m_Capture.WindowCaptureRecordedFor( built.Serial ) );
+        // A copy this frame recorded and nobody collected (judged unsettled, timed out, abandoned) holds the one
+        // capture slot: released once the judgement is over, so a later frame can record its own.
+        struct DiscardUncollected
+        {
+            ViewportCapture& Capture;
+            uint64_t         Frame;
+            ~DiscardUncollected()
+            {
+                Capture.DiscardWindowCapture( Frame );
+            }
+        } discardUncollected{ m_Capture, built.Serial };
+
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
 
@@ -833,7 +862,7 @@ namespace Desert::Editor
             // just certified as reflecting the command that came before it.
             std::string error;
             const bool  window  = ( m_ControlInFlight->Operation == Control::Op::ShotWindow );
-            const bool  written = window ? m_Capture.WriteWindowPng( m_ControlInFlight->Path, error )
+            const bool  written = window ? m_Capture.WriteWindowPng( m_ControlInFlight->Path, built.Serial, error )
                                          : m_Capture.WriteViewportPng( m_ControlInFlight->Path );
 
             if ( written )
@@ -2209,7 +2238,14 @@ namespace Desert::Editor
         // "the editor is ready" and "the command has landed" from being read as one fact.
         if ( m_ControlGate.Holding() != Control::GateSubject::Effect )
             return;
-        if ( !m_ControlGate.WouldDischarge( m_FrameIndex, m_FrameQuiescence ) )
+        // EXPECTED, NOT KNOWN: the entries only the frame itself decides (kDecidedByTheFrame) are written at its
+        // announcement, so the live census holds an EARLIER frame's - a frame expected unsettled by them can be
+        // judged settled. Those are left out here; the judgement holds a frame without its copy as unsettled
+        // (PendingWork::WindowCapture), and a copy that is not the answer is released at its announcement.
+        Control::EditorQuiescence beforeTheFrame = m_FrameQuiescence;
+        for ( const Control::PendingWork work : kDecidedByTheFrame )
+            beforeTheFrame.Set( work, false );
+        if ( !m_ControlGate.WouldDischarge( m_FrameIndex, beforeTheFrame ) )
             return;
 
         // BEHIND THE INTERFACE, ON THE RENDER TASK. The swapchain image is acquired late, by the interface graph's
@@ -2219,9 +2255,9 @@ namespace Desert::Editor
         // after this frame's interface and before its submit and present (UE: the screenshot request is served
         // on the render thread, after the back buffer is drawn). WriteWindowPng joins the task before it reads.
         ::Desert::Engine::RenderTask::Get().Enqueue( "Window capture",
-                                                     [this]() -> Common::BoolResultStr
+                                                     [this, frame = m_FrameIndex]() -> Common::BoolResultStr
                                                      {
-                                                         m_Capture.RecordWindowCapture();
+                                                         m_Capture.RecordWindowCapture( frame );
                                                          return BOOLSUCCESS;
                                                      } );
     }

@@ -64,13 +64,15 @@ namespace Desert::Editor::Control
         ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land
         Displacement, ///< the frame drew a displaced primitive's base mesh while its twin was still tessellating
         SubsurfaceHistory, ///< a view's subsurface scatter has not yet averaged its full history window
-        HLODBuild, ///< a Build HLODs is still baking its landscape tiles; its cell files are not written yet
-        MiniMapBuild, ///< a Build Minimap is still capturing the world tile by tile; its texture is not written yet
-        MeshDrops, ///< a dropped mesh is still being imported on a worker, or is cooked but not yet spawned
+        HLODBuild,    ///< a Build HLODs is still baking its landscape tiles; its cell files are not written yet
+        MiniMapBuild, ///< a Build Minimap is still capturing the world tile by tile; its texture is not written
+                      ///< yet
+        MeshDrops,    ///< a dropped mesh is still being imported on a worker, or is cooked but not yet spawned
         MaterialPipelines, ///< the frame drew a material's default surface while its own pipeline compiled
         GrassInstances, ///< the frame drew grass whose instance buffers were sized for another view (a camera cut)
         MaterialBake,   ///< a Bake Material to Textures is still rendering its slot; its textures are not written
                         ///< yet
+        WindowCapture,  ///< a `shot.window` waits and the frame holds no copy of the window to answer it with
         Count
     };
 
@@ -100,6 +102,8 @@ namespace Desert::Editor::Control
          "a material's pipeline is still compiling (the frame drew the default surface in its place)",
          "the grass is still being counted after a camera cut (the field drew truncated)",
          "Bake Material to Textures is still rendering its slot (its texture assets are not written yet)",
+         "the frame holds no copy of the window to answer 'shot.window' with (the copy is recorded on a frame "
+         "expected to settle, one at a time)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),
@@ -364,9 +368,11 @@ namespace Desert::Editor::Control
          * transition on presentable VkImage, but the image has not been acquired"). The editor therefore
          * has to know, before it submits, whether this is the frame the reply is waiting for.
          *
-         * Same inputs, same answer as ObserveFramePresented: a frame this returns true for is a frame that
-         * discharges. That equality is the point — if the two could disagree, the editor would record a
-         * capture for a frame that then did not count, or skip one for a frame that did.
+         * Same rule as ObserveFramePresented, but NOT the same inputs: the census entries only the frame
+         * itself decides are known at its announcement, after the copy had to be recorded. The caller asks
+         * with those left out (ControlService::RecordWindowCaptureIfDue), so every frame that can discharge
+         * records its copy; the judgement holds a frame without one as unsettled
+         * (PendingWork::WindowCapture), and a copy whose frame did not discharge is released.
          */
         [[nodiscard]] bool WouldDischarge( uint64_t frame, const EditorQuiescence& quiescence ) const noexcept
         {
