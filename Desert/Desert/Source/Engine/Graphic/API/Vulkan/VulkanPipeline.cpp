@@ -151,8 +151,14 @@ namespace Desert::Graphic::API::Vulkan
              CompatibleRenderPass == VK_NULL_HANDLE && PassVariants.empty() )
             return;
 
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->GetVulkanLogicalDevice();
+        // THROUGH THE ALLOCATOR'S DEVICE, not EngineContext::GetDevice(): a replaced pipeline is retired into the
+        // allocator's deletion queue (Publish), and ~VulkanLogicalDevice drains that queue
+        // (VulkanContext::Shutdown) after the engine's weak handle to the device has expired - a null dereference
+        // on every editor quit (crash 20261118-154102, WP-INT-1117). The allocator holds the device it was created
+        // for.
+        VkDevice device = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                               ->GetVulkanAllocator()
+                               ->GetDevice();
         for ( const auto& [pass, variant] : PassVariants )
             if ( variant != VK_NULL_HANDLE )
                 vkDestroyPipeline( device, variant, nullptr );

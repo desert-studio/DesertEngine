@@ -327,6 +327,14 @@ namespace Desert::Graphic::API::Vulkan
             return m_DeviceCaps;
         }
 
+        /// The device this allocator was created for: what a child released through the deletion queue is
+        /// destroyed through, also at teardown, where ~VulkanLogicalDevice drains the queue after the engine's
+        /// weak handle to the device has expired (EngineContext::GetDevice() is null there).
+        [[nodiscard]] VkDevice GetDevice() const noexcept
+        {
+            return m_Device;
+        }
+
         void Shutdown();
 
         /// THE DEVICE'S ZERO BUFFER: 64 KB of zeros, host-visible, usable as a uniform or storage buffer, made on
