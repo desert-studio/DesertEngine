@@ -253,16 +253,17 @@ namespace Desert::Editor
         // meshes are not built for it (no spline builder: they stay named holes in the dropped files).
         ::Desert::Core::Rules::HLODBuilderRegistry probeBuilders = builders;
         probeBuilders.SetLandscapeSplineBuilder( nullptr );
-        if ( auto probe =
-                  WC::BuildWorldHLODs( world.Loadable.Scene, world.Descriptors, registries, WC::PrefabFileReader(),
-                                       probeBuilders, previous ? &*previous : nullptr,
-                                       [this]( WC::CookedFile ) -> Common::BoolResultStr
-                                       {
-                                           if ( m_Cancel )
-                                               return Common::MakeError( "the build was cancelled" );
-                                           ++m_CellsDone;
-                                           return BOOLSUCCESS;
-                                       } );
+        if ( auto probe = WC::BuildWorldHLODs(
+                  world.Loadable.Scene, world.Descriptors, registries, WC::PrefabFileReader(), probeBuilders,
+                  previous ? &*previous : nullptr,
+                  [this]( WC::CookedFile ) -> Common::BoolResultStr
+                  {
+                      if ( m_Cancel )
+                          return Common::MakeError( "the build was cancelled" );
+                      ++m_CellsDone;
+                      return BOOLSUCCESS;
+                  },
+                  WC::HLODFileOutput::Probe );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );
         auto plan = std::make_unique<Planned>();

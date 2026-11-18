@@ -479,6 +479,16 @@ namespace Desert::Core::WorldCells
     // HLOD actors cell by cell). An error stops the build by name.
     using BuiltHLODSink = std::function<Common::BoolResultStr( CookedFile file )>;
 
+    // What a build hands its sink (WP-PERF): Encoded = each cell's file, wrapped (a build that saves); Probe = the
+    // file's NAME only, no bytes - a build run only for what its builders gather (the editor's Build HLODs plans
+    // the material bakes with one) encodes nothing it drops. Measured 11-18 on WP_Protocol (Debug): 466 of 499
+    // samples of the probe's worker were rfl::json::write of cell payloads the probe then threw away.
+    enum class HLODFileOutput : std::uint8_t
+    {
+        Encoded,
+        Probe,
+    };
+
     // THE SAVED CONTENT AN HLOD IS BUILT FROM BEYOND ITS RECORDS (UE: UHLODBuilder::ComputeHLODHash reaches the
     // static mesh, its materials and their textures, each by the hash of what was saved - the asset registry's
     // FAssetPackageData::PackageSavedHash): every asset the members name, transitively through the registry's
@@ -536,7 +546,7 @@ namespace Desert::Core::WorldCells
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
                      const Rules::HLODBuilderRegistry& builders, const StoredHLODs* previous,
-                     const BuiltHLODSink& sink );
+                     const BuiltHLODSink& sink, HLODFileOutput output = HLODFileOutput::Encoded );
 
     // `<dir>/<stem>_HLOD/` of the scene file @p scenePath (beside `<stem>_Landscape/`).
     [[nodiscard]] std::filesystem::path BuiltHLODDirectory( const std::filesystem::path& scenePath );

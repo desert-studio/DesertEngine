@@ -1,0 +1,23 @@
+# WP-PERF (owner 11-18 "World Partition must be optimised too"): measure, then remove the 2-3 costliest places the UE way.
+# Timings before/after: DesertEngine-scratch/WP-PERF/timings.txt. Profiles: macOS `sample <editor pid> 15 20` during
+# Build HLODs and the Play start, aggregated per function (inclusive samples per thread).
+# [1_flight] is the existing headless flight profiler (ShotOptions --flight, FlightRules.hpp), on the same world:
+#   Editor --project Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce --play
+#          --flight line:-90000,5000,0:90000,5000,0 --flight-speed 6000 --flight-csv <scratch>/WP-PERF/flight.csv
+#   -> "[Flight] ... p50/p95/max, frames with activation" in editor.log; CSV per frame (activation ms, records, GPU bytes).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+# Build HLODs: the probe (Plan) no longer encodes the cell payloads it drops (WorldCells::HLODFileOutput::Probe).
+Дано run Scene "Build HLODs"
+Дано wait-idle 2400
+Тогда 0_built панель World Partition: HLOD построены без ошибок; в editor.log «[Build HLODs]» время сборки меньше замера «до» (30 мин)
+Когда run Action "Play"
+Когда advance 3
+Тогда 1_flight кадр как в WP-PROTOCOL: мир с HLOD вдали; в editor.log «HLOD … loaded at the start of Play» — время старта Play против «до» (~70 с на ячейку)
+Когда run Action "Stop"
+# [2_hlod_one_cell]: move one Main-grid building 1 m, Save, Build HLODs again: only its cell and the parents above
+# rebuild (BuiltFrom checksum, WorldCells::BuildPlannedHLODs keep()); the log counts kept vs built rows.
+Когда run Scene "Build HLODs"
+Когда wait-idle 2400
+Тогда 2_hlod_one_cell вид как 1_flight, HLOD вдали как до; в логе перестроены только затронутые ячейки и их родители
