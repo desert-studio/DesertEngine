@@ -8,6 +8,7 @@
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <span>
 #include <string>
@@ -270,10 +271,15 @@ namespace Desert::Graphic::VirtualGeometry
         };
         // Entries[0..Used) are this slot's frame; the ones past it keep their DrawnGroups storage for the next
         // frame the slot comes round (BeginFrame releases their buffers, never the vectors).
+        // A DEQUE, NOT A VECTOR (UE FRDGBuilder: an extraction target's address is stable until Execute): Add
+        // hands &entry.RasterArgs / Status / GroupArgs / GroupViewCounts to RDG::Builder::Extract, and Execute
+        // writes the extracted buffer and its final state back through those pointers. A vector that grew for a
+        // later cut of the same graph moved the earlier entries and left the graph writing into freed memory
+        // (NG1-CRASH: AV in RecordFinalState of a reused block). Appending to a deque never moves an element.
         struct Slot
         {
-            std::vector<Entry> Entries;
-            size_t             Used = 0;
+            std::deque<Entry> Entries;
+            size_t            Used = 0;
         };
         void Count( const Slot& slot );
 

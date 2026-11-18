@@ -1,0 +1,63 @@
+// Cloth — UE's MSM_Cloth as Substrate converts it (SubstrateLegacyConversion.ush: one slab with fuzz): the slab's
+// FUZZ feature (Mesh/SubstrateSlab.glslh) - a Charlie sheen layer (Estevez & Kulla 2017, the NDF UE's Substrate and
+// Filament ship, with Neubelt & Pettineo's visibility) on top of the slab, the retro-reflective sheen of velvet, wool
+// and cotton, bright where the view grazes the fibres; the slab beneath gives up the energy the layer reflects.
+//
+// The payload is UE's: FuzzColor.rgb in CustomData0..2, stored as its square root (UE EncodeSubsurfaceColor - the
+// cloth's fuzz colour shares TwoSidedFoliage's encoding so the 8-bit field spends its steps on dark fabrics), and
+// CustomData3 = Cloth (UE GBuffer.CustomData.a: the fuzz layer's amount; 0 = DefaultLit exactly - the feature bit is
+// then clear and the tile classification shades the texel as DefaultLit). The fuzz lobe takes the surface's
+// roughness, as UE's legacy conversion does.
+Guid 8584306699740129915;
+Payload
+{
+    CustomData0 FuzzColorR; // sqrt( FuzzColor.r )
+    CustomData1 FuzzColorG; // sqrt( FuzzColor.g )
+    CustomData2 FuzzColorB; // sqrt( FuzzColor.b )
+    CustomData3 Cloth;      // 0..1 the fuzz layer's amount
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+    CustomData0;
+    CustomData1;
+    CustomData2;
+    CustomData3;
+}
+SlabFeatures ClothSlabFeatures;
+Slab ClothSlab;
+
+#include <Mesh/SubstrateSlab.glslh>
+
+uint ClothSlabFeatures( DesertPayload P )
+{
+    return P.CustomData3 > 0.0 ? kDesertSlabFuzz : 0u;
+}
+
+DesertSlab ClothSlab( DesertSurface S, DesertPayload P )
+{
+    // UE ExtractSubsurfaceColor: Square( CustomData.rgb ).
+    const vec3 encoded = vec3( P.CustomData0, P.CustomData1, P.CustomData2 );
+    DesertSlab slab    = DesertMakeSlab( S, ClothSlabFeatures( P ) );
+    slab.FuzzColor     = encoded * encoded;
+    slab.FuzzAmount    = clamp( P.CustomData3, 0.0, 1.0 );
+    slab.FuzzRoughness = S.Roughness;
+    return slab;
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluate( L, S, ClothSlab( S, P ) );
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluateSpecular( L, S, ClothSlab( S, P ) );
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluateAmbient( A, S, ClothSlab( S, P ) );
+}

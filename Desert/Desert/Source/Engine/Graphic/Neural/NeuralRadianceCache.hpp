@@ -220,7 +220,7 @@ namespace Desert::Engine::Neural
 
     // The trace's NRC parameters: the contents of NrcTraceTargets::Params, read by the PATH_TRACING_NRC trace as
     // PathTracer.shader NrcTraceParamsUB (NrcParams / NrcSpread). A buffer, not the trace's push: the push is full
-    // (PathTracer TracePush is Vulkan's guaranteed 128 bytes with the light grid's descriptor).
+    // (ShaderPush::PathTracer is Vulkan's guaranteed 128 bytes with the light grid's descriptor).
     struct NrcTraceParams
     {
         glm::uvec4 Params; ///< x = each segment's query capacity (> 0: Nrc), y = training tile side, z / w = this
@@ -249,7 +249,7 @@ namespace Desert::Engine::Neural
         RDG::TextureRef Radiance;            ///< rgb += T * cache
         RDG::TextureRef DemodulatedDiffuse;  ///< rgb += DiffuseWeight * cache, a: the squared luminance's change
         RDG::TextureRef DemodulatedSpecular; ///< likewise with SpecularWeight
-        float           PathIntensityClamp = 0.0f; ///< the trace's clamp in radiance (TracePush Sun.w; 0: none)
+        float           PathIntensityClamp = 0.0f; ///< the trace's clamp in radiance (ShaderPush::PathTracer SunParams.w; 0: none)
     };
 
     // What DesertCtl's state section "nrc" reports (ControlState): read back from frames whose fence passed.

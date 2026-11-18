@@ -1,5 +1,6 @@
 #include "LocalExposureRenderer.hpp"
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -11,50 +12,10 @@ namespace Desert::Graphic::System
     {
         constexpr uint32_t kBlurGroupSize = 8; // LEBlur LocalSize(8, 8, 1)
 
-        struct SetupPush
-        {
-            glm::vec2 InvOutputSize;
-            glm::vec2 OutputSize;
-            float     InversePreExposure;
-            float     SliceLogMin;
-            float     InvSliceEV;
-            float     Pad0;
-        };
 
-        struct BlurPush
-        {
-            glm::ivec2 Direction;
-            float      Radius;
-            float      Pad0;
-        };
 
-        struct FusionSetupPush // LEFusionSetup PushConstants
-        {
-            float InversePreExposure;
-            float ManualExposure;
-            float ExposureKey;
-            float AutoExposure;
-            float HighlightScale;
-            float ShadowScale;
-            float TargetLuminance;
-            float Reinhard;
-        };
 
-        struct FusionDownsamplePush // LEFusionDownsample PushConstants
-        {
-            glm::vec2 InvInputSize;
-            glm::vec2 OutputSize;
-        };
 
-        struct FusionBlendPush // LEFusionBlend PushConstants
-        {
-            glm::vec2 OutputSize;
-            glm::vec2 InvCoarserSize;
-            float     Laplacian;
-            float     Pad0;
-            float     Pad1;
-            float     Pad2;
-        };
     } // namespace
 
     Common::BoolResultStr LocalExposureRenderer::Initialize()
@@ -135,7 +96,7 @@ namespace Desert::Graphic::System
              .Sampler( LocalExposureSetupShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Storage( LocalExposureSetupShaderParameters::OutBilateralGrid, grid, RDG::Access::StorageWrite, 0 )
              .Storage( LocalExposureSetupShaderParameters::OutLogLuminance, logLum, RDG::Access::StorageWrite, 0 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( SetupPush ) ) );
+             .PushConstants<ShaderPush::LESetup>();
     }
 
     Common::BoolResultStr LocalExposureRenderer::RecordSetup( const RDG::PassContext& context, uint32_t width,
@@ -143,14 +104,14 @@ namespace Desert::Graphic::System
     {
         if ( !m_SetupPipeline )
             return Common::MakeError( "PostFX: LocalExposureSetup: the setup pipeline is not initialised" );
-        const SetupPush   push{ glm::vec2( 1.0f / float( width ), 1.0f / float( height ) ),
+        const ShaderPush::LESetup   push{ glm::vec2( 1.0f / float( width ), 1.0f / float( height ) ),
                               glm::vec2( float( width ), float( height ) ),
                               1.0f / m_PreExposure,
                               m_SliceLogMin,
                               1.0f / kLocalExposureSliceEV,
                               0.0f };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, sizeof( push ) );
+        bindings.PushConstants( push );
         const glm::uvec3 grid = LocalExposureGridExtent( width, height );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_SetupPipeline, grid.x, grid.y, 1 );
     }
@@ -166,7 +127,7 @@ namespace Desert::Graphic::System
                        RDG::SubresourceRange::All() )
              .Sampler( LocalExposureBlurShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Storage( LocalExposureBlurShaderParameters::OutputTexture, output, RDG::Access::StorageWrite, 0 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( BlurPush ) ) );
+             .PushConstants<ShaderPush::LEBlur>();
     }
 
     Common::BoolResultStr LocalExposureRenderer::RecordBlur( const RDG::PassContext& context, bool horizontal,
@@ -175,9 +136,9 @@ namespace Desert::Graphic::System
     {
         if ( !m_BlurPipeline )
             return Common::MakeError( "PostFX: LocalExposureBlur: the blur pipeline is not initialised" );
-        const BlurPush    push{ horizontal ? glm::ivec2( 1, 0 ) : glm::ivec2( 0, 1 ), radius, 0.0f };
+        const ShaderPush::LEBlur    push{ horizontal ? glm::ivec2( 1, 0 ) : glm::ivec2( 0, 1 ), radius, 0.0f };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, sizeof( push ) );
+        bindings.PushConstants( push );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_BlurPipeline,
                                                         LocalExposureDivUp( blurWidth, kBlurGroupSize ),
                                                         LocalExposureDivUp( blurHeight, kBlurGroupSize ), 1 );
@@ -209,7 +170,7 @@ namespace Desert::Graphic::System
              .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Storage( P::OutExposures, exposures, RDG::Access::StorageWrite, 0 )
              .Storage( P::OutWeights, weights, RDG::Access::StorageWrite, 0 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( FusionSetupPush ) ) );
+             .PushConstants<ShaderPush::LEFusionSetup>();
     }
 
     Common::BoolResultStr LocalExposureRenderer::RecordFusionSetup( const RDG::PassContext& context,
@@ -218,7 +179,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_FusionSetupPipeline )
             return Common::MakeError( "PostFX: LocalExposureFusionSetup: the pipeline is not initialised" );
-        const FusionSetupPush push{ 1.0f / m_PreExposure,
+        const ShaderPush::LEFusionSetup push{ 1.0f / m_PreExposure,
                                     exposure.ManualExposure,
                                     exposure.ExposureKey,
                                     exposure.AutoExposure ? 1.0f : 0.0f,
@@ -227,7 +188,7 @@ namespace Desert::Graphic::System
                                     kLocalExposureFusionTargetLuminance,
                                     exposure.Reinhard ? 1.0f : 0.0f };
         RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, sizeof( push ) );
+        bindings.PushConstants( push );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_FusionSetupPipeline,
                                                         LocalExposureDivUp( width, kBlurGroupSize ),
                                                         LocalExposureDivUp( height, kBlurGroupSize ), 1 );
@@ -249,7 +210,7 @@ namespace Desert::Graphic::System
              .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Storage( P::OutExposures, outExposures, RDG::Access::StorageWrite, 0 )
              .Storage( P::OutWeights, outWeights, RDG::Access::StorageWrite, 0 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( FusionDownsamplePush ) ) );
+             .PushConstants<ShaderPush::LEFusionDownsample>();
     }
 
     Common::BoolResultStr LocalExposureRenderer::RecordFusionDownsample( const RDG::PassContext& context,
@@ -258,9 +219,9 @@ namespace Desert::Graphic::System
     {
         if ( !m_FusionDownsamplePipeline )
             return Common::MakeError( "PostFX: LocalExposureFusionDownsample: the pipeline is not initialised" );
-        const FusionDownsamplePush push{ glm::vec2( 1.0f ) / glm::vec2( inputSize ), glm::vec2( outputSize ) };
+        const ShaderPush::LEFusionDownsample push{ glm::vec2( 1.0f ) / glm::vec2( inputSize ), glm::vec2( outputSize ) };
         RDG::PassBindings          bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, sizeof( push ) );
+        bindings.PushConstants( push );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_FusionDownsamplePipeline,
                                                         LocalExposureDivUp( outputSize.x, kBlurGroupSize ),
                                                         LocalExposureDivUp( outputSize.y, kBlurGroupSize ), 1 );
@@ -284,7 +245,7 @@ namespace Desert::Graphic::System
              .Texture( P::PrevResult, prevResult, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Storage( P::OutResult, result, RDG::Access::StorageWrite, 0 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( FusionBlendPush ) ) );
+             .PushConstants<ShaderPush::LEFusionBlend>();
     }
 
     Common::BoolResultStr LocalExposureRenderer::RecordFusionBlend( const RDG::PassContext& context,
@@ -293,14 +254,14 @@ namespace Desert::Graphic::System
     {
         if ( !m_FusionBlendPipeline )
             return Common::MakeError( "PostFX: LocalExposureFusionBlend: the pipeline is not initialised" );
-        const FusionBlendPush push{ glm::vec2( outputSize ),
+        const ShaderPush::LEFusionBlend push{ glm::vec2( outputSize ),
                                     glm::vec2( 1.0f ) / glm::vec2( coarserSize ),
                                     laplacian ? 1.0f : 0.0f,
                                     0.0f,
                                     0.0f,
                                     0.0f };
         RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, sizeof( push ) );
+        bindings.PushConstants( push );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_FusionBlendPipeline,
                                                         LocalExposureDivUp( outputSize.x, kBlurGroupSize ),
                                                         LocalExposureDivUp( outputSize.y, kBlurGroupSize ), 1 );

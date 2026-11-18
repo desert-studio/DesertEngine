@@ -1,0 +1,22 @@
+# SCR-TIMERS: the world's timers as UE's FTimerManager (Core::TimerManager, Luau Timer.*): looping, one-shot, next-tick,
+# pause/unpause keeping the time left, clear from the timer's own call, catch-up of a period shorter than a frame.
+# The level: TimerProof.desce = the GameplayProof stage without the pawn (Camera at (0, 250, 700) is the view) and
+# TimerProof.lua on the TimerProof entity, which labels each timer's calls beside the game time t (scripts.Examples).
+# Every number below is read off the labels; t comes from the scripts' own dt sum, so +-1 call is a frame boundary.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/TimerProof.desce
+Дано run View "View mode: Lit"
+Когда run Action "Play"
+Когда advance 0.6
+# Тогда [1_running]: t about 0.6; every(0.25) 2 calls (t / 0.25 = 2), active true, remaining between 0 and 0.25;
+# every(0.01) calls within 1-2 of t / 0.01 (about 60: several per frame, the catch-up) and rate 0.01;
+# after(1.0) "waiting"; nextTick "fired at t = 0.0xx s" (the first frame); every(0.1) about 5 calls, paused false;
+# the every(0.2) line "cleared itself on call 3 at t = 0.4x s", calls 3, exists false (no 4th call later).
+Тогда-вид 1_running seven label lines over the stage: t ~ 0.60; every(0.25) 2 calls active true; every(0.01) ~60 calls rate 0.01; after(1.0) waiting; nextTick fired at t ~ 0.02; every(0.1) ~5 calls paused false; every(0.2) cleared itself on call 3, exists false
+Когда advance 1.0
+# Тогда [2_paused]: t about 1.6; after(1.0) "fired once at t = 1.0x s"; every(0.1) calls stuck at about 10 (frozen at
+# t = 1), paused true, remaining a fixed value in [0, 0.1] that does not count down; every(0.25) 6 calls.
+Тогда-вид 2_paused t ~ 1.60; after(1.0) fired once at t ~ 1.0; every(0.1) ~10 calls paused true with a still remaining in [0, 0.1]; every(0.25) 6 calls; every(0.2) still calls 3, exists false
+Когда advance 1.0
+# Тогда [3_resumed]: t about 2.6; every(0.1) counting again from where it stopped (about 10 + 6 = 16, not 26: the
+# paused second is not caught up), paused false; every(0.25) 10 calls; after(1.0) line unchanged (one-shot).
+Тогда-вид 3_resumed t ~ 2.60; every(0.1) ~16 calls paused false; every(0.25) 10 calls; after(1.0) still "fired once at t ~ 1.0"; every(0.2) calls 3, exists false; 0 "[Timer] callback error" in editor.log

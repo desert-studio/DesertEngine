@@ -20,9 +20,15 @@
 // Graphics. The choice minimises a two-queue list schedule of the plan (each queue in position order, a pass
 // starts after its queue's previous pass and after every pass it depends on), one flip at a time, accepting a
 // flip only when it shortens the modelled graph by at least kFlipMarginMs.
-// Hysteresis: a pass given to Graphics keeps the cost it measured on AsyncCompute; taking it back is modelled
-// with the larger of that and its graphics cost, so a pass that ran slower beside the graphics queue does not
-// flip back because it runs faster alone. A flip is final for kFrozenWindows published windows.
+// Hysteresis: a flip is final for kFrozenWindows published windows; a pass given to Graphics again while its
+// decision lives (it went back to AsyncCompute and the model gave it to Graphics once that flip thawed) holds
+// twice as long each time, up to kFrozenWindows << kMaxHoldDoublings, so a pass that ran slower beside the
+// graphics queue does not flip back and forth because it runs faster alone. Taking a pass back is modelled with
+// its CURRENT cost (FPS-ASYNC-JOIN-2): no cost measured in an earlier window is held, because a window can be
+// one the workload no longer has. (It was: the AsyncCompute cost measured at the flip, kept forever. On
+// FPS-FIELD-BARN-TURN scn-1117-213616 a warm-up window - shader compiles, a 13.5 ms modelled graph - measured
+// 'RadianceCache: Filter' at 1.043 ms and gave it to Graphics; it measured 0.18 ms after, never went back, and
+// the graphics queue waited 0.19 ms for the cache's Mark .. Trace before it, every frame.)
 // Who calls it: the backend - NotePlan when a graph begins with a plan it has not seen, Rebalance once per
 // published profiler window, GraphicsPasses when a graph compiles (IBackend::GetAsyncBalance). The compile
 // (Compiler::ChoosePipes) runs a listed pass on Graphics; the compile cache keys the list (AsyncBalanceKeyOf).
@@ -40,8 +46,9 @@ namespace Desert::Graphic::RDG
     public:
         // The modelled gain a flip must reach (ms of the modelled graph), and the published windows a flip holds.
         static constexpr double   kFlipMarginMs   = 0.05;
-        static constexpr uint32_t kFrozenWindows  = 4;
-        static constexpr uint32_t kFlipsPerWindow = 4;
+        static constexpr uint32_t kFrozenWindows    = 4;
+        static constexpr uint32_t kMaxHoldDoublings = 4; // a repeated flip to Graphics holds at most 64 windows
+        static constexpr uint32_t kFlipsPerWindow   = 4;
 
         // One pass's cost for Rebalance: GPU self time per frame (both queues), Measured false when the window
         // has no row for it.
@@ -79,8 +86,8 @@ namespace Desert::Graphic::RDG
         struct Decision
         {
             uint64_t Key        = 0;
-            double   AsyncMs    = 0.0; // what the pass measured on AsyncCompute when it was given to Graphics
             uint32_t FrozenLeft = 0;
+            uint32_t Holds      = 0;     // flips to Graphics while the decision lived: the next one holds longer
             bool     OnGraphics = false; // false: given back to AsyncCompute, kept while frozen
         };
 

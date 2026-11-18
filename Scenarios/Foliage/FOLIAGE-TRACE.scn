@@ -1,0 +1,40 @@
+# FOLIAGE-TRACE: the foliage brush traces as UE AInstancedFoliageActor::FoliageTrace (bTraceComplex): a static mesh is
+# met on its TRIANGLES (Scene::RaycastComplex), not on its submesh bounding box. Before: shrubs painted over a sphere
+# stood on the flat top face of its box, a square of floating shrubs wider than the sphere; snap-to-ground and the
+# footprint ring used the box too.
+# Polygon FOLIAGE_Edit.desce (see FOLIAGE-EDIT.scn): Terrain_Grass landscape, type Foliage/Proof/FOLIAGE_EditShrub.
+# A Modeling Sphere is placed at (3000, ground, 0); aim: Position (X, 1500, Z+1500) + Direction 0,-1,-1 puts the
+# viewport centre on (X, ground, Z). If the sphere is too small for the 3 m brush, raise it with
+# `--subject modeling set CreateShape.Sphere.Radius <cm>` before placing (property name unverified, see P16.scn).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FOLIAGE_Edit.desce
+Дано run View "View mode: Lit"
+Дано run Scene "World Partition: Load All"
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 3000,1500,1500
+Дано --subject viewport set Camera.Direction 0,-1,-1
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Select Elements tool"
+Дано run Foliage "Foliage mode"
+Дано run Foliage "Add type to the palette: FOLIAGE_EditShrub"
+# 1: Paint over the sphere (static meshes and landscape allowed).
+Когда run Foliage "Tool: Paint"
+Когда --subject viewport set Camera.Position 3000,1500,1500
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 3000,450,700
+Когда --subject viewport set Camera.Direction 0,-0.35,-1
+Тогда-вид 1_paint_sphere shrubs ON the sphere's curved surface (bases touching it, tilted with it where the type aligns) and on the grass around it; NO shrub floating at the sphere's top height beyond its silhouette (no square of shrubs at one flat level)
+# 2: Landscape only: the sphere is traced through, shrubs reach the ground under and around it.
+Когда run Foliage "Brush filter: static meshes on/off"
+Когда --subject viewport set Camera.Position 3600,1500,1500
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда run Foliage "Stroke at viewport centre"
+Когда --subject viewport set Camera.Position 3000,450,700
+Когда --subject viewport set Camera.Direction 0,-0.35,-1
+Тогда-вид 2_landscape_only a second patch right of the sphere on the grass only; nothing new on the sphere
+# 3: The footprint ring sits on the sphere surface, not on a box face.
+Когда run Foliage "Brush filter: static meshes on/off"
+Когда --subject viewport set Camera.Position 3000,1500,1500
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда run Foliage "Preview the brush footprint at viewport centre"
+Тогда-вид 3_footprint the brush ring centred on the sphere's top point (on its surface), the planned count beside it

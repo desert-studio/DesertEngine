@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Image.hpp>
@@ -101,7 +102,7 @@ namespace Desert::Graphic::System
             }
             block.Storage( BackdropBlurDownsampleShaderParameters::DestinationMipTexture, pyramid,
                            RDG::Access::StorageWrite, mip )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
+                 .PushConstants<ShaderPush::BloomDownsample>();
         }
 
         [[nodiscard]] Common::BoolResultStr RecordDownsample( const RDG::PassContext& context,
@@ -128,23 +129,17 @@ namespace Desert::Graphic::System
                 srcH = MipSize( bh, mip - 1 );
             }
 
-            const DownsamplePush push{
+            const ShaderPush::BloomDownsample push{
                  glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), 0, 0.0f };
 
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             return Renderer::GetInstance().DispatchCompute( bindings, *m_DownsamplePipeline,
                                                             GroupCount( MipSize( bw, mip ) ),
                                                             GroupCount( MipSize( bh, mip ) ), 1 );
         }
 
     private:
-        struct DownsamplePush
-        {
-            glm::vec2 SrcTexelSize;
-            int32_t   FirstPass;
-            float     Threshold;
-        };
 
         static constexpr uint32_t kMaxMips   = 5;  // half-res mip 0 => the coarsest is ~1/32 of the screen
         static constexpr uint32_t kGroupSize = 16; // must match the shader's local_size_*

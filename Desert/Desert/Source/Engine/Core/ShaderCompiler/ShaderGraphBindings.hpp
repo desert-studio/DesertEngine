@@ -151,7 +151,25 @@ namespace Desert::Core
     // (Mesh/Surface/Pass_Forward.glslh) as the deferred composite reads it; bound
     // by name (BindSceneViewInputs, SceneViewSlot::SunDistanceFieldShadow).
     inline constexpr uint32_t kSunDistanceFieldShadowBinding = kSceneReadBindingFirst + 31u;
-    inline constexpr uint32_t kSceneReadBindingCount         = 32u;
+    // THE TRANSLUCENCY LIGHTING VOLUME (PARTICLES-LIT-TLV; UE TranslucencyLightingVolume): the view's two
+    // camera-centred cascades of mean incident radiance (Common/TranslucencyLightingVolume.glslh), read by the lit
+    // particle cells (Mesh/Surface/Pass_ParticleSprite.glslh); bound by name (BindSceneViewInputs,
+    // SceneViewSlot::TranslucencyLightingVolume), System.Black3D on a frame no lit particle draws.
+    inline constexpr uint32_t kTranslucencyLightingVolumeBinding = kSceneReadBindingFirst + 32u;
+    // THE VIEW'S DEFORMATION FIELD AS A SURFACE READS IT (DEFORM-GRASS;
+    // Graphic/Deformation/DeformationFieldRenderer.hpp): each level's Height (sink, rim, compaction, flatten) and
+    // Detail (flatten direction, wetness, touched), then the block that says where each level's window lies
+    // (`DeformationFieldParams`). Declared by Deformation/DeformationFieldRead.glslh into the grass blade cells
+    // (Mesh/Surface/Vertex_GrassBlade.glslh, the blade path of Pass_VisibilityResolve.glslh), which flatten a
+    // blade by it in every pass - view, cascade and virtual shadow alike, so the shadow is the blade drawn. Bound
+    // by name onto every mesh draw list block that declares them (MeshDrawList::SetDeformationField,
+    // BindDeformationFieldReads), System.Black and an empty window where the view has no field.
+    inline constexpr uint32_t kDeformHeight0Binding          = kSceneReadBindingFirst + 33u;
+    inline constexpr uint32_t kDeformHeight1Binding          = kSceneReadBindingFirst + 34u;
+    inline constexpr uint32_t kDeformDetail0Binding          = kSceneReadBindingFirst + 35u;
+    inline constexpr uint32_t kDeformDetail1Binding          = kSceneReadBindingFirst + 36u;
+    inline constexpr uint32_t kDeformationFieldParamsBinding = kSceneReadBindingFirst + 37u;
+    inline constexpr uint32_t kSceneReadBindingCount         = 38u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -220,8 +238,10 @@ namespace Desert::Core
     inline constexpr uint32_t kGraphOwnedBindingFirst =
          kVirtualGeometryRasterBindingFirst + kVirtualGeometryRasterBindingCount;
     // Then from 63: the DBuffer's three slots joined the scene-read range (DECALS-DBUFFER). Then from 66: the
-    // distance-field sun's mask joined it (DF-SHADOWS).
-    static_assert( kGraphOwnedBindingFirst == 67u,
+    // distance-field sun's mask joined it (DF-SHADOWS). Then from 67: the translucency lighting volume joined it
+    // (PARTICLES-LIT-TLV). Then from 68: the deformation field's four levels' images and its block joined it
+    // (DEFORM-GRASS).
+    static_assert( kGraphOwnedBindingFirst == 73u,
                    "the graph's window opens right above the virtual geometry raster's range" );
 
     /**
@@ -231,7 +251,7 @@ namespace Desert::Core
      *
      * SET 1, because set 0 has no slot for them outside every shared range: the traced permutation they ride on
      * fills set 0 from 0 to 40 (its G-buffer inputs, the GI frame, lights, light grid, radiance cache, the GI
-     * tracer at 23..33 and the surface cache at 34..40), 25..61 are the scene-read and raster ranges, and 62 up is
+     * tracer at 23..33 and the surface cache at 34..40), 25..62 are the scene-read and raster ranges, and 63 up is
      * the graph's window, which nothing shipped may declare into (Tests/Engine/ShaderCacheKey). They had sat at
      * 50/51, inside the scene-read range. Set 1 is a program's own set (BindlessSetIndex.hpp) and no header
      * SSR.shader includes declares into it; the deferred composite parks its own extra reads there the same way
@@ -240,6 +260,15 @@ namespace Desert::Core
     inline constexpr uint32_t kSsrFrontLayerSet           = 1u;
     inline constexpr uint32_t kSsrFrontLayerNormalBinding = 0u;
     inline constexpr uint32_t kSsrFrontLayerDepthBinding  = 1u;
+
+    /**
+     * THE SSR TRACED PERMUTATION'S SHADING WORD (Common/SSRTrace.glslh under DESERT_REFLECTIONS_TRACED,
+     * `GBufferShadingWordTexture`): a world hit the view sees is lit with its G-buffer emissive unless the word
+     * marks that emission a MegaLights light (EMISSION_IS_LIGHT, Common/GIHitLighting.glslh GIHitMaterial), bound by
+     * name (SSRRenderer DeclareTracedReads). In the program's own set next to the front layer, for the reason
+     * given there: set 0 of the traced permutation has no slot outside every shared range.
+     */
+    inline constexpr uint32_t kSsrShadingWordBinding = 2u;
 
     /**
      * THE TABLE SHADERS READ: every slot above, by its C++ name, as Generated/SceneBindings.glslh hands it to GLSL
@@ -293,6 +322,12 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kDBufferBBinding ),
          DESERT_SCENE_BINDING_ROW( kDBufferCBinding ),
          DESERT_SCENE_BINDING_ROW( kSunDistanceFieldShadowBinding ),
+         DESERT_SCENE_BINDING_ROW( kTranslucencyLightingVolumeBinding ),
+         DESERT_SCENE_BINDING_ROW( kDeformHeight0Binding ),
+         DESERT_SCENE_BINDING_ROW( kDeformHeight1Binding ),
+         DESERT_SCENE_BINDING_ROW( kDeformDetail0Binding ),
+         DESERT_SCENE_BINDING_ROW( kDeformDetail1Binding ),
+         DESERT_SCENE_BINDING_ROW( kDeformationFieldParamsBinding ),
          DESERT_SCENE_BINDING_ROW( kSceneReadBindingCount ),
          DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kVsmFrameDataBinding ),
@@ -312,6 +347,7 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerSet ),
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerNormalBinding ),
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerDepthBinding ),
+         DESERT_SCENE_BINDING_ROW( kSsrShadingWordBinding ),
     };
 #undef DESERT_SCENE_BINDING_ROW
 

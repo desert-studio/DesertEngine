@@ -915,7 +915,7 @@ namespace Desert::Graphic::System
         // every use because DeclareShadowMapNodes announces the map's size when it CHANGES — the size is a
         // property of the tier, not of the view.
         Common::Settings::CloudQuality m_Quality             = Common::Settings::CloudQuality::High;
-        // Scalability Effects.CloudFootprintSteps for this view (SetCloudSettings), CloudPush::Visualize.z.
+        // Scalability Effects.CloudFootprintSteps for this view (SetCloudSettings), ShaderPush::CloudRaymarch::CloudVisualize.z.
         bool m_FootprintSteps = true;
         // Scalability Effects.CloudLightLocalSamples for this view (SetCloudSettings): the near sun ray's
         // sample ceiling. The identity, ECS::kCloudLightMarchLocalMaxSamples, until the first BeginScene.

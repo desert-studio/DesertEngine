@@ -44,7 +44,7 @@ namespace Desert::Graphic
         static inline std::atomic<bool> WideLines{ false };
 
         // `--cloud-visualize N` (Editor command line): the cloud march writes a diagnostic instead of the
-        // sky, read per dispatch into CloudPush::Visualize. 0 = off. 1 = the cut at the ray's entry into the
+        // sky, read per dispatch into ShaderPush::CloudRaymarch::CloudVisualize. 0 = off. 1 = the cut at the ray's entry into the
         // layer: R the local cover the weather leaves the column, G the lowest rank over eight heights of
         // the column, B 1 where the column is kept (G < R). 2 = along the ray: R the share of 32 samples the
         // cut keeps, G the largest rank step between neighbours x 8 (a seam reads bright). 3 = which clip

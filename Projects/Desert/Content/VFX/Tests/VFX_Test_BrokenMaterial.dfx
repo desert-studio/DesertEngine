@@ -6,17 +6,8 @@
             "VFXS": 6
         },
         "Dependencies": [
-            "02637a2ef2774901a0a88452af542abd",
-            "0caef28c515f4a4e93363f1616ed3ca3",
-            "10e483e233d547108e31d1855328a54b",
-            "2d5323b9c4d349f8b91c4fc795599f4f",
-            "37ef32a37dfc4501bb57e95fc9919372",
-            "4088e09663904044ae838d2b40fc2380",
-            "55923c5734e04fc78e068ad051c4772c",
-            "8079c58d9d214db694607abaf9c1a4b2",
-            "d1378c9a2062498ab14e47e7ef29cccb",
-            "dff69e4e958a45f5a4fd4f19ba7de22c",
-            "e64f581d72684d28ab4dc2f70e9c807a"
+            "02637a2ef2774901a0a88452af542abd", "0caef28c515f4a4e93363f1616ed3ca3", "10e483e233d547108e31d1855328a54b", "2d5323b9c4d349f8b91c4fc795599f4f", "37ef32a37dfc4501bb57e95fc9919372", "4088e09663904044ae838d2b40fc2380", "55923c5734e04fc78e068ad051c4772c", "8079c58d9d214db694607abaf9c1a4b2",
+            "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c", "e64f581d72684d28ab4dc2f70e9c807a"
         ]
     },
     "Category": "Impact",
@@ -33,16 +24,8 @@
             "Space": "World",
             "Capacity": 16,
             "Bounds": {
-                "Min": [
-                    -150.0,
-                    -150.0,
-                    -150.0
-                ],
-                "Max": [
-                    150.0,
-                    150.0,
-                    150.0
-                ]
+                "Min": [-150.0, -150.0, -150.0],
+                "Max": [150.0, 150.0, 150.0]
             },
             "Lifecycle": {
                 "Delay": 0.0,
@@ -64,23 +47,13 @@
                                 "Name": "SpawnCount",
                                 "Type": "Int",
                                 "Source": "Value",
-                                "Value": [
-                                    1.0,
-                                    0,
-                                    0,
-                                    0
-                                ]
+                                "Value": [1.0, 0, 0, 0]
                             },
                             {
                                 "Name": "SpawnTime",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     }
@@ -97,12 +70,7 @@
                                 "Name": "Offset",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -118,18 +86,8 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        1.4,
-                                        0,
-                                        0,
-                                        0
-                                    ],
-                                    "Max": [
-                                        1.4,
-                                        0,
-                                        0,
-                                        0
-                                    ]
+                                    "Min": [1.4, 0, 0, 0],
+                                    "Max": [1.4, 0, 0, 0]
                                 }
                             }
                         ]
@@ -146,18 +104,8 @@
                                 "Type": "Vec2",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        140.0,
-                                        140.0,
-                                        0,
-                                        0
-                                    ],
-                                    "Max": [
-                                        160.0,
-                                        160.0,
-                                        0,
-                                        0
-                                    ]
+                                    "Min": [140.0, 140.0, 0, 0],
+                                    "Max": [160.0, 160.0, 0, 0]
                                 }
                             }
                         ]
@@ -174,30 +122,15 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        0.0,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        360.0,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [0.0, 0.0, 0.0, 0.0],
+                                    "Max": [360.0, 0.0, 0.0, 0.0]
                                 }
                             },
                             {
                                 "Name": "RotationRate",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -212,12 +145,7 @@
                                 "Name": "Color",
                                 "Type": "Vec4",
                                 "Source": "Value",
-                                "Value": [
-                                    1.0,
-                                    1.0,
-                                    1.0,
-                                    1.0
-                                ]
+                                "Value": [1.0, 1.0, 1.0, 1.0]
                             }
                         ]
                     }
@@ -251,16 +179,8 @@
             "Space": "World",
             "Capacity": 64,
             "Bounds": {
-                "Min": [
-                    -150.0,
-                    -150.0,
-                    -150.0
-                ],
-                "Max": [
-                    150.0,
-                    150.0,
-                    150.0
-                ]
+                "Min": [-150.0, -150.0, -150.0],
+                "Max": [150.0, 150.0, 150.0]
             },
             "Lifecycle": {
                 "Delay": 0.0,
@@ -282,12 +202,7 @@
                                 "Name": "SpawnRate",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    40.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [40.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     }
@@ -304,12 +219,7 @@
                                 "Name": "Offset",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    0.0,
-                                    -60.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, -60.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -325,18 +235,8 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        1.4,
-                                        0,
-                                        0,
-                                        0
-                                    ],
-                                    "Max": [
-                                        1.4,
-                                        0,
-                                        0,
-                                        0
-                                    ]
+                                    "Min": [1.4, 0, 0, 0],
+                                    "Max": [1.4, 0, 0, 0]
                                 }
                             }
                         ]
@@ -353,18 +253,8 @@
                                 "Type": "Vec2",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        60.0,
-                                        60.0,
-                                        0,
-                                        0
-                                    ],
-                                    "Max": [
-                                        60.0,
-                                        60.0,
-                                        0,
-                                        0
-                                    ]
+                                    "Min": [60.0, 60.0, 0, 0],
+                                    "Max": [60.0, 60.0, 0, 0]
                                 }
                             }
                         ]
@@ -381,30 +271,15 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [
-                                        0.0,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ],
-                                    "Max": [
-                                        360.0,
-                                        0.0,
-                                        0.0,
-                                        0.0
-                                    ]
+                                    "Min": [0.0, 0.0, 0.0, 0.0],
+                                    "Max": [360.0, 0.0, 0.0, 0.0]
                                 }
                             },
                             {
                                 "Name": "RotationRate",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     },
@@ -419,12 +294,7 @@
                                 "Name": "Color",
                                 "Type": "Vec4",
                                 "Source": "Value",
-                                "Value": [
-                                    1.0,
-                                    1.0,
-                                    1.0,
-                                    1.0
-                                ]
+                                "Value": [1.0, 1.0, 1.0, 1.0]
                             }
                         ]
                     },
@@ -439,45 +309,25 @@
                                 "Name": "Speed",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    120.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [120.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Angle",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Falloff",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Axis",
                                 "Type": "Vec3",
                                 "Source": "Value",
-                                "Value": [
-                                    1.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [1.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     }
@@ -502,12 +352,7 @@
                                 "Name": "SpeedLimit",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [
-                                    0.0,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]
+                                "Value": [0.0, 0.0, 0.0, 0.0]
                             }
                         ]
                     }

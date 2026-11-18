@@ -70,6 +70,8 @@ namespace Desert::Editor
                     return "RG32_UINT";
                 case F::R11G11B10F:
                     return "R11G11B10F";
+                case F::RGB10A2_UNORM:
+                    return "RGB10A2";
                 case F::Count:
                     return "Count (not a format)";
             }

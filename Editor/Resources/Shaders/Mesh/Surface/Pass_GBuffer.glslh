@@ -98,8 +98,18 @@ void main()
     // Common/MaterialTransport.glslh), as UE's primitive data carries it.
     DesertWriteGBuffer( i, s, clip, prevClip, v_Surface.ObjectMoved,
 #ifdef DESERT_SURFACE_BINNED
-                        ( v_Surface.PrimitiveFlags & DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW ) == 0u );
+                        ( v_Surface.PrimitiveFlags & DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW ) == 0u, true,
+                        ( v_Surface.PrimitiveFlags & DESERT_GPU_DRAW_EMISSION_IS_LIGHT ) != 0u );
+#elif defined( DESERT_SURFACE_DRAW_ROWS )
+                        // A compacted bin's draw pushes no per-section flags (one push for the bin): the section's
+                        // PrimitiveFlags ride its row (GpuInstanceDrawRow, MaterialTransport.glslh's layout), handed
+                        // down by the vertex stage (Vertex_Instanced.glslh).
+                        ( v_Surface.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u,
+                        ( v_Surface.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_EMISSION ) == 0u,
+                        ( v_Surface.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u );
 #else
-                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_EMISSION ) == 0u,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u );
 #endif
 }

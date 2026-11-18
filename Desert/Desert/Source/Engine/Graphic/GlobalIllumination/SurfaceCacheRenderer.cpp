@@ -1,5 +1,6 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -124,18 +125,6 @@ namespace Desert::Graphic::SurfaceCache
         constexpr std::array<std::string_view, 3> kLitLayerNames{
              "SurfaceCache.DirectLighting", "SurfaceCache.IndirectLighting", "SurfaceCache.FinalLighting" };
 
-        // Programs/SurfaceCache/SurfaceCacheDirectLighting.shader SurfaceDirectLightingPush.
-        struct DirectLightingPush
-        {
-            glm::vec4  LightDir{ 0.0f };
-            glm::vec4  LightColor{ 0.0f };
-            glm::vec4  Light1Dir{ 0.0f };   // atmosphere light 1 (the moon)
-            glm::vec4  Light1Color{ 0.0f }; // a == 0: none
-            glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame); y = frame
-            glm::uvec4 Emissive{ 0u };        // EmissiveLightsFrame::StaticParams
-            glm::uvec4 EmissiveDynamic{ 0u }; // EmissiveLightsFrame::DynamicParams
-        };
-        static_assert( sizeof( DirectLightingPush ) == 112 );
 
         // Programs/SurfaceCache/SurfaceCacheDirectLighting.shader's emissive triangle blocks (hardware tracer).
         struct SurfaceCacheEmissiveLightsShaderParameters
@@ -160,13 +149,6 @@ namespace Desert::Graphic::SurfaceCache
             return true;
         }
 
-        // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader SurfaceRadiosityPush.
-        struct RadiosityTracePush
-        {
-            glm::uvec4 Frame{ 0u };     // x = frame index (the strata's jitter), y = 1: no history
-            glm::vec4  Weights{ 0.0f }; // x = the new sample's weight against the history
-        };
-        static_assert( sizeof( RadiosityTracePush ) == 32 );
 
         // UE r.LumenScene.Radiosity.Temporal.MaxFramesAccumulated: a relit texel's new sample weighs 1 / this.
         constexpr float    kRadiosityMaxFramesAccumulated = 4.0f;
@@ -195,14 +177,6 @@ namespace Desert::Graphic::SurfaceCache
         constexpr RDG::StorageBufferParameter     kTileList{ "SurfaceCacheLightingTiles" };
         constexpr std::array<uint32_t, 4>         kTileArgsReset{ 0u, 0u, 1u, 0u }; // x, y, z groups; w = tiles
 
-        struct SceneViewPush
-        {
-            glm::mat4  ViewProjection{ 1.0f };
-            glm::vec4  CameraPosition{ 0.0f };
-            glm::uvec4 Counts{ 0u }; // x = atlas side, y = card count
-            glm::vec4  ColorScale{ 1.0f }; // x = the colour's scale: the view's pre-exposure for FinalLighting
-        };
-        static_assert( sizeof( SceneViewPush ) == 112 );
 
         // A graph buffer of @p data; an empty list is uploaded as one zero element nobody reads (an upload
         // refuses an empty payload).
@@ -410,7 +384,8 @@ namespace Desert::Graphic::SurfaceCache
 
     Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>
     SurfaceCacheRenderer::UpdateScene( const std::span<const SceneGroup> groups, const uint64_t engineFrame,
-                                       const GlobalIllumination::DirectionalLighting& lighting )
+                                       const GlobalIllumination::DirectionalLighting&     lighting,
+                                       std::span<const GlobalIllumination::LocalLighting> localLighting )
     {
         // The frame's update already ran (another view of the scene, earlier this frame): this graph reads the
         // same cache - the records that view's graph wrote the atlases from - and nothing is updated. Its own
@@ -431,6 +406,13 @@ namespace Desert::Graphic::SurfaceCache
             m_LitBy          = lighting;
             m_ResetRadiosity = true;
         }
+        // THE LOCAL LIGHTS (UE Lumen: the cards a changed light touches are relit): the regions of the point and
+        // spot lights switched, moved, recoloured or re-aimed since their last relight are relit this frame
+        // instead of when the direct lighting budget reaches them. No light changed: no region, the budget alone.
+        GlobalIllumination::UpdateLocalLightingHistory( m_LocalLitBy, localLighting, m_LocalLitByNext,
+                                                        m_LocalRelightRegions );
+        m_LocalLitBy.swap( m_LocalLitByNext );
+        m_Scene.InvalidateLightingIn( m_LocalRelightRegions );
         SceneFrame scene = m_Scene.Update( groups, views->Origins );
         m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Scene = scene };
         return Common::MakeSuccess( SceneUpdate{ .Scene = std::move( scene ), .Updated = true } );
@@ -589,7 +571,7 @@ namespace Desert::Graphic::SurfaceCache
         }
         // The Lit view shows the cards' FinalLighting where the Cards view shows their albedo.
         const RDG::TextureRef color = lit ? import( m_LitLayers[2], kLitLayerNames[2] ) : albedo;
-        SceneViewPush         push;
+        ShaderPush::SurfaceCacheSceneView         push;
         push.ViewProjection = viewProjection;
         push.CameraPosition = glm::vec4( cameraPosition, 1.0f );
         const uint32_t cardCount = static_cast<uint32_t>( frame.Records->Cards.size() );
@@ -616,14 +598,14 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                       .Texture( SurfaceCacheSceneViewShaderParameters::AtlasOpacityTexture, opacity,
                                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( SceneViewPush ) ) );
+                      .PushConstants<ShaderPush::SurfaceCacheSceneView>();
                  pass.ColorTarget( 0, target, RDG::LoadOp::ClearColor( 0.02f, 0.02f, 0.03f, 1.0f ) );
                  pass.DepthTarget( depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ), true );
              },
              [raw, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  // Six vertices per card (its front quad), one instance per card; a card not captured collapses.
                  if ( count == 0 )
                      return BOOLSUCCESS;
@@ -974,17 +956,17 @@ namespace Desert::Graphic::SurfaceCache
         const RDG::BufferRef cloud =
              UploadBuffer( graph, std::vector{ inputs.Cloud }, "SurfaceCache.CloudShadowUB" );
 
-        DirectLightingPush push;
-        push.LightDir                 = inputs.LightDir;
+        ShaderPush::SurfaceDirectLightingPush push;
+        push.LightDirection           = inputs.LightDir;
         push.LightColor               = inputs.LightColor;
-        push.Light1Dir                = inputs.Light1Dir;
+        push.Light1Direction          = inputs.Light1Dir;
         push.Light1Color              = inputs.Light1Color;
-        push.Flags.x                  = inputs.IndirectLighting ? 1u : 0u;
-        push.Flags.y                  = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
+        push.LightingFlags.x                  = inputs.IndirectLighting ? 1u : 0u;
+        push.LightingFlags.y                  = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
         if ( emissiveLights )
         {
-            push.Emissive        = inputs.Emissive.StaticParams();
-            push.EmissiveDynamic = inputs.Emissive.DynamicParams();
+            push.EmissiveCounts        = inputs.Emissive.StaticParams();
+            push.EmissiveDynamicCounts = inputs.Emissive.DynamicParams();
         }
         const uint32_t count = static_cast<uint32_t>( frame.LightingPages.size() );
         if ( inputs.Async )
@@ -1022,7 +1004,7 @@ namespace Desert::Graphic::SurfaceCache
                           .Storage( kTileList, buffers.LightingTiles, kR )
                           .Storage( kDirectLightingImage, direct, RDG::Access::StorageWrite )
                           .Storage( kFinalLightingImage, finalLit, RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DirectLightingPush ) ) );
+                          .PushConstants<ShaderPush::SurfaceDirectLightingPush>();
                      if ( virtualLocalShadows )
                      {
                          if ( layout )
@@ -1056,7 +1038,7 @@ namespace Desert::Graphic::SurfaceCache
                  [pipe, push, args]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchComputeIndirect( bindings, *pipe, args, 0u );
                  } );
             return BOOLSUCCESS;
@@ -1086,7 +1068,7 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::Access::StorageRead )
                       .Storage( kLightGridParamsBlock, inputs.Lights.WorldGridParams, RDG::Access::StorageRead )
                       .Storage( kLightGridWorldCellsBlock, inputs.Lights.WorldGridCells, RDG::Access::StorageRead )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( DirectLightingPush ) ) );
+                      .PushConstants<ShaderPush::SurfaceDirectLightingPush>();
                  // The local lights' shadows: the atlas's view table, or the virtual shadow map's tables.
                  if ( virtualLocalShadows )
                  {
@@ -1131,7 +1113,7 @@ namespace Desert::Graphic::SurfaceCache
              [raw, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  // Six vertices per relit page (its atlas rectangle), one instance per page.
                  return Renderer::DrawProcedural( bindings, *raw, nullptr, 6u, count );
              } );
@@ -1177,10 +1159,10 @@ namespace Desert::Graphic::SurfaceCache
         const RDG::TextureRef   trace    = import( m_RadiosityTrace, kRadiosityTraceName );
 
         // The radiosity probes' trace (UE LumenRadiosity's trace), one ray per atlas texel of the relit pages.
-        RadiosityTracePush tracePush;
-        tracePush.Frame.x   = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
-        tracePush.Frame.y   = m_ResetRadiosity ? 1u : 0u;
-        tracePush.Weights.x = 1.0f / kRadiosityMaxFramesAccumulated;
+        ShaderPush::SurfaceRadiosityPush tracePush;
+        tracePush.RadiosityFrame.x   = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
+        tracePush.RadiosityFrame.y   = m_ResetRadiosity ? 1u : 0u;
+        tracePush.RadiosityWeights.x = 1.0f / kRadiosityMaxFramesAccumulated;
         m_ResetRadiosity    = false;
         if ( inputs.Async )
         {
@@ -1223,7 +1205,7 @@ namespace Desert::Graphic::SurfaceCache
                           .Storage( kRadiosityTraceAtlas, trace, RDG::Access::StorageWrite )
                           .Storage( kTileArgs, tileArgs, kR )
                           .Storage( kTileList, buffers.LightingTiles, kR )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( RadiosityTracePush ) ) );
+                          .PushConstants<ShaderPush::SurfaceRadiosityPush>();
                      pass.Read( tileArgs, RDG::Access::IndirectArgs );
                      GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
                      GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
@@ -1233,7 +1215,7 @@ namespace Desert::Graphic::SurfaceCache
                  [tracePipe, tracePush, tileArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &tracePush, static_cast<uint32_t>( sizeof( tracePush ) ) );
+                     bindings.PushConstants( tracePush );
                      return Renderer::DispatchComputeIndirect( bindings, *tracePipe, tileArgs, 0u );
                  } );
 
@@ -1301,7 +1283,7 @@ namespace Desert::Graphic::SurfaceCache
                       .Texture( P::GBufferATexture, inputs.GBufferA, kS, all )
                       .Texture( P::GBufferEmissiveTexture, inputs.GBufferEmissive, kS, all )
                       .Texture( P::AtlasNormalTexture, layers[3], kS, all )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( RadiosityTracePush ) ) );
+                      .PushConstants<ShaderPush::SurfaceRadiosityPush>();
                  GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
                  // The emission the hits leave out: the direct lighting sampled the emitters (GI-EMISSIVE-LIGHTS).
@@ -1312,7 +1294,7 @@ namespace Desert::Graphic::SurfaceCache
              [traceRaw, tracePush, count]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &tracePush, static_cast<uint32_t>( sizeof( tracePush ) ) );
+                 bindings.PushConstants( tracePush );
                  return Renderer::DrawProcedural( bindings, *traceRaw, nullptr, 6u, count );
              } );
 

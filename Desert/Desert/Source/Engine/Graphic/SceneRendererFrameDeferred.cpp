@@ -613,6 +613,7 @@ namespace Desert::Graphic
         inputs.GBufferA        = gbuffer[0];
         inputs.GBufferB        = gbuffer[1];
         inputs.GBufferEmissive = gbuffer[3];
+        inputs.GBufferShadingWord = gbuffer[2];
         inputs.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
         inputs.Tracer          = MakeTracerFrame( graph, textures, m_GIPipeline );
         // The cards a hit reads first (AddFrameSurfaceCache, earlier in this graph); a frame without them is
@@ -1616,9 +1617,32 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameDeformationField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         m_DeformationFrame.reset();
+        // DEFORM-GRASS: on every exit the mesh lists get this graph's field as its surfaces read it - the levels'
+        // images, or System.Black and an all-zero block (no window: untouched) where the view has none - so a
+        // grass blade cell always has its bindings and flattens nothing without a field.
+        const auto publish = [&]
+        {
+            if ( !m_Systems.Mesh )
+                return;
+            const RDG::TextureRef black = textures.GraphRefs().System.Black;
+            DeformationFieldReads reads;
+            for ( std::size_t level = 0; level < reads.Height.size(); ++level )
+            {
+                reads.Height[level] = m_DeformationFrame ? m_DeformationFrame->Height[level] : black;
+                reads.Detail[level] = m_DeformationFrame ? m_DeformationFrame->Detail[level] : black;
+            }
+            const Deformation::DeformationFieldParamsGpu params =
+                 Deformation::DeformationFieldParamsOf( m_DeformationFrame ? &*m_DeformationFrame : nullptr );
+            reads.Params = graph.CreateBuffer( RDG::BufferDesc{ sizeof( params ) }, "Deformation.ReadParams" );
+            graph.QueueBufferUpload( reads.Params, std::as_bytes( std::span( &params, 1 ) ) );
+            m_Systems.Mesh->SetFrameDeformationField( reads );
+        };
         // A reflection capture's face sees the ground as the scene's views do not need it to: no field of its own.
         if ( !m_FrameDeformationCaptured || m_ViewProfile.SceneCapture )
+        {
+            publish();
             return;
+        }
 #if DESERT_DEV_INSTRUMENTS
         const bool wanted = m_DebugView.DeferredDebug == DeferredDebugMode::DeformationField;
 #else
@@ -1632,9 +1656,11 @@ namespace Desert::Graphic
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Deformation field: {}", field.GetError() );
+            publish();
             return;
         }
         m_DeformationFrame = field.ExtractValue();
+        publish();
     }
 
     RDG::TextureRef SceneRenderer::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
@@ -1814,22 +1840,26 @@ namespace Desert::Graphic
         return hash.Get();
     }
 
-    Common::ResultStr<RayTracing::EmissiveLightsFrame> SceneRenderer::AddFrameEmissiveLights( RDG::Builder& graph )
+    Common::BoolResultStr SceneRenderer::GatherFrameEmissiveScene()
     {
-        using Result = RayTracing::EmissiveLightsFrame;
         // The list is built from the scene's rows (EmissiveLights.hpp): this frame's TLAS gather, or - on a frame
-        // that traces no TLAS (the software GI tracer) - a scene gather of the same queues.
-        const bool tlas = m_RayTracingScene.GetFrame().Built;
+        // that traces no TLAS (the software GI tracer, MegaLights on screen traces) - a scene gather of the same
+        // queues. Once per frame: every emissive list of the frame reads the same gather and its movers.
+        const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        if ( frame == m_EmissiveGatherFrame )
+            return BOOLSUCCESS;
         if ( const Common::BoolResultStr gathered = m_RayTracingScene.GatherScene(); !gathered )
-            return Common::MakeError<Result>( gathered.GetError() );
-        // Its programs, on the first frame that asks (the path tracer's bring-up, or the surface cache lighting
-        // under either GI tracer, GI-EMISSIVE-LIGHTS); made once, kept.
-        if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
-            return Common::MakeError<Result>( ready.GetError() );
+            return gathered;
+        m_EmissiveGatherFrame = frame;
+        return BOOLSUCCESS;
+    }
+
+    RayTracing::EmissiveMaterialEstimate
+    SceneRenderer::EstimateSegmentEmission( const RayTracing::RayTracingSegmentRecord& segment )
+    {
         // The estimate the tree's powers are made of: the segment's emissive colour x intensity, emissive map and
         // UV transform in the row the raster draws it with (the surface templates' SurfaceEmission). A landscape
         // tile's hit group emits nothing (TerrainRayHit), a whole-entity override has no surface row.
-        const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
         {
             RayTracing::EmissiveMaterialEstimate estimate;
             if ( segment.LandscapeTile != RayTracing::kNoLandscapeTile )
@@ -1863,7 +1893,21 @@ namespace Desert::Graphic
                       MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceUvRotationParam ) )
                 estimate.UvRotation = rotation->x;
             return estimate;
-        };
+        }
+    }
+
+    Common::ResultStr<RayTracing::EmissiveLightsFrame> SceneRenderer::AddFrameEmissiveLights( RDG::Builder& graph )
+    {
+        using Result    = RayTracing::EmissiveLightsFrame;
+        const bool tlas = m_RayTracingScene.GetFrame().Built;
+        if ( const Common::BoolResultStr gathered = GatherFrameEmissiveScene(); !gathered )
+            return Common::MakeError<Result>( gathered.GetError() );
+        // Its programs, on the first frame that asks (the path tracer's bring-up, or the surface cache lighting
+        // under either GI tracer, GI-EMISSIVE-LIGHTS); made once, kept.
+        if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
+            return Common::MakeError<Result>( ready.GetError() );
+        const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
+        { return EstimateSegmentEmission( segment ); };
         // The CPU list is rebuilt only when the rows it indexes were laid out anew (GetLayoutSerial: a full gather,
         // scene or TLAS, only when the GpuScene stream carried a structure change; a TLAS instance-list rebuild),
         // when it holds this frame's skin-cache streams (graph refs of this graph only), or when a material's
@@ -1895,6 +1939,41 @@ namespace Desert::Graphic
         }
 #endif // DESERT_DEV_INSTRUMENTS
         return m_EmissiveLights.AddPasses( graph, list );
+    }
+
+    Common::ResultStr<RayTracing::EmissiveLightsFrame>
+    SceneRenderer::AddFrameSceneEmissiveLights( RDG::Builder& graph )
+    {
+        using Result = RayTracing::EmissiveLightsFrame;
+        if ( const Common::BoolResultStr gathered = GatherFrameEmissiveScene(); !gathered )
+            return Common::MakeError<Result>( gathered.GetError() );
+        if ( const Common::BoolResultStr ready = m_SceneEmissiveLights.Initialize(); !ready )
+            return Common::MakeError<Result>( ready.GetError() );
+        // The shared estimate where the segment's material lights the scene (Emissive Lights Scene, resolved up
+        // the instance chain as TwoSided), dark elsewhere: a dark segment is not in the list. Read per material
+        // each frame (EmissiveMaterialTable), so a toggled flag is seen the frame it changes.
+        const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
+        {
+            const bool lightsScene = segment.Instance != nullptr ? segment.Instance->IsEmissiveLightsScene()
+                                     : segment.SurfaceMaterial != nullptr
+                                          ? segment.SurfaceMaterial->IsEmissiveLightsScene()
+                                          : false;
+            return lightsScene ? EstimateSegmentEmission( segment ) : RayTracing::EmissiveMaterialEstimate{};
+        };
+        const uint64_t layout      = m_RayTracingScene.GetLayoutSerial();
+        const bool     regathered  = layout != m_SceneEmissiveLayoutSerial || m_RayTracingScene.HasDeformedPositions();
+        m_SceneEmissiveLayoutSerial = layout;
+        {
+            DESERT_PROFILE_SCOPE( "EmissiveLights: Scene List" );
+            // No hit lookup: MegaLights picks the triangles, no ray asks which one it met.
+            const Common::BoolResultStr updated = m_SceneEmissiveList.Update(
+                 m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
+                 std::span<const RayTracing::RayTracingInstance>(), regathered,
+                 m_RayTracingScene.GetSceneMovedPrimitives(), estimateOf );
+            if ( !updated )
+                return Common::MakeError<Result>( updated.GetError() );
+        }
+        return m_SceneEmissiveLights.AddPasses( graph, m_SceneEmissiveList.GetList() );
     }
 
     Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
@@ -2206,6 +2285,7 @@ namespace Desert::Graphic
         reads.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
         reads.GBufferA        = gbuffer[0];
         reads.GBufferEmissive = gbuffer[3];
+        reads.GBufferShadingWord = gbuffer[2];
         reads.HitGroups       = hitLit ? &m_ReflectionHitGroups : nullptr;
         return reads;
     }
@@ -2452,8 +2532,11 @@ namespace Desert::Graphic
     {
         if ( meshRenderer == nullptr || gbuffer.size() < 2 || m_FrontLayerReflectionsFailed )
             return {};
-        // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it.
-        if ( prepared == nullptr && !meshRenderer->BuildFrontLayerDraws() )
+        // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it (a
+        // translucent object or the water surface).
+        const FrontLayerWriters writers =
+             prepared == nullptr ? BuildFrontLayerWriters( meshRenderer ) : FrontLayerWriters{};
+        if ( prepared == nullptr && !writers.Any() )
             return {};
         if ( !m_Systems.FrontLayerReflections )
         {
@@ -2475,7 +2558,7 @@ namespace Desert::Graphic
         // The same surface the virtual shadow map's receivers were marked from, or this frame's own.
         const std::optional<FrontLayerSurface> drawn =
              prepared != nullptr ? std::optional<FrontLayerSurface>( *prepared )
-                                 : AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+                                 : AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer, writers );
         if ( !drawn )
             return {};
         const FrontLayerSurface& surface = *drawn;
@@ -2486,12 +2569,20 @@ namespace Desert::Graphic
         return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
     }
 
+    SceneRenderer::FrontLayerWriters SceneRenderer::BuildFrontLayerWriters( System::MeshRenderer* meshRenderer )
+    {
+        // Always asked of the meshes: BuildFrontLayerDraws builds (or clears) the list their pass records.
+        const auto* water = m_Systems.Water.get();
+        return FrontLayerWriters{ .Meshes = meshRenderer != nullptr && meshRenderer->BuildFrontLayerDraws(),
+                                  .Water  = water != nullptr && water->HasFrontLayerDraws() };
+    }
+
     std::optional<SceneRenderer::FrontLayerSurface> SceneRenderer::AddFrameFrontLayerSurface(
          RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
-         const std::vector<RDG::TextureRef>& gbuffer )
+         const std::vector<RDG::TextureRef>& gbuffer, const FrontLayerWriters& writers )
     {
-        // The caller asked MeshRenderer::BuildFrontLayerDraws first (a translucent object is visible).
-        if ( meshRenderer == nullptr || gbuffer.size() < 2 )
+        // The caller asked BuildFrontLayerWriters first (a translucent object or the water is visible).
+        if ( meshRenderer == nullptr || gbuffer.size() < 2 || !writers.Any() )
             return std::nullopt;
         // The front layer's targets: the G-buffer normal slot's, the view velocity's and the G-buffer depth's
         // descriptions (FrontLayerTargetLayout), transients of this frame.
@@ -2513,17 +2604,52 @@ namespace Desert::Graphic
         // Cleared: a zero normal (no surface) and the far depth, so the depth test keeps each pixel's nearest
         // translucent surface; whether that is in front of the opaque scene is the trace's question
         // (SSRSurfaceNormal) and the glass's (its own depth test).
-        graph.AddPass(
-             "Translucency: Front Layer G-buffer", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 pass.ColorTarget( 0, surface.Normal, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-                 pass.ColorTarget( 1, surface.Velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
-                 pass.DepthTarget( surface.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ) );
-                 meshRenderer->DeclareFrontLayerDraws( pass );
-             },
-             [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return meshRenderer->RenderFrontLayerManual( context ); } );
+        if ( writers.Meshes )
+            graph.AddPass(
+                 "Translucency: Front Layer G-buffer", RDG::PassFlags::Raster,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.ColorTarget( 0, surface.Normal, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                     pass.ColorTarget( 1, surface.Velocity, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) );
+                     pass.DepthTarget( surface.Depth, RDG::LoadOp::ClearDepth( Core::kDepthClear ) );
+                     meshRenderer->DeclareFrontLayerDraws( pass );
+                 },
+                 [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderFrontLayerManual( context ); } );
+        // THE WATER into the same targets (UE: single layer water's G-buffer, which its SSR traces from), over the
+        // meshes' layer - the shared depth test keeps the nearer of glass and water - or into cleared targets.
+        auto* water = m_Systems.Water.get();
+        if ( writers.Water && water != nullptr )
+        {
+            const RDG::TextureRef waterInfo =
+                 textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
+            if ( !waterInfo.IsValid() )
+            {
+                LOG_ERROR( "[SceneRenderer] Translucency: Front Layer G-buffer (Water): the WaterInfo ground "
+                           "cannot be imported - the water is not in the front layer" );
+            }
+            else
+            {
+                const SceneViewInputs   view  = SceneViewInputsOf( textures.GraphRefs() );
+                const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
+                const bool              load  = writers.Meshes;
+                graph.AddPass(
+                     "Translucency: Front Layer G-buffer (Water)", RDG::PassFlags::Raster,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         const RDG::LoadOp colorLoad =
+                              load ? RDG::LoadOp::Load() : RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+                         const RDG::LoadOp depthLoad =
+                              load ? RDG::LoadOp::Load() : RDG::LoadOp::ClearDepth( Core::kDepthClear );
+                         pass.ColorTarget( 0, surface.Normal, colorLoad );
+                         pass.ColorTarget( 1, surface.Velocity, colorLoad );
+                         pass.DepthTarget( surface.Depth, depthLoad );
+                         water->DeclareFrontLayerDraws( pass, waterInfo, view, frame );
+                     },
+                     [water]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return water->RenderFrontLayerManual( context ); } );
+            }
+        }
         return surface;
     }
 } // namespace Desert::Graphic

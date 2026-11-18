@@ -1,4 +1,5 @@
 #include "BloomRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
@@ -14,28 +15,7 @@ namespace Desert::Graphic::System
         constexpr Core::Formats::ImageFormat kBloomFormat = ViewTargetFormats::kBloom;
         constexpr uint32_t                   kGroupSize   = 16; // must match local_size_* in the shaders
 
-        // Push-constant blocks — must match BloomDownsample/BloomUpsample.glsl.comp exactly.
-        struct DownsamplePush
-        {
-            glm::vec2 SrcTexelSize;
-            int32_t   FirstPass;
-            float     Threshold;
-            float     ExposureKey;  // auto-exposure key (composite's ExposureKey)
-            int32_t   AutoExposure; // 1 => threshold is after exposure, divided by key / adapted luminance
-            float     Exposure;     // manual exposure (auto-exposure off)
-            float     InversePreExposure;
-            glm::vec4 LocalExposureContrast; // the composite's four vectors (TonemapRenderer::FillMaterial)
-            glm::vec4 LocalExposureThreshold;
-            glm::vec4 LocalExposureUV;
-            glm::vec4 LocalExposureSlice; // w: 1 apply, 0 not produced
-        };
-        static_assert( sizeof( DownsamplePush ) == 96, "DownsamplePush must match BloomDownsample.shader" );
 
-        struct UpsamplePush
-        {
-            glm::vec2 SrcTexelSize;
-            float     FilterRadius;
-        };
 
         inline uint32_t MipSize( uint32_t base, uint32_t mip )
         {
@@ -124,7 +104,7 @@ namespace Desert::Graphic::System
              .Texture( BloomDownsampleShaderParameters::BlurredLogLuminance, blurredLogLuminance,
                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         block.Storage( BloomDownsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( DownsamplePush ) ) );
+             .PushConstants<ShaderPush::BloomDownsample>();
     }
 
     Common::BoolResultStr BloomRenderer::RecordDownsample( const RDG::PassContext& context,
@@ -155,7 +135,7 @@ namespace Desert::Graphic::System
         // Local exposure: the composite's own numbers (TonemapRenderer::FillMaterial), applied on mip 0 only.
         const TonemapRenderer::LocalExposureFrame& le = m_LocalExposure;
         const LocalExposureParams                  p  = le.Produced ? le.Params : LocalExposureParams{};
-        const DownsamplePush                       push{
+        const ShaderPush::BloomDownsample                       push{
              glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
              first ? 1 : 0,
              m_Threshold * m_PreExposure,
@@ -171,7 +151,7 @@ namespace Desert::Graphic::System
                         le.Produced ? 1.0f : 0.0f ) };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, sizeof( push ) );
+        bindings.PushConstants( push );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_DownsamplePipeline,
                                                         GroupCount( MipSize( bw, mip ) ),
                                                         GroupCount( MipSize( bh, mip ) ), 1 );
@@ -187,7 +167,7 @@ namespace Desert::Graphic::System
              .Texture( BloomUpsampleShaderParameters::SourceMipTexture, chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
              .Sampler( BloomUpsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Storage( BloomUpsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip - 1 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( UpsamplePush ) ) );
+             .PushConstants<ShaderPush::BloomUpsample>();
     }
 
     Common::BoolResultStr BloomRenderer::RecordUpsample( const RDG::PassContext& context,
@@ -200,12 +180,12 @@ namespace Desert::Graphic::System
         const uint32_t bw = chainDesc.Size.Width;
         const uint32_t bh = chainDesc.Size.Height;
 
-        const UpsamplePush push{ glm::vec2( 1.0f / static_cast<float>( MipSize( bw, mip ) ),
+        const ShaderPush::BloomUpsample push{ glm::vec2( 1.0f / static_cast<float>( MipSize( bw, mip ) ),
                                             1.0f / static_cast<float>( MipSize( bh, mip ) ) ),
                                  kFilterRadius };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &push, sizeof( push ) );
+        bindings.PushConstants( push );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_UpsamplePipeline,
                                                         GroupCount( MipSize( bw, mip - 1 ) ),
                                                         GroupCount( MipSize( bh, mip - 1 ) ), 1 );

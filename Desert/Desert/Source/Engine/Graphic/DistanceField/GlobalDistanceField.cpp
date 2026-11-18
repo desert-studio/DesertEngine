@@ -3,6 +3,7 @@
 // exposes and of the bounds of changed primitives), adapted: dense toroidal RG16F clipmaps (distance, coverage)
 // instead of the page atlas and its coverage atlas, objects culled to update bricks on the CPU, one compute pass
 // per level that has bricks to rewrite.
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
@@ -54,19 +55,6 @@ namespace Desert::Graphic::DistanceField
         static_assert( kGdfGridCells * DFShared::GDF_OBJECT_GRID_CELL_VOXELS == kGdfResolution );
         static_assert( kGdfBrick % DFShared::GDF_OBJECT_GRID_CELL_VOXELS == 0, "a brick holds whole cells" );
 
-        struct GdfCompositePush
-        {
-            uint32_t FirstBrick      = 0;
-            float    VoxelSize       = 0.0f;
-            float    InfluenceRadius = 0.0f;
-            uint32_t Level           = 0; // the object grid's slab (GlobalDistanceField.hpp)
-        };
-        struct GdfViewPush
-        {
-            glm::mat4 InverseViewProjection;
-            glm::vec4 Levels[kGlobalDistanceFieldClipmaps];
-        };
-        static_assert( sizeof( GdfViewPush ) == 128, "the engine's push block cap" );
         // The object record's rows as AddUpdatePasses writes them: the world box, then the flags last.
         static_assert( DFShared::DF_OBJECT_STRIDE == 11 && DFShared::DF_OBJECT_ROW_BOUNDS_MIN == 5 &&
                        DFShared::DF_OBJECT_ROW_BOUNDS_MAX == 6 && DFShared::DF_OBJECT_ROW_FLAGS == 7 &&
@@ -85,11 +73,6 @@ namespace Desert::Graphic::DistanceField
         // Common/MeshSDFGrid.glslh: MeshSDFGridHeaderStride, MeshSDFCullFeedbackUints.
         constexpr uint32_t kGridHeaderStride  = 2u;
         constexpr uint32_t kCullFeedbackUints = 4u;
-        // MeshSDFCullGrid.shader's push block: 0 = count, 1 = scatter.
-        struct MeshSDFCullGridPush
-        {
-            uint32_t Pass = 0;
-        };
 
         // The world plane of clip-space half-space row3 + sign * row(axis) >= 0, normalised.
         glm::vec4 ClipPlane( const glm::mat4& viewProjection, const int axis, const float sign )
@@ -820,7 +803,7 @@ namespace Desert::Graphic::DistanceField
             const auto [first, count] = levelRange[level];
             if ( count == 0 )
                 continue;
-            GdfCompositePush push;
+            ShaderPush::GlobalDistanceFieldComposite push;
             push.FirstBrick                = first;
             push.VoxelSize                 = ClipmapVoxelSize( level );
             push.InfluenceRadius           = GdfInfluenceRadius( push.VoxelSize );
@@ -847,12 +830,12 @@ namespace Desert::Graphic::DistanceField
                           .Sampler( GlobalDistanceFieldCompositeShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
                           .Storage( GlobalDistanceFieldCompositeShaderParameters::ClipmapTexture, clipmap, RDG::Access::StorageWrite )
                           .Storage( GlobalDistanceFieldCompositeShaderParameters::ObjectGridTexture, grid, RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( GdfCompositePush ) ) );
+                          .PushConstants<ShaderPush::GlobalDistanceFieldComposite>();
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchCompute( bindings, *pipeline, count, 1, 1 );
                  } );
         }
@@ -992,7 +975,7 @@ namespace Desert::Graphic::DistanceField
         {
             ComputePipeline* const    pipeline = m_CullGridPipeline.get();
             const uint32_t            groups   = ( total + 63u ) / 64u;
-            const MeshSDFCullGridPush push{ gridPass };
+            const ShaderPush::MeshSDFCullGrid push{ gridPass };
             std::string_view          name = "DistanceField: Near-field grid scatter";
             if ( gridPass == 0u )
                 name = "DistanceField: Near-field grid count";
@@ -1007,12 +990,12 @@ namespace Desert::Graphic::DistanceField
                           .Storage( MeshSDFGridShaderParameters::MeshSDFCulledObjectsUB, culled, kR )
                           .Storage( MeshSDFGridShaderParameters::MeshSDFGridCellsUB, grid, kW )
                           .Storage( MeshSDFGridShaderParameters::MeshSDFGridUnsortedUB, unsorted, kW )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshSDFCullGridPush ) ) );
+                          .PushConstants<ShaderPush::MeshSDFCullGrid>();
                  },
                  [pipeline, groups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchCompute( bindings, *pipeline, groups, 1u, 1u );
                  } );
         };
@@ -1137,7 +1120,7 @@ namespace Desert::Graphic::DistanceField
         if ( const auto prepared = PrepareDebugPipeline( desc.GetValue().Format, desc.GetValue().Samples );
              !prepared )
             return prepared;
-        GdfViewPush push;
+        ShaderPush::GlobalDistanceFieldView push;
         push.InverseViewProjection = inverseViewProjection;
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
             push.Levels[level] = field.Levels[level];
@@ -1152,13 +1135,13 @@ namespace Desert::Graphic::DistanceField
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                           .Sampler( GlobalDistanceFieldViewShaderParameters::LinearRepeatSampler,
                                     RDG::SamplerDesc::LinearRepeat() );
-                 block.PushConstantBytes( static_cast<uint32_t>( sizeof( GdfViewPush ) ) );
+                 block.PushConstants<ShaderPush::GlobalDistanceFieldView>();
                  pass.ColorTarget( 0, target, load );
              },
              [pipeline, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DrawFullscreen( bindings, *pipeline, nullptr );
              } );
         return BOOLSUCCESS;

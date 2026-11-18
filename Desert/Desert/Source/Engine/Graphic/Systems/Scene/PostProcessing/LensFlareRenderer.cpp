@@ -1,4 +1,5 @@
 #include "LensFlareRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
@@ -16,22 +17,7 @@ namespace Desert::Graphic::System
         constexpr Core::Formats::ImageFormat kFlareFormat = ViewTargetFormats::kLensFlare;
         constexpr uint32_t                   kGroupSize   = 16; // must match LocalSize in both shaders
 
-        // Push-constant blocks — must match LensFlareBrightPass / LensFlareFeatures exactly.
-        struct BrightPassPush
-        {
-            int32_t FirstPass;
-            float   Threshold;
-            float   MaxBrightness;
-        };
 
-        struct FeaturesPush
-        {
-            glm::vec4 SunUvHalo;   // xy = sun uv, z = halo intensity, w = halo radius
-            glm::vec4 GhostParams; // x = count, y = spacing, z = size near, w = size far
-            glm::vec4 TintInner;   // xyz = inner tint, w = chromatic shift
-            glm::vec4 TintOuter;   // xyz = outer tint, w = unused
-            glm::vec4 Streak;      // x = intensity, y = length, z = axis.x, w = axis.y
-        };
 
         inline uint32_t GroupCount( uint32_t dim )
         {
@@ -134,7 +120,7 @@ namespace Desert::Graphic::System
                  .Sampler( LensFlareBrightPassShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
         }
         block.Storage( LensFlareBrightPassShaderParameters::BrightPassTexture, source, RDG::Access::StorageWrite, mip )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( BrightPassPush ) ) );
+             .PushConstants<ShaderPush::LensFlareBrightPass>();
     }
 
     Common::BoolResultStr LensFlareRenderer::RecordBrightPass( const RDG::PassContext& context,
@@ -145,9 +131,9 @@ namespace Desert::Graphic::System
         // One shader run per mip, exactly as BloomRenderer does it; the threshold applies on the first
         // pass only, so the deeper levels are honest averages of the energy the first level admitted.
         const bool           first = ( mip == 0 );
-        const BrightPassPush brightPush{ first ? 1 : 0, m_Params.Threshold, m_Params.MaxBrightness };
+        const ShaderPush::LensFlareBrightPass brightPush{ first ? 1 : 0, m_Params.Threshold, m_Params.MaxBrightness };
         RDG::PassBindings    bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &brightPush, sizeof( brightPush ) );
+        bindings.PushConstants( brightPush );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_BrightPassPipeline,
                                                         GroupCount( MipSize( sourceDesc.Size.Width, mip ) ),
                                                         GroupCount( MipSize( sourceDesc.Size.Height, mip ) ), 1 );
@@ -163,7 +149,7 @@ namespace Desert::Graphic::System
              .Texture( LensFlareFeaturesShaderParameters::FlareSourceTexture, source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Sampler( LensFlareFeaturesShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Storage( LensFlareFeaturesShaderParameters::FlareTexture, flare, RDG::Access::StorageWrite, 0 )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( FeaturesPush ) ) );
+             .PushConstants<ShaderPush::LensFlareFeatures>();
     }
 
     Common::BoolResultStr LensFlareRenderer::RecordFeatures( const RDG::PassContext& context,
@@ -175,7 +161,7 @@ namespace Desert::Graphic::System
         // Source -> ghosts + halo + streak.
         const float angle = glm::radians( m_Params.StreakAngle );
 
-        FeaturesPush featuresPush{};
+        ShaderPush::LensFlareFeatures featuresPush{};
         featuresPush.SunUvHalo =
              glm::vec4( sunScreenUv.x, sunScreenUv.y, m_Params.HaloIntensity, m_Params.HaloRadius );
         featuresPush.GhostParams =
@@ -185,11 +171,11 @@ namespace Desert::Graphic::System
         // The features pass needs to know the source is a REDUCED image to pick each ghost's mip: a
         // ghost authored at scale 3 is magnified 3 x kSourceDivisor on screen.
         featuresPush.TintOuter = glm::vec4( m_Params.GhostTintOuter, static_cast<float>( kSourceDivisor ) );
-        featuresPush.Streak =
+        featuresPush.StreakParams =
              glm::vec4( m_Params.StreakIntensity, m_Params.StreakLength, std::cos( angle ), std::sin( angle ) );
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( &featuresPush, sizeof( featuresPush ) );
+        bindings.PushConstants( featuresPush );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_FeaturesPipeline,
                                                         GroupCount( flareDesc.Size.Width ),
                                                         GroupCount( flareDesc.Size.Height ), 1 );

@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 
 #include <Common/Core/Core.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Graphic/BindlessTextureTable.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -276,7 +277,7 @@ namespace Desert::Graphic::RayTracing
             job.Indices  = graph.RegisterExternal( job.Target->GetIndices(),
                                                    std::format( "Landscape.RayTracing.Indices.{}", job.Entity ) );
             vertices.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Pipeline ) )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) )
+                 .PushConstants<ShaderPush::LandscapeRayTracingVertices>()
                  .Storage( LandscapeRayTracingShaderParameters::LandscapeRayTracingRows, rowBuffer,
                            RDG::Access::StorageRead )
                  // Both maps are read only by texelFetch (Common/LandscapeHeight.glslh decodes the exact R16
@@ -294,11 +295,12 @@ namespace Desert::Graphic::RayTracing
                  .Storage( LandscapeRayTracingShaderParameters::LandscapeRayTracingIndexData, job.Indices,
                            RDG::Access::StorageWrite );
         }
-        std::vector<glm::uvec4> pushes;
+        std::vector<ShaderPush::LandscapeRayTracingVertices> pushes;
         std::vector<uint32_t>   groups;
         for ( const TileWork& job : work )
         {
-            pushes.emplace_back( job.Row, job.Grid.Side, job.Grid.Cells, job.HasWeightmap ? 1u : 0u );
+            pushes.push_back( ShaderPush::LandscapeRayTracingVertices{
+                 .Tile = glm::uvec4( job.Row, job.Grid.Side, job.Grid.Cells, job.HasWeightmap ? 1u : 0u ) } );
             const uint32_t invocations = std::max( job.Grid.GridVertices, job.Grid.Cells * job.Grid.Cells );
             groups.push_back( ( invocations + kLandscapeRayTracingLocalSize - 1 ) /
                               kLandscapeRayTracingLocalSize );
@@ -309,7 +311,7 @@ namespace Desert::Graphic::RayTracing
             for ( uint32_t block = 0; block < pushes.size(); ++block )
             {
                 RDG::PassBindings bindings( context, context.GetBindingBlock( block ) );
-                bindings.PushConstants( &pushes[block], static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+                bindings.PushConstants( pushes[block] );
                 if ( const Common::BoolResultStr dispatched =
                           Renderer::DispatchCompute( bindings, *pipeline, groups[block], 1, 1 );
                      !dispatched )

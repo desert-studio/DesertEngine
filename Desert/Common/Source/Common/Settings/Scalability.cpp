@@ -123,6 +123,11 @@ namespace Common::Scalability
              { P::VolumetricFogGridSizeZ, G::Effects, "Effects.VolumetricFogGridSizeZ", 32, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeVolumetricFogGridSize (froxel slices)", 128,
                Vis::Advanced },
+             { P::TranslucencyLightingVolumeDim, G::Effects, "Effects.TranslucencyLightingVolumeDim", 16, 64,
+               CL::None,
+               "SceneRenderer::BeginScene -> TranslucencyLightingVolumeRenderer (\"Translucency: Lighting "
+               "Volume\")",
+               64, Vis::Advanced },
              { P::ShadowRayTracedSamplesPerPixel, G::Shadows, "Shadows.RayTracedSamplesPerPixel", 1, 8, CL::None,
                "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")",
                1, Vis::Advanced },
@@ -530,6 +535,21 @@ namespace Common::Scalability
                "buffer and resolved per pixel, for a volume's GrassRasterPath::Scalability; 0 = masked depth "
                "prepass + EQUAL G-buffer)",
                1, Vis::Advanced },
+             { P::LandscapeVirtualTextureSizeLog2, G::Textures, "Textures.LandscapeVirtualTextureSizeLog2", 12, 17,
+               CL::None,
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT mip0 side, log2 "
+               "texels)",
+               16, Vis::Advanced },
+             { P::LandscapeVirtualTexturePoolPages, G::Textures, "Textures.LandscapeVirtualTexturePoolPages", 8, 64,
+               CL::None,
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT atlas side in "
+               "pages)",
+               32, Vis::Advanced },
+             { P::LandscapeVirtualTextureUpdatesPerFrame, G::Textures, "Textures.LandscapeVirtualTextureUpdatesPerFrame",
+               8, 256, CL::None,
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT pages rendered per "
+               "frame, r.VT.MaxUploadsPerFrame)",
+               64, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

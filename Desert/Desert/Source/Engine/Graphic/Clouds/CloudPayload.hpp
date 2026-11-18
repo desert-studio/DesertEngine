@@ -291,66 +291,8 @@ namespace Desert::Graphic
     // (RenderPassDeclaration::BlockDeclaration), so none has a number here.
     inline constexpr uint32_t kCloudResolveParamsBinding = 6; // CloudResolveParams
 
-    /**
-     * Per-dispatch data: everything that changes with the CAMERA rather than with the cloud settings.
-     * Rides in the push constant because ComputePipeline has no SetUniformBuffer, and a second storage
-     * buffer for one matrix would be a second per-frame upload.
-     */
-    struct CloudPush
-    {
-        glm::mat4 InverseViewProjection;
-        // xyz = camera position in world units; w = the TRACE CYCLE, frameIndex / kCloudTraceWalkFrames:
-        // how many times the sub-pixel and lattice walk has visited every half-res pixel, which advances the
-        // march's start-offset sequence once per trace OF A PIXEL rather than once per frame
-        // (CloudRaymarch.shader, CloudMarchStartOffset). Masked to 24 bits so the float carries it exactly. It is
-        // here rather than in the parameter block because it changes every few frames while the block changes only
-        // when the artist does something.
-        glm::vec4 CameraPosition;
-        // x, y = the sub-pixel this frame traces inside its 2x2 block of HALF-resolution pixels, each 0
-        //        or 1. This is the projection jitter: the march reconstructs its ray through the HALF-res
-        //        pixel (traceCoord * 2 + offset), not through the centre of its own quarter-res texel.
-        // z, w = the HALF-resolution grid's size in pixels. The march writes a quarter-res image, so
-        //        imageSize() cannot tell it the grid its jitter is expressed in, and half-of-half rounds
-        //        UP twice — deriving it from the quarter size would be off by a pixel on odd viewports and
-        //        would shear the whole jitter pattern by half a texel along the right and bottom edges.
-        glm::vec4 Trace;
-        // WHAT THIS FRAME'S RESOURCES ACTUALLY ARE, as opposed to what the artist asked for. Every lane
-        // here is a property of the FRAME and not of the weather, which is why they are in the push
-        // constant rather than in the parameter block beside the artist's fields: a component flag can be
-        // on while the resource it names does not exist (no atmosphere, a failed allocation, a bake that
-        // has not run), and a march that read an image nobody wrote would shade the sky with uninitialised
-        // device memory.
-        //
-        // x = 1 when the sky-light occlusion volume was dispatched for THIS frame and must be read.
-        //     A GATE AND NOT A REGION, which is the whole reason the volume costs one float here: it
-        //     shares the procedural modelling volume's frame exactly, so its origin and side are already
-        //     on the wire as CloudGpuPayload::Region and a copy of them here would be the same two numbers
-        //     travelling twice.
-        // y = 1 when the atmosphere's transmittance LUT was baked for THIS frame AND the layer asked for
-        //     per-sample atmospheric sun transmittance. When it is 1, CloudGpuPayload::SunColour carries
-        //     the sun's OUTER-SPACE illuminance and the march applies T(sample) itself; when it is 0 the
-        //     same field carries the ground-level product and the march applies nothing. The two always
-        //     agree because Graphic::CloudUsesPerSampleSunTransmittance decides both.
-        // z, w = the atmosphere shell's bottom and top radii, kilometres from the planet centre — the
-        //     domain of the LUT's Bruneton mapping, which its reader has to reproduce exactly. They come
-        //     from AtmosphereEnv rather than from the cloud component for the reason the aerial
-        //     perspective's two scalars do: they describe the SKY's resource, and a second authored copy
-        //     is how a fill and a read end up disagreeing about a mapping. Written unconditionally and
-        //     read only when y is 1.
-        //
-        // THE MEMBER USED TO BE CALLED SkyOcclusion and used to carry one lane. Renaming it is what keeps
-        // the other three from being three unnamed floats hiding under a name that describes the first.
-        glm::vec4 Frame;
-        // x = RenderConfig::CloudVisualize, the diagnostic mode (0 = the ordinary picture); y = this frame's phase
-        // of the trace grid (CloudTraceGridPhase, as CloudTracePhase::Index): the march traces only the texels
-        // whose (x & 1) | (y & 1) << 1 is y; z = 1 when the lit step grows with the trace texel's footprint
-        // (Scalability Effects.CloudFootprintSteps; CloudFootprintStepKm in Common/CloudGeometry.glslh), 0 = the
-        // fixed fine step; w unused. Here and not in a lane of its own: the push constant is at its 128 bytes.
-        glm::vec4 Visualize;
-    };
+    // The march's per-dispatch push (camera, trace grid, frame gates, visualize) is ShaderPush::CloudRaymarch, CloudRaymarch.shader's PushConstants block.
 
-    static_assert( sizeof( CloudPush ) == 128,
-                   "CloudPush must stay inside the 128 bytes Vulkan guarantees for push constants" );
 
     /**
      * Unreal's VolumetricRenderTarget sub-pixel walk, mode 0.
@@ -417,7 +359,7 @@ namespace Desert::Graphic
         uint32_t X;
         uint32_t Y;
 
-        // The one encoding both shaders decode (CloudPush::Visualize.y, CloudResolveParams::TraceGridPhase):
+        // The one encoding both shaders decode (ShaderPush::CloudRaymarch::CloudVisualize.y, CloudResolveParams::TraceGridPhase):
         // bit 0 the column's parity, bit 1 the row's.
         [[nodiscard]] constexpr uint32_t Index() const
         {
@@ -828,7 +770,7 @@ namespace Desert::Graphic
      *
      * THE ONE PLACE THE QUESTION IS ANSWERED, and it has to be one place because three decisions hang off
      * it in three different files: PackCloudParams below chooses WHICH illuminance the parameter block
-     * carries, VolumetricCloudRenderer chooses whether to raise CloudPush::Frame.y and bind the real LUT,
+     * carries, VolumetricCloudRenderer chooses whether to raise ShaderPush::CloudRaymarch::CloudFrame.y and bind the real LUT,
      * and the same renderer tells the environment bake through CloudEnvironmentBake. Those are the classic
      * pair this project keeps finding — individually correct, silently catastrophic when they disagree,
      * because the block would then carry the outer-space illuminance (an order of magnitude brighter at a

@@ -11,6 +11,8 @@ Shader "DeferredTileClassify"
     // bitmask of model indices) also sorts every COMPLEX tile for the direct lighting: into the list of its one
     // model m (every geometry texel model m, and bit m in the header's kDeferredTileModelMask), drawn with the model
     // folded, or else into the MIXED list, drawn with the dispatch.
+    // SUBSTRATE: the shading word's slab feature bits (ShadingModelContract.glslh SLAB_FEATURES) enter the same test:
+    // a slab preset's texel with no feature counts as DefaultLit, so a tile of feature-less slabs is SIMPLE.
 
     Compute
     {
@@ -45,7 +47,14 @@ Shader "DeferredTileClassify"
         		const vec3 normal = texelFetch(GBufferBTexture, ivec2(pixel), 0).rgb;
         		if (dot(normal, normal) > 0.001)
         		{
-        			const int model = DesertShadingModelIndex(texelFetch(GBufferShadingWordTexture, ivec2(pixel), 0).rg);
+        			const uvec2 word  = texelFetch(GBufferShadingWordTexture, ivec2(pixel), 0).rg;
+        			int         model = DesertShadingModelIndex(word);
+        			// SUBSTRATE (UE SubstrateTileClassification's feature mask): a texel of a plain slab preset with
+        			// no slab feature bit is DefaultLit exactly (Mesh/SubstrateSlab.glslh), so it classifies as
+        			// DefaultLit - a clear coat of strength 0, a cloth without fuzz, an isotropic Anisotropic texel
+        			// pays for no lobe it does not have.
+        			if (DesertShadingWordSlabFeatures(word) == 0u && DesertShadingModelIsPlainSlab(model))
+        				model = SHADING_MODEL_INDEX_DEFAULT_LIT;
         			atomicOr(s_TileModels, 1u << uint(model));
         		}
         	}

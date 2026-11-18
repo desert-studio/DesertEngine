@@ -1,5 +1,6 @@
 #include "SpatialUpscale.hpp"
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -96,7 +97,7 @@ namespace Desert::Graphic
                   .Slots             = { { "SourceColorTexture", Kind::Texture },
                                          { "PointClampSampler", Kind::Sampler },
                                          { "DestinationColorTexture", Kind::StorageTexture } },
-                  .PushConstantBytes = static_cast<uint32_t>( sizeof( SpatialUpscalePush ) ) } );
+                  .PushConstantBytes = ShaderPush::BlockSize::Of<ShaderPush::SpatialUpscale>().Bytes() } );
         return layout;
     }
 
@@ -109,7 +110,7 @@ namespace Desert::Graphic
                   .Slots             = { { "SourceColorTexture", Kind::Texture },
                                          { "PointClampSampler", Kind::Sampler },
                                          { "DestinationColorTexture", Kind::StorageTexture } },
-                  .PushConstantBytes = static_cast<uint32_t>( sizeof( SharpenPush ) ) } );
+                  .PushConstantBytes = ShaderPush::BlockSize::Of<ShaderPush::Sharpen>().Bytes() } );
         return layout;
     }
 
@@ -148,11 +149,11 @@ namespace Desert::Graphic
         desc.Size                       = RDG::Extent3D{ split.Output.Width, split.Output.Height, 1 };
         desc.Format                     = Core::Formats::ImageFormat::RGBA16F;
         const RDG::TextureRef    output = graph.CreateTexture( desc, "SpatialUpscale.Output" );
-        const SpatialUpscalePush push   = { .SourceWidth       = static_cast<int32_t>( split.Render.Width ),
-                                            .SourceHeight      = static_cast<int32_t>( split.Render.Height ),
-                                            .DestinationWidth  = static_cast<int32_t>( split.Output.Width ),
-                                            .DestinationHeight = static_cast<int32_t>( split.Output.Height ) };
-        PipelineHolder*          holder = m_Pipeline.get();
+        const ShaderPush::SpatialUpscale push{ .SourceWidth       = static_cast<int32_t>( split.Render.Width ),
+                                               .SourceHeight      = static_cast<int32_t>( split.Render.Height ),
+                                               .DestinationWidth  = static_cast<int32_t>( split.Output.Width ),
+                                               .DestinationHeight = static_cast<int32_t>( split.Output.Height ) };
+        PipelineHolder*                  holder = m_Pipeline.get();
         graph.AddPass(
              "SpatialUpscale", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -164,7 +165,7 @@ namespace Desert::Graphic
                       .Sampler( SpatialUpscaleShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                       .Storage( SpatialUpscaleShaderParameters::DestinationColorTexture, output,
                                 RDG::Access::StorageWrite, 0 )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( SpatialUpscalePush ) ) );
+                      .PushConstants<ShaderPush::SpatialUpscale>();
              },
              [holder, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -173,7 +174,7 @@ namespace Desert::Graphic
                  if ( !pipeline )
                      return Common::MakeFormattedError( "SpatialUpscale: {}", error );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, sizeof( push ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DispatchCompute(
                       bindings, *pipeline, Groups( static_cast<uint32_t>( push.DestinationWidth ) ),
                       Groups( static_cast<uint32_t>( push.DestinationHeight ) ), 1 );
@@ -209,10 +210,11 @@ namespace Desert::Graphic
         desc.Size                    = inputDesc.GetValue().Size;
         desc.Format                  = Core::Formats::ImageFormat::RGBA16F;
         const RDG::TextureRef output = graph.CreateTexture( desc, "Sharpen.Output" );
-        const SharpenPush     push   = { .Width  = static_cast<int32_t>( desc.Size.Width ),
-                                         .Height = static_cast<int32_t>( desc.Size.Height ),
-                                         .Amount = static_cast<float>( sharpnessPercent ) / 100.0f };
-        PipelineHolder*       holder = m_Pipeline.get();
+        // Amount = Resolution.Sharpness / 100, the RCAS lobe scale in [0, 1].
+        const ShaderPush::Sharpen push{ .Width  = static_cast<int32_t>( desc.Size.Width ),
+                                        .Height = static_cast<int32_t>( desc.Size.Height ),
+                                        .Amount = static_cast<float>( sharpnessPercent ) / 100.0f };
+        PipelineHolder*           holder = m_Pipeline.get();
         graph.AddPass(
              "Sharpen", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -224,7 +226,7 @@ namespace Desert::Graphic
                                 RDG::SamplerDesc::PointClamp() )
                       .Storage( SpatialUpscaleSharpenShaderParameters::DestinationColorTexture, output,
                                 RDG::Access::StorageWrite, 0 )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( SharpenPush ) ) );
+                      .PushConstants<ShaderPush::Sharpen>();
              },
              [holder, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -233,7 +235,7 @@ namespace Desert::Graphic
                  if ( !pipeline )
                      return Common::MakeFormattedError( "Sharpen: {}", error );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, sizeof( push ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DispatchCompute(
                       bindings, *pipeline, Groups( static_cast<uint32_t>( push.Width ) ),
                       Groups( static_cast<uint32_t>( push.Height ) ), 1 );

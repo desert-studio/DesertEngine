@@ -383,7 +383,11 @@ namespace Desert::Graphic::System
             if ( inst != nullptr && inst->IsTwoSided() )
                 flags |= StaticPlanRows::kTwoSided;
             const StaticMeshRenderData& data = m_StaticQueue[i];
-            if ( !data.ReceiveShadows || !data.CastContactShadow ||
+            // A MegaLights emitter (Emissive Lights Scene) draws alone: a batch pushes one PrimitiveFlags, the
+            // default, and the per-object draw pushes its EMISSION_IS_LIGHT (PrimitiveFlagsOf). The toggle moves
+            // DrawReadinessKey (Material::EmissiveLightsGeneration), so the rows are re-planned on it.
+            const bool emissionIsLight = inst != nullptr && inst->IsEmissiveLightsScene();
+            if ( !data.ReceiveShadows || !data.CastContactShadow || emissionIsLight ||
                  ( flags & StaticPlanRows::kHasOverrides ) != 0u )
                 flags |= StaticPlanRows::kAlone;
             rows.Flags[i]  = flags;
@@ -809,6 +813,7 @@ namespace Desert::Graphic::System
 
         void MeshDrawList::Clear()
         {
+            m_DeformationField = {};
             m_Commands.clear();
             m_Triangles = 0;
             m_BlockOf.clear();
@@ -1068,6 +1073,8 @@ namespace Desert::Graphic::System
                 // The scene's instance rows of one view graph: whichever list set them, the same handle.
                 if ( other.m_SceneInstances.IsValid() )
                     m_SceneInstances = other.m_SceneInstances;
+                if ( other.m_DeformationField.IsValid() )
+                    m_DeformationField = other.m_DeformationField;
                 if ( other.m_Error )
                     Fail( std::move( *other.m_Error ) );
             }
@@ -1150,6 +1157,16 @@ namespace Desert::Graphic::System
                                         SceneResources::kVgRasterPrimitiveDraws, vg.PrimitiveDraws } } )
                         if ( slots.Has( entry.Slot ) )
                             block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
+                }
+                // DEFORM-GRASS: the view's deformation field, where the block's shader reads it (the grass blade
+                // cells flatten a blade by it in every pass).
+                if ( slots.Has( SceneViewSlot::DeformationFieldParams ) )
+                {
+                    if ( m_DeformationField.IsValid() )
+                        BindDeformationFieldReads( block, m_DeformationField, slots );
+                    else // never by construction: a blade section's builder sets the frame's field on its list
+                        LOG_ERROR( "[MeshRenderer] a grass blade cell reads the deformation field but its list was "
+                                   "given none" );
                 }
                 perBlock( block, slotted );
             }
@@ -1751,11 +1768,14 @@ namespace Desert::Graphic::System
         // frame's records (their surfaces, registered by SyncGpuScene) are alive - resolving first read a dangling
         // instance.
         bool reresolve = false;
-        if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch(); epoch != m_BinnedPipelineEpoch ||
-                                                                     WireframeView() != m_BinnedWireframe ||
-                                                                     virtualShadow != m_BinnedVirtualShadow )
+        // A material's Emissive Lights Scene toggled re-resolves too: the slots' kDrawSlotEmissionIsLight.
+        if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch();
+             epoch != m_BinnedPipelineEpoch || WireframeView() != m_BinnedWireframe ||
+             virtualShadow != m_BinnedVirtualShadow ||
+             Graphic::Material::EmissiveLightsGeneration() != m_BinnedEmissiveLightsGeneration )
         {
-            m_BinnedPipelineEpoch = epoch;
+            m_BinnedPipelineEpoch            = epoch;
+            m_BinnedEmissiveLightsGeneration = Graphic::Material::EmissiveLightsGeneration();
             m_BinnedWireframe     = WireframeView();
             m_BinnedVirtualShadow = virtualShadow;
             m_BinnedRefused.clear();  // a reload may have fixed what was refused; say a remaining refusal again
@@ -1939,7 +1959,7 @@ namespace Desert::Graphic::System
 
     std::span<const glm::mat4> MeshRenderer::CascadeScrolledStrips( const uint32_t view ) const
     {
-        if ( view >= kCascadeViews || !m_CascadeCache[view].Scroll )
+        if ( view >= kCascadeViews || ( !m_CascadeCache[view].Scroll && !m_CascadeCache[view].Patch ) )
             return {};
         return { m_CascadeCache[view].Strips, std::min<size_t>( m_CascadeCache[view].StripCount, 2u ) };
     }
@@ -2017,7 +2037,7 @@ namespace Desert::Graphic::System
         frameState.ApplyTo( static_cast<Material*>( carrier.Material.get() ) );
         if ( viewKey != kBinnedMainView )
             WriteLightCamera( *carrier.Material, glm::mat4( 1.0f ), m_CascadeCasterVP[viewKey], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[viewKey], m_ParallaxQuality, m_ViewTemporalLOD,
+                              m_CascadeCasterBias[viewKey], m_ParallaxQuality, m_ViewTemporalLOD, m_SceneWind,
                               CasterWindOrigin( viewKey ) );
         if ( !LendMaterialTable( *carrier.Material ) )
         {
@@ -2378,7 +2398,15 @@ namespace Desert::Graphic::System
                 const std::array<const GraphicsPipeline*, 3> states{ m_StaticGBufferPipeline.get(),
                                                                      m_InstancedGBufferPipeline.get(),
                                                                      m_SkinnedGBufferPipeline.get() };
-                return ditherBinned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
+                // EMISSIVE-MEGALIGHTS-3: a material with Emissive Lights Scene on is a MegaLights light source;
+                // its slots mark the shading word's EMISSION_IS_LIGHT so screen GI takes none of its emission.
+                // Resolved as the emissive lists resolve it: the instance chain, else the surface.
+                GpuDriven::PassPipelineResolution resolved =
+                     ditherBinned( BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) );
+                resolved.EmissionIsLight = resolved.Pipeline != nullptr &&
+                                           ( row.Instance != nullptr ? row.Instance->IsEmissiveLightsScene()
+                                                                     : row.Surface->IsEmissiveLightsScene() );
+                return resolved;
             }
             case GpuDriven::MeshPass::Forward:
             {

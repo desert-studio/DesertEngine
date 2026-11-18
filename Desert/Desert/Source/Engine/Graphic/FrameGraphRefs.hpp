@@ -215,6 +215,10 @@ namespace Desert::Graphic
         // Bit s set: directional slot s's channel of SunDistanceFieldShadow was written this frame (its trace
         // declared; SceneRenderer::AddFrameDistanceFieldShadow)   -> DeferredCascadeShadow::DistanceField
         uint32_t DistanceFieldShadowLights = 0;
+        // "Translucency: Lighting Volume" (System::TranslucencyLightingVolumeRenderer): the view's two cascades of
+        // mean incident radiance (Common/TranslucencyLightingVolume.glslh); invalid on a frame no lit particle
+        // draws   -> the lit particle cells (SceneViewInputs)
+        RDG::TextureRef TranslucencyLightingVolume;
         // The traced GI's final gather of this frame (SceneRenderer::AddFrameTracedGI: the world radiance cache's
         // update, then GlobalIllumination::ScreenProbeGather under SoftwareTraced / HardwareTraced or
         // GlobalIllumination::IrradianceFieldGather under ProbeVolume): per pixel, the diffuse irradiance and the
@@ -305,6 +309,9 @@ namespace Desert::Graphic
         // by the deferred direct program's cascade arm (DeferredLighting.shader DistanceFieldShadowTexture);
         // System.White when the view draws no such pass (CompositeView.x = 0: never read).
         RDG::TextureRef SunDistanceFieldShadow;
+        // The translucency lighting volume (FrameTransients::TranslucencyLightingVolume), read by the lit particle
+        // cells; System.Black3D on a frame no lit particle draws (no cell that reads it is drawn then).
+        RDG::TextureRef TranslucencyLightingVolume;
         // "Shadows: Ray Traced Local": the view's local-light masks (SceneRenderer::AddFrameRayTracedLocalShadows, one
         // layer per ShadowMaskSlot), read by an OPAQUE forward draw's DESERT_LOCAL_SHADOW_SCREEN_MASK permutation in
         // place of the atlas. Invalid when the local shadows are not ray traced (the permutation is then not chosen).
@@ -351,7 +358,7 @@ namespace Desert::Graphic
                     SceneDepth, SceneShadingWord, SunShadowMask, SunDistanceFieldShadow, LocalShadowMasks,
                     RadianceCacheIrradiance, RadianceCacheDepth,
                     RainOcclusionMap, FogAerialPerspective, FogDistantSkyLight, FogVolume, DBufferA, DBufferB,
-                    DBufferC } )
+                    DBufferC, TranslucencyLightingVolume } )
                 add( ref );
             for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
                 add( ref );
@@ -376,6 +383,8 @@ namespace Desert::Graphic
     // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewSunShadowMaskName = "ScreenShadowMaskTexture";
     inline constexpr std::string_view kSceneViewSunDistanceFieldShadowName = "DistanceFieldShadowTexture";
+    // Common/TranslucencyLightingVolume.glslh.
+    inline constexpr std::string_view kTranslucencyLightingVolumeName = "TranslucencyLightingVolumeTexture";
     // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
     inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
@@ -395,6 +404,15 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewDBufferSamplerName = "DBufferSampler";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
     inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
+    // DEFORM-GRASS: the deformation field as a surface reads it (Deformation/DeformationFieldRead.glslh): each level's
+    // Height and Detail image, read with texelFetch through a shared sampler state of its own (the grass blade cells
+    // declare none of the others), and the block that places the levels' windows.
+    inline constexpr std::array<std::string_view, 2> kDeformHeightNames{ "DeformHeight0Texture",
+                                                                         "DeformHeight1Texture" };
+    inline constexpr std::array<std::string_view, 2> kDeformDetailNames{ "DeformDetail0Texture",
+                                                                         "DeformDetail1Texture" };
+    inline constexpr std::string_view kDeformationFieldSamplerName     = "DeformationFieldSampler";
+    inline constexpr std::string_view kDeformationFieldParamsBlockName = "DeformationFieldParams";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
     inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
@@ -465,6 +483,8 @@ namespace Desert::Graphic
     inline constexpr RDG::TextureParameter       kSceneViewSunShadowMask{ kSceneViewSunShadowMaskName };
     inline constexpr RDG::TextureParameter       kSceneViewSunDistanceFieldShadow{
          kSceneViewSunDistanceFieldShadowName };
+    inline constexpr RDG::TextureParameter       kSceneViewTranslucencyLightingVolume{
+         kTranslucencyLightingVolumeName };
     inline constexpr RDG::TextureParameter       kSceneViewLocalShadowMasks{ kSceneViewLocalShadowMasksName };
     inline constexpr RDG::StorageBufferParameter kLightGridParamsBlock{ kLightGridParamsBlockName };
     inline constexpr RDG::StorageBufferParameter kLightGridCellsBlock{ kLightGridCellsBlockName };
@@ -515,6 +535,8 @@ namespace Desert::Graphic
         inputs.RainOcclusionMap       = t.RainOcclusionMap.IsValid() ? t.RainOcclusionMap : refs.System.White;
         inputs.SunDistanceFieldShadow =
              t.SunDistanceFieldShadow.IsValid() ? t.SunDistanceFieldShadow : refs.System.White;
+        inputs.TranslucencyLightingVolume =
+             t.TranslucencyLightingVolume.IsValid() ? t.TranslucencyLightingVolume : refs.System.Black3D;
         // The decal pass sets all three or none (System::DecalRenderer::AddPass).
         inputs.DBufferA = t.DBufferA.IsValid() ? t.DBufferA : refs.System.Black;
         inputs.DBufferB = t.DBufferB.IsValid() ? t.DBufferB : refs.System.Black;
@@ -612,6 +634,9 @@ namespace Desert::Graphic
             if ( inputs.SunDistanceFieldShadow.IsValid() )
                 bind( SceneViewSlot::SunDistanceFieldShadow, kSceneViewSunDistanceFieldShadow,
                       inputs.SunDistanceFieldShadow, kPoint, RDG::SamplerDesc::PointClamp() );
+            // Trilinear between cell centres, clamped inside each cascade's slab by the reader.
+            bind( SceneViewSlot::TranslucencyLightingVolume, kSceneViewTranslucencyLightingVolume,
+                  inputs.TranslucencyLightingVolume, kClamp, RDG::SamplerDesc::LinearClamp() );
             // Read with texelFetch at the fragment, layer = the light's ShadowMaskSlot.
             if ( inputs.LocalShadowMasks.IsValid() )
                 bind( SceneViewSlot::LocalShadowMasks, kSceneViewLocalShadowMasks, inputs.LocalShadowMasks, kPoint,
@@ -787,5 +812,47 @@ namespace Desert::Graphic
     void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
     {
         BindSceneViewInputs( block, inputs, SceneViewSlotsOf( layout ) );
+    }
+    // THE VIEW'S DEFORMATION FIELD AS ITS SURFACES READ IT (DEFORM-GRASS; Graphic/Deformation/DeformationFieldRenderer.hpp):
+    // this graph's two levels' Height and Detail images (System.Black where the view has no field) and the block that
+    // places their windows (Deformation::DeformationFieldParamsGpu: Levels 0 where there is none, so every reader
+    // answers "untouched"). Made by SceneRenderer::AddFrameDeformationField for every view, before any mesh pass.
+    struct DeformationFieldReads
+    {
+        std::array<RDG::TextureRef, 2> Height{};
+        std::array<RDG::TextureRef, 2> Detail{};
+        RDG::BufferRef                 Params;
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return Params.IsValid() && Height[0].IsValid() && Height[1].IsValid() && Detail[0].IsValid() &&
+                   Detail[1].IsValid();
+        }
+    };
+
+    // SETUP: the deformation field where the layout declares it (the grass blade cells: their vertex stage, and the
+    // visibility resolve's fragment stage, which rebuilds the blade). Read by texelFetch at the blade's root cell.
+    template <typename Block>
+    void BindDeformationFieldReads( Block& block, const DeformationFieldReads& reads, SceneViewSlots slots )
+    {
+        constexpr RDG::SamplerParameter            kSampler{ kDeformationFieldSamplerName };
+        constexpr std::array<SceneViewSlot, 2> kHeightSlots{ SceneViewSlot::DeformHeight0,
+                                                             SceneViewSlot::DeformHeight1 };
+        constexpr std::array<SceneViewSlot, 2> kDetailSlots{ SceneViewSlot::DeformDetail0,
+                                                             SceneViewSlot::DeformDetail1 };
+        for ( std::size_t level = 0; level < 2; ++level )
+        {
+            if ( slots.Has( kHeightSlots[level] ) )
+                block.Texture( RDG::TextureParameter{ kDeformHeightNames[level] }, reads.Height[level],
+                               RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( kSampler, RDG::SamplerDesc::PointClamp() );
+            if ( slots.Has( kDetailSlots[level] ) )
+                block.Texture( RDG::TextureParameter{ kDeformDetailNames[level] }, reads.Detail[level],
+                               RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( kSampler, RDG::SamplerDesc::PointClamp() );
+        }
+        if ( slots.Has( SceneViewSlot::DeformationFieldParams ) )
+            block.Storage( RDG::StorageBufferParameter{ kDeformationFieldParamsBlockName }, reads.Params,
+                           RDG::Access::StorageRead );
     }
 } // namespace Desert::Graphic

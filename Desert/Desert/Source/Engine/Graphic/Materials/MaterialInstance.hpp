@@ -111,6 +111,13 @@ namespace Desert::Graphic
         // TwoSided of this instance: its own override (a `.demat` instance that sets MaterialData::TwoSided), else
         // its parent instance's, else the base material's. Nothing = inherit.
         void SetTwoSidedOverride( std::optional<bool> twoSided ) noexcept;
+        // EmissiveLightsScene of this instance (MaterialData::EmissiveLightsScene), resolved as TwoSided: its own
+        // override, else its parent instance's, else the base material's. Nothing = inherit. Read by the view's
+        // scene-lighting emissive list every frame (its estimates are re-evaluated per material), so a change
+        // needs no publish; a change moves Material::EmissiveLightsGeneration (the draws' EMISSION_IS_LIGHT mark
+        // and the surface cache's cards key on it).
+        void               SetEmissiveLightsSceneOverride( std::optional<bool> lightsScene ) noexcept;
+        [[nodiscard]] bool IsEmissiveLightsScene() const;
         // THE RENDER-COPY PUBLISH EPOCH (UE: a MaterialInstance parameter change invalidates the cached mesh draw
         // commands that use it). Moves with every write of any instance's render copy (Publish, a child's first
         // copy) and every two-sided override, never otherwise: a render-side cache of per-instance answers
@@ -197,6 +204,7 @@ namespace Desert::Graphic
         MaterialPropertySet              m_RenderProperties; // RENDER copy: a publish writes it, the views read it
         std::weak_ptr<MaterialInstance>  m_ParentInstance;
         std::optional<bool>              m_TwoSidedOverride;
+        std::optional<bool>              m_EmissiveLightsSceneOverride;
         std::vector<MaterialInstancePtr> m_ChildInstances;
         bool                             m_bNeedsApply    = true;  // RENDER side (Publish sets, Apply clears)
         bool                             m_bRenderPending = false; // on the pending list (under its mutex)

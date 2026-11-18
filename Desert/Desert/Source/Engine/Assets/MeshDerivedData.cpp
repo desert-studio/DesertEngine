@@ -43,9 +43,10 @@ namespace Desert::Assets
         {
             // The DAG's cook options (UE FMeshNaniteSettings in the Nanite DDC key). A mesh without the flag does
             // not build a DAG, so its key does not move when these change.
-            const Geometry::ClusterDagSettings dag;
+            const Geometry::ClusterDagSettings dag = MeshClusterDagSettings( settings.Import );
             PutU32( out, std::bit_cast<uint32_t>( dag.GroupReduction ) );
             PutU32( out, std::bit_cast<uint32_t>( dag.MinReductionGain ) );
+            PutU32( out, dag.PreserveArea ? 1u : 0u );
         }
         // The canopy's leaf slots, by name (count, then each name's length and bytes): which sections the build
         // turns into the crown's volume.

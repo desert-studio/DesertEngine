@@ -5,6 +5,8 @@
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <algorithm>
+
 namespace Desert::Graphic::System
 {
     Common::BoolResultStr TonemapRenderer::Initialize()
@@ -138,7 +140,7 @@ namespace Desert::Graphic::System
         params.LocalExposureSlice = glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV, mode );
         // 1: the exposure comes from ExposureFusionTexture (Fusion), 0: from the grid and the blur (Bilateral).
         params.LocalExposureMethod = le.Produced && IsLocalExposureFusion( le.Params ) ? 1.0f : 0.0f;
-
+        FillLens( params );
 
         // HDR-OUTPUT p3: with the HDR rendition this frame (PrepareHdrRendition) the output carries the SDR
         // transform — headroom 1, SceneComposite's SDR arm, the very values the SDR output writes — and the
@@ -155,8 +157,35 @@ namespace Desert::Graphic::System
             params.LightShaftIntensity  = 0.0f;
             params.LensFlareIntensity   = 0.0f;
             params.LocalExposureSlice.w = 0.0f;
+            params.LensFringeVignette   = glm::vec4( 0.0f );
+            params.LensGrain            = glm::vec4( 0.0f );
+            params.LensPanini           = glm::vec4( 0.0f );
         }
         m_MaterialTonemap->BindValues( params );
+    }
+
+    void TonemapRenderer::FillLens( MaterialTonemap::Params& params ) const
+    {
+        // CHROMATIC ABERRATION (UE PostProcessTonemap's SceneFringe): a simple lens's lateral aberration is
+        // roughly linear in wavelength, so red and green are displaced from blue in proportion to their distance
+        // from it (the primaries' wavelengths, nm); the intensity is UE's 0..5 percent of the half-screen. The
+        // start offset leaves the centre clean and the 1 / (1 - offset) keeps the corner displacement the authored
+        // one.
+        constexpr float kPrimaryR   = 611.3f;
+        constexpr float kPrimaryG   = 549.1f;
+        constexpr float kPrimaryB   = 464.3f;
+        const float     startOffset = std::clamp( m_Lens.ChromaticAberrationStartOffset, 0.0f, 0.99f );
+        const float     fringe =
+             std::max( m_Lens.ChromaticAberrationIntensity, 0.0f ) * 0.01f / ( 1.0f - startOffset );
+        params.LensFringeVignette =
+             glm::vec4( 0.007f * ( kPrimaryR - kPrimaryB ) * fringe, 0.007f * ( kPrimaryG - kPrimaryB ) * fringe,
+                        startOffset, std::max( m_Lens.VignetteIntensity, 0.0f ) );
+        // The grain's seed: the view's frame count, wrapped where a float still counts it exactly.
+        params.LensGrain =
+             glm::vec4( std::max( m_Lens.FilmGrainIntensity, 0.0f ), std::max( m_Lens.FilmGrainTexelSize, 1.0f ),
+                        static_cast<float>( m_LensFrameIndex % 65536u ), 0.0f );
+        params.LensPanini =
+             glm::vec4( std::max( m_Lens.PaniniD, 0.0f ), m_Lens.PaniniS, m_LensTanHalfFov.x, m_LensTanHalfFov.y );
     }
 
     float TonemapRenderer::TargetHeadroom( const bool hdrRendition ) const

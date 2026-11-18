@@ -1,0 +1,30 @@
+// DesertAsset {"Kind":"VFXModule","Guid":"4b2d05b4f8044770ad0c4b5fd6185e0b","Versions":{"VFXM":1},"Dependencies":[]}
+Module "WindForce"
+{
+    Category Forces
+    Description "Drags the particle toward the scene's wind: directional, gusts and local sources."
+    Usage ParticleUpdate
+    Attribute Position vec3
+    Attribute Mass float
+    Attribute PhysicsForce vec3
+    Attribute PhysicsDrag float
+    Input AirResistance float = 1 Unit 1/s
+    Input WindScale float = 1
+
+    // Engine VFX module WindForce (WIND-FIELD-GPU; UE Niagara Content/Modules/Update/Forces/WindForce: the force
+    // (WindVelocity * WindSpeed - Velocity) * AirResistance): the particle relaxes toward the scene's air at
+    // AirResistance per second - the air the foliage sways by, read through the host's VFX_SceneWind (the
+    // directional wind, the local wind sources and the gust fronts; 0 in still air) and scaled by WindScale.
+    // In UE the module adds that force explicitly; here its two halves go to the solver's accumulators -
+    // AirResistance to the linear drag and AirResistance * WindScale * air * mass to the force - so
+    // SolveForcesAndVelocity relaxes the velocity toward the air EXACTLY over the step (terminal velocity
+    // a / drag), stable at any AirResistance and step, and mass-independent as UE's is. In still air it is the
+    // Drag module's linear drag. Update group, before SolveForcesAndVelocity.
+    void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
+    {
+        const float k    = max( i.AirResistance, 0.0 );
+        const float mass = p.Mass > 0.0 ? p.Mass : 1.0;
+        p.PhysicsDrag += k;
+        p.PhysicsForce += VFX_SceneWind( sim, p.Position ) * ( i.WindScale * k * mass );
+    }
+}

@@ -504,7 +504,7 @@ TEST( RenderGraphCompile, TheParticleSortRunsBetweenTheLastCompactAndTheDrawForB
                                         { "Counters", ShaderResourceKind::StorageBuffer },
                                         { "SortKeys", ShaderResourceKind::StorageBuffer },
                                         { "SortedAlive", ShaderResourceKind::StorageBuffer } },
-                              Sys::kParticleSortPushBytes } );
+                              static_cast<uint32_t>( sizeof( Desert::Graphic::ShaderPush::ParticleSort ) ) } );
     const Sys::ParticleSortBuffers buffers{ floats, drawLayout, alive, counters, keys, sorted };
     std::vector<std::string>       sortNames;
     for ( const Sys::ParticleSortRange& range : plan.Ranges )

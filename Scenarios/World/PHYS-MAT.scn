@@ -1,0 +1,16 @@
+# PHYS-MAT: the Physical Material asset (UE UPhysicalMaterial) decides how a body slides and bounces and what surface
+# a hit reports. Scene PHYS_MAT (made by PHYS-MAT p2, REMAINDER): a 30-degree ramp of 4 m, three crates of 50 cm side by
+# side at its top, each with its RigidBody "Phys Material Override": PM_Ice (Friction 0.02), PM_Default (0.5),
+# PM_Rubber (Friction 1.0, FrictionCombine Max); a ball (Restitution 0.9, RestitutionCombine Max) dropped from 3 m
+# onto a flat PM_Rock floor beside it. Surface types come from Config/PhysicalMaterials.json.
+# NEEDS the DesertCtl `lua` op (as DEFORM-FIELD.scn) for the ray query.
+Дано run Scene "Open Scene PHYS_MAT.desce"
+Дано --subject viewport set Camera.Position 0,250,900
+Дано --subject viewport set Camera.Direction 0,-0.2,-0.98
+Когда run Play "Play"
+Когда --play-seconds 3
+Тогда-вид 1_slide after 3 s of Play: the ice crate is at the foot of the ramp, the default crate half-way down, the rubber crate still at the top (tan(30) = 0.58 > 0.5 slides, < 1.0 holds); the ball bounced back to about 2.4 m and is still bouncing; editor.log errors 0
+Когда lua "local hit = Physics.raycast(vector.create(300, 500, 0), vector.create(0, -1, 0), 1000); print(hit.Surface, hit.PhysicalMaterial)"
+Тогда-вид 2_surface the console prints "Rock PM_Rock" for the ray straight down onto the floor; editor.log errors 0
+Когда run Play "Stop"
+Тогда-вид 3_stopped Edit mode again, the three crates back at the top of the ramp as authored; editor.log errors 0

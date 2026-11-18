@@ -425,6 +425,9 @@ namespace Desert::Editor
             commands.push_back( { "Assets",
                                   std::format( "Import Options: Virtual Geometry {}", on ? "on" : "off" ),
                                   [on] { return ImportOptions::SetShownVirtualGeometry( on ); } } );
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets", std::format( "Import Options: Preserve Area {}", on ? "on" : "off" ),
+                                  [on] { return ImportOptions::SetShownPreserveArea( on ); } } );
         for ( const auto mode : { Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
                                   Assets::MeshDisplacementMode::Baked } )
             commands.push_back(
@@ -510,6 +513,14 @@ namespace Desert::Editor
                                       return overSelectedAssets(
                                            [on]( const std::filesystem::path& asset )
                                            { return ImportOptions::SetStoredVirtualGeometry( asset, on ); } );
+                                  } } );
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets", std::format( "Static Mesh: Preserve Area {}", on ? "on" : "off" ),
+                                  [overSelectedAssets, on]
+                                  {
+                                      return overSelectedAssets(
+                                           [on]( const std::filesystem::path& asset )
+                                           { return ImportOptions::SetStoredPreserveArea( asset, on ); } );
                                   } } );
     }
 

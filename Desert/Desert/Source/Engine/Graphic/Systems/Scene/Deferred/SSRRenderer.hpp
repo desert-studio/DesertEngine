@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
@@ -96,6 +97,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
         DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, DistanceFieldBrickAtlasTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
@@ -202,7 +204,7 @@ namespace Desert::Graphic::System
         // What the traced permutation reads beside the screen's inputs (SSR.shader, bindings 10..41), all of this
         // frame's graph: GIHitRadiance's inputs (the GI frame record, the lights and the world light grid, the
         // radiance cache's read - a neutral one covering nothing when the GI does not run it -, the sky's cube,
-        // the G-buffer's albedo and emissive), the tracer (GlobalIllumination::TracerFrame: for the software
+        // the G-buffer's albedo, emissive and, in set 1, shading word), the tracer (GlobalIllumination::TracerFrame: for the software
         // tracer the view's mesh SDF near field too) and the surface cache's hits.
         struct TracedReads
         {
@@ -223,6 +225,8 @@ namespace Desert::Graphic::System
             RDG::TextureRef                                                 EnvSpecular;
             RDG::TextureRef                                                 GBufferA;
             RDG::TextureRef                                                 GBufferEmissive;
+            // The uint shading word: a hit's EMISSION_IS_LIGHT mark (Common/GIHitLighting.glslh GIHitMaterial).
+            RDG::TextureRef                                                 GBufferShadingWord;
         };
 
         // The traced permutation (cooked: TracerVariant is ShippedByCook) - the one statement EnsureTracedProgram
@@ -410,7 +414,7 @@ namespace Desert::Graphic::System
             uint32_t DownsampleFactor = 2;
         };
 
-        // The two dispatches of the compute program (SSR.shader, TracePush::Params3.w), as UE Lumen reflections
+        // The two dispatches of the compute program (SSR.shader, ShaderPush::SSRTracePush::SsrParams3.w), as UE Lumen reflections
         // classify tiles into a compacted list of trace texels and trace that list by an indirect dispatch:
         // Classify = one workgroup per tile, the tile mask + the list (TraceList); Trace = one thread per listed
         // texel. The hit-lit permutation classifies only (its ray generation traces every texel) and keeps no
@@ -547,17 +551,6 @@ namespace Desert::Graphic::System
         // are reconstructed from it, Common/ReconstructPosition.glslh).
         using GBufferInputs = std::array<RDG::TextureRef, 3>;
 
-        // The trace dispatch's push-constant block.
-        struct TracePush
-        {
-            glm::vec4 CameraPos; // xyz = camera, w = per-frame seed (ray sequence + 2x2 rotation)
-            glm::vec4 Params;    // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness
-            glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's,
-                                 // z = mesh SDF trace distance, w = mesh SDF end distance from the camera
-            glm::vec4 Params3;   // x = the trace's downsample factor (TraceTargets::DownsampleFactor),
-                                 // y = 1 / PrevPreExposure (the scene history's scale), z = the traced gate
-                                 // (TraceSettings::RoughSpecularFromGI), w = the TraceStage (1 = Trace)
-        };
 
         // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
         // frame on the CPU - never inverted per workgroup in the shader. InvJitteredViewProjection keeps the name
@@ -586,7 +579,7 @@ namespace Desert::Graphic::System
         // @p sceneHistory, @p hzb (all mips) and the velocity as separate textures read through the pass's shared
         // sampler states (the normal linear REPEAT, as the deferred composite reads it; the scene history linear
         // clamped; depth, HZB and velocity point-clamped: SSR.shader names each one's state), @p
-        // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the TracePush
+        // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the ShaderPush::SSRTracePush
         // bytes; the pipeline's own setters are the other route. Not prepared: nothing.
         // @p traced: the traced permutation's reads (EnsureTracedProgram first), or null for the screen alone.
         // @p frontLayer: the TranslucentFrontLayer surface's G-buffer (null for an Opaque renderer).
@@ -633,7 +626,7 @@ namespace Desert::Graphic::System
                  .Storage( SSRTraceShaderParameters::TraceRayTexture, traceRay, RDG::Access::StorageWrite )
                  .Storage( SSRTraceShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageWrite )
                  .Uniform( SSRTraceShaderParameters::SSRTraceUB, uniforms )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
+                 .PushConstants<ShaderPush::SSRTracePush>();
             // The world stage's program keeps no trace list (SSRTrace.glslh).
             if ( list != nullptr && !IsWorldStage( stage ) )
             {
@@ -710,7 +703,7 @@ namespace Desert::Graphic::System
                  .Storage( SSRHitLightingShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageRead )
                  .Uniform( SSRHitLightingShaderParameters::SSRTraceUB, uniforms )
                  .Uniform( SSRHitLightingShaderParameters::CameraUB, camera )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
+                 .PushConstants<ShaderPush::SSRTracePush>();
             DeclareTracedReads( block, traced );
             DeclareFrontLayerReads( block, frontLayer );
         }
@@ -758,10 +751,10 @@ namespace Desert::Graphic::System
             ComputePipeline* const pipeline = StagePipeline( settings, TraceStage::Classify );
             if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
-            const TracePush push =
+            const ShaderPush::SSRTracePush push =
                  MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, TraceStage::Classify );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            bindings.PushConstants( push );
             return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, TileGrid( Width() ),
                                                             TileGrid( Height() ), 1 );
         }
@@ -778,10 +771,10 @@ namespace Desert::Graphic::System
             ComputePipeline* const pipeline = StagePipeline( settings, TraceStage::Trace );
             if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
-            const TracePush push =
+            const ShaderPush::SSRTracePush push =
                  MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, TraceStage::Trace );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            bindings.PushConstants( push );
             return Renderer::DispatchComputeIndirect( bindings, *pipeline, listArgs, 0u );
         }
 
@@ -840,10 +833,10 @@ namespace Desert::Graphic::System
             DESERT_PROFILE_PASS( "SSR: Hit-lit trace" );
             if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the hit-lit pipeline was not made this frame" );
-            const TracePush push =
+            const ShaderPush::SSRTracePush push =
                  MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, TraceStage::Trace );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            bindings.PushConstants( push );
             return Renderer::TraceRays( bindings, *pipeline, hits,
                                         TraceExtent( Width(), settings.DownsampleFactor ),
                                         TraceExtent( Height(), settings.DownsampleFactor ) );
@@ -883,9 +876,9 @@ namespace Desert::Graphic::System
             ComputePipeline* const pipeline = StagePipeline( settings, stage );
             if ( pipeline == nullptr )
                 return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
-            const TracePush   push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, stage );
+            const ShaderPush::SSRTracePush push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed, stage );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            bindings.PushConstants( push );
             return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
         }
 
@@ -901,7 +894,7 @@ namespace Desert::Graphic::System
         }
 
         // The push constants of both trace entry points (SSR.shader's compute and its "HitLighting" ray generation).
-        static TracePush MakeTracePush( const glm::vec4& cameraPos, const TraceSettings& settings,
+        static ShaderPush::SSRTracePush MakeTracePush( const glm::vec4& cameraPos, const TraceSettings& settings,
                                         const bool sceneHistoryReadable, const uint32_t seed,
                                         const TraceStage stage )
         {
@@ -926,7 +919,7 @@ namespace Desert::Graphic::System
                 }
                 return 0.0f;
             }();
-            return TracePush{ glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
+            return ShaderPush::SSRTracePush{ glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
                               glm::vec4( static_cast<float>( settings.RaysPerPixel ),
                                          static_cast<float>( settings.Iterations ), settings.Intensity,
                                          settings.Thickness ),
@@ -972,6 +965,7 @@ namespace Desert::Graphic::System
                  .Sampler( SSRShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
                  .Texture( SSRShaderParameters::GBufferATexture, traced.GBufferA, kS, all )
                  .Texture( SSRShaderParameters::GBufferEmissiveTexture, traced.GBufferEmissive, kS, all )
+                 .Texture( SSRShaderParameters::GBufferShadingWordTexture, traced.GBufferShadingWord, kS, all )
                  .Sampler( SSRShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
             GlobalIllumination::DeclareTracerReads( block, traced.Tracer );
             if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )

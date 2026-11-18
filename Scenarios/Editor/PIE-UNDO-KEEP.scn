@@ -1,0 +1,35 @@
+# PIE-UNDO-KEEP: Play/Stop keeps the editor's undo history (UE: UTransBuffer::SetUndoBarrier when PIE starts,
+# PlayLevel.cpp:2972; RemoveUndoBarrier in EndPlayMap, :677). The edits made before Play are undone after Stop;
+# during Play the edit world's history is parked behind the barrier; what Play recorded goes with the played world.
+# Before: Stop called CommandHistory::Clear() - "Action Undo" after Stop answered "there was nothing left to undo"
+# (found by FOLIAGE-COLLISION, whose scenario had to undo before Play).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/GameplayProof.desce
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 150,450,900
+Дано --subject viewport set Camera.Direction 0,-0.45,-1
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 0,50,0
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
+Тогда-вид 0_start the red 100 cm Box stands at the centre of the view (0, 50, 0)
+# [1_moved] one undoable move before Play.
+Когда --subject selection set Translation 300,50,0
+Тогда-вид 1_moved the red Box stands 300 cm to the right of where it was
+# [2_playing] Play: the history is fenced, not erased; editor.log "[History] undo barrier set: N undo / 0 redo step(s) parked until Stop" with N >= 3.
+Когда run Action "Play"
+Когда advance 0.5
+Тогда-вид 2_playing the game runs (the pawn at the PlayerStart); the red Box at +300 as authored
+# [3_stopped] Stop: editor.log "[History] undo barrier removed: 0 step(s) of the session dropped, 0 kept; N undo / 0 redo step(s) back".
+Когда run Action "Stop"
+Тогда-вид 3_stopped the edit world is back; the red Box at +300
+# [4_undo_after_stop] THE PROOF: the move made before Play is undone after Stop (editor.log "[History] undo '...'" right after the barrier line; no "nothing left to undo").
+Когда run Action "Undo"
+Тогда-вид 4_undo_after_stop the red Box back at the centre (0, 50, 0), as on 0_start; editor.log errors 0
+# [5_redo_after_stop] the redo branch survived the session too.
+Когда run Action "Redo"
+Тогда-вид 5_redo_after_stop the red Box at +300 again, as on 1_moved; editor.log errors 0

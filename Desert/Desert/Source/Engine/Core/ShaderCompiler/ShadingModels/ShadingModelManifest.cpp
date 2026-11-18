@@ -148,7 +148,8 @@ namespace Desert::Core::ShadingModels
         for ( auto& line : inputs )
             manifest.Inputs.push_back( std::move( line[0] ) );
 
-        // The optional `SubsurfaceOpacity <pin>;` line, then the optional `SubsurfaceColor <function>;` line.
+        // The optional `SubsurfaceOpacity <pin>;`, `SubsurfaceProfile <pin>;`, `SubsurfaceColor <function>;` and
+        // `SlabFeatures <function>;` and `Slab <function>;` lines, in that order.
         // Anything else is the body, which starts where it did.
         std::size_t bodyStart = c.Pos;
         if ( c.Word() == "SubsurfaceOpacity" )
@@ -185,9 +186,37 @@ namespace Desert::Core::ShadingModels
             if ( !c.Punct( ';' ) )
                 return Refuse( sourcePath, "expected ';' after the SubsurfaceColor function" );
             manifest.SubsurfaceColorFunction = std::string( function );
+            bodyStart                        = c.Pos;
         }
         else
             c.Pos = bodyStart;
+        if ( c.Word() == "SlabFeatures" )
+        {
+            const std::string_view function = c.Word();
+            if ( function.empty() )
+                return Refuse( sourcePath, "expected the feature function's name after SlabFeatures" );
+            if ( !c.Punct( ';' ) )
+                return Refuse( sourcePath, "expected ';' after the SlabFeatures function" );
+            manifest.SlabFeaturesFunction = std::string( function );
+            bodyStart                     = c.Pos;
+        }
+        else
+            c.Pos = bodyStart;
+        if ( c.Word() == "Slab" )
+        {
+            const std::string_view function = c.Word();
+            if ( function.empty() )
+                return Refuse( sourcePath, "expected the slab function's name after Slab" );
+            if ( !c.Punct( ';' ) )
+                return Refuse( sourcePath, "expected ';' after the Slab function" );
+            manifest.SlabFunction = std::string( function );
+        }
+        else
+            c.Pos = bodyStart;
+        // A slab preset names both halves: the word's feature bits and the slab they describe, so every consumer
+        // of the slab (the raster's Evaluate, the path tracer's lobe sampler) reads the same one.
+        if ( manifest.SlabFeaturesFunction.empty() != manifest.SlabFunction.empty() )
+            return Refuse( sourcePath, "a slab preset names both its SlabFeatures and its Slab function" );
 
         manifest.Body = std::string( text.substr( c.Pos ) );
         if ( !manifest.SubsurfaceProfilePin.empty() &&

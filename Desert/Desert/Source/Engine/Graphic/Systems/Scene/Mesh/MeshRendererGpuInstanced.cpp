@@ -517,6 +517,8 @@ namespace Desert::Graphic::System
     {
         if ( m_GpuInstancedQueue.empty() || instancedPipeline == nullptr )
             return;
+        // DEFORM-GRASS: a blade cell flattens its blade by the view's deformation field in every pass.
+        list.SetDeformationField( m_FrameDeformationField );
 
         // A section with a box is drawn only where the view's frustum meets it (GpuInstancedRenderData::WorldBounds).
         const auto*                        camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
@@ -859,6 +861,11 @@ namespace Desert::Graphic::System
             if ( !materialRow )
                 continue;
             const uint32_t row = *materialRow;
+            // The section's PrimitiveFlags: its material's Emissive Lights Scene (the instance chain resolves it,
+            // as the emissive lists do) marks the G-buffer's EMISSION_IS_LIGHT, so a screen GI hit takes no
+            // emission from a MegaLights emitter; a GPU-instanced section casts contact shadows (UE's default).
+            const uint32_t primitiveFlags =
+                 PrimitiveFlagsOf( true, gpu.Material != nullptr && gpu.Material->IsEmissiveLightsScene() );
             applyFrameState( draw.Instance.get() );
             if ( maskedPrepass )
             {
@@ -889,7 +896,7 @@ namespace Desert::Graphic::System
                             .Push               = DrawPushFields{}
                                          .MaterialIndex( row )
                                          .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                         .PrimitiveFlags( 0u )
+                                         .PrimitiveFlags( primitiveFlags )
                                          .LodFadeSide( 0.0f ) } );
                 continue;
             }
@@ -918,7 +925,8 @@ namespace Desert::Graphic::System
                     // Only the visibility raster reads a mesh's rows: no other pass resolves the view's copy.
                     if ( pass == MeshPass::Visibility )
                         drawRow.MeshVisibility = AddressOf( gpu.MeshVisibility );
-                    drawRow.MaterialRow = row;
+                    drawRow.MaterialRow    = row;
+                    drawRow.PrimitiveFlags = primitiveFlags;
                     const auto wind     = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset );
                     drawRow.WindA       = wind.A;
                     drawRow.WindB       = wind.B;
@@ -992,7 +1000,7 @@ namespace Desert::Graphic::System
                                 .Push               = DrawPushFields{}
                                              .MaterialIndex( row )
                                              .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                             .PrimitiveFlags( 0u )
+                                             .PrimitiveFlags( primitiveFlags )
                                              .LodFadeSide( 0.0f ) } );
                 };
                 if ( first >= end )
@@ -1144,6 +1152,8 @@ namespace Desert::Graphic::System
     bool MeshRenderer::BuildGpuInstancedShadowDraws( const uint32_t c, const uint32_t shadowView,
                                                      const ShadowCasterLayer layer, MeshDrawList& list )
     {
+        // DEFORM-GRASS: the caster flattens the blade the view flattens (the same field, the same BladeAt).
+        list.SetDeformationField( m_FrameDeformationField );
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
             return false;
@@ -1377,7 +1387,7 @@ namespace Desert::Graphic::System
                     // ring and the thinning's origin are each draw's (its row's Caster).
                     WriteLightCamera( *cell, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                                       m_CascadeCasterBias[shadowView], m_ParallaxQuality,
-                                      m_ViewTemporalLOD, viewWind,
+                                      m_ViewTemporalLOD, m_SceneWind, viewWind,
                                       glm::vec4( 0.0f ) );
                     if ( !LendMaterialTable( *cell ) )
                         return false;
@@ -1476,7 +1486,7 @@ namespace Desert::Graphic::System
             // (sectionCasterOf).
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                               m_CascadeCasterBias[shadowView], m_ParallaxQuality,
-                              m_ViewTemporalLOD, setup.ThinOrigin,
+                              m_ViewTemporalLOD, m_SceneWind, setup.ThinOrigin,
                               glm::vec4( inner, 0.0f, 0.0f, 0.0f ) );
             BindGpuInstancedBuffers( *caster, gpu, listIds );
             const GpuInstanceRefs& refs = *setup.Refs;

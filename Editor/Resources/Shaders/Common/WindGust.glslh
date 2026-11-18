@@ -1,0 +1,62 @@
+// THE GUST FIELD (WIND-FIELD-GPU; UE: the wind source's MinGust / MaxGust, Ghost of Tsushima GDC 2021's gust fronts):
+// the factor a swaying vertex's offset is scaled by at its instance's world point, the ONE statement of it on the GPU.
+// The fronts are a smooth value noise in the world's XZ plane, GustSize across, carried downwind by the scene's
+// directional wind: the field is sampled at (point / GustSize - offset), the offset being the air's displacement
+// in gust cells the ECS accumulates with the gameplay step (MeshECSSystem, Graphic::AdvanceWindGust). The lattice
+// repeats every kWindGustPeriodCells cells, so the offset wraps to that period without a seam and a float holds it
+// at every time of play. The C++ twin is Engine/Graphic/WindGust.hpp: the same expressions in the same order.
+//
+// @p gust is CameraUB::WindGust (this gameplay step) or CameraUB::PrevWindGust (the previous one, for a view
+// pass's previous position): x, y the offset (gust cells), z 1 / GustSize (1/cm), w Gustiness in [0, 1]. The
+// factor lies in [1 - Gustiness, 1]: a gust front sways a plant by its type's whole Strength, a lull by less, so
+// the offset never exceeds Strength (InstanceWind WindBoundsPad). Gustiness 0 (no directional wind, a still
+// preview frame) is 1 everywhere: the sway as the type alone states it.
+// The dialect is ShadowWind.glslh's (f-suffixed literals, no swizzles, no out, no arrays, functions before use).
+#ifndef DESERT_WIND_GUST_GLSLH
+#define DESERT_WIND_GUST_GLSLH
+
+const float kWindGustPeriodCells = 256.0f;
+
+// Dave Hoskins' hash12 (no sine: the same bits on every GPU) of a lattice point, in [0, 1).
+float WindGustHash( const float x, const float y )
+{
+    const float a = fract( x * 0.1031f );
+    const float b = fract( y * 0.1031f );
+    const float s = a * ( b + 33.33f ) + b * ( a + 33.33f ) + a * ( a + 33.33f );
+    return fract( ( a + b + 2.0f * s ) * ( a + s ) );
+}
+
+// The hash of a lattice point wrapped to the period.
+float WindGustLattice( const float ix, const float iy )
+{
+    return WindGustHash( mod( ix, kWindGustPeriodCells ), mod( iy, kWindGustPeriodCells ) );
+}
+
+// Value noise in [0, 1], C1 (smoothstep weights), periodic over kWindGustPeriodCells in both axes.
+float WindGustNoise( const float x, const float y )
+{
+    const float ix   = floor( x );
+    const float iy   = floor( y );
+    const float fx   = x - ix;
+    const float fy   = y - iy;
+    const float ux   = fx * fx * ( 3.0f - 2.0f * fx );
+    const float uy   = fy * fy * ( 3.0f - 2.0f * fy );
+    const float low  = mix( WindGustLattice( ix, iy ), WindGustLattice( ix + 1.0f, iy ), ux );
+    const float high = mix( WindGustLattice( ix, iy + 1.0f ), WindGustLattice( ix + 1.0f, iy + 1.0f ), ux );
+    return mix( low, high, uy );
+}
+
+// The gust factor at the world point (@p worldX, @p worldZ) (cm): two octaves of the advected noise (the second at
+// twice the frequency, whose period divides the first's, so the offset's wrap stays seamless), shaped into fronts.
+float WindGustScale( const float worldX, const float worldZ, const vec4 gust )
+{
+    if ( !( gust.w > 0.0f ) )
+        return 1.0f;
+    const float u     = worldX * gust.z - gust.x;
+    const float v     = worldZ * gust.z - gust.y;
+    const float n     = 0.65f * WindGustNoise( u, v ) + 0.35f * WindGustNoise( 2.0f * u + 17.0f, 2.0f * v + 31.0f );
+    const float front = smoothstep( 0.3f, 0.7f, n );
+    return 1.0f - gust.w * ( 1.0f - front );
+}
+
+#endif

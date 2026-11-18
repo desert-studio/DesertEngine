@@ -84,6 +84,7 @@ Shader "StandardSurfaceMasked"
         // Material half of the sun-shadow receive decision; the renderer also zeroes it for a mesh whose
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
+        Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
         Texture2D   AlbedoTexture ("Albedo Map", Category("Textures"), Intent(Colour))
         // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
         // white texel decodes to a normalised (1,1,1) — a normal tilted 54 degrees off the surface —
@@ -129,6 +130,7 @@ Shader "StandardSurfaceMasked"
                                                Material.EmissiveColor.rgb, Material.EmissiveIntensity );
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
+            s.ReceiveDecals     = Material.ReceiveDecals;
             s.SampledTextureCount = float( int( BindlessTextureExtent( Material.AlbedoTexture ).x > 1 ) + int( normalSize.x > 1 ) +
                                            int( BindlessTextureExtent( Material.OpacityTexture ).x > 1 ) +
                                            int( BindlessTextureExtent( Material.OrmTexture ).x > 1 ) +

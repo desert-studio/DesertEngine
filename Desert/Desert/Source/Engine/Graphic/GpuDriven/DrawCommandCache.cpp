@@ -150,9 +150,11 @@ namespace Desert::Graphic::GpuDriven
             auto& pipelines = record.Pipelines[pass];
             auto& fallbacks = record.Fallbacks[pass];
             auto& dithered  = record.DitheredLod[pass];
+            auto& lights    = record.EmissionIsLight[pass];
             pipelines.assign( submeshes, nullptr );
             fallbacks.assign( submeshes, BinFallback::None );
             dithered.assign( submeshes, uint8_t{ 0 } );
+            lights.assign( submeshes, uint8_t{ 0 } );
             // UE bCastShadow: a primitive that does not cast is no shadow pass's draw at all.
             if ( IsShadowPass( static_cast<MeshPass>( pass ) ) &&
                  ( record.PrimitiveFlags & PrimitiveFlags::kCastsShadow ) == 0u )
@@ -167,6 +169,7 @@ namespace Desert::Graphic::GpuDriven
                 pipelines[si] = resolved.Pipeline;
                 fallbacks[si] = resolved.Pipeline != nullptr ? BinFallback::None : resolved.Fallback;
                 dithered[si]  = static_cast<uint8_t>( resolved.Pipeline != nullptr && resolved.DitheredLod );
+                lights[si]    = static_cast<uint8_t>( resolved.Pipeline != nullptr && resolved.EmissionIsLight );
             }
         }
     }
@@ -314,10 +317,12 @@ namespace Desert::Graphic::GpuDriven
             const auto before          = record->Pipelines;
             const auto fallbacksBefore = record->Fallbacks;
             const auto ditheredBefore  = record->DitheredLod;
+            const auto lightsBefore    = record->EmissionIsLight;
             ResolvePipelines( static_cast<PrimitiveIndex>( primitive ), *record );
             for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
                 if ( before[pass] != record->Pipelines[pass] || fallbacksBefore[pass] != record->Fallbacks[pass] ||
-                     ditheredBefore[pass] != record->DitheredLod[pass] )
+                     ditheredBefore[pass] != record->DitheredLod[pass] ||
+                     lightsBefore[pass] != record->EmissionIsLight[pass] )
                     m_Dirty[pass] = true;
         }
         // The groups' VG twins are asked again too (a dirty pass re-asks them when it is rebuilt).
@@ -455,6 +460,8 @@ namespace Desert::Graphic::GpuDriven
                             slot.Flags |= kDrawSlotDitheredLod;
                             ++table.DitheredLodSlots;
                         }
+                        if ( record->EmissionIsLight[passIndex][si] != 0u )
+                            slot.Flags |= kDrawSlotEmissionIsLight;
                     }
                     table.DrawSlots.push_back( slot );
                 }

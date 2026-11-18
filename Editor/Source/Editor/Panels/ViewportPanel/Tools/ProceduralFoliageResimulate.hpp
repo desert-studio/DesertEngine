@@ -40,6 +40,10 @@ namespace Desert::Editor::Tools
         /// Every foliage field in the world, painted or generated, with its type as an index into the volume's
         /// types (UINT32_MAX when the volume does not list it).
         std::vector<World::Foliage::Procedural::ProceduralFoliageExistingField> Existing;
+        /// Every procedural foliage blocking volume in the world (UE AProceduralFoliageBlockingVolume); each one
+        /// refuses the instances whose trace meets it before the ground (World::Foliage::Procedural::
+        /// BlocksProceduralInstance).
+        std::vector<World::Foliage::Procedural::ProceduralFoliageBlocker> Blockers;
         /// Writes: an existing field (by its index in Existing) takes new instances or goes; a new field of
         /// the volume is made for a fresh type x cell.
         std::function<void( size_t existing, std::vector<glm::mat4> instances )> Rewrite;

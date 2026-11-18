@@ -1,6 +1,7 @@
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 
 #if DESERT_DEV_INSTRUMENTS
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -32,16 +33,6 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( StorageBuffer, VgVisibleClusters );
         };
 
-        // ClusterViewPush of the shader.
-        struct ClusterViewPush
-        {
-            glm::mat4 ViewProjection{ 1.0f };
-            uint32_t  VisibleCapacity = 0;
-            uint32_t  Pad0            = 0;
-            uint32_t  Pad1            = 0;
-            uint32_t  Pad2            = 0;
-        };
-        static_assert( sizeof( ClusterViewPush ) == 80 );
 
         // GpuClusterRasterArgs::HwDraw: the VkDrawIndirectCommand the cut counted its HW clusters into.
         constexpr uint64_t kHwDrawOffset = offsetof( GpuClusterRasterArgs, HwDraw );
@@ -104,7 +95,7 @@ namespace Desert::Graphic::VirtualGeometry
              .Storage( P::VgPassDrawSlots, draw.DrawSlots, R )
              .Storage( P::VgSubmeshTransforms, draw.SubmeshTransforms, R )
              .Storage( P::VgVisibleClusters, draw.VisibleClusters, R )
-             .PushConstantBytes( static_cast<uint32_t>( sizeof( ClusterViewPush ) ) );
+             .PushConstants<ShaderPush::VirtualGeometryClusters>();
     }
 
     Common::BoolResultStr ClusterView::Record( const RDG::PassContext& context ) const
@@ -112,9 +103,9 @@ namespace Desert::Graphic::VirtualGeometry
         if ( !m_Declared || !m_Pipeline )
             return BOOLSUCCESS;
         RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
-        const ClusterViewPush push{ .ViewProjection  = m_Draw.ViewProjection,
+        const ShaderPush::VirtualGeometryClusters push{ .ViewProjection  = m_Draw.ViewProjection,
                                     .VisibleCapacity = m_Draw.VisibleCapacity };
-        bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+        bindings.PushConstants( push );
         // vertexCount = kClusterMaxTriangles x 3 (the cut wrote it, VirtualGeometryRenderer.cpp RasterArgs).
         return Renderer::DrawProceduralIndirect( bindings, *m_Pipeline, nullptr, m_Draw.RasterArgs,
                                                  kHwDrawOffset );

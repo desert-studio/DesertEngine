@@ -1,4 +1,5 @@
 #include "ParticleRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include "ParticleEmitterRetire.hpp"
@@ -32,6 +33,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstring>
 #include <cstdint>
@@ -84,6 +86,8 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, CollisionView );
         DESERT_SHADER_PARAMETER( Texture, SceneDepth );
         DESERT_SHADER_PARAMETER( Sampler, CollisionPointSampler );
+        // A wind-reading stack only: ParticleSimulate under VFX_READS_SCENE_WIND.
+        DESERT_SHADER_PARAMETER( StorageBuffer, SceneWind );
     };
 
     // ParticleSimulate's CollisionView block (std430): the simulating view's jittered view-projection and its
@@ -96,6 +100,32 @@ namespace
         glm::vec4 Camera{ 0.0f };
     };
     static_assert( sizeof( ParticleCollisionViewGpu ) == 144, "ParticleSimulate.shader CollisionView" );
+
+    // ParticleSimulate's SceneWind block (std430, WIND-FIELD-GPU): the scene view's air, the one the foliage sways
+    // by. Directional = (directional velocity x, 0, z in cm/s, the speed in cm/s the local sources' units stand
+    // for); Gust = CameraUB::WindGust; Source / Speed = CameraUB::LocalWind / LocalWindSpeed
+    // (Common/LocalWind.glslh).
+    struct ParticleSceneWindGpu
+    {
+        glm::vec4                                       Directional{ 0.0f };
+        glm::vec4                                       Gust{ 0.0f };
+        std::array<glm::vec4, Desert::Graphic::kMaxLocalWindSources>     Source{};
+        std::array<glm::vec4, Desert::Graphic::kMaxLocalWindSources / 4> Speed{};
+    };
+    static_assert( sizeof( ParticleSceneWindGpu ) == 192, "ParticleSimulate.shader SceneWind" );
+
+    // The scene view's air as the SceneWind block carries it (ViewFrame: the gusts, the local sources and the
+    // directional velocity with the local sources' reference speed).
+    [[nodiscard]] ParticleSceneWindGpu MakeParticleSceneWind( const Desert::Graphic::ViewFrame& view )
+    {
+        ParticleSceneWindGpu wind;
+        wind.Directional = glm::vec4( view.WindVelocityXZ.x, 0.0f, view.WindVelocityXZ.y,
+                                      view.LocalWindReferenceSpeed );
+        wind.Gust        = view.WindGust;
+        wind.Source      = view.LocalWind.Source;
+        wind.Speed       = view.LocalWind.Speed;
+        return wind;
+    }
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct ParticleMeshInstancesShaderParameters
@@ -159,15 +189,6 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // ParticleSort.shader's PushConstants, field for field.
-        struct ParticleSortPush
-        {
-            glm::uvec4 Range; // x = alive offset, y = draw slot, z = key base, w = N
-            glm::uvec4 Step;  // x = stage, y = k, z = j
-            glm::vec4  ViewOrigin;
-            glm::vec4  ViewForward;
-        };
-        static_assert( sizeof( ParticleSortPush ) == kParticleSortPushBytes );
     } // namespace
 
     ParticleRenderer::~ParticleRenderer() = default;
@@ -442,9 +463,9 @@ namespace Desert::Graphic::System
                 continue;
             const ParticleEmitterGpu& gpu = *ve.Frame->Gpu;
             // Open mode (ParticleDispatchArgs Step.w = 1): x = the range's pool base, y = its particle count.
-            const ParticleArgsPush push{ glm::uvec4( gpu.Range.Base, gpu.Range.Count, 0u, 1u ) };
+            const ShaderPush::ParticleDispatchArgs push{ glm::uvec4( gpu.Range.Base, gpu.Range.Count, 0u, 1u ) };
             RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             const Common::BoolResultStr dispatched =
                  renderer.DispatchCompute( bindings, *m_ArgsPipeline, 1, 1, 1 );
             if ( !dispatched )
@@ -473,7 +494,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleDispatchArgsShaderParameters::EventTable, ve.EventTableRef,
                            RDG::Access::StorageRead )
                  .Storage( ParticleDispatchArgsShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
+                 .PushConstants<ShaderPush::ParticleDispatchArgs>();
         }
     }
 
@@ -493,14 +514,16 @@ namespace Desert::Graphic::System
             const bool          reset = compact == 0 && gpu.NeedsReset;
             const uint32_t      flags =
                  ( compact == 0 ? kParticleCompactFullScan : 0u ) | ( reset ? kParticleCompactReset : 0u );
-            ParticleCompactPush push;
-            push.Range = glm::uvec4( gpu.Range.Base, gpu.Range.Count, compact & 1u, flags );
+            ShaderPush::ParticleCompact push;
+            push.SortRange    = glm::uvec4( gpu.Range.Base, gpu.Range.Count, compact & 1u, flags );
+            // Later compacts copy nothing (kParticleAttrNone).
+            push.PreviousCopy = glm::uvec4( 0xFFFFFFFFu, 0xFFFFFFFFu, 0u, 0u );
             // Compact 0 starts the tick's motion: PreviousPosition = Position (UE Particles.Previous.Position).
             if ( compact == 0 )
                 push.PreviousCopy =
                      glm::uvec4( gpu.DrawColumns.Columns0.x, gpu.DrawColumns.Columns3.x, 0u, 0u );
             RDG::PassBindings         bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             // Compact 0 rebuilds the lists from the whole range; a later one scans the touched particles only,
             // as many groups as the step's Dispatch Args wrote.
             const Common::BoolResultStr dispatched =
@@ -534,7 +557,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleCompactShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageWrite )
                  .Storage( ParticleCompactShaderParameters::AttributeFloats, ve.FloatsRef,
                            RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleCompactPush ) ) );
+                 .PushConstants<ShaderPush::ParticleCompact>();
             if ( compact > 0 )
                 pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -552,10 +575,10 @@ namespace Desert::Graphic::System
         {
             if ( !RunsStep( ve, step, stage ) )
                 continue;
-            // y = the system's event step serial of step 0 (ParticleSimPush::Stack.y, Common/VFXEvents.glslh).
-            const ParticleArgsPush push{ glm::uvec4( step, ve.Frame->Push.Stack.y, 0u, 0u ) };
+            // y = the system's event step serial of step 0 (ShaderPush::ParticleSimulate::Stack.y, Common/VFXEvents.glslh).
+            const ShaderPush::ParticleDispatchArgs push{ glm::uvec4( step, ve.Frame->Push.Stack.y, 0u, 0u ) };
             RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             const Common::BoolResultStr dispatched =
                  renderer.DispatchCompute( bindings, *m_ArgsPipeline, 1, 1, 1 );
             if ( !dispatched )
@@ -583,7 +606,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleDispatchArgsShaderParameters::EventTable, ve.EventTableRef,
                            RDG::Access::StorageRead )
                  .Storage( ParticleDispatchArgsShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
+                 .PushConstants<ShaderPush::ParticleDispatchArgs>();
         }
     }
 
@@ -595,10 +618,10 @@ namespace Desert::Graphic::System
         {
             if ( !RunsStep( ve, step, stage ) )
                 continue;
-            ParticleSimPush push = ve.Frame->Push;
+            ShaderPush::ParticleSimulate push = ve.Frame->Push;
             push.Counts.y        = step;
             RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             // As many groups as the step's Dispatch Args wrote: max(alive, spawned) threads.
             const Common::BoolResultStr dispatched = Renderer::DispatchComputeIndirect(
                  bindings, *ve.Frame->Pipeline, ve.ArgsRef, kParticleSimulateArgsOffset );
@@ -621,6 +644,11 @@ namespace Desert::Graphic::System
             // PORT-VFX-MODULES (UE Scene Depth collision): a colliding stack - the one kind that ticks PostOpaque
             // (VFXStackCompiler 4b) - declares CollisionView / SceneDepth (VFX::kVFXSceneDepthDefine); every other
             // stack declares neither, so the same test that chose its chain chooses its slots.
+            // WIND-FIELD-GPU: a wind-reading stack (VFX::kVFXSceneWindDefine) declares SceneWind; an emitter whose
+            // block is not in the graph sat the frame out in ImportFrameBuffers.
+            if ( ve.Frame->Gpu->ReadsSceneWind )
+                block.Storage( ParticleSimulateShaderParameters::SceneWind, m_SceneWindRef,
+                               RDG::Access::StorageRead );
             if ( ve.Frame->Gpu->ReadsSceneDepth )
                 block.Storage( ParticleSimulateShaderParameters::CollisionView, m_CollisionViewRef,
                                RDG::Access::StorageRead )
@@ -646,7 +674,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleSimulateShaderParameters::EventTable, ve.EventTableRef,
                            RDG::Access::StorageRead )
                  .Storage( ParticleSimulateShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
+                 .PushConstants<ShaderPush::ParticleSimulate>();
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
     }
@@ -665,6 +693,7 @@ namespace Desert::Graphic::System
         m_CollisionViewRef  = {};
         m_CollisionDepthRef = {};
         m_CollisionReady    = false;
+        m_SceneWindRef      = {};
         m_EventImports.clear();
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
             return;
@@ -686,6 +715,8 @@ namespace Desert::Graphic::System
         m_Pool.FreeRef  = graph.RegisterExternal( m_Pool.FreeImport, "ParticleFreeList" );
         m_Pool.AliveRef = graph.RegisterExternal( m_Pool.AliveImport, "ParticleAliveList" );
         m_Pool.Declared = true;
+        // The scene's air, once for every wind-reading emitter of the simulating view (VFX_SceneWind).
+        const Common::BoolResultStr wind = ImportSceneWind( graph );
 
         for ( size_t i = 0; i < m_ViewEmitters.size(); ++i )
         {
@@ -741,6 +772,8 @@ namespace Desert::Graphic::System
                 }
                 else if ( stack )
                     stack = Common::MakeError<bool>( std::string( "the system has no event buffer" ) );
+                if ( stack && gpu.ReadsSceneWind && !wind )
+                    stack = Common::MakeError<bool>( std::format( "the scene wind block: {}", wind.GetError() ) );
                 if ( !steps || !args || !chan || !stack )
                 {
                     LOG_ERROR(
@@ -794,6 +827,33 @@ namespace Desert::Graphic::System
                  graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
             ve.Declared    = true;
         }
+    }
+
+    Common::BoolResultStr ParticleRenderer::ImportSceneWind( RDG::Builder& graph )
+    {
+        m_SceneWindRef = {};
+        if ( !m_Simulates || std::ranges::none_of( m_ViewEmitters, []( const ViewEmitter& ve )
+                                                   { return ve.Frame->Gpu->ReadsSceneWind; } ) )
+            return BOOLSUCCESS; // no emitter binds it: nothing to write
+        const ViewFrame* view = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( view == nullptr )
+            return Common::MakeError<bool>( std::string( "the view has no frame this frame" ) );
+        if ( !m_SceneWind )
+        {
+            m_SceneWind = ShaderResources::StorageBuffer::Create(
+                 "ParticleSceneWind", static_cast<uint32_t>( sizeof( ParticleSceneWindGpu ) ), 16 );
+            if ( !m_SceneWind )
+                return Common::MakeError<bool>( std::string( "the buffer was not created" ) );
+        }
+        const ParticleSceneWindGpu  air     = MakeParticleSceneWind( *view );
+        const Common::BoolResultStr written = m_SceneWind->SetData( &air, static_cast<uint32_t>( sizeof( air ) ) );
+        if ( !written )
+            return written;
+        const Common::BoolResultStr imported = Renderer::ImportBuffer( m_SceneWind, m_SceneWindImport );
+        if ( !imported )
+            return imported;
+        m_SceneWindRef = graph.RegisterExternal( m_SceneWindImport, "ParticleSceneWind" );
+        return BOOLSUCCESS;
     }
 
     bool ParticleRenderer::ImportCollisionInputs( RDG::Builder& graph, const RDG::TextureRef sceneDepth )
@@ -869,13 +929,13 @@ namespace Desert::Graphic::System
             const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
             const uint32_t            half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
             const uint32_t            rows = m_World->IsDebugTable( gpu ) ? kParticleDebugMaxRows : 0u;
-            const ParticleDebugPush   push{
+            const ShaderPush::ParticleDebugReadback   push{
                  glm::uvec4( half, m_World->DebugRequest().FirstRow, rows, gpu.FloatColumns ),
                  glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, gpu.Range.Count, gpu.Range.Base,
                              m_World->DebugSerial() ),
                  glm::uvec4( gpu.IntColumns, 0u, 0u, 0u ) };
             RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
                  bindings, *m_DebugPipeline, std::max( 1u, ( rows + kParticleLocalSize - 1 ) / kParticleLocalSize ),
                  1, 1 );
@@ -908,10 +968,10 @@ namespace Desert::Graphic::System
             const uint32_t half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
             const uint32_t lights =
                  std::min( ve.Frame->Light->MaxLights, Assets::Serialization::kVFXLightMaxPerEmitter );
-            const ParticleLightPush push{ glm::uvec4( half, lights, m_World->LightSerial(), 0u ),
+            const ShaderPush::ParticleLightReadback push{ glm::uvec4( half, lights, m_World->LightSerial(), 0u ),
                                           glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, 0u, 0u, 0u ) };
             RDG::PassBindings       bindings( context, context.GetBindingBlock( block++ ) );
-            bindings.PushConstants( &push, sizeof( push ) );
+            bindings.PushConstants( push );
             const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
                  bindings, *m_LightPipeline,
                  std::max( 1u, ( lights + kParticleLocalSize - 1 ) / kParticleLocalSize ), 1, 1 );
@@ -941,7 +1001,7 @@ namespace Desert::Graphic::System
                            RDG::Access::StorageRead )
                  .Storage( ParticleLightReadbackShaderParameters::Readback, ve.LightRef,
                            RDG::Access::StorageWrite )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleLightPush ) ) );
+                 .PushConstants<ShaderPush::ParticleLightReadback>();
         }
     }
 
@@ -968,7 +1028,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleDebugReadbackShaderParameters::EventTable, ve.EventTableRef,
                            RDG::Access::StorageRead )
                  .Storage( ParticleDebugReadbackShaderParameters::Events, ve.EventsRef, RDG::Access::StorageRead )
-                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleDebugPush ) ) );
+                 .PushConstants<ShaderPush::ParticleDebugReadback>();
         }
     }
 
@@ -1042,7 +1102,7 @@ namespace Desert::Graphic::System
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
                 const ParticleSortStage stage = stages[s];
-                const ParticleSortPush  push{
+                const ShaderPush::ParticleSort  push{
                      glm::uvec4( range.AliveOffset, range.Slot, range.KeyBase, range.Length ),
                      glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, range.Ribbon ? 1u : 0u ),
                      origin, forward };
@@ -1059,7 +1119,7 @@ namespace Desert::Graphic::System
                      [this, push, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, sizeof( push ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *m_SortPipeline, stage.Groups,
                                                                          1, 1 );
                      } );
@@ -1604,6 +1664,28 @@ namespace Desert::Graphic::System
                             []( const ViewEmitter& ve ) { return !ve.Meshes.empty(); } );
     }
 
+    bool ParticleRenderer::DrawsLitSprites() const
+    {
+        // The forward draws DeclareSpriteDraws declares, by its own filter. Asked after the PostOpaque stage's
+        // collision import (HasDrawnHalf reads m_CollisionReady), so a sprite this frame does not draw never
+        // fills the volume and one it draws always finds it filled.
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !IsDrawn( ve ) || !HasDrawnHalf( ve, false ) )
+                continue;
+            for ( const ViewDraw& draw : ve.Draws )
+            {
+                const SpriteDraw* sprite = draw.Sprite;
+                if ( draw.GBuffer || sprite == nullptr || !sprite->Pipeline )
+                    continue;
+                const auto& slotted = sprite->Layout.GetSlotted( sprite->Pipeline->GetSpecification().Shader );
+                if ( slotted.Slots.Has( SceneViewSlot::TranslucencyLightingVolume ) )
+                    return true;
+            }
+        }
+        return false;
+    }
+
     void ParticleRenderer::AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes )
     {
         if ( !m_Pool.Declared || !m_MeshPipeline )
@@ -1649,16 +1731,7 @@ namespace Desert::Graphic::System
                 const RDG::BufferRef history = graph.RegisterExternal(
                      state.HistoryImport, std::format( "ParticleMeshHistory{}.{}", i, vm.Row ) );
 
-                struct MeshPush
-                {
-                    glm::uvec4 Range;
-                    glm::vec4  Scale;
-                    glm::uvec4 Frame;
-                    glm::vec4  Sphere;
-                    glm::vec4  Lens;
-                    glm::uvec4 Lod;
-                };
-                MeshPush push{
+                ShaderPush::ParticleMeshInstances push{
                      glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half, state.Submeshes,
                                  state.Capacity ),
                      glm::vec4( vm.Scale, 0.0f ),
@@ -1693,12 +1766,12 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageWrite )
                               .Storage( ParticleMeshInstancesShaderParameters::PoolSlots, m_Pool.SlotsRef,
                                         RDG::Access::StorageRead )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
+                              .PushConstants<ShaderPush::ParticleMeshInstances>();
                      },
                      [this, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, sizeof( push ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, groups, 1, 1 );
                      } );
                 // The emitter's level (UE Niagara Mesh Renderer, LOD by screen size): the instances pass reduced
@@ -1728,12 +1801,12 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageWrite )
                               .Storage( ParticleMeshInstancesShaderParameters::PoolSlots, m_Pool.SlotsRef,
                                         RDG::Access::StorageRead )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
+                              .PushConstants<ShaderPush::ParticleMeshInstances>();
                      },
                      [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( &push, sizeof( push ) );
+                         bindings.PushConstants( push );
                          return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, 1, 1, 1 );
                      } );
 

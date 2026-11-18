@@ -555,6 +555,7 @@ namespace Desert::Graphic::System
         gpu.Pipeline  = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
         gpu.TickStage = compiled.GetValue().TickStage;
         gpu.ReadsSceneDepth = gpu.TickStage == VFX::VFXTickStage::PostOpaque; // before UnifyEventTickStages
+        gpu.ReadsSceneWind  = compiled.GetValue().ReadsSceneWind;
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );
@@ -1151,7 +1152,7 @@ namespace Desert::Graphic::System
         gpu.LastHalf         = stepCount & 1u;
         gpu.HasLastHalf      = true;
         fe.Push.LocalToWorld = localToWorld;
-        fe.Push.Step         = glm::vec4( stepSeconds, 0.0f, 0.0f, 0.0f );
+        fe.Push.StepLength   = glm::vec4( stepSeconds, 0.0f, 0.0f, 0.0f );
         fe.WorldBounds       = Assets::Serialization::VFXBoundsAt( data.Bounds, localToWorld );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         // The random streams' step (Stack.x + step): the emitter's own step since its reset, never the world's

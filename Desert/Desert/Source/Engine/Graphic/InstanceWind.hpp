@@ -12,6 +12,7 @@
 // fixed step under --play, zero while editing), so the same time is the same pose on every machine.
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 
 #include <glm/glm.hpp>
 
@@ -55,17 +56,19 @@ namespace Desert::Graphic
     }
 
     /// The wind of a type from its response (cm, Hz, cm) and the scene's wind where it stands (@p windXZ: the
-    /// world XZ components of ECS::WindAt's velocity, cm/s) at @p gameplaySeconds. The direction is the scene's,
-    /// never the type's: air with no horizontal motion sways nothing, whatever the type's Strength.
+    /// world XZ components of the DIRECTIONAL air, cm/s) at @p gameplaySeconds. The direction is the scene's,
+    /// never the type's: air with no horizontal motion sways nothing, whatever the type's Strength - unless
+    /// @p localWind (a point source blows somewhere): then the type sways with Direction zero, by the local
+    /// sources each instance finds around it (Graphic::LocalWindXZ, FoliageWindAir).
     [[nodiscard]] inline InstanceWind MakeInstanceWind( float strength, float speed, float height,
                                                         const glm::vec2& windXZ, double gameplaySeconds,
-                                                        double prevGameplaySeconds )
+                                                        double prevGameplaySeconds, bool localWind = false )
     {
         InstanceWind wind;
         const float  horizontal = glm::length( windXZ );
-        if ( !( horizontal > 1e-6f ) )
+        if ( !( horizontal > 1e-6f ) && !localWind )
             return wind;
-        wind.Direction       = windXZ / horizontal;
+        wind.Direction       = horizontal > 1e-6f ? windXZ / horizontal : glm::vec2( 0.0f );
         wind.Strength        = strength;
         wind.Speed           = speed;
         wind.Height          = height;
@@ -81,11 +84,16 @@ namespace Desert::Graphic
      * Horizontal only, along the wind. The height mask is the vertex's MESH-local height over Height,
      * clamped to [0, 1] and squared: the root (y <= 0) never moves, the tip moves most. The sway term lies in
      * [0, 1] (the plant leans downwind and swings back to upright), and the phase comes from the instance's
-     * world position so neighbours do not move in lockstep. Its magnitude never exceeds Strength, which is
-     * what WindBoundsPad relies on.
+     * world position so neighbours do not move in lockstep. The scene's gust fronts at the instance's point
+     * (@p gust, CameraUB::WindGust; WindGustScale in [1 - Gustiness, 1]) scale it. The direction is the air at
+     * the instance (FoliageWindAir): the per-draw directional wind plus @p localAir, the scene's local sources at
+     * the instance's point (LocalWindXZ of CameraUB::LocalWind), shortened to length 1. Its magnitude never
+     * exceeds Strength, which is what WindBoundsPad relies on.
      */
     [[nodiscard]] inline glm::vec3 FoliageWindOffset( const glm::vec3& localPosition,
-                                                      const glm::vec3& instanceOrigin, const InstanceWind& wind )
+                                                      const glm::vec3& instanceOrigin, const InstanceWind& wind,
+                                                      const glm::vec4& gust,
+                                                      const glm::vec2& localAir = glm::vec2( 0.0f ) )
     {
         if ( !wind.Sways() )
             return glm::vec3( 0.0f );
@@ -95,8 +103,10 @@ namespace Desert::Graphic
         const float t     = 6.2831853f * wind.Speed * wind.Seconds;
         const float sway =
              0.65f * std::sin( t + phase ) + 0.35f * std::sin( kWindHarmonicRatio * t + 1.7f * phase );
-        const float amount = wind.Strength * mask * ( 0.5f + 0.5f * sway );
-        return glm::vec3( wind.Direction.x, 0.0f, wind.Direction.y ) * amount;
+        const float amount = wind.Strength * mask * ( 0.5f + 0.5f * sway ) *
+                             WindGustScale( instanceOrigin.x, instanceOrigin.z, gust );
+        const glm::vec2 air = FoliageWindAir( wind.Direction, localAir );
+        return glm::vec3( air.x, 0.0f, air.y ) * amount;
     }
 
     /// The largest distance FoliageWindOffset can move a vertex: what the instance's box grows by.

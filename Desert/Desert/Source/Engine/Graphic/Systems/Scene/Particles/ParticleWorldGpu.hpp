@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -31,28 +32,7 @@ namespace Desert::Core
 
 namespace Desert::Graphic::System
 {
-    // Push constant for ParticleSimulate (must match the shader's 128-byte block).
-    // ParticleSimulate.shader's PushConstants, field for field.
-    struct ParticleSimPush
-    {
-        // The entity's full transform (cm; UE Engine.Owner.SystemLocalToWorld): a World emitter's newborns are
-        // placed through it, a Local emitter's Spawn-from-Channel positions come back through its inverse.
-        glm::mat4  LocalToWorld = glm::mat4( 1.0f );
-        glm::vec4  Step;   // x = the fixed step length (seconds), yzw 0
-        glm::uvec4 Counts; // range count, step index into the step table, range pool base, local-space
-        glm::uvec4 Stack; // x = the emitter's own serial of this tick's step 0 (the random streams' step), y = the
-                          // system's event step serial of step 0 (Common/VFXEvents.glslh), zw 0
-    };
 
-    // ParticleCompact's push constant: x = pool base, y = particle count, z = the slot filled, w = flags
-    // (kParticleCompactReset, kParticleCompactFullScan).
-    struct ParticleCompactPush
-    {
-        glm::uvec4 Range;
-        // Compact 0's motion start (ParticleCompact.shader PreviousCopy): x = Position's first float column,
-        // y = the PreviousPosition column (kParticleAttrNone: no copy; every later compact), zw 0.
-        glm::uvec4 PreviousCopy = glm::uvec4( 0xFFFFFFFFu, 0xFFFFFFFFu, 0u, 0u );
-    };
     // Compact 0 of an emitter that restarts: its range is killed before the scan.
     constexpr uint32_t kParticleCompactReset = 1u;
     // Compact 0: every particle of the range is scanned (the lists are rebuilt from the pool). A later compact
@@ -60,36 +40,10 @@ namespace Desert::Graphic::System
     // indirectly over exactly that many.
     constexpr uint32_t kParticleCompactFullScan = 2u;
 
-    // ParticleDispatchArgs' push constant: x = the step whose Spawn+Update and following compact it sizes, y = the
-    // system's event step serial of step 0 (ParticleSimPush::Stack.y).
-    struct ParticleArgsPush
-    {
-        glm::uvec4 Step;
-    };
 
-    // VFX-16 (UE Niagara Debugger, dev only): ParticleDebugReadback's push constant and its readback's shape. The
-    // readback is 8 header uints (alive, free, debug serial, rows written, the events the emitter stored over its
-    // last tick - Common/VFXEvents.glslh's tick counts -, 3 zeros) then per row the pool index and the emitter's
-    // float attribute components, then its int components (their bits); one page is kParticleDebugMaxRows alive
-    // particles.
-    struct ParticleDebugPush
-    {
-        glm::uvec4 Page;  // x = last compact's slot, y = first alive row, z = rows (0 = counts only), w = float columns
-        glm::uvec4 Range; // x = drawn alive half's offset, y = range count, z = pool base, w = debug serial (never 0)
-        glm::uvec4 Columns; // x = int columns; yzw = 0
-    };
     constexpr uint32_t kParticleDebugHeaderUints = 8u; // ParticleDebugReadback.shader PARTICLE_DEBUG_HEADER_UINTS
     constexpr uint32_t kParticleDebugMaxRows     = 64u;
 
-    // VFX-LIGHT (UE Niagara Light Renderer): ParticleLightReadback's push constant and its readback's shape - 4
-    // header uints (lights written, frame serial, 0, 0), then per light 8 floats: world position (cm), the larger
-    // SpriteSize axis (cm), Color rgba. The CPU reads the copy FramesInFlight frames later (no stall) and turns
-    // each row into a point light with the emitter's Light row (ParticleWorldGpu::ReadLightReadbacks).
-    struct ParticleLightPush
-    {
-        glm::uvec4 Page;       // x = the last compact's slot, y = lights wanted, z = serial (never 0), w = 0
-        glm::uvec4 AliveRange; // x = the drawn alive half's offset in AliveList, yzw = 0
-    };
     constexpr uint32_t kParticleLightHeaderUints = 4u;
     constexpr uint32_t kParticleLightRowFloats   = 8u;
 
@@ -262,6 +216,9 @@ namespace Desert::Graphic::System
         // SceneDepth). TickStage is PostOpaque then, and also when an emitter linked to it by events reads it
         // (VFX::UnifyEventTickStages) - the stage, not the slots, is what the link moves.
         bool ReadsSceneDepth = false;
+        // Its own stack reads the scene's air (VFX_READS_SCENE_WIND: the program declares the SceneWind block,
+        // ParticleRenderer binds it). No stage of its own: the air is the frame's, known before any pass.
+        bool ReadsSceneWind = false;
         // The alive half / draw slot the last scheduled tick's last compact fills (its StepCount & 1), and whether
         // there was such a tick: what a PostOpaque emitter's draws recorded before this frame's simulation read
         // (ParticleFrameEmitter::PreviousHalf).
@@ -305,7 +262,7 @@ namespace Desert::Graphic::System
         uint32_t            EntityId = 0;
         uint32_t            Emitter  = 0; // the emitter's index in its system (VFXSystemData::Emitters)
         ParticleEmitterGpu* Gpu      = nullptr;
-        ParticleSimPush     Push;
+        ShaderPush::ParticleSimulate     Push;
         ComputePipeline*    Pipeline = nullptr; // the emitter's stack host program (Gpu->Pipeline)
         // The emitter's enabled renderer rows in `.dfx` order (VFXS 2); none = the emitter simulates and draws
         // nothing (UE: an emitter without renderers).

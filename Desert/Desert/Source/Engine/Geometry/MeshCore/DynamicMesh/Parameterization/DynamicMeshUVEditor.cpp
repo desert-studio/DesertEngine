@@ -6,11 +6,15 @@
 // a triangle the submesh cannot append counts as failed. SetTriangleUVsFromFreeBoundarySpectralConformal is
 // DynamicMeshUVEditor.cpp:754-988 with Options.bUseSpectral fixed true (the other branch is not ported).
 // SetToPerVertexUVs is :198-222 without the UVEditResult; ScaleUVAreaTo3DArea is :1461-1497 with
-// DetermineAreaFromUVs (:1743-1768) and GetVolumeArea's area written out.
+// DetermineAreaFromUVs (:1743-1768) and GetVolumeArea's area written out. CreateSeamsAtEdges / RemoveSeamsAtEdges
+// are :1044-1052 with the bodies of UE::Private::OverlaySeamHelpers (GeometryCore/Private/DynamicMeshEditor.cpp:
+// 22-224) written for the UV overlay; UE's ensure()s are asserts.
 #include "Engine/Geometry/MeshCore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
 
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshIndexUtil.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshCore/DynamicSubmesh3.hpp"
+#include "Engine/Geometry/MeshCore/IndexUtil.hpp"
 #include "Engine/Geometry/MeshCore/MeshBoundaryLoops.hpp"
 #include "Engine/Geometry/MeshCore/Parameterization/MeshDijkstra.hpp"
 #include "Engine/Geometry/MeshCore/Parameterization/MeshLocalParam.hpp"
@@ -21,6 +25,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -770,5 +775,173 @@ namespace Desert::Geometry
                                         Island.assign( UVComponents.GetComponent( Idx ).Indices.begin(),
                                                        UVComponents.GetComponent( Idx ).Indices.end() );
                                     } );
+    }
+
+    bool DynamicMeshUVEditor::CreateSeamsAtEdges( const std::vector<int32_t>& EidsToMakeIntoSeams,
+                                                  UVEditResult*               Result )
+    {
+        // Note (UE): the mesh boundary edge version of this method is DisconnectTrianglesAlongEdges.
+        const DynamicMesh3* const         Mesh            = m_Mesh;
+        DynamicMeshUVOverlay* const       Overlay         = m_UVOverlay;
+        std::vector<int32_t>* const       AddedElementIDs = Result != nullptr ? &Result->NewUVElements : nullptr;
+        const std::unordered_set<int32_t> FutureSeams( EidsToMakeIntoSeams.begin(), EidsToMakeIntoSeams.end() );
+
+        const auto FindElementForVertex = [Mesh, Overlay]( int32_t MeshVertexID, int32_t MeshEdgeID ) -> int32_t
+        {
+            const Index2i Tris   = Mesh->GetEdgeT( MeshEdgeID );
+            const Index3i Tri0   = Mesh->GetTriangle( Tris.A );
+            const Index3i UVTri0 = Overlay->GetTriangle( Tris.A );
+            for ( int32_t j = 0; j < 3; ++j )
+                if ( Tri0[j] == MeshVertexID )
+                    return UVTri0[j];
+            return IndexConstants::InvalidID;
+        };
+
+        // TidsUntilNextSeam: the triangles in a fan away from Eid around Vid until the next seam; the entire
+        // one-ring when Eid is the only (present or future) seam at Vid, which is the false return.
+        const auto DoesVertHaveAnotherSeamAttached = [&FutureSeams, Mesh,
+                                                      Overlay]( int32_t Eid, int32_t Vid,
+                                                                std::vector<int32_t>& TidsUntilNextSeam ) -> bool
+        {
+            TidsUntilNextSeam.clear();
+            const Index2i EdgeTids    = Mesh->GetEdgeT( Eid );
+            int32_t       CurrentTid  = EdgeTids.A;
+            int32_t       PreviousTid = EdgeTids.B;
+            const size_t  MaxNumTids  = static_cast<size_t>( Mesh->GetVtxEdgeCount( Vid ) );
+            while ( true )
+            {
+                TidsUntilNextSeam.push_back( CurrentTid );
+                if ( TidsUntilNextSeam.size() > MaxNumTids ) // sanity check
+                {
+                    assert( false && "CreateSeamsAtEdges: the fan walk passed the vertex's edge count" );
+                    return false;
+                }
+                // Stop at a seam or at a future seam other than the starting edge (walking across the starting
+                // edge ends the walk at the wrap-around check below, not as a seam).
+                const Index3i NextTriResult = FindNextAdjacentTriangleAroundVtx(
+                     Mesh, Vid, CurrentTid, PreviousTid,
+                     [&FutureSeams, Overlay, Eid]( int32_t Tri0, int32_t Tri1, int32_t EidBetween )
+                     {
+                         return Overlay->AreTrianglesConnected( Tri0, Tri1 ) &&
+                                !( EidBetween != Eid && FutureSeams.contains( EidBetween ) );
+                     } );
+                const int32_t NextTid = NextTriResult.A;
+                if ( NextTid == IndexConstants::InvalidID )
+                    return true; // came to a present or future seam
+                if ( NextTid == EdgeTids.A )
+                    return false; // wrapped around
+                PreviousTid = CurrentTid;
+                CurrentTid  = NextTid;
+            }
+        };
+
+        const auto SplitEdgeVertElement = [Overlay, AddedElementIDs, &FindElementForVertex](
+                                               int32_t Eid, int32_t Vid, const std::vector<int32_t>& TidsToModify )
+        {
+            const int32_t ElementID = FindElementForVertex( Vid, Eid );
+            assert( ElementID != IndexConstants::InvalidID );
+            if ( ElementID == IndexConstants::InvalidID )
+                return;
+            const int32_t NewElementID = Overlay->SplitElement( ElementID, TidsToModify );
+            if ( AddedElementIDs != nullptr )
+                AddedElementIDs->push_back( NewElementID );
+        };
+
+        for ( const int32_t Eid : EidsToMakeIntoSeams )
+        {
+            const Index2i        EdgeVids              = Mesh->GetEdgeV( Eid );
+            bool                 VertNeedsSplitting[2] = { false, false };
+            std::vector<int32_t> VertTidsToUseForSplit[2];
+
+            if ( Overlay->IsSeamEdge( Eid ) )
+            {
+                // Already a seam (a mesh border edge counts as one): make sure its end vertices are not bowties.
+                // Such edges are made as adjacent edges get split, and splitting them is likely what the user
+                // wants when picking edges next to a bowtie.
+                for ( int32_t i = 0; i < 2; ++i )
+                    if ( Overlay->IsBowtieInOverlay( EdgeVids[i] ) )
+                        Overlay->SplitBowtiesAtVertex( EdgeVids[i], AddedElementIDs );
+                continue;
+            }
+
+            // Not a seam yet, it is going to become one. A vertex is split if it has a present or future seam
+            // attached, or else it would become a bowtie when only the other vertex is split.
+            for ( int32_t i = 0; i < 2; ++i )
+                VertNeedsSplitting[i] =
+                     DoesVertHaveAnotherSeamAttached( Eid, EdgeVids[i], VertTidsToUseForSplit[i] );
+
+            if ( !VertNeedsSplitting[0] && !VertNeedsSplitting[1] )
+            {
+                // Neither has to be split, yet one must be for the edge to become a seam: half of the first
+                // vertex's one-ring (rounded up) is split off. That splits an adjacent edge too and may leave a
+                // bowtie at that edge's other vertex, which is split right after.
+                const int32_t NumTrisToDisconnect =
+                     ( static_cast<int32_t>( VertTidsToUseForSplit[0].size() ) + 1 ) / 2;
+                if ( NumTrisToDisconnect < 1 ||
+                     NumTrisToDisconnect >= static_cast<int32_t>( VertTidsToUseForSplit[0].size() ) )
+                {
+                    assert( false &&
+                            "CreateSeamsAtEdges: an interior edge's vertex has a one-ring of one triangle" );
+                    continue;
+                }
+                const int32_t OtherSplitEdge =
+                     Mesh->FindEdgeFromTriPair( VertTidsToUseForSplit[0][NumTrisToDisconnect - 1],
+                                                VertTidsToUseForSplit[0][NumTrisToDisconnect] );
+                assert( OtherSplitEdge != IndexConstants::InvalidID );
+                const int32_t PotentialBowtieVid =
+                     OtherSplitEdge != IndexConstants::InvalidID
+                          ? IndexUtil::FindEdgeOtherVertex( Mesh->GetEdgeV( OtherSplitEdge ), EdgeVids[0] )
+                          : IndexConstants::InvalidID;
+
+                VertTidsToUseForSplit[0].resize( static_cast<size_t>( NumTrisToDisconnect ) );
+                SplitEdgeVertElement( Eid, EdgeVids[0], VertTidsToUseForSplit[0] );
+
+                assert( PotentialBowtieVid != IndexConstants::InvalidID );
+                if ( PotentialBowtieVid != IndexConstants::InvalidID &&
+                     Overlay->IsBowtieInOverlay( PotentialBowtieVid ) )
+                    Overlay->SplitBowtiesAtVertex( PotentialBowtieVid, AddedElementIDs );
+            }
+            else
+            {
+                for ( int32_t i = 0; i < 2; ++i )
+                    if ( VertNeedsSplitting[i] )
+                        SplitEdgeVertElement( Eid, EdgeVids[i], VertTidsToUseForSplit[i] );
+            }
+        }
+        return true;
+    }
+
+    bool DynamicMeshUVEditor::RemoveSeamsAtEdges( const std::vector<int32_t>& EidsToRemoveAsSeams )
+    {
+        for ( const int32_t Eid : EidsToRemoveAsSeams )
+        {
+            const Index2i EdgeVids = m_Mesh->GetEdgeV( Eid );
+
+            // Closely resembles DynamicMeshOverlay::IsSeamEdge, replicated for its intermediate values (UE).
+            const Index2i Tris = m_Mesh->GetEdgeT( Eid );
+            if ( Tris.B == DynamicMesh3::InvalidID )
+                continue; // technically a seam, but there is no opposite edge to merge with
+            if ( !m_UVOverlay->IsSetTriangle( Tris.A ) || !m_UVOverlay->IsSetTriangle( Tris.B ) )
+                continue; // one side has no UVs, nothing to merge
+
+            const Index3i Triangle0     = m_UVOverlay->GetTriangle( Tris.A );
+            const Index3i BaseTriangle0 = m_Mesh->GetTriangle( Tris.A );
+            const Index3i Triangle1     = m_UVOverlay->GetTriangle( Tris.B );
+            const Index3i BaseTriangle1 = m_Mesh->GetTriangle( Tris.B );
+
+            const int32_t ElATri0 = Triangle0[BaseTriangle0.IndexOf( EdgeVids.A )];
+            const int32_t ElBTri0 = Triangle0[BaseTriangle0.IndexOf( EdgeVids.B )];
+            const int32_t ElATri1 = Triangle1[BaseTriangle1.IndexOf( EdgeVids.A )];
+            const int32_t ElBTri1 = Triangle1[BaseTriangle1.IndexOf( EdgeVids.B )];
+
+            // A joined seam whose pairwise vertex matching went wrong would show as a crossed pair (UE ensure).
+            assert( !( ElATri0 == ElBTri1 && ElBTri0 == ElATri1 ) );
+
+            if ( ElATri0 != ElATri1 )
+                m_UVOverlay->MergeElement( ElATri0, ElATri1 );
+            if ( ElBTri0 != ElBTri1 )
+                m_UVOverlay->MergeElement( ElBTri0, ElBTri1 );
+        }
+        return true;
     }
 } // namespace Desert::Geometry

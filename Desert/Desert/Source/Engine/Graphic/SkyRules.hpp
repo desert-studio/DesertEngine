@@ -197,8 +197,8 @@ namespace Desert::Graphic
     using Assets::kSkyEnvPrefilterMips;
     using Assets::kSkyEnvRadianceMips;
 
-    // The format every one of the three cubes is created at — `ComputeImages::ProccessForImageCube` and
-    // `ProccessForImageCubeMips` both ask for RGBA32F. It is the FORMAT that is written down here, not
+    // The format every one of the three cubes is created at — `System::SkyCapture::AllocateCubes` asks for
+    // RGBA32F. It is the FORMAT that is written down here, not
     // its size: `kSkyEnvBytesPerPixel = 16` used to sit on this line, a hand-typed copy of
     // `GetBytesPerPixel( RGBA32F )` that nothing made agree with it and that would have gone on
     // answering 16 on the day the cubes moved to RGBA16F.

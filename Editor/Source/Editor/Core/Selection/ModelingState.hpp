@@ -80,6 +80,14 @@ namespace Desert::Editor::Core
             // preview on it, a change of shape / count / spacing recomputes them; Accept writes them merged into
             // the source or - XformPatternSeparate - as new entities, one undo step; Cancel creates nothing.
             Pattern,
+            // UE's Create palette Merge (UCombineMeshesTool): the selected meshes preview merged on the first
+            // selected (the others hidden); Accept writes the merged mesh into it and deletes the others, one undo
+            // step; Cancel leaves every input as it was.
+            Merge,
+            // UE's XForm Split (USplitMeshesTool): the selected mesh previews with its part count for XformSplit
+            // (connected components or polygroups); Accept keeps part 0 in it and makes each other part a new
+            // entity, one undo step.
+            Split,
             // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh
             // (Standard, Smooth, Move; Geometry/DynamicMeshSculpt.hpp).
             Sculpt,

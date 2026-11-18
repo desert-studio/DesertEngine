@@ -8,11 +8,15 @@
 //             existing UVs, ExpMap / spectral conformal per island, NormalizeAreas, AutoRotation, Repack).
 //   Layout  - UE ModelingOperators/Private/ParameterizationOps/UVLayoutOp.cpp (Repack through the
 //             FDynamicMeshUVPacker, then UVScaleFactor and UVTranslation; Transform only applies those two).
+//   Seams   - UE MeshModelingToolsExp/Private/SeamSculptTool.cpp (UpdateCurrentDrawPath :226-262,
+//             CreateSeamAlongPath :363-387) over FDynamicMeshUVEditor::CreateSeamsAtEdges / RemoveSeamsAtEdges.
 #include "Engine/Geometry/DynamicMeshUVOperations.hpp"
 #include "Engine/Geometry/DynamicMeshSelection.hpp" // AllTriangleIds
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
+#include "Engine/Geometry/MeshCore/LineTypes.hpp"
+#include "Engine/Geometry/MeshCore/Parameterization/MeshDijkstra.hpp"
 #include "Engine/Geometry/MeshCore/Parameterization/UVPacking.hpp"
 #include "Engine/Geometry/MeshCore/Selections/MeshConnectedComponents.hpp"
 #include "Engine/Geometry/MeshRegionOperation.hpp"
@@ -581,5 +585,127 @@ namespace Desert::Geometry
                        fmt::format( "{} of {} triangles; scale {:.3f} x {:.3f}, rotation {:.1f} deg about {}",
                                     scope.size(), mesh.TriangleCount(), settings.Scale.x, settings.Scale.y,
                                     settings.RotationDeg, ToString( settings.Pivot ) ) );
+    }
+
+    const char* ToString( UVSeamMode mode )
+    {
+        switch ( mode )
+        {
+            case UVSeamMode::Cut:
+                return "Cut";
+            case UVSeamMode::Join:
+                return "Join";
+        }
+        return "?";
+    }
+
+    Common::ResultStr<std::vector<int32_t>> ShortestEdgePath( const DynamicMesh3& mesh, int32_t fromVertex,
+                                                              int32_t toVertex, const UVSeamSettings& settings )
+    {
+        if ( !mesh.IsVertex( fromVertex ) || !mesh.IsVertex( toVertex ) )
+            return Common::MakeError<std::vector<int32_t>>(
+                 fmt::format( "UV Seams: vertex {} or {} is not on the mesh", fromVertex, toVertex ) );
+        if ( fromVertex == toVertex )
+            return Common::MakeError<std::vector<int32_t>>(
+                 fmt::format( "UV Seams: the path starts and ends at vertex {}", fromVertex ) );
+
+        MeshDijkstra<DynamicMesh3> pathFinder( &mesh );
+        const AxisAlignedBox3d     bounds = mesh.GetBounds();
+        const glm::dvec3           extent = glm::max( bounds.Max - bounds.Min, glm::dvec3( 0.0 ) );
+        const double               maxDim = std::max( { extent.x, extent.y, extent.z } );
+        if ( settings.PathSimilarityWeight > 0.0 && maxDim > 0.0 )
+        {
+            // UE SquaredDistanceFromLineIntegratedAlongSegment (DistLine3Segment3.h:129-153): the squared distance
+            // to the line through the two picked vertices, integrated along the edge (proportional to scale^3),
+            // over maxDim^2 so it scales like the edge length it is added to.
+            const Line3d directLine =
+                 Line3d::FromPoints( mesh.GetVertex( fromVertex ), mesh.GetVertex( toVertex ) );
+            const double weight                 = settings.PathSimilarityWeight;
+            pathFinder.bEnableDistanceWeighting = true;
+            pathFinder.GetWeightedDistanceFunc =
+                 [&mesh, directLine, weight, maxDim]( int32_t fromVid, int32_t toVid, int32_t, double euclidean )
+            {
+                const glm::dvec3 start  = mesh.GetVertex( fromVid );
+                const glm::dvec3 edge   = mesh.GetVertex( toVid ) - start;
+                const double     length = glm::length( edge );
+                if ( length <= 0.0 )
+                    return euclidean;
+                const glm::dvec3 direction = edge / length;
+                const glm::dvec3 p0 =
+                     ( start - directLine.Origin ) -
+                     glm::dot( start - directLine.Origin, directLine.Direction ) * directLine.Direction;
+                const glm::dvec3 pv =
+                     direction - glm::dot( direction, directLine.Direction ) * directLine.Direction;
+                const double similarity =
+                     ( ( glm::dot( pv, pv ) * length / 3.0 + glm::dot( p0, pv ) ) * length + glm::dot( p0, p0 ) ) *
+                     length;
+                return euclidean + weight * similarity / ( maxDim * maxDim );
+            };
+        }
+
+        const std::vector<MeshDijkstra<DynamicMesh3>::SeedPoint> seeds{
+             MeshDijkstra<DynamicMesh3>::SeedPoint{ fromVertex, fromVertex, 0.0 } };
+        std::vector<int32_t> path;
+        if ( !pathFinder.ComputeToTargetPoint( seeds, toVertex ) ||
+             !pathFinder.FindPathToNearestSeed( toVertex, path ) )
+            return Common::MakeError<std::vector<int32_t>>(
+                 fmt::format( "UV Seams: no edge path joins vertex {} to vertex {}", fromVertex, toVertex ) );
+        std::reverse( path.begin(), path.end() ); // FindPathToNearestSeed runs target -> seed
+        return Common::MakeSuccess( std::move( path ) );
+    }
+
+    Common::ResultStr<UVOutcome> EditUVSeams( const DynamicMesh3& mesh, std::span<const int32_t> pathVertices,
+                                              const UVSeamSettings& settings )
+    {
+        if ( !mesh.HasAttributes() || mesh.Attributes()->PrimaryUV() == nullptr )
+            return Common::MakeError<UVOutcome>(
+                 "UV Seams: the mesh has no UV layer - run AutoUV, Project or Unwrap first" );
+        if ( pathVertices.size() < 2 )
+            return Common::MakeError<UVOutcome>( "UV Seams: the path needs two vertices or more" );
+        std::vector<int32_t> edges; // path order, each edge once (UE collects them in a TSet)
+        for ( size_t i = 0; i + 1 < pathVertices.size(); ++i )
+        {
+            const int eid = mesh.FindEdge( pathVertices[i], pathVertices[i + 1] );
+            if ( eid == DynamicMesh3::InvalidID )
+                return Common::MakeError<UVOutcome>( fmt::format(
+                     "UV Seams: path vertices {} and {} share no edge", pathVertices[i], pathVertices[i + 1] ) );
+            if ( std::find( edges.begin(), edges.end(), eid ) == edges.end() )
+                edges.push_back( eid );
+        }
+
+        DynamicMesh3          out( mesh );
+        DynamicMeshUVOverlay& uvs    = *out.Attributes()->PrimaryUV();
+        int32_t               border = 0, seamsBefore = 0;
+        for ( const int32_t eid : edges )
+        {
+            if ( out.GetEdgeT( eid ).B == DynamicMesh3::InvalidID )
+                ++border;
+            else if ( uvs.IsSeamEdge( eid ) )
+                ++seamsBefore;
+        }
+
+        DynamicMeshUVEditor uvEditor( &out, &uvs );
+        UVEditResult        added;
+        if ( settings.Mode == UVSeamMode::Cut )
+            uvEditor.CreateSeamsAtEdges( edges, &added );
+        else
+            uvEditor.RemoveSeamsAtEdges( edges );
+
+        int32_t seamsAfter = 0;
+        for ( const int32_t eid : edges )
+            if ( out.GetEdgeT( eid ).B != DynamicMesh3::InvalidID && uvs.IsSeamEdge( eid ) )
+                ++seamsAfter;
+        const int32_t interior = static_cast<int32_t>( edges.size() ) - border;
+        std::string   report =
+             settings.Mode == UVSeamMode::Cut
+                    ? fmt::format(
+                         "Cut {} edges: {} opened, {} already seams, {} on the border, {} not opened; {} UV "
+                           "elements added",
+                         edges.size(), seamsAfter - seamsBefore, seamsBefore, border, interior - seamsAfter,
+                         added.NewUVElements.size() )
+                    : fmt::format( "Join {} edges: {} joined, {} were not seams, {} on the border, {} still seams",
+                                   edges.size(), seamsBefore - seamsAfter, interior - seamsBefore, border,
+                                   seamsAfter );
+        return Finish( std::move( out ), "UV Seams", std::move( report ) );
     }
 } // namespace Desert::Geometry

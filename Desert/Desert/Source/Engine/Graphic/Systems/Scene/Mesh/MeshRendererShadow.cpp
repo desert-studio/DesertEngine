@@ -16,6 +16,8 @@
 #include <Engine/Graphic/Shader.hpp>
 
 #include <format>
+#include <limits>
+#include <optional>
 #include <unordered_set>
 
 namespace
@@ -455,7 +457,9 @@ namespace Desert::Graphic::System
             state.Rebuild      = false;
             state.Movable      = false;
             state.Scroll       = false;
+            state.Patch        = false;
             state.StripCount   = 0;
+            state.ClearStrips  = 0;
             state.MovableRegion.reset();
         }
 
@@ -1761,6 +1765,52 @@ namespace Desert::Graphic::System
             m_CascadeUnkeyedCasters[v].clear();
         }
 
+        // DEFORM-GRASS-2 (UE's VSM: a cached page is invalidated by the region that changed): this frame's
+        // deformation footprints (SetCascadeFootprints) change the pose of the grass blades the field lays flat,
+        // which a cached static layer holds standing. The farthest such a blade reaches from its root (the still
+        // blade sections' StillInstances::Reach, scale and wind included - a laid-flat blade reaches no farther than
+        // its length) grows each footprint into the world box whose casters changed; a cascade redraws only the
+        // texels that box covers. No still blade section casting: nothing in a static layer reads the field.
+        float bladeReach = 0.0f;
+        for ( const GpuInstancedRenderData& section : m_GpuInstancedQueue )
+            if ( section.Path == MeshVertexPath::GrassBlade && section.CastShadows && section.Still )
+                bladeReach = std::max( bladeReach, section.Still->Reach );
+        std::vector<glm::vec4> footprints;
+        if ( bladeReach > 0.0f )
+            footprints.swap( m_CascadeFootprints );
+        m_CascadeFootprints.clear(); // this frame's only: the next frame hands its own
+        // The texels (x0, y0, x1, y1; framebuffer axes, x right, y down) of the footprints' boxes through @p
+        // casterVP, kept on the map; nullopt when none reaches it.
+        const auto footprintTexels = [&footprints, bladeReach,
+                                      side = static_cast<float>( m_Shadow.ShadowMapSize )](
+                                          const glm::mat4& casterVP ) -> std::optional<glm::vec4>
+        {
+            glm::vec2 low( side );
+            glm::vec2 high( 0.0f );
+            for ( const glm::vec4& footprint : footprints )
+            {
+                const float     across = footprint.w + bladeReach;
+                const glm::vec3 lo( footprint.x - across, footprint.y - bladeReach, footprint.z - across );
+                const glm::vec3 hi( footprint.x + across, footprint.y + bladeReach, footprint.z + across );
+                for ( uint32_t corner = 0; corner < 8u; ++corner )
+                {
+                    const glm::vec3 pick( static_cast<float>( corner & 1u ),
+                                          static_cast<float>( ( corner >> 1u ) & 1u ),
+                                          static_cast<float>( ( corner >> 2u ) & 1u ) );
+                    const glm::vec4 clip = casterVP * glm::vec4( lo + ( hi - lo ) * pick, 1.0f );
+                    const glm::vec2 texel( ( clip.x / clip.w + 1.0f ) * 0.5f * side,
+                                           ( 1.0f - clip.y / clip.w ) * 0.5f * side );
+                    low  = glm::min( low, texel );
+                    high = glm::max( high, texel );
+                }
+            }
+            low  = glm::clamp( glm::floor( low ), glm::vec2( 0.0f ), glm::vec2( side ) );
+            high = glm::clamp( glm::ceil( high ), glm::vec2( 0.0f ), glm::vec2( side ) );
+            if ( high.x <= low.x || high.y <= low.y )
+                return std::nullopt;
+            return glm::vec4( low, high );
+        };
+
         for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
         {
             // A light without shadows draws none of its cascades (its slot is packed lit).
@@ -1884,10 +1934,55 @@ namespace Desert::Graphic::System
                     redraw = state.KeyIsContent || state.StaticKey != newKey;
                 }
 
+                // THE FOOTPRINT STRIP (DEFORM-GRASS-2): over a cache whose content stands, the texels this frame's
+                // deformation footprints reach are cleared and redrawn - a standing cache as its only strip (a
+                // PATCH: the cache LOADED, nothing else drawn), a scrolled one as one more strip, or grown into
+                // the scroll strip it widens least when the shift uncovered two (the passes cull by at most two).
+                // A cascade redrawn whole draws the pressed pose anyway.
+                state.Patch       = false;
+                state.ClearStrips = 0u;
+                if ( !redraw && !footprints.empty() )
+                {
+                    if ( const std::optional<glm::vec4> texels = footprintTexels( m_CascadeCasterVP[v] ) )
+                    {
+                        glm::vec4 rect = *texels; // x0, y0, x1, y1
+                        uint32_t  slot = state.StripCount;
+                        if ( state.Scroll && state.StripCount >= 2u )
+                        {
+                            // The scroll strip whose union with the footprints' texels is the smallest.
+                            const auto unite = [&rect]( const glm::uvec4& strip )
+                            {
+                                return glm::vec4(
+                                     glm::min( glm::vec2( rect.x, rect.y ), glm::vec2( strip.x, strip.y ) ),
+                                     glm::max( glm::vec2( rect.z, rect.w ),
+                                               glm::vec2( strip.x + strip.z, strip.y + strip.w ) ) );
+                            };
+                            float least = std::numeric_limits<float>::max();
+                            for ( uint32_t s = 0; s < 2u; ++s )
+                            {
+                                const glm::vec4 united = unite( state.StripRects[s] );
+                                const float     area   = ( united.z - united.x ) * ( united.w - united.y );
+                                if ( area < least )
+                                {
+                                    least = area;
+                                    slot  = s;
+                                }
+                            }
+                            rect = unite( state.StripRects[slot] );
+                        }
+                        else
+                            state.StripCount = slot + 1u;
+                        CascadeTexelRegion( rect.x, rect.z, rect.y, rect.w, m_Shadow.ShadowMapSize,
+                                            m_CascadeCasterVP[v], state.Strips[slot], state.StripRects[slot] );
+                        state.ClearStrips |= 1u << slot;
+                        state.Patch = !state.Scroll;
+                    }
+                }
+
                 if ( unkeyedCaster )
                     movers.Unkeyed = "a non-mesh caster with no key";
                 state.Movable      = movers.Any();
-                state.RedrawStatic = redraw || state.Scroll;
+                state.RedrawStatic = redraw || state.Scroll || state.Patch;
                 state.StaticKey    = newKey;
                 state.KeyIsContent = keyIsContent;
                 state.Placement    = placement;
@@ -1940,7 +2035,7 @@ namespace Desert::Graphic::System
                 // map's movers covered and this frame's cover, when both are known (an unkeyed mover, or a map
                 // whose movers had no box: the whole layer).
                 state.MovableRegion.reset();
-                if ( state.Rebuild && !state.RedrawStatic &&
+                if ( state.Rebuild && ( !state.RedrawStatic || state.Patch ) &&
                      ( !state.MapHasMovable || state.MapMovableRect.has_value() ) &&
                      ( !state.Movable || state.MovableRect.has_value() ) )
                 {
@@ -1955,6 +2050,9 @@ namespace Desert::Graphic::System
                         cover( *state.MapMovableRect );
                     if ( state.Movable )
                         cover( *state.MovableRect );
+                    // A patched cache: the footprint strip it redrew.
+                    if ( state.Patch )
+                        cover( state.StripRects[0] );
                     if ( high.x > low.x && high.y > low.y )
                         state.MovableRegion = glm::uvec4( low, high - low );
                 }
@@ -2350,7 +2448,7 @@ namespace Desert::Graphic::System
         // Projection and identity as View, matching LightViewProjection[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                                              m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD,
-                                             viewWind );
+                                             m_SceneWind, viewWind );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
         // The pipelines of the view's caster cells: the cascades' and local views' depth attachment, or the
         // virtual shadow map's attachment-less pool raster (IsVirtualShadowView).
@@ -2407,7 +2505,8 @@ namespace Desert::Graphic::System
         // CPU-FRAME-ARENA 4: the strips in place (at most CascadeCache::Strips' two), no vector per view.
         std::array<Core::Frustum, 2> strips{};
         std::size_t                  stripCount = 0;
-        if ( layer == ShadowCasterLayer::Static && c < kCascadeViews && m_CascadeCache[c].Scroll )
+        if ( layer == ShadowCasterLayer::Static && c < kCascadeViews &&
+             ( m_CascadeCache[c].Scroll || m_CascadeCache[c].Patch ) )
             for ( uint32_t s = 0; s < m_CascadeCache[c].StripCount && stripCount < strips.size(); ++s )
                 strips[stripCount++] = CascadeCasterFrustum( m_CascadeCache[c].Strips[s] );
         const auto inView = [&cascadeFrustum, &strips, stripCount]( const Common::Math::AABB& box )
@@ -3064,7 +3163,8 @@ namespace Desert::Graphic::System
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
             skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                     m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD, viewWind );
+                                     m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD, m_SceneWind,
+                                     viewWind );
 
             auto& skinBones = m_ScratchBones;
             skinBones.clear();
@@ -3159,7 +3259,8 @@ namespace Desert::Graphic::System
         {
             auto* instMat = m_ShadowInstancedMaterial[c].get();
             instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                     m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD, viewWind );
+                                     m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD, m_SceneWind,
+                                     viewWind );
             if ( auto* sb = instMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
@@ -3187,7 +3288,8 @@ namespace Desert::Graphic::System
         {
             auto* idMat = m_ShadowInstancedIdMaterial[c].get();
             idMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                   m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD, viewWind );
+                                   m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD, m_SceneWind,
+                                   viewWind );
             if ( auto* sb = idMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetRawData( shadowIsmIds.data(),
                                 static_cast<uint32_t>( shadowIsmIds.size() * sizeof( uint32_t ) ) );
@@ -3221,7 +3323,8 @@ namespace Desert::Graphic::System
         {
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD, viewWind );
+                              m_CascadeCasterBias[c], m_ParallaxQuality, m_ViewTemporalLOD, m_SceneWind,
+                              viewWind );
             // The draws' rows are the scene material table's (SyncGpuScene); a refusal was said by name.
             if ( !LendMaterialTable( *set.Caster ) )
             {
@@ -3350,7 +3453,8 @@ namespace Desert::Graphic::System
         // the pooled target), or the copy's command meets an image without TRANSFER_DST.
         // A scrolled cascade's layer is also copied back into its cache ("MeshShadowCascade{c}.ToCache"): CopySrc.
         graph.Extract( created, m_CascadeMaps, RDG::Access::SampledGraphics,
-                       { RDG::Access::CopyDst, RDG::Access::CopySrc } );
+                       { RDG::Access::CopyDst, RDG::Access::CopySrc, RDG::Access::SampledCompute } );
+        // SampledCompute: the surface cache's direct lighting samples the cascades in a compute pass.
         m_CascadeMapsBuilt = true;
         // Every layer starts at the far plane (1, standard Z: "no occluder"), written once on the frame the array
         // is made. The cascade passes write only the layers fitted this frame, and none when nothing is fitted (an
@@ -3419,13 +3523,26 @@ namespace Desert::Graphic::System
                          // draw holds the casters of both and is recorded once, at the whole map's raster.
                          const CascadeCacheState& cache  = m_CascadeCache[c];
                          uint32_t                 strips = 0u;
-                         if ( cache.Scroll )
+                         if ( cache.Scroll || cache.Patch )
                              strips = std::min( cache.StripCount, 2u );
                          auto&      renderer = Renderer::GetInstance();
                          const auto scissor  = [&renderer]( const glm::uvec4& rect ) {
                              renderer.SetScissor( static_cast<int32_t>( rect.x ), static_cast<int32_t>( rect.y ),
                                                    rect.z, rect.w );
                          };
+                         // A footprint strip (DEFORM-GRASS-2) holds the cached depth of the casters' pose before
+                         // this frame's contacts: to the far plane first, so the pressed pose is not hidden under
+                         // the standing one (LessOrEqual). The cache's own framebuffer names the depth format; the
+                         // layer a scrolled cascade draws into has the same one.
+                         for ( uint32_t s = 0; s < strips; ++s )
+                         {
+                             if ( ( cache.ClearStrips & ( 1u << s ) ) == 0u )
+                                 continue;
+                             const glm::uvec4& rect = cache.StripRects[s];
+                             renderer.ClearRegion( *m_CascadeStaticFB[c], static_cast<int32_t>( rect.x ),
+                                                   static_cast<int32_t>( rect.y ), rect.z, rect.w, glm::vec4( 0.0f ),
+                                                   1.0f );
+                         }
                          if ( strips == 1u )
                              scissor( cache.StripRects[0] );
                          if ( auto drawn = m_CascadeDraws[c].Record( context ); !drawn.IsSuccess() )
@@ -3500,6 +3617,13 @@ namespace Desert::Graphic::System
                                                .Shift = state.Shift,
                                                .Name  = name + ".Scroll" } );
                     frame.ScrollPasses.push_back( std::move( pass ) );
+                }
+                else if ( state.Patch )
+                {
+                    // Into the cache itself, LOADED: only its footprint strip is cleared and drawn.
+                    pass.Name              = name + ".Patch";
+                    pass.TargetFramebuffer = m_CascadeStaticFB[c];
+                    frame.PatchPasses.push_back( std::move( pass ) );
                 }
                 else
                 {

@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "40d85d14a33a791506ec8583ba5ecbb8",
         "Versions": {
-            "FOLT": 9
+            "FOLT": 11
         },
         "Dependencies": []
     },
@@ -17,7 +17,16 @@
         "Path": ""
     },
     "Density": 81.34585571289062,
+    "Scaling": "Uniform",
     "ScaleX": {
+        "Min": 0.10999999940395355,
+        "Max": 4.75
+    },
+    "ScaleY": {
+        "Min": 0.10999999940395355,
+        "Max": 4.75
+    },
+    "ScaleZ": {
         "Min": 0.10999999940395355,
         "Max": 4.75
     },
@@ -76,7 +85,20 @@
                 "Time": 1.0,
                 "Value": 1.0
             }
-        ]
+        ],
+        "DensityFalloff": {
+            "UseFalloffCurve": false,
+            "FalloffCurve": [
+                {
+                    "Time": 0.0,
+                    "Value": 1.0
+                },
+                {
+                    "Time": 1.0,
+                    "Value": 0.0
+                }
+            ]
+        }
     },
     "Collision": {
         "Enabled": false,

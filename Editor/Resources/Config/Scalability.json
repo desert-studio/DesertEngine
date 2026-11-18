@@ -131,10 +131,16 @@
         "Textures": {
             "Low": {
                 "Textures.MipBias": 100,
-                "Textures.StreamingPoolMiB": 512
+                "Textures.StreamingPoolMiB": 512,
+                "Textures.LandscapeVirtualTextureSizeLog2": 14,
+                "Textures.LandscapeVirtualTexturePoolPages": 16,
+                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 32
             },
             "Medium": {
-                "Textures.StreamingPoolMiB": 1024
+                "Textures.StreamingPoolMiB": 1024,
+                "Textures.LandscapeVirtualTextureSizeLog2": 15,
+                "Textures.LandscapeVirtualTexturePoolPages": 24,
+                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 48
             },
             "High": {
                 "Textures.StreamingPoolMiB": 2048
@@ -143,7 +149,10 @@
                 "Textures.StreamingPoolMiB": 2048
             },
             "Cinematic": {
-                "Textures.StreamingPoolMiB": 8192
+                "Textures.StreamingPoolMiB": 8192,
+                "Textures.LandscapeVirtualTextureSizeLog2": 17,
+                "Textures.LandscapeVirtualTexturePoolPages": 48,
+                "Textures.LandscapeVirtualTextureUpdatesPerFrame": 128
             }
         },
         "Shadows": {
@@ -226,7 +235,9 @@
                 "Shadows.RainOcclusionMapSize": 1024,
                 "Shadows.RainOcclusionExtent": 15000
             },
-            "Epic": {},
+            "Epic": {
+                "Shadows.Method": "VirtualMaps"
+            },
             "Cinematic": {
                 "Shadows.Distance": 30000,
                 "Shadows.DistanceFieldCascadeDistance": 10000,

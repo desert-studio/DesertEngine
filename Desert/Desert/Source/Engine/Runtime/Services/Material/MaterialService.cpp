@@ -156,6 +156,8 @@ namespace Desert::Runtime
         // it through the same CullPermutation.
         const bool templateTwoSided = material.GetSchema().State.Cull == Core::Formats::StateCull::None;
         material.SetTwoSided( data.TwoSided.value_or( templateTwoSided ) );
+        // Emissive Lights Scene: off unless the asset states it (MaterialData::EmissiveLightsScene).
+        material.SetEmissiveLightsScene( data.EmissiveLightsScene.value_or( false ) );
 
         // `MaterialData::Textures` holds the sampler slots only since MATL 3 (the cloud material's asset
         // slots have a list of their own), but the SHADER SCHEMA still says what each name is: a `Texture2D`
@@ -1191,6 +1193,9 @@ namespace Desert::Runtime
             // The childmost instance that states TwoSided wins, as its parameters do.
             if ( ( *it )->Data().TwoSided.has_value() )
                 instance->SetTwoSidedOverride( ( *it )->Data().TwoSided );
+            // Emissive Lights Scene by the same rule.
+            if ( ( *it )->Data().EmissiveLightsScene.has_value() )
+                instance->SetEmissiveLightsSceneOverride( ( *it )->Data().EmissiveLightsScene );
         }
         return instance;
     }

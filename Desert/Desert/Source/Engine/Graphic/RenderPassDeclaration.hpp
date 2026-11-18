@@ -160,7 +160,7 @@ namespace Desert::Graphic
             std::shared_ptr<const RDG::ShaderBindingLayout> Layout;
             std::shared_ptr<const RDG::OtherRouteFill>      Other = RDG::NoOtherRouteFill();
             BlockEntries                                    Entries;
-            uint32_t                                        PushConstantBytes = 0;
+            ShaderPush::BlockSize                           PushConstants;
         };
 
         RenderPassDeclaration() = default;
@@ -247,9 +247,11 @@ namespace Desert::Graphic
                 Add( parameter, RDG::Access::AccelStructRead, RDG::SubresourceRange::All() ).Buffer = tlas;
                 return *this;
             }
-            BlockDeclaration& PushConstantBytes( uint32_t bytes )
+            // The block's generated push struct (RDG::BindingBlockBuilder::PushConstants<T>).
+            template <ShaderPush::Block T>
+            BlockDeclaration& PushConstants()
             {
-                Block().PushConstantBytes = bytes;
+                Block().PushConstants = ShaderPush::BlockSize::Of<T>();
                 return *this;
             }
             // A texture the block's shader samples through the bindless table, declared to the graph alone (see
@@ -298,14 +300,14 @@ namespace Desert::Graphic
         BlockDeclaration Bindings( const std::shared_ptr<const RDG::ShaderBindingLayout>& layout,
                                    std::shared_ptr<const RDG::OtherRouteFill>             other )
         {
-            m_Blocks.push_back( { layout, std::move( other ), BlockEntries( EntryAllocator() ), 0 } );
+            m_Blocks.push_back( { layout, std::move( other ), BlockEntries( EntryAllocator() ), ShaderPush::BlockSize{} } );
             return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
         // A layout made for this declaration only: the declaration takes it over.
         BlockDeclaration Bindings( RDG::ShaderBindingLayout layout, std::shared_ptr<const RDG::OtherRouteFill> other )
         {
             m_Blocks.push_back( { RDG::MakeIndexedLayout( std::move( layout ) ),
-                                  std::move( other ), BlockEntries( EntryAllocator() ), 0 } );
+                                  std::move( other ), BlockEntries( EntryAllocator() ), ShaderPush::BlockSize{} } );
             return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
 
@@ -551,7 +553,7 @@ namespace Desert::Graphic
                         break;
                 }
             }
-            bindings.PushConstantBytes( block.PushConstantBytes );
+            bindings.PushConstants( block.PushConstants );
         }
     }
 } // namespace Desert::Graphic

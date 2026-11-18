@@ -1,4 +1,5 @@
 #include "VolumetricCloudRenderer.hpp"
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <utility>
@@ -120,7 +121,7 @@ namespace Desert::Graphic::System
         // measurement, so it is written down. The call at ExecuteInFrame produces the HALF extent — the
         // reconstruction the composite upsamples from. EnsureTraceTargets applies it again to produce the
         // QUARTER extent — the trace the march writes. They are two targets at two sizes, both bound at
-        // their own size, and the march is told the half size explicitly through CloudPush::Trace.zw
+        // their own size, and the march is told the half size explicitly through ShaderPush::CloudRaymarch::CloudTraceParams.zw
         // because imageSize() reports only the quarter one. Removing either call does not "undo a
         // doubling"; it moves the whole pyramid up an octave.
         //
@@ -1195,11 +1196,18 @@ namespace Desert::Graphic::System
         // it with RDG::PassBindings( context, context.GetBindingBlock( 0 ) ) and only records.
         // @p layout is the one the renderer keeps for @p pipeline (keyed on its shader, not re-derived per frame).
         auto DeclareComputeBlock( RenderPassDeclaration& declared, const ComputePipeline* pipeline,
-                                  ShaderBindingLayoutCache& layout, const uint32_t pushBytes )
+                                  ShaderBindingLayoutCache& layout )
         {
-            auto block = declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
-                                            Renderer::GetPipelineRouteFill( *pipeline ) );
-            block.PushConstantBytes( pushBytes );
+            return declared.Bindings( layout.Get( pipeline->GetSpecification().Shader ),
+                                      Renderer::GetPipelineRouteFill( *pipeline ) );
+        }
+        // The same with the block's generated push struct @p Push.
+        template <ShaderPush::Block Push>
+        auto DeclareComputeBlock( RenderPassDeclaration& declared, const ComputePipeline* pipeline,
+                                  ShaderBindingLayoutCache& layout )
+        {
+            auto block = DeclareComputeBlock( declared, pipeline, layout );
+            block.template PushConstants<Push>();
             return block;
         }
 
@@ -1235,7 +1243,7 @@ namespace Desert::Graphic::System
         // window m_ParamsBuffer is already shared across.
         BindMedium( m_SkyOcclusionPipeline.get(), m_MediumParamsBuffer.get() );
         SampledMedium( SampledVolumes( DeclareComputeBlock( occlusion.Access, m_SkyOcclusionPipeline.get(),
-                                                            m_SkyOcclusionLayout, 0 ) ) )
+                                                            m_SkyOcclusionLayout ) ) )
              .Storage( VolumetricCloudShaderParameters::CloudSkyOcclusionTexture, m_SkyOcclusionVolume,
                        RDG::Access::StorageWrite, "Clouds.SkyOcclusion" );
         occlusion.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -1478,12 +1486,12 @@ namespace Desert::Graphic::System
              CloudBuildShadowMapView( camera->GetPosition(), atmosphere.SunDirection, payload.Layer.x, extentKm,
                                       snapKm, static_cast<float>( resolution ) );
 
-        CloudShadowPush push{};
-        push.MapToWorld = marchedView.MapToWorld;
-        push.Trace      = glm::vec4( marchedView.LightDirection, marchedView.SampleCount );
+        ShaderPush::CloudShadowMap push{};
+        push.CloudShadowMapToWorld = marchedView.MapToWorld;
+        push.CloudShadowTrace      = glm::vec4( marchedView.LightDirection, marchedView.SampleCount );
         // The far plane the producer encodes its depths against, taken from the projection it is handed
-        // rather than compiled from a constant — see Graphic::CloudShadowPush. y: the first row marched.
-        push.Depth = glm::vec4( marchedView.FarDepthKm, 0.0f, 0.0f, 0.0f );
+        // rather than compiled from a constant — see ShaderPush::CloudShadowMap. y: the first row marched.
+        push.CloudShadowDepth = glm::vec4( marchedView.FarDepthKm, 0.0f, 0.0f, 0.0f );
 
         // WHAT THIS FRAME MARCHES. The map is a pure function of the field, the medium, the sun and the snapped
         // anchor (the push constant): keyed on those and re-marched whole only when they move; while only the wind
@@ -1590,12 +1598,12 @@ namespace Desert::Graphic::System
         // @p passName a string literal: the profiler's GPU sink reads it a frame or two later.
         const auto declare = [this]( ComputeNodeDeclaration& node, const char* passName,
                                      const std::shared_ptr<Image>& target, const char* label,
-                                     const CloudShadowPush& nodePush, uint32_t columns, uint32_t rows )
+                                     const ShaderPush::CloudShadowMap& nodePush, uint32_t columns, uint32_t rows )
         {
             node.Name = passName;
             SampledMedium(
-                 SampledVolumes( DeclareComputeBlock( node.Access, m_ShadowMapPipeline.get(), m_ShadowMapLayout,
-                                                      static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
+                 SampledVolumes( DeclareComputeBlock<ShaderPush::CloudShadowMap>( node.Access, m_ShadowMapPipeline.get(),
+                                                                                 m_ShadowMapLayout ) ) )
                  .Storage( VolumetricCloudShaderParameters::CloudShadowMapTexture, target,
                            RDG::Access::StorageWrite, label );
             node.Record = [this, passName, nodePush, columns,
@@ -1603,7 +1611,7 @@ namespace Desert::Graphic::System
             {
                 DESERT_PROFILE_PASS_DYNAMIC( passName );
                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                bindings.PushConstants( &nodePush, static_cast<uint32_t>( sizeof( nodePush ) ) );
+                bindings.PushConstants( nodePush );
                 Common::BoolResultStr dispatched = Renderer::DispatchCompute(
                      bindings, *m_ShadowMapPipeline, GroupCount( columns, kMarchWorkGroupSize ),
                      GroupCount( rows, kMarchWorkGroupSize ), 1 );
@@ -1618,9 +1626,9 @@ namespace Desert::Graphic::System
         // The rigid field: the whole front, or a band of the back, without slot A, at the plan's wind.
         if ( marchRigid )
         {
-            CloudShadowPush rigid = push;
-            rigid.Depth.y         = static_cast<float>( plan.RowBegin );
-            rigid.Wind            = glm::vec4( plan.WindKm, 0.0f );
+            ShaderPush::CloudShadowMap rigid = push;
+            rigid.CloudShadowDepth.y         = static_cast<float>( plan.RowBegin );
+            rigid.CloudShadowWind            = glm::vec4( plan.WindKm, 0.0f );
             ComputeNodeDeclaration shadow( arena );
             // m_ShadowMapImage: the copy the plan writes, which the lit passes sample as a scene view input
             // (SceneViewInputsOf) once it is the front.
@@ -1636,11 +1644,11 @@ namespace Desert::Graphic::System
         // table shows what the hero clouds cost apart from the field.
         if ( m_ShadowHeroPlanned )
         {
-            CloudShadowPush hero = push;
-            hero.MapToWorld      = m_ShadowMapView.MapToWorld;
-            hero.Depth.y         = static_cast<float>( patchRect.Y );
-            hero.Depth.z         = static_cast<float>( patchRect.X );
-            hero.Wind            = glm::vec4( windKm, 1.0f );
+            ShaderPush::CloudShadowMap hero = push;
+            hero.CloudShadowMapToWorld      = m_ShadowMapView.MapToWorld;
+            hero.CloudShadowDepth.y         = static_cast<float>( patchRect.Y );
+            hero.CloudShadowDepth.z         = static_cast<float>( patchRect.X );
+            hero.CloudShadowWind            = glm::vec4( windKm, 1.0f );
             ComputeNodeDeclaration patch( arena );
             declare( patch, "Clouds: ShadowMapHero", m_ShadowMapImages[front], "Clouds.ShadowMap", hero,
                      patchRect.Width, patchRect.Height );
@@ -2356,11 +2364,11 @@ namespace Desert::Graphic::System
         m_SkyOcclusionValid = skyOcclusionReady;
 
         // The trace cycle, not the frame: the march's start offset advances once per trace of a pixel
-        // (CloudPush::CameraPosition), and the walk visits each pixel once every kCloudTraceWalkFrames frames
+        // (ShaderPush::CloudRaymarch::CameraPosition), and the walk visits each pixel once every kCloudTraceWalkFrames frames
         // (four sub-pixels times four lattice phases).
         const uint32_t traceCycle = ( m_FrameIndex / kCloudTraceWalkFrames ) & 0xFFFFFFu;
 
-        CloudPush push{};
+        ShaderPush::CloudRaymarch push{};
         // THE UNJITTERED INVERSE (SKY-FLICKER) — Unreal's VolumetricCloudRendering.cpp, which builds the
         // volumetric render target's view with ViewMatrices.HackRemoveTemporalAAProjectionJitter() ("We jitter
         // and reconstruct the volumetric view before TAA so we do not want any of its jitter"): this layer's
@@ -2375,7 +2383,7 @@ namespace Desert::Graphic::System
         // thing the march takes from it — by a few parts in ten thousand.
         push.InverseViewProjection = frame.InvViewProjection;
         push.CameraPosition = glm::vec4( frame.CameraPosition, static_cast<float>( traceCycle ) );
-        push.Trace          = glm::vec4( static_cast<float>( subPixel.X ), static_cast<float>( subPixel.Y ),
+        push.CloudTraceParams = glm::vec4( static_cast<float>( subPixel.X ), static_cast<float>( subPixel.Y ),
                                          static_cast<float>( m_HalfWidth ), static_cast<float>( m_HalfHeight ) );
         // THE GATES ARE "WAS IT WRITTEN", not "was it asked for". A layer whose flag is on but whose volume
         // failed to allocate must fall back to the profile term, not read an image nobody filled; and a
@@ -2390,12 +2398,12 @@ namespace Desert::Graphic::System
         // The radii are written whatever the gate says. They are two numbers on a wire that is paid for
         // either way — a push constant is laid out in vec4s — and a lane that changes meaning with a gate
         // is harder to read than one that is simply ignored.
-        push.Frame =
+        push.CloudFrame =
              glm::vec4( skyOcclusionReady ? 1.0f : 0.0f, perSampleSun ? 1.0f : 0.0f,
                         atmosphere.TransmittanceLutBottomRadiusKm, atmosphere.TransmittanceLutTopRadiusKm );
         // z: the footprint step's gate (Scalability Effects.CloudFootprintSteps, CloudFootprintStepKm).
         const float footprintSteps = m_FootprintSteps ? 1.0f : 0.0f;
-        push.Visualize             = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ),
+        push.CloudVisualize             = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ),
                                                 static_cast<float>( gridPhase.Index() ), footprintSteps, 0.0f );
 
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the
@@ -2469,8 +2477,8 @@ namespace Desert::Graphic::System
         const RDG::BufferRef marchCounters =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( kMarchCountersReset ) }, "Clouds.MarchCounters" );
         graph.QueueBufferUpload( marchCounters, std::as_bytes( std::span( kMarchCountersReset ) ) );
-        SampledMedium( SampledVolumes( DeclareComputeBlock( march.Access, m_MarchPipeline.get(), m_MarchLayout,
-                                                            static_cast<uint32_t>( sizeof( CloudPush ) ) ) ) )
+        SampledMedium( SampledVolumes( DeclareComputeBlock<ShaderPush::CloudRaymarch>( march.Access, m_MarchPipeline.get(),
+                                                                                m_MarchLayout ) ) )
              .Storage( VolumetricCloudShaderParameters::CloudScatterTexture, trace, RDG::Access::StorageWrite )
              .Storage( VolumetricCloudShaderParameters::CloudGuideTexture, traceGuide, RDG::Access::StorageWrite )
              .Texture( VolumetricCloudShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute,
@@ -2519,7 +2527,7 @@ namespace Desert::Graphic::System
         {
             DESERT_PROFILE_PASS( "Clouds: March" );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            bindings.PushConstants( push );
             return Renderer::DispatchCompute( bindings, *m_MarchPipeline,
                                               GroupCount( marchColumns, kMarchWorkGroupSize ),
                                               GroupCount( marchRows, kMarchWorkGroupSize ), 1 );
@@ -2611,7 +2619,7 @@ namespace Desert::Graphic::System
         // and blends the written texels of this frame's lattice phase for the ones it does not (TraceFiltered);
         // the other three phases' texels are unwritten transient memory, so no filtered read may touch them.
         RenderPassDeclaration::BlockDeclaration resolveBlock =
-             DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout, 0 );
+             DeclareComputeBlock( temporal.Access, m_ResolvePipeline.get(), m_ResolveLayout );
         resolveBlock
              .Texture( VolumetricCloudShaderParameters::CloudTraceTexture, trace, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() )
@@ -2664,7 +2672,7 @@ namespace Desert::Graphic::System
         ComputeNodeDeclaration upsample( graph.GetFrameArena() );
         upsample.Name = "Clouds: Upsample";
         m_UpsamplePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
-        DeclareComputeBlock( upsample.Access, m_UpsamplePipeline.get(), m_UpsampleLayout, 0 )
+        DeclareComputeBlock( upsample.Access, m_UpsamplePipeline.get(), m_UpsampleLayout )
              .Texture( VolumetricCloudShaderParameters::CloudReconstructionTexture, current.Scatter,
                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Texture( VolumetricCloudShaderParameters::CloudReconstructionGuideTexture, current.Guide,

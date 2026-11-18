@@ -174,7 +174,7 @@ namespace Desert::Graphic::API::Vulkan
                 visit( binding, output.Vulkan->GetResource().Image, user );
     }
 
-    ComputePipeline& VulkanPipelineCompute::SetPushConstants( const void* data, uint32_t size )
+    ComputePipeline& VulkanPipelineCompute::SetPushBytes( const void* data, uint32_t size )
     {
         const auto* bytes = reinterpret_cast<const std::byte*>( data );
         const bool  had   = !m_BoundPushConstants.empty();

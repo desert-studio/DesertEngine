@@ -41,6 +41,7 @@
 #include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
@@ -108,6 +109,7 @@
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
 #include "Systems/Scene/Fog/VolumetricFogRenderer.hpp"
+#include "Systems/Scene/Translucency/TranslucencyLightingVolume.hpp"
 
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
@@ -185,6 +187,7 @@ namespace Desert::Graphic
         class VelocityViewRenderer;
         class VolumetricCloudRenderer;
         class VolumetricFogRenderer;
+        class TranslucencyLightingVolumeRenderer;
         class WaterRenderer;
     } // namespace System
 
@@ -215,6 +218,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::VelocityViewRenderer>      VelocityView;
         std::shared_ptr<System::HeightFogRenderer>         HeightFog;
         std::shared_ptr<System::VolumetricFogRenderer>     VolumetricFog;
+        std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
         std::shared_ptr<System::VolumetricCloudRenderer>   VolumetricCloud;
         std::shared_ptr<System::ParticleRenderer>          Particle;
         std::shared_ptr<System::DeferredLightingRenderer>  DeferredLighting;
@@ -813,6 +817,27 @@ namespace Desert::Graphic
                                   const glm::vec3&                      windDirection,
                                   const std::vector<HeroCloudInstance>& heroClouds );
 
+        // This gameplay step's gust fronts and the previous step's (Graphic::PackWindGust), from the ECS, which
+        // advances them with the timestep (Render::WindGustCommand). Every view's frame carries them
+        // (ViewFrame::WindGust, OnUpdate), and the light cameras the current ones (MeshRenderer::SetSceneWind).
+        // It opens the step's local wind list: the step's point sources follow it (AddLocalWindSource), and a
+        // step that sends none leaves none.
+        void SetWindGust( const glm::vec4& gust, const glm::vec4& prevGust,
+                          const glm::vec2& directionalVelocityXZ )
+        {
+            m_WindGust                   = gust;
+            m_PrevWindGust               = prevGust;
+            m_DirectionalWindVelocityXZ  = directionalVelocityXZ;
+            m_LocalWindCandidates.clear();
+        }
+
+        // One point wind source of this gameplay step (Render::LocalWindSourceCommand), a candidate for the
+        // camera block's local sources (Graphic::SelectLocalWind, BeginScene).
+        void AddLocalWindSource( const LocalWindCandidate& source )
+        {
+            m_LocalWindCandidates.push_back( source );
+        }
+
         // The evaluated per-frame sky: sun direction and radiance, ambient above/below, night factor, the
         // planet radius, and an OPAQUE handle to the packed sky-parameter buffer. Consumers never see the
         // sky's authoring representation, so a change to the palette cannot break them.
@@ -1096,6 +1121,10 @@ namespace Desert::Graphic
                      .Light1Direction      = light1.Direction,
                      .Light1ColorIntensity = light1.ColorIntensity };
         }
+        // This frame's point and spot lights (m_PointLight / m_SpotLight with their m_*LightShadows identities)
+        // as the world-space GI histories compare them (GlobalIllumination::UpdateLocalLightingHistory),
+        // ascending Key; made into m_FrameLocalLighting, its capacity kept across frames.
+        [[nodiscard]] std::span<const GlobalIllumination::LocalLighting> GatherFrameLocalLighting();
 
         /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
         /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
@@ -1593,10 +1622,11 @@ namespace Desert::Graphic
         void AddFrameDebugDraw( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef display,
                                 const OverlayTargets& overlay );
 #endif // DESERT_DEV_INSTRUMENTS
-       // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles,
-       // then the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
+       // The frame's translucency, in draw order by call order: the cloud composite (far field), the particles
+       // (after the translucency lighting volume their lit cells read, AddFrameTranslucencyLightingVolume), then
+       // the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
        // only and runs before the scene copy (AddFrameOpaqueFog); what is drawn here fogs itself.
-        void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
         // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
         // the position of this call. The frame build calls it once per point, at that point's place.
@@ -1712,8 +1742,10 @@ namespace Desert::Graphic
                             System::MeshRenderer* meshRenderer ,
                            const FrameFrontLayer& frontLayer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
-        // glass.
-        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy );
+        // glass. @p frontLayer: the front layer's reflection, which the water reads where it is the front layer
+        // (UE single layer water's SSR leg); invalid -> the graph's black, the water's captures and sky alone.
+        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
+                            const FrameFrontLayer& frontLayer );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The vg_clusters view (DebugViewState::VirtualGeometry = Clusters): "Debug: Virtual Geometry Clusters"
@@ -1773,6 +1805,22 @@ namespace Desert::Graphic
         // frame this returns. @p emissive in PathTracingSceneHash: its Hash.
         [[nodiscard]] Common::ResultStr<RayTracing::EmissiveLightsFrame>
         AddFrameEmissiveLights( RDG::Builder& graph );
+        // THE SCENE-LIGHTING EMISSIVE LIST (EMISSIVE-MEGALIGHTS; UE MegaLights' emissive-mesh lights): a SECOND
+        // instance of the emissive list over the same gather, its estimate the shared one's for the segments whose
+        // material (or instance) has Emissive Lights Scene on and dark for every other - so it holds those
+        // triangles only, and the shared list (the path tracer's, the surface cache's) is untouched. MegaLights
+        // samples it as lights after the points and spots (MegaLightsInputs::Emissive). With no such material its
+        // parts are empty and nothing is sampled.
+        [[nodiscard]] Common::ResultStr<RayTracing::EmissiveLightsFrame>
+        AddFrameSceneEmissiveLights( RDG::Builder& graph );
+        // THE FRAME'S ONE SCENE GATHER for the emissive lists (RayTracingSceneRenderer::GatherScene): a second call
+        // in the same frame on a frame without a TLAS would clear the moved-primitives list the first one filled,
+        // so the list built second would miss its movers. Every emissive list of the frame reads this one.
+        [[nodiscard]] Common::BoolResultStr GatherFrameEmissiveScene();
+        // The emission estimate of a gather segment record (the surface templates' SurfaceEmission in the row the
+        // raster draws it with): what both emissive lists' power trees are made of.
+        [[nodiscard]] static RayTracing::EmissiveMaterialEstimate
+        EstimateSegmentEmission( const RayTracing::RayTracingSegmentRecord& segment );
         // The view's path tracer system on first use (latched like EnsureSSRResources); false lowers the frame
         // (LowerPathTracingForFrame).
         bool EnsurePathTracerResources();
@@ -1963,9 +2011,24 @@ namespace Desert::Graphic
         // Nothing when no translucent object is visible or a target cannot be described (logged). Under Shadows
         // VirtualMaps it is drawn before the virtual shadow map, whose receivers its depth marks, and @p prepared
         // above hands it to the reflections rather than drawing it twice.
+        // WHO WRITES THE FRONT LAYER this frame: the translucent meshes (MeshRenderer::BuildFrontLayerDraws, which
+        // builds their list - asked once per frame, by BuildFrontLayerWriters) and the water surface
+        // (WaterRenderer::HasFrontLayerDraws: UE's single layer water in the G-buffer its reflections trace from).
+        struct FrontLayerWriters
+        {
+            bool               Meshes = false;
+            bool               Water  = false;
+            [[nodiscard]] bool Any() const
+            {
+                return Meshes || Water;
+            }
+        };
+        [[nodiscard]] FrontLayerWriters BuildFrontLayerWriters( System::MeshRenderer* meshRenderer );
+        // The meshes' pass when @p writers has meshes, then the water's ("... (Water)") over it, or cleared.
         std::optional<FrontLayerSurface> AddFrameFrontLayerSurface( RDG::Builder& graph, FrameTextures& textures,
                                                                     System::MeshRenderer* meshRenderer,
-                                                                    const std::vector<RDG::TextureRef>& gbuffer );
+                                                                    const std::vector<RDG::TextureRef>& gbuffer,
+                                                                    const FrontLayerWriters&            writers );
         bool m_FrontLayerReflectionsFailed = false;
 
         struct FrameSSR
@@ -2014,6 +2077,16 @@ namespace Desert::Graphic
         // while the traced GI gathers on the async pipe (UE ComputeVolumetricFog before the lights), otherwise
         // inside AddFrameOpaqueFog.
         void AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The sun and its cascades as the surfaces receive them, for a volume lit by them (the volumetric fog,
+        // the translucency lighting volume): Radiance = DirLights[0]'s irradiance after the atmosphere x
+        // @p scale.
+        [[nodiscard]] System::VolumetricFogSunInput GatherVolumeSunInput( float scale ) const;
+        // The translucency lighting volume's fill (TranslucencyLightingVolumeRenderer) into FrameTransients::
+        // TranslucencyLightingVolume, on a frame this view draws a lit particle (ParticleRenderer::
+        // DrawsLitSprites); after the light grid, the shadow depths, the cloud shadow and the PostOpaque particle
+        // stage, right before the particles' DrawPass (AddFrameTranslucency).
+        void AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
+                                                 const ViewFrame& frame );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The selection outline composited over @p scene (the post input: the temporal resolve's output with the
         // overlays, or the scene colour). Returns what the tonemap reads - the outlined scene - or an invalid ref
@@ -2042,7 +2115,9 @@ namespace Desert::Graphic
                                 const std::vector<RDG::TextureRef>& sceneColor,
                                 const std::shared_ptr<FrameValues>& values );
         // @p source: the colour the post chain reads (the temporal output, or the scene colour without one).
-        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source );
+        // @p frame: the view whose lens the composite applies (LENS-POST: Panini's FOV, the grain's frame seed).
+        void AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef source,
+                              const ViewFrame& frame );
         void AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSMAA( RDG::Builder& graph, FrameTextures& textures );
         // The backdrop pyramid the UI samples (invalid when the blur is not recorded this frame).
@@ -2076,6 +2151,7 @@ namespace Desert::Graphic
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume
         std::vector<LocalLightShadowSettings> m_SpotLightShadows;
+        std::vector<GlobalIllumination::LocalLighting> m_FrameLocalLighting; // GatherFrameLocalLighting
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
         Common::Scalability::AntiAliasingMethod m_AAMode = Common::Scalability::AntiAliasingMethod::FXAA;
@@ -2291,6 +2367,16 @@ namespace Desert::Graphic
         // RT scene's layout serial it was last given (RayTracingSceneRenderer::GetLayoutSerial; ~0: none yet).
         RayTracing::EmissiveTriangleListCache m_EmissiveList;
         uint64_t                              m_EmissiveLayoutSerial = ~0ull;
+        // The scene-lighting emissive list (AddFrameSceneEmissiveLights): MegaLights' emissive lights, its own GPU
+        // part and CPU list and the layout serial it was last given.
+        RayTracing::EmissiveLightsRenderer    m_SceneEmissiveLights;
+        RayTracing::EmissiveTriangleListCache m_SceneEmissiveList;
+        uint64_t                              m_SceneEmissiveLayoutSerial = ~0ull;
+        // The absolute frame GatherFrameEmissiveScene last gathered in (~0: none yet).
+        uint64_t m_EmissiveGatherFrame = ~0ull;
+        // AddFrameMegaLights: why the scene-lighting emissive list was last missing (said once per cause; empty
+        // while it builds).
+        std::string m_ReportedSceneEmissive;
         std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
         bool                                m_ReportedHitLightingDevice = false;
         // Templates already reported as shading on the default hit group (no compiled `RayTracing.Hit` cell):
@@ -2376,6 +2462,21 @@ namespace Desert::Graphic
         int   m_ContactShadowSteps                  = 12;
         // Shading.Parallax*Steps, read in BeginScene; every view's frame carries them (ViewFrame::Parallax).
         ParallaxQuality m_ParallaxQuality;
+        // The ECS's gust fronts (SetWindGust): 0 = no gusts until a scene's systems say otherwise.
+        glm::vec4 m_WindGust{ 0.0f };
+        glm::vec4 m_PrevWindGust{ 0.0f };
+        // The directional wind's horizontal velocity (cm/s, world XZ; SetWindGust): its length is the speed the
+        // per-draw direction stands for and the local sources' reference speed (SelectLocalWind), and the scene
+        // view carries it to the particle simulation (ViewFrame::WindVelocityXZ). 0 = no directional wind.
+        glm::vec2 m_DirectionalWindVelocityXZ{ 0.0f };
+        // This step's point sources (AddLocalWindSource): retained storage, cleared by SetWindGust, so a steady
+        // scene allocates nothing per frame.
+        std::vector<LocalWindCandidate> m_LocalWindCandidates;
+        // The sources BeginScene picked (SelectLocalWind) this frame and the frame before, and what every view's
+        // frame and the light cameras carry (ViewFrame::LocalWind / PrevLocalWind, MeshRenderer::SetSceneWind).
+        LocalWindSelection m_LocalWindSelection;
+        LocalWindSources   m_LocalWind;
+        LocalWindSources   m_PrevLocalWind;
         // Foliage.GrassCullDistanceScalePercent (and the density), read in BeginScene; the scene view's frame
         // carries the lens it makes (ViewFrame::GrassLens, OnUpdate).
         System::GrassQuality m_GrassQuality;

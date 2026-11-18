@@ -41,7 +41,7 @@ namespace Desert::Graphic
      *
      * THE SHADOW MAP SPLITS THE FIELD ALONG THAT LINE (UE's volumetric cloud shadow: the field marched in the
      * frame that moves with the wind, the world-placed volumes a layer of their own). The two copies hold the
-     * wind-rigid field ALONE — the march skips slot A (CloudShadowPush::Wind.w = 0) — so a hero cloud no longer
+     * wind-rigid field ALONE — the march skips slot A (ShaderPush::CloudShadowMap::CloudShadowWind.w = 0) — so a hero cloud no longer
      * puts the wind into their key; only an authored medium does (the whole field is then non-rigid, and there
      * is no rigid part to split off). The hero clouds' part is re-marched whole on every frame it can have
      * moved (CloudShadowHeroRect): every texel whose ray can meet a hero cloud's box, into the FRONT in place,

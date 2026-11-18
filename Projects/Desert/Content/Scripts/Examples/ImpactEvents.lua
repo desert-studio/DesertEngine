@@ -20,10 +20,10 @@ local function impact()
             Normal = { Properties.NormalX, Properties.NormalY, Properties.NormalZ },
         },
     })
-    Timer.after(Properties.Period, impact)
 end
 
 function OnStart()
     VFX.useChannel(Properties.Channel)
     impact()
+    Timer.every(Properties.Period, impact)
 end

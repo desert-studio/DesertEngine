@@ -1,5 +1,6 @@
 #include <Engine/Graphic/Deformation/DeformationFieldRenderer.hpp>
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -34,6 +35,45 @@ namespace Desert::Graphic::Deformation
         constexpr uint32_t kTileStampBinding = 4;
         // The square a contact may write, in radii (DeformStampContract.glslh DEFORM_STAMP_REACH).
         constexpr float kStampReach = 2.0f;
+        // GRASS-RASTER-COST (TrampledBox): a blade reads the cell its root falls in, and a renewed level-0 texel
+        // is refilled bilinearly from level 1 (DEFORM-GRASS-4), so a press may reach a level-1 cell (8 cm) past
+        // the square its contact wrote: two cells of margin.
+        constexpr float     kTrampleMargin = 16.0f;
+        constexpr glm::vec4 kNoBox{ 1.0f, 1.0f, -1.0f, -1.0f };
+
+        // The world X, Z box (cm; xy minimum, zw maximum) a contact's stamp may press, with kTrampleMargin.
+        glm::vec4 ContactBox( const ::Desert::World::DeformContact& contact ) noexcept
+        {
+            const float reach = contact.Params.Radius * kStampReach + kTrampleMargin;
+            return glm::vec4( contact.At.x - reach, contact.At.z - reach, contact.At.x + reach,
+                              contact.At.z + reach );
+        }
+
+        std::optional<glm::vec4> UnionBox( const std::optional<glm::vec4>& box, const glm::vec4& add ) noexcept
+        {
+            if ( !box )
+                return add;
+            return glm::vec4( glm::min( glm::vec2( *box ), glm::vec2( add ) ),
+                              glm::max( glm::vec2( box->z, box->w ), glm::vec2( add.z, add.w ) ) );
+        }
+
+        // @p box inside @p window; empty where they do not meet.
+        std::optional<glm::vec4> ClipBox( const glm::vec4& box, const glm::vec4& window ) noexcept
+        {
+            const glm::vec2 low  = glm::max( glm::vec2( box ), glm::vec2( window ) );
+            const glm::vec2 high = glm::min( glm::vec2( box.z, box.w ), glm::vec2( window.z, window.w ) );
+            if ( low.x > high.x || low.y > high.y )
+                return std::nullopt;
+            return glm::vec4( low, high );
+        }
+
+        // The world X, Z box (cm) of @p level's window whose minimum cell is @p windowMin.
+        glm::vec4 LevelBox( const glm::ivec2& windowMin, const int level ) noexcept
+        {
+            const DeformationLevel l   = DeformationLevelOf( level );
+            const glm::vec2        low = glm::vec2( windowMin ) * l.Texel;
+            return glm::vec4( low, low + glm::vec2( static_cast<float>( l.Resolution ) * l.Texel ) );
+        }
 
         enum class ApplyMode : int32_t
         {
@@ -42,21 +82,7 @@ namespace Desert::Graphic::Deformation
             ClearAll = 2,
         };
 
-        struct DeformApplyPush
-        {
-            glm::ivec4 Window{ 0 };   // min cell xy, N, mode
-            glm::ivec4 Previous{ 0 }; // previous min cell xy, first tile
-            glm::vec4  Level{ 0.0f }; // texel size
-        };
-        static_assert( sizeof( DeformApplyPush ) == 48 );
 
-        struct DeformViewPush
-        {
-            glm::mat4  InverseViewProjection{ 1.0f };
-            glm::ivec4 Windows{ 0 };
-            glm::vec4  Levels{ 0.0f };
-        };
-        static_assert( sizeof( DeformViewPush ) == 96 );
 
         int FloorDiv( const int a, const int b )
         {
@@ -223,6 +249,28 @@ namespace Desert::Graphic::Deformation
         }
     }
 
+    std::vector<glm::vec4> DeformationFieldRenderer::PendingFootprints() const
+    {
+        std::vector<glm::vec4> footprints;
+        footprints.reserve( m_Pending.size() );
+        for ( const ::Desert::World::DeformContact& contact : m_Pending )
+            footprints.emplace_back( contact.At, contact.Params.Radius * kStampReach );
+        return footprints;
+    }
+
+    glm::vec4 DeformationFieldRenderer::TrampledBox( const glm::vec3& viewPosition ) const noexcept
+    {
+        // A restart pending (CaptureContacts) renews the field before this frame's contacts apply.
+        std::optional<glm::vec4> box = m_PendingRestart ? std::nullopt : m_Trampled;
+        for ( const ::Desert::World::DeformContact& contact : m_Pending )
+            box = UnionBox( box, ContactBox( contact ) );
+        if ( !box )
+            return kNoBox;
+        constexpr int coarse = kDeformationLevels - 1;
+        return ClipBox( *box, LevelBox( DeformationWindowMin( viewPosition, coarse ), coarse ) )
+             .value_or( kNoBox );
+    }
+
     Common::ResultStr<std::optional<DeformationFieldFrame>>
     DeformationFieldRenderer::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
                                                const glm::vec3& viewPosition, const bool wanted )
@@ -251,23 +299,43 @@ namespace Desert::Graphic::Deformation
             frame.WindowMin[level] = DeformationWindowMin( viewPosition, level );
         }
 
-        // THE SCROLL: a level whose window moved clears the texels whose cell left it (all of them the first
-        // time).
+        // THE SCROLL: a level whose window moved renews the texels whose cell left it (all of them the first
+        // time). COARSE LEVEL FIRST: level 0's renewed texels are refilled from level 1 as level 1 stands after its
+        // own scroll (the clipmap's coarser level is the finer one's backing store; DEFORM-GRASS-4 - a cleared level
+        // 0 lost the prints the view had walked 30 m away from and back to). Level 1 renews to rest.
         ComputePipeline* const clearPipeline = m_ClearPipeline.get();
-        for ( int level = 0; level < kDeformationLevels; ++level )
+        for ( int level = kDeformationLevels - 1; level >= 0; --level )
         {
             const glm::ivec2 window = frame.WindowMin[level];
             if ( m_Window[level] && *m_Window[level] == window )
                 continue;
             const DeformationLevel l = DeformationLevelOf( level );
-            DeformApplyPush        push;
+            const bool             refill = level + 1 < kDeformationLevels;
+            const int              coarseLevel = refill ? level + 1 : level - 1;
+            const DeformationLevel coarse      = DeformationLevelOf( refill ? level + 1 : level );
+            ShaderPush::DeformStampApply        push;
             const ApplyMode        mode  = m_Window[level] ? ApplyMode::Scroll : ApplyMode::ClearAll;
             push.Window                  = glm::ivec4( window, l.Resolution, static_cast<int32_t>( mode ) );
-            push.Previous                = glm::ivec4( m_Window[level].value_or( window ), 0, 0 );
-            push.Level                   = glm::vec4( l.Texel, 0.0f, 0.0f, 0.0f );
+            push.Previous                = glm::ivec4( m_Window[level].value_or( window ),
+                                                       refill ? frame.WindowMin[level + 1] : glm::ivec2( 0 ) );
+            push.Level                   = refill ? glm::vec4( l.Texel, coarse.Texel,
+                                                               static_cast<float>( coarse.Resolution ), 0.0f )
+                                                  : glm::vec4( l.Texel, 0.0f, 0.0f, 0.0f );
             m_Window[level]              = window;
+            // The trampled box (TrampledBox): a clear renews every texel to rest; a scroll of level 1, the
+            // backing store, renews the texels that left its window.
+            if ( level == kDeformationLevels - 1 && m_Trampled )
+            {
+                if ( mode == ApplyMode::ClearAll )
+                    m_Trampled.reset();
+                else
+                    m_Trampled = ClipBox( *m_Trampled, LevelBox( window, level ) );
+            }
             const RDG::TextureRef height = frame.Height[level];
             const RDG::TextureRef detail = frame.Detail[level];
+            // The other level, bound read-only by every pass of the program (one layout); read only on a refill.
+            const RDG::TextureRef coarseHeight = frame.Height[coarseLevel];
+            const RDG::TextureRef coarseDetail = frame.Detail[coarseLevel];
             const uint32_t        groups = static_cast<uint32_t>( l.Resolution / 8 );
             BindBuffers( *clearPipeline );
             graph.AddPass(
@@ -281,12 +349,16 @@ namespace Desert::Graphic::Deformation
                                     RDG::Access::StorageWrite )
                           .Storage( DeformStampApplyShaderParameters::DeformDetailTexture, detail,
                                     RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DeformApplyPush ) ) );
+                          .Storage( DeformStampApplyShaderParameters::DeformCoarseHeightTexture, coarseHeight,
+                                    RDG::Access::StorageRead )
+                          .Storage( DeformStampApplyShaderParameters::DeformCoarseDetailTexture, coarseDetail,
+                                    RDG::Access::StorageRead )
+                          .PushConstants<ShaderPush::DeformStampApply>();
                  },
                  [clearPipeline, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchCompute( bindings, *clearPipeline, groups, groups, 1 );
                  } );
         }
@@ -299,6 +371,12 @@ namespace Desert::Graphic::Deformation
              .clear(); // a moved-from vector is valid but unspecified: the next capture appends to an empty one
         const uint64_t missed = m_PendingMissed;
         m_PendingMissed       = 0;
+        // The trampled box (TrampledBox) takes every square these contacts write, as level 1's window holds it.
+        for ( const ::Desert::World::DeformContact& contact : contacts )
+            m_Trampled = UnionBox( m_Trampled, ContactBox( contact ) );
+        if ( m_Trampled )
+            m_Trampled = ClipBox( *m_Trampled,
+                                  LevelBox( frame.WindowMin[kDeformationLevels - 1], kDeformationLevels - 1 ) );
         if ( missed > 0 )
             LOG_ERROR( "[Deformation] this view's field fell {} contacts behind the world's log (it keeps {}); "
                        "those contacts are not in the field",
@@ -392,7 +470,7 @@ namespace Desert::Graphic::Deformation
         for ( const Dispatch& dispatch : dispatches )
         {
             const DeformationLevel l = DeformationLevelOf( dispatch.Level );
-            DeformApplyPush        push;
+            ShaderPush::DeformStampApply        push;
             push.Window                     = glm::ivec4( frame.WindowMin[dispatch.Level], l.Resolution,
                                                           static_cast<int32_t>( ApplyMode::Apply ) );
             push.Previous                   = glm::ivec4( 0, 0, dispatch.FirstTile, 0 );
@@ -401,6 +479,10 @@ namespace Desert::Graphic::Deformation
             ComputePipeline* const pipeline = program->Pipeline.get();
             const RDG::TextureRef  height   = frame.Height[dispatch.Level];
             const RDG::TextureRef  detail   = frame.Detail[dispatch.Level];
+            // The program's other-level slots (read only by a scroll): the other level, never this pass's own.
+            static_assert( kDeformationLevels == 2, "the other level of a two-level clipmap" );
+            const RDG::TextureRef  coarseHeight = frame.Height[1 - dispatch.Level];
+            const RDG::TextureRef  coarseDetail = frame.Detail[1 - dispatch.Level];
             const uint32_t         count    = dispatch.TileCount;
             BindBuffers( *pipeline );
             graph.AddPass(
@@ -414,12 +496,16 @@ namespace Desert::Graphic::Deformation
                                     RDG::Access::StorageWrite )
                           .Storage( DeformStampApplyShaderParameters::DeformDetailTexture, detail,
                                     RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DeformApplyPush ) ) );
+                          .Storage( DeformStampApplyShaderParameters::DeformCoarseHeightTexture, coarseHeight,
+                                    RDG::Access::StorageRead )
+                          .Storage( DeformStampApplyShaderParameters::DeformCoarseDetailTexture, coarseDetail,
+                                    RDG::Access::StorageRead )
+                          .PushConstants<ShaderPush::DeformStampApply>();
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchCompute( bindings, *pipeline, kGroupsPerTileRow, kGroupsPerTileRow,
                                                        count );
                  } );
@@ -464,7 +550,7 @@ namespace Desert::Graphic::Deformation
                 return Common::MakeError<bool>( pipeline.GetError() );
             it = m_ViewPipelines.emplace( key, pipeline.GetValue() ).first;
         }
-        DeformViewPush push;
+        ShaderPush::DeformationFieldView push;
         push.InverseViewProjection       = inverseViewProjection;
         push.Windows                     = glm::ivec4( field.WindowMin[0], field.WindowMin[1] );
         push.Levels                      = glm::vec4( DeformationLevelOf( 0 ).Texel, DeformationLevelOf( 1 ).Texel,
@@ -486,13 +572,13 @@ namespace Desert::Graphic::Deformation
                                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                       .Texture( DeformationFieldViewShaderParameters::SceneShadingWordTexture, shadingWord,
                                 RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                      .PushConstantBytes( static_cast<uint32_t>( sizeof( DeformViewPush ) ) );
+                      .PushConstants<ShaderPush::DeformationFieldView>();
                  pass.ColorTarget( 0, target, load );
              },
              [pipeline, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DrawFullscreen( bindings, *pipeline, nullptr );
              } );
         return BOOLSUCCESS;

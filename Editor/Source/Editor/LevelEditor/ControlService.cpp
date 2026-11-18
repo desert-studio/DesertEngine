@@ -404,8 +404,8 @@ namespace Desert::Editor
     //   OnUpdate      ServiceControlChannel()   read a request, run it, arm the gate
     //   OnUpdate      ...deferred queues drain, the scene renders...
     //   OnUpdate      SampleFrameQuiescence()   what was still outstanding while this frame was made
-    //   OnUIRender ...the interface is recorded into the swapchain...
-    //   present
+    //   OnUIRender    RecordWindowCaptureIfDue()  the interface's draw, then (when due) the copy, are enqueued
+    //   render task   interface graph (acquires the back buffer), the copy, submit, present
     //   OnFramePresented                        judge the frame; take the shot; release the reply
     // =============================================================================================
 
@@ -648,7 +648,8 @@ namespace Desert::Editor
                                                 const bool                       texturesStreaming,
                                                 const Control::BackgroundReport& hlodBuild,
                                                 const bool miniMapBuildRunning, const bool meshDropsLoading,
-                                                const bool editorHLODsReading )
+                                                const bool editorHLODsReading,
+                                                const bool modelingPreviewOutstanding )
     {
         Control::EditorQuiescence quiescence;
         // CONTENT SETTLING COUNTS AS STARTUP LOADING FOR THE CHANNEL, and it has to: the channel's whole
@@ -663,6 +664,9 @@ namespace Desert::Editor
             quiescence.Set( Control::PendingWork::ModelingAccept,
                             modeling.ReqAccept && modeling.ActiveTool != Core::ModelingState::Tool::None );
         }
+        // UE UMeshOpPreviewWithBackgroundCompute: the preview is valid only once its compute has landed. Sampled
+        // before the viewport pass, so a tool opened or a setting changed by this frame's command already counts.
+        quiescence.Set( Control::PendingWork::ModelingPreview, modelingPreviewOutstanding );
         quiescence.Set( Control::PendingWork::SceneLoad, m_SceneFiles.HasPendingLoad() );
         quiescence.Set( Control::PendingWork::NewScene, m_SceneFiles.HasPendingNew() );
         // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame
@@ -2369,6 +2373,11 @@ namespace Desert::Editor
         //
         // So the editor asks the gate, before the submit, whether THIS frame is the one the reply waits
         // for — the same question, on the same inputs, that OnFramePresented will answer afterwards.
+        //
+        // The answer is given here, on the game thread; the copy is recorded on the render task. The swapchain
+        // image is acquired late, by the interface graph's back-buffer import (PRESENT-COST-2), so the copy
+        // goes into a job of this frame queued behind the interface's draw and ahead of its submit and present
+        // (ViewportCapture::RecordWindowCapture).
         if ( !m_ControlInFlight || m_ControlInFlight->Operation != Control::Op::ShotWindow )
             return;
         // THE EFFECT WAIT AND NOT THE READINESS ONE. A shot parked behind the readiness gate has not been

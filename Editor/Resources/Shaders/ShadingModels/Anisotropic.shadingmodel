@@ -1,0 +1,70 @@
+// Anisotropic — UE's DefaultLit with Anisotropy (ShadingModels.ush DefaultLitBxDF's anisotropic branch, the
+// GBufferF tangent), as Substrate carries it: the slab's ANISOTROPY feature (Mesh/SubstrateSlab.glslh) - the GGX
+// lobe stretched along a tangent - brushed metal, satin, fibrous finishes, a vinyl record's grooves. Anisotropy > 0
+// widens the lobe along the tangent and narrows it across (UE GetAnisotropicRoughness: ax = alpha (1 + a), ay =
+// alpha (1 - a)); 0 is DefaultLit exactly (the feature bit is then clear and the tile classification shades the
+// texel as DefaultLit).
+//
+// The payload: CustomData0 = Anisotropy * 0.5 + 0.5 (UE's -1..1 pin), CustomData1 = the tangent's angle about the
+// shading normal (Common/AnisotropicTangent.glslh: the angle in a basis made from N alone, so the deferred
+// composite rebuilds the tangent from the G-buffer's normal without the tangent target UE adds for it). The
+// template (Programs/Surface/AnisotropicSurface.shader) writes both from the mesh tangent, its direction map and
+// rotation.
+//
+// The environment: UE's / Filament's anisotropic bent normal (GetAnisotropicBentNormal) - the reflection vector of
+// a normal bent toward the stretch, so a brushed cylinder's sky reflection smears along the brushing. Under the
+// sky light the bent reflection reads the sky cube; where the reflection is a TRACED gather (A.Traced) the trace's
+// isotropic lobe is the occluded answer and is kept (a cube lookup would mirror the open sky indoors).
+Guid 9037529050474975538;
+Payload
+{
+    CustomData0 Anisotropy;        // anisotropy * 0.5 + 0.5 (0.5 = isotropic)
+    CustomData1 AnisotropyTangent; // the tangent's angle about N / pi (Common/AnisotropicTangent.glslh)
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+    CustomData0;
+    CustomData1;
+}
+SlabFeatures AnisotropicSlabFeatures;
+Slab AnisotropicSlab;
+
+#include <Mesh/SubstrateSlab.glslh>
+
+float AnisotropicAmount( DesertPayload P )
+{
+    return clamp( P.CustomData0 * 2.0 - 1.0, -1.0, 1.0 );
+}
+
+// The 8-bit payload cannot hold 0.5 exactly: its nearest step, 128 / 255, reads as anisotropy 1/255. Anything
+// within half a step of the step pair around 0.5 is isotropic - the slab without the feature.
+uint AnisotropicSlabFeatures( DesertPayload P )
+{
+    return abs( AnisotropicAmount( P ) ) > 0.005 ? kDesertSlabAnisotropy : 0u;
+}
+
+DesertSlab AnisotropicSlab( DesertSurface S, DesertPayload P )
+{
+    DesertSlab slab = DesertMakeSlab( S, AnisotropicSlabFeatures( P ) );
+    slab.Anisotropy = AnisotropicAmount( P );
+    slab.Tangent    = DesertDecodeAnisotropyTangent( S.N, P.CustomData1 );
+    return slab;
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluate( L, S, AnisotropicSlab( S, P ) );
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluateSpecular( L, S, AnisotropicSlab( S, P ) );
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluateAmbient( A, S, AnisotropicSlab( S, P ) );
+}

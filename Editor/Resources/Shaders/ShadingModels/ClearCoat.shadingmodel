@@ -1,0 +1,55 @@
+// ClearCoat — UE's MSM_ClearCoat as Substrate converts it (SubstrateLegacyConversion.ush: one slab whose haziness
+// is a simple clear coat, bHazinessAsSimpleClearCoat): the slab's CLEAR_COAT feature (Mesh/SubstrateSlab.glslh) - a
+// thin clear dielectric layer (IOR 1.5, F0 = 4 %) over the slab - car paint, varnished wood, lacquer, wet plastic. The
+// coat has a GGX lobe of its own roughness; what its Fresnel reflects does not reach the base.
+//
+// The payload is UE's: CustomData0 = ClearCoat (the coat's strength, 0 = DefaultLit exactly - the feature bit is
+// then clear and the tile classification shades the texel as DefaultLit), CustomData1 = ClearCoatRoughness (UE
+// GBuffer.CustomData.x / .y). The coat shares the shading normal: UE's bottom normal (a second normal for the base
+// under a smooth coat) has no room in a 4 x 8-bit payload and is not modelled.
+Guid 7672409219929898576;
+Payload
+{
+    CustomData0 ClearCoat;          // 0..1 the coat's strength
+    CustomData1 ClearCoatRoughness; // 0..1 the coat's perceptual roughness
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+    CustomData0;
+    CustomData1;
+}
+SlabFeatures ClearCoatSlabFeatures;
+Slab ClearCoatSlab;
+
+#include <Mesh/SubstrateSlab.glslh>
+
+uint ClearCoatSlabFeatures( DesertPayload P )
+{
+    return P.CustomData0 > 0.0 ? kDesertSlabClearCoat : 0u;
+}
+
+DesertSlab ClearCoatSlab( DesertSurface S, DesertPayload P )
+{
+    DesertSlab slab    = DesertMakeSlab( S, ClearCoatSlabFeatures( P ) );
+    slab.Haziness      = clamp( P.CustomData0, 0.0, 1.0 );
+    slab.HazeRoughness = max( P.CustomData1, kDesertMinRoughness );
+    return slab;
+}
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluate( L, S, ClearCoatSlab( S, P ) );
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluateSpecular( L, S, ClearCoatSlab( S, P ) );
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    return DesertSlabEvaluateAmbient( A, S, ClearCoatSlab( S, P ) );
+}

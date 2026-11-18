@@ -30,6 +30,7 @@ namespace Desert::Editor
         Duplicate,
         DeleteToTrash,
         ClearSelection,
+        SizeMap,
     };
 
     inline constexpr std::string_view kContentBrowserContext = "Content Browser";
@@ -58,6 +59,7 @@ namespace Desert::Editor
          { kContentBrowserContext, "Duplicate", "" },
          { kContentBrowserContext, "Delete (to the Trash)", "" },
          { kContentBrowserContext, "Clear Selection", "" },
+         { kContentBrowserContext, "Size Map...", "" },
     } };
 
     inline constexpr std::array<ContentBrowserCommand, 11> kContentBrowserCommandOrder{
@@ -72,6 +74,7 @@ namespace Desert::Editor
          ContentBrowserCommand::Duplicate,
          ContentBrowserCommand::DeleteToTrash,
          ContentBrowserCommand::ClearSelection,
+         ContentBrowserCommand::SizeMap,
     };
 
     [[nodiscard]] constexpr const UICommandInfo& CommandInfo( ContentBrowserCommand command )

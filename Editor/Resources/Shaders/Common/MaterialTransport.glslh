@@ -21,7 +21,11 @@
 #ifndef DESERT_MATERIAL_TRANSPORT_GLSLH
 #define DESERT_MATERIAL_TRANSPORT_GLSLH
 
-PushConstant PushConstants
+// SHADER-PUSH-GEN-2: one block per variant (a preprocessor line inside a block has no single layout, so the
+// generator - DesertHeaderTool --shader-push - refuses it): ShaderPush::MaterialTransportDrawRows under
+// DESERT_SURFACE_DRAW_ROWS, ShaderPush::MaterialTransport otherwise. Both are 128 bytes and differ only at 112.
+#ifdef DESERT_SURFACE_DRAW_ROWS
+PushConstant MaterialTransportDrawRows
 {
     mat4 Transform;     // offset 0
     uint MaterialIndex; // offset 64 — the row in Materials[]
@@ -31,25 +35,51 @@ PushConstant PushConstants
                          // view pass Transform is then the submesh's transform RELATIVE TO that row's World.
     vec4 WindA;         // offset 80 — instanced vertex only: Graphic::kInstancedWindPushOffset (FoliageWind.glslh)
     vec4 WindB;         // offset 96
-#ifdef DESERT_SURFACE_DRAW_ROWS
     uint DrawRowsLo;    // offset 112 - a compacted bin's draw (RENDER-JOB-CPU-4): the address of the bin's
     uint DrawRowsHi;    // first DrawRows slot (DrawPushFields::DrawRows, Common/GpuInstanceDrawRow.glslh)
-#else
-    vec2 ShadowSlope;   // offset 112 — terrain light-view vertex stage only (Programs/Terrain/TerrainShadow.shader,
-                        // Material::SetShadowSlopeBias): Graphic::CascadeCasterBias SlopeBias / SlopeClamp
-                        // of the cascade being drawn.
-#endif
     uint PrimitiveFlags; // offset 120 — G-buffer fragment stage only (Mesh/Surface/Pass_GBuffer.glslh,
                          // Material::SetPrimitiveFlags): the draw's per-primitive bits, Graphic::PrimitiveFlag
-                         // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow). 0 = every default.
+                         // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow; bit 1 = NO_EMISSION; bit 2 =
+                         // EMISSION_IS_LIGHT). 0 = every default.
     float LodFadeSide;   // offset 124 - a CPU-recorded Masked draw's side of a dithered LOD transition
                          // (DrawPushFields::LodFadeSide; +1 older, -1 newer, 0 none - the binned draw's
                          // DesertMeshDraw::LodFadeSide; Mesh/Surface/LODTransition.glslh). Block size 128, the
                          // size every Vulkan device guarantees.
 }
 m_PushConstants;
+#else
+PushConstant MaterialTransport
+{
+    mat4 Transform;     // offset 0
+    uint MaterialIndex; // offset 64 — the row in Materials[]
+    uint BoneOffset;    // offset 68 — skinned LIGHT-view cell only (masked shadow): first bone of THIS draw in BoneMatrices[]; a view pass reads its row
+    uint PrimitiveIndex; // offset 72 — view passes and the skinned masked caster: the draw's GpuScene primitive in Primitives[] (Common/GpuScene.glslh,
+                         // Material::SetPrimitiveIndex). Every submesh draw of one object reads the same row; in a
+                         // view pass Transform is then the submesh's transform RELATIVE TO that row's World.
+    vec4 WindA;         // offset 80 — instanced vertex only: Graphic::kInstancedWindPushOffset (FoliageWind.glslh)
+    vec4 WindB;         // offset 96
+    vec2 ShadowSlope;   // offset 112 — terrain light-view vertex stage only (Programs/Terrain/TerrainShadow.shader,
+                        // Material::SetShadowSlopeBias): Graphic::CascadeCasterBias SlopeBias / SlopeClamp
+                        // of the cascade being drawn.
+    uint PrimitiveFlags; // offset 120 — G-buffer fragment stage only (Mesh/Surface/Pass_GBuffer.glslh,
+                         // Material::SetPrimitiveFlags): the draw's per-primitive bits, Graphic::PrimitiveFlag
+                         // (bit 0 = NO_CONTACT_SHADOW, UE !bCastContactShadow; bit 1 = NO_EMISSION; bit 2 =
+                         // EMISSION_IS_LIGHT). 0 = every default.
+    float LodFadeSide;   // offset 124 - a CPU-recorded Masked draw's side of a dithered LOD transition
+                         // (DrawPushFields::LodFadeSide; +1 older, -1 newer, 0 none - the binned draw's
+                         // DesertMeshDraw::LodFadeSide; Mesh/Surface/LODTransition.glslh). Block size 128, the
+                         // size every Vulkan device guarantees.
+}
+m_PushConstants;
+#endif
 
 // The bits of PrimitiveFlags — C++ twin: Graphic::PrimitiveFlag (Engine/Graphic/Materials/Material.hpp).
 #define DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW 1u
+// The draw writes no emission into the G-buffer: a surface-cache card capture of a material with Emissive Lights
+// Scene on (MegaLights lights the scene from it directly; the cards' emissive layer, which GI reads, holds none).
+#define DESERT_PRIMITIVE_FLAG_NO_EMISSION 2u
+// The draw's emission is a MegaLights light source (its material has Emissive Lights Scene on): the G-buffer marks
+// the shading word's EMISSION_IS_LIGHT, so a screen GI hit takes no emission from it (Common/GIHitLighting.glslh).
+#define DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT 4u
 
 #endif

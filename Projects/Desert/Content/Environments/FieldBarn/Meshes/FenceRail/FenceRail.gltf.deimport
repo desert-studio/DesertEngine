@@ -11,5 +11,12 @@
     "Bounds": {
         "Min": [-6.5, -30.000001907348633, -6.5],
         "Max": [300.0, 116.19999694824219, 9.5]
+    },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "VirtualGeometry": true
     }
 }

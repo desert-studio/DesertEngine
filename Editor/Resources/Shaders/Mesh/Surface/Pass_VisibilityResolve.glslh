@@ -31,6 +31,8 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 #endif
 #ifdef DESERT_SURFACE_PATH_GrassBlade
 #include <Mesh/Surface/GrassBlade.glslh>
+// The view's deformation field: the raster flattened the blade by it (Vertex_GrassBlade.glslh), so does the rebuild.
+#include <Deformation/DeformationFieldRead.glslh>
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
     GrassBladeShapeData Blade;
@@ -45,6 +47,8 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 #include <Common/FoliageWind.glslh>
 #include <Mesh/MeshVertexAccess.glslh>
 #endif
+// The local wind at the root: both the GrassBlade and the Instanced paths read it.
+#include <Common/LocalWind.glslh>
 
 #ifdef DESERT_SURFACE_WEATHER
 #include <Mesh/Surface/SurfaceWeather.glslh>
@@ -144,18 +148,24 @@ void main()
     const vec4 windPrev = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
     // FPS-GRASS-HULL: the raster's rows stood on the card's hull (Vertex_GrassBlade.glslh, mesh z = 1 / segments).
     const float rowSpan = 1.0 / float( max( segments, 1u ) );
+    // The local wind at the blade's root, now and one step before (the raster's, Vertex_GrassBlade.glslh).
+    const vec2  localAir     = LocalWindXZ( vec3( model[3] ), false );
+    const vec2  prevLocalAir = LocalWindXZ( vec3( model[3] ), true );
+    // The deformation field under the root (DEFORM-GRASS), the raster's one cell.
+    const vec3  trample      = DeformationFieldTrampleAt( vec3( model[3] ) );
     BladePoint  point[3];
     vec3        previous[3];
     vec4        jittered[3];
     float       hullSide[3];
     for ( int k = 0; k < 3; ++k )
     {
-        const BladePoint full =
-             BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, m_PushConstants.WindB );
+        const BladePoint full = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA,
+                                         m_PushConstants.WindB, cameraUB.WindGust, localAir, trample );
         hullSide[k] = BladeHullSide( model, full, corner[k].x, corner[k].y, rowSpan );
         point[k]    = BladeHullPoint( model, full, corner[k].x, hullSide[k] );
         previous[k] = BladeHullPoint( model,
-                                      BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev ),
+                                      BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev,
+                                               cameraUB.PrevWindGust, prevLocalAir, trample ),
                                       corner[k].x, hullSide[k] )
                            .Position;
         jittered[k] = cameraUB.JitteredViewProjection * vec4( point[k].Position, 1.0 );
@@ -214,7 +224,8 @@ void main()
     const vec3 prevPosition = b.x * previous[0] + b.y * previous[1] + b.z * previous[2];
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), 0.0,
-                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u, true,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u );
 }
 #else
 // THE INSTANCED PATH'S RESOLVE (GRASS-VIS-MESH-1; UE 5 Nanite's FetchNaniteMaterialPixelParameters over a mesh's
@@ -284,6 +295,9 @@ void main()
     const uint  vertexStride  = MeshRows.Geometry[1].z;
     const uint  streamStride  = MeshRows.Geometry[1].w;
     const vec4  windPrev      = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
+    // The local wind at the instance, now and one step before (the raster's, Vertex_Instanced.glslh).
+    const vec2  localAir      = LocalWindXZ( vec3( model[3] ), false );
+    const vec2  prevLocalAir  = LocalWindXZ( vec3( prevModel[3] ), true );
     // The normal matrix as the cofactor matrix of the model's 3x3 (transpose( inverse ) x det: three cross
     // products, no inverse or division per pixel - FPS-GRASS-RESOLVE), signed by det so a mirrored instance's
     // normals face as the inverse's would; every use is normalized, so the dropped 1 / |det| changes nothing.
@@ -308,8 +322,10 @@ void main()
         const uvec2 at     = GrassMeshAddressAdd( vertexAddress, index * vertexStride );
         const uvec2 stream = GrassMeshAddressAdd( streamAddress, index * streamStride );
         const vec3  local3 = GrassMeshVec3( at, 0u );
-        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, m_PushConstants.WindB );
-        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, windPrev );
+        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, m_PushConstants.WindB,
+                                               cameraUB.WindGust, localAir );
+        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, windPrev,
+                                               cameraUB.PrevWindGust, prevLocalAir );
         jittered[k]  = cameraUB.JitteredViewProjection * vec4( world[k], 1.0 );
         normal[k]    = normalize( normalMatrix * GrassMeshVec3( at, 12u ) );
         tangent[k]   = normalize( normalMatrix * GrassMeshVec3( at, 24u ) );
@@ -368,6 +384,7 @@ void main()
     const float moved       = prevModel != model ? 1.0 : 0.0;
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), moved,
-                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u, true,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u );
 }
 #endif

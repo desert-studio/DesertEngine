@@ -176,6 +176,8 @@ namespace Desert::Graphic
                      } );
             }
             AddSystemRasters( graph, textures, cascades.StaticPasses, true );
+            // A patched cache (DEFORM-GRASS-2): LOAD, its footprint strip cleared and drawn in the pass.
+            AddSystemRasters( graph, textures, cascades.PatchPasses, false );
             // ...its strips drawn over the shifted cache: LOAD, no clear may wipe the copy.
             AddSystemRasters( graph, textures, cascades.ScrollPasses, false );
             for ( const auto& copy : cascades.Copies )
@@ -254,7 +256,8 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures,
+                                              const ViewFrame& frame )
     {
         // The translucency of the frame, in draw order - the order of these calls IS the order, there is no
         // numeric placement. The height fog's apply is NOT here: it fogs the OPAQUE scene and ran before the scene
@@ -267,7 +270,12 @@ namespace Desert::Graphic
                               ->CompositePass() );
         if ( auto* particles = m_Systems.Particle.get();
              particles != nullptr && !m_ViewProfile.SceneCapture )
+        {
+            // The lit cells' light first (UE fills the translucency lighting volume before the translucency):
+            // asked here, where the frame's every sprite draw record exists, so a lit sprite always has it.
+            AddFrameTranslucencyLightingVolume( graph, textures, frame );
             AddSystemRaster( graph, textures, particles->DrawPass() );
+        }
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
     }
 
@@ -894,7 +902,8 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
-    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy )
+    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
+                                       const FrameFrontLayer& frontLayer )
     {
         auto* water = m_Systems.Water.get();
         if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
@@ -919,12 +928,16 @@ namespace Desert::Graphic
              textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
         if ( !waterInfo.IsValid() )
             return;
+        // No front layer this frame: the graph's black texture for both (as the glass), "no trace".
+        const RDG::TextureRef black           = textures.GraphRefs().System.Black;
+        const RDG::TextureRef frontReflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black;
+        const RDG::TextureRef frontDepth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black;
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return water->RenderManual( context ); },
-             [water, sceneCopy, waterInfo, view, frame]( RDG::PassBuilder& pass )
-             { water->DeclareDraws( pass, sceneCopy, waterInfo, view, frame ); } );
+             [water, sceneCopy, waterInfo, frontReflection, frontDepth, view, frame]( RDG::PassBuilder& pass )
+             { water->DeclareDraws( pass, sceneCopy, waterInfo, frontReflection, frontDepth, view, frame ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS

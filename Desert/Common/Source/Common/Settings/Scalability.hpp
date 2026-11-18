@@ -154,6 +154,10 @@ namespace Common::Scalability
         VolumetricFog,              // 0 off, 1 on
         VolumetricFogGridPixelSize, // froxel edge in render pixels. 4..32
         VolumetricFogGridSizeZ,     // depth slices of the froxel grid. 32..256
+        // The translucency lighting volume (Graphic::TranslucencyLightingVolumeQuality,
+        // TranslucencyLightingVolumeRenderer) - UE r.TranslucencyLightingVolumeDim: cells per edge of each of its
+        // two cascades (even). Cost and blur of the lit particles' light, never its level. 16..64
+        TranslucencyLightingVolumeDim,
         // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
         // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
         ShadowRayTracedSamplesPerPixel,
@@ -516,6 +520,12 @@ namespace Common::Scalability
         // "Foliage.GrassVisibilityBuffer": 1 at every level, so only a machine override names it (0 = the A/B and
         // the rollback).
         FoliageGrassVisibilityBuffer,
+        // Landscape runtime virtual texture (UE r.VT.* under sg.TextureQuality, LANDSCAPE-RVT): the landscape layer
+        // blend rendered into 128-texel pages of a virtual square over the queued tiles, sampled by TerrainGBuffer.
+        // Read by SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality.
+        LandscapeVirtualTextureSizeLog2,         // mip0 side of the virtual square in texels, log2. 12..17
+        LandscapeVirtualTexturePoolPages,        // physical atlas side in pages (pool = side^2 pages). 8..64
+        LandscapeVirtualTextureUpdatesPerFrame,  // pages rendered per frame (r.VT.MaxUploadsPerFrame). 8..256
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

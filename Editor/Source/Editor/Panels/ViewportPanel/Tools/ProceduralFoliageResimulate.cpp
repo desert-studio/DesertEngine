@@ -43,6 +43,10 @@ namespace Desert::Editor::Tools
             const auto hit = host.Trace( start, end, filter );
             if ( !hit || !filter.Allows( hit->Surface ) )
                 return std::nullopt;
+            // UE FoliageTrace: no procedural instance where its trace meets a blocking volume before the ground.
+            for ( const auto& blocker : host.Blockers )
+                if ( Procedural::BlocksProceduralInstance( blocker, owner, start, hit->Point ) )
+                    return std::nullopt;
             return Procedural::ProceduralFoliageGround{ hit->Point, hit->Normal };
         };
 

@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace Desert::Editor::Core
 {
@@ -35,6 +36,10 @@ namespace Desert::Editor::Core
             Shrink,
             Invert,
             Clear,
+            // UE PolyEdit's Select Edge Loops / Select Edge Rings on an Edge selection: the loops / rings through
+            // the selected edges added, at the current level (Geometry::ExpandEdges).
+            SelectEdgeLoops,
+            SelectEdgeRings,
         };
         [[nodiscard]] static const char* ToString( Op op );
 
@@ -61,6 +66,29 @@ namespace Desert::Editor::Core
         {
             m_Level = level;
         }
+        // UE's UPolygonSelectionMechanicProperties bSelectEdgeLoops / bSelectEdgeRings: an Edge pick - the click
+        // and the hover highlight that previews it - takes the loops / rings through the picked edge with it
+        // (both on: the union of the two, each grown from the picked edge). Tool settings like the level, so not
+        // undo steps.
+        [[nodiscard]] bool PickEdgeLoops() const
+        {
+            return m_PickEdgeLoops;
+        }
+        [[nodiscard]] bool PickEdgeRings() const
+        {
+            return m_PickEdgeRings;
+        }
+        void SetPickEdgeLoops( bool on )
+        {
+            m_PickEdgeLoops = on;
+        }
+        void SetPickEdgeRings( bool on )
+        {
+            m_PickEdgeRings = on;
+        }
+        // The mesh IDs a pick of @p hit selects: HitElements at the current mode and level, grown by the loops /
+        // rings the two settings above ask for when the hit is an edge. Empty for a miss or with no tracked mesh.
+        [[nodiscard]] std::vector<int> PickedElements( const Geometry::ElementHit& hit ) const;
         // What the last check against an edited mesh dropped, and the running total since the entity was
         // picked - the panel shows both, so an edit that emptied the selection says so.
         [[nodiscard]] const Geometry::PruneReport& LastDropped() const
@@ -125,6 +153,8 @@ namespace Desert::Editor::Core
         std::unique_ptr<const Geometry::GroupTopology>  m_Topology;
         Geometry::ElementSelection                m_Selection{ Geometry::ElementMode::PolyGroup };
         Geometry::TopologyLevel                         m_Level = Geometry::TopologyLevel::Group;
+        bool                                      m_PickEdgeLoops = false; // UE's defaults: both off
+        bool                                      m_PickEdgeRings = false;
         Geometry::PruneReport                     m_LastDropped;
         int                                       m_TotalDropped = 0;
     };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Graphic/Pipeline.hpp>
@@ -268,17 +269,18 @@ namespace Desert::Graphic::System
                           .Storage( ScreenSpaceDenoiserReconstructShaderParameters::ReconstructedSignalTexture,
                                     signal, RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserReconstructShaderParameters::DenoiserViewUB, uniforms )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
+                          .PushConstants<ShaderPush::SSDReconstructReflections>();
                  },
                  [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, factor = in.DownsampleFactor,
                   gate = SignalGate( in.RoughSpecularFromGI ), width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Reflections Reconstruction" );
-                     const glm::vec4 push( static_cast<float>( seed ), static_cast<float>( radius ),
-                                           static_cast<float>( factor ), gate );
+                     const ShaderPush::SSDReconstructReflections push{
+                          .Params = glm::vec4( static_cast<float>( seed ), static_cast<float>( radius ),
+                                               static_cast<float>( factor ), gate ) };
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
@@ -297,8 +299,9 @@ namespace Desert::Graphic::System
         {
             if ( m_Signal != DenoiserSignal::DiffuseIndirect || !m_ReconstructPipeline )
                 return {};
-            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius, in.Alpha, scene, frame, width,
-                                         height, "Denoise: Diffuse Reconstruction" );
+            return DenoiseSurfaceSignal<ShaderPush::SSDReconstructDiffuse>(
+                 graph, in.Signal, in.ReconstructionRadius, in.Alpha, scene, frame, width, height,
+                 "Denoise: Diffuse Reconstruction" );
         }
 
         // As DenoiseDiffuseIndirect, for MegaLights' specular direct light: the reconstruction and the history
@@ -312,15 +315,17 @@ namespace Desert::Graphic::System
         {
             if ( m_Signal != DenoiserSignal::DirectSpecular || !m_ReconstructPipeline )
                 return {};
-            return DenoiseSurfaceSignal( graph, in.Signal, in.ReconstructionRadius,
-                                         DiffuseIndirectAlpha::AnsweredShare, scene, frame, width, height,
+            return DenoiseSurfaceSignal<ShaderPush::SSDReconstructDirectSpecular>(
+                 graph, in.Signal, in.ReconstructionRadius, DiffuseIndirectAlpha::AnsweredShare, scene, frame, width, height,
                                          "Denoise: Direct Specular Reconstruction" );
         }
 
     private:
         // The full-resolution surface signals (diffuse indirect, direct specular): one reconstruction pass of this
         // signal's program, then the shared temporal accumulation and history convolution. @p alpha: what the
-        // input's a means (the direct specular signal's is the answered share).
+        // input's a means (the direct specular signal's is the answered share). @p Push: the signal's program's
+        // block (SSDReconstructDiffuse / SSDReconstructDirectSpecular, both a Reconstruction vec4).
+        template <ShaderPush::Block Push>
         RDG::TextureRef DenoiseSurfaceSignal( RDG::Builder& graph, const RDG::TextureRef input,
                                               const uint32_t             reconstructionRadius,
                                               const DiffuseIndirectAlpha alpha, const DenoiserSceneTextures& scene,
@@ -336,8 +341,8 @@ namespace Desert::Graphic::System
             // SSDReconstructDirectSpecular), y = 1 when a is a signal of its own
             // (DiffuseIndirectAlpha::SkyVisibility: filtered straight beside rgb), 0 when it is the answered share
             // (rgb premultiplied by it).
-            const glm::vec4 push( static_cast<float>( std::max( reconstructionRadius, 1u ) ), alphaIsSignal, 0.0f,
-                                  0.0f );
+            const Push push{ .Reconstruction = glm::vec4( static_cast<float>( std::max( reconstructionRadius, 1u ) ),
+                                                          alphaIsSignal, 0.0f, 0.0f ) };
             graph.AddPass(
                  passName, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -356,13 +361,13 @@ namespace Desert::Graphic::System
                           .Storage( ScreenSpaceDenoiserReconstructShaderParameters::ReconstructedSignalTexture,
                                     signal, RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserReconstructShaderParameters::DenoiserViewUB, uniforms )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
+                          .template PushConstants<Push>();
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Surface Reconstruction" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
@@ -391,10 +396,10 @@ namespace Desert::Graphic::System
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
             // SSDReconstructShadowVisibility.shader's push: Params, LocalLightSphere.
-            const std::array<glm::vec4, 2> push{
-                 glm::vec4( std::tan( std::max( in.LightSourceAngleRadians, 0.0f ) * 0.5f ),
-                            static_cast<float>( in.ReconstructionRadius ), 0.0f, 0.0f ),
-                 in.LocalLight };
+            const ShaderPush::SSDReconstructShadowVisibility push{
+                 .Params           = glm::vec4( std::tan( std::max( in.LightSourceAngleRadians, 0.0f ) * 0.5f ),
+                                                static_cast<float>( in.ReconstructionRadius ), 0.0f, 0.0f ),
+                 .LocalLightSphere = in.LocalLight };
             graph.AddPass(
                  "Denoise: Shadow Visibility Reconstruction", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -415,13 +420,13 @@ namespace Desert::Graphic::System
                           .Storage( ScreenSpaceDenoiserReconstructShaderParameters::ReconstructedSignalTexture,
                                     signal, RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserReconstructShaderParameters::DenoiserViewUB, uniforms )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
+                          .PushConstants<ShaderPush::SSDReconstructShadowVisibility>();
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Shadow Visibility Reconstruction" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ReconstructPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
@@ -599,10 +604,10 @@ namespace Desert::Graphic::System
             m_Parity = 1u - m_Parity;
 
             const float                    historyReadable = readable ? 1.0f : 0.0f;
-            const std::array<glm::vec4, 2> temporalPush{
-                 glm::vec4( historyReadable, static_cast<float>( m_Signal ), MaxSampleCount( m_Signal ),
-                            minSampleCount ),
-                 glm::vec4( signalGate, 0.0f, 0.0f, 0.0f ) };
+            const ShaderPush::SSDTemporalAccumulation temporalPush{
+                 .Params  = glm::vec4( historyReadable, static_cast<float>( m_Signal ), MaxSampleCount( m_Signal ),
+                                       minSampleCount ),
+                 .Params2 = glm::vec4( signalGate, 0.0f, 0.0f, 0.0f ) };
             HistorySlot*    stamped = &next;
             graph.AddPass(
                  "Denoise: Temporal Accumulation", RDG::PassFlags::Compute,
@@ -636,14 +641,14 @@ namespace Desert::Graphic::System
                           .Storage( ScreenSpaceDenoiserTemporalShaderParameters::NewHistoryCountTexture,
                                     written[1], RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserTemporalShaderParameters::DenoiserViewUB, uniforms )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( temporalPush ) ) );
+                          .PushConstants<ShaderPush::SSDTemporalAccumulation>();
                  },
                  [this, temporalPush, stamped, index = frame.FrameIndex, width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Temporal Accumulation" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &temporalPush, static_cast<uint32_t>( sizeof( temporalPush ) ) );
+                     bindings.PushConstants( temporalPush );
                      const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
                           bindings, *m_TemporalPipeline, Groups( width ), Groups( height ), 1 );
                      if ( dispatched.IsSuccess() )
@@ -654,7 +659,8 @@ namespace Desert::Graphic::System
             const RDG::TextureRef output =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), SignalName( m_Signal ) );
             graph.SetFaultDefault( output, RDG::FaultDefault::Black );
-            const glm::vec4 convolutionPush( signalGate, static_cast<float>( m_Signal ), alphaIsSignal, 0.0f );
+            const ShaderPush::SSDHistoryConvolution convolutionPush{
+                 .Params = glm::vec4( signalGate, static_cast<float>( m_Signal ), alphaIsSignal, 0.0f ) };
             graph.AddPass(
                  "Denoise: History Convolution", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -675,14 +681,13 @@ namespace Desert::Graphic::System
                           .Storage( ScreenSpaceDenoiserConvolutionShaderParameters::DenoisedSignalTexture, output,
                                     RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserConvolutionShaderParameters::DenoiserViewUB, uniforms )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
+                          .PushConstants<ShaderPush::SSDHistoryConvolution>();
                  },
                  [this, convolutionPush, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: History Convolution" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &convolutionPush,
-                                             static_cast<uint32_t>( sizeof( convolutionPush ) ) );
+                     bindings.PushConstants( convolutionPush );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_ConvolutionPipeline,
                                                                      Groups( width ), Groups( height ), 1 );
                  } );

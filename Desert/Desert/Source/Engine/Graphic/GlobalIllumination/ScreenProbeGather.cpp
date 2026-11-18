@@ -2,6 +2,7 @@
 // uniform placement, adaptive placement per level, trace, filter + irradiance, integrate, temporal) and UE 5.8
 // LumenScreenProbeFiltering.cpp FilterScreenProbes (the spatial filter's passes and its disocclusion input),
 // adapted as described in ScreenProbeGather.hpp.
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -68,6 +69,7 @@ namespace
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
         DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheRadianceAtlasTexture );
@@ -333,11 +335,6 @@ namespace Desert::Graphic::GlobalIllumination
                                                            : std::numeric_limits<float>::max();
         }
 
-        // ScreenProbeTraceScreen's push constant.
-        struct TraceScreenPush
-        {
-            float NearFieldEnd;
-        };
 
         constexpr std::array<std::string_view, ScreenProbeLayout::kMaxLevels> kPlaceNames{
              "ScreenProbes: Place Uniform", "ScreenProbes: Place Adaptive 1", "ScreenProbes: Place Adaptive 2",
@@ -806,13 +803,13 @@ namespace Desert::Graphic::GlobalIllumination
                           .Texture( ScreenProbeGatherPlaceShaderParameters::Velocity, inputs.Velocity, kS, all )
                           .Sampler( ScreenProbeGatherPlaceShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( uint32_t ) ) );
+                          .PushConstants<ShaderPush::ScreenProbePlace>();
                      gbuf( block );
                  },
                  [pipeline, level, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &level, static_cast<uint32_t>( sizeof( level ) ) );
+                     bindings.PushConstants( ShaderPush::ScreenProbePlace{ .Level = level } );
                      return Renderer::DispatchCompute( bindings, *pipeline, groups.x, groups.y, 1u );
                  } );
         }
@@ -1013,7 +1010,7 @@ namespace Desert::Graphic::GlobalIllumination
 
         {
             ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
-            const TraceScreenPush  push{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ) };
+            const ShaderPush::ScreenProbeTraceScreen  push{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ) };
             graph.AddPass(
                  "ScreenProbes: Trace Screen", kGraphicsPass,
                  [&]( RDG::PassBuilder& builder )
@@ -1041,7 +1038,7 @@ namespace Desert::Graphic::GlobalIllumination
                                     RDG::SamplerDesc::PointClamp() )
                           .Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeDisocclusionUB,
                                     traceDisocclusion, kR )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( TraceScreenPush ) ) );
+                          .PushConstants<ShaderPush::ScreenProbeTraceScreen>();
                      // The near field's list, the far field's (the screen's misses past the near field) and the
                      // cache read's (FPS-SP-TRACE-4: the misses it walked to the cache have nothing left to
                      // march).
@@ -1052,7 +1049,7 @@ namespace Desert::Graphic::GlobalIllumination
                  [pipeline, probeGroups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     bindings.PushConstants( push );
                      return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
                  } );
         }
@@ -1199,7 +1196,9 @@ namespace Desert::Graphic::GlobalIllumination
                               .Texture( ScreenProbeGatherTraceShaderParameters::GBufferATexture, inputs.GBufferA,
                                         kS, all )
                               .Texture( ScreenProbeGatherTraceShaderParameters::GBufferEmissiveTexture,
-                                        inputs.GBufferEmissive, kS, all );
+                                        inputs.GBufferEmissive, kS, all )
+                              .Texture( ScreenProbeGatherTraceShaderParameters::GBufferShadingWordTexture,
+                                        inputs.GBufferShadingWord, kS, all );
                      block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeTracedTexture, traced, kW );
                      // FPS-GI-ASYNC (UE SkipBarrier on the Lumen trace UAVs): a ray is in one leg's list at a time,
                      // so two legs no list orders (the near field's hit lighting and the far field; the cache read

@@ -26,8 +26,8 @@ namespace Desert::Player
      * WHY THIS EXISTS AT ALL, GIVEN THE EDITOR ALREADY HAS ONE. The editor's `--shot` reads
      * `Scene::GetFinalImage()` — the offscreen image the scene renders into — and that image is by
      * construction the part of the picture this host does NOT present while it is loading. A loading
-     * screen is drawn by `Render2D` straight into the swapchain render pass, exactly like the editor's
-     * panels, and no capture of the final image has ever held a pixel of either.
+     * screen is drawn by `Render2D` into the present's UI composite and encoded into the swapchain, exactly
+     * like the editor's panels, and no capture of the final image has ever held a pixel of either.
      *
      * So this one reads the SWAPCHAIN, through `VulkanSwapChain::RecordFrameCapture` /
      * `TakeCapturedFrameRGBA8`: the copy is recorded into the same command buffer as the frame's draws

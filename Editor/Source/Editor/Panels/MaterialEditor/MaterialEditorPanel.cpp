@@ -27,6 +27,7 @@
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -1181,6 +1182,26 @@ namespace Desert::Editor
                                    "is the repair rather than the usual same-domain choice.",
                                    current.c_str() );
         }
+
+        // THE SHADING MODEL the template lights with (UE's Material > Shading Model): a property of the template
+        // (its `ShadingModel <Name>` line), so it is shown here, read-only, beside the shader that decides it -
+        // picking ClearCoatSurface, ClothSurface or AnisotropicSurface is how a material takes that model, and its
+        // payload rows are the template's parameters below.
+        if ( const auto& meta = currentShader->GetProgramMeta(); !meta.ShadingModel.IsNull() )
+        {
+            const auto models = ::Desert::Core::ShadingModels::ShaderRootShadingModels();
+            const auto* entry = models->IsSuccess() ? models->GetValue().Registry.FindByGuid( meta.ShadingModel )
+                                                     : nullptr;
+            if ( entry != nullptr )
+            {
+                ImGui::TextDisabled( "Shading Model  %s", entry->Manifest.Name.c_str() );
+            }
+            else
+            {
+                ImGui::TextColored( ImVec4( 1.0f, 0.72f, 0.35f, 1.0f ), "Shading Model  %s (not loaded)",
+                                    meta.ShadingModel.ToString().c_str() );
+            }
+        }
         return shaderChanged;
     }
 
@@ -2294,6 +2315,22 @@ namespace Desert::Editor
                 // work with a corner of yours in it.
                 ImGui::TextDisabled( "This material fills every slot of that mesh." );
             }
+        }
+
+        // UE "Use Emissive for Dynamic Area Lighting": MaterialData::EmissiveLightsScene, a property of the
+        // material (absent = off on a base, inherit on an instance). Published to the runtime as every edit.
+        if ( m_WorkingCopy && ImGui::CollapsingHeader( "Lighting", ImGuiTreeNodeFlags_DefaultOpen ) )
+        {
+            auto& data        = m_WorkingCopy->Data();
+            bool  lightsScene = data.EmissiveLightsScene.value_or( false );
+            if ( ImGui::Checkbox( "Emissive Lights Scene##emissive_lights_scene", &lightsScene ) )
+            {
+                data.EmissiveLightsScene = lightsScene;
+                PublishToRuntime( *m_WorkingCopy, data.IsInstance() );
+            }
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "The emission of this material lights the scene as MegaLights area lights "
+                                   "(stochastic selection, traced shadows)." );
         }
 
         // UE's material "Thumbnail" category: Primitive Type, Preview Mesh and the orbit, all in

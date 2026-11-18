@@ -5,8 +5,11 @@
 // the visibility resolve (Pass_VisibilityResolve.glslh, GRASS-VIS), so a texel means the same whichever wrote it.
 // Needs SurfaceInput / SurfaceOutput (SurfaceTypes.glslh) and DESERT_SHADING_MODEL_INDEX (the parser).
 #include <Generated/ShadingModels.glslh>
-// The raster G-buffer cell and the visibility resolve receive the view's DBuffer (DECALS-DBUFFER; defined by
-// Pass_GBuffer.glslh and Pass_VisibilityResolve.glslh): the resolved grass's depth is rastered before the decals.
+// The raster G-buffer cell, the virtual-geometry cluster cell (the `.VirtualGeometry` permutation of the same
+// Pass_GBuffer.glslh; DECALS-VG) and the visibility resolve receive the view's DBuffer (DECALS-DBUFFER; defined by
+// Pass_GBuffer.glslh and Pass_VisibilityResolve.glslh): the resolved grass's depth, and with a decal in the view
+// every cluster's (the cut holds none back for phase 2, SceneRendererFrameGpuCull.cpp; "Deferred: Masked Depth
+// Prepass" draws them through their depth twins), is rastered before the decals.
 #ifdef DESERT_SURFACE_DBUFFER_RECEIVE
 #include <Common/DBuffer.glslh>
 #endif
@@ -56,8 +59,12 @@ void DesertSurfaceNormalFootprint( const SurfaceInput i, const SurfaceOutput s, 
 }
 
 // @p castsContactShadow: the primitive's contact-shadow cast (UE bCastContactShadow), as its draw states it.
+// @p emits: the draw writes the surface's emission (DESERT_PRIMITIVE_FLAG_NO_EMISSION clears it).
+// @p emissionIsLight: the emission is a MegaLights light source (DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT, the binned
+// draw's DESERT_GPU_DRAW_EMISSION_IS_LIGHT): the shading word's EMISSION_IS_LIGHT mark.
 void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4 clip, const vec4 prevClip,
-                         const float objectMoved, const bool castsContactShadow )
+                         const float objectMoved, const bool castsContactShadow, const bool emits,
+                         const bool emissionIsLight )
 {
     vec3  N         = DesertSurfaceWorldNormal( i, s );
     vec3  baseColor = s.BaseColor;
@@ -66,8 +73,11 @@ void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4
     float ao        = s.AmbientOcclusion;
 #ifdef DESERT_SURFACE_DBUFFER_RECEIVE
     // The frame's decals over this surface (UE ApplyDBufferData), before the specular AA widens the roughness.
-    // No DBuffer on this view (no decal pass, or the card capture): no fetch at all.
-    if ( DesertViewHasDBuffer() )
+    // No DBuffer on this view (no decal pass, or the card capture): no fetch at all. A material that receives no
+    // decals (SurfaceOutput.ReceiveDecals < 0.5, UE bReceivesDecals) keeps its exact bits on every route: the
+    // raster cell and the virtual-geometry cluster cell are permutations of Pass_GBuffer.glslh, and the visibility
+    // resolve writes through this same function.
+    if ( s.ReceiveDecals >= 0.5 && DesertViewHasDBuffer() )
         DesertApplyDBuffer( DesertReadDBuffer( ivec2( gl_FragCoord.xy ) ), baseColor, N, roughness, metallic, ao );
 #endif
     vec3 dNdx, dNdy;
@@ -77,11 +87,13 @@ void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4
     const uvec2 word =
          DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount, s.Specular,
                                 DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
-    // The material's sun-shadow receive, then the primitive's contact-shadow cast.
-    oGBufferShadingWord = DesertMarkContactShadowCast(
-         DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
-         castsContactShadow );
-    oGBufferEmissive      = vec4( s.Emissive, ao );
+    // The material's sun-shadow receive, then the primitive's contact-shadow cast and its emission-is-a-light mark.
+    oGBufferShadingWord = DesertMarkEmissionIsLight(
+         DesertMarkContactShadowCast(
+              DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
+              castsContactShadow ),
+         emissionIsLight );
+    oGBufferEmissive      = vec4( emits ? s.Emissive : vec3( 0.0 ), ao );
     oVelocity             = DesertVelocity( clip, prevClip, objectMoved );
     oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
 }

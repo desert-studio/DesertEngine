@@ -60,6 +60,8 @@ namespace Desert::Editor::Tools
         std::optional<ECS::LandscapeEditTarget>                m_Target;
         std::optional<World::Landscape::LandscapeHeightStroke> m_Stroke;
         bool                                                   m_Failed = false;
+        /// UE FLandscapeBrushAlpha's LastMouseAngle / OldMousePosition: kept across strokes, as the brush keeps them.
+        World::Landscape::LandscapeAlphaBrushRotation m_AlphaRotation;
         /// The ramp points when the held press began; set from the press to the release.
         std::optional<World::Landscape::LandscapeRampPoints> m_RampAtPress;
         /// The control point being dragged and where it was at the press; the drag previews the location on the

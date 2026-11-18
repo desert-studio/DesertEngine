@@ -784,6 +784,10 @@ namespace Desert::VFX
         compiled.TickStage = readsScene ? VFXTickStage::PostOpaque : VFXTickStage::PreOpaque;
         if ( readsScene )
             body.insert( 0, std::format( "#define {} 1\n", kVFXSceneDepthDefine ) );
+        // 4c. The scene's air (WIND-FIELD-GPU): a stack that calls VFX_SceneWind binds the SceneWind block.
+        compiled.ReadsSceneWind = CallsIdentifier( body, kVFXSceneWindHostFunction );
+        if ( compiled.ReadsSceneWind )
+            body.insert( 0, std::format( "#define {} 1\n", kVFXSceneWindDefine ) );
 
         // 5. The key is the body's hash: the body is a function of the stack's structure and the layout only (no
         //    value reaches it), so equal structures share one program and any structural change moves it. The

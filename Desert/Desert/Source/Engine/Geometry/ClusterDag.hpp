@@ -24,10 +24,12 @@
 //  4. Repeat until a level is one cluster, or a level could not halve (the remainder become roots with
 //     ParentLodError = kClusterRootError).
 //
-// NO NEW VERTICES. meshopt simplification only removes indices; every level indexes the submesh's ORIGINAL vertex
-// array. A cluster stores submesh-relative vertex refs (VertexRefs) and local triangles (Triangles); the
-// vertices stay where they are, in the mesh's one GeometryPool vertex span. One vertex copy for LOD0, every DAG
-// level, the discrete LODs cut from the DAG and the RT BLAS.
+// NO NEW VERTICES, except PreserveArea's (ClusterDagSettings): meshopt simplification only removes indices; every
+// level indexes the submesh's ORIGINAL vertex array, which an area-preserving build extends by the boundary
+// vertices it moved (appended to the submesh's own range by the cook). A cluster stores submesh-relative vertex
+// refs (VertexRefs) and local triangles (Triangles); the vertices stay where they are, in the mesh's one
+// GeometryPool vertex span. One vertex copy for LOD0, every DAG level, the discrete LODs cut from the DAG and the
+// RT BLAS.
 //
 // THE DISCRETE LOD CHAIN OF A VIRTUAL-GEOMETRY MESH is CUT FROM THIS DAG (CutClusterDag), not simplified a second
 // time: Submesh::LODs / BakedLODs of such a mesh are the DAG's cuts at kClusterDagCutErrors. They serve the
@@ -130,13 +132,32 @@ namespace Desert::Geometry
         float GroupReduction = 0.5f;
         // Simplification stops a level when a group keeps more than this fraction (meshopt cannot halve it).
         float MinReductionGain = 0.85f;
+        // UE FMeshNaniteSettings::bPreserveArea (foliage): every simplified group gives the surface it lost back
+        // by pushing its OPEN boundary (a leaf card's alpha-cut edge) outward in the surface's plane - UE
+        // FMeshSimplifier::PreserveSurfaceArea - so a masked canopy keeps its coverage up the DAG instead of
+        // thinning out with distance. Locked vertices (the group's border with its neighbours) never move, so the
+        // crack-free rule holds. A moved vertex is a NEW vertex (ClusterDagBuild::AddedVertexSources): the
+        // levels below still index the original one.
+        bool PreserveArea                                  = false;
+        bool operator==( const ClusterDagSettings& ) const = default;
+    };
+
+    // What BuildClusterDag makes: the DAG and the vertices the area preservation added. Dag.VertexRefs index the
+    // input vertices [0, vertexCount) and then these, in order: added vertex i sits at
+    // AddedPositions[3i .. 3i+2] (cm, submesh space) and carries every other attribute of input vertex
+    // AddedVertexSources[i]. Both empty without ClusterDagSettings::PreserveArea or with no open boundary.
+    struct ClusterDagBuild
+    {
+        ClusterDag            Dag;
+        std::vector<uint32_t> AddedVertexSources;
+        std::vector<float>    AddedPositions;
     };
 
     // Builds the DAG of one submesh. @p positions: the submesh's tightly packed xyz (vertexCount * 3, cm);
     // @p attributes: null or kSimplifyAttributeCount floats per vertex (MeshSimplifier.hpp); @p triangles: LOD0,
     // submesh-relative. Refused: no triangle, an index past vertexCount, a level that produced a cluster past the
     // caps. Logs one line per level (clusters, groups, max error).
-    [[nodiscard]] Common::ResultStr<ClusterDag>
+    [[nodiscard]] Common::ResultStr<ClusterDagBuild>
     BuildClusterDag( std::span<const float> positions, uint32_t vertexCount, std::span<const uint32_t> triangles,
                      const float* attributes, const ClusterDagSettings& settings );
 

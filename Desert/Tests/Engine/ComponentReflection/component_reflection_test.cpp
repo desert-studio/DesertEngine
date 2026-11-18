@@ -823,7 +823,7 @@ TEST( VolumetricCloudPayload, ALegalNearFadeSurvivesThePackerUnchangedAndInKilom
 // THE SUN THE BLOCK CARRIES AND THE TRANSMITTANCE EACH MARCH APPLIES ARE ONE DECISION SPELT THREE TIMES.
 //
 // Graphic::PackCloudParams chooses WHICH illuminance goes on the wire; VolumetricCloudRenderer chooses
-// whether to raise CloudPush::Frame.y so the screen march multiplies by T(sample), and whether to tell
+// whether to raise ShaderPush::CloudRaymarch::CloudFrame.y so the screen march multiplies by T(sample), and whether to tell
 // the environment bake the same through CloudEnvironmentBake::PerSampleSunTransmittance. If those ever
 // disagree the frame is not slightly wrong — it is the outer-space illuminance with no atmosphere applied
 // to it at all, which at a low sun is several times the light the scene is exposed for.

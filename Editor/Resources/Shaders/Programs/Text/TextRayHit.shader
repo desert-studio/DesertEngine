@@ -20,6 +20,7 @@ Shader "TextRayHit"
         ClosestHit
         {
             #include <Programs/Text/TextRayHit.glslh>
+            #include <Generated/ShadingModels.glslh> // the payload's shading word (DesertPackShadingWord)
 
             void main()
             {
@@ -35,6 +36,9 @@ Shader "TextRayHit"
                 payload.Roughness = 1.0;
                 payload.Emissive  = row.TextColor.rgb * row.EmissiveIntensity.x;
                 payload.Normal    = N;
+                // DefaultLit, UE's default Specular 0.5, no payload: the model the raster lights it with.
+                payload.ShadingWord = DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5,
+                                                             DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
                 payload.Flags     = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
                 DesertRayHitIdentify();
             }

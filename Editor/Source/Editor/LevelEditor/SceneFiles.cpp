@@ -63,10 +63,11 @@ namespace Desert::Editor
     {
     }
 
-    // "Unsaved changes": the CommandHistory revision at the last save/load differs from the current one.
+    // "Unsaved changes": the CommandHistory DOCUMENT revision at the last save/load differs from the current one
+    // (a Play session's records are not edits of the document, PIE-UNDO-KEEP).
     bool SceneFiles::HasUnsavedChanges() const
     {
-        return CommandHistory::Get().Revision() != m_SavedRevision;
+        return CommandHistory::Get().DocumentRevision() != m_SavedRevision;
     }
 
     // A scene handed over by a panel (dropped on the viewport, double-clicked in the asset browser). It goes
@@ -232,7 +233,7 @@ namespace Desert::Editor
 
         if ( verdict.MarkSceneSaved )
         {
-            m_SavedRevision = CommandHistory::Get().Revision();
+            m_SavedRevision = CommandHistory::Get().DocumentRevision();
             // The scene now IS this file, whether it already was or was just given one. Without this a
             // new scene would re-derive its path on every save and a rename between two saves would
             // leave the user's work split across two files.
@@ -399,7 +400,7 @@ namespace Desert::Editor
 
         // The undo history refers to entities of the OLD scene — none of it applies anymore.
         CommandHistory::Get().Clear();
-        m_SavedRevision = CommandHistory::Get().Revision(); // a freshly loaded scene is "clean"
+        m_SavedRevision = CommandHistory::Get().DocumentRevision(); // a freshly loaded scene is "clean"
 
         phases.Lap( "wait for the GPU, drop the undo history", 0 );
         // This open's device-memory window ("[Memory] scene open #N ... peak"): from here, with the old world
@@ -470,7 +471,7 @@ namespace Desert::Editor
         if ( const auto original = Autosave::SceneFor( path ) )
         {
             m_OpenScenePath = *original;
-            m_SavedRevision = ~CommandHistory::Get().Revision();
+            m_SavedRevision = ~CommandHistory::Get().DocumentRevision();
             LOG_INFO( "[Recovery] '{}' opened as '{}' (unsaved)", path.string(),
                       original->empty() ? std::string( "an untitled scene" ) : original->string() );
             return;

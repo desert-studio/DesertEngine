@@ -3857,14 +3857,8 @@ namespace Desert::Graphic::RDG
             if ( !measured || !eligible )
                 continue;
             pipes.assign( shape.Pipes.begin(), shape.Pipes.end() );
-            // A pass on Graphics by the balance is modelled on AsyncCompute with the cost it measured there.
-            const auto costOn = [&]( size_t position, Pipe pipe )
-            {
-                const Decision* const decision = Find( shape.Keys[position] );
-                if ( pipe == Pipe::AsyncCompute && decision != nullptr && decision->OnGraphics )
-                    return std::max( cost[position], decision->AsyncMs );
-                return cost[position];
-            };
+            // A flip is modelled with the pass's cost of THIS window on either queue (RDGAsyncBalance.hpp,
+            // FPS-ASYNC-JOIN-2): no earlier window's cost is held; the hysteresis is the hold.
             double length = Simulate( shape, pipes, cost, finish );
             for ( uint32_t flip = 0; flip < kFlipsPerWindow; ++flip )
             {
@@ -3877,16 +3871,13 @@ namespace Desert::Graphic::RDG
                     if ( const Decision* const decision = Find( shape.Keys[position] );
                          decision != nullptr && decision->FrozenLeft > 0 )
                         continue;
-                    const Pipe   was     = pipes[position];
-                    const double wasCost = cost[position];
-                    Pipe         other   = Pipe::AsyncCompute;
+                    const Pipe was   = pipes[position];
+                    Pipe       other = Pipe::AsyncCompute;
                     if ( was == Pipe::AsyncCompute )
                         other = Pipe::Graphics;
-                    cost[position]       = costOn( position, other );
                     pipes[position]      = other;
                     const double flipped = Simulate( shape, pipes, cost, finish );
                     pipes[position]      = was;
-                    cost[position]       = wasCost;
                     if ( flipped < bestLength )
                     {
                         bestLength   = flipped;
@@ -3904,18 +3895,23 @@ namespace Desert::Graphic::RDG
                     decision      = &m_Decisions.emplace_back();
                     decision->Key = shape.Keys[bestPosition];
                 }
-                if ( to == Pipe::Graphics )
-                    decision->AsyncMs = cost[bestPosition];
-                cost[bestPosition]   = costOn( bestPosition, to );
                 decision->OnGraphics = to == Pipe::Graphics;
                 decision->FrozenLeft = kFrozenWindows;
-                pipes[bestPosition]  = to;
+                if ( to == Pipe::Graphics )
+                {
+                    // Given to Graphics again while the decision lived: it holds twice as long as the last time.
+                    decision->FrozenLeft = kFrozenWindows << std::min( decision->Holds, kMaxHoldDoublings );
+                    ++decision->Holds;
+                }
+                pipes[bestPosition] = to;
                 if ( log )
                 {
                     const std::string_view queue = to == Pipe::Graphics ? "Graphics" : "AsyncCompute";
                     log( fmt::format(
-                         "async balance '{}': '{}' -> {} ({:.3f} ms; modelled graph {:.3f} -> {:.3f} ms)",
-                         shape.Graph, shape.Names[bestPosition], queue, cost[bestPosition], length, bestLength ) );
+                         "async balance '{}': '{}' -> {} ({:.3f} ms; modelled graph {:.3f} -> {:.3f} ms; held {} "
+                         "windows)",
+                         shape.Graph, shape.Names[bestPosition], queue, cost[bestPosition], length, bestLength,
+                         decision->FrozenLeft ) );
                 }
                 length  = bestLength;
                 changed = true;

@@ -523,6 +523,12 @@ namespace Desert::Graphic
                                                                m_TargetFramebuffer );
                 if ( const auto volumeInit = m_Systems.VolumetricFog->Initialize(); !volumeInit )
                     LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
+                // The translucency lighting volume the lit particles read; non-fatal like the fog.
+                RegisterSystem<System::TranslucencyLightingVolumeRenderer>( m_Systems.TranslucencyLightingVolume,
+                                                                            this, m_TargetFramebuffer );
+                if ( const auto tlvInit = m_Systems.TranslucencyLightingVolume->Initialize(); !tlvInit )
+                    LOG_WARN( "[SceneRenderer] Translucency lighting volume unavailable: {}",
+                              tlvInit.GetError() );
                 return "HeightFog";
             }
             case 17:
@@ -1045,6 +1051,8 @@ namespace Desert::Graphic
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
         // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
         skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
+        // ...and the scene's atmosphere LUTs, recorded by that same first view, read by this one and the capture.
+        skyboxSystem->SetSceneAtmosphere( scene.GetAtmosphere() );
 
         // Grid & other authoring aids hide while the game runs - not while it is simulated (UE: Simulate In
         // Editor keeps the editor's viewport and its overlays).
@@ -1384,6 +1392,10 @@ namespace Desert::Graphic
                  VolumetricFogQuality{ .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
                                        .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
                                        .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
+        // The translucency lighting volume's cells per cascade edge (Effects.TranslucencyLightingVolumeDim).
+        if ( const auto& it = m_Systems.TranslucencyLightingVolume )
+            it->SetQuality( TranslucencyLightingVolumeQuality{
+                 .Dim = quality.As<uint32_t>( Parameter::TranslucencyLightingVolumeDim ) } );
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
@@ -1435,6 +1447,23 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         m_Systems.Mesh->SetWorldTimeSeconds( static_cast<float>( scene.GetWorldTime().GetGameTimeSeconds() ) );
         m_Systems.Mesh->SetParallaxQuality( m_ParallaxQuality );
+        // THE LOCAL WIND SOURCES this frame's views and light cameras carry: the step's point sources nearest the
+        // main camera (Graphic::SelectLocalWind), each matched by its entity to the previous frame's pick for its
+        // previous position. No camera: none (a light camera has nothing to measure from).
+        {
+            const LocalWindSelection previous = m_LocalWindSelection;
+            if ( const auto* cam = GetMainCamera() )
+                SelectLocalWind( m_LocalWindCandidates, cam->GetPosition(),
+                                 glm::length( m_DirectionalWindVelocityXZ ),
+                                 previous, m_LocalWindSelection, m_LocalWind, m_PrevLocalWind );
+            else
+            {
+                m_LocalWindSelection = LocalWindSelection{};
+                m_LocalWind          = LocalWindSources{};
+                m_PrevLocalWind      = LocalWindSources{};
+            }
+        }
+        m_Systems.Mesh->SetSceneWind( SceneWind{ m_WindGust, m_LocalWind } );
         m_Systems.AutoExposure->SetDeltaSeconds( scene.GetWorldTime().GetDeltaSeconds() );
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
@@ -1536,6 +1565,14 @@ namespace Desert::Graphic
              static_cast<uint32_t>( m_Quality.As<int>( Common::Scalability::Parameter::BloomMips ) ) );
         m_Systems.Tonemap->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
         m_Systems.Tonemap->SetChromaticBloom( post.EnableBloom ? post.LensDispersion : 0.0f );
+        // The lens stage (LENS-POST): the resolved volume's values, applied by the composite.
+        m_Systems.Tonemap->SetLens( { .FilmGrainIntensity             = post.FilmGrainIntensity,
+                                      .FilmGrainTexelSize             = post.FilmGrainTexelSize,
+                                      .ChromaticAberrationIntensity   = post.ChromaticAberrationIntensity,
+                                      .ChromaticAberrationStartOffset = post.ChromaticAberrationStartOffset,
+                                      .VignetteIntensity              = post.VignetteIntensity,
+                                      .PaniniD                        = post.PaniniD,
+                                      .PaniniS                        = post.PaniniS } );
 
         // Lens flare: the authored "Lens Flare" group, copied whole. Intensity and Tint are held out of
         // the pass's own params because the pass never applies them — the tonemap does, so that a flare
@@ -1771,6 +1808,12 @@ namespace Desert::Graphic
         {
             const int diceCache = m_Quality.As<int>( Common::Scalability::Parameter::LandscapeDicePoolCache );
             m_Systems.Terrain->SetDicePoolCache( diceCache != 0 );
+            // Textures.LandscapeVirtualTexture* (LANDSCAPE-RVT; UE r.VT.* under sg.TextureQuality).
+            using Common::Scalability::Parameter;
+            m_Systems.Terrain->SetVirtualTextureQuality( System::LandscapeVirtualTextureQuality{
+                 .SizeLog2        = m_Quality.As<uint32_t>( Parameter::LandscapeVirtualTextureSizeLog2 ),
+                 .PoolPages       = m_Quality.As<uint32_t>( Parameter::LandscapeVirtualTexturePoolPages ),
+                 .UpdatesPerFrame = m_Quality.As<uint32_t>( Parameter::LandscapeVirtualTextureUpdatesPerFrame ) } );
         }
         // RenderPipeline.ParallelSetup (RENDER-PARALLEL-SETUP): the view's pure setup on Common::TaskGroup tasks;
         // the Editor's --parallel-setup overrides it for the session (RenderConfig::ParallelSetupOverride).
@@ -1889,6 +1932,14 @@ namespace Desert::Graphic
         ViewFrame viewFrame = begun.GetValue();
         viewFrame.GrassLens =
              System::PackGrassFieldLens( System::MakeGrassFieldLens( m_GrassQuality, viewFrame ) );
+        // The gust fronts the foliage sways by (ViewFrame::WindGust), the ECS's this step and the step before.
+        viewFrame.WindGust     = m_WindGust;
+        viewFrame.PrevWindGust = m_PrevWindGust;
+        viewFrame.LocalWind     = m_LocalWind;
+        viewFrame.PrevLocalWind = m_PrevLocalWind;
+        // The directional air and the local sources' reference speed (cm/s): the particle wind (VFX_SceneWind).
+        viewFrame.WindVelocityXZ          = m_DirectionalWindVelocityXZ;
+        viewFrame.LocalWindReferenceSpeed = m_LocalWindSelection.ReferenceSpeed;
         const ViewFrame& frame = viewFrame;
         // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
         // A view without the post chain (a capture face) has neither system.
@@ -2004,6 +2055,13 @@ namespace Desert::Graphic
                          *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
                 }
             }
+            // DEFORM-GRASS-3, GRASS-RASTER-COST: where the field this frame's AddFrameDeformationField brings
+            // (about the same unjittered camera position) holds a press - the box of what its contacts wrote, not
+            // its whole 82 m window: the camera cull widens a blade's sphere to its laid-flat reach only inside
+            // it. No capture this frame, or nothing pressed: none, every blade keeps its upright sphere.
+            m_Systems.Grass->SetTrampleWindow( m_FrameDeformationCaptured
+                                                    ? m_DeformationField.TrampledBox( frame.CameraPosition )
+                                                    : System::GrassRenderer::NoTrampleWindow() );
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
             m_Systems.Grass->PrepareFrame( frame, *m_Systems.Mesh.get(),
                                            RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion,
@@ -2116,6 +2174,12 @@ namespace Desert::Graphic
                       terrain->AddDiceCullPass( graph, textures, frame, occlusion );
                  !culled )
                 LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), culled.GetError() );
+            // LANDSCAPE-RVT: the landscape's runtime virtual texture pages, before the G-buffer pass reads them.
+            if ( const Common::BoolResultStr virtualTexture = terrain->AddVirtualTexturePasses(
+                      graph, textures, frame,
+                      m_RenderPath == Core::RenderPath::Deferred && !m_ViewProfile.SceneCapture );
+                 !virtualTexture )
+                LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), virtualTexture.GetError() );
         }
 
         // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
@@ -2389,7 +2453,12 @@ namespace Desert::Graphic
                 // (IShadowCaster::CascadeShadowSignature) is this frame's and the landscape is drawn into the
                 // cached static layer (UE: a static landscape in the cached CSM). Nothing between UpdateCascades
                 // and here reads the plan; DropDirectionalShadow / InvalidateCascadeCaches below and the passes
-                // after.
+                // after. DEFORM-GRASS-2: where this frame's deformation contacts write first (AddFrameDeformationField
+                // applies them later in this frame, before the shadow depths), so a standing cache redraws those
+                // texels alone; a reflection capture's face keeps no field and hands none.
+                localShadowMeshes->SetCascadeFootprints( m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
+                                                              ? m_DeformationField.PendingFootprints()
+                                                              : std::vector<glm::vec4>{} );
                 localShadowMeshes->PlanCascadeCache();
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
@@ -2466,12 +2535,14 @@ namespace Desert::Graphic
         // The virtual shadow map's cluster path is this frame's only if its VSM cut sets it again: a frame whose
         // method is not VirtualMaps (or whose cut is refused) holds no last frame's issue or refused groups.
         m_Systems.Mesh->ResetVirtualShadowGeometry();
+        // DEFORM-GRASS: the deformation field before any mesh pass - the grass blades of the view, its cascades and
+        // its virtual shadow read it (MeshRenderer::SetFrameDeformationField).
+        AddFrameDeformationField( graph, textures, frame );
         AddFrameDrawBins( graph, textures, frame );
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Virtual geometry" );
         AddFrameVirtualGeometry( graph, frame );
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Shadow depths" );
         AddFrameShadowDepths( graph, textures );
-        AddFrameDeformationField( graph, textures, frame );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Light grid + forward volumes" );
@@ -2714,8 +2785,10 @@ namespace Desert::Graphic
                 DESERT_PROFILE_PHASE( lightingPhases, "Deferred lighting: Virtual shadows + volume" );
                 m_FrameVsmPages.reset();
                 std::optional<FrontLayerSurface> frontLayerSurface;
-                if ( LocalShadowsAreVirtual() && meshRenderer != nullptr && meshRenderer->BuildFrontLayerDraws() )
-                    frontLayerSurface = AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+                if ( LocalShadowsAreVirtual() && meshRenderer != nullptr )
+                    if ( const FrontLayerWriters writers = BuildFrontLayerWriters( meshRenderer ); writers.Any() )
+                        frontLayerSurface =
+                             AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer, writers );
                 const RDG::TextureRef receivers[] = { frontLayerSurface ? frontLayerSurface->Depth
                                                                         : RDG::TextureRef{} };
                 const FrameVirtualShadows virtualShadows =
@@ -2903,7 +2976,7 @@ namespace Desert::Graphic
 
                 // The water after the copy (the scene without water, which its refraction reads) and before the
                 // glass.
-                AddFrameWater( graph, textures, sceneCopy );
+                AddFrameWater( graph, textures, sceneCopy, frontLayer );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
@@ -2989,7 +3062,7 @@ namespace Desert::Graphic
         if ( pathTraced )
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
         else
-            AddFrameTranslucency( graph, textures );
+            AddFrameTranslucency( graph, textures, frame );
 
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugView.DeferredDebug == DeferredDebugMode::Overdraw )
@@ -3066,7 +3139,7 @@ namespace Desert::Graphic
             }
             AddFrameLightShafts( graph, textures, postInput, values );
             AddFrameLensFlare( graph, textures, postInput, values );
-            AddFrameTonemap( graph, textures, outlined.IsValid() ? outlined : postSource );
+            AddFrameTonemap( graph, textures, outlined.IsValid() ? outlined : postSource, frame );
 
             if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
             {
@@ -3235,6 +3308,9 @@ namespace Desert::Graphic
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
         m_FrameDeformationCaptured = false;
+        // This graph's field refs end with it (the next AddFrameDeformationField hands the next graph's).
+        if ( m_Systems.Mesh )
+            m_Systems.Mesh->SetFrameDeformationField( {} );
         m_FrameSurfaceCache       = nullptr;
 
         return BOOLSUCCESS;
@@ -3524,8 +3600,39 @@ namespace Desert::Graphic
             return {}; // said once by EnsureMegaLightsResources
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
-        if ( pointCount + spotCount == 0 )
-            return {}; // no local light: nothing to sample, the composite adds none
+        // The emissive triangles of the materials with Emissive Lights Scene on: lights after the points and spots
+        // (AddFrameSceneEmissiveLights). A list that cannot be built this frame is said once per cause and the
+        // frame samples the local lights alone over an empty list (the bindings need one).
+        RayTracing::EmissiveLightsFrame emissive;
+        if ( const Common::ResultStr<RayTracing::EmissiveLightsFrame> built = AddFrameSceneEmissiveLights( graph );
+             built )
+        {
+            emissive = built.GetValue();
+            m_ReportedSceneEmissive.clear();
+        }
+        else
+        {
+            if ( m_ReportedSceneEmissive != built.GetError() )
+            {
+                m_ReportedSceneEmissive = built.GetError();
+                LOG_ERROR( "[SceneRenderer] {}: no emissive lights in MegaLights this frame: {}",
+                           m_ViewResources.GetName(), m_ReportedSceneEmissive );
+            }
+            const Common::BoolResultStr ready = m_SceneEmissiveLights.Initialize();
+            const Common::ResultStr<RayTracing::EmissiveLightsFrame> empty =
+                 ready ? m_SceneEmissiveLights.AddPasses( graph, RayTracing::EmissiveTriangleList{} )
+                       : Common::MakeError<RayTracing::EmissiveLightsFrame>( ready.GetError() );
+            if ( !empty )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {}; the local lights are unlit this frame", m_ViewResources.GetName(),
+                           empty.GetError() );
+                return {};
+            }
+            emissive = empty.GetValue();
+        }
+        const uint32_t emissiveTriangles = emissive.Static.TriangleCount + emissive.Dynamic.TriangleCount;
+        if ( pointCount + spotCount == 0 && emissiveTriangles == 0 )
+            return {}; // no local light and no emissive light: nothing to sample, the composite adds none
         if ( gbuffer.size() < 4 )
         {
             LOG_ERROR( "[SceneRenderer] {}: MegaLights needs the 4 G-buffer colours, the graph has {}; the local "
@@ -3563,7 +3670,8 @@ namespace Desert::Graphic
              // The G-buffer depth is the opaque scene: the march has
              // something to hit (as the composite's contact shadows).
                            .ContactShadowView =
-                  SceneResources::ContactShadowViewVector( GetContactShadowSettings( frame, true ) ) };
+                  SceneResources::ContactShadowViewVector( GetContactShadowSettings( frame, true ) ),
+                           .Emissive = emissive };
         const Common::ResultStr<System::MegaLightsLighting> lighting =
              m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
         if ( !lighting )

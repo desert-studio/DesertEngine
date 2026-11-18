@@ -1,5 +1,6 @@
 #include "TemporalUpscaler.hpp"
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -184,7 +185,7 @@ namespace Desert::Graphic
                   .Slots             = { { "SourceColorTexture", Kind::Texture },
                                          { "PointClampSampler", Kind::Sampler },
                                          { "DestinationColorTexture", Kind::StorageTexture } },
-                  .PushConstantBytes = static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) } );
+                  .PushConstantBytes = ShaderPush::BlockSize::Of<ShaderPush::SupersampleResolve>().Bytes() } );
         return layout;
     }
 
@@ -246,11 +247,13 @@ namespace Desert::Graphic
             desc.Size                                = destinationSize;
             desc.Format                              = Core::Formats::ImageFormat::RGBA16F;
             const RDG::TextureRef        destination = graph.CreateTexture( desc, name );
-            const SupersampleResolvePush push{ .SourceWidth       = static_cast<int32_t>( sourceSize.Width ),
-                                               .SourceHeight      = static_cast<int32_t>( sourceSize.Height ),
-                                               .DestinationWidth  = static_cast<int32_t>( destinationSize.Width ),
-                                               .DestinationHeight = static_cast<int32_t>( destinationSize.Height ),
-                                               .Axis              = axis };
+            // One axis of the separable Catmull-Rom (Axis 0: horizontal, 1: vertical).
+            const ShaderPush::SupersampleResolve push{
+                 .SourceWidth       = static_cast<int32_t>( sourceSize.Width ),
+                 .SourceHeight      = static_cast<int32_t>( sourceSize.Height ),
+                 .DestinationWidth  = static_cast<int32_t>( destinationSize.Width ),
+                 .DestinationHeight = static_cast<int32_t>( destinationSize.Height ),
+                 .Axis              = axis };
             PipelineHolder*              holder = m_Pipeline.get();
             graph.AddPass(
                  name, RDG::PassFlags::Compute,
@@ -264,7 +267,7 @@ namespace Desert::Graphic
                                     RDG::SamplerDesc::PointClamp() )
                           .Storage( TemporalUpscalerSupersampleResolveShaderParameters::DestinationColorTexture,
                                     destination, RDG::Access::StorageWrite, 0 )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) );
+                          .PushConstants<ShaderPush::SupersampleResolve>();
                  },
                  [holder, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -273,7 +276,7 @@ namespace Desert::Graphic
                      if ( !pipeline )
                          return Common::MakeError( error );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &push, sizeof( push ) );
+                     bindings.PushConstants( push );
                      return Renderer::GetInstance().DispatchCompute(
                           bindings, *pipeline, ResolveGroups( static_cast<uint32_t>( push.DestinationWidth ) ),
                           ResolveGroups( static_cast<uint32_t>( push.DestinationHeight ) ), 1 );

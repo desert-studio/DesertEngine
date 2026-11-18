@@ -426,4 +426,29 @@ namespace Desert::Graphic
             at   = held.get();
         }
     }
+
+    void MaterialInstance::SetEmissiveLightsSceneOverride( const std::optional<bool> lightsScene ) noexcept
+    {
+        if ( m_EmissiveLightsSceneOverride == lightsScene )
+            return;
+        m_EmissiveLightsSceneOverride = lightsScene;
+        Material::NoteEmissiveLightsChange();
+    }
+
+    bool MaterialInstance::IsEmissiveLightsScene() const
+    {
+        // Up the instance chain to the first override; the root instance answers from its material (IsTwoSided).
+        std::shared_ptr<const MaterialInstance> held;
+        const MaterialInstance*                 at = this;
+        while ( true )
+        {
+            if ( at->m_EmissiveLightsSceneOverride.has_value() )
+                return *at->m_EmissiveLightsSceneOverride;
+            auto parent = at->m_ParentInstance.lock();
+            if ( parent == nullptr )
+                return at->m_ParentMaterial != nullptr && at->m_ParentMaterial->IsEmissiveLightsScene();
+            held = std::move( parent );
+            at   = held.get();
+        }
+    }
 } // namespace Desert::Graphic

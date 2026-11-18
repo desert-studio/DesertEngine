@@ -1,0 +1,53 @@
+# MERGE-SPLIT-SESSION: Merge and Split are tool sessions as UE UCombineMeshesTool / USplitMeshesTool - the merged mesh previews on the first selected (the others hidden), Cancel leaves the inputs, Accept writes one entity; Split previews its part count and Accept makes the parts entities; each Accept is one undo step
+# A 100 cm Box at the origin and a radius-50 Sphere apart from it at X 150 (two connected components once merged).
+# Frames are the 3D viewport only: a whole-window capture is refused on dev since PRESENT-COST-2 ("no acquired swapchain
+# image"), so the tool bar and the status bar are not in them. What they showed is proven by the editor's own answers:
+# "Active tool: Accept/Cancel" runs only while a tool is open (else "no modeling tool is active"); "Entity <name>" exists
+# only while an entity of that name does; `state selection` (line_NNN_state.txt) names the selected entities.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 75,260,420
+Дано --subject viewport set Camera.Direction 0,-0.5,-0.87
+Дано --subject modeling set CreateShape.Box.Width 100
+Дано --subject modeling set CreateShape.Box.Depth 100
+Дано --subject modeling set CreateShape.Box.Height 100
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано --subject modeling set CreateShape.Sphere.Radius 50
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 150,50,0
+Дано run Modeling "Active tool: Accept"
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Дано run Modeling "Split by polygroups: off"
+Дано --expect-refusal run Modeling "Active tool: Cancel"
+Тогда-вид 0_inputs the Box at the origin and the Sphere beside it on +X, both selected
+Дано state selection
+Когда run Modeling "XForm: Merge"
+Тогда-вид 1_merge_preview the Box and the Sphere drawn as one mesh on the Box (the merged preview; the Sphere entity hidden under it) - the same two shapes, one selection outline around both
+Когда state selection
+Когда run Modeling "Active tool: Cancel"
+Тогда-вид 2_merge_cancel the Box and the Sphere as before, unchanged
+Когда --expect-refusal run Modeling "Active tool: Cancel"
+Когда run Entity Box
+Когда run Entity "Add to selection Sphere"
+Когда run Modeling "XForm: Merge"
+Когда run Modeling "Active tool: Accept"
+Тогда-вид 3_merge_accept the Box and the Sphere shapes as one entity (Box) selected - one outline around both shapes
+Когда state selection
+Когда --expect-refusal run Entity Sphere
+Когда --expect-refusal run Modeling "Active tool: Accept"
+Когда run Modeling "XForm: Split"
+Когда run Modeling "Active tool: Accept"
+Тогда-вид 4_split_accept the same two shapes as two entities (Box and Box Part 1), both selected
+Когда state selection
+Когда --expect-refusal run Modeling "Active tool: Accept"
+Когда run Action Undo
+Когда run Action Undo
+Тогда-вид 5_undo the Box and the Sphere as at the start
+Когда --expect-refusal run Entity "Box Part 1"
+Когда run Entity Sphere
+Когда run Entity "Add to selection Box"
+Когда state selection

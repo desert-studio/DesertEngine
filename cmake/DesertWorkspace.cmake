@@ -254,6 +254,9 @@ option(DESERT_UNITY "Compile Common, the engine module libraries and the editor 
 set(DESERT_UNITY_BATCH_SIZE 12)
 set(DESERT_UNITY_OPT_OUT
     "ThirdParty/"
+    # windows.h / d3d12.h stay out of unity batches (DX12-RHI): their macros would leak into the batch.
+    "Source/Engine/Graphic/API/D3D12/"
+    "Source/Engine/Core/Device.cpp"
     "Source/Common/Utilities/ContentManifest.cpp"
     "Source/Engine/Animation/Rig/ControlShape.cpp"
     "Source/Engine/Assets/CloudNoiseVolume.cpp"

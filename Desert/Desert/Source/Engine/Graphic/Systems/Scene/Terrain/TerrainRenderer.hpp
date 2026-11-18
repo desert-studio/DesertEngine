@@ -13,6 +13,7 @@
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/LandscapeVirtualTexture.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
@@ -228,6 +229,18 @@ namespace Desert::Graphic::System
         // RenderPipeline.LandscapeDicePoolCache (GPU-TERRAIN-HZB), set per frame by SceneRenderer::OnUpdate: true
         // = the dice pool is kept across frames and re-evaluated only when its jobs' keys change; false = a
         // transient evaluated every frame (the old path, the A/B). Turning it off drops the kept pool.
+        // Textures.LandscapeVirtualTexture* (LANDSCAPE-RVT), set per frame by SceneRenderer::OnUpdate.
+        void SetVirtualTextureQuality( const LandscapeVirtualTextureQuality& quality ) noexcept
+        {
+            m_VirtualTexture.SetQuality( quality );
+        }
+        // LANDSCAPE-RVT (UE Runtime Virtual Texture for landscape): after the dice cull, before the G-buffer pass is
+        // declared - the RVT's feedback, invalidation and page render over this frame's queued tiles (their rows
+        // with the per-frame view fields zeroed). @p enabled = the deferred path and not a scene capture; otherwise
+        // DeclareGBufferDraws binds the disabled header and TerrainGBuffer blends per pixel.
+        [[nodiscard]] Common::BoolResultStr AddVirtualTexturePasses( RDG::Builder& graph, FrameTextures& textures,
+                                                                     const ViewFrame& frame, bool enabled );
+
         void SetDicePoolCache( const bool cache ) noexcept
         {
             if ( !cache )
@@ -896,5 +909,7 @@ namespace Desert::Graphic::System
         std::vector<DiceCullCensus> m_DiceCullCensus;
         uint64_t                    m_DiceCullGridTriangles = 0;
         uint64_t                    m_LoggedCulledTriangles = 0;
+        // LANDSCAPE-RVT: the view's landscape runtime virtual texture (AddVirtualTexturePasses).
+        LandscapeVirtualTexture m_VirtualTexture;
     };
 } // namespace Desert::Graphic::System

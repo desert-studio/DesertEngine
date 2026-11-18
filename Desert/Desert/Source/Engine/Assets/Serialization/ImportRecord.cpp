@@ -56,7 +56,8 @@ namespace Desert::Assets::Serialization
                   : std::optional<std::vector<float>>( settings.Mesh.LodChain.TriangleRatios ),
              settings.Mesh.LodChain.MinTriangles == Geometry::LODChainSettings{}.MinTriangles
                   ? std::nullopt
-                  : std::optional<uint32_t>( settings.Mesh.LodChain.MinTriangles ) };
+                  : std::optional<uint32_t>( settings.Mesh.LodChain.MinTriangles ),
+             settings.Mesh.PreserveArea ? std::optional<bool>( true ) : std::nullopt };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -118,6 +119,7 @@ namespace Desert::Assets::Serialization
             out.Mesh.DisplacementBake.EdgeLengthCm = *text.DisplacementEdgeLengthCm;
         }
         out.Mesh.VirtualGeometry = text.VirtualGeometry.value_or( false );
+        out.Mesh.PreserveArea    = text.PreserveArea.value_or( false );
         if ( text.CanopyLeafSlots )
         {
             for ( const std::string& slot : *text.CanopyLeafSlots )

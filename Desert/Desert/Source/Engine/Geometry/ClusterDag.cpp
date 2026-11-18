@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // The DAG build is the meshoptimizer 1.3 clusterlod scheme (demo/clusterlod.h, MIT, zeux): clusterize ->
@@ -201,6 +202,178 @@ namespace Desert::Geometry
             return out;
         }
 
+        // The vertex arrays an area-preserving build grows (ClusterDagSettings::PreserveArea): the input's
+        // positions and attributes, then one entry per added vertex; Sources names each added vertex's input
+        // vertex. View() is the Mesh over the current arrays - taken again after every growth.
+        struct GrowingMesh
+        {
+            std::vector<float>    Positions;
+            std::vector<float>    Attributes; // empty when the input has none
+            uint32_t              InputVertexCount = 0;
+            std::vector<uint32_t> Sources;
+
+            [[nodiscard]] Mesh View() const
+            {
+                const float* attributes = nullptr;
+                if ( !Attributes.empty() )
+                    attributes = Attributes.data();
+                return Mesh{ Positions.data(), static_cast<uint32_t>( Positions.size() / 3 ), attributes };
+            }
+        };
+
+        using Vec3 = std::array<float, 3>;
+
+        Vec3 PositionOf( const GrowingMesh& mesh, uint32_t v )
+        {
+            return { mesh.Positions[std::size_t( v ) * 3], mesh.Positions[std::size_t( v ) * 3 + 1],
+                     mesh.Positions[std::size_t( v ) * 3 + 2] };
+        }
+        Vec3 Sub( const Vec3& a, const Vec3& b )
+        {
+            return { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+        }
+        Vec3 Cross( const Vec3& a, const Vec3& b )
+        {
+            return { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+        }
+        float Dot( const Vec3& a, const Vec3& b )
+        {
+            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        }
+
+        double SurfaceArea( const GrowingMesh& mesh, const std::vector<uint32_t>& indices )
+        {
+            double area = 0.0;
+            for ( std::size_t t = 0; t + 2 < indices.size(); t += 3 )
+            {
+                const Vec3 p = PositionOf( mesh, indices[t] );
+                const Vec3 n = Cross( Sub( PositionOf( mesh, indices[t + 1] ), p ),
+                                      Sub( PositionOf( mesh, indices[t + 2] ), p ) );
+                area += 0.5 * std::sqrt( double( Dot( n, n ) ) );
+            }
+            return area;
+        }
+
+        // UE FMeshSimplifier::PreserveSurfaceArea (NaniteBuilder FCluster::Simplify with bPreserveArea): the area
+        // @p merged lost in @p simplified is given back by moving the simplified surface's OPEN boundary outward
+        // in its plane, the same distance d along every open edge: d = lost area / movable boundary length. An
+        // open edge is one only one simplified triangle uses (position-welded, so a UV seam is not a boundary);
+        // its outward direction is in its triangle's plane, away from the third vertex. A vertex moves along the
+        // miter of its open edges (limited to 2 d at a sharp corner); a LOCKED vertex (the group's border with its
+        // neighbours, a stuck group's) never moves and counts half of its edges' length. Each moved vertex becomes
+        // a new vertex (the level below keeps the original), welded with the other new copies of its position.
+        void PreserveGroupArea( GrowingMesh& mesh, const std::vector<uint32_t>& merged,
+                                std::vector<uint32_t>& simplified, std::vector<uint32_t>& remap,
+                                std::vector<unsigned char>& locks )
+        {
+            const double lost = SurfaceArea( mesh, merged ) - SurfaceArea( mesh, simplified );
+            if ( !( lost > 0.0 ) )
+                return;
+            struct EdgeUse
+            {
+                uint32_t Uses     = 0;
+                uint32_t Triangle = 0;
+                uint32_t Corner   = 0;
+            };
+            std::unordered_map<uint64_t, EdgeUse> edges;
+            for ( std::size_t t = 0; t + 2 < simplified.size(); t += 3 )
+                for ( uint32_t k = 0; k < 3; ++k )
+                {
+                    const uint32_t a = remap[simplified[t + k]], b = remap[simplified[t + ( k + 1 ) % 3]];
+                    const uint64_t key = ( uint64_t( std::min( a, b ) ) << 32 ) | uint64_t( std::max( a, b ) );
+                    EdgeUse&       use = edges[key];
+                    if ( use.Uses++ == 0 )
+                    {
+                        use.Triangle = static_cast<uint32_t>( t / 3 );
+                        use.Corner   = k;
+                    }
+                }
+            const auto movable = [&]( uint32_t v ) { return ( locks[v] & meshopt_SimplifyVertex_Lock ) == 0; };
+            struct Miter
+            {
+                Vec3     Sum{};
+                uint32_t Edges = 0;
+            };
+            std::unordered_map<uint32_t, Miter> miters; // by welded vertex
+            double                              length = 0.0;
+            for ( const auto& entry : edges )
+            {
+                const EdgeUse& use = entry.second;
+                if ( use.Uses != 1 )
+                    continue;
+                const std::size_t t = std::size_t( use.Triangle ) * 3;
+                const uint32_t    a = simplified[t + use.Corner], b = simplified[t + ( use.Corner + 1 ) % 3],
+                               c = simplified[t + ( use.Corner + 2 ) % 3];
+                const Vec3  p = PositionOf( mesh, a ), edge = Sub( PositionOf( mesh, b ), p );
+                const Vec3  normal = Cross( edge, Sub( PositionOf( mesh, c ), p ) );
+                Vec3        out    = Cross( edge, normal );
+                const float outLen = std::sqrt( Dot( out, out ) );
+                if ( !( outLen > 0.0f ) )
+                    continue; // a degenerate triangle states no plane
+                for ( float& x : out )
+                    x /= outLen;
+                const int moving = int( movable( a ) ) + int( movable( b ) );
+                if ( moving == 0 )
+                    continue;
+                length += double( std::sqrt( Dot( edge, edge ) ) ) * moving * 0.5;
+                for ( const uint32_t v : { a, b } )
+                    if ( movable( v ) )
+                    {
+                        Miter& m = miters[remap[v]];
+                        for ( int i = 0; i < 3; ++i )
+                            m.Sum[i] += out[i];
+                        ++m.Edges;
+                    }
+            }
+            if ( !( length > 0.0 ) )
+                return;
+            const float d = static_cast<float>( lost / length );
+
+            // One new vertex per simplified vertex whose welded position moves; the first copy of a position is
+            // the weld representative of the others.
+            std::unordered_map<uint32_t, uint32_t> moved;          // old vertex -> new vertex
+            std::unordered_map<uint32_t, uint32_t> representative; // welded old -> first new
+            const std::size_t attributeCount = mesh.Attributes.empty() ? 0 : kSimplifyAttributeCount;
+            for ( uint32_t& index : simplified )
+            {
+                const auto miter = miters.find( remap[index] );
+                if ( miter == miters.end() )
+                    continue;
+                if ( const auto done = moved.find( index ); done != moved.end() )
+                {
+                    index = done->second;
+                    continue;
+                }
+                // The miter offset: for unit edge normals n_i, m * sum / |sum|^2 moves each of the m edges by d.
+                const Vec3& sum   = miter->second.Sum;
+                const float sumSq = Dot( sum, sum );
+                if ( !( sumSq > 1e-12f ) )
+                    continue; // opposite edges cancel: no outward direction
+                Vec3  offset = sum;
+                float scale  = d * float( miter->second.Edges ) / sumSq;
+                if ( scale * std::sqrt( sumSq ) > 2.0f * d )
+                    scale = 2.0f * d / std::sqrt( sumSq );
+                const uint32_t created = static_cast<uint32_t>( mesh.Positions.size() / 3 );
+                const Vec3     p       = PositionOf( mesh, index );
+                for ( int i = 0; i < 3; ++i )
+                    mesh.Positions.push_back( p[i] + offset[i] * scale );
+                for ( std::size_t i = 0; i < attributeCount; ++i )
+                {
+                    const float attribute = mesh.Attributes[std::size_t( index ) * attributeCount + i];
+                    mesh.Attributes.push_back( attribute );
+                }
+                uint32_t source = index;
+                if ( index >= mesh.InputVertexCount )
+                    source = mesh.Sources[index - mesh.InputVertexCount];
+                mesh.Sources.push_back( source );
+                locks.push_back( locks[index] );
+                const auto rep = representative.try_emplace( miter->first, created ).first->second;
+                remap.push_back( rep );
+                moved.emplace( index, created );
+                index = created;
+            }
+        }
+
         void ClusterBox( const Mesh& mesh, const std::vector<uint32_t>& indices, float* boxMin, float* boxMax,
                          float& maxEdge )
         {
@@ -371,27 +544,33 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    Common::ResultStr<ClusterDag> BuildClusterDag( std::span<const float> positions, uint32_t vertexCount,
+    Common::ResultStr<ClusterDagBuild> BuildClusterDag( std::span<const float> positions, uint32_t vertexCount,
                                                    std::span<const uint32_t> triangles, const float* attributes,
                                                    const ClusterDagSettings& settings )
     {
         if ( triangles.empty() || triangles.size() % 3 != 0 )
-            return Common::MakeFormattedError<ClusterDag>( "cluster DAG: {} indices is not a triangle list",
+            return Common::MakeFormattedError<ClusterDagBuild>( "cluster DAG: {} indices is not a triangle list",
                                                            triangles.size() );
         if ( positions.size() < std::size_t( vertexCount ) * 3 )
-            return Common::MakeFormattedError<ClusterDag>( "cluster DAG: {} position floats for {} vertices",
+            return Common::MakeFormattedError<ClusterDagBuild>( "cluster DAG: {} position floats for {} vertices",
                                                            positions.size(), vertexCount );
         for ( std::size_t i = 0; i < triangles.size(); ++i )
             if ( triangles[i] >= vertexCount )
-                return Common::MakeFormattedError<ClusterDag>( "cluster DAG: index {} = {} past {} vertices", i,
+                return Common::MakeFormattedError<ClusterDagBuild>( "cluster DAG: index {} = {} past {} vertices", i,
                                                                triangles[i], vertexCount );
         if ( !( settings.GroupReduction > 0.0f && settings.GroupReduction < 1.0f ) ||
              !( settings.MinReductionGain > settings.GroupReduction && settings.MinReductionGain < 1.0f ) )
-            return Common::MakeFormattedError<ClusterDag>(
+            return Common::MakeFormattedError<ClusterDagBuild>(
                  "cluster DAG: GroupReduction {} / MinReductionGain {} outside 0 < reduction < gain < 1",
                  settings.GroupReduction, settings.MinReductionGain );
 
-        const Mesh mesh{ positions.data(), vertexCount, attributes };
+        GrowingMesh growing;
+        growing.Positions.assign( positions.begin(), positions.begin() + std::size_t( vertexCount ) * 3 );
+        if ( attributes != nullptr )
+            growing.Attributes.assign( attributes,
+                                       attributes + std::size_t( vertexCount ) * kSimplifyAttributeCount );
+        growing.InputVertexCount = vertexCount;
+        Mesh mesh                = growing.View();
 
         std::vector<uint32_t> remap( vertexCount );
         meshopt_generatePositionRemap( remap.data(), mesh.Positions, vertexCount, sizeof( float ) * 3 );
@@ -432,7 +611,7 @@ namespace Desert::Geometry
                     merged.insert( merged.end(), clusters[id].Indices.begin(), clusters[id].Indices.end() );
 
                 float                       error = 0.0f;
-                const std::vector<uint32_t> simplified =
+                std::vector<uint32_t> simplified =
                      SimplifyGroup( mesh, merged, locks, settings.GroupReduction, error );
                 if ( simplified.empty() ||
                      double( simplified.size() ) > double( merged.size() ) * settings.MinReductionGain )
@@ -454,6 +633,12 @@ namespace Desert::Geometry
                     parent = std::nextafter( memberMax, std::numeric_limits<float>::max() );
                 group.Lod.Error = parent;
                 maxError        = std::max( maxError, parent );
+
+                if ( settings.PreserveArea )
+                {
+                    PreserveGroupArea( growing, merged, simplified, remap, locks );
+                    mesh = growing.View();
+                }
 
                 std::vector<uint32_t> made;
                 Clusterize( mesh, simplified, level + 1, clusters, made );
@@ -507,13 +692,13 @@ namespace Desert::Geometry
                 const std::size_t   triangleCount = c.Indices.size() / 3;
                 if ( triangleCount == 0 || triangleCount > kClusterMaxTriangles ||
                      c.VertexCount > kClusterMaxVertices )
-                    return Common::MakeFormattedError<ClusterDag>(
+                    return Common::MakeFormattedError<ClusterDagBuild>(
                          "cluster DAG: level {} cluster of {} triangles / {} vertices past the caps {} / {}",
                          c.Level, triangleCount, c.VertexCount, kClusterMaxTriangles, kClusterMaxVertices );
                 const std::size_t vertexRefs = meshopt_extractMeshletIndices(
                      localVertices.data(), localTriangles.data(), c.Indices.data(), c.Indices.size() );
                 if ( vertexRefs > kClusterMaxVertices )
-                    return Common::MakeFormattedError<ClusterDag>(
+                    return Common::MakeFormattedError<ClusterDagBuild>(
                          "cluster DAG: level {} cluster references {} vertices", c.Level, vertexRefs );
                 ClusterRecord record;
                 record.FirstVertexRef = static_cast<uint32_t>( dag.VertexRefs.size() );
@@ -544,7 +729,15 @@ namespace Desert::Geometry
         LOG_INFO( "[ClusterDag] {} triangles -> {} clusters, {} groups, {} levels, {} hierarchy nodes",
                   triangles.size() / 3, dag.Clusters.size(), dag.Groups.size(), dag.LevelCount,
                   dag.Hierarchy.size() );
-        return Common::MakeSuccess( std::move( dag ) );
+        ClusterDagBuild build;
+        build.Dag                = std::move( dag );
+        build.AddedVertexSources = std::move( growing.Sources );
+        build.AddedPositions.assign( growing.Positions.begin() + std::size_t( vertexCount ) * 3,
+                                     growing.Positions.end() );
+        if ( !build.AddedVertexSources.empty() )
+            LOG_INFO( "[ClusterDag] preserve area: {} boundary vertices added to {}",
+                      build.AddedVertexSources.size(), vertexCount );
+        return Common::MakeSuccess( std::move( build ) );
     }
 
     std::vector<uint32_t> CutClusterDag( const ClusterDag& dag, float relativeError, float boundsRadius )

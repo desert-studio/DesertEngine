@@ -11,7 +11,9 @@
 //
 // THE WINDOW follows the UNJITTERED view position (ViewFrame::CameraPosition), snapped to whole texels of each
 // level, so a still camera never shifts the field and a moving one moves it by whole cells: a texel holds world
-// cell c at c mod N, and a move clears only the texels whose cell left the window (one dispatch per level).
+// cell c at c mod N, and a move renews only the texels whose cell left the window (one dispatch per level, coarse
+// level first): level 0's renewed texels are refilled from level 1, its backing store, so a print the view walked
+// away from and back to is still there (DEFORM-GRASS-4); level 1's renew to rest.
 //
 // THE CONTACTS are copied out of the world's log by sequence at BeginScene (CaptureContacts, the game thread, this
 // renderer's own m_Captured), and the render task applies that copy, never the log: the tick of the next frame
@@ -76,7 +78,12 @@ namespace Desert::Graphic::Deformation
     {
         DESERT_SHADER_PARAMETER( StorageTexture, DeformHeightTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, DeformDetailTexture );
-        static constexpr std::array kAll{ RDG::Erase( DeformHeightTexture ), RDG::Erase( DeformDetailTexture ) };
+        // The other level, read only: a scroll of level 0 refills its renewed texels from level 1 (DEFORM-GRASS-4).
+        DESERT_SHADER_PARAMETER( StorageTexture, DeformCoarseHeightTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DeformCoarseDetailTexture );
+        static constexpr std::array kAll{ RDG::Erase( DeformHeightTexture ), RDG::Erase( DeformDetailTexture ),
+                                          RDG::Erase( DeformCoarseHeightTexture ),
+                                          RDG::Erase( DeformCoarseDetailTexture ) };
     };
 
     // DeformationFieldView's parameters.
@@ -113,6 +120,30 @@ namespace Desert::Graphic::Deformation
         std::array<glm::ivec2, kDeformationLevels>      WindowMin{};
     };
 
+    // The block the field's surface readers bind (DEFORM-GRASS, Deformation/DeformationFieldRead.glslh
+    // DeformationFieldParams), std430.
+    struct DeformationFieldParamsGpu
+    {
+        glm::ivec4 Windows{ 0 };   // xy: level 0's minimum cell, zw: level 1's
+        glm::vec4  Levels{ 0.0f }; // x, y: texel (cm) of level 0, 1; z, w: their resolution (0: no field)
+    };
+    static_assert( sizeof( DeformationFieldParamsGpu ) == 32 );
+
+    // @p field's windows and levels; nullptr (the view has no field this frame) is all zero, which every reader
+    // answers as untouched ground.
+    [[nodiscard]] inline DeformationFieldParamsGpu DeformationFieldParamsOf( const DeformationFieldFrame* field )
+    {
+        DeformationFieldParamsGpu params;
+        if ( field == nullptr )
+            return params;
+        const DeformationLevel l0 = DeformationLevelOf( 0 );
+        const DeformationLevel l1 = DeformationLevelOf( 1 );
+        params.Windows            = glm::ivec4( field->WindowMin[0], field->WindowMin[1] );
+        params.Levels = glm::vec4( l0.Texel, l1.Texel, static_cast<float>( l0.Resolution ),
+                                   static_cast<float>( l1.Resolution ) );
+        return params;
+    }
+
     class DeformationFieldRenderer
     {
     public:
@@ -135,6 +166,22 @@ namespace Desert::Graphic::Deformation
         [[nodiscard]] Common::ResultStr<std::optional<DeformationFieldFrame>>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& viewPosition,
                          bool wanted );
+
+        // RENDER TASK, before this frame's AddUpdatePasses: where the contacts it will apply write - one
+        // (x, y, z, half side) a contact, its position and the half side (cm) of the square its stamp may write
+        // (DEFORM_STAMP_REACH radii). DEFORM-GRASS-2: what a cached sun cascade redraws of its static layer this
+        // frame (MeshRenderer::SetCascadeFootprints; UE's VSM: a cached page is invalidated by what changed in it).
+        [[nodiscard]] std::vector<glm::vec4> PendingFootprints() const;
+
+        // RENDER TASK, before this frame's AddUpdatePasses: the world X, Z box (cm; xy minimum, zw maximum) a
+        // blade root must lie in to read a press from this frame's field around @p viewPosition - the squares
+        // every contact applied since the field last renewed to rest wrote (m_Trampled) and those this frame's
+        // AddUpdatePasses will apply, widened by kTrampleMargin and clipped to level 1's window there (a texel
+        // that left it renewed to rest; level 0 lies inside it). min > max: nothing pressed, no field.
+        // GRASS-RASTER-COST: the grass camera cull widens a blade's sphere to its laid-flat reach only inside it
+        // (DEFORM-GRASS-3 widened every blade of the 82 m window: +0.146 ms of 'Grass: Visibility Raster' on an
+        // untouched field).
+        [[nodiscard]] glm::vec4 TrampledBox( const glm::vec3& viewPosition ) const noexcept;
 
         // "Debug: Deformation Field" over @p target: the field at each pixel's surface (@p depth, the scene
         // depth), drawn only where @p shadingWord (the G-buffer's) marks the landscape.
@@ -167,6 +214,10 @@ namespace Desert::Graphic::Deformation
         std::array<std::shared_ptr<Image2D>, kDeformationLevels> m_Detail{};
         // The window each level's images hold; empty until the level was cleared once.
         std::array<std::optional<glm::ivec2>, kDeformationLevels> m_Window{};
+        // GRASS-RASTER-COST (TrampledBox): the world X, Z box (cm; xy minimum, zw maximum) holding every square an
+        // applied contact wrote that level 1's window still holds - clipped as the window scrolls, emptied when
+        // the field clears; empty while nothing pressed it.
+        std::optional<glm::vec4> m_Trampled;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_StampBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_TileBuffer;

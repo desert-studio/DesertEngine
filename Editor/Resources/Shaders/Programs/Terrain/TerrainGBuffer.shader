@@ -141,6 +141,23 @@ Shader "TerrainGBuffer"
         Out(4) vec4 oVelocity;        // the view's velocity, slot 4 of the G-buffer target (TerrainSurface.glslh)
         Out(5) float oThinGeometryCoverage; // slot 5 of the G-buffer target (Common/ThinGeometryCoverage.glslh)
 
+        // LANDSCAPE-RVT (Common/LandscapeVirtualTexture.glslh): the landscape's runtime virtual texture this
+        // program reads the layer blend from (TerrainRenderer::DeclareGBufferDraws binds LandscapeVirtualTexture's
+        // page table, atlases and this frame's feedback; a view without it binds a zero header).
+        #define DESERT_TERRAIN_VIRTUAL_TEXTURE
+        ReadBuffer(4) LandscapeVirtualPageTable
+        {
+            uint VirtualPageTable[];
+        };
+        Uniform(5) texture2D LandscapeVirtualColorAtlas;
+        Uniform(6) texture2D LandscapeVirtualNormalAtlas;
+        Uniform(7) texture2D LandscapeVirtualOcclusionAtlas;
+        Uniform sampler LandscapeVirtualSampler;
+        Buffer(14) LandscapeVirtualFeedback
+        {
+            uint VirtualFeedback[];
+        };
+
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Generated/ShadingModels.glslh>
         #include <Common/WeatherSnow.glslh>

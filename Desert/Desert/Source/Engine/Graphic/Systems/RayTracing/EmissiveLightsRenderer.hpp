@@ -5,6 +5,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -450,25 +451,27 @@ namespace Desert::Graphic::RayTracing
             const RDG::BufferRef movesBuffer =
                  graph.CreateBuffer( RDG::BufferDesc{ moves.size_bytes() }, kEmissiveMovesName );
             graph.QueueBufferUpload( movesBuffer, std::as_bytes( moves ) );
-            const glm::uvec4 counts( static_cast<uint32_t>( moves.size() ), 0u, 0u, 0u );
+            const ShaderPush::EmissiveLights_Move counts{
+                 .MoveCounts = glm::uvec4( static_cast<uint32_t>( moves.size() ), 0u, 0u, 0u ) };
             graph.AddPass(
                  kEmissiveMovePassName, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     pass.Bindings( m_MoveLayout.Get( m_MoveShader ), Renderer::GetPipelineRouteFill( *m_MovePipeline ) )
+                     pass.Bindings( m_MoveLayout.Get( m_MoveShader ),
+                                    Renderer::GetPipelineRouteFill( *m_MovePipeline ) )
                           .Storage( EmissiveLightsMoveShaderParameters::EmissiveSegmentsUB, segments,
                                     RDG::Access::StorageWrite )
                           .Storage( EmissiveLightsMoveShaderParameters::EmissiveMovesUB, movesBuffer,
                                     RDG::Access::StorageRead )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+                          .PushConstants<ShaderPush::EmissiveLights_Move>();
                  },
                  [this, counts]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS_DYNAMIC( kEmissiveMovePassName.data() );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( &counts, static_cast<uint32_t>( sizeof( counts ) ) );
-                     return Renderer::GetInstance().DispatchCompute( bindings, *m_MovePipeline, Groups( counts.x ), 1,
-                                                                     1 );
+                     bindings.PushConstants( counts );
+                     return Renderer::GetInstance().DispatchCompute( bindings, *m_MovePipeline,
+                                                                     Groups( counts.MoveCounts.x ), 1, 1 );
                  } );
         }
 
@@ -482,8 +485,9 @@ namespace Desert::Graphic::RayTracing
             graph.QueueBufferUpload( runsBuffer, std::as_bytes( std::span<const EmissiveNodeRunGpu>( runs.Runs ) ) );
 
             const EmissiveLevelRuns& leaves = runs.Levels[0];
-            const std::array<glm::uvec4, 2> build{ glm::uvec4( part.TriangleCount, part.Leaves, segmentCount, 0u ),
-                                                   glm::uvec4( leaves.FirstRun, leaves.RunCount, leaves.Threads, 0u ) };
+            const ShaderPush::EmissiveLights_Build build{
+                 .ListCounts = glm::uvec4( part.TriangleCount, part.Leaves, segmentCount, 0u ),
+                 .Runs       = glm::uvec4( leaves.FirstRun, leaves.RunCount, leaves.Threads, 0u ) };
             const std::string_view buildName = names.Build;
             graph.AddPass(
                  buildName, RDG::PassFlags::Compute,
@@ -499,7 +503,7 @@ namespace Desert::Graphic::RayTracing
                                     RDG::Access::StorageWrite )
                           .Storage( EmissiveLightsBuildShaderParameters::EmissiveRunsUB, runsBuffer,
                                     RDG::Access::StorageRead )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( build ) ) );
+                          .PushConstants<ShaderPush::EmissiveLights_Build>();
                      // Read by device address (EmissiveSegment::VertexAddress), declared for the barrier.
                      for ( const RDG::BufferRef stream : positions )
                          pass.Read( stream, RDG::Access::StorageRead );
@@ -510,19 +514,19 @@ namespace Desert::Graphic::RayTracing
                      // Named by the zone alone, which a build without the profiler compiles out.
                      static_cast<void>( buildName );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     bindings.PushConstants( build.data(), static_cast<uint32_t>( sizeof( build ) ) );
+                     bindings.PushConstants( build );
                      return Renderer::GetInstance().DispatchCompute( bindings, *m_BuildPipeline,
-                                                                     Groups( build[1].z ), 1, 1 );
+                                                                     Groups( build.Runs.z ), 1, 1 );
                  } );
 
             // Each level reads the one below it, so each is its own pass (the graph orders the buffer's writes).
             const std::string_view reduceName = names.Reduce;
             for ( uint32_t level = 1; level < part.Levels; ++level )
             {
-                const EmissiveLevelRuns&        nodes = runs.Levels[level];
-                const std::array<glm::uvec4, 2> reduce{
-                     glm::uvec4( part.TriangleCount, part.Leaves, 0u, level ),
-                     glm::uvec4( nodes.FirstRun, nodes.RunCount, nodes.Threads, 0u ) };
+                const EmissiveLevelRuns&                nodes = runs.Levels[level];
+                const ShaderPush::EmissiveLights_Reduce reduce{
+                     .ListCounts = glm::uvec4( part.TriangleCount, part.Leaves, 0u, level ),
+                     .Runs       = glm::uvec4( nodes.FirstRun, nodes.RunCount, nodes.Threads, 0u ) };
                 graph.AddPass(
                      reduceName, RDG::PassFlags::Compute,
                      [&]( RDG::PassBuilder& pass )
@@ -533,7 +537,7 @@ namespace Desert::Graphic::RayTracing
                                         RDG::Access::StorageWrite )
                               .Storage( EmissiveLightsReduceShaderParameters::EmissiveRunsUB, runsBuffer,
                                         RDG::Access::StorageRead )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( reduce ) ) );
+                              .PushConstants<ShaderPush::EmissiveLights_Reduce>();
                      },
                      [this, reduce, reduceName]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
@@ -541,9 +545,9 @@ namespace Desert::Graphic::RayTracing
                          // Named by the zone alone, which a build without the profiler compiles out.
                          static_cast<void>( reduceName );
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         bindings.PushConstants( reduce.data(), static_cast<uint32_t>( sizeof( reduce ) ) );
+                         bindings.PushConstants( reduce );
                          return Renderer::GetInstance().DispatchCompute( bindings, *m_ReducePipeline,
-                                                                         Groups( reduce[1].z ), 1, 1 );
+                                                                         Groups( reduce.Runs.z ), 1, 1 );
                      } );
             }
         }

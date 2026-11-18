@@ -54,6 +54,12 @@ namespace Desert::Editor
         Common::BoolResultStr SetVirtualGeometry( Assets::SourceImportSettings& settings, bool on,
                                                   ImportContentKind kind );
         Common::BoolResultStr SetShownVirtualGeometry( bool on );
+        // Preserve Area (UE FMeshNaniteSettings::bPreserveArea, MeshImportSettings::PreserveArea): the cluster DAG
+        // keeps the area its simplification removes. Refused for @p kind SkeletalMesh and while Virtual Geometry
+        // is off (the DAG is its only reduction); turning Virtual Geometry off leaves it as stated, unbuilt.
+        Common::BoolResultStr SetPreserveArea( Assets::SourceImportSettings& settings, bool on,
+                                               ImportContentKind kind );
+        Common::BoolResultStr SetShownPreserveArea( bool on );
         Common::BoolResultStr SetShownDisplacement( Assets::MeshDisplacementMode mode );
         Common::BoolResultStr SetShownUniformScale( float scale );
         Common::BoolResultStr SetShownUpAxis( Assets::MeshSourceUpAxis axis );
@@ -112,10 +118,15 @@ namespace Desert::Editor
                                                 Assets::MeshSourceUpAxis     axis );
         // THE STATIC MESH'S VIRTUAL GEOMETRY FLAG ON AN EXISTING ASSET (UE: Asset Actions > Nanite > Enable /
         // Disable; the palette's "Assets / Static Mesh: Virtual Geometry on|off" over the Content Browser
-        // selection). A mesh whose source sits beside it: the section's working copy (SetVirtualGeometry) and
-        // Reimport. Any other .stmesh (a node of a split import, an edit, a modeling output): the file's own flag,
+        // selection). A mesh an import wrote (beside its source, or a node of a split import - the whole file's
+        // record): the section's working copy (SetVirtualGeometry) and Reimport. Any other .stmesh (an edit, a
+        // modeling output): the file's own flag,
         // judged by VirtualGeometryGate over its material slots, written, and every loaded copy rebuilt now. An
         // error names the refusal (not a static mesh, skinned, a refused material, a failed write or rebuild).
         Common::BoolResultStr SetStoredVirtualGeometry( const std::filesystem::path& assetPath, bool on );
+        // Its Preserve Area twin (UE: Static Mesh Editor > Nanite Settings > Preserve Area; the palette's
+        // "Assets / Static Mesh: Preserve Area on|off"): the same two homes, refused while the mesh's Virtual
+        // Geometry is off.
+        Common::BoolResultStr SetStoredPreserveArea( const std::filesystem::path& assetPath, bool on );
     } // namespace ImportOptions
 } // namespace Desert::Editor

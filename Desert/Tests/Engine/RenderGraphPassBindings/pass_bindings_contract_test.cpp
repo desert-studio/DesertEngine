@@ -6,6 +6,7 @@
 // slot) need a shader and a device and belong to the RenderGraphVulkan suite, written with Renderer::
 // DispatchCompute / DrawFullscreen in RDG-A2-1.
 
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 
@@ -230,7 +231,7 @@ namespace
                        SamplerDesc::LinearClamp() )
              .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                        Access::StorageWrite, 0 )
-             .PushConstantBytes( 12 );
+             .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
         return block;
     }
 
@@ -290,9 +291,10 @@ TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
          []( PassBuilder& pass, TextureRef chain ) { DeclareBloomBlock( pass, chain ); },
          []( PassContext& context, TextureRef chain ) -> Common::BoolResultStr
          {
-             const float  push[3] = { 1.0f / 32.0f, 1.0f / 32.0f, 1.0f };
+             const Desert::Graphic::ShaderPush::BloomUpsample push{
+                  .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ), .FilterRadius = 1.0f };
              PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-             bindings.PushConstants( push, sizeof( push ) );
+             bindings.PushConstants( push );
              EXPECT_TRUE( bindings.GetStatus().IsSuccess() ) << bindings.GetStatus().GetError();
              EXPECT_EQ( &bindings.GetContext(), &context );
              EXPECT_EQ( bindings.GetTextures().size(), 2u );
@@ -309,7 +311,7 @@ TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
              EXPECT_EQ( output.Range, SubresourceRange::Mip( 0 ) );
              EXPECT_EQ( output.Declared, Access::StorageWrite );
              EXPECT_EQ( bindings.GetPushConstants().size(), sizeof( push ) );
-             EXPECT_EQ( std::memcmp( bindings.GetPushConstants().data(), push, sizeof( push ) ), 0 );
+             EXPECT_EQ( std::memcmp( bindings.GetPushConstants().data(), &push, sizeof( push ) ), 0 );
              return Common::MakeSuccess( true );
          } );
     EXPECT_TRUE( run.Executed.IsSuccess() ) << run.Executed.GetError();
@@ -353,7 +355,7 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
                             SamplerDesc::LinearClamp() )
                   .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstantBytes( 12 );
+                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
          },
          failIfRun );
     EXPECT_FALSE( unknown.ExecRan );
@@ -374,7 +376,7 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
                             SamplerDesc::LinearClamp() )
                   .Storage( PassBindingsContractTestBloomWriteShaderParameters::SourceMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstantBytes( 12 );
+                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
          },
          failIfRun );
     EXPECT_FALSE( wrongKind.ExecRan );
@@ -426,7 +428,7 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
                             SamplerDesc::PointClamp() )
                   .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstantBytes( 12 );
+                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
          },
          []( PassContext& context, TextureRef ) -> Common::BoolResultStr
          {

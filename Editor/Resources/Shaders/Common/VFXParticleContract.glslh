@@ -16,6 +16,9 @@
 //   VFX_SceneDepthCollide( ... )      the particle sphere against THIS frame's scene depth (PORT-VFX-MODULES, UE
 //                                     GPU collision in Scene Depth mode): engine:Collision's one query. A stack
 //                                     that calls it ticks PostOpaque (VFX::kVFXSceneReadHostFunctions)
+//   VFX_SceneWind( sim, position )    the scene's air at the particle (WIND-FIELD-GPU, UE Niagara Wind Force):
+//                                     engine:WindForce's one query. A stack that calls it binds the SceneWind
+//                                     block (VFX::kVFXSceneWindDefine); it moves no tick stage
 //   VFX_EventSpawn( row )             the event a newborn an Event Handler spawned was born from (PORT-VFX-MODULES,
 //                                     UE emitter Event Handlers, Spawned Particles): engine:SpawnFromEvent reads it
 //                                     for a newborn whose sim.Event = row + 1
@@ -88,6 +91,11 @@ vec3  VFX_PointSet( vec4 row, float u );
 // no scene depth, off screen, behind the camera or on the sky.
 bool  VFX_SceneDepthCollide( in VFXSim sim, vec3 position, float radius, float thickness, out vec3 contact,
                              out vec3 normal );
+// The velocity (cm/s) of the scene's air at @p position (the stack's frame, as VFX_SceneDepthCollide's), in the
+// stack's velocity frame (placement for a Local emitter, world otherwise): the directional wind plus the local
+// wind sources (Common/LocalWindField.glslh, the ones the foliage sways by), scaled by the gust fronts
+// (Common/WindGust.glslh). Horizontal (the scene's wind blows in XZ); 0 in still air.
+vec3  VFX_SceneWind( in VFXSim sim, vec3 position );
 // The event row @p row (sim.Event - 1 of a newborn an Event Handler spawned) in the newborn's frames.
 VFXEventSpawn VFX_EventSpawn( uint row );
 

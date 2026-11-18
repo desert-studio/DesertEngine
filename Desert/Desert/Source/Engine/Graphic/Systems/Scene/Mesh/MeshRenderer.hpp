@@ -249,6 +249,13 @@ namespace Desert::Graphic::System
             {
                 m_SceneInstances = instances;
             }
+            // DEFORM-GRASS: the view's deformation field in this list's graph (FrameGraphRefs.hpp
+            // DeformationFieldReads), bound to every block whose shader reads it (the grass blade cells). A block
+            // that reads it with none set fails by name. Carried by Append; until the next Clear.
+            void SetDeformationField( const DeformationFieldReads& field )
+            {
+                m_DeformationField = field;
+            }
             // A draw without pipeline, mesh or material (or whose material has no shader) is refused here.
             void               Add( MeshDrawCommand command );
             // Moves @p other's commands to the end of this list, as if each had been Added here in its order (the
@@ -409,6 +416,7 @@ namespace Desert::Graphic::System
             std::vector<uint32_t>        m_FirstRecords;
             std::optional<BinnedIssue>   m_Binned;       // SetBinned
             RDG::BufferRef               m_SceneInstances; // SetSceneInstances
+            DeformationFieldReads        m_DeformationField; // SetDeformationField
             std::vector<uint32_t>        m_GroupBlock;   // per group of m_Binned: its block (kInvalidBlock: empty)
             std::vector<uint32_t>        m_VgGroupBlock; // per group of m_Binned->VirtualGeometry: its block
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
@@ -930,6 +938,13 @@ namespace Desert::Graphic::System
         {
             m_ViewTemporalLOD = temporalLod;
         }
+        // The scene view's air (SceneRenderer::SetWindGust and BeginScene's SelectLocalWind, ViewFrame::WindGust /
+        // LocalWind): the light cameras of the casters carry it (WriteLightCamera), so a swaying caster's shadow
+        // sways with it.
+        void SetSceneWind( const SceneWind& wind )
+        {
+            m_SceneWind = wind;
+        }
 
         // MESH DISPLACEMENT (DisplacementCache.hpp), after the queues are built and before SyncGpuScene: asks
         // @p cache for the levels of every static record whose mesh carries a displacement topology (per submesh, the
@@ -1036,8 +1051,9 @@ namespace Desert::Graphic::System
         // per cascade: CascadeContentAnswer).
         void ExtractCascadeContent( RDG::Builder& graph, uint64_t frameIndex, const RDG::BufferRef& cells,
                                     uint32_t regions, std::span<const uint32_t> regionViews );
-        // A SCROLLED cascade's strips this frame (PlanCascadeCache: the caster matrices of the strips its shift
-        // uncovered), which its static layer's GPU cull keeps the casters of; empty - not scrolled.
+        // A SCROLLED or PATCHED cascade's strips this frame (PlanCascadeCache: the caster matrices of the strips its
+        // shift uncovered and of the texels this frame's deformation footprints reach), which its static layer's
+        // GPU cull keeps the casters of; empty - its static layer is drawn whole or not at all.
         [[nodiscard]] std::span<const glm::mat4> CascadeScrolledStrips( uint32_t view ) const;
         [[nodiscard]] bool CascadeMovableBinsDrawn( uint32_t view ) const;
         // The caster view of cascade view @p view's movable layer (ShadowCascadePasses' "<cascade>.Movable").
@@ -1228,6 +1244,24 @@ namespace Desert::Graphic::System
             m_FrameSceneInstances = instances;
             m_ViewIsmIdsReady     = false; // PrepareViewIsmIds fills this frame's
         }
+        // DEFORM-GRASS: the view's deformation field in THIS view's graph (SceneRenderer::AddFrameDeformationField,
+        // before any mesh pass is added; reset at EndScene): every list a grass blade section draws into binds it
+        // (BuildGpuInstancedDraws, BuildGpuInstancedShadowDraws), so the view, its cascades and its virtual shadow
+        // flatten the same blades.
+        void SetFrameDeformationField( const DeformationFieldReads& field )
+        {
+            m_FrameDeformationField = field;
+        }
+        // DEFORM-GRASS-2 (UE's VSM: a cached page is invalidated by the region that changed, not the whole map):
+        // where this frame's deformation contacts write (DeformationFieldRenderer::PendingFootprints, (x, y, z,
+        // half side) cm), handed before PlanCascadeCache. A cached cascade whose static layer stands redraws only
+        // the texels these footprints reach - grown by the reach of the grass blades the field lays flat - so a
+        // blade cast from the cache (past the shadow wind distance) casts its pressed pose (CascadeCacheState::
+        // Patch); a scrolled cascade draws them as one more strip. Empty: nothing deformed this frame.
+        void SetCascadeFootprints( std::vector<glm::vec4> footprints )
+        {
+            m_CascadeFootprints = std::move( footprints );
+        }
         // CPU-ISM-PACK (UE FInstanceCullingContext: the instance ids uploaded ONCE per view): every queued ISM's
         // main-view cull (LookUpIsmViewCull, the stale ones on setup tasks) and its kept GpuScene instances
         // (FirstGpuInstance + Indices, level-ordered) appended into the view's one uint32 buffer, uploaded at its
@@ -1386,6 +1420,8 @@ namespace Desert::Graphic::System
         // THE SUN'S CASCADES FOR THIS FRAME, in the order SceneRenderer::AddFrameShadowDepths adds them (UE: the
         // cached shadow maps of a directional light). Per cascade:
         //   StaticPasses  - only when its static casters' cache is stale: clears the cache and draws them;
+        //   PatchPasses   - when only the texels this frame's deformation footprints reach are: LOADS the cache,
+        //                   clears and redraws those (DEFORM-GRASS-2);
         //   Copies        - the cache into the cascade's layer of the sampled array, when the map must be rebuilt
         //                   this frame;
         //   MovablePasses - LOADS the map and draws the movable casters (skinned, swaying foliage, the terrain).
@@ -1416,6 +1452,9 @@ namespace Desert::Graphic::System
         {
             std::vector<CascadeCacheScroll> Scrolls;
             std::vector<SystemRasterPass>   StaticPasses;
+            // A PATCHED cascade's static pass (CascadeCacheState::Patch): its cache LOADED, the footprint strip
+            // cleared and redrawn under its scissor.
+            std::vector<SystemRasterPass>   PatchPasses;
             std::vector<SystemRasterPass>   ScrollPasses;
             std::vector<CascadeCacheCopy>   Copies;
             std::vector<SystemRasterPass>   MovablePasses;
@@ -3297,6 +3336,15 @@ namespace Desert::Graphic::System
             glm::mat4  Strips[2]{ glm::mat4( 1.0f ), glm::mat4( 1.0f ) }; // CascadeScrollStrips
             // ...and each strip's texels (x, y, width, height): the scissor its draws are recorded under.
             glm::uvec4 StripRects[2]{ glm::uvec4( 0u ), glm::uvec4( 0u ) };
+            // DEFORM-GRASS-2: the strips (bit s: strip s) whose texels hold cached depth the pass clears to the far
+            // plane before it draws - the footprint strip (SetCascadeFootprints), whose cached depth is the
+            // casters' pose before this frame's contacts pressed them. A scroll's own strips are already far
+            // (ScrollGraphDepthIntoLayer clears the layer).
+            uint32_t ClearStrips = 0;
+            // This frame the cache is PATCHED: its placement and content stand but deformation footprints reach
+            // it, so its static pass LOADS the cache, clears and redraws Strips[0] alone (StripCount 1), and the
+            // rebuild restores that strip with the movers' region (MovableRegion).
+            bool Patch = false;
             // THE MOVABLE LAYER'S KEY (SHADOW-CACHE-MOTION; UE's VSM: a cached page is invalidated only by a
             // primitive that updates): CascadeMovers' casters and poses with the caster matrix and bias, the key
             // of what the movable casters draw. This frame's (MovableKey: nullopt when no mover reaches the
@@ -4006,6 +4054,8 @@ namespace Desert::Graphic::System
         // resolved only while the sun shadow is the virtual shadow map) moves them, and the feed re-resolves every
         // cached draw.
         uint64_t m_BinnedPipelineEpoch = 0;
+        // Material::EmissiveLightsGeneration at the last re-resolve (the slots' kDrawSlotEmissionIsLight).
+        uint64_t m_BinnedEmissiveLightsGeneration = 0;
         bool     m_BinnedWireframe     = false;
         bool     m_BinnedVirtualShadow = false;
         void FeedDrawCommandCache( const GpuDriven::GpuScene& scene, const GpuDriven::GpuSceneRecordRows& rows );
@@ -5159,8 +5209,9 @@ namespace Desert::Graphic::System
         // THE LOCAL VIEWS' ISM PART (CPU-LOCAL-SHADOW, F9b): the hash LocalCasterSignature takes of the instanced
         // casters in a sphere, kept per sphere while the ISM gather (IsmRevision: camera, wind, cull distance,
         // fields, meshes, transforms snapshots by owner) and the fields' keys it does not hold (IsmSideKey: mesh,
-        // hidden submeshes) are the ones it was made from. Sways: a swaying instance is in reach (no key: the
-        // views redraw every frame). Swept as the static part, by kLocalStaticPartGathers.
+        // hidden submeshes) are the ones it was made from. Sways: a swaying instance, or a masked one in a dithered
+        // LOD transition (FadeLod), is in reach (no key: the views redraw every frame). Swept as the static part,
+        // by kLocalStaticPartGathers.
         struct LocalIsmPart
         {
             uint64_t Revision = 0;
@@ -5337,6 +5388,7 @@ namespace Desert::Graphic::System
         float                                                     m_WorldTimeSeconds = 0.0f;
         ParallaxQuality                                           m_ParallaxQuality;
         Geometry::LODTemporalSamples                              m_ViewTemporalLOD; // SetViewTemporalLOD
+        SceneWind                                                 m_SceneWind;
         // SyncGpuScene's CPU scratch (capacity kept) and the scene's GPU scene it last synced into.
         std::vector<MotionRecord>          m_ScratchRigidRecords;
         std::vector<StaticPrimitiveRecord> m_ScratchStaticRecords;
@@ -5393,6 +5445,8 @@ namespace Desert::Graphic::System
         GpuDriven::GpuSceneProxies         m_GpuSceneProxies;
         const GpuDriven::GpuScene*         m_GpuScene = nullptr;
         RDG::BufferRef                     m_FrameSceneInstances{}; // SetFrameSceneInstances
+        DeformationFieldReads              m_FrameDeformationField{}; // SetFrameDeformationField
+        std::vector<glm::vec4>             m_CascadeFootprints;       // SetCascadeFootprints
         // PrepareViewIsmIds: the view's id buffer (per frame in flight, owned here and lent to every scene-id
         // cell), its CPU image, each m_InstancedQueue entry's first word in it (kNoViewIsmIds: none this frame)
         // with the cull entry's rebuild count it was filled from, and the stale culls' scratch (capacities kept).

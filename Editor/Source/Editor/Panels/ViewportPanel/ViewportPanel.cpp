@@ -290,7 +290,7 @@ namespace Desert::Editor
              camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
              static_cast<uint32_t>( m_ViewportData.Size.y ) );
         ::Desert::Core::RaycastHit hit;
-        if ( !m_Scene->Raycast( ray, hit ) )
+        if ( !m_Scene->RaycastComplex( ray, hit ) )
             return Common::MakeError( "foliage preview: the viewport centre meets no surface" );
         Core::FoliagePaint::HoverPoint() = hit.Point;
         return BOOLSUCCESS;
@@ -385,6 +385,15 @@ namespace Desert::Editor
             if ( viewport->m_AsyncLoader && viewport->m_AsyncLoader->IsBusy() )
                 return true;
         return false;
+    }
+
+    bool ViewportPanel::ModelingPreviewOutstanding()
+    {
+        // Only the viewport the user works in: the tool runs in every modeling viewport, but the panel's
+        // settings and the scene the scenario shoots are the active one's.
+        const ViewportPanel* viewport = ActiveViewport();
+        return viewport != nullptr && Core::ViewportMode::Get() == Core::EditorMode::Modeling &&
+               viewport->m_MeshProcessingTool.PreviewOutstanding();
     }
 
     Common::BoolResultStr ViewportPanel::DropPrefabIntoActiveViewport( const std::string&              path,
@@ -2164,7 +2173,8 @@ namespace Desert::Editor
                 {
                     ::Desert::Core::RaycastHit hover;
                     Core::FoliagePaint::HoverPoint() =
-                         m_Scene->Raycast( ray, hover ) ? std::optional<glm::vec3>( hover.Point ) : std::nullopt;
+                         m_Scene->RaycastComplex( ray, hover ) ? std::optional<glm::vec3>( hover.Point )
+                                                               : std::nullopt;
                 }
                 if ( pressing )
                 {
@@ -2846,6 +2856,8 @@ namespace Desert::Editor
             case T::Boolean:
             case T::Trim:
             case T::Pattern:
+            case T::Merge:
+            case T::Split:
             case T::PaintGroups:                // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }

@@ -55,7 +55,7 @@ layout( location = 15 ) flat out uint v_VsmCutView; // the level and the layer (
 DESERT_SURFACE_VARYINGS( out )
 #elif !defined( DESERT_SURFACE_BINNED )
 // The shadow pass pushes the transform alone (Programs/Shadow/Shadow.shader, 64 bytes).
-layout( push_constant ) uniform constants
+PushConstant ShadowCasterPush
 {
     mat4 Transform;
 }

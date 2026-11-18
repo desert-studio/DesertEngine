@@ -91,6 +91,10 @@ Shader "GrassCull"
             // view draws with, MeshRenderer::CascadeCasterBoxSet; GrassRenderer kGrassCascadeLists = 8 lists).
             vec4            VarietyCascadePlanes[48];
             vec4            VarietyCasterWindOrigin; // xyz = MeshRenderer::CasterWindOrigin (the main camera)
+            // DEFORM-GRASS-3: where the deformation field holds a press (GrassRenderer::SetTrampleWindow,
+            // GRASS-RASTER-COST: DeformationFieldRenderer::TrampledBox): xy world X, Z min, zw max (cm); min > max =
+            // nothing pressed.
+            vec4            VarietyTrampleWindow;
             GrassVarietyRow VarietyRows[];
         };
 
@@ -615,6 +619,18 @@ Shader "GrassCull"
             float scale  = InstanceScale( instance );
             float radius = bounds.x * scale + bounds.z;
             vec3  centre = instance[3].xyz + bounds.y * instance[1].xyz;
+            // DEFORM-GRASS-3 (UE: a deformed instance widens its bounds by its largest displacement): a blade rooted
+            // inside the deformation field's window may lie flat in any direction, so the camera tests the
+            // root-centred sphere of its laid-flat reach - the cascades' sphere (CascadeHolds), which the chunk and
+            // tile bounds already hold. Outside the window the upright sphere stands.
+            vec2 root = instance[3].xz;
+            if ( ( VarietyRows[r].Info.z & kGrassRowBlade ) != 0u &&
+                 all( greaterThanEqual( root, VarietyTrampleWindow.xy ) ) &&
+                 all( lessThanEqual( root, VarietyTrampleWindow.zw ) ) )
+            {
+                centre = instance[3].xyz;
+                radius = ( abs( bounds.y ) + bounds.x ) * scale + bounds.z;
+            }
             // The shadow views first: an instance outside the camera's volume still casts into a cascade.
             uint holds  = CascadeHolds( r, instance[3].xyz, scale, met );
             bool inside = seen;

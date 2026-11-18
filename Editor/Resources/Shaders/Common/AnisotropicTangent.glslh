@@ -1,0 +1,64 @@
+#ifndef DESERT_ANISOTROPIC_TANGENT_GLSLH
+#define DESERT_ANISOTROPIC_TANGENT_GLSLH
+
+// THE ANISOTROPY DIRECTION IN ONE PAYLOAD FLOAT: the Anisotropic shading model's tangent (the direction its GGX
+// lobe is stretched along), carried by the G-buffer's 8-bit payload without a tangent target.
+//
+// UE 5 keeps the world tangent in its own G-buffer target (GBufferF, written only when a material uses
+// anisotropy). Here the G-buffer already stores the shading normal at RGBA16F, and a tangent is a direction IN the
+// plane that normal spans: one angle about N fixes it. The angle is measured in a basis that is a pure function of
+// N (below), so the writer (the surface template, Programs/Surface/AnisotropicSurface.shader) and the reader (the
+// model body, ShadingModels/Anisotropic.shadingmodel) rebuild the same basis from the same normal - the forward
+// pass from the exact one, the deferred composite from the G-buffer's. GGX anisotropy is symmetric under
+// t -> -t, so the angle folds into [0, pi): 8 bits are 0.7 degree steps.
+//
+// The basis is Frisvad's (2012) in Duff et al.'s revised form ("Building an Orthonormal Basis, Revisited", JCGT
+// 2017) WITHOUT the sign select, pole on +Y (the engine's up): continuous over the whole sphere but one point, N =
+// -Y, where 1 + N.y vanishes. Duff's signed form moves that point away at the price of a seam along the whole N.y
+// = 0 circle - every wall - where the G-buffer's rounding of N would flip the basis between writer and reader. A
+// surface facing straight down has no stable tangent in this basis and takes the fallback axis.
+
+// Two unit vectors that complete @p N (unit) to an orthonormal basis.
+void DesertAnisotropyBasis( vec3 N, out vec3 T, out vec3 B )
+{
+    const float onePlusUp = 1.0 + N.y;
+    if ( onePlusUp < 1e-4 )
+    {
+        T = vec3( 1.0, 0.0, 0.0 );
+        B = vec3( 0.0, 0.0, 1.0 );
+        return;
+    }
+    const float a = 1.0 / onePlusUp;
+    const float b = -N.x * N.z * a;
+    T = vec3( 1.0 - N.x * N.x * a, -N.x, b );
+    B = vec3( b, -N.z, 1.0 - N.z * N.z * a );
+}
+
+// The payload float of the world tangent @p worldTangent at the shading normal @p N (unit): the tangent's angle in
+// DesertAnisotropyBasis( N ), folded into [0, pi), over pi. A tangent parallel to N has no direction and encodes
+// 0.
+float DesertEncodeAnisotropyTangent( vec3 N, vec3 worldTangent )
+{
+    vec3 T, B;
+    DesertAnisotropyBasis( N, T, B );
+    const vec3  projected = worldTangent - N * dot( N, worldTangent );
+    const float x         = dot( projected, T );
+    const float y         = dot( projected, B );
+    if ( x * x + y * y < 1e-12 )
+        return 0.0;
+    float angle = atan( y, x );
+    if ( angle < 0.0 )
+        angle += 3.14159265;
+    return clamp( angle / 3.14159265, 0.0, 1.0 );
+}
+
+// The unit world tangent a payload float encodes at the shading normal @p N (unit).
+vec3 DesertDecodeAnisotropyTangent( vec3 N, float encoded )
+{
+    vec3 T, B;
+    DesertAnisotropyBasis( N, T, B );
+    const float angle = encoded * 3.14159265;
+    return normalize( T * cos( angle ) + B * sin( angle ) );
+}
+
+#endif

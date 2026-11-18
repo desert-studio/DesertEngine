@@ -10,31 +10,10 @@ namespace Desert::World::Foliage::Procedural
         return std::max( type.CollisionRadius, type.ShadeRadius );
     }
 
-    namespace
-    {
-        // ScaleCurve, piecewise linear between its keys and constant beyond its ends.
-        float EvaluateScaleCurve( const std::vector<Assets::Serialization::FoliageScaleCurveKey>& keys,
-                                  float                                                           time )
-        {
-            if ( keys.empty() )
-                return 0.0f;
-            if ( time <= keys.front().Time )
-                return keys.front().Value;
-            if ( time >= keys.back().Time )
-                return keys.back().Value;
-            const auto  upper = std::upper_bound( keys.begin(), keys.end(), time,
-                                                  []( float t, const auto& key ) { return t < key.Time; } );
-            const auto& b     = *upper;
-            const auto& a     = *( upper - 1 );
-            const float alpha = ( time - a.Time ) / ( b.Time - a.Time );
-            return a.Value + ( b.Value - a.Value ) * alpha;
-        }
-    } // namespace
-
     float ScaleForAge( const Assets::Serialization::FoliageProcedural& type, float age )
     {
         const float time  = std::clamp( type.MaxAge == 0.0f ? 1.0f : age / type.MaxAge, 0.0f, 1.0f );
-        const float share = EvaluateScaleCurve( type.ScaleCurve, time );
+        const float share = Assets::Serialization::EvaluateFoliageCurve( type.ScaleCurve, time );
         return type.ProceduralScale.Min + ( type.ProceduralScale.Max - type.ProceduralScale.Min ) * share;
     }
 
