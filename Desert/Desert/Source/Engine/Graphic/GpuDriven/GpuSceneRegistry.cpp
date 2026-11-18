@@ -391,10 +391,16 @@ namespace Desert::Graphic::GpuDriven
         ++m_StaticListSerial;
         m_StaticListFrame     = m_Frame;
         m_StaticListPrevFrame = kNoFrame;
+        // The slots grow ONCE, before the first Write: Write/AddContent keep a pointer to the slot's Entry in
+        // m_ContentTouched until PublishContent below, and a resize between two records would move every slot
+        // and leave those pointers dangling (SIGSEGV in PublishContent when a World Partition Load All brought
+        // in primitives past the old end mid-list).
+        size_t slotsNeeded = m_StaticSlots.size();
+        for ( const StaticPrimitiveRecord& record : records )
+            slotsNeeded = std::max( slotsNeeded, size_t( record.Primitive ) + 1u );
+        m_StaticSlots.resize( slotsNeeded );
         for ( const StaticPrimitiveRecord& record : records )
         {
-            if ( record.Primitive >= m_StaticSlots.size() )
-                m_StaticSlots.resize( size_t( record.Primitive ) + 1u );
             StaticSlot& slot = m_StaticSlots[record.Primitive];
             if ( slot.Live && slot.Entity != record.Record.Entity ) // the slot was given to another entity
                 RemoveStatic( slot );
