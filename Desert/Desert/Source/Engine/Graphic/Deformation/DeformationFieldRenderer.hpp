@@ -173,13 +173,15 @@ namespace Desert::Graphic::Deformation
         // frame (MeshRenderer::SetCascadeFootprints; UE's VSM: a cached page is invalidated by what changed in it).
         [[nodiscard]] std::vector<glm::vec4> PendingFootprints() const;
 
-        // RENDER TASK, before this frame's AddUpdatePasses: whether this frame's AddUpdatePasses brings a field
-        // (it exists, or contacts wait to bring it up). DEFORM-GRASS-3: the grass cull widens a blade's sphere
-        // only inside a live field's window.
-        [[nodiscard]] bool Live() const noexcept
-        {
-            return m_ClearPipeline != nullptr || !m_Pending.empty();
-        }
+        // RENDER TASK, before this frame's AddUpdatePasses: the world X, Z box (cm; xy minimum, zw maximum) a
+        // blade root must lie in to read a press from this frame's field around @p viewPosition - the squares
+        // every contact applied since the field last renewed to rest wrote (m_Trampled) and those this frame's
+        // AddUpdatePasses will apply, widened by kTrampleMargin and clipped to level 1's window there (a texel
+        // that left it renewed to rest; level 0 lies inside it). min > max: nothing pressed, no field.
+        // GRASS-RASTER-COST: the grass camera cull widens a blade's sphere to its laid-flat reach only inside it
+        // (DEFORM-GRASS-3 widened every blade of the 82 m window: +0.146 ms of 'Grass: Visibility Raster' on an
+        // untouched field).
+        [[nodiscard]] glm::vec4 TrampledBox( const glm::vec3& viewPosition ) const noexcept;
 
         // "Debug: Deformation Field" over @p target: the field at each pixel's surface (@p depth, the scene
         // depth), drawn only where @p shadingWord (the G-buffer's) marks the landscape.
@@ -212,6 +214,10 @@ namespace Desert::Graphic::Deformation
         std::array<std::shared_ptr<Image2D>, kDeformationLevels> m_Detail{};
         // The window each level's images hold; empty until the level was cleared once.
         std::array<std::optional<glm::ivec2>, kDeformationLevels> m_Window{};
+        // GRASS-RASTER-COST (TrampledBox): the world X, Z box (cm; xy minimum, zw maximum) holding every square an
+        // applied contact wrote that level 1's window still holds - clipped as the window scrolls, emptied when
+        // the field clears; empty while nothing pressed it.
+        std::optional<glm::vec4> m_Trampled;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_StampBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_TileBuffer;

@@ -2049,20 +2049,13 @@ namespace Desert::Graphic
                          *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
                 }
             }
-            // DEFORM-GRASS-3: the window of the field this frame's AddFrameDeformationField brings (level 1, the
-            // wider one, about the same unjittered camera position): the camera cull widens a blade's sphere to
-            // its laid-flat reach inside it. No field (never deformed, no capture this frame): none, no extra
-            // cost.
-            glm::vec4 trampleWindow = System::GrassRenderer::NoTrampleWindow();
-            if ( m_FrameDeformationCaptured && m_DeformationField.Live() )
-            {
-                const Deformation::DeformationLevel level = Deformation::DeformationLevelOf( 1 );
-                const glm::vec2                     low =
-                     glm::vec2( Deformation::DeformationWindowMin( frame.CameraPosition, 1 ) ) * level.Texel;
-                trampleWindow =
-                     glm::vec4( low, low + glm::vec2( static_cast<float>( level.Resolution ) * level.Texel ) );
-            }
-            m_Systems.Grass->SetTrampleWindow( trampleWindow );
+            // DEFORM-GRASS-3, GRASS-RASTER-COST: where the field this frame's AddFrameDeformationField brings
+            // (about the same unjittered camera position) holds a press - the box of what its contacts wrote, not
+            // its whole 82 m window: the camera cull widens a blade's sphere to its laid-flat reach only inside
+            // it. No capture this frame, or nothing pressed: none, every blade keeps its upright sphere.
+            m_Systems.Grass->SetTrampleWindow( m_FrameDeformationCaptured
+                                                    ? m_DeformationField.TrampledBox( frame.CameraPosition )
+                                                    : System::GrassRenderer::NoTrampleWindow() );
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
             m_Systems.Grass->PrepareFrame( frame, *m_Systems.Mesh.get(),
                                            RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion,

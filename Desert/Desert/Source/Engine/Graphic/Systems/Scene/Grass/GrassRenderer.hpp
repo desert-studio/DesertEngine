@@ -190,11 +190,12 @@ namespace Desert::Graphic::System
         {
             m_CullAsync = enabled;
         }
-        // DEFORM-GRASS-3 (UE: a deformed instance widens its bounds by its largest displacement): the window of
-        // the view's deformation field this frame - xy its world X, Z minimum, zw its maximum (cm); min > max (the
-        // default, NoTrampleWindow()) when the view has no field. The camera cull tests a blade rooted inside it by
-        // the root-centred sphere of its laid-flat reach, so a blade pressed past its upright bounds is not culled.
-        // Set before AddFrame.
+        // DEFORM-GRASS-3 (UE: a deformed instance widens its bounds by its largest displacement): where the view's
+        // deformation field holds a press this frame (GRASS-RASTER-COST: DeformationFieldRenderer::TrampledBox,
+        // the box of what its contacts wrote, not its whole window) - xy its world X, Z minimum, zw its maximum
+        // (cm); min > max (the default, NoTrampleWindow()) when nothing is pressed. The camera cull tests a blade
+        // rooted inside it by the root-centred sphere of its laid-flat reach, so a blade pressed past its upright
+        // bounds is not culled. Set before AddFrame.
         [[nodiscard]] static glm::vec4 NoTrampleWindow() noexcept
         {
             return glm::vec4( 1.0f, 1.0f, -1.0f, -1.0f );
@@ -310,8 +311,8 @@ namespace Desert::Graphic::System
             // ...and the rule's measure that view's light camera carries (MeshRenderer::CasterWindOrigin: xyz the
             // main camera's origin, w ShadowWindDistanceOf - 0 where every instance casts its rest pose).
             glm::vec4 CascadeWind[kGrassCascadeLists]{};
-            // DEFORM-GRASS-3: the deformation field's window this frame (SetTrampleWindow): xy its world X, Z
-            // minimum, zw its maximum (cm); min > max is none.
+            // DEFORM-GRASS-3: where the deformation field holds a press this frame (SetTrampleWindow): xy its
+            // world X, Z minimum, zw its maximum (cm); min > max is none.
             glm::vec4 TrampleWindow{ 1.0f, 1.0f, -1.0f, -1.0f };
         };
         // GPU-GRASS-CULL-1: what the camera cull of a variety reads beyond its cascades' key

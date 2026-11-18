@@ -35,6 +35,45 @@ namespace Desert::Graphic::Deformation
         constexpr uint32_t kTileStampBinding = 4;
         // The square a contact may write, in radii (DeformStampContract.glslh DEFORM_STAMP_REACH).
         constexpr float kStampReach = 2.0f;
+        // GRASS-RASTER-COST (TrampledBox): a blade reads the cell its root falls in, and a renewed level-0 texel
+        // is refilled bilinearly from level 1 (DEFORM-GRASS-4), so a press may reach a level-1 cell (8 cm) past
+        // the square its contact wrote: two cells of margin.
+        constexpr float     kTrampleMargin = 16.0f;
+        constexpr glm::vec4 kNoBox{ 1.0f, 1.0f, -1.0f, -1.0f };
+
+        // The world X, Z box (cm; xy minimum, zw maximum) a contact's stamp may press, with kTrampleMargin.
+        glm::vec4 ContactBox( const ::Desert::World::DeformContact& contact ) noexcept
+        {
+            const float reach = contact.Params.Radius * kStampReach + kTrampleMargin;
+            return glm::vec4( contact.At.x - reach, contact.At.z - reach, contact.At.x + reach,
+                              contact.At.z + reach );
+        }
+
+        std::optional<glm::vec4> UnionBox( const std::optional<glm::vec4>& box, const glm::vec4& add ) noexcept
+        {
+            if ( !box )
+                return add;
+            return glm::vec4( glm::min( glm::vec2( *box ), glm::vec2( add ) ),
+                              glm::max( glm::vec2( box->z, box->w ), glm::vec2( add.z, add.w ) ) );
+        }
+
+        // @p box inside @p window; empty where they do not meet.
+        std::optional<glm::vec4> ClipBox( const glm::vec4& box, const glm::vec4& window ) noexcept
+        {
+            const glm::vec2 low  = glm::max( glm::vec2( box ), glm::vec2( window ) );
+            const glm::vec2 high = glm::min( glm::vec2( box.z, box.w ), glm::vec2( window.z, window.w ) );
+            if ( low.x > high.x || low.y > high.y )
+                return std::nullopt;
+            return glm::vec4( low, high );
+        }
+
+        // The world X, Z box (cm) of @p level's window whose minimum cell is @p windowMin.
+        glm::vec4 LevelBox( const glm::ivec2& windowMin, const int level ) noexcept
+        {
+            const DeformationLevel l   = DeformationLevelOf( level );
+            const glm::vec2        low = glm::vec2( windowMin ) * l.Texel;
+            return glm::vec4( low, low + glm::vec2( static_cast<float>( l.Resolution ) * l.Texel ) );
+        }
 
         enum class ApplyMode : int32_t
         {
@@ -219,6 +258,19 @@ namespace Desert::Graphic::Deformation
         return footprints;
     }
 
+    glm::vec4 DeformationFieldRenderer::TrampledBox( const glm::vec3& viewPosition ) const noexcept
+    {
+        // A restart pending (CaptureContacts) renews the field before this frame's contacts apply.
+        std::optional<glm::vec4> box = m_PendingRestart ? std::nullopt : m_Trampled;
+        for ( const ::Desert::World::DeformContact& contact : m_Pending )
+            box = UnionBox( box, ContactBox( contact ) );
+        if ( !box )
+            return kNoBox;
+        constexpr int coarse = kDeformationLevels - 1;
+        return ClipBox( *box, LevelBox( DeformationWindowMin( viewPosition, coarse ), coarse ) )
+             .value_or( kNoBox );
+    }
+
     Common::ResultStr<std::optional<DeformationFieldFrame>>
     DeformationFieldRenderer::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
                                                const glm::vec3& viewPosition, const bool wanted )
@@ -270,6 +322,15 @@ namespace Desert::Graphic::Deformation
                                                                static_cast<float>( coarse.Resolution ), 0.0f )
                                                   : glm::vec4( l.Texel, 0.0f, 0.0f, 0.0f );
             m_Window[level]              = window;
+            // The trampled box (TrampledBox): a clear renews every texel to rest; a scroll of level 1, the
+            // backing store, renews the texels that left its window.
+            if ( level == kDeformationLevels - 1 && m_Trampled )
+            {
+                if ( mode == ApplyMode::ClearAll )
+                    m_Trampled.reset();
+                else
+                    m_Trampled = ClipBox( *m_Trampled, LevelBox( window, level ) );
+            }
             const RDG::TextureRef height = frame.Height[level];
             const RDG::TextureRef detail = frame.Detail[level];
             // The other level, bound read-only by every pass of the program (one layout); read only on a refill.
@@ -310,6 +371,12 @@ namespace Desert::Graphic::Deformation
              .clear(); // a moved-from vector is valid but unspecified: the next capture appends to an empty one
         const uint64_t missed = m_PendingMissed;
         m_PendingMissed       = 0;
+        // The trampled box (TrampledBox) takes every square these contacts write, as level 1's window holds it.
+        for ( const ::Desert::World::DeformContact& contact : contacts )
+            m_Trampled = UnionBox( m_Trampled, ContactBox( contact ) );
+        if ( m_Trampled )
+            m_Trampled = ClipBox( *m_Trampled,
+                                  LevelBox( frame.WindowMin[kDeformationLevels - 1], kDeformationLevels - 1 ) );
         if ( missed > 0 )
             LOG_ERROR( "[Deformation] this view's field fell {} contacts behind the world's log (it keeps {}); "
                        "those contacts are not in the field",

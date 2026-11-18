@@ -91,8 +91,9 @@ Shader "GrassCull"
             // view draws with, MeshRenderer::CascadeCasterBoxSet; GrassRenderer kGrassCascadeLists = 8 lists).
             vec4            VarietyCascadePlanes[48];
             vec4            VarietyCasterWindOrigin; // xyz = MeshRenderer::CasterWindOrigin (the main camera)
-            // DEFORM-GRASS-3: the deformation field's window (GrassRenderer::SetTrampleWindow): xy world X, Z min,
-            // zw max (cm); min > max = no field.
+            // DEFORM-GRASS-3: where the deformation field holds a press (GrassRenderer::SetTrampleWindow,
+            // GRASS-RASTER-COST: DeformationFieldRenderer::TrampledBox): xy world X, Z min, zw max (cm); min > max =
+            // nothing pressed.
             vec4            VarietyTrampleWindow;
             GrassVarietyRow VarietyRows[];
         };
