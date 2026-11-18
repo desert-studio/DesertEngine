@@ -5,11 +5,11 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 75,
+            "SCNE": 76,
             "UNIT": 1,
-            "WPAR": 2
+            "WPAR": 13
         },
-        "Dependencies": ["183bb65c84cd4755808cd9060f7b16e4", "80a31d6cbbb94e2680f8d4fa2d3cc8a9", "ee636f776d95496283602b1ebe49b356"]
+        "Dependencies": ["183bb65c84cd4755808cd9060f7b16e4", "80a31d6cbbb94e2680f8d4fa2d3cc8a9", "ad451fd14d727d0aaccbe1bc6093cd44", "ee636f776d95496283602b1ebe49b356"]
     },
     "SceneName": "FOLIAGE_Edit",
     "ExternalEntities": [
@@ -39,18 +39,26 @@
         "SplashFade": 0.4000000059604645
     },
     "WorldPartition": {
-        "Grids": [
+        "RuntimePartitions": [
             {
                 "Name": "Main",
-                "CellSize": 2500.0,
-                "LoadingRange": 20000.0,
-                "Priority": 0
+                "Type": "LHGrid",
+                "LHGrid": {
+                    "CellSize": 2500.0,
+                    "LoadingRange": 20000.0,
+                    "Priority": 0
+                },
+                "DebugColor": [0.5500000715255737, 0.25, 1.0]
             },
             {
                 "Name": "Foliage",
-                "CellSize": 1280.0,
-                "LoadingRange": 6400.0,
-                "Priority": 0
+                "Type": "LHGrid",
+                "LHGrid": {
+                    "CellSize": 1280.0,
+                    "LoadingRange": 6400.0,
+                    "Priority": 0
+                },
+                "DebugColor": [0.9500000476837158, 0.25, 1.0]
             }
         ],
         "HLODLayers": [],
