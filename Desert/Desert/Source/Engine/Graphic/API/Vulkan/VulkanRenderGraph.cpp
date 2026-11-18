@@ -776,7 +776,25 @@ namespace Desert::Graphic::API::Vulkan
             m_Retired.erase( keptEnd, m_Retired.end() );
         }
         released.clear();
-        // Kept: whatever a frame not yet waited for was handed, and whatever an extraction target still holds.
+        // GPUSCENE-UAF (UE FRDGPooledBuffer: a pooled resource is released, or handed out again, only once the
+        // last frame that could REFERENCE it has retired, not the frame it was handed out on). An entry an
+        // extraction target holds is imported by every later graph that reads it (a cull's carry, a history,
+        // a GPU-scene table), so its last use is the last frame it was still held, not its hand-out. LastFrame
+        // used to stay at the hand-out: a buffer held for many frames and dropped on a scene change (a capacity
+        // grows, the holder extracts a new one) had an old LastFrame, so the next BeginFrame destroyed it at once
+        // (vmaDestroyBuffer) and AcquireBuffer could hand it to another graph, while the frames in flight - and
+        // on a submit thread not even submitted yet (MoltenVK encodes the dispatch at vkQueueSubmit) - still
+        // bound it. A held entry is stamped with the frame now beginning: it is dropped after this point at the
+        // earliest, so every frame that can name it is <= frame, and the margin below runs from there.
+        const auto stampHeld = [frame]( auto& entry )
+        {
+            if ( entry.Resource.use_count() > 1 )
+                entry.LastFrame = frame;
+        };
+        std::ranges::for_each( m_Textures, stampHeld );
+        std::ranges::for_each( m_Buffers, stampHeld );
+        // Kept: whatever a frame not yet waited for was handed or still held, and whatever an extraction target
+        // still holds.
         auto stale = [&]( const auto& entry )
         { return entry.LastFrame + m_FrameSlots < frame && entry.Resource.use_count() == 1; };
         std::erase_if( m_Textures, stale );
