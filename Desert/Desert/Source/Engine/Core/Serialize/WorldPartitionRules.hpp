@@ -309,6 +309,22 @@ namespace Desert::Core::Rules
         float MaxZ = 0.0f;
     };
 
+    // WHAT A COMPOSITE OR A CELL HOLDS, VERTICALLY (WP-SRC-ALTITUDE): the lowest and the highest world Y, cm, of
+    // every point its footprint was built from - UE's cell content bounds in Z (UWorldPartitionRuntimeCell::
+    // GetContentBounds, which the spatial hash's Z culling reads). Height still does not PARTITION - a cell is a
+    // square on the ground - but it is MEASURED: the loading range reaches a cell in 3D, so a source 2 km up does
+    // not want the 25 m cells of the ground below it (WorldPartitionStreamingRules.hpp, THE RULE).
+    struct HeightSpan
+    {
+        float MinY = 0.0f;
+        float MaxY = 0.0f;
+    };
+
+    [[nodiscard]] inline HeightSpan UnionHeight( const HeightSpan& a, const HeightSpan& b )
+    {
+        return HeightSpan{ std::min( a.MinY, b.MinY ), std::max( a.MaxY, b.MaxY ) };
+    }
+
     // Edge of one cell of grid level @p level: CellSize·2^level. ldexp and not a loop of doublings, so a
     // level is exactly a power of two times the authored number with no accumulated rounding.
     [[nodiscard]] inline double LevelCellSize( float cellSize, int level )
@@ -399,12 +415,18 @@ namespace Desert::Core::Rules
         // nullopt when no member has a known position — only refused prefab instances
         // (UnplacedPrefabInstances). Such a composite is in NO cell and is not always loaded: it has no place.
         std::optional<CellBounds> Footprint;
+        // The Y span of the same points; set exactly when Footprint is (WP-SRC-ALTITUDE).
+        std::optional<HeightSpan> Height;
 
         AlwaysLoadedReason Reason  = AlwaysLoadedReason::None;
         std::size_t        Because = kNoRecord; // the member that made it Author/Component
         int                Level   = 0;
         CellCoord          Cell;
         std::size_t        Grid    = 0; // index into WorldPartitionSerialized::Grids (UE: the actor's RuntimeGrid)
+        // The data layers the composite belongs to - its ANCHOR's (UE AActor::DataLayerAssets), as indices into
+        // WorldPartitionSerialized::DataLayers, ascending and unique. Empty = no layer. Whatever the Reason: an
+        // always-loaded composite belongs to its layers too, and the editor holds it by them (EditorRegions).
+        std::vector<std::size_t> DataLayers;
     };
 
     // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level and holds
@@ -419,6 +441,8 @@ namespace Desert::Core::Rules
         CellBounds               Square;
         CellBounds               Bounds;
         std::vector<std::size_t> Composites; // indices into WorldPartitionPlan::Composites
+        // The union of its composites' Height (UE's content bounds in Z): what a source's altitude is measured to.
+        HeightSpan Height;
     };
 
     struct WorldPartitionPlan
@@ -539,6 +563,9 @@ namespace Desert::Core::Rules
          { "AlwaysLoaded", ComponentLoading::Global },
          // The grid a composite streams on (WP22): it chooses the cell size, never whether the entity is placed.
          { "RuntimeGrid", ComponentLoading::Spatial },
+         // The data layers an entity belongs to (WP-DATA-LAYERS): they decide what the editor holds, never whether
+         // the entity is placed.
+         { "DataLayers", ComponentLoading::Spatial },
          // Play chooses among ALL starts (a tag must name exactly one) before the streamer begins, so a
          // start in an unloaded cell would silently change which one wins, or make a tag unresolvable.
          { "PlayerStart", ComponentLoading::Global },
@@ -646,6 +673,7 @@ namespace Desert::Core::Rules
     // Author are both about it.
     inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
     inline constexpr std::string_view kRuntimeGridComponent  = "RuntimeGrid";
+    inline constexpr std::string_view kDataLayersComponent   = "DataLayers";
     inline constexpr std::string_view kStreamingSourceComponent = "StreamingSource";
 
     // THE RECORD KINDS WHOSE CONTENTS ARE NOT A POINT AT THEIR OWN POSITION, by their names on disk. One
@@ -766,7 +794,7 @@ namespace Desert::Core::Rules
                    glm::scale( glm::mat4( 1.0f ), scale );
         }
 
-        // THE WORLD-SPACE GROUND POSITION OF EVERY INSTANCE AN InstancedStaticMesh RECORD DRAWS.
+        // THE WORLD-SPACE POSITION OF EVERY INSTANCE AN InstancedStaticMesh RECORD DRAWS.
         //
         // WORLD and not local, and the line that decides it is not the member's comment but the submit in
         // MeshECSSystem.hpp, which hands the snapshot of InstanceTransforms to the renderer without the
@@ -775,7 +803,7 @@ namespace Desert::Core::Rules
         //
         // A matrix that is not 16 numbers is an Issue and is skipped rather than guessed at; the loader
         // would reject the same block, so it cannot be drawn either.
-        inline void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec2>& out,
+        inline void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec3>& out,
                                           Common::Json::Issues& issues )
         {
             const auto block = BlockOf( record, kInstancePointsComponent, issues );
@@ -803,17 +831,20 @@ namespace Desert::Core::Rules
                      }
                      const std::size_t before = issues.size();
                      float             x      = 0.0f;
+                     float             y      = 0.0f;
                      float             z      = 0.0f;
                      matrix.ForEachElement(
                           [&]( std::size_t i, const Common::Json::Node& element )
                           {
                               if ( i == 12 )
                                   element.ReadValue( x, issues );
+                              else if ( i == 13 )
+                                  element.ReadValue( y, issues );
                               else if ( i == 14 )
                                   element.ReadValue( z, issues );
                           } );
                      if ( issues.size() == before )
-                         out.emplace_back( x, z );
+                         out.emplace_back( x, y, z );
                  } );
         }
 
@@ -869,8 +900,8 @@ namespace Desert::Core::Rules
             return AlwaysLoadedReason::None;
         }
 
-        // Appends the XZ of a local-space box's eight corners, through @p world.
-        inline void AppendBoxCorners( const glm::mat4& world, const glm::vec3& half, std::vector<glm::vec2>& out )
+        // Appends the world position of a local-space box's eight corners, through @p world.
+        inline void AppendBoxCorners( const glm::mat4& world, const glm::vec3& half, std::vector<glm::vec3>& out )
         {
             for ( int corner = 0; corner < 8; ++corner )
             {
@@ -878,13 +909,13 @@ namespace Desert::Core::Rules
                                        ( ( corner & 2 ) != 0 ) ? half.y : -half.y,
                                        ( ( corner & 4 ) != 0 ) ? half.z : -half.z, 1.0f );
                 const glm::vec4 placed = world * local;
-                out.emplace_back( placed.x, placed.z );
+                out.emplace_back( placed.x, placed.y, placed.z );
             }
         }
 
-        // Appends the XZ of a local-space AABB's eight corners, through @p world.
+        // Appends the world position of a local-space AABB's eight corners, through @p world.
         inline void AppendBoundsCorners( const glm::mat4& world, const Common::Math::AABB& box,
-                                         std::vector<glm::vec2>& out )
+                                         std::vector<glm::vec3>& out )
         {
             const glm::vec3 centre = ( box.Min + box.Max ) * 0.5f;
             const glm::vec3 half   = ( box.Max - box.Min ) * 0.5f;
@@ -1010,10 +1041,10 @@ namespace Desert::Core::Rules
         // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
         // the top of this file. Returns false when the record contributed its position and nothing more.
         inline bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out,
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
                                      Common::Json::Issues& issues )
         {
-            out.emplace_back( world[3].x, world[3].z );
+            out.emplace_back( world[3].x, world[3].y, world[3].z );
             const std::size_t before = out.size();
 
             ForEachLocalBox( record, bounds, issues,
@@ -1196,7 +1227,7 @@ namespace Desert::Core::Rules
 
         std::vector<Common::Math::AABB> Boxes;  // local boxes the record states itself (primitive, edit mesh)
         std::vector<DescriptorMesh>     Meshes; // mesh assets, answered by the bounds source
-        std::vector<glm::vec2>          InstancePoints;
+        std::vector<glm::vec3>          InstancePoints;
 
         AlwaysLoadedReason                     Reason = AlwaysLoadedReason::None; // None / Author / Component
         std::vector<DescriptorReference>       References;
@@ -1208,6 +1239,8 @@ namespace Desert::Core::Rules
         // grid. Read here so the plan names a grid the world does not have
         // (Entities[i].StreamingSource.TargetGrids).
         std::vector<std::string> TargetGrids;
+        // The DataLayers block's layer names (WP-DATA-LAYERS, UE AActor::DataLayerAssets); empty = no layer.
+        std::vector<std::string> DataLayers;
 
         // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
         Common::Json::Issues Issues;
@@ -1287,6 +1320,8 @@ namespace Desert::Core::Rules
         }
         if ( const auto source = Detail::BlockOf( record, kStreamingSourceComponent, issues ); source.has_value() )
             source->ReadInto( "TargetGrids", out.TargetGrids, issues );
+        if ( const auto layers = Detail::BlockOf( record, kDataLayersComponent, issues ); layers.has_value() )
+            layers->ReadInto( "Layers", out.DataLayers, issues );
 
         if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
         {
@@ -1439,9 +1474,9 @@ namespace Desert::Core::Rules
         // the bounds source answers for its meshes, then its instance points. True when it had more than
         // the position (AppendFootprint over the record, the same points).
         inline bool AppendFootprint( const EntityDescriptor& descriptor, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out )
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec3>& out )
         {
-            out.emplace_back( world[3].x, world[3].z );
+            out.emplace_back( world[3].x, world[3].y, world[3].z );
             const std::size_t before = out.size();
             for ( const Common::Math::AABB& box : descriptor.Boxes )
                 AppendBoundsCorners( world, box, out );
@@ -1526,6 +1561,43 @@ namespace Desert::Core::Rules
         Common::Json::Issues Issues;
         bool                 CellsUsable = true;
     };
+
+    // THE DATA LAYERS A WORLD MAY STATE (WP-DATA-LAYERS, UE UDataLayerInstance) - the one rule the planner (step
+    // 4d) and every editor edit of the block (EditWorldPartition: the panel's Data Layers section, `desertctl set
+    // world WorldPartition.DataLayers...`) read: every layer named, once - a name is the only way an entity reaches
+    // a layer, so two layers of one name would make membership a guess. No layers at all is a world without them.
+    [[nodiscard]] inline Common::Json::Issues CheckDataLayers( const WorldPartitionSerialized& settings )
+    {
+        Common::Json::Issues issues;
+        if ( !settings.DataLayers.has_value() )
+            return issues;
+        const std::vector<DataLayerSerialized>& layers = *settings.DataLayers;
+        for ( std::size_t layerIndex = 0; layerIndex < layers.size(); ++layerIndex )
+        {
+            const DataLayerSerialized& layer = layers[layerIndex];
+            const bool                 twice =
+                 std::any_of( layers.begin(), layers.begin() + static_cast<std::ptrdiff_t>( layerIndex ),
+                              [&]( const DataLayerSerialized& other ) { return other.Name == layer.Name; } );
+            if ( layer.Name.empty() || twice )
+                issues.push_back( { std::format( "WorldPartition.DataLayers[{}].Name", layerIndex ),
+                                    "a name no other data layer of the world states", layer.Name } );
+        }
+        return issues;
+    }
+
+    // The index of the layer @p name names in @p settings, or nullopt when the world states none of that name.
+    [[nodiscard]] inline std::optional<std::size_t> DataLayerIndexOf( const WorldPartitionSerialized& settings,
+                                                                      std::string_view                name )
+    {
+        if ( !settings.DataLayers.has_value() )
+            return std::nullopt;
+        const std::vector<DataLayerSerialized>& layers = *settings.DataLayers;
+        const auto found = std::find_if( layers.begin(), layers.end(),
+                                         [&]( const DataLayerSerialized& layer ) { return layer.Name == name; } );
+        if ( found == layers.end() )
+            return std::nullopt;
+        return static_cast<std::size_t>( found - layers.begin() );
+    }
 
     [[nodiscard]] inline RuntimeGridsCheck CheckRuntimeGrids( const WorldPartitionSerialized& settings )
     {
@@ -1707,7 +1779,7 @@ namespace Desert::Core::Rules
         for ( const std::size_t record : plan.UnplacedLandscapeTiles )
             unplaced[record] = true;
 
-        std::vector<glm::vec2> points;
+        std::vector<glm::vec3> points;
         for ( PlannedComposite& group : plan.Composites )
         {
             for ( const std::size_t member : group.Members )
@@ -1729,23 +1801,73 @@ namespace Desert::Core::Rules
                 if ( const auto& rect = tileRect[member]; rect.has_value() )
                 {
                     // The four corners and NOT the entity's own position: nothing reads a tile's transform.
-                    points.emplace_back( rect->MinX, rect->MinZ );
-                    points.emplace_back( rect->MaxX, rect->MinZ );
-                    points.emplace_back( rect->MinX, rect->MaxZ );
-                    points.emplace_back( rect->MaxX, rect->MaxZ );
+                    points.emplace_back( rect->MinX, rect->MinY, rect->MinZ );
+                    points.emplace_back( rect->MaxX, rect->MinY, rect->MinZ );
+                    points.emplace_back( rect->MinX, rect->MaxY, rect->MaxZ );
+                    points.emplace_back( rect->MaxX, rect->MaxY, rect->MaxZ );
                 }
                 else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points ) )
                     ++plan.PointOnlyRecords;
-                for ( const glm::vec2& point : points )
+                for ( const glm::vec3& point : points )
                 {
                     if ( !group.Footprint.has_value() )
-                        group.Footprint = CellBounds{ point.x, point.y, point.x, point.y };
+                    {
+                        group.Footprint = CellBounds{ point.x, point.z, point.x, point.z };
+                        group.Height    = HeightSpan{ point.y, point.y };
+                    }
                     CellBounds& box = *group.Footprint;
                     box.MinX        = std::min( box.MinX, point.x );
-                    box.MinZ        = std::min( box.MinZ, point.y );
+                    box.MinZ        = std::min( box.MinZ, point.z );
                     box.MaxX        = std::max( box.MaxX, point.x );
-                    box.MaxZ        = std::max( box.MaxZ, point.y );
+                    box.MaxZ        = std::max( box.MaxZ, point.z );
+                    HeightSpan& height = *group.Height;
+                    height.MinY        = std::min( height.MinY, point.y );
+                    height.MaxY        = std::max( height.MaxY, point.y );
                 }
+            }
+        }
+
+        // ── 4d. The data layers each composite belongs to: its anchor's (WP-DATA-LAYERS) ─────────────────
+        // Before the grids, because it does not depend on them: a world whose grids are unusable still holds its
+        // composites in the editor by their layers. A name the world does not state is an Issue with the record's
+        // path and is NOT read as some other layer (UE drops an invalid data layer reference the same way and
+        // the actor is then in no layer by it). A member that states layers other than its anchor's is an Issue
+        // too - the composite moves whole, so it cannot belong to two sets of layers (UE refuses an attachment
+        // across data layers in its streaming generation, IStreamingGenerationErrorHandler).
+        {
+            const Common::Json::Issues layerIssues = CheckDataLayers( settings );
+            plan.Issues.insert( plan.Issues.end(), layerIssues.begin(), layerIssues.end() );
+            const auto sortedNames = []( std::vector<std::string> names )
+            {
+                std::sort( names.begin(), names.end() );
+                names.erase( std::unique( names.begin(), names.end() ), names.end() );
+                return names;
+            };
+            for ( PlannedComposite& held : plan.Composites )
+            {
+                const EntityDescriptor& anchor = records[held.Anchor];
+                for ( const std::string& name : anchor.DataLayers )
+                {
+                    const std::optional<std::size_t> layer = DataLayerIndexOf( settings, name );
+                    if ( !layer.has_value() )
+                    {
+                        plan.Issues.push_back( { std::format( "Entities[{}].{}.Layers", held.Anchor,
+                                                              kDataLayersComponent ),
+                                                 "data layer", name, Common::Json::IssueKind::MissingReference } );
+                        continue;
+                    }
+                    held.DataLayers.push_back( *layer );
+                }
+                std::sort( held.DataLayers.begin(), held.DataLayers.end() );
+                held.DataLayers.erase( std::unique( held.DataLayers.begin(), held.DataLayers.end() ),
+                                       held.DataLayers.end() );
+                const std::vector<std::string> anchorNames = sortedNames( anchor.DataLayers );
+                for ( const std::size_t member : held.Members )
+                    if ( member != held.Anchor && sortedNames( records[member].DataLayers ) != anchorNames )
+                        plan.Issues.push_back(
+                             { std::format( "Entities[{}].{}.Layers", member, kDataLayersComponent ),
+                               std::format( "the data layers of its composite's anchor Entities[{}]", held.Anchor ),
+                               std::format( "{} layer(s) of its own", records[member].DataLayers.size() ) } );
             }
         }
 
@@ -1922,6 +2044,10 @@ namespace Desert::Core::Rules
                                       static_cast<float>( static_cast<double>( cell.Square.MinZ ) - margin ),
                                       static_cast<float>( static_cast<double>( cell.Square.MaxX ) + margin ),
                                       static_cast<float>( static_cast<double>( cell.Square.MaxZ ) + margin ) };
+            // What the cell holds, vertically: the union of its composites' spans (each has one: it has a footprint).
+            cell.Height = *plan.Composites[composites.front()].Height;
+            for ( const std::size_t group : composites )
+                cell.Height = UnionHeight( cell.Height, *plan.Composites[group].Height );
             cell.Composites = std::move( composites );
             plan.Cells.push_back( std::move( cell ) );
         }
