@@ -16,7 +16,8 @@ Shader "ClusterCut"
     //          thread's own stack (kStackDepth). A child is visited when its box meets the frustum AND its
     //          MaxParentLodError projects past tau (a parent below may be too coarse). A leaf child names one
     //          group: each of its clusters is drawn when its box meets the frustum AND its own LodError projects
-    //          to tau or less. Both tests call VgProjectedError on bit-identical (sphere, error) pairs, so a group
+    //          to tau or less (an accepted group is listed; after the traversal the workgroup tests the listed
+    //          groups' clusters one a lane, 32 lanes a group - UE's cluster batches, not one lane's loop). Both tests call VgProjectedError on bit-identical (sphere, error) pairs, so a group
     //          and the clusters generated from it never both draw nor both hide (no crack).
     //          Drawn clusters are HW clusters (no SW raster yet): VisibleClusters[capacity - 1 - i], counted in
     //          RasterArgs.HwDraw[1] (GpuClusterRasterArgs, the UE layout: SW from the front, HW from the back).
@@ -164,9 +165,16 @@ Shader "ClusterCut"
 
         #define kQueueCapacity 512u
         #define kStackDepth    48u
+        // Leaf groups the traversal accepted (UE NaniteClusterCulling.usf: a leaf's clusters become cluster-cull work
+        // spread over the lanes, never one lane's loop): (first cluster, count) rows, cut by the whole workgroup
+        // after the traversal (CutQueuedGroups). A group past the capacity is cut by the thread that found it
+        // (VisitGroup: the same tests, only slower).
+        #define kGroupCapacity 256u
 
-        shared uint s_Queue[2][kQueueCapacity];
-        shared uint s_QueueCount[2];
+        shared uint  s_Queue[2][kQueueCapacity];
+        shared uint  s_QueueCount[2];
+        shared uvec2 s_Groups[kGroupCapacity];
+        shared uint  s_GroupCount;
         shared uint s_Occluded[2]; // the workgroup's occluded node children / clusters, added to Status once
         // The thread's own depth-first stack (per invocation, not shared).
         uint g_Stack[kStackDepth];
@@ -275,19 +283,49 @@ Shader "ClusterCut"
                  VgVisibleCluster( f.Instance, cluster, f.View, f.RestPose ? DESERT_GPU_VISIBLE_REST_POSE : 0u );
         }
 
-        // A leaf child: its group's clusters, each by its own LodError.
+        // One cluster of a leaf group, by its own LodError.
+        void VisitCluster( CutFrame f, GpuCullView view, uint cluster )
+        {
+            const VgCluster row = Clusters[cluster];
+            if ( VgProjectedError( row.LodBounds, row.BoxCenter.w, f.World, f.WorldScale, f.Origin, f.LodScale,
+                                   f.Orthographic ) > f.Tau )
+                return;
+            if ( !BoxVisible( f, view, row.BoxCenter.xyz, row.BoxExtent.xyz, 1u, VG_POST_CLUSTER | cluster ) )
+                return;
+            EmitCluster( f, cluster );
+        }
+
+        // A leaf child's group cut on this thread alone (the post phase's carried clusters, a full group list).
         void VisitGroup( CutFrame f, GpuCullView view, uint firstCluster, uint count )
         {
             for ( uint c = 0u; c < count; ++c )
+                VisitCluster( f, view, firstCluster + c );
+        }
+
+        // A leaf child the traversal accepted: into the workgroup's group list (CutQueuedGroups), else this thread.
+        void QueueGroup( CutFrame f, GpuCullView view, uint firstCluster, uint count )
+        {
+            const uint slot = atomicAdd( s_GroupCount, 1u );
+            if ( slot < kGroupCapacity )
             {
-                const VgCluster cluster = Clusters[firstCluster + c];
-                if ( VgProjectedError( cluster.LodBounds, cluster.BoxCenter.w, f.World, f.WorldScale, f.Origin,
-                                       f.LodScale, f.Orthographic ) > f.Tau )
-                    continue;
-                if ( !BoxVisible( f, view, cluster.BoxCenter.xyz, cluster.BoxExtent.xyz, 1u,
-                                  VG_POST_CLUSTER | ( firstCluster + c ) ) )
-                    continue;
-                EmitCluster( f, firstCluster + c );
+                s_Groups[slot] = uvec2( firstCluster, count );
+                return;
+            }
+            VisitGroup( f, view, firstCluster, count );
+        }
+
+        // The listed groups' clusters over the workgroup's lanes: each half-wave (32 lanes) takes a group, one
+        // cluster a lane (kClusterGroupMaxClusters = 32: a full group fills its half; a larger count loops).
+        // Called after a barrier that follows the last QueueGroup; no barrier inside.
+        void CutQueuedGroups( CutFrame f, GpuCullView view )
+        {
+            const uint groups = min( s_GroupCount, kGroupCapacity );
+            const uint lane   = gl_LocalInvocationIndex & 31u;
+            for ( uint g = gl_LocalInvocationIndex >> 5u; g < groups; g += 2u )
+            {
+                const uvec2 group = s_Groups[g];
+                for ( uint c = lane; c < group.y; c += 32u )
+                    VisitCluster( f, view, group.x + c );
             }
         }
 
@@ -305,7 +343,7 @@ Shader "ClusterCut"
                 return;
             if ( ( child & VG_HIERARCHY_LEAF ) != 0u )
             {
-                VisitGroup( f, view, child & ~VG_HIERARCHY_LEAF, n.ClusterCount[k] );
+                QueueGroup( f, view, child & ~VG_HIERARCHY_LEAF, n.ClusterCount[k] );
                 return;
             }
             if ( toQueue )
@@ -418,6 +456,7 @@ Shader "ClusterCut"
                 s_QueueCount[1] = 0u;
                 s_Occluded[0]   = 0u;
                 s_Occluded[1]   = 0u;
+                s_GroupCount    = 0u;
             }
             barrier();
             if ( gl_LocalInvocationIndex == 0u )
@@ -458,6 +497,9 @@ Shader "ClusterCut"
                 VisitNode( f, view, g_Stack[--g_Depth], 0u, false );
 
             barrier(); // every thread reaches it: the stack loop above has no barrier inside
+            // The accepted leaf groups' clusters, one a lane (every QueueGroup is before the barrier above).
+            CutQueuedGroups( f, view );
+            barrier(); // FlushOccluded reads s_Occluded, which CutQueuedGroups' occluded clusters add to
             FlushOccluded();
         }
 
