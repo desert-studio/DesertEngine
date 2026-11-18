@@ -13,18 +13,24 @@
 // the builder version). A build rebuilds only the rows whose checksum changed and keeps every other row and its
 // file, as UE skips an HLOD actor whose hash is unchanged; ForceAll rebuilds every row.
 //
-// TWO PHASES, as before: Start checks the world and, when stale rows hold landscape tiles, starts their BaseColor
-// bake (LandscapeHLODBake, over the next editor frames); Tick finishes it - the stale rows are built with each
-// landscape HLOD bound to its baked material, written cell by cell, the index saved and everything read back and
-// checked stale-free. A build with no landscape tile to bake finishes inside Start.
+// TWO PHASES, as before: Start checks the world and starts what the stale rows bake over the next editor frames -
+// their landscape tiles' BaseColor (LandscapeHLODBake), their mesh HLODs' merged materials (HLODMaterialBake,
+// WP-HLOD-MATBAKE) and their MeshApproximate cells' captured textures (HLODApproximateBake, WP-HLOD-APPROX), in
+// that order; Tick finishes them - the stale rows are built with each HLOD bound to the material its bake wrote,
+// written cell by cell, the index saved and everything read back and checked stale-free. A build with nothing to
+// bake finishes inside Start.
 
+#include "HLODApproximateBake.hpp"
 #include "HLODMaterialBake.hpp"
 #include "LandscapeHLODBake.hpp"
+
+#include <Engine/Assets/Prefab/PrefabData.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -73,10 +79,14 @@ namespace Desert::Editor
         }
 
     private:
-        // The second phase: build the stale rows (each landscape HLOD bound to its @p baked material), write,
-        // read back.
-        [[nodiscard]] Common::BoolResultStr Finish( const std::vector<LandscapeHLODBaked>& baked,
-                                                    const std::vector<HLODMaterialBaked>&  meshBaked );
+        // The second phase: build the stale rows (each landscape HLOD bound to its @p baked material, each
+        // merged-material mesh HLOD to its @p meshBaked one, each approximated cell's shell to its @p approximated
+        // one), write, read back.
+        [[nodiscard]] Common::BoolResultStr Finish( const std::vector<LandscapeHLODBaked>&   baked,
+                                                    const std::vector<HLODMaterialBaked>&    meshBaked,
+                                                    const std::vector<HLODApproximateBaked>& approximated );
+        // A stage's bake was refused: every later stage is dropped and the build ends with @p error.
+        bool Refuse( std::string error );
 
         std::filesystem::path              m_ScenePath;
         HLODBuildOptions                   m_Options;
@@ -84,7 +94,14 @@ namespace Desert::Editor
         // The merged-material bake of the stale rows' mesh HLODs (WP-HLOD-MATBAKE), run after the landscape bake;
         // what the landscape bake wrote waits in m_LandscapeBaked until it is done.
         std::unique_ptr<HLODMaterialBake> m_MeshBake;
+        // The MeshApproximate cells' texture capture (WP-HLOD-APPROX, UE UHLODBuilderMeshApproximate's render
+        // capture), run last. m_ApproxShells: each approximated cell's shell as Start built it, by
+        // Core::HLODApproximationKey, so Finish binds it to its captured material without wrapping it again.
+        std::unique_ptr<HLODApproximateBake>                            m_ApproxBake;
+        std::map<std::string, ::Desert::Assets::StaticMeshComponentSer> m_ApproxShells;
+        // What a finished stage wrote, waiting for the later stages.
         std::vector<LandscapeHLODBaked>   m_LandscapeBaked;
+        std::vector<HLODMaterialBaked>    m_MeshBaked;
         bool                               m_Done = false;
         std::optional<std::string>         m_Error;
     };

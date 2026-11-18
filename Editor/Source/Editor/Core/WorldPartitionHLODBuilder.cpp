@@ -9,11 +9,13 @@
 #include "WorldPartitionHLODBuilder.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Core/HLODApproximate.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -129,13 +131,46 @@ namespace Desert::Editor
         };
         builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( collect ) );
         // Every mesh HLOD whose builder merges materials, built once with its bake source (BuildHLODMeshForBake);
-        // Finish binds the material its bake writes (WP-HLOD-MATBAKE).
+        // Finish binds the material its bake writes (WP-HLOD-MATBAKE). Every MeshApproximate cell's shell
+        // (UE UHLODBuilderMeshApproximate), wrapped once and kept by its key for Finish, its cell queued for the
+        // texture capture (WP-HLOD-APPROX).
         std::vector<HLODMaterialBakeJob>             meshJobs;
+        std::vector<HLODApproximateBakeCell>         approximations;
+        m_ApproxShells.clear();
         const ::Desert::Core::Rules::HLODMeshBuilder collectMesh =
              [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
              -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
         {
             using Block = ::Desert::Assets::StaticMeshComponentSer;
+            if ( request.Approximation.has_value() )
+            {
+                const std::string key = ::Desert::Core::HLODApproximationKey( request );
+                if ( const auto known = m_ApproxShells.find( key ); known != m_ApproxShells.end() )
+                {
+                    Block copy = known->second;
+                    return Common::MakeSuccess( std::move( copy ) );
+                }
+                auto merged = ::Desert::Core::MergeHLODParts( request, registries );
+                if ( !merged )
+                    return Common::MakeError<Block>( merged.GetError() );
+                auto shell = ::Desert::Core::BuildApproximateShell( merged.GetValue().Mesh, *request.Approximation );
+                if ( !shell )
+                    return Common::MakeError<Block>( "the approximation was refused: " + shell.GetError() );
+                const ::Desert::Core::ApproximateShell& built = shell.GetValue();
+                LOG_INFO( "[Build HLODs] approximation A{0}: {1} source triangles -> {2} wrapped ({3} voxels along "
+                          "the longest side, {4} inner cavities removed) -> {5} triangles within {6:.1f} cm",
+                          key, built.SourceTriangles, built.WrappedTriangles, built.VoxelCount,
+                          built.CavitiesRemoved, built.Triangles, built.Deviation );
+                Block block;
+                block.EditMesh = ::Desert::Geometry::ToSerialized( built.Mesh );
+                approximations.push_back( HLODApproximateBakeCell{
+                     key, *request.Approximation,
+                     std::vector<::Desert::Assets::InstancedStaticMeshComponentSer>( request.Parts.begin(),
+                                                                                     request.Parts.end() ),
+                     *block.EditMesh } );
+                m_ApproxShells.emplace( key, block );
+                return Common::MakeSuccess( std::move( block ) );
+            }
             if ( !request.MergeMaterials.has_value() )
                 return ::Desert::Core::BuildHLODMesh( request, registries );
             auto built = ::Desert::Core::BuildHLODMeshForBake( request, registries );
@@ -160,10 +195,23 @@ namespace Desert::Editor
                   []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );
-        if ( areas.empty() && meshJobs.empty() )
+        if ( areas.empty() && meshJobs.empty() && approximations.empty() )
         {
-            m_Done = true;
-            return Finish( {}, {} );
+            m_Done    = true;
+            auto done = Finish( {}, {}, {} );
+            m_ApproxShells.clear();
+            return done;
+        }
+        if ( !approximations.empty() )
+        {
+            // Its own parse of the same saved text: the landscape bake takes the first.
+            auto captured = ::Desert::Core::ParseLoadableScene( m_ScenePath.string(), world.Text );
+            if ( !captured )
+                return Common::MakeError( "Build HLODs: " + captured.GetError() );
+            LOG_INFO( "[Build HLODs] '{0}': capturing the textures of {1} approximated cell(s)",
+                      m_ScenePath.stem().string(), approximations.size() );
+            m_ApproxBake = std::make_unique<HLODApproximateBake>( m_ScenePath, captured.ExtractValue(),
+                                                                  std::move( approximations ), assets );
         }
         if ( !meshJobs.empty() )
         {
@@ -181,27 +229,36 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
+    bool WorldPartitionHLODBuilder::Refuse( std::string error )
+    {
+        m_Bake.reset();
+        m_MeshBake.reset();
+        m_ApproxBake.reset();
+        m_LandscapeBaked.clear();
+        m_MeshBaked.clear();
+        m_ApproxShells.clear();
+        m_Done  = true;
+        m_Error = std::move( error );
+        return true;
+    }
+
     bool WorldPartitionHLODBuilder::Tick()
     {
         if ( m_Done )
             return true;
-        // The landscape bake first, then the merged materials; the landscape's materials wait in m_LandscapeBaked.
-        std::vector<HLODMaterialBaked> meshBaked;
+        // The landscape bake first, then the merged materials, then the approximated cells' capture; what a
+        // finished stage wrote waits in m_LandscapeBaked / m_MeshBaked for the later ones.
+        std::vector<HLODApproximateBaked> approximated;
         if ( m_Bake )
         {
             if ( !m_Bake->Tick() )
                 return false;
             const std::unique_ptr<LandscapeHLODBake> bake = std::move( m_Bake );
             if ( bake->Error() )
-            {
-                m_MeshBake.reset();
-                m_Done  = true;
-                m_Error = "Build HLODs: the landscape bake was refused: " + *bake->Error();
-                return true;
-            }
+                return Refuse( "Build HLODs: the landscape bake was refused: " + *bake->Error() );
             m_LandscapeBaked = bake->Baked();
-            if ( m_MeshBake )
-                return false; // the mesh HLODs' materials bake from the next frame on
+            if ( m_MeshBake || m_ApproxBake )
+                return false; // the next stage bakes from the next frame on
         }
         else if ( m_MeshBake )
         {
@@ -209,23 +266,35 @@ namespace Desert::Editor
                 return false;
             const std::unique_ptr<HLODMaterialBake> bake = std::move( m_MeshBake );
             if ( bake->Error() )
-            {
-                m_Done  = true;
-                m_Error = "Build HLODs: the merged material bake was refused: " + *bake->Error();
-                return true;
-            }
-            meshBaked = bake->Baked();
+                return Refuse( "Build HLODs: the merged material bake was refused: " + *bake->Error() );
+            m_MeshBaked = bake->Baked();
+            if ( m_ApproxBake )
+                return false; // the approximated cells' capture runs from the next frame on
+        }
+        else if ( m_ApproxBake )
+        {
+            if ( !m_ApproxBake->Tick() )
+                return false;
+            const std::unique_ptr<HLODApproximateBake> bake = std::move( m_ApproxBake );
+            if ( bake->Error() )
+                return Refuse( "Build HLODs: the approximation capture was refused: " + *bake->Error() );
+            approximated = bake->Baked();
         }
         m_Done                                               = true;
         const std::vector<LandscapeHLODBaked> landscapeBaked = std::move( m_LandscapeBaked );
+        const std::vector<HLODMaterialBaked>  meshBaked      = std::move( m_MeshBaked );
         m_LandscapeBaked.clear();
-        if ( auto done = Finish( landscapeBaked, meshBaked ); !done )
+        m_MeshBaked.clear();
+        if ( auto done = Finish( landscapeBaked, meshBaked, approximated ); !done )
             m_Error = done.GetError();
+        m_ApproxShells.clear();
         return true;
     }
 
-    Common::BoolResultStr WorldPartitionHLODBuilder::Finish( const std::vector<LandscapeHLODBaked>& baked,
-                                                             const std::vector<HLODMaterialBaked>&  meshBaked )
+    Common::BoolResultStr
+    WorldPartitionHLODBuilder::Finish( const std::vector<LandscapeHLODBaked>&   baked,
+                                       const std::vector<HLODMaterialBaked>&    meshBaked,
+                                       const std::vector<HLODApproximateBaked>& approximated )
     {
         auto saved = ReadSavedWorld( m_ScenePath );
         if ( !saved )
@@ -255,12 +324,38 @@ namespace Desert::Editor
         };
         builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( landscape ) );
         // Each merged-material mesh HLOD is the very mesh its bake was made for, bound to the material the bake
-        // wrote (UE FMeshMergingSettings::bMergeMaterials). One that was not baked is refused by name: drawn
-        // without its material it would stand in grey.
+        // wrote (UE FMeshMergingSettings::bMergeMaterials). Each approximated cell's shell - Start's, by its key
+        // (wrapped again only if Start did not see it) - bound to the one material its capture wrote. One that was
+        // not baked is refused by name: drawn without its material it would stand in grey.
         const ::Desert::Core::Rules::HLODMeshBuilder mesh =
              [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
              -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
         {
+            using Block = ::Desert::Assets::StaticMeshComponentSer;
+            if ( request.Approximation.has_value() )
+            {
+                const std::string key   = ::Desert::Core::HLODApproximationKey( request );
+                const auto        found = std::find_if( approximated.begin(), approximated.end(),
+                                                        [&]( const HLODApproximateBaked& cell ) { return cell.Key == key; } );
+                if ( found == approximated.end() )
+                    return Common::MakeError<Block>( std::format(
+                         "approximation A{} has no captured material (the saved world changed during the build?); "
+                         "run Build HLODs again",
+                         key ) );
+                Block block;
+                if ( const auto shell = m_ApproxShells.find( key ); shell != m_ApproxShells.end() )
+                    block = shell->second;
+                else
+                {
+                    auto rebuilt = ::Desert::Core::BuildHLODMesh( request, registries );
+                    if ( !rebuilt )
+                        return rebuilt;
+                    block = rebuilt.ExtractValue();
+                }
+                block.MaterialSlots = std::vector<::Desert::Assets::AssetGuidRef>{
+                     ::Desert::Assets::AssetGuidRef{ found->MaterialGuid, found->MaterialPath } };
+                return Common::MakeSuccess( std::move( block ) );
+            }
             if ( !request.MergeMaterials.has_value() )
                 return ::Desert::Core::BuildHLODMesh( request, registries );
             const std::string key = ::Desert::Core::HLODMeshKey( request );
