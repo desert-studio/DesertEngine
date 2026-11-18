@@ -11,7 +11,9 @@
 //
 // THE WINDOW follows the UNJITTERED view position (ViewFrame::CameraPosition), snapped to whole texels of each
 // level, so a still camera never shifts the field and a moving one moves it by whole cells: a texel holds world
-// cell c at c mod N, and a move clears only the texels whose cell left the window (one dispatch per level).
+// cell c at c mod N, and a move renews only the texels whose cell left the window (one dispatch per level, coarse
+// level first): level 0's renewed texels are refilled from level 1, its backing store, so a print the view walked
+// away from and back to is still there (DEFORM-GRASS-4); level 1's renew to rest.
 //
 // THE CONTACTS are copied out of the world's log by sequence at BeginScene (CaptureContacts, the game thread, this
 // renderer's own m_Captured), and the render task applies that copy, never the log: the tick of the next frame
@@ -76,7 +78,12 @@ namespace Desert::Graphic::Deformation
     {
         DESERT_SHADER_PARAMETER( StorageTexture, DeformHeightTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, DeformDetailTexture );
-        static constexpr std::array kAll{ RDG::Erase( DeformHeightTexture ), RDG::Erase( DeformDetailTexture ) };
+        // The other level, read only: a scroll of level 0 refills its renewed texels from level 1 (DEFORM-GRASS-4).
+        DESERT_SHADER_PARAMETER( StorageTexture, DeformCoarseHeightTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DeformCoarseDetailTexture );
+        static constexpr std::array kAll{ RDG::Erase( DeformHeightTexture ), RDG::Erase( DeformDetailTexture ),
+                                          RDG::Erase( DeformCoarseHeightTexture ),
+                                          RDG::Erase( DeformCoarseDetailTexture ) };
     };
 
     // DeformationFieldView's parameters.

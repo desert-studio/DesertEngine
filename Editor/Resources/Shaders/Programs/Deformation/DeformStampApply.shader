@@ -9,8 +9,13 @@
 //   the Windows lead's choice (b), DEFORM-FIELD p1). A texel is in exactly one tile, so no two threads of a
 //   dispatch touch it; consecutive dispatches are ordered by the render graph (StorageWrite after StorageWrite).
 //
-//   CLEAR (Window.w == 1: scroll, 2: whole level): the window moved with the view; every texel whose world cell
-//   left the previous window now holds a new cell and is cleared to rest. Mode 2 clears all (a level's first use).
+//   SCROLL (Window.w == 1: scroll, 2: whole level): the window moved with the view; every texel whose world cell
+//   left the previous window now holds a new cell. Mode 2 renews all of them (a level's first use). A renewed
+//   texel is REFILLED FROM THE COARSER LEVEL (Level.y > 0: level 0 from level 1, bilinear between its four cells)
+//   - the clipmap's coarser level is the finer one's backing store, so a print the view walked away from (out of
+//   level 0, still in level 1) comes back when the view returns instead of being lost to the scroll (DEFORM-GRASS-4:
+//   DEFORM-FIELD.scn walks 30 m out and back, and 4_grass_lit read a cleared level 0). The coarsest level has
+//   nothing behind it and renews to rest; the field beyond it is DEFORM-PERSIST's.
 //
 // Addressing is toroidal: a world cell c (floor(xz / texel)) lives at texel c mod N, N a power of two, so a moved
 // window rewrites nothing that stayed inside it.
@@ -21,6 +26,10 @@ Shader "DeformStampApply"
         // Formats declared: a read-modify-write needs none of shaderStorageImageReadWithoutFormat.
         layout(binding = 0, rgba16f) restrict uniform image2D DeformHeightTexture; // sink, rim, compaction, flatten
         layout(binding = 1, rgba8) restrict uniform image2D DeformDetailTexture;   // flatten dir xz, wetness, touched
+        // The next coarser level (the refill's source; read only in modes 1 and 2 with Level.y > 0). Every pass binds
+        // the other level here, so the layout is the same for every mode and stamp variant.
+        layout(binding = 5, rgba16f) restrict readonly uniform image2D DeformCoarseHeightTexture;
+        layout(binding = 6, rgba8) restrict readonly uniform image2D DeformCoarseDetailTexture;
         // Per contact, 4 x vec4: (x, y, z, radius), (pressure, speed, heading, mass), (slip x, slip z, age, seed),
         // (normal xyz, 0).
         ReadBuffer(2) DeformStamps
@@ -40,9 +49,67 @@ Shader "DeformStampApply"
         PushConstant DeformApplyPush
         {
             ivec4 Window;   // xy: the window's minimum cell, z: resolution N, w: mode (0 apply, 1 scroll, 2 clear all)
-            ivec4 Previous; // xy: the previous window's minimum cell (mode 1); z: the batch's first tile (mode 0)
-            vec4  Level;    // x: texel size, cm
+            ivec4 Previous; // xy: the previous window's minimum cell (mode 1); z: the batch's first tile (mode 0);
+                            // zw: the coarser level's minimum cell (modes 1, 2)
+            vec4  Level;    // x: texel size, cm; y: the coarser level's texel (0: none, renew to rest), z: its N
         };
+
+        // The rest value of a texel: untouched ground.
+        const vec4 kDeformHeightRest = vec4(0.0);
+        const vec4 kDeformDetailRest = vec4(0.5, 0.5, 0.0, 0.0);
+
+        // The coarser level's texel holding coarse cell @p c, or rest outside its window.
+        void DeformCoarseFetch(ivec2 c, out vec4 h, out vec4 d)
+        {
+            const int n = int(Level.z);
+            if (any(lessThan(c, Previous.zw)) || any(greaterThanEqual(c, Previous.zw + ivec2(n))))
+            {
+                h = kDeformHeightRest;
+                d = kDeformDetailRest;
+                return;
+            }
+            const ivec2 t = c & ivec2(n - 1);
+            h = imageLoad(DeformCoarseHeightTexture, t);
+            d = imageLoad(DeformCoarseDetailTexture, t);
+        }
+
+        // Fine cell @p cell's renewed value from the coarser level: its four cells around the fine cell's centre,
+        // bilinear. Height, wetness: weighted. Flatten direction: the flatten-weighted sum of the four unit
+        // directions, renormalised (a print's centre, where they cancel, keeps the strongest one's). Touched: max.
+        void DeformRefill(ivec2 cell, out vec4 h, out vec4 d)
+        {
+            const vec2  u  = (vec2(cell) + 0.5) * Level.x / Level.y - 0.5;
+            const ivec2 c0 = ivec2(floor(u));
+            const vec2  f  = u - vec2(c0);
+            float w[4] = float[4]((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+            ivec2 o[4] = ivec2[4](ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1));
+            h = vec4(0.0);
+            float wet     = 0.0;
+            float touched = 0.0;
+            vec2  dir     = vec2(0.0);
+            vec2  strong  = vec2(0.0);
+            float best    = 0.0;
+            for (int k = 0; k < 4; ++k)
+            {
+                vec4 ch;
+                vec4 cd;
+                DeformCoarseFetch(c0 + o[k], ch, cd);
+                h += ch * w[k];
+                wet += cd.z * w[k];
+                touched = max(touched, cd.w);
+                const vec2 along = cd.xy * 2.0 - 1.0;
+                dir += along * (ch.a * w[k]);
+                if (ch.a > best)
+                {
+                    best   = ch.a;
+                    strong = along;
+                }
+            }
+            const vec2 laid = dot(dir, dir) > 1e-8 ? normalize(dir) : strong;
+            d = vec4(laid * 0.5 + 0.5, wet, touched);
+            if (best <= 0.0)
+                d.xy = kDeformDetailRest.xy;
+        }
 
         #include <Deformation/DeformStampContract.glslh>
         #include <Deformation/DeformStampBody.glslh>
@@ -62,8 +129,12 @@ Shader "DeformStampApply"
                                    all(lessThan(cell, Previous.xy + ivec2(N)));
                 if (!kept)
                 {
-                    imageStore(DeformHeightTexture, texel, vec4(0.0));
-                    imageStore(DeformDetailTexture, texel, vec4(0.5, 0.5, 0.0, 0.0));
+                    vec4 h = kDeformHeightRest;
+                    vec4 d = kDeformDetailRest;
+                    if (Level.y > 0.0)
+                        DeformRefill(cell, h, d);
+                    imageStore(DeformHeightTexture, texel, h);
+                    imageStore(DeformDetailTexture, texel, d);
                 }
                 return;
             }

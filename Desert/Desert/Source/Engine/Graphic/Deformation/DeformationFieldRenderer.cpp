@@ -247,23 +247,34 @@ namespace Desert::Graphic::Deformation
             frame.WindowMin[level] = DeformationWindowMin( viewPosition, level );
         }
 
-        // THE SCROLL: a level whose window moved clears the texels whose cell left it (all of them the first
-        // time).
+        // THE SCROLL: a level whose window moved renews the texels whose cell left it (all of them the first
+        // time). COARSE LEVEL FIRST: level 0's renewed texels are refilled from level 1 as level 1 stands after its
+        // own scroll (the clipmap's coarser level is the finer one's backing store; DEFORM-GRASS-4 - a cleared level
+        // 0 lost the prints the view had walked 30 m away from and back to). Level 1 renews to rest.
         ComputePipeline* const clearPipeline = m_ClearPipeline.get();
-        for ( int level = 0; level < kDeformationLevels; ++level )
+        for ( int level = kDeformationLevels - 1; level >= 0; --level )
         {
             const glm::ivec2 window = frame.WindowMin[level];
             if ( m_Window[level] && *m_Window[level] == window )
                 continue;
             const DeformationLevel l = DeformationLevelOf( level );
+            const bool             refill = level + 1 < kDeformationLevels;
+            const int              coarseLevel = refill ? level + 1 : level - 1;
+            const DeformationLevel coarse      = DeformationLevelOf( refill ? level + 1 : level );
             ShaderPush::DeformStampApply        push;
             const ApplyMode        mode  = m_Window[level] ? ApplyMode::Scroll : ApplyMode::ClearAll;
             push.Window                  = glm::ivec4( window, l.Resolution, static_cast<int32_t>( mode ) );
-            push.Previous                = glm::ivec4( m_Window[level].value_or( window ), 0, 0 );
-            push.Level                   = glm::vec4( l.Texel, 0.0f, 0.0f, 0.0f );
+            push.Previous                = glm::ivec4( m_Window[level].value_or( window ),
+                                                       refill ? frame.WindowMin[level + 1] : glm::ivec2( 0 ) );
+            push.Level                   = refill ? glm::vec4( l.Texel, coarse.Texel,
+                                                               static_cast<float>( coarse.Resolution ), 0.0f )
+                                                  : glm::vec4( l.Texel, 0.0f, 0.0f, 0.0f );
             m_Window[level]              = window;
             const RDG::TextureRef height = frame.Height[level];
             const RDG::TextureRef detail = frame.Detail[level];
+            // The other level, bound read-only by every pass of the program (one layout); read only on a refill.
+            const RDG::TextureRef coarseHeight = frame.Height[coarseLevel];
+            const RDG::TextureRef coarseDetail = frame.Detail[coarseLevel];
             const uint32_t        groups = static_cast<uint32_t>( l.Resolution / 8 );
             BindBuffers( *clearPipeline );
             graph.AddPass(
@@ -277,6 +288,10 @@ namespace Desert::Graphic::Deformation
                                     RDG::Access::StorageWrite )
                           .Storage( DeformStampApplyShaderParameters::DeformDetailTexture, detail,
                                     RDG::Access::StorageWrite )
+                          .Storage( DeformStampApplyShaderParameters::DeformCoarseHeightTexture, coarseHeight,
+                                    RDG::Access::StorageRead )
+                          .Storage( DeformStampApplyShaderParameters::DeformCoarseDetailTexture, coarseDetail,
+                                    RDG::Access::StorageRead )
                           .PushConstants<ShaderPush::DeformStampApply>();
                  },
                  [clearPipeline, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -397,6 +412,10 @@ namespace Desert::Graphic::Deformation
             ComputePipeline* const pipeline = program->Pipeline.get();
             const RDG::TextureRef  height   = frame.Height[dispatch.Level];
             const RDG::TextureRef  detail   = frame.Detail[dispatch.Level];
+            // The program's other-level slots (read only by a scroll): the other level, never this pass's own.
+            static_assert( kDeformationLevels == 2, "the other level of a two-level clipmap" );
+            const RDG::TextureRef  coarseHeight = frame.Height[1 - dispatch.Level];
+            const RDG::TextureRef  coarseDetail = frame.Detail[1 - dispatch.Level];
             const uint32_t         count    = dispatch.TileCount;
             BindBuffers( *pipeline );
             graph.AddPass(
@@ -410,6 +429,10 @@ namespace Desert::Graphic::Deformation
                                     RDG::Access::StorageWrite )
                           .Storage( DeformStampApplyShaderParameters::DeformDetailTexture, detail,
                                     RDG::Access::StorageWrite )
+                          .Storage( DeformStampApplyShaderParameters::DeformCoarseHeightTexture, coarseHeight,
+                                    RDG::Access::StorageRead )
+                          .Storage( DeformStampApplyShaderParameters::DeformCoarseDetailTexture, coarseDetail,
+                                    RDG::Access::StorageRead )
                           .PushConstants<ShaderPush::DeformStampApply>();
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr

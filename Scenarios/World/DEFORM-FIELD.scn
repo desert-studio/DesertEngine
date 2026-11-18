@@ -6,6 +6,8 @@
 # THE GROUND IS NOT AT Y = 0: FIELD_Barn's landscape stands 3.6-3.8 m high around the origin (tile 2_2's first samples,
 # (h - 32768) / 128 * ZScale 4 = 372 cm at x = z = 0, 363..376 cm along the row). Every camera and contact below is that
 # 370 cm over what the expectations say (a camera at y = 400 stood 30 cm above the ground and saw 1 m of it, no print).
+# 4_grass_lit comes AFTER the 30 m excursion: the row left level 0 and level 0's scroll back refills it from level 1
+# (DEFORM-GRASS-4; before, a cleared level 0 left the grass standing and the frame showed no print).
 Дано run Scene "Open Scene FIELD_Barn.desce"
 Дано run View "View mode: Deformation Field"
 Дано --subject viewport set Camera.Position 0,770,150
