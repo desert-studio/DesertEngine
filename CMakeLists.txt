@@ -15,9 +15,15 @@ if(NOT DEFINED DESERT_COMPILER_LAUNCHER)
     unset(_desert_launcher CACHE)
 endif()
 if(DESERT_COMPILER_LAUNCHER)
-    set(CMAKE_C_COMPILER_LAUNCHER   "${DESERT_COMPILER_LAUNCHER}")
-    set(CMAKE_CXX_COMPILER_LAUNCHER "${DESERT_COMPILER_LAUNCHER}")
-    set(CMAKE_OBJCXX_COMPILER_LAUNCHER "${DESERT_COMPILER_LAUNCHER}")
+    set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}")
+    # ccache outside Windows goes through scripts/Dev/ccache_launcher.sh: the cache settings that share it between
+    # trees (base_dir, a tree-independent digest of each PCH), whoever starts the build.
+    if(NOT WIN32 AND DESERT_COMPILER_LAUNCHER MATCHES "ccache$")
+        set(_desert_launcher "${CMAKE_SOURCE_DIR}/scripts/Dev/ccache_launcher.sh" "${DESERT_COMPILER_LAUNCHER}")
+    endif()
+    set(CMAKE_C_COMPILER_LAUNCHER   ${_desert_launcher})
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${_desert_launcher})
+    set(CMAKE_OBJCXX_COMPILER_LAUNCHER ${_desert_launcher})
 endif()
 
 project(Desert LANGUAGES C CXX)
@@ -29,6 +35,12 @@ if(APPLE)
         set(CMAKE_OBJCXX_COMPILER "${CMAKE_CXX_COMPILER}")
     endif()
     enable_language(OBJCXX)
+endif()
+# clang writes the mtime of every header into a PCH and rejects the PCH when one differs; the mtimes differ per tree,
+# so a PCH (and the cache entries of the sources behind it) would only ever serve the tree that built it. Ninja's
+# depfiles already rebuild a PCH whose header changed. ccache requires it for PCH caching (ccache(1) PRECOMPILED HEADERS).
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:SHELL:-Xclang -fno-pch-timestamp>")
 endif()
 
 # The presets turn it ON (CMakePresets.json `base`); the build scripts pass it on every configure, so a
@@ -49,7 +61,6 @@ add_subdirectory(Tools/DesertHeaderTool)
 add_subdirectory(Tools/FbxMeshSplitter)
 add_subdirectory(Tools/DShaderTool)
 add_subdirectory(Tools/PakTool)
-add_subdirectory(Tools/SceneMigrator)
 add_subdirectory(Tools/WorldGen)
 add_subdirectory(Tools/ImageStat)
 add_subdirectory(Tools/LineJump)
@@ -69,6 +80,7 @@ add_subdirectory(Tools/AssetClosure)
 add_subdirectory(Tools/AssetRegistryTool)
 add_subdirectory(Tools/GamePackager)
 add_subdirectory(Tools/WorldCook)
+add_subdirectory(Tools/SceneMigrator)
 add_subdirectory(Tools/TextureCook)
 
 add_subdirectory(Editor)
