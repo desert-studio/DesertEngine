@@ -61,13 +61,19 @@ namespace Desert::Graphic::API::Vulkan
         // VulkanAllocator::RT_DestroyLater: it stays valid for the frames in flight.
         struct BuiltCompute
         {
-            BuiltCompute()                                 = default;
+            BuiltCompute();
             BuiltCompute( const BuiltCompute& )            = delete;
             BuiltCompute& operator=( const BuiltCompute& ) = delete;
             ~BuiltCompute();
 
             VkPipeline                          Pipeline = VK_NULL_HANDLE;
             VkPipelineLayout                    Layout   = VK_NULL_HANDLE;
+            // The device the handles of this record are made on (UE: an RHI resource keeps its FVulkanDevice*).
+            // The destructor and the batch ring go through it, never EngineContext: a retired record can die in
+            // the deletion queue's last drain (VulkanLogicalDevice::Destroy -> VulkanContext::Shutdown), when
+            // EngineContext names no device any more. VK_NULL_HANDLE only for a record made with no device,
+            // which holds no handles.
+            VkDevice Device = VK_NULL_HANDLE;
             std::vector<DescriptorSetLayoutRef> Layouts;
             uint64_t                            ShaderGeneration = 0;
             // Co-owned: a rebuild against an unchanged shader generation shares it into the next record.

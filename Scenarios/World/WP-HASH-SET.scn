@@ -21,7 +21,11 @@
 Тогда hashset_panel панель World Partition, раздел Runtime partitions: 4 строки, у Main/Foliage/LandscapeTiles тип LHGrid с размерами ячеек, у Persistent тип Persistent и прочерки вместо размеров; раздел HLOD setups per partition: Main (LHGrid) - HLOD0 'Near' = HLOD_Main, HLOD1 'Far' = HLOD_Main_Far; Persistent (Persistent) - "always loaded: no HLOD stands in for it"
 Когда run Mode "Select mode"
 Когда run Action "Play"
-Когда advance 10
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 0,100000,-1000
 Когда --subject viewport set Camera.Direction 0,-1,0.01
 Когда advance 2

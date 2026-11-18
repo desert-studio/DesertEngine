@@ -27,7 +27,8 @@
 Дано set 1003 CameraData.Far 800000
 Когда run Mode "Select mode"
 Когда run Action "Play"
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Когда --subject viewport set Camera.Position -6000,3000,5124
 Когда --subject viewport set Camera.Direction 1,-0.02,0
 Когда advance 2
@@ -36,7 +37,8 @@
 Когда advance 2
 Тогда hlod_dl_unloaded_far тот же вид: на месте дома 200414 пусто (ни HLOD_Main, ни слитого блока HLOD_Main_Far), HLOD остальной ячейки на месте, дыр рядом нет; лог: "data layer 'Night' Activated -> Unloaded." и "HLOD HLOD_Main(1,0)_DL<hash> unloaded."
 Когда run Scene "World Partition: Data layer Night -> Activated"
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Тогда hlod_dl_activated_far тот же вид: силуэт дома 200414 снова виден вдали (его HLOD_Main), без двойного блока; лог: "data layer 'Night' Unloaded -> Activated." и "HLOD HLOD_Main(1,0)_DL<hash> loaded, … HLOD record(s)"
 Когда run Action "Stop"
 Когда set 200414 DataLayersData.Layers []

@@ -36,7 +36,9 @@
 Дано set 9000002 StreamingSourceData.Enabled false
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
-Когда advance 6
+Когда advance 2
+Когда advance 2
+Когда advance 2
 # Тогда [кадр]: wpapi_teleport_wait - the first frame after the move: the player stands on the ground at P, the cells
 # around are real (not HLOD), nothing falls; the log has "streaming completed for query in N ms".
 Тогда wpapi_teleport_wait первый кадр после переноса: игрок стоит на земле в P (3 км), вокруг настоящие ячейки (не HLOD), без падения; в логе «streaming completed for query in N ms», «activated G…» для ячеек вокруг P, cellStatesAt(P) — «Activated»

@@ -18,16 +18,20 @@
 Когда run Action "Play from Here"
 Когда --subject viewport set Camera.Position 0,3000,-150000
 Когда --subject viewport set Camera.Direction 0,-0.36,1
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Тогда far9_sector_loaded на холме в ~1.5 км настоящие ячейки Main (не блоки HLOD_Main); на карте WP узкий клин сектора 10° от игрока до холма; лог: ячейки Main у холма loaded
-Когда advance 6
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Тогда far9_sector_released провайдер снят (6 с): через несколько секунд на холме снова HLOD_Main; клина на карте нет; лог: ячейки Main у холма unloaded
 Когда run Action "Stop"
 Дано set 9000001 StreamingSourceData.Enabled false
 Дано set 9000002 StreamingSourceData.Enabled true
 Дано set 9000002 StreamingSourceData.TargetBehavior Exclude
 Когда run Action "Play from Here"
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Когда --subject viewport set Camera.Position 0,40000,-40000
 Когда --subject viewport set Camera.Direction 0,-1,1
 Когда advance 2

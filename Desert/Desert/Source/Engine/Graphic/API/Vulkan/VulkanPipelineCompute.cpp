@@ -61,12 +61,17 @@ namespace Desert::Graphic::API::Vulkan
         RetirePastFramesInFlight( std::move( m_Owned ) );
     }
 
+    VulkanPipelineCompute::BuiltCompute::BuiltCompute()
+    {
+        if ( const auto device = EngineContext::GetInstance().GetDevice() )
+            Device = SP_CAST( VulkanLogicalDevice, device )->GetVulkanLogicalDevice();
+    }
+
     VulkanPipelineCompute::BuiltCompute::~BuiltCompute()
     {
         if ( Pipeline == VK_NULL_HANDLE && Layout == VK_NULL_HANDLE && m_BatchPool == VK_NULL_HANDLE )
             return;
-        VkDevice device =
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        VkDevice device = Device;
         if ( Pipeline != VK_NULL_HANDLE )
             vkDestroyPipeline( device, Pipeline, nullptr );
         if ( Layout != VK_NULL_HANDLE )
@@ -462,8 +467,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( layout0 == VK_NULL_HANDLE )
                 return VK_NULL_HANDLE;
 
-            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                   ->GetVulkanLogicalDevice();
+            VkDevice device = Device;
 
             // Pool sized from the record's own layouts — the same contract the sets below are allocated
             // from. The bindless table's layout is left out: its set is the table's own

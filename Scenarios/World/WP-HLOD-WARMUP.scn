@@ -19,15 +19,52 @@
 Дано set 9000003 StreamingSourceData.Enabled true
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
-Когда advance 30
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 150000,6000,-8000
 Когда --subject viewport set Camera.Direction 1,-0.25,0.6
-Когда advance 7.2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 1.2
 Тогда warmup_no_blur флаер долетел до X=1800 м: ячейки Main у X 1.8 км только что показаны - текстуры зданий чёткие (без мыльного мипа хвоста), ни дыры, ни двойного; в логе HLOD этих ячеек hidden после прогрева
-Когда advance 30
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 175000,9000,-20000
 Когда --subject viewport set Camera.Direction 0.2,-0.3,1
-Когда advance 13.5
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 1.5
 Тогда warmup_hlod_sharp флаер ушёл к X=5 км: ячейки у X 1.8 км ушли в HLOD MeshSimplify - запечённые текстуры HLOD сразу чёткие, дыры нет; в логе HLOD of ... shown после прогрева HLOD
 Когда run Action "Stop"
 Когда run Quality "Quality: Textures.StreamingPoolMiB Level"

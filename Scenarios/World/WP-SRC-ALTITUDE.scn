@@ -23,7 +23,8 @@
 Дано set 1003 CameraData.Far 800000
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Когда --subject viewport set Camera.Position 0,200000,-150000
 Когда --subject viewport set Camera.Direction 0,-1,0.75
 Когда advance 2
@@ -33,7 +34,8 @@
 Когда run Action "Stop"
 Дано set 9000002 StreamingSourceData.ShapeOffset 0,0,0
 Когда run Action "Play from Here"
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Когда --subject viewport set Camera.Position 0,40000,-40000
 Когда --subject viewport set Camera.Direction 0,-1,1
 Когда advance 2

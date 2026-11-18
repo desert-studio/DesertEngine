@@ -21,12 +21,75 @@
 Дано set 1003 CameraData.Far 800000
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
-Когда advance 80
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 500000,50000,0
 Когда --subject viewport set Camera.Direction -1,-0.1,0
 Когда advance 2
 Тогда matbake_far вдали (флаер на X=5 км, весь город - слитые упрощённые блоки HLOD_Main_Far): силуэты зданий в своих цветах - кирпич стен и крыши различимы, не серые и не одного цвета; нормали дают рельеф кладки; статистика рисования - 1 draw на HLOD_Main_Far-ячейку (16 ячеек = 16 draw)
-Когда advance 50
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 60000,20000,0
 Когда --subject viewport set Camera.Direction -1,-0.25,0
 Когда advance 2
