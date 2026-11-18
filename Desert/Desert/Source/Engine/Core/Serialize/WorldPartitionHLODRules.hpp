@@ -379,10 +379,11 @@ namespace Desert::Core::Rules
     // The built-in layer types and the names their builders are registered under (Rules::HLODBuilderRegistry; UE
     // UHLODLayer::GetHLODBuilderClass maps a type to UHLODBuilderInstancing / MeshMerge / MeshSimplify the same
     // way). Custom is not here: its builder is the one its layer names.
-    inline constexpr std::array<std::pair<HLODLayerType, std::string_view>, 3> kBuiltInHLODBuilders = { {
+    inline constexpr std::array<std::pair<HLODLayerType, std::string_view>, 4> kBuiltInHLODBuilders = { {
          { HLODLayerType::Instancing, "Instancing" },
          { HLODLayerType::MeshMerge, "MeshMerge" },
          { HLODLayerType::MeshSimplify, "MeshSimplify" },
+         { HLODLayerType::MeshApproximate, "MeshApproximate" },
     } };
 
     // The name of the builder @p layer is built by: its type's (kBuiltInHLODBuilders), or a Custom layer's
@@ -398,8 +399,9 @@ namespace Desert::Core::Rules
     }
 
     // Refused, by name: a layer without a name or named twice, a Custom layer stating no Builder or a built-in
-    // type's name as its Builder, a Builder on any other type, MergeMaterials on Instancing or with a TextureSize
-    // that is no power of two in [64, 8192], a CellSize without a LoadingRange; and per
+    // type's name as its Builder, a Builder on any other type (each builder refuses
+    // its own Settings - MergeMaterials, TrianglePercent, the approximation - HLODLayerBuilderIssues), a CellSize
+    // without a LoadingRange; and per
     // partition's HLOD setups (UE FRuntimePartitionDesc::HLODSetups): setups on a partition whose content is never
     // away, a setup without a name or named twice, a layer that is no layer of the world or named twice in one
     // partition, a chain with a hole (a spatially loaded last setup, an always-loaded setup before another), ranges
@@ -407,6 +409,41 @@ namespace Desert::Core::Rules
     // builder and Settings are the REGISTRY's to judge (HLODLayerBuilderIssues, WorldPartitionHLODBuilders.hpp): a
     // world naming a builder this process has not registered still loads, edits and plays its saved HLODs - only
     // Build HLODs is refused.
+    // A MeshApproximate layer's settings, refused by name outside the ranges its readers take
+    // (HLODApproximationSettings states each); Core::BuildApproximateShell refuses through this same check.
+    [[nodiscard]] inline Common::BoolResultStr ValidateHLODApproximation( const HLODApproximationSettings& settings )
+    {
+        if ( !( settings.WorldSpaceApproximationAccuracy > 0.0f ) )
+            return Common::MakeError<bool>( std::format( "WorldSpaceApproximationAccuracy {:f} cm is not > 0",
+                                                         settings.WorldSpaceApproximationAccuracy ) );
+        if ( settings.ClampVoxelDimension < 8 || settings.ClampVoxelDimension > 1024 )
+            return Common::MakeError<bool>(
+                 std::format( "ClampVoxelDimension {} is outside 8..1024", settings.ClampVoxelDimension ) );
+        if ( !( settings.WindingThreshold >= -10.0f && settings.WindingThreshold <= 10.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "WindingThreshold {:f} is outside -10..10", settings.WindingThreshold ) );
+        if ( settings.FillGaps && !( settings.GapDistance > 0.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "FillGaps with GapDistance {:f} cm, which is not > 0", settings.GapDistance ) );
+        if ( !( settings.GeometricDeviation > 0.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "GeometricDeviation {:f} cm is not > 0", settings.GeometricDeviation ) );
+        const auto powerOfTwo = []( int32_t value ) { return value > 0 && ( value & ( value - 1 ) ) == 0; };
+        if ( settings.TextureSize < 64 || settings.TextureSize > 8192 || !powerOfTwo( settings.TextureSize ) )
+            return Common::MakeError<bool>(
+                 std::format( "TextureSize {} is not a power of two in 64..8192", settings.TextureSize ) );
+        if ( settings.CaptureResolution < 64 || settings.CaptureResolution > 8192 )
+            return Common::MakeError<bool>(
+                 std::format( "CaptureResolution {} is outside 64..8192", settings.CaptureResolution ) );
+        if ( !( settings.HardNormalAngle > 0.0f && settings.HardNormalAngle < 180.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "HardNormalAngle {:f} is outside (0, 180)", settings.HardNormalAngle ) );
+        return BOOLSUCCESS;
+    }
+
+    // Refused, by name: a layer without a name or named twice, a ParentLayer that names no layer or itself or
+    // closes a loop, a SimplifyTrianglePercent missing on MeshSimplify, outside (0, 1], or stated on another
+    // type, and a grid whose HLODLayer names no layer.
     [[nodiscard]] inline Common::BoolResultStr ValidateHLODLayers( const WorldPartitionSerialized& partition )
     {
         const std::vector<HLODLayerSerialized>  none;
@@ -438,19 +475,6 @@ namespace Desert::Core::Rules
                              std::format( "HLOD layer '{}' is Custom and names the built-in builder '{}'; state "
                                           "Type {} instead",
                                           layer.Name, builtIn.second, builtIn.second ) );
-            if ( layer.MergeMaterials.has_value() )
-            {
-                if ( layer.Type == HLODLayerType::Instancing )
-                    return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                    "' states MergeMaterials, which only MeshMerge and "
-                                                    "MeshSimplify read (instances keep their own materials)" );
-                const int side = layer.MergeMaterials->TextureSize;
-                if ( side < 64 || side > 8192 || ( side & ( side - 1 ) ) != 0 )
-                    return Common::MakeError<bool>(
-                         std::format( "HLOD layer '{}': MergeMaterials.TextureSize {} is not a power of two in "
-                                      "[64, 8192]",
-                                      layer.Name, side ) );
-            }
             // SPATIAL LOADING (WP-FAR-8): both numbers or neither; positive and finite.
             if ( layer.CellSize.has_value() != layer.LoadingRange.has_value() )
                 return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
@@ -598,12 +622,15 @@ namespace Desert::Core::Rules
     // one mesh in world space, one section per distinct material (UHLODBuilderMeshMerge), and when
     // `TrianglePercent` is stated keeps that share of the triangles (UHLODBuilderMeshSimplify, its settings'
     // target - Core::HLODMeshSimplifySettings).
-    // With `MergeMaterials` (the layer's, HLODBuildContext::MergeMaterials) the mesh is ONE section over one UV
+    // With `MergeMaterials` (the mesh builder's Settings.MergeMaterials, WP v12) the mesh is ONE section over one UV
     // atlas, its material baked by the editor's Build HLODs (HLODMeshBuilder.hpp, BuildHLODMeshForBake).
     struct HLODMeshRequest
     {
         std::optional<float>                                     TrianglePercent; // absent = merge only
         std::optional<HLODMaterialMergeSerialized>               MergeMaterials;
+        // MeshApproximate only (its builder's Settings, UE UHLODBuilderMeshApproximateSettings): stated = the
+        // parts are wrapped into ONE closed shell (Core::BuildApproximateShell) instead of merged.
+        std::optional<HLODApproximationSettings>                 Approximation;
         std::span<const Assets::InstancedStaticMeshComponentSer> Parts;
     };
 

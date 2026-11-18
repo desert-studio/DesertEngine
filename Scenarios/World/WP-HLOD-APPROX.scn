@@ -1,0 +1,48 @@
+# WP-HLOD-APPROX (UE UHLODBuilderMeshApproximate + FMeshApproximationSettings, IGeometryProcessing_ApproximateActors):
+# the far layer of WP_Protocol (HLOD_Main_Far, always loaded, parent of the spatially loaded HLOD_Main - see
+# SCOPE-FAR-HLOD.scn) is built twice, first MeshSimplify (the bar to beat), then MeshApproximate at 100 cm.
+# World Partition format v4 (Core::kWorldPartitionVersion): MeshApproximate + the layer's `Approximation` block.
+# Expected log lines (editor.log):
+#   MeshSimplify build:   "[Build HLODs] <dir>/<HLOD_Main_Far cell file>: <N> bytes" x 16
+#   MeshApproximate build: 16 x "[Build HLODs] approximation A<key>: <S> source triangles -> <W> wrapped (<V> voxels
+#   along the longest side, <C> inner cavities removed) -> <T> triangles within <d> cm" with T << S and d <= 10;
+#   then "capturing the textures of 16 approximated cell(s)", 16 x "captured approximation A<key>: 14 photos, ..."
+#   and the HLOD_Main_Far files far smaller than the MeshSimplify ones (one mesh, one material each).
+# LEAD: (1) HLOD_Main keeps exactly what the file states (Type/CellSize/LoadingRange/ParentLayer below are copied
+# from SCOPE-FAR-HLOD.scn's description - if the file differs, keep the file's values for HLOD_Main and change only
+# HLOD_Main_Far). (2) Build HLODs refuses an unsaved scene: the `save` line is the save form this build has (the
+# File > Save action); (3) the capture runs over editor frames - `advance` until the 16 "captured approximation"
+# lines are in the log before Play. (4) Restore at the end puts HLOD_Main_Far back to MeshMerge and rebuilds.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshSimplify","SimplifyTrianglePercent":0.25}]
+Дано run File "Save"
+Дано run Scene "Build HLODs"
+# Long enough for a landscape bake of the MeshSimplify build to finish: a second Build HLODs is refused while one runs.
+Дано advance 600
+Дано set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshApproximate","Approximation":{"WorldSpaceApproximationAccuracy":100,"ClampVoxelDimension":1024,"WindingThreshold":0.5,"FillGaps":true,"GapDistance":10,"GeometricDeviation":10,"TextureSize":1024,"CaptureResolution":2048,"NormalMode":"HardEdges","HardNormalAngle":60}}]
+Дано run File "Save"
+Дано run Scene "Build HLODs"
+Дано advance 1500
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000003 StreamingSourceData.Enabled true
+Дано set 1003 CameraData.Far 800000
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 10
+Когда --subject viewport set Camera.Position 0,60000,-150000
+Когда --subject viewport set Camera.Direction 0,-0.4,1
+Когда advance 2
+Тогда approx_far город с 1.5 км - HLOD_Main_Far: кварталы цельными оболочками без щелей между домами, без серых блоков - каждый в своих цветах (стены, крыши), края стен/крыш жёсткие; лог: 16 строк "approximation A…: S source triangles -> … -> T triangles" с T в разы меньше S, файлы HLOD_Main_Far в разы меньше, чем после MeshSimplify
+Когда --subject viewport set Camera.Position 0,15000,-40000
+Когда advance 2
+Тогда approx_mid ближе (400 м): на границе HLOD_Main / HLOD_Main_Far нет дыр и двойных домов; оболочка без внутренних полостей (не просвечивает)
+Когда run Action "Stop"
+# Restore: the far layer back to MeshMerge, saved and rebuilt, so the world is what the other WP scenarios expect.
+Когда set world WorldPartition.HLODLayers [{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge"}]
+Когда run File "Save"
+Когда run Scene "Build HLODs"
+# The restore build bakes over editor frames too; let it write its files before the editor closes.
+Когда advance 600

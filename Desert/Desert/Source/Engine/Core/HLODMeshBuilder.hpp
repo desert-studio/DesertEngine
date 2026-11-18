@@ -20,26 +20,41 @@
 
 #include <Engine/Geometry/MeshNormalMapBake.hpp>
 
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
+
 #include <Common/Utilities/AssetRegistry.hpp>
 
 #include <optional>
 #include <string>
 
 #include <span>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace Desert::Core
 {
-    // UE UHLODBuilderMeshSimplifySettings (FMeshProxySettings' triangle target, as a fraction): what a
-    // MeshSimplify layer's Settings state (HLODLayerSerialized::Settings), read by its builder alone.
-    // TrianglePercent is the share of the merged mesh's triangles kept, in (0, 1]; REQUIRED - the builder refuses
-    // Settings without it rather than pick a share nobody chose.
+    // UE UHLODBuilderMeshMergeSettings (FMeshMergingSettings' bMergeMaterials + MaterialSettings): what a
+    // MeshMerge layer's Settings state (HLODLayerSerialized::Settings, WP v12), read by its builder alone. A layer
+    // may state none: MergeMaterials absent = one section per distinct source material.
+    struct HLODMeshMergeSettings
+    {
+        std::optional<HLODMaterialMergeSerialized> MergeMaterials;
+    };
+
+    // UE UHLODBuilderMeshSimplifySettings (FMeshProxySettings' triangle target, as a fraction, and its
+    // MaterialSettings): what a MeshSimplify layer's Settings state, read by its builder alone. TrianglePercent is
+    // the share of the merged mesh's triangles kept, in (0, 1]; REQUIRED - the builder refuses Settings without it
+    // rather than pick a share nobody chose. MergeMaterials as HLODMeshMergeSettings'.
     struct HLODMeshSimplifySettings
     {
-        std::optional<float> TrianglePercent;
+        std::optional<float>                       TrianglePercent;
+        std::optional<HLODMaterialMergeSerialized> MergeMaterials;
     };
 
     // THE PROCESS'S HLOD BUILDERS (UE: every UHLODBuilder subclass of the loaded modules), registered on first
-    // use: Instancing, MeshMerge and MeshSimplify under their type's name (Rules::kBuiltInHLODBuilders) and the
+    // use: Instancing, MeshMerge, MeshSimplify and MeshApproximate (HLODApproximate.hpp; its Settings are
+    // HLODApproximationSettings) under their type's name (Rules::kBuiltInHLODBuilders) and the
     // landscape builder (BuildLandscapeHLODMesh). A project or game module registers its own here, at startup, for
     // a Custom layer to name (Rules::HLODBuilderRegistry::Register). The editor's Build HLODs builds with a copy
     // of it.
@@ -99,6 +114,19 @@ namespace Desert::Core
     // 16 hex digits hashing everything the request builds from (type, triangle share, MergeMaterials, every part's
     // mesh, materials and instance matrices).
     [[nodiscard]] std::string HLODMeshKey( const Rules::HLODMeshRequest& request );
+
+    // THE CELL'S PARTS, MERGED - the first half of BuildHLODMesh: every instance of every part in WORLD space, one
+    // section per distinct material, welded into one DynamicMesh3; Slots are the {GUID, path} each MaterialID
+    // names, first-seen order (empty pair = the part stated no material). MeshApproximate's capture bake reads it
+    // as the surface its photos see (Editor HLODApproximateBake). Refused as BuildHLODMesh refuses a part.
+    struct MergedHLODParts
+    {
+        Geometry::DynamicMesh3                           Mesh;
+        std::vector<std::pair<std::string, std::string>> Slots;
+    };
+    [[nodiscard]] Common::ResultStr<MergedHLODParts>
+    MergeHLODParts( const Rules::HLODMeshRequest&                 request,
+                    std::span<const Common::Utils::AssetRegistry> registries );
 
     // THE LANDSCAPE HLOD OF ONE TILE (WP-FAR-6, Rules::LandscapeHLODRequest): the tile's heights, read from its
     // HeightFile (DLHT, resolved by Constants::Path::FullPath and read by ReadLandscapeTileFile, exactly as the

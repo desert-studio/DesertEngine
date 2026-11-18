@@ -1,5 +1,7 @@
 #include <Engine/Core/HLODMeshBuilder.hpp>
 
+#include <Engine/Core/HLODApproximate.hpp>
+
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
@@ -217,6 +219,42 @@ namespace Desert::Core
             return Common::MakeSuccess( std::move( merged ) );
         }
 
+        // The merged parts welded into one mesh: one section per slot (MaterialID = slot index), each with its own
+        // contiguous vertex range. Refused when the parts hold no triangles or do not weld.
+        Common::ResultStr<MergedHLODParts> WeldMergedParts( const MergedParts& merged )
+        {
+            using Result = MergedHLODParts;
+            // The merged render mesh: one submesh per slot, each with its own contiguous vertex range.
+            Geometry::RenderMeshData render;
+            for ( std::size_t slot = 0; slot < merged.SectionVertices.size(); ++slot )
+            {
+                if ( merged.SectionTriangles[slot].empty() )
+                    continue;
+                Desert::Submesh submesh{};
+                submesh.Name         = std::format( "Section{}", slot );
+                submesh.VertexOffset = static_cast<uint32_t>( render.Vertices.size() );
+                submesh.VertexCount  = static_cast<uint32_t>( merged.SectionVertices[slot].size() );
+                submesh.IndexOffset  = static_cast<uint32_t>( render.Indices.size() * 3 );
+                submesh.IndexCount   = static_cast<uint32_t>( merged.SectionTriangles[slot].size() * 3 );
+                submesh.Transform    = glm::mat4( 1.0f );
+                render.Vertices.insert( render.Vertices.end(), merged.SectionVertices[slot].begin(),
+                                        merged.SectionVertices[slot].end() );
+                render.Indices.insert( render.Indices.end(), merged.SectionTriangles[slot].begin(),
+                                       merged.SectionTriangles[slot].end() );
+                render.Submeshes.push_back( std::move( submesh ) );
+                render.SubmeshMaterialIds.push_back( static_cast<int>( slot ) );
+            }
+            if ( render.Indices.empty() )
+                return Common::MakeError<Result>( "the parts hold no triangles to merge" );
+
+            auto imported = Geometry::DynamicMeshFromRenderMesh( render );
+            if ( !imported )
+                return Common::MakeFormattedError<Result>( "the merged mesh does not weld: {}",
+                                                           imported.GetError() );
+            return Common::MakeSuccess(
+                 MergedHLODParts{ std::move( imported.ExtractValue().Mesh ), merged.Slots } );
+        }
+
         // The slot list a built block states: written only when some slot names a material.
         std::optional<std::vector<Assets::AssetGuidRef>>
         SlotRefs( const std::vector<std::pair<std::string, std::string>>& slots )
@@ -430,6 +468,15 @@ namespace Desert::Core
                                             Common::Utils::PakContentHash( identity.data(), identity.size() ) ) );
     }
 
+    Common::ResultStr<MergedHLODParts>
+    MergeHLODParts( const Rules::HLODMeshRequest& request, std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        auto merged = MergeParts( request, registries );
+        if ( !merged )
+            return Common::MakeError<MergedHLODParts>( merged.GetError() );
+        return WeldMergedParts( merged.GetValue() );
+    }
+
     Common::ResultStr<HLODMeshBuild>
     BuildHLODMeshForBake( const Rules::HLODMeshRequest&                 request,
                           std::span<const Common::Utils::AssetRegistry> registries )
@@ -440,36 +487,28 @@ namespace Desert::Core
             return Common::MakeError<Result>( mergedParts.GetError() );
         const MergedParts merged = mergedParts.ExtractValue();
 
+        // APPROXIMATED (UE UHLODBuilderMeshApproximate): the parts merged, then wrapped into ONE closed shell. No
+        // slot and no bake source: the editor's capture bake (HLODApproximateBake) photographs the source parts and
+        // binds the one material it writes.
+        if ( request.Approximation.has_value() )
+        {
+            auto parts = WeldMergedParts( merged );
+            if ( !parts )
+                return Common::MakeError<Result>( parts.GetError() );
+            auto shell = BuildApproximateShell( parts.GetValue().Mesh, *request.Approximation );
+            if ( !shell )
+                return Common::MakeError<Result>( "the approximation was refused: " + shell.GetError() );
+            HLODMeshBuild built;
+            built.Mesh.EditMesh = Geometry::ToSerialized( shell.GetValue().Mesh );
+            return Common::MakeSuccess( std::move( built ) );
+        }
+
         if ( !request.MergeMaterials.has_value() )
         {
-            // The merged render mesh: one submesh per slot, each with its own contiguous vertex range.
-            Geometry::RenderMeshData render;
-            for ( std::size_t slot = 0; slot < merged.SectionVertices.size(); ++slot )
-            {
-                if ( merged.SectionTriangles[slot].empty() )
-                    continue;
-                Desert::Submesh submesh{};
-                submesh.Name         = std::format( "Section{}", slot );
-                submesh.VertexOffset = static_cast<uint32_t>( render.Vertices.size() );
-                submesh.VertexCount  = static_cast<uint32_t>( merged.SectionVertices[slot].size() );
-                submesh.IndexOffset  = static_cast<uint32_t>( render.Indices.size() * 3 );
-                submesh.IndexCount   = static_cast<uint32_t>( merged.SectionTriangles[slot].size() * 3 );
-                submesh.Transform    = glm::mat4( 1.0f );
-                render.Vertices.insert( render.Vertices.end(), merged.SectionVertices[slot].begin(),
-                                        merged.SectionVertices[slot].end() );
-                render.Indices.insert( render.Indices.end(), merged.SectionTriangles[slot].begin(),
-                                       merged.SectionTriangles[slot].end() );
-                render.Submeshes.push_back( std::move( submesh ) );
-                render.SubmeshMaterialIds.push_back( static_cast<int>( slot ) );
-            }
-            if ( render.Indices.empty() )
-                return Common::MakeError<Result>( "the parts hold no triangles to merge" );
-
-            auto imported = Geometry::DynamicMeshFromRenderMesh( render );
-            if ( !imported )
-                return Common::MakeFormattedError<Result>( "the merged mesh does not weld: {}",
-                                                           imported.GetError() );
-            Geometry::DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
+            auto parts = WeldMergedParts( merged );
+            if ( !parts )
+                return Common::MakeError<Result>( parts.GetError() );
+            Geometry::DynamicMesh3 mesh = std::move( parts.ExtractValue().Mesh );
             if ( request.TrianglePercent.has_value() )
                 // Recomputes the normals too: the collapses moved vertices.
                 Geometry::SimplifyToTriangleCount( mesh, SimplifyTarget( mesh, *request.TrianglePercent ) );
@@ -844,20 +883,55 @@ namespace Desert::Core
             { return BuildHLODMesh( request, context.Registries ); };
         }
 
-        // UE UHLODBuilderMeshMerge: the gathered batches merged (Rules::MergeHLODBatches over BuildHLODMesh).
-        // Reads no settings.
+        // A merged material's own check (UE FMaterialProxySettings: TextureSize a power of two), named as its
+        // builder's Settings state it.
+        [[nodiscard]] Common::BoolResultStr ValidateMergeMaterials( const HLODMaterialMergeSerialized& merge )
+        {
+            const int side = merge.TextureSize;
+            if ( side < 64 || side > 8192 || ( side & ( side - 1 ) ) != 0 )
+                return Common::MakeError<bool>(
+                     std::format( "MergeMaterials.TextureSize {} is not a power of two in [64, 8192]", side ) );
+            return Common::MakeSuccess( true );
+        }
+
+        // UE UHLODBuilderMeshMerge: the gathered batches merged (Rules::MergeHLODBatches over BuildHLODMesh), one
+        // section per source material - or, with its Settings' MergeMaterials (HLODMeshMergeSettings), one baked
+        // material. Settings are optional.
         class HLODBuilderMeshMerge final : public Rules::IHLODBuilder
         {
         public:
+            [[nodiscard]] Common::BoolResultStr
+            ValidateSettings( const Common::Json::Value* settings ) const override
+            {
+                if ( settings == nullptr )
+                    return Common::MakeSuccess( true );
+                auto read = Rules::ReadHLODBuilderSettings<HLODMeshMergeSettings>( settings );
+                if ( !read )
+                    return Common::MakeError<bool>( read.GetError() );
+                if ( read.GetValue().MergeMaterials.has_value() )
+                    return ValidateMergeMaterials( *read.GetValue().MergeMaterials );
+                return Common::MakeSuccess( true );
+            }
+
             [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
             Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
             {
-                return Rules::MergeHLODBatches( context, std::move( gathered ), std::nullopt, GeometryOf( context ) );
+                if ( auto valid = ValidateSettings( context.Settings ); !valid )
+                    return Common::MakeError<Rules::InstancingHLOD>( valid.GetError() );
+                Rules::HLODMeshRequest shape;
+                if ( context.Settings != nullptr )
+                {
+                    auto read = Rules::ReadHLODBuilderSettings<HLODMeshMergeSettings>( context.Settings );
+                    if ( !read )
+                        return Common::MakeError<Rules::InstancingHLOD>( read.GetError() );
+                    shape.MergeMaterials = read.GetValue().MergeMaterials;
+                }
+                return Rules::MergeHLODBatches( context, std::move( gathered ), shape, GeometryOf( context ) );
             }
         };
 
-        // UE UHLODBuilderMeshSimplify: merged, then simplified to its Settings' TrianglePercent
-        // (HLODMeshSimplifySettings).
+        // UE UHLODBuilderMeshSimplify: merged, then simplified to its Settings' TrianglePercent, with their
+        // MergeMaterials as MeshMerge's (HLODMeshSimplifySettings).
         class HLODBuilderMeshSimplify final : public Rules::IHLODBuilder
         {
         public:
@@ -873,6 +947,8 @@ namespace Desert::Core
                 if ( !( *percent > 0.0f && *percent <= 1.0f ) )
                     return Common::MakeError<bool>(
                          std::format( "MeshSimplify's TrianglePercent {:f} is outside (0, 1]", *percent ) );
+                if ( read.GetValue().MergeMaterials.has_value() )
+                    return ValidateMergeMaterials( *read.GetValue().MergeMaterials );
                 return Common::MakeSuccess( true );
             }
 
@@ -884,8 +960,40 @@ namespace Desert::Core
                 auto read = Rules::ReadHLODBuilderSettings<HLODMeshSimplifySettings>( context.Settings );
                 if ( !read )
                     return Common::MakeError<Rules::InstancingHLOD>( read.GetError() );
-                return Rules::MergeHLODBatches( context, std::move( gathered ), read.GetValue().TrianglePercent,
-                                                GeometryOf( context ) );
+                Rules::HLODMeshRequest shape;
+                shape.TrianglePercent = read.GetValue().TrianglePercent;
+                shape.MergeMaterials  = read.GetValue().MergeMaterials;
+                return Rules::MergeHLODBatches( context, std::move( gathered ), shape, GeometryOf( context ) );
+            }
+        };
+
+        // UE UHLODBuilderMeshApproximate (WP-HLOD-APPROX): the cell's parts wrapped into ONE closed shell by its
+        // Settings, HLODApproximationSettings (UE UHLODBuilderMeshApproximateSettings::MeshApproximationSettings;
+        // REQUIRED, ranges by Rules::ValidateHLODApproximation). The cook's geometry builds the bare shell; the
+        // editor's Build HLODs states the geometry that also captures its BaseColor / Normal / ORM and binds them.
+        class HLODBuilderMeshApproximate final : public Rules::IHLODBuilder
+        {
+        public:
+            [[nodiscard]] Common::BoolResultStr
+            ValidateSettings( const Common::Json::Value* settings ) const override
+            {
+                auto read = Rules::ReadHLODBuilderSettings<HLODApproximationSettings>( settings );
+                if ( !read )
+                    return Common::MakeError<bool>( read.GetError() );
+                return Rules::ValidateHLODApproximation( read.GetValue() );
+            }
+
+            [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
+            Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
+            {
+                if ( auto valid = ValidateSettings( context.Settings ); !valid )
+                    return Common::MakeError<Rules::InstancingHLOD>( valid.GetError() );
+                auto read = Rules::ReadHLODBuilderSettings<HLODApproximationSettings>( context.Settings );
+                if ( !read )
+                    return Common::MakeError<Rules::InstancingHLOD>( read.GetError() );
+                Rules::HLODMeshRequest shape;
+                shape.Approximation = read.GetValue();
+                return Rules::MergeHLODBatches( context, std::move( gathered ), shape, GeometryOf( context ) );
             }
         };
 
@@ -903,7 +1011,7 @@ namespace Desert::Core
         static Rules::HLODBuilderRegistry registry = []
         {
             Rules::HLODBuilderRegistry builtIn;
-            // Three distinct names into an empty registry, none refusable (Register refuses only an empty name, no
+            // Four distinct names into an empty registry, none refusable (Register refuses only an empty name, no
             // builder, or a name taken).
             static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::Instancing ),
                                                  std::make_shared<Rules::HLODBuilderInstancing>() ) );
@@ -911,6 +1019,8 @@ namespace Desert::Core
                                                  std::make_shared<HLODBuilderMeshMerge>() ) );
             static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::MeshSimplify ),
                                                  std::make_shared<HLODBuilderMeshSimplify>() ) );
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::MeshApproximate ),
+                                                 std::make_shared<HLODBuilderMeshApproximate>() ) );
             builtIn.SetLandscapeBuilder(
                  std::make_shared<Rules::HLODBuilderLandscape>( []( const Rules::LandscapeHLODRequest& request )
                                                                 { return BuildLandscapeHLODMesh( request ); } ) );
