@@ -8,11 +8,12 @@
 # Membership must be on DISK before a reload: a region load reads the world's files and refuses to unload an
 # entity that differs from its file - hence the save after the edits.
 # Lead: if `set` does not create a missing component, add it first (Details > Add Component > Data Layers, or the
-# DesertCtl add-component form) - the field is DataLayersData.Layers.
+# DesertCtl add-component form) - the field is DataLayersData.Layers; the entity has no such component until add-component (the line before the set).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Дано set world WorldPartition.DataLayers '[{"Name":"Gameplay","InitiallyLoadedInEditor":true},{"Name":"Props","InitiallyLoadedInEditor":true}]'
+Дано add-component 9000001 DataLayersData
 Дано set 9000001 DataLayersData.Layers '["Gameplay"]'
 Дано run Scene "Save"
 Дано --subject viewport set Camera.Position 0,40000,-40000

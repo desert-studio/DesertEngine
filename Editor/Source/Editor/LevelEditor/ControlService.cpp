@@ -11,6 +11,7 @@
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include "Editor/Core/Control/PointerDrag.hpp"
 #include "Editor/Core/ControlNudgeRequest.hpp"
@@ -2211,7 +2212,18 @@ namespace Desert::Editor
         if ( !m_ControlGate.WouldDischarge( m_FrameIndex, m_FrameQuiescence ) )
             return;
 
-        m_Capture.RecordWindowCapture();
+        // BEHIND THE INTERFACE, ON THE RENDER TASK. The swapchain image is acquired late, by the interface graph's
+        // back-buffer import (VulkanImGui::RecordInterface, PRESENT-COST-2), and that graph runs on the render
+        // task (VulkanImGui::End enqueues it, TICK-JOB-SPLIT-1); recorded here on the game thread, the copy found
+        // no acquired image and every `shot.window` was refused. Jobs run in enqueue order, so this one runs
+        // after this frame's interface and before its submit and present (UE: the screenshot request is served
+        // on the render thread, after the back buffer is drawn). WriteWindowPng joins the task before it reads.
+        ::Desert::Engine::RenderTask::Get().Enqueue( "Window capture",
+                                                     [this]() -> Common::BoolResultStr
+                                                     {
+                                                         m_Capture.RecordWindowCapture();
+                                                         return BOOLSUCCESS;
+                                                     } );
     }
 
     void ControlService::Close()

@@ -3,6 +3,7 @@
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/Core/ProjectContext.hpp"
 #include <Common/Core/Core.hpp>
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
 #include <Engine/Graphic/SceneRenderer.hpp>              // the view's HDR scene colour (--shot-hdr)
 #include <Engine/Graphic/DisplayOutput.hpp>
@@ -295,7 +296,10 @@ namespace Desert::Editor
         //
         // This is the second half of the capture: the copy was recorded into this frame's command buffer
         // by RecordWindowCaptureIfDue, and the bytes are collected here, once the present that carried it
-        // has gone out.
+        // has gone out. The copy is recorded on the render task, behind the frame's interface (see there): the
+        // frame's jobs - the copy, the submit, the present - are joined first, so the error and the staging
+        // buffer read below are the ones that job left (UE: FlushRenderingCommands before a screenshot is read).
+        ::Desert::Engine::RenderTask::Get().Join();
         if ( !m_CaptureError.empty() )
         {
             outError = m_CaptureError;
