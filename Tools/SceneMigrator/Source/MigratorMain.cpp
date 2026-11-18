@@ -641,6 +641,11 @@ namespace
             out << " scene ->v" << Desert::Migration::kSceneVersionGrassRasterPath << " ("
                 << report.GrassRasterPath.Restated << " GrassVisibilityBuffer bool(s) re-stated as GrassRaster: "
                 << "false is Scalability, true VisibilityBuffer)";
+        if ( report.LandscapeSplineEntitiesRaised && report.LandscapeSplineEntities.RootsCleared > 0 )
+            out << std::format( " scene ->v{} ({} landscape spline entit(ies) split out of {} landscape root(s))",
+                                Desert::Migration::kSceneVersionLandscapeSplineEntities,
+                                report.LandscapeSplineEntities.SplinesCreated,
+                                report.LandscapeSplineEntities.RootsCleared );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

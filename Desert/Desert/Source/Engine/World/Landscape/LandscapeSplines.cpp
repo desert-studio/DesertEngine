@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -399,5 +400,49 @@ namespace Desert::World::Landscape
             return set;
         const LandscapeRect whole{ 0u, 0u, samplesX, samplesZ };
         return MergeLandscapeEditLayers( stack, rules, whole, tile );
+    }
+
+    std::optional<Common::Math::AABB> LandscapeSplinesBounds( const LandscapeSplines& splines )
+    {
+        if ( splines.ControlPoints.empty() || !ValidateLandscapeSplines( splines ) )
+            return std::nullopt;
+        glm::vec3  lo( std::numeric_limits<float>::max() );
+        glm::vec3  hi( std::numeric_limits<float>::lowest() );
+        const auto grow = [&]( const glm::vec3& p )
+        {
+            lo = glm::min( lo, p );
+            hi = glm::max( hi, p );
+        };
+        for ( const LandscapeSplineControlPoint& point : splines.ControlPoints )
+        {
+            const float reach = point.Width + point.SideFalloff + point.EndFalloff;
+            grow( point.Location - glm::vec3( reach, 0.0f, reach ) );
+            grow( point.Location + glm::vec3( reach, 0.0f, reach ) );
+        }
+        for ( size_t s = 0; s < splines.Segments.size(); ++s )
+            for ( const LandscapeSplineInterpPoint& p :
+                  LandscapeSplineSegmentPoints( splines, s, kLandscapeSplineBoundsStepCm ) )
+            {
+                grow( p.FalloffLeft );
+                grow( p.FalloffRight );
+                grow( p.Center );
+            }
+        Common::Math::AABB box;
+        box.Min = lo;
+        box.Max = hi;
+        return box;
+    }
+
+    void AppendLandscapeSplines( LandscapeSplines& into, const LandscapeSplines& from )
+    {
+        const auto offset = static_cast<uint32_t>( into.ControlPoints.size() );
+        into.ControlPoints.insert( into.ControlPoints.end(), from.ControlPoints.begin(),
+                                   from.ControlPoints.end() );
+        for ( LandscapeSplineSegment segment : from.Segments )
+        {
+            segment.Start += offset;
+            segment.End += offset;
+            into.Segments.push_back( std::move( segment ) );
+        }
     }
 } // namespace Desert::World::Landscape

@@ -3,6 +3,7 @@
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 
+#include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
@@ -188,6 +189,22 @@ namespace Desert::World::Landscape
      * the merge refuses (a LayerName the landscape has no paint layer for, naming it); the tile is then
      * unchanged.
      */
+    /// The sample spacing LandscapeSplinesBounds walks a segment's band at, cm.
+    inline constexpr float kLandscapeSplineBoundsStepCm = 500.0f;
+
+    /**
+     * @brief The world box (cm) around everything @p splines can touch: every segment's falloff edges sampled
+     * every kLandscapeSplineBoundsStepCm (LandscapeSplineSegmentPoints), and every control point grown by its
+     * Width + SideFalloff + EndFalloff on the ground plane - the ends' fade past a point. What World Partition
+     * places a spline entity by (UE: ALandscapeSplineActor::GetStreamingBounds is its splines component's
+     * bounds). Nullopt for splines with no control point or that ValidateLandscapeSplines refuses.
+     */
+    std::optional<Common::Math::AABB> LandscapeSplinesBounds( const LandscapeSplines& splines );
+
+    /// Appends @p from to @p into, its segments re-indexed past @p into's points: the one set the raster of a
+    /// landscape's Splines layer reads, from every spline entity of the landscape.
+    void AppendLandscapeSplines( LandscapeSplines& into, const LandscapeSplines& from );
+
     Common::BoolResultStr RasterizeLandscapeSplines( const LandscapeSplines&             splines,
                                                      const LandscapeEditLayerStack&      stack,
                                                      std::span<const LandscapeLayerRule> rules,

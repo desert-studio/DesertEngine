@@ -1,0 +1,31 @@
+# WP-LANDSCAPE-SPLINES (UE 5.5: ALandscapeSplineActor - one spatially loaded actor per spline in a World Partition
+# world, ULandscapeSplinesComponent on it, ULandscapeInfo::MoveSplinesToLevel; USplineMeshComponents in the cell HLOD).
+# Every landscape spline is its own entity (LandscapeSpline block: Landscape = the root by id, an observation like
+# LandscapeTile.Landscape; Splines = control points + segments, world cm). Its footprint is its band's box (control
+# points' Width + SideFalloff + EndFalloff, the curve sampled) and NOT the entity position, so a 3 km road goes to the
+# grid level whose cell is at least 3 km wide (Rules::PlanWorldPartition, "a wide composite goes up a level").
+# The cell HLOD of the spline's cell carries its bent spline meshes (HLODExclusion::LandscapeSpline answered by the
+# LandscapeSpline HLOD builder, a world-space EditMesh like the landscape tile's), so the road stays to the horizon.
+# Expected log lines (editor.log "[WorldPartition] 'WG_SplineRoad': ..."): the spline entity's composite on level L>=2
+# ("level <L> (footprint ~300000 cm)"), the WP debug view shows the far spline cells not resident near the player.
+# LEAD: WG_SplineRoad is a WorldGen world (Tools/WorldGen) with one 3 km road spline (SplineMeshes = the road mesh);
+# if the WorldGen spec has no spline field on this build, make the road in the editor (Landscape > Splines, Ctrl+click
+# points 300 m apart along X from -150000 to 150000, then "Spline meshes: road") and save before Build HLODs.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WG_SplineRoad.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано run Scene "World Partition: Build HLODs"
+Дано run Mode "Select mode"
+Дано run Action "Play"
+Дано advance 2
+Дано --subject viewport set Camera.Position -149000,400,0
+Дано --subject viewport set Camera.Direction 1,-0.15,0
+Дано advance 2
+Тогда splines_near дорога вблизи лежит на месте (меши сплайна на земле, полоса сплайна в высотах и краске), без дыр; отладка WP: ячейки дальнего конца дороги не резидентны (сущность сплайна - одна, её ячейка верхнего уровня; дальние сплайны других ячеек не загружены); лог: композит LandscapeSpline на уровне >= 2
+Когда --subject viewport set Camera.Position -149000,100000,0
+Когда --subject viewport set Camera.Direction 1,-0.35,0
+Когда advance 2
+Тогда splines_far_hlod дорога видна до горизонта в HLOD (изогнутые меши сплайна в HLOD ячейки, рядом с HLOD ландшафта), без обрыва на границе ячеек и без провала между ближней дорогой и её HLOD
+Когда run Action "Stop"
+# Restore: Stop rebuilds the scene from the Play snapshot; nothing above was saved.

@@ -2416,6 +2416,9 @@ namespace Desert::Core::Serialize
         Register( MakeLandscapeRoot() );
         registerRun( ReflectedBlockRun::Landscape );
         Register( MakeLandscapeTile() );
+        // One entity per spline (UE ALandscapeSplineActor), its root named by id; scene v76 moved the root's
+        // Splines here (Tools/SceneMigrator, MigrateLandscapeSplineEntitiesV75ToV76).
+        Register( MakeAuthored<ECS::LandscapeSplineComponent>( "LandscapeSpline" ) );
 
         // ---- Skybox, sky, fog, post-process, clouds: one row each in ReflectedComponentBlocks.hpp ----
         registerRun( ReflectedBlockRun::SkyAndAtmosphere );

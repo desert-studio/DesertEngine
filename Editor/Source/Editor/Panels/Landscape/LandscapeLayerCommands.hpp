@@ -126,57 +126,68 @@ namespace Desert::Editor::Commands
                                                       const Common::UUID& layer, float heightAlpha,
                                                       float weightAlpha );
 
+    /// A control point of one landscape spline entity (UE: a ULandscapeSplineControlPoint of an
+    /// ALandscapeSplineActor): the entity's id and the point's index in its LandscapeSplineComponent.
+    struct LandscapeSplinePointRef
+    {
+        Common::UUID Spline;
+        uint32_t     Point = 0u;
+    };
+
     /**
-     * @brief UE's Splines tool Ctrl+click: adds to landscape @p landscape a control point at @p location (world
-     * cm) with @p point's width and falloffs, joined by a segment with @p segment's Raise/Lower to control point
-     * @p joinTo when given, and re-derives the Splines edit layer — creating it on top of the stack the first
-     * time, as UE makes its splines layer. ONE undo entry (UE: one transaction per click); its undo restores the
-     * splines, the stack and the layer's data, so the ground returns byte for byte. Returns the new point's index.
+     * @brief UE's Splines tool Ctrl+click: adds to spline entity @p spline of landscape @p landscape a control
+     * point at @p location (world cm) with @p point's width and falloffs, joined by a segment with @p segment's
+     * Raise/Lower to control point @p joinTo when given. A NULL @p spline makes a NEW spline entity (UE
+     * ULandscapeInfo::CreateSplineActor: one actor per spline in a partitioned world) holding this one point.
+     * Then re-derives the Splines edit layer from every loaded spline of the landscape - creating the layer on top
+     * of the stack the first time, as UE makes its splines layer. ONE undo entry (UE: one transaction per click);
+     * its undo restores the spline (removing an entity it made), the stack and the layer's data, so the ground
+     * returns byte for byte. Returns the spline and the new point's index.
      */
-    Common::ResultStr<uint32_t>
+    Common::ResultStr<LandscapeSplinePointRef>
     AddLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
-                             const glm::vec3& location, std::optional<uint32_t> joinTo,
+                             const Common::UUID& spline, const glm::vec3& location, std::optional<uint32_t> joinTo,
                              const World::Landscape::LandscapeSplineControlPoint& point,
                              const World::Landscape::LandscapeSplineSegment&      segment );
 
-    /// UE: a control point dragged by the transform gizmo. Control point @p point of landscape @p landscape goes
+    /// UE: a control point dragged by the transform gizmo. Control point @p point of spline entity @p spline goes
     /// to @p location (world cm), its segments' curves follow, and the Splines layer is re-derived, so the old
     /// band leaves the ground. ONE undo entry for the whole drag (the caller commits on release).
-    Common::BoolResultStr MoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+    Common::BoolResultStr MoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& spline,
                                                     uint32_t point, const glm::vec3& location );
 
     /**
-     * @brief UE: Delete with a control point selected. The point and its segments leave the splines and the
-     * Splines layer is re-derived; ONE undo entry. Later points' indices drop by one. A point joining exactly
-     * two segments is bridged by one segment between its neighbours (the first segment's Raise/Lower) so
+     * @brief UE: Delete with a control point selected. The point and its segments leave spline entity @p spline
+     * and the Splines layer is re-derived; ONE undo entry. Later points' indices drop by one. A point joining
+     * exactly two segments is bridged by one segment between its neighbours (the first segment's Raise/Lower) so
      * deleting a middle point keeps the spline — UE drops both segments and leaves two pieces; bridging is the
-     * owner's L9b spec ("a 2-point road").
+     * owner's L9b spec ("a 2-point road"). Deleting the last point removes the entity (its undo brings it back).
      */
-    Common::BoolResultStr RemoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+    Common::BoolResultStr RemoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& spline,
                                                       uint32_t point );
 
     /**
-     * @brief UE: a segment's LayerName set in the Details panel. Every segment of landscape @p landscape's
-     * splines paints @p layerName (empty: paints nothing) along its band, and the Splines layer is re-derived;
-     * ONE undo entry. Refuses a name that is not one of the landscape's paint layers, naming it.
+     * @brief UE: a segment's LayerName set in the Details panel. Every segment of spline entity @p spline paints
+     * @p layerName (empty: paints nothing) along its band, and the Splines layer is re-derived; ONE undo entry.
+     * Refuses a name that is not one of the landscape's paint layers, naming it.
      */
-    Common::BoolResultStr SetLandscapeSplineLayer( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+    Common::BoolResultStr SetLandscapeSplineLayer( ::Desert::Core::Scene& scene, const Common::UUID& spline,
                                                    const std::string& layerName );
 
     /**
-     * @brief UE: a segment's SplineMeshes set in the Details panel. Every segment of landscape @p landscape's
-     * splines lays @p meshes along itself (empty: none); ONE undo entry. The bent meshes are derived from the
-     * splines by the renderer's side (ECS::LandscapeSplineMeshDraw), so a later point edit re-bends them.
-     * Refuses a landscape with no segment and an entry ValidateLandscapeSplineMeshEntry refuses.
+     * @brief UE: a segment's SplineMeshes set in the Details panel. Every segment of spline entity @p spline lays
+     * @p meshes along itself (empty: none); ONE undo entry. The bent meshes are derived from the splines by the
+     * renderer's side (ECS::LandscapeSplineMeshDraw), so a later point edit re-bends them. Refuses a spline with
+     * no segment and an entry ValidateLandscapeSplineMeshEntry refuses.
      */
     Common::BoolResultStr
-    SetLandscapeSplineMeshes( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+    SetLandscapeSplineMeshes( ::Desert::Core::Scene& scene, const Common::UUID& spline,
                               const std::vector<World::Landscape::LandscapeSplineMeshEntry>& meshes );
 
-    /// The paint layer after the one the first segment paints, in the landscape's layer order, and "" after the
-    /// last (and from ""  the first): what the palette's "Spline paint layer: next" sets.
+    /// The paint layer after the one spline entity @p spline's first segment paints, in its landscape's layer
+    /// order, and "" after the last (and from "" the first): what the palette's "Spline paint layer: next" sets.
     Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry&     registry,
-                                                             const Common::UUID& landscape );
+                                                             const Common::UUID& spline );
 
     /// UE: the splines layer re-renders when a layer below it changed. After a brush wrote layer
     /// @p editedLayer, re-derives the Splines layer on every loaded tile when it sits ABOVE @p editedLayer;

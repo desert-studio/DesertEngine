@@ -50,6 +50,12 @@
 //                     (WorldPartitionHLODBuilders.hpp) hands every such tile to the registry's landscape builder
 //                     (WP-FAR-6), which makes it a built mesh of the tile's own heights; only a registry with no
 //                     landscape builder keeps it a NAMED hole.
+//   LandscapeSpline — a landscape spline entity (UE: ALandscapeSplineActor). Its meshes are bent along its
+//                     splines, not stated in a mesh block (UE: USplineMeshComponents, which the HLOD builds into
+//                     its mesh). BuildCellHLOD (WorldPartitionHLODBuilders.hpp) hands every such record to the
+//                     registry's landscape spline builder (HLODBuilderLandscapeSplines), which makes the bent
+//                     meshes one built WORLD-space mesh; only a registry with no spline builder keeps it a NAMED
+//                     hole, and a spline that lays no mesh needs no stand-in.
 // A record that draws nothing — no mesh block, a StaticMesh naming neither asset nor primitive, an ISM
 // without instances, `Visibility.Visible == false` — needs no stand-in and is neither batched nor listed.
 //
@@ -97,6 +103,7 @@ namespace Desert::Core::Rules
         Unreadable,
         CustomShaderMaterial,
         LandscapeTile,
+        LandscapeSpline,
     };
 
     // WHAT THE BUILDER MAY KNOW ABOUT A MATERIAL FROM OUTSIDE THE FILE: whether the material a slot names (by the
@@ -268,6 +275,12 @@ namespace Desert::Core::Rules
             if ( Detail::PayloadOf( record, kLandscapeTileComponent ).has_value() )
             {
                 hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeTile } );
+                continue;
+            }
+            // A landscape spline draws meshes bent along its splines, not a mesh block (the reason above).
+            if ( Detail::PayloadOf( record, kLandscapeSplineComponent ).has_value() )
+            {
+                hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeSpline } );
                 continue;
             }
             if ( Detail::PayloadOf( record, kSkinnedMeshComponent ).has_value() )
@@ -638,6 +651,17 @@ namespace Desert::Core::Rules
     // missing, the root does not resolve) refuses the HLOD build by name.
     using LandscapeHLODBuilder =
          std::function<Common::ResultStr<Assets::StaticMeshComponentSer>( const LandscapeHLODRequest& request )>;
+
+    // THE SPLINE MESHES OF ONE LANDSCAPE SPLINE RECORD (UE: the USplineMeshComponents of an ALandscapeSplineActor
+    // merged into its cell's HLOD): record @p Spline of @p Records answered with a StaticMesh block whose EditMesh
+    // is every segment's bent meshes in WORLD space (the splines are world cm), or nullopt when the spline lays no
+    // mesh and so needs no stand-in.
+    struct LandscapeSplineHLODRequest
+    {
+        std::span<const Assets::EntityData> Records;
+        std::span<const glm::mat4>          World;
+        std::size_t                         Spline = kNoRecord;
+    };
 
     // The id of batch @p batch of the HLOD named @p name in world @p world: a function of the three, as a file's
     // GUID is, so a re-cook (and a second Play of the same scene) reproduces it. Zero is a possible hash and is

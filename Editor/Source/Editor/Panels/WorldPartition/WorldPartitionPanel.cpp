@@ -1609,9 +1609,12 @@ namespace Desert::Editor
             return Common::MakeSuccess( std::move( build.Mesh ) );
         };
         builders.SetMeshGeometry( collectMesh );
+        ::Desert::Core::Rules::HLODBuilderRegistry probeBuilders = builders;
+        probeBuilders.SetLandscapeSplineBuilder( nullptr );
         if ( auto probe = WC::BuildWorldHLODs(
-                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), builders,
-                  // The probe only gathers the landscape tiles to bake: its files are dropped.
+                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), probeBuilders,
+                  // The probe only gathers the landscape tiles to bake: its files are dropped, so the splines'
+                  // meshes are not built for it (probeBuilders states no spline builder: they stay named holes).
                   []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );

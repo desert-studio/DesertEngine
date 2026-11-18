@@ -54,7 +54,8 @@ namespace Desert::Core::DescriptorIndex
     // never resolves a Location Volume from a row read before it had one.
     // 5 (WP-ENTITY-REFS): a descriptor states its scripts' Entity properties (ScriptReferences) and its references
     // by name (NamedReferences, Names) - an index of 4 is rebuilt, never planned without them.
-    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 5 )
+    // 6 (WP-LANDSCAPE-SPLINES): a descriptor states its LandscapeSpline band box - an index of 5 is rebuilt.
+    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 6 )
 
     // Where the index of the scene at `scenePath` lives.
     [[nodiscard]] std::filesystem::path PathOf( const std::filesystem::path& scenePath );

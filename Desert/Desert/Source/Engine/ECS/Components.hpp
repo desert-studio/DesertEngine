@@ -1197,10 +1197,8 @@ namespace Desert::ECS
         // layer's data lives on the tiles it touched (LandscapeTileData::EditLayers, in the DLHT blob), and a
         // tile's samples are their merge (MergeLandscapeEditLayers).
         World::Landscape::LandscapeEditLayerStack EditLayers;
-        // UE ULandscapeSplinesComponent: the landscape's spline control points and segments, world cm. They
-        // write the stack's Splines edit layer (RasterizeLandscapeSplines); the heights they make are that
-        // layer's data on the tiles, so a cooked landscape needs only the merged heights.
-        World::Landscape::LandscapeSplines Splines;
+        // No splines here: every spline is its own entity (LandscapeSplineComponent below, UE 5.5
+        // ALandscapeSplineActor), placed by World Partition by its own band.
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
@@ -1235,6 +1233,22 @@ namespace Desert::ECS
         std::string  HeightFile;
 
         std::optional<World::Landscape::LandscapeTileData> Heights;
+    };
+
+    // ONE LANDSCAPE SPLINE (UE 5.5: ALandscapeSplineActor + its ULandscapeSplinesComponent - in a World Partition
+    // world every spline is its own spatially loaded actor, ULandscapeInfo::MoveSplinesToLevel /
+    // CreateSplineActor). The control points and segments are WORLD cm and they write the root's Splines edit
+    // layer (RasterizeLandscapeSplines over every loaded spline of the root, combined); the bent meshes are
+    // derived from them (LandscapeSplineMeshDraw, and the cell HLOD's LandscapeSpline builder).
+    //
+    // `Landscape` names the root BY ID, as LandscapeTileComponent does and for the same reason: as an
+    // OBSERVATION (WorldPartitionRules.hpp, kEntityReferences) the spline is its own composite, placed by the box
+    // around its band (EntityDescriptor::LandscapeSpline) - so a long road goes up to the grid level whose cell
+    // holds it - and never drags the root, or the root it. Nothing reads this entity's transform.
+    struct LandscapeSplineComponent
+    {
+        Common::UUID                       Landscape = Common::UUID::Null(); // the root entity
+        World::Landscape::LandscapeSplines Splines;
     };
 
     // One overridden texture param (keyed by the shader's Texture2D property name) -> texture asset.

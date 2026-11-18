@@ -16,7 +16,8 @@
 // of an actor with a custom HLOD builder class - a landscape proxy - handed to that builder instead): the cell's
 // sources as the Instancing pass gathered them (BuildInstancingHLOD: the batches it would instance and every hole
 // it named), and it answers the HLOD the file holds. Landscape tiles are the registry's LANDSCAPE builder's (UE
-// ALandscapeProxy::GetCustomHLODBuilderClass -> ULandscapeHLODBuilder), whatever the layer's type.
+// ALandscapeProxy::GetCustomHLODBuilderClass -> ULandscapeHLODBuilder) and landscape splines its LANDSCAPE SPLINE
+// builder's (UE: an ALandscapeSplineActor's USplineMeshComponents), whatever the layer's type.
 //
 // PURE: no geometry is linked here. The mesh builders' geometry (Core::BuildHLODMesh,
 // Core::BuildLandscapeHLODMesh) is given to the builders the engine registers, as CustomShaderSource is given to
@@ -197,6 +198,57 @@ namespace Desert::Core::Rules
         LandscapeHLODBuilder m_Tile;
     };
 
+    // THE GEOMETRY OF ONE LANDSCAPE SPLINE (Core::BuildLandscapeSplineHLODMesh): its segments' bent meshes as one
+    // WORLD-space StaticMesh block, read through @p registries (the mesh assets the segments lay); nullopt when the
+    // spline lays no mesh. An error (a mesh that does not read) refuses the HLOD build by name.
+    using LandscapeSplineHLODGeometry = std::function<Common::ResultStr<std::optional<Assets::StaticMeshComponentSer>>(
+         const LandscapeSplineHLODRequest& request, std::span<const Common::Utils::AssetRegistry> registries )>;
+
+    // UE: the USplineMeshComponents of an ALandscapeSplineActor built into its cell's HLOD. Every landscape spline
+    // the gathering named a hole becomes its own batch of its bent meshes (@p splines, over the context's
+    // registries), appended after the layer's batches; a spline that lays no mesh leaves no hole and no batch.
+    class HLODBuilderLandscapeSplines final : public IHLODBuilder
+    {
+    public:
+        explicit HLODBuilderLandscapeSplines( LandscapeSplineHLODGeometry splines ) : m_Splines( std::move( splines ) )
+        {
+        }
+
+        [[nodiscard]] Common::ResultStr<InstancingHLOD> Build( const HLODBuildContext& context,
+                                                               InstancingHLOD          gathered ) const override
+        {
+            std::vector<HLODNotInstanced> holes;
+            for ( const HLODNotInstanced& missing : gathered.NotInstanced )
+            {
+                if ( missing.Reason != HLODExclusion::LandscapeSpline )
+                {
+                    holes.push_back( missing );
+                    continue;
+                }
+                LandscapeSplineHLODRequest request;
+                request.Records = context.Records;
+                request.World   = context.World;
+                request.Spline  = missing.Record;
+                auto built      = m_Splines( request, context.Registries );
+                if ( !built )
+                    return Common::MakeError<InstancingHLOD>(
+                         std::format( "landscape spline record {}: {}", missing.Record, built.GetError() ) );
+                std::optional<Assets::StaticMeshComponentSer> mesh = built.ExtractValue();
+                if ( !mesh.has_value() )
+                    continue; // the spline lays no mesh: nothing to stand in for
+                HLODBatch batch;
+                batch.Mesh    = std::move( mesh );
+                batch.Sources = { missing.Record };
+                gathered.Batches.push_back( std::move( batch ) );
+            }
+            gathered.NotInstanced = std::move( holes );
+            return Common::MakeSuccess( std::move( gathered ) );
+        }
+
+    private:
+        LandscapeSplineHLODGeometry m_Splines;
+    };
+
     // THE BUILDERS A COOK CAN NAME (UE: the UHLODBuilder subclasses of the loaded modules). A value: the editor's
     // Build HLODs copies the process's registry (Core::HLODBuilders) and states its own landscape builder for one
     // build (the bake's materials), and nothing else sees that copy.
@@ -231,6 +283,17 @@ namespace Desert::Core::Rules
             return m_Landscape.get();
         }
 
+        // The builder landscape splines are handed to (HLODBuilderLandscapeSplines). None = every spline stays a
+        // named LandscapeSpline hole.
+        void SetLandscapeSplineBuilder( std::shared_ptr<const IHLODBuilder> builder )
+        {
+            m_LandscapeSplines = std::move( builder );
+        }
+        [[nodiscard]] const IHLODBuilder* LandscapeSplineBuilder() const
+        {
+            return m_LandscapeSplines.get();
+        }
+
         // The geometry the mesh builders build through (HLODBuildContext::Geometry). None = BuildHLODMesh over the
         // cook's registries, which bakes no material: the editor's Build HLODs states its own for one build, which
         // bakes a MergeMaterials layer's material and binds it (WP-HLOD-MATBAKE, WorldPartitionPanel).
@@ -257,6 +320,7 @@ namespace Desert::Core::Rules
     private:
         std::map<std::string, std::shared_ptr<const IHLODBuilder>, std::less<>> m_Builders;
         std::shared_ptr<const IHLODBuilder>                                     m_Landscape;
+        std::shared_ptr<const IHLODBuilder>                                     m_LandscapeSplines;
         HLODMeshBuilder                                                         m_MeshGeometry;
     };
 
@@ -298,8 +362,8 @@ namespace Desert::Core::Rules
     }
 
     // THE HLOD OF ONE CELL BY ITS LAYER (UE UHLODBuilder::Build over the cell's actors): the Instancing pass
-    // gathers the sources and the holes, the layer's builder makes the HLOD of them, and the landscape builder
-    // (when the registry has one) adds a batch per landscape tile. @p context.Settings is the layer's. Refused, by
+    // gathers the sources and the holes, the layer's builder makes the HLOD of them, the landscape builder (when
+    // the registry has one) adds a batch per landscape tile and the landscape spline builder one per spline. @p context.Settings is the layer's. Refused, by
     // the layer's name, when its builder is not registered or refuses; call after HLODLayerBuilderIssues found
     // none.
     [[nodiscard]] inline Common::ResultStr<InstancingHLOD>
@@ -317,13 +381,17 @@ namespace Desert::Core::Rules
         if ( !built )
             return Common::MakeError<InstancingHLOD>(
                  std::format( "HLOD layer '{}': {}", layer.Name, built.GetError() ) );
-        const IHLODBuilder* landscape = builders.LandscapeBuilder();
-        if ( landscape == nullptr )
-            return built;
-        auto withTiles = landscape->Build( context, built.ExtractValue() );
-        if ( !withTiles )
-            return Common::MakeError<InstancingHLOD>(
-                 std::format( "HLOD layer '{}': {}", layer.Name, withTiles.GetError() ) );
-        return withTiles;
+        InstancingHLOD hlod = built.ExtractValue();
+        for ( const IHLODBuilder* custom : { builders.LandscapeBuilder(), builders.LandscapeSplineBuilder() } )
+        {
+            if ( custom == nullptr )
+                continue;
+            auto added = custom->Build( context, std::move( hlod ) );
+            if ( !added )
+                return Common::MakeError<InstancingHLOD>(
+                     std::format( "HLOD layer '{}': {}", layer.Name, added.GetError() ) );
+            hlod = added.ExtractValue();
+        }
+        return Common::MakeSuccess( std::move( hlod ) );
     }
 } // namespace Desert::Core::Rules
