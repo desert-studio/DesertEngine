@@ -385,6 +385,11 @@ namespace Desert::Graphic::API::Vulkan
             RT_DestroyBuffer( buffer, allocation );
             return;
         }
+        // The one buffer this allocator destroys outside its queue: the blocking upload that read it was waited
+        // (flushed). Named, so a use-after-free hunt can rule it in or out (GPUSCENE-UAF-2).
+        LOG_DEBUG(
+             "[VulkanAllocator] staging buffer '{}' ({} bytes) destroyed at once: its blocking upload was waited",
+             m_Ledger.TagOf( LedgerKey( allocation ) ), AllocationSize( allocation ) );
         m_Ledger.Release( LedgerKey( allocation ) );
         vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
     }
