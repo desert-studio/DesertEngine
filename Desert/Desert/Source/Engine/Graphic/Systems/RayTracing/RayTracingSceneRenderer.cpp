@@ -135,18 +135,15 @@ namespace Desert::Graphic::RayTracing
                                                    uint64_t{ push.IndexAndMask }, uint64_t{ push.SbtAndFlags },
                                                    uint64_t{ push.ArgsWord } } )
                         m_Key = ( m_Key ^ value ) * 1099511628211ull;
-                    // DEFORM-RT-TRAMPLE: the pressed BLASes the rows may trace, and the box whose rows read the
-                    // field - a box that moved presses other rows (another BLAS each): a build, not a refit.
+                    // DEFORM-RT-TRAMPLE: the pressed BLASes the rows may trace. The trample box is not keyed: a row
+                    // that swaps BLAS or transform (a new press inside or outside the old box) is an instance update,
+                    // which a TLAS refit takes (same instance count), so walking through grass never rebuilds.
                     for ( uint32_t k = 0; k < push.PressSteps; ++k )
                         m_Key = ( m_Key ^ ( uint64_t{ push.PressHi[k] } << 32u | push.PressLo[k] ) ) *
                                 1099511628211ull;
                     if ( push.PressSteps > 0u )
                         for ( const uint64_t value :
-                              { uint64_t{ push.PressSteps }, uint64_t{ push.PressSbtStride },
-                                uint64_t{ std::bit_cast<uint32_t>( push.TrampleWindow.x ) },
-                                uint64_t{ std::bit_cast<uint32_t>( push.TrampleWindow.y ) },
-                                uint64_t{ std::bit_cast<uint32_t>( push.TrampleWindow.z ) },
-                                uint64_t{ std::bit_cast<uint32_t>( push.TrampleWindow.w ) } } )
+                              { uint64_t{ push.PressSteps }, uint64_t{ push.PressSbtStride } } )
                             m_Key = ( m_Key ^ value ) * 1099511628211ull;
                     list.InstancesByKind[static_cast<std::size_t>( RayTracingPrimitiveKind::GpuInstanced )] +=
                          source.Rows;
