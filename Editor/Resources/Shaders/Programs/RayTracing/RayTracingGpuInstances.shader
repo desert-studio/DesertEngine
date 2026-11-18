@@ -95,11 +95,23 @@ Shader "RayTracingGpuInstances"
             if ( trample.z <= 0.0 )
                 return false;
             const uint steps = min( PressSteps, 4u );
-            const uint step  = clamp( uint( round( trample.z * float( steps ) ) ), 1u, steps );
-            // The instance's curve at its own press (no wind: the TLAS is static) and the pressed BLAS's in blade
-            // space (BladeCurveAt of the ray tracer's identity instance, press step / steps along +Z).
+            // The instance's curve at its own press (no wind: the TLAS is static).
             const BladeCurve here = BladeCurveAt( BladeSize, BladeBend, world, vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ),
                                                   vec2( 0.0 ), trample );
+            // The step: the one whose curve POWER is nearest the instance's. The fit below maps the root, the rise,
+            // the tip and the width exactly, so the power is the only shape left to differ - and a step picked by the
+            // nearest press instead carries the median blade's power (GrassBladeRayTracingModel), off by the
+            // instance's own bend draw: its laid surface sits up to centimetres above or below the raster's along
+            // the blade's slope, and a shadow ray from the raster's blade starts under its own traced copy (laid
+            // blades darkened by themselves). Step k's power is mix( standing median, 1, k / steps )
+            // (BladeCurveAt), linear in k.
+            const float median = BladeCurveAt( BladeSize, BladeBend, GrassBladeRayTracingModel(), vec4( 0.0 ),
+                                               vec4( 0.0 ), vec4( 0.0 ), vec2( 0.0 ), vec3( 0.0 ) )
+                                      .Bend;
+            const float share  = median > 1.0 + 1e-4 ? ( median - here.Bend ) / ( median - 1.0 ) : trample.z;
+            const uint  step   = clamp( uint( round( clamp( share, 0.0, 1.0 ) * float( steps ) ) ), 1u, steps );
+            // The pressed BLAS's curve in blade space (BladeCurveAt of the ray tracer's identity instance, press
+            // step / steps along +Z).
             const BladeCurve blas = BladeCurveAt(
                  BladeSize, BladeBend, GrassBladeRayTracingModel(), vec4( 0.0 ), vec4( 0.0 ), vec4( 0.0 ),
                  vec2( 0.0 ), vec3( 0.0, 0.0, GrassBladeRayTracingPress( step, steps ) ) );

@@ -94,7 +94,8 @@ namespace Desert::Graphic::System
 
     Common::ResultStr<std::span<const RayTracing::RayTracingGeometryResource* const>>
     GrassBladeRayTracing::PrepareVariety( RDG::Builder& graph, const uint64_t key, const Desert::Mesh& strip,
-                                          const GrassBladeShapeGpu& shape, const uint64_t nonOpaque )
+                                          const GrassBladeShapeGpu& shape, const uint64_t nonOpaque,
+                                          const bool pressed )
     {
         using Value = std::span<const RayTracing::RayTracingGeometryResource* const>;
         if ( !m_Required )
@@ -111,9 +112,18 @@ namespace Desert::Graphic::System
         VarietyState&               state = m_Varieties[key];
         state.Seen                        = true;
         // Step 0 (the standing blade) at [0, levels), pressed step k at [k * levels, (k + 1) * levels).
-        constexpr uint32_t kSteps  = RayTracing::kRayTracingBladePressSteps;
-        const std::size_t  targets = levels.size() * ( 1u + kSteps );
-        if ( state.Targets.size() != targets )
+        // RT-PRESS-LAZY: the pressed set only while @p pressed - created, built and registered the first frame a
+        // press is live, then kept: a frame with no press neither builds nor registers nor traces it.
+        constexpr uint32_t kSteps = RayTracing::kRayTracingBladePressSteps;
+        if ( state.Levels != levels.size() )
+        {
+            state.Levels = levels.size();
+            state.Sets   = {};
+            state.Targets.clear();
+            state.Geometry.clear();
+        }
+        const std::size_t targets = levels.size() * ( pressed ? 1u + kSteps : 1u );
+        if ( state.Targets.size() < targets )
         {
             state.Targets.resize( targets );
             state.Geometry.resize( targets );
@@ -124,15 +134,20 @@ namespace Desert::Graphic::System
                 state.Geometry[t] = state.Targets[t].get();
             }
         }
-        // The levels hold state.Key only once the graph that built them ended (IsBuilt): a build still pending
-        // (its graph abandoned, or never recorded after an error) is built again, never read as storage no
-        // submitted build wrote.
-        bool same = state.Valid && state.Key == blade;
-        for ( const auto& target : state.Targets )
-            same = same && target->IsBuilt();
+        // A set holds its Key only once the graph that built it ended (IsBuilt): a build still pending (its graph
+        // abandoned, or never recorded after an error) is built again, never read as storage no submitted build
+        // wrote.
+        const std::array<std::size_t, 3> bounds{ 0u, levels.size(), targets };
+        std::array<bool, 2>               same{ true, true };
+        for ( std::size_t s = 0; s + 1 < bounds.size() && bounds[s] < bounds[s + 1]; ++s )
+        {
+            same[s] = state.Sets[s].Valid && state.Sets[s].Key == blade;
+            for ( std::size_t t = bounds[s]; t < bounds[s + 1]; ++t )
+                same[s] = same[s] && state.Targets[t]->IsBuilt();
+        }
 
         RDG::BufferRef shapeRef;
-        if ( !same )
+        if ( !same[0] || !same[1] )
         {
             shapeRef = graph.CreateBuffer( RDG::BufferDesc{ sizeof( GrassBladeShapeGpu ) }, "Grass.Blade.Shape" );
             graph.QueueBufferUpload( shapeRef, std::as_bytes( std::span( &shape, 1 ) ) );
@@ -141,10 +156,11 @@ namespace Desert::Graphic::System
         {
             const std::size_t                                b       = t % levels.size();
             const uint32_t                                   step    = static_cast<uint32_t>( t / levels.size() );
+            const std::size_t                                set     = step == 0u ? 0u : 1u;
             RayTracing::RayTracingDynamicMeshGeometryTarget& target  = *state.Targets[t];
             const RDG::BufferRef                             storage = graph.RegisterExternal(
                  target.GetStorage(), std::format( "Grass.Blade.RayTracing.BLAS.{}.{}", key, t ) );
-            if ( same )
+            if ( same[set] )
             {
                 m_Resident.push_back( storage );
                 continue;
@@ -155,7 +171,7 @@ namespace Desert::Graphic::System
             const GrassBladeStripLevel level   = MakeGrassBladeStripLevel( submesh.IndexCount / 6u );
             if ( level.Vertices.size() != submesh.VertexCount || level.Indices.size() * 3u != submesh.IndexCount )
             {
-                state.Valid = false;
+                state.Sets[set].Valid = false;
                 return Common::MakeFormattedError<Value>(
                      "{}: variety {} level {}: the strip's submesh has {} vertices and {} indices, its level {} "
                      "and {}",
@@ -181,7 +197,7 @@ namespace Desert::Graphic::System
                  target.Prepare( layout, false );
             if ( !plan )
             {
-                state.Valid = false;
+                state.Sets[set].Valid = false;
                 return Common::MakeFormattedError<Value>(
                      "{}: variety {} level {} step {}: {}", kGrassBladeRayTracingVerticesPass, key, b, step,
                  plan.GetError() );
@@ -205,12 +221,13 @@ namespace Desert::Graphic::System
             job.Counts  = glm::uvec4( static_cast<uint32_t>( level.Vertices.size() ),
                                       static_cast<uint32_t>( level.Indices.size() * 3u ), step, kSteps );
         }
-        if ( !same )
-        {
-            state.Key   = blade;
-            state.Valid = true;
-        }
-        return Common::MakeSuccess( Value( state.Geometry ) );
+        for ( std::size_t s = 0; s < same.size(); ++s )
+            if ( !same[s] )
+            {
+                state.Sets[s].Key   = blade;
+                state.Sets[s].Valid = true;
+            }
+        return Common::MakeSuccess( Value( state.Geometry ).first( targets ) );
     }
 
     Common::BoolResultStr GrassBladeRayTracing::AddPass( RDG::Builder& graph )

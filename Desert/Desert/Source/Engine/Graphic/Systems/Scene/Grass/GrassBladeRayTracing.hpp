@@ -35,7 +35,9 @@ namespace Desert
 // standing BLAS (step 0) each level builds kRayTracingBladePressSteps PRESSED ones, the same BladeAt laid along the
 // blade's own forward axis with press k / K. A TLAS row whose root the view's deformation field presses (only rows
 // inside the field's trampled box read it) instances the nearest step through an affine fit to its own pressed
-// curve (RayTracingGpuInstances.shader): trampling moves rows, it never builds a BLAS.
+// curve (RayTracingGpuInstances.shader): trampling moves rows, it never builds a BLAS. RT-PRESS-LAZY: the pressed
+// set exists only once the view's field has held a press (built that frame, kept after), and is traced only while
+// one is live - a scene with no field pays no pressed BLAS, segment run or row stride.
 //
 // A BLAS is built when its variety's shape, segment count or level opacity changes, and is RESIDENT on every
 // other frame: a still frame builds nothing, so the path tracer keeps accumulating.
@@ -104,14 +106,19 @@ namespace Desert::Graphic::System
             return m_Required;
         }
 
-        // The BLASes of variety @p key, (1 + kRayTracingBladePressSteps) per submesh (level) of @p strip, built
-        // from @p shape: those that changed are queued for this frame's vertex pass and build, the others are
-        // resident. @p nonOpaque: bit i = level i's segments run the alpha test (its section material is Masked,
+        // The BLASes of variety @p key, one per submesh (level) of @p strip - and, while @p pressed (the view's
+        // deformation field holds a press, GrassRenderer::HoldsPress), kRayTracingBladePressSteps more per level
+        // (RT-PRESS-LAZY, UE: an optional geometry variant is made by the feature that needs it, never paid by a
+        // scene without it) - built from @p shape: those that changed are queued for this frame's vertex pass and
+        // build, the others are resident. The pressed set is built the first frame it is wanted and kept (not
+        // registered, not traced) while no field presses, so a press that comes back builds nothing.
+        // @p nonOpaque: bit i = level i's segments run the alpha test (its section material is Masked,
         // MeshRenderer::ShadingOf). Index step * levels + i of the value is level i's BLAS of press step / K (step 0:
-        // standing, so [0, levels) are the standing levels), valid until the next BeginFrame that is not required.
+        // standing, so [0, levels) are the standing levels); not @p pressed: only those. Valid until the next
+        // BeginFrame that is not required.
         [[nodiscard]] Common::ResultStr<std::span<const RayTracing::RayTracingGeometryResource* const>>
         PrepareVariety( RDG::Builder& graph, uint64_t key, const Desert::Mesh& strip,
-                        const GrassBladeShapeGpu& shape, uint64_t nonOpaque );
+                        const GrassBladeShapeGpu& shape, uint64_t nonOpaque, bool pressed );
 
         // Declares "Grass: Blade Ray Tracing Vertices" for the levels PrepareVariety queued (none: no pass) and
         // retires the varieties this frame did not prepare.
@@ -137,12 +144,19 @@ namespace Desert::Graphic::System
             uint64_t  NonOpaque                           = 0;
             bool      operator==( const BladeKey& ) const = default;
         };
-        // Key: what the last declared builds were made from (Valid: they were declared). The levels hold it only
-        // while every target IsBuilt (their graph ended); otherwise the builds are pending and are made again.
+        // One set of a variety's targets - the standing levels [0, levels) or the pressed ones [levels, levels *
+        // (1 + K)). Key: what its last declared builds were made from (Valid: they were declared). The set holds it
+        // only while every one of its targets IsBuilt (their graph ended); otherwise the builds are pending and are
+        // made again.
+        struct TargetSet
+        {
+            BladeKey Key;
+            bool     Valid = false;
+        };
         struct VarietyState
         {
-            BladeKey                                                                      Key;
-            bool                                                                          Valid = false;
+            std::size_t                                                                   Levels = 0;
+            std::array<TargetSet, 2> Sets; // [0] standing, [1] pressed (made the first frame a press is live)
             std::vector<std::unique_ptr<RayTracing::RayTracingDynamicMeshGeometryTarget>> Targets;
             std::vector<const RayTracing::RayTracingGeometryResource*> Geometry; // Targets, as the gather reads
             bool                                                       Seen = false; // prepared this frame

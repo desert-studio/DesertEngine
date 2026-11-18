@@ -748,9 +748,9 @@ namespace Desert::Graphic::System
             // Stable per section across frames: the view-variant key (several cascade views: Key * kCascadeViews + v).
             uint32_t Key = 0;
             // GrassBlade only: the shared BLASes of the strip levels (GrassBladeRayTracing.hpp), levels *
-            // (1 + RayTracing::kRayTracingBladePressSteps): [step * levels + submesh], step 0 the standing blade,
-            // step k pressed k / K (DEFORM-RT-TRAMPLE); empty when the view has no TLAS. Owned by the grass
-            // renderer, this frame.
+            // (1 + RayTracing::kRayTracingBladePressSteps) while the view's deformation field holds a press, else
+            // levels (RT-PRESS-LAZY): [step * levels + submesh], step 0 the standing blade, step k pressed k / K
+            // (DEFORM-RT-TRAMPLE); empty when the view has no TLAS. Owned by the grass renderer, this frame.
             std::span<const RayTracing::RayTracingGeometryResource* const> BladeGeometry;
             // GrassBlade only: the variety's GrassBladeShapeGpu Size and Bend, which the TLAS rows' pressed fit
             // evaluates the blade curve with (RayTracingGpuInstances.shader).

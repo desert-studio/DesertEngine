@@ -3103,15 +3103,16 @@ namespace Desert::Graphic::System
             }
             // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
             // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf
-            // rules for a mesh (RayTracingGather.cpp).
+            // rules for a mesh (RayTracingGather.cpp). RT-PRESS-LAZY: its pressed BLASes only while the view's
+            // field holds a press (the trample window the TLAS rows read, AddFrameDeformationField).
             if ( variety.Blade && m_BladeRayTracing.IsRequired() )
             {
                 uint64_t nonOpaque = 0;
                 for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
                     if ( MeshRenderer::ShadingOf( section ).Masked )
                         nonOpaque |= ~section.HiddenSubmeshes;
-                const auto blas = m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh,
-                                                                    gpu->ShapeData, nonOpaque );
+                const auto blas = m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh, gpu->ShapeData,
+                                                                    nonOpaque, HoldsPress( m_TrampleWindow ) );
                 if ( blas )
                     for ( MeshRenderer::GpuInstancedRenderData& section : sections )
                     {

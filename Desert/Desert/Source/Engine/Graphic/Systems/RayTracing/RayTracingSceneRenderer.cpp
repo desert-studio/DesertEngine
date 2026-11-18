@@ -829,10 +829,23 @@ namespace Desert::Graphic::RayTracing
                 if ( traced.insert( instance.Geometry ).second )
                     m_TracedGeometry.push_back(
                          static_cast<const RayTracingGeometryResource*>( instance.Geometry ) );
-            for ( const RayTracingGpuInstanceSource& source : m_Gather.GpuInstanced )
-                if ( const void* geometry = m_Gather.Primitives[source.Primitive].Geometry;
+            const auto collect = [&]( const uint32_t primitive )
+            {
+                if ( const void* geometry = m_Gather.Primitives[primitive].Geometry;
                      geometry != nullptr && traced.insert( geometry ).second )
                     m_TracedGeometry.push_back( static_cast<const RayTracingGeometryResource*>( geometry ) );
+            };
+            // RT-PRESS-LAZY: a grass blade level's pressed BLASes are traced by its rows the field presses - laid
+            // out only while a press is live (PrepareVariety), so they count exactly then.
+            for ( const RayTracingGpuInstanceSource& source : m_Gather.GpuInstanced )
+            {
+                collect( source.Primitive );
+                if ( source.PressedPrimitive != kNoPressedPrimitive &&
+                     static_cast<std::size_t>( source.PressedPrimitive ) + kRayTracingBladePressSteps <=
+                          m_Gather.Primitives.size() )
+                    for ( uint32_t k = 0; k < kRayTracingBladePressSteps; ++k )
+                        collect( source.PressedPrimitive + k );
+            }
             m_TracedGeometryValid = true;
             m_TracedGpuRowsKey    = m_LastGpuRowsKey;
         }

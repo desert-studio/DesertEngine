@@ -329,8 +329,11 @@ namespace Desert::Graphic::RayTracing
                 // the raster's blade code (GrassBladeRayTracing.hpp), its rows bucket b's instances (record b).
                 const std::size_t levels = std::min<std::size_t>( data->Mesh->GetSubmeshes().size(), 64 );
                 const uint64_t    all    = levels >= 64 ? ~0ull : ( ( 1ull << levels ) - 1ull );
-                // BladeGeometry: [step * levels + b], step 0 standing, 1..K pressed (MeshRenderer.hpp).
-                const std::size_t steps = kRayTracingBladePressSteps;
+                // BladeGeometry: [step * levels + b], step 0 standing, 1..K pressed (MeshRenderer.hpp) - the
+                // pressed steps only while the view's field holds a press (RT-PRESS-LAZY): without them no pressed
+                // primitive, segment run or row stride exists.
+                const bool withPress = data->BladeGeometry.size() == levels * ( 1u + kRayTracingBladePressSteps );
+                const std::size_t steps = withPress ? kRayTracingBladePressSteps : 0u;
                 if ( data->BladeGeometry.size() != levels * ( 1u + steps ) ||
                      data->BucketCapacities.size() != levels )
                 {
@@ -358,8 +361,10 @@ namespace Desert::Graphic::RayTracing
                     primitive.Kind                 = RayTracingPrimitiveKind::GpuInstanced;
                     AppendSegmentRecords( *data->Mesh, sections, primitive, out );
                     // DEFORM-RT-TRAMPLE: the level's pressed BLASes, each with its own segment run right after
-                    // this one (RayTracingGpuInstanceSource::PressedPrimitive). A missing one: no row is pressed.
-                    uint32_t pressed = static_cast<uint32_t>( out.Primitives.size() );
+                    // this one (RayTracingGpuInstanceSource::PressedPrimitive). A missing one, or none made (no
+                    // press live): no row is pressed.
+                    uint32_t pressed =
+                         withPress ? static_cast<uint32_t>( out.Primitives.size() ) : kNoPressedPrimitive;
                     for ( std::size_t k = 1; k <= steps; ++k )
                         if ( data->BladeGeometry[k * levels + b] == nullptr )
                             pressed = kNoPressedPrimitive;

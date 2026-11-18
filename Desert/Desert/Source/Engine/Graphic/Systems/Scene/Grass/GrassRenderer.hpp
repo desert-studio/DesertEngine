@@ -201,6 +201,11 @@ namespace Desert::Graphic::System
         {
             return glm::vec4( 1.0f, 1.0f, -1.0f, -1.0f );
         }
+        // RT-PRESS-LAZY: @p window (SetTrampleWindow's) holds a press - its minimum is not past its maximum.
+        [[nodiscard]] static bool HoldsPress( const glm::vec4& window ) noexcept
+        {
+            return window.x <= window.z && window.y <= window.w;
+        }
         void SetTrampleWindow( const glm::vec4& window ) noexcept
         {
             m_TrampleWindow = window;

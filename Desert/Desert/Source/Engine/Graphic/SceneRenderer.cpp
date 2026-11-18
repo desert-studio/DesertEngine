@@ -2052,8 +2052,10 @@ namespace Desert::Graphic
             // DEFORM-GRASS-3, GRASS-RASTER-COST: where the field this frame's AddFrameDeformationField brings
             // (about the same unjittered camera position) holds a press - the box of what its contacts wrote, not
             // its whole 82 m window: the camera cull widens a blade's sphere to its laid-flat reach only inside
-            // it. No capture this frame, or nothing pressed: none, every blade keeps its upright sphere.
-            m_Systems.Grass->SetTrampleWindow( m_FrameDeformationCaptured
+            // it. No capture this frame, a reflection capture's face (no field of its own,
+            // AddFrameDeformationField), or nothing pressed: none, every blade keeps its upright sphere - and the
+            // TLAS traces no pressed blade BLAS (RT-PRESS-LAZY, GrassRenderer::HoldsPress).
+            m_Systems.Grass->SetTrampleWindow( m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
                                                     ? m_DeformationField.TrampledBox( frame.CameraPosition )
                                                     : System::GrassRenderer::NoTrampleWindow() );
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
