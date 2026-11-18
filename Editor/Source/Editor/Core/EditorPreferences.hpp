@@ -82,6 +82,14 @@ namespace Desert::Editor
         bool  PersistentSnap  = false;
         int   AutosaveMinutes = 5;     // 0 = autosave off
         bool  ShowPerfHud     = false; // in-viewport FPS / frame-graph / top-scopes overlay
+        // THE EDITOR'S HLODs (WP-EDITOR-HLOD) - UE UWorldPartitionEditorPerProjectUserSettings::{bShowHLODsInEditor,
+        // HLODInEditorMinDrawDistance, HLODInEditorMaxDrawDistance}, per user as there. Whether the saved HLODs of
+        // the cells the editor does not hold are drawn (View > Show > HLODs, the World Partition window, the
+        // palette), and from what distance to the cell's content they are (cm; Max 0 = no far limit). Read every
+        // frame by WorldPartitionPanel::TickEditorHLODs.
+        bool  ShowHLODsInEditor           = true;
+        float HLODInEditorMinDrawDistance = 0.0f;
+        float HLODInEditorMaxDrawDistance = 0.0f;
         // The loopback TCP port the script debugger's DAP server listens on when started (palette: Script
         // Debugger ▸ Start). Per user: it is this person's VS Code launch.json that names it.
         int ScriptDebugPort = 21110;

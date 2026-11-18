@@ -106,6 +106,16 @@ namespace Desert::Editor
                                            WorldPartitionPanel::RegionRequest{ {}, which == 2 } );
                                   } } );
 
+        // UE's Show HLODs (WP-EDITOR-HLOD; the window's checkbox, View > Show > HLODs): this user's preference.
+        for ( const bool show : { true, false } )
+            commands.push_back( { "Scene",
+                                  std::string( show ? "World Partition: Show HLODs" : "World Partition: Hide HLODs" ),
+                                  [show]
+                                  {
+                                      WorldPartitionPanel::SetShowHLODs( show );
+                                      return BOOLSUCCESS;
+                                  } } );
+
         // The Data Layers section's Loaded toggle (UE's Data Layer Outliner), one pair per layer of the world the
         // window follows: what the editor holds of the world again, under this user's changed layer state.
         if ( WorldPartition() != nullptr )

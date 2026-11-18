@@ -8,6 +8,7 @@
 #include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
+#include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
 #include <Engine/Scripting/ScriptEngine.hpp>
@@ -1241,6 +1242,23 @@ namespace Desert::Editor
                     auto scene = m_Workspace.ActiveScene();
                     if ( !scene )
                         return Control::Response::Failure( request.Id, "no scene is open" );
+                    // The World Partition window's per-user state (WP-EDITOR-HLOD): the map selection Load Region loads
+                    // and the editor HLODs' view - the editor's, not the world's, so no undo entry. Before the world's
+                    // own WorldPartition block, whose prefix it shares.
+                    if ( request.Whose == Control::Subject::World &&
+                         request.Property.starts_with( "WorldPartitionEditor." ) )
+                    {
+                        WorldPartitionPanel* window = nullptr;
+                        for ( const auto& panel : m_Panels )
+                            if ( auto* found = dynamic_cast<WorldPartitionPanel*>( &*panel ) )
+                                window = found;
+                        if ( window == nullptr )
+                            return Control::Response::Failure( request.Id,
+                                                               "the World Partition window does not exist" );
+                        if ( const auto set = window->SetEditorProperty( request.Property, request.Text ); !set )
+                            return Control::Response::Failure( request.Id, set.GetError() );
+                        return Control::Response::Success( request.Id );
+                    }
                     if ( request.Whose == Control::Subject::World &&
                          request.Property.starts_with( "WorldPartition" ) )
                     {

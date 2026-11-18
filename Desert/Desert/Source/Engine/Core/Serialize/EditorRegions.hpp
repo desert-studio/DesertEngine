@@ -98,6 +98,17 @@ namespace Desert::Core::EditorRegions
                                                     std::span<const std::uint64_t>   rowIds,
                                                     std::span<const bool>            layerLoaded );
 
+    // THE WORLD ON DISK, PLANNED (WP-EDITOR-HLOD): PlanWorldPartition over the descriptor index of the world at
+    // @p path (refreshed first, as a region load reads it) - every record of the world, held or not - with the id
+    // of each record the plan indexes (`RowIds[r]` is record `r`'s). What the editor's HLODs stand in over.
+    struct WorldOnDisk
+    {
+        std::vector<std::uint64_t> RowIds;
+        Rules::WorldPartitionPlan  Plan;
+    };
+    [[nodiscard]] Common::ResultStr<WorldOnDisk> PlanWorldOnDisk( const std::filesystem::path&    path,
+                                                                 const WorldPartitionSerialized& settings );
+
     // What a region change did.
     struct RegionOutcome
     {

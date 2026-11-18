@@ -10,6 +10,8 @@
 
 #include "WorldPartitionPanel.hpp"
 #include "EditorLoadedRegions.hpp"
+#include "EditorHLODs.hpp"
+#include <Editor/Core/EditorPreferences.hpp>
 
 #include "../../Core/CommandHistory.hpp"
 #include <Editor/Core/Commands/SceneCommands.hpp>
@@ -162,6 +164,10 @@ namespace Desert::Editor
     {
         if ( scene == m_Scene )
             return;
+        // The editor HLODs belong to the scene they were made in: they leave it with the window's attention.
+        if ( m_Scene )
+            m_EditorHLODs.Release( *m_Scene );
+        m_EditorHLODsStale = true;
         m_Scene         = scene;
         m_EditPlanStale = true;
         m_FocusPending  = true;
@@ -401,6 +407,7 @@ namespace Desert::Editor
             DrawHLODBuild();
             DrawRuntimeGrids();
             DrawGridHLODLayers();
+            DrawEditorHLODs();
             DrawDataLayers();
         }
 
@@ -796,6 +803,9 @@ namespace Desert::Editor
              outcome.Selection.ByEntities, outcome.Selection.AlwaysLoaded, outcome.Selection.Unplaced,
              outcome.Selection.UnloadedByDataLayers );
         m_EditPlanStale = true;
+        // The HLODs of the cells that arrived hide and those of the cells that left show, before the next frame.
+        if ( const auto synced = m_EditorHLODs.SyncHeld( *m_Scene, EditorLayersLoaded() ); !synced )
+            m_RegionStatus += " " + synced.GetError();
         // The next open of this world holds what it holds now (UE's per-user loaded regions and volumes). The change
         // itself stands either way; a refusal here is the status line's, so the user knows the next open will differ.
         m_Held     = std::move( next );
@@ -1115,6 +1125,112 @@ namespace Desert::Editor
         }
     }
 
+    void WorldPartitionPanel::TickEditorHLODs()
+    {
+        if ( !m_Scene )
+            return;
+        // Play streams the world's own HLODs (PlaySession destroyed these before its snapshot), and Stop's restore
+        // is a load: they are made again once the editor is back in Edit.
+        if ( m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit )
+        {
+            m_EditorHLODs.Forget();
+            m_EditorHLODsStale = true;
+            return;
+        }
+        if ( m_EditorHLODs.Count() > 0 && !m_EditorHLODs.IsInScene( *m_Scene ) )
+        {
+            m_EditorHLODs.Forget(); // a load, or a Play refused after PlaySession released them
+            m_EditorHLODsStale = true;
+        }
+        if ( m_EditorHLODsStale && !IsBuildingHLODs() )
+        {
+            m_EditorHLODsStale = false;
+            if ( const auto made = m_EditorHLODs.Make( *m_Scene, m_Assets, EditorLayersLoaded() ); !made )
+                LOG_ERROR( "[WorldPartition] {0}", made.GetError() );
+        }
+        const EditorPreferences& prefs = EditorPreferences::Get();
+        std::optional<glm::vec3> eye;
+        if ( const auto camera = m_Scene->GetActiveCamera() )
+            eye = glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] );
+        m_EditorHLODs.Apply( *m_Scene,
+                             EditorHLODView{ prefs.ShowHLODsInEditor, prefs.HLODInEditorMinDrawDistance,
+                                             prefs.HLODInEditorMaxDrawDistance },
+                             eye );
+    }
+
+    std::vector<bool> WorldPartitionPanel::EditorLayersLoaded()
+    {
+        if ( !m_Scene || !m_Scene->GetWorldPartition().has_value() )
+            return {};
+        return ::Desert::Core::EditorRegions::DataLayersLoadedInEditor( *m_Scene->GetWorldPartition(),
+                                                                        Held().DataLayers );
+    }
+
+    void WorldPartitionPanel::SetShowHLODs( const bool show )
+    {
+        EditorPreferences::Get().ShowHLODsInEditor = show;
+        EditorPreferences::Save();
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::SetEditorProperty( const std::string& property, const std::string& text )
+    {
+        float values[4] = {};
+        if ( property == "WorldPartitionEditor.Selection" )
+        {
+            if ( std::sscanf( text.c_str(), "%f,%f,%f,%f", &values[0], &values[1], &values[2], &values[3] ) != 4 ||
+                 values[0] > values[2] || values[1] > values[3] )
+                return Common::MakeError( std::format(
+                     "WorldPartitionEditor.Selection: '{}' is not minX,minZ,maxX,maxZ (cm, min <= max)", text ) );
+            m_Selection = ::Desert::Core::Rules::CellBounds{ values[0], values[1], values[2], values[3] };
+            return BOOLSUCCESS;
+        }
+        if ( property == "WorldPartitionEditor.ShowHLODs" )
+        {
+            if ( text != "true" && text != "false" )
+                return Common::MakeError( std::format( "WorldPartitionEditor.ShowHLODs: '{}' is not true or false", text ) );
+            SetShowHLODs( text == "true" );
+            return BOOLSUCCESS;
+        }
+        if ( property == "WorldPartitionEditor.HLODMinDrawDistance" ||
+             property == "WorldPartitionEditor.HLODMaxDrawDistance" )
+        {
+            if ( std::sscanf( text.c_str(), "%f", &values[0] ) != 1 || values[0] < 0.0f )
+                return Common::MakeError( std::format( "{}: '{}' is not a distance in cm (0 or more)", property, text ) );
+            EditorPreferences& prefs = EditorPreferences::Get();
+            if ( property == "WorldPartitionEditor.HLODMinDrawDistance" )
+                prefs.HLODInEditorMinDrawDistance = values[0];
+            else
+                prefs.HLODInEditorMaxDrawDistance = values[0];
+            EditorPreferences::Save();
+            return BOOLSUCCESS;
+        }
+        return Common::MakeError( std::format( "'{}' is not WorldPartitionEditor.Selection, .ShowHLODs, "
+                                               ".HLODMinDrawDistance or .HLODMaxDrawDistance",
+                                               property ) );
+    }
+
+    // UE's Show HLODs and HLOD-in-editor draw distances (UWorldPartitionEditorPerProjectUserSettings), beside the
+    // grids whose HLODs they show. This user's, not the world's: no undo entry.
+    void WorldPartitionPanel::DrawEditorHLODs()
+    {
+        if ( !ImGui::CollapsingHeader( "HLODs in the editor" ) )
+            return;
+        EditorPreferences& prefs = EditorPreferences::Get();
+        bool               show  = prefs.ShowHLODsInEditor;
+        if ( ImGui::Checkbox( "Show HLODs", &show ) )
+            SetShowHLODs( show );
+        ImGui::DragFloat( "Min draw distance", &prefs.HLODInEditorMinDrawDistance, 100.0f, 0.0f, FLT_MAX, "%.0f cm" );
+        if ( ImGui::IsItemDeactivatedAfterEdit() )
+            EditorPreferences::Save();
+        ImGui::DragFloat( "Max draw distance (0 = no limit)", &prefs.HLODInEditorMaxDrawDistance, 100.0f, 0.0f,
+                          FLT_MAX, "%.0f cm" );
+        if ( ImGui::IsItemDeactivatedAfterEdit() )
+            EditorPreferences::Save();
+        const std::string line = std::format( "{} of {} saved HLOD(s) drawn. {}", m_EditorHLODs.DrawnCount(),
+                                              m_EditorHLODs.Count(), m_EditorHLODs.Status() );
+        ImGui::TextWrapped( "%s", line.c_str() );
+    }
+
     std::vector<std::string> WorldPartitionPanel::DataLayerNames() const
     {
         std::vector<std::string> names;
@@ -1360,6 +1476,7 @@ namespace Desert::Editor
         if ( !removed )
             return Common::MakeError( removed.GetError() );
         m_HLODStatusStale = true;
+        m_EditorHLODsStale = true; // the editor shows what is on disk (EditorHLODs)
         ToastManager::Push( std::format( "Delete HLODs: {} file(s) removed", removed.GetValue() ), ToastLevel::Info );
         return BOOLSUCCESS;
     }
@@ -1372,6 +1489,8 @@ namespace Desert::Editor
             return;
         const std::unique_ptr<WorldPartitionHLODBuilder> builder = std::move( m_Builder );
         m_HLODStatusStale                                        = true;
+        // The editor shows the HLODs on disk, whatever this build wrote or refused (EditorHLODs).
+        m_EditorHLODsStale = true;
         if ( builder->Error() )
         {
             LOG_ERROR( "[Build HLODs] {0}", *builder->Error() );

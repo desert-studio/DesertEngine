@@ -20,6 +20,7 @@
 #include <Editor/Core/IPanel.hpp>
 #include <Editor/Core/WorldPartitionHLODBuilder.hpp>
 #include "WorldPartitionMap.hpp"
+#include "EditorHLODs.hpp"
 
 #include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -105,6 +106,17 @@ namespace Desert::Editor
 
         /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
         [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Builder != nullptr; }
+
+        /// THE EDITOR'S HLODs (WP-EDITOR-HLOD, EditorHLODs.hpp): made for the scene once it is in Edit (again after
+        /// a Play, a load, a Build HLODs) and drawn by the user's view and the camera. Called every editor frame by
+        /// EditorLayer, whether the window is open or not.
+        void TickEditorHLODs();
+        /// UE's Show HLODs for this user (the window's checkbox, View > Show > HLODs and the palette write it).
+        static void SetShowHLODs( bool show );
+        /// `set world WorldPartitionEditor.<Field> <text>` (DesertCtl), this window's per-user state: Selection =
+        /// "minX,minZ,maxX,maxZ" (cm), the map rectangle Load Region loads; ShowHLODs = true|false;
+        /// HLODMinDrawDistance / HLODMaxDrawDistance = cm (Max 0 = no far limit). Refused by name otherwise.
+        [[nodiscard]] Common::BoolResultStr SetEditorProperty( const std::string& property, const std::string& text );
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -215,6 +227,12 @@ namespace Desert::Editor
         std::filesystem::path     m_StatusScene;             // the scene file the status was asked for
         std::size_t               m_StaleNotified = 0;       // stale rows the last notification counted
         std::string               m_HLODBuildStatus;         // the last build / delete refusal
+        // The saved HLODs of the cells the editor does not hold, and whether they must be made (again).
+        void DrawEditorHLODs();
+        // Whether each of the world's data layers is loaded in the editor for this user (empty: not partitioned).
+        [[nodiscard]] std::vector<bool> EditorLayersLoaded();
+        EditorHLODs m_EditorHLODs;
+        bool        m_EditorHLODsStale = true;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;

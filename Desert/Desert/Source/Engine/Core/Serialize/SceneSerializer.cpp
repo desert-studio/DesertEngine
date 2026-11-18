@@ -1,4 +1,5 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/ECS/EditorHLODComponent.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -276,6 +277,9 @@ namespace Desert::Core
         const bool externalEntities = m_Scene->GetWorldPartition().has_value();
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
+            // An editor HLOD (ECS/EditorHLODComponent.hpp) is not the world's: no package, no region census.
+            if ( entity.HasComponent<ECS::EditorHLODComponent>() )
+                continue;
             LiveEntity row;
             row.Id     = IdOf( *entity.GetRegistry(), entity.GetHandle() );
             row.Record = RecordOf( entity );
@@ -344,6 +348,10 @@ namespace Desert::Core
         const bool externalEntities = scene.WorldPartition.has_value();
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
+            // An editor HLOD (ECS/EditorHLODComponent.hpp) is never written: not saved, not in the Play snapshot,
+            // not in an undo record. Skipped before the sibling count, as LiveEntities skips it.
+            if ( entity.HasComponent<ECS::EditorHLODComponent>() )
+                continue;
             if ( isPrefabChild( const_cast<ECS::Entity&>(entity) ) )
             {
                 continue;
