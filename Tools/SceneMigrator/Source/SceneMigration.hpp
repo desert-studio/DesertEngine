@@ -1541,8 +1541,8 @@ namespace Desert::Migration
                    DataLayerOutlinerRaised || RuntimePartitionsRaised || LocationVolumesRaised ||
                    PrefabRuntimeBehaviorRaised || HLODBuildersRaised || ReflectedAssetRefsRaised ||
                    SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
-                   LandscapeSplineEntitiesRaised;
+                   FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised || DebugColorsRaised ||
+                   MiniMapRaised || LandscapeSplineEntitiesRaised;
         }
     };
 
