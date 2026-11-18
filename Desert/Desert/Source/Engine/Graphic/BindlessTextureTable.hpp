@@ -143,9 +143,6 @@ namespace Desert::Graphic
         // device ceiling (error with live count and ceiling).
         [[nodiscard]] virtual Common::ResultStr<BindlessTextureSlot> Register( const Image2D& image ) = 0;
         // Gives @p slot back; it is reused only after the frames in flight have retired (BindlessSlotAllocator).
-        // From the next frame on the slot is gone from the set frames bind (a NEW set made at EndFrame, as for
-        // Rewrite), so no set bound after the released view is destroyed still names it (MoltenVK makes every
-        // written descriptor of a bound set resident, indexed or not).
         virtual void Release( BindlessTextureSlot slot ) = 0;
         // @p slot names @p image's CURRENT view from the next frame on (Image2D::TakeDeviceImageFrom: the image
         // kept its slot and changed its device image). The live set may be read by frames in flight, so the change
