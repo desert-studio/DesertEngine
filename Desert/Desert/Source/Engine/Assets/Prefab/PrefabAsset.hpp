@@ -1,11 +1,19 @@
 #pragma once
 
+#include <unordered_map>
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetEvents.hpp>
 #include <Engine/ECS/Entity.hpp>
 
 #include "PrefabData.hpp"
+
+#include <Common/Core/Math/AABB.hpp>
+
+#include <optional>
+#include <span>
+#include <string_view>
+#include <vector>
 
 namespace Desert::Core
 {
@@ -69,6 +77,29 @@ namespace Desert::Assets
         // payload is the only copy until it is saved.
         void ReplaceBody( std::vector<EntityData> records );
 
+        // ONE ENTITY OF A PREFAB CUT FROM SEVERAL (CreateFromEntities): the entity, and where it stands in the new
+        // prefab's root frame - relative to the pivot the caller chose, which is the file's origin.
+        struct Member
+        {
+            ECS::Entity         Entity;
+            ECS::LocalTransform InRoot;
+        };
+
+        // UE's ULevelInstanceSubsystem::CreateLevelInstanceFrom: @p members become the children of a NEW root
+        // record named @p rootTag that stands at the file's origin. Each member's subtree is captured by
+        // CreateFromEntity's rules (a nested instance is a link carrying its overrides, never a copy of its body);
+        // its own transform is InRoot, stated on its record - a nesting record's placement lives there too
+        // (PrefabFactory places the nested root by it). Refused, the payload as it was, when there is no member or
+        // a member entity is gone.
+        [[nodiscard]] Common::BoolResultStr CreateFromEntities( std::string_view        rootTag,
+                                                                std::span<const Member> members,
+                                                                const AssetManager&     assetManager );
+
+        // The box this prefab's body occupies in its root's frame - the partitioner's rule (Rules::PrefabBounds),
+        // the one Serialize states in the file and the registry carries. nullopt when nothing in the body has an
+        // extent.
+        [[nodiscard]] std::optional<Common::Math::AABB> BodyBounds() const;
+
         // The GUID the file's header states; null for a prefab no file holds yet. Serialize writes it
         // back, so re-saving a prefab never mints a new identity for it.
         [[nodiscard]] const Common::Content::AssetGuid& Guid() const
@@ -101,6 +132,13 @@ namespace Desert::Assets
                                                                   const glm::vec3*    position = nullptr ) const;
 
     private:
+        // CreateFromEntity's walk: @p e and its subtree, pre-order, appended to the payload. A nested instance
+        // (never
+        // @p isRoot) is written as ONE link record that states the instance root's placement on itself.
+        // @p liveToRecord gains each written record's live uuid -> record id (RemapBodyLinks rewrites the links).
+        void AppendSubtree( ECS::Entity e, bool isRoot, const AssetManager& assetManager,
+                            std::unordered_map<Common::UUID, Common::UUID>& liveToRecord );
+
         Common::Content::AssetGuid m_Guid;
         std::vector<EntityData>    m_EntityData;
         PrefabRuntimeBehavior      m_RuntimeBehavior = PrefabRuntimeBehavior::Partitioned;

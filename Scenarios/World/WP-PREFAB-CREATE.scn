@@ -1,0 +1,29 @@
+# WP-PREFAB-CREATE: UE's Create Level Instance from a selection (ULevelInstanceSubsystem::CreateLevelInstanceFrom,
+# pivot Center Min): five entities become ONE new prefab and one instance of it in their place, as ONE undo step; the
+# instance stands at the centre of the group's base (Y up), where its gizmo sits. Then UE's BreakLevelInstance (one
+# level): the instance's entities become the scene's own, as ONE undo step. Two undos bring the five bushes back.
+# WP_Protocol holds no barrels or crate (its props are Main-grid buildings and Foliage-grid bushes 25 m apart), so the
+# brief's "4 barrels + crate" are five bushes of one corner of the Foliage grid: 0_0 (1250,1250), 0_1 (1250,3750),
+# 1_0 (3750,1250), 1_1 (3750,3750), 2_0 (6250,1250) in X,Z, all at Y -404 - Load All first, so none of them depends on
+# the editor's streaming range. The primary (last) selection names the file: Content/Prefabs/Foliage_Bush_2_0.deprefab
+# is written and STAYS after the undo (UE keeps the package too) - delete it after the run, the content repo must not
+# take it.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "World Partition: Load All"
+Дано --subject viewport set Camera.Position 3750,3000,-2500
+Дано --subject viewport set Camera.Direction 0,-0.56,0.83
+Дано run Entity "Foliage Bush 0_0"
+Дано run Entity "Add to selection Foliage Bush 0_1"
+Дано run Entity "Add to selection Foliage Bush 1_0"
+Дано run Entity "Add to selection Foliage Bush 1_1"
+Дано run Entity "Add to selection Foliage Bush 2_0"
+Тогда prefab_from_sel_before пять кустов выделены (оранжевые контуры), в Outliner пять отдельных строк Foliage Bush 0_0, 0_1, 1_0, 1_1, 2_0
+Когда run Entity "Create Prefab from Selection (pivot: Center Min)"
+Тогда prefab_from_sel на месте пяти кустов один экземпляр: в Outliner одна строка Foliage_Bush_2_0 (Prefab) с пятью детьми, выделена она; кусты на тех же местах; гизмо в центре основания группы (X 3750, Z 2500, на высоте низа кустов - ниже их центров на Y -404); editor.log: «[Prefab] 5 entities -> '…Foliage_Bush_2_0.deprefab' (pivot Center Min)», отказа «Create Prefab from Selection:» нет
+Когда run Entity "Break selected prefab (one level)"
+Тогда prefab_break кусты на тех же местах; в Outliner строка Foliage_Bush_2_0 с пятью детьми, но уже без пометки Prefab (обычные сущности сцены); editor.log: «[Prefab] broke 'Foliage_Bush_2_0' (one level): 6 entities changed», отказа «Break Prefab:» нет
+Когда run Action "Undo"
+Тогда prefab_break_undo одна отмена: Foliage_Bush_2_0 снова экземпляр префаба (пометка Prefab), пять детей, кусты на месте
+Когда run Action "Undo"
+Тогда prefab_from_sel_undo вторая отмена: снова пять отдельных кустов на тех же местах (кадр как prefab_from_sel_before), строки Foliage_Bush_2_0 в Outliner нет

@@ -1,4 +1,7 @@
 #include "SceneHierarchyPanel.hpp"
+#include <Editor/Core/Commands/SceneCommands.hpp>
+#include <Common/Core/Logger.hpp>
+#include <format>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
@@ -568,6 +571,20 @@ namespace Desert::Editor
                 m_OpenReplacePrefab    = true; // deferred: OpenPopup at panel scope (see OnUIRender)
             }
 
+            // UE's Create Level Instance: the selection (when this row is in it, else this row) becomes one new
+            // prefab and one instance of it. Deferred like the replace above; this row is the Selected Entity
+            // pivot.
+            if ( ImGui::BeginMenu( ICON_MDI_PACKAGE_VARIANT " Create Prefab from Selection" ) )
+            {
+                for ( const Commands::PrefabPivot pivot :
+                      { Commands::PrefabPivot::Center, Commands::PrefabPivot::CenterMin,
+                        Commands::PrefabPivot::Entity, Commands::PrefabPivot::WorldOrigin } )
+                    if ( ImGui::MenuItem(
+                              std::format( "Pivot: {}", Commands::PrefabPivotLabel( pivot ) ).c_str() ) )
+                        m_PendingPrefabFromSelection = std::make_pair( pivot, UUID );
+                ImGui::EndMenu();
+            }
+
             if ( isPrefab )
             {
                 ImGui::Separator();
@@ -578,8 +595,16 @@ namespace Desert::Editor
                 }
                 if ( ImGui::Selectable( ICON_MDI_PACKAGE_DOWN " Revert Instance to Prefab" ) )
                     m_PendingPrefabRevert = UUID; // deferred: replaces the subtree after iteration
-                if ( ImGui::Selectable( ICON_MDI_PACKAGE_VARIANT_CLOSED " Unpack Prefab (make local)" ) )
-                    m_PendingPrefabUnpack = UUID; // deferred: strips the prefab link from the subtree
+                if ( ImGui::Selectable( ICON_MDI_PACKAGE_VARIANT_CLOSED " Break Prefab (one level)" ) )
+                {
+                    m_PendingPrefabUnpack = UUID; // deferred: Commands::BreakPrefabInstance after iteration
+                    m_PendingPrefabUnpackAllLevels = false;
+                }
+                if ( ImGui::Selectable( ICON_MDI_PACKAGE_VARIANT_CLOSED " Break Prefab (all levels)" ) )
+                {
+                    m_PendingPrefabUnpack          = UUID;
+                    m_PendingPrefabUnpackAllLevels = true;
+                }
             }
 
             ImGui::EndPopup();
@@ -1118,25 +1143,33 @@ namespace Desert::Editor
             Commands::RevertPrefabInstance( *m_PendingPrefabRevert ); // one undo step
             m_PendingPrefabRevert.reset();
         }
+        if ( m_PendingPrefabFromSelection.has_value() )
+        {
+            // The whole selection when the clicked row is in it, else that row alone (Replace with Prefab's rule).
+            const auto [pivot, clicked] = *m_PendingPrefabFromSelection;
+            m_PendingPrefabFromSelection.reset();
+            const std::vector<Common::UUID> members = Core::SelectionManager::IsSelected( clicked )
+                                                           ? Core::SelectionManager::GetSelection()
+                                                           : std::vector<Common::UUID>{ clicked };
+            std::string                     stem    = "Prefab";
+            if ( auto found = m_Scene->FindEntityByID( clicked );
+                 found && found->get().HasComponent<ECS::TagComponent>() )
+                stem = found->get().GetComponent<ECS::TagComponent>().Tag;
+            if ( const auto created = Commands::CreatePrefabFromSelection(
+                      members, Commands::UniquePrefabPath( stem ), pivot, clicked );
+                 !created.IsSuccess() )
+                LOG_ERROR( "[Prefab] {}", created.GetError() );
+        }
         if ( m_PendingPrefabUnpack.has_value() )
         {
-            // Make local: strip the PrefabComponent link from the whole instance subtree so it becomes a
-            // plain, freely-editable entity hierarchy (no more Apply/Revert to a source prefab).
-            if ( auto root = m_Scene->FindEntityByID( *m_PendingPrefabUnpack ) )
-            {
-                auto&                               reg   = m_Scene->GetRegistry();
-                std::function<void( entt::entity )> strip = [&]( entt::entity e )
-                {
-                    if ( reg.has<ECS::PrefabComponent>( e ) )
-                        reg.remove<ECS::PrefabComponent>( e );
-                    if ( reg.has<ECS::RelationshipComponent>( e ) )
-                        for ( auto c : reg.get<ECS::RelationshipComponent>( e ).Children )
-                            if ( reg.valid( c ) )
-                                strip( c );
-                };
-                strip( root->get().GetHandle() );
-                m_Scene->MarkModifiedSubtree( root->get() );
-            }
+            // THE ONE ROUTE (Commands::BreakPrefabInstance): undoable, and it takes the record addresses off as
+            // well as the link. The strip that stood here left them, so "plain" entities still claimed prefab
+            // records, and a prefab cut from two of them wrote one record id twice.
+            const auto broken = Commands::BreakPrefabInstance(
+                 *m_PendingPrefabUnpack, m_PendingPrefabUnpackAllLevels ? Commands::BreakDepth::AllLevels
+                                                                        : Commands::BreakDepth::OneLevel );
+            if ( !broken.IsSuccess() )
+                LOG_ERROR( "[Prefab] {}", broken.GetError() );
             m_PendingPrefabUnpack.reset();
         }
     }

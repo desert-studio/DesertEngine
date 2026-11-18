@@ -58,6 +58,27 @@ namespace Desert::Core::Serialize
 
                 IndexBaseRecords( *nested, assetManager, path, out, stack );
 
+                // The nesting record's own transform places the nested root (PrefabFactory, before the overrides),
+                // so the base the live root is diffed against carries it - else every unedited link reads as
+                // moved.
+                const auto& nestedRecords = nested->GetEntities();
+                if ( ( record.Translation.has_value() || record.Rotation.has_value() ||
+                       record.Scale.has_value() ) &&
+                     !nestedRecords.empty() && nestedRecords.front().id.has_value() )
+                {
+                    std::vector<Common::UUID> rootPath = path;
+                    rootPath.push_back( *nestedRecords.front().id );
+                    if ( const auto root = out.find( Assets::PrefabPathKey( rootPath ) ); root != out.end() )
+                    {
+                        if ( record.Translation.has_value() )
+                            root->second.Translation = record.Translation;
+                        if ( record.Rotation.has_value() )
+                            root->second.Rotation = record.Rotation;
+                        if ( record.Scale.has_value() )
+                            root->second.Scale = record.Scale;
+                    }
+                }
+
                 if ( record.PrefabOverrides.has_value() )
                 {
                     for ( const Assets::PrefabOverrideData& over : *record.PrefabOverrides )

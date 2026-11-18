@@ -168,6 +168,19 @@ namespace Desert::Runtime::Factory
             if ( nestedRoot && nestedRoot.HasComponent<ECS::PrefabComponent>() )
                 nestedRoot.GetComponent<ECS::PrefabComponent>().RuntimeBehavior = data.RuntimeBehavior;
 
+            // WHERE THE LINK STANDS IS ITS RECORD'S TRANSFORM (PrefabAsset::AppendSubtree writes it there, as UE's
+            // nested level instance carries its own actor transform in the outer level). A record that states none
+            // - one written before the link kept its placement - leaves the nested root where its own file and the
+            // root override below put it. Field by field, before the overrides, which IndexBaseRecords mirrors.
+            if ( nestedRoot && nestedRoot.HasComponent<ECS::TransformComponent>() &&
+                 ( data.Translation.has_value() || data.Rotation.has_value() || data.Scale.has_value() ) )
+            {
+                const auto& placed = nestedRoot.GetComponent<ECS::TransformComponent>();
+                nestedRoot.SetLocalTransform( ECS::LocalTransform{
+                     data.Translation.value_or( placed.GetTranslation() ),
+                     data.Rotation.value_or( placed.GetRotation() ), data.Scale.value_or( placed.GetScale() ) } );
+            }
+
             // A nested instance may itself have been edited when this prefab was captured. Those edits
             // live on the NESTING RECORD (not in the nested file, which is shared by every other instance
             // of it), so they are applied here, against the body that was just built.

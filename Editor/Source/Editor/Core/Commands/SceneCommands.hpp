@@ -229,6 +229,63 @@ namespace Desert::Editor::Commands
     ReplaceWithPrefab( const std::vector<Common::UUID>& uuids, const std::filesystem::path& prefabFile,
                        ReplaceMeshSource mesh );
 
+    // UE's FNewLevelInstanceParams::PivotType: where a prefab cut from a selection has its origin, which is where
+    // its instance stands and its gizmo sits.
+    enum class PrefabPivot
+    {
+        Center,      // the centre of the selection's box
+        CenterMin,   // the centre of the box's base (Y is up)
+        Entity,      // a chosen entity of the selection (UE's pivot actor)
+        WorldOrigin, // the world's zero
+    };
+
+    // The pivot's name as the Outliner and the palette spell it.
+    [[nodiscard]] std::string_view PrefabPivotLabel( PrefabPivot pivot );
+
+    // A file in the project's Prefabs directory that no file holds yet, named after @p stem (UE's
+    // IAssetTools::CreateUniqueAssetName: "<stem>", then "<stem>_1", "<stem>_2", ...).
+    [[nodiscard]] std::filesystem::path UniquePrefabPath( std::string_view stem );
+
+    /**
+     * @brief UE's ULevelInstanceSubsystem::CreateLevelInstanceFrom: the selection becomes ONE new prefab and is
+     * replaced by one instance of it, as ONE undo step.
+     *
+     * The prefab's root is a new entity named after the file, standing at the pivot; the selected entities
+     * (top-level ones - a listed descendant is covered by its ancestor) hang under it with their subtrees, each
+     * where it stood. A selected prefab instance stays a link (a nested prefab). The instance hangs under the
+     * selection's shared parent, or at the scene root when the selection has none in common. No group entity is
+     * made on the way: the new root exists only in the file (PrefabAsset::CreateFromEntities).
+     *
+     * The box behind Center / CenterMin is the one the new file states (PrefabAsset::BodyBounds). Entity takes
+     * @p pivotEntity, which must be in the selection. Refused before anything changes when the file exists
+     * already, when a selected entity sits inside a prefab instance (only an instance's root can leave it) or is a
+     * UI element (a UI prefab is cut from its layout root with Save as Prefab), or when a box pivot has no box to
+     * take. THE FILE STAYS after an undo, as UE leaves the level package the creation wrote (ConvertToStaticMesh's
+     * rule).
+     * @return the instance root, which becomes the selection.
+     */
+    [[nodiscard]] Common::ResultStr<Common::UUID>
+    CreatePrefabFromSelection( const std::vector<Common::UUID>& uuids, const std::filesystem::path& prefabFile,
+                               PrefabPivot pivot, const Common::UUID& pivotEntity );
+
+    // How far a Break reaches (UE's BreakLevelInstance Levels: one, or all of them).
+    enum class BreakDepth
+    {
+        OneLevel,  // the instance's own entities become plain; a prefab nested in it stays an instance, of the
+                   // scene now
+        AllLevels, // every instance nested under it is broken as well
+    };
+
+    /**
+     * @brief UE's ULevelInstanceSubsystem::BreakLevelInstance: the instance at @p uuid stops being one - its root
+     * loses the prefab link and its entities their record addresses, so the scene saves them as its own entities.
+     * THE ONE ROUTE of every Break control (Outliner, Details, palette). One undo step puts every link back.
+     * Refused when @p uuid is no prefab instance's root, or is the root of one nested inside another (break the
+     * outer one first).
+     * @return how many entities changed.
+     */
+    [[nodiscard]] Common::ResultStr<size_t> BreakPrefabInstance( const Common::UUID& uuid, BreakDepth depth );
+
     /**
      * @brief Select every entity in the scene whose static mesh matches @p like's, @p like included.
      *
