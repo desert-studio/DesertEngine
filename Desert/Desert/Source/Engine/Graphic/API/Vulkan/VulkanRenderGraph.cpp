@@ -2,6 +2,9 @@
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanGpuProfiler.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanFormat.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderPassDependencies.hpp>
@@ -10,6 +13,10 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <atomic>
+#include <functional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -424,6 +431,33 @@ namespace Desert::Graphic::API::Vulkan
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
             return reinterpret_cast<uint64_t>( allocation );
         }
+
+        // THE ONE DESTRUCTION PATH OF A GRAPH-PHYSICAL RESOURCE (GPUSCENE-UAF-2; UE FRHIResource deferred delete:
+        // the RHI object dies when the frames that could have used it retire, not when its last reference drops).
+        // A VulkanRdgTexture / VulkanRdgBuffer dies when its last shared_ptr goes, and that holder may be
+        // anything: the pool's retire list (fenced), but also an engine image's graph handle, an extraction
+        // target, a pass memo, a graph torn down on the frame thread before the submit thread has even handed its
+        // frame to vkQueueSubmit (MoltenVK resolves a dispatch's descriptors only then, MVKCmdDispatch::encode).
+        // Its VkImageViews, VkImage and VkBuffer were destroyed right there, so a frame in flight that bound one
+        // resolved a freed MTLResource. They now go to the allocator's frame-fenced deletion queue, tagged with
+        // the frame current at the drop (VulkanAllocator::IsRetired), like every other GPU object of the engine.
+        // Destroyed at once only when no allocator takes them (no Vulkan context: a test without one, or after the
+        // teardown drain), which nothing records any more; the debug line names each such destruction.
+        void DestroyAfterFramesInFlight( const std::string_view what, std::function<void()> destroy )
+        {
+            VulkanAllocator* allocator = nullptr;
+            if ( VulkanAllocator::GetVMAAllocator() != VK_NULL_HANDLE )
+                if ( const std::shared_ptr<VulkanContext> context =
+                          SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() ) )
+                    allocator = context->GetVulkanAllocator().get();
+            if ( allocator != nullptr )
+            {
+                allocator->RT_DestroyLater( std::move( destroy ) );
+                return;
+            }
+            LOG_DEBUG( "[RDG] {} destroyed at once: no frame-fenced deletion queue (no Vulkan allocator)", what );
+            destroy();
+        }
     } // namespace
 
     const AllocationLedger& RdgDedicatedLedger()
@@ -532,12 +566,36 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgTexture::~VulkanRdgTexture()
     {
+        // A wrapped engine image owns only its views here (the image is its owner's, released through
+        // RT_DestroyImage); a pooled one owns the image as well. Either goes after the frames in flight
+        // (DestroyAfterFramesInFlight): a frame still executing may have bound any of these views.
+        std::vector<VkImageView> views;
+        views.reserve( m_Views.size() );
         for ( const auto& [key, view] : m_Views )
-            vkDestroyImageView( m_Device, view, nullptr );
-        if ( m_Allocation != nullptr )
-            MutableRdgDedicatedLedger().Release( RdgLedgerHandle( m_Allocation ) );
-        if ( m_Allocator != nullptr && m_Image != VK_NULL_HANDLE )
-            vmaDestroyImage( m_Allocator, m_Image, m_Allocation );
+            views.push_back( view );
+        const bool ownsImage = m_Allocator != nullptr && m_Image != VK_NULL_HANDLE;
+        if ( views.empty() && !ownsImage && m_Allocation == nullptr )
+            return;
+        const std::string what = std::format(
+             "graph texture #{} '{}' ({}x{}, {} view(s){})", m_Identity,
+             m_Allocation != nullptr ? MutableRdgDedicatedLedger().TagOf( RdgLedgerHandle( m_Allocation ) )
+                                     : std::string{},
+             m_Desc.Size.Width, m_Desc.Size.Height, views.size(),
+             ownsImage ? ", owned image" : ", wrapped image" );
+        DestroyAfterFramesInFlight( what,
+                                    [device = m_Device, views = std::move( views ),
+                                     allocator = ownsImage ? m_Allocator : nullptr, image = m_Image,
+                                     allocation = m_Allocation]()
+                                    {
+                                        for ( const VkImageView view : views )
+                                            vkDestroyImageView( device, view, nullptr );
+                                        // The ledger row closes when the memory really goes (AllocationLedger:
+                                        // destroyed, not queued).
+                                        if ( allocation != nullptr )
+                                            MutableRdgDedicatedLedger().Release( RdgLedgerHandle( allocation ) );
+                                        if ( allocator != nullptr )
+                                            vmaDestroyImage( allocator, image, allocation );
+                                    } );
     }
 
     Common::ResultStr<VkImageView> VulkanRdgTexture::GetView( RDG::SubresourceRange range, bool forAttachment )
@@ -725,11 +783,25 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgBuffer::~VulkanRdgBuffer()
     {
-        // A wrapped engine buffer has no allocator: its owner destroys it.
-        if ( m_Allocation != nullptr )
-            MutableRdgDedicatedLedger().Release( RdgLedgerHandle( m_Allocation ) );
-        if ( m_Allocator != nullptr && m_Buffer != VK_NULL_HANDLE )
-            vmaDestroyBuffer( m_Allocator, m_Buffer, m_Allocation );
+        // A wrapped engine buffer has no allocator: its owner destroys it (through RT_DestroyBuffer). A pooled one
+        // goes after the frames in flight (DestroyAfterFramesInFlight), whoever held it last.
+        const bool ownsBuffer = m_Allocator != nullptr && m_Buffer != VK_NULL_HANDLE;
+        if ( !ownsBuffer && m_Allocation == nullptr )
+            return;
+        const std::string what = std::format(
+             "graph buffer #{} '{}' ({} bytes)", m_Identity,
+             m_Allocation != nullptr ? MutableRdgDedicatedLedger().TagOf( RdgLedgerHandle( m_Allocation ) )
+                                     : std::string{},
+             m_Size );
+        DestroyAfterFramesInFlight(
+             what,
+             [allocator = ownsBuffer ? m_Allocator : nullptr, buffer = m_Buffer, allocation = m_Allocation]()
+             {
+                 if ( allocation != nullptr )
+                     MutableRdgDedicatedLedger().Release( RdgLedgerHandle( allocation ) );
+                 if ( allocator != nullptr )
+                     vmaDestroyBuffer( allocator, buffer, allocation );
+             } );
     }
 
     void VulkanRdgBuffer::InvalidateForHost() const
@@ -1571,8 +1643,12 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanRdgUploadRing::Block::~Block()
     {
-        if ( Allocator != nullptr && Buffer != VK_NULL_HANDLE )
-            vmaDestroyBuffer( Allocator, Buffer, Allocation );
+        if ( Allocator == nullptr || Buffer == VK_NULL_HANDLE )
+            return;
+        // Destroyed at once, not queued: its slot's fence was waited (BeginFrameSlot), or the ring is being torn
+        // down. Named, so a use-after-free hunt can rule it in or out (GPUSCENE-UAF-2).
+        LOG_DEBUG( "[RDG] upload ring block ({} bytes) destroyed at once after its slot's fence", Size );
+        vmaDestroyBuffer( Allocator, Buffer, Allocation );
     }
 
     VulkanRdgUploadRing::~VulkanRdgUploadRing() = default;
