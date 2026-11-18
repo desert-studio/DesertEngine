@@ -276,7 +276,7 @@ namespace Desert::Editor
             m_EditTags.reserve( index.GetValue().Index.Entities.size() );
             for ( const ::Desert::Core::DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
                 m_EditTags.push_back( row.Descriptor.Tag );
-            ReadHLODOverlay( *m_Scene->Packages()->BaselinePath(), descriptors );
+            ReadHLODOverlay( *m_Scene->Packages()->BaselinePath() );
             m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
             return;
         }
@@ -307,58 +307,20 @@ namespace Desert::Editor
         m_FocusPending = true;
     }
 
-    void WorldPartitionPanel::ReadHLODOverlay( const std::filesystem::path&                             scenePath,
-                                               std::span<const ::Desert::Core::Rules::EntityDescriptor> descriptors )
+    void WorldPartitionPanel::ReadHLODOverlay( const std::filesystem::path& scenePath )
     {
-        namespace WC = ::Desert::Core::WorldCells;
         m_HLODCells.clear();
         m_HLODOverlayStatus.clear();
+        auto status = HLODStatusOf( scenePath );
+        if ( !status )
+        {
+            m_HLODOverlayStatus = "HLOD overlay: " + status.GetError();
+            return;
+        }
         // No Build HLODs yet: the world has no HLOD to show, built or stale.
-        std::error_code ec;
-        if ( !std::filesystem::exists(
-                  WC::BuiltHLODDirectory( scenePath ) / std::filesystem::path( WC::kBuiltHLODIndexName ), ec ) )
+        if ( !status.GetValue().Built )
             return;
-        auto stored = WC::ReadBuiltHLODs( scenePath );
-        if ( !stored )
-        {
-            m_HLODOverlayStatus = "HLOD overlay: " + stored.GetError();
-            return;
-        }
-        // Judged against the SAVED world, read exactly as Build HLODs reads it, so a cell is stale here exactly when
-        // the cook would refuse it.
-        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( scenePath );
-        if ( !text )
-        {
-            m_HLODOverlayStatus = "HLOD overlay: " + text.GetError();
-            return;
-        }
-        auto saved = ::Desert::Core::ParseLoadableScene( scenePath.string(), text.GetValue() );
-        if ( !saved )
-        {
-            m_HLODOverlayStatus = "HLOD overlay: " + saved.GetError();
-            return;
-        }
-        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
-        // Against the world the build cut: prefab instances expanded as Build HLODs and the cook expand them (WP21);
-        // over the unexpanded records every cell holding an instance read stale here while the cook found it fresh.
-        auto cut = WC::ExpandWorldForCook( saved.GetValue().Scene, descriptors, WC::PrefabFileReader() );
-        if ( !cut )
-        {
-            m_HLODOverlayStatus = "HLOD overlay: " + cut.GetError();
-            return;
-        }
-        auto stale = WC::StaleHLODCells( stored.GetValue().Index, cut.GetValue().World.Scene,
-                                         cut.GetValue().Descriptors, registries );
-        if ( !stale )
-        {
-            m_HLODOverlayStatus = "HLOD overlay: " + stale.GetError();
-            return;
-        }
-        std::vector<std::string> built;
-        for ( const WC::BuiltHLODCell& row : stored.GetValue().Index.Cells )
-            if ( row.File )
-                built.push_back( row.Unit );
-        m_HLODCells = Map::HLODCellStates( *m_EditPlan, built, stale.GetValue() );
+        m_HLODCells = Map::HLODCellStates( *m_EditPlan, status.GetValue().BuiltUnits, status.GetValue().Stale );
     }
 
     void WorldPartitionPanel::OnUIRender()

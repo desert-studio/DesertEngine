@@ -260,10 +260,9 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr Reload( ::Desert::Core::EditorRegions::HeldRegions   next,
                                                     ::Desert::Core::EditorRegions::UnsavedPolicy policy );
         // The HLOD overlay of the Edit plan over the index: which cells' HLODs are built, and which are stale
-        // against the SAVED world (WorldCells::StaleHLODCells, as Build HLODs and the cook judge them). Nothing
-        // when no HLOD was built for the world; a refusal is m_HLODOverlayStatus.
-        void ReadHLODOverlay( const std::filesystem::path&                             scenePath,
-                              std::span<const ::Desert::Core::Rules::EntityDescriptor> descriptors );
+        // against the SAVED world - HLODStatusOf, the HLODs section's own reader, so the map and the section never
+        // disagree. Nothing when no HLOD was built for the world; a refusal is m_HLODOverlayStatus.
+        void ReadHLODOverlay( const std::filesystem::path& scenePath );
         // The HLODs section (Edit, a world with an HLOD layer): "N stale HLOD", Build HLODs / Force all / Delete
         // HLODs, and the Save and build prompt.
         void DrawHLODBuild();

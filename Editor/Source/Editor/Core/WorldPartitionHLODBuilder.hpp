@@ -54,6 +54,7 @@ namespace Desert::Editor
     {
         bool                     Built = false; // the world has a saved HLOD index
         std::vector<std::string> Stale;         // the rows missing or stale, by unit name (every row when !Built)
+        std::vector<std::string> BuiltUnits;    // the index's rows that name a saved file, by unit name
     };
 
     class WorldPartitionHLODBuilder
@@ -107,7 +108,8 @@ namespace Desert::Editor
     };
 
     /// Which of the HLOD rows of the world saved at @p scenePath are missing or stale (UE's World Partition
-    /// editor "HLODs need to be rebuilt"). Refused, by name, for a world the build would refuse.
+    /// editor "HLODs need to be rebuilt"). Refused, by name, for a world the build would refuse. THE one reader of a
+    /// world's HLOD state (UE: one HLOD state per cell): the panel's HLODs section and its map overlay both ask it.
     [[nodiscard]] Common::ResultStr<HLODStatus> HLODStatusOf( const std::filesystem::path& scenePath );
 
     /// UE's -DeleteHLODs: removes everything Build HLODs saved beside the world at @p scenePath - the index, every

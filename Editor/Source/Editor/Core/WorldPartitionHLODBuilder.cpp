@@ -448,6 +448,9 @@ namespace Desert::Editor
                 return Common::MakeError<HLODStatus>( stored.GetError() );
             index        = std::move( stored.GetValue().Index );
             status.Built = true;
+            for ( const WC::BuiltHLODCell& row : index.Cells )
+                if ( row.File )
+                    status.BuiltUnits.push_back( row.Unit );
         }
         // The world the build cuts and the cook checks: prefab instances expanded (WP21).
         auto cut = WC::ExpandWorldForCook( world.Loadable.Scene, world.Descriptors, WC::PrefabFileReader() );
