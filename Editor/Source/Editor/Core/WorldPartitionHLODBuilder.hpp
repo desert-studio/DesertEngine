@@ -33,12 +33,14 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <future>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::Assets
@@ -143,6 +145,11 @@ namespace Desert::Editor
         // Core::HLODApproximationKey, so Finish binds it to its captured material without wrapping it again.
         std::unique_ptr<HLODApproximateBake>                            m_ApproxBake;
         std::map<std::string, ::Desert::Assets::StaticMeshComponentSer> m_ApproxShells;
+        // Each landscape HLOD as Plan built and stored it (its mesh already a `HLODMesh_<hash>.stmesh` beside the
+        // cells, the block naming it), by tile id and MinVisibleDistance - the two inputs BuildLandscapeHLODMesh
+        // sizes it from - so Finish binds its baked material without building the tile a second time (WP-PERF:
+        // the second build was most of Finish).
+        std::map<std::pair<std::uint64_t, float>, ::Desert::Assets::StaticMeshComponentSer> m_LandscapeShells;
         // What a finished stage wrote, waiting for the later stages.
         std::vector<LandscapeHLODBaked>   m_LandscapeBaked;
         std::vector<HLODMaterialBaked>    m_MeshBaked;
