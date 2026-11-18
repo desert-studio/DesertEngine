@@ -102,11 +102,11 @@ namespace Desert::Core::WorldCells
              // HLOD cells of a spatially loaded layer are units of the index (HLODUnits, HLODNodes; WP-FAR-8); 11:
              // the crossing references are every one Rules::ResolveEntityReferences finds - a script's Entity
              // property ("Script", "<script key>:<property>") and a reference by name besides the register's - all
-             // of them observation, which residency rebinds (WP-ENTITY-REFS); an index of 10 lacks them, so a runtime
-             // would never rebind them; 12: an HLOD record's built mesh is a static mesh asset beside the cells
-             // (`HLODMesh_<hash>.stmesh`, StaticMesh.MeshHandle) instead of an EditMesh inside the cell (WP-PERF:
-             // 80-85 MB landscape cells read ~70 s each at the start of Play); an older HLOD folder is derived
-             // data, so it is rebuilt, not migrated
+             // of them observation, which residency rebinds (WP-ENTITY-REFS); an index of 10 lacks them, so a
+             // runtime would never rebind them; 12: an HLOD record's built mesh is a static mesh asset beside the
+             // cells (`HLODMesh_<hash>.stmesh`, StaticMesh.MeshHandle) instead of an EditMesh inside the cell
+             // (WP-PERF: 80-85 MB landscape cells read ~70 s each at the start of Play); an older HLOD folder is
+             // derived data, so it is rebuilt, not migrated
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
