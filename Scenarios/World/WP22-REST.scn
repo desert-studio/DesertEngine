@@ -3,7 +3,8 @@
 # Play from Here looks through Camera 1003 (Auto Activate for Player, a child of the Player cube). In Play the
 # viewport subject IS that view target: `--subject viewport set Camera.*` moves camera 1003 (world pose -> its
 # local transform under the walking Player), so the view stays 400 m above the Player while it walks.
-# WP_Protocol_HLOD/ is a build product (not in git): the first step builds it (the reply waits for the bake).
+# WP_Protocol_HLOD/ is a build product: the first step builds it (the reply waits for the bake and for the editor HLODs
+# in view: EditorHLODs reads only the index at once, each drawn HLOD's proxy file on a worker - WP-HLOD-HANG).
 # Paint (Foliage grid), VELOCITY and FAR-2 are separate scenarios (see the brief's REMAINDER).
 # WP22-LIT: Load All before AND after the palette edit (a new unsaved entity no longer blocks it), a paint stroke
 # on the loaded Main cells, a lit frame from 400 m; the boulder_01 type the palette made goes to the Trash at the end.
@@ -12,6 +13,7 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Scene "Build HLODs"
 Дано run Panel "Open World Partition"
+Тогда wp22_hlod_built ответ на Build HLODs пришёл, редактор рисует: вьюпорт - HLOD мира видны вдали (ячейки не загружены, без дыр), панель World Partition - строка «N of M saved HLOD(s) drawn», N > 0
 Дано run Scene "World Partition: Load All"
 Когда run Foliage "Add mesh to the palette: boulder_01"
 Когда run Scene "World Partition: Load All"
