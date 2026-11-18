@@ -1381,8 +1381,22 @@ namespace Desert::Graphic::API::Vulkan
 
         // The bindless slot is this image's for its life (rows and layer tables hold its index): it is pointed at
         // the new view. An image that had none takes the replacement's, which then has nothing to release.
+        // GPUSCENE-UAF-MAC: EVERY SLOT NAMES ITS OWN IMAGE'S VIEW. The replacement is a sampled image too, so it
+        // was given a slot of its own when it was made (RegisterBindless), naming the view this image has just
+        // taken. Left so, two slots named one view and the replacement's kept naming it after the swap: when this
+        // image swapped again (the next streamed level) or was released, that view was destroyed past the frames
+        // in flight while the replacement's slot - released only when the replacement dies, after its copy's
+        // fence - still named it, and the next set the table built (Rebuild writes every live slot: a Rewrite, a
+        // Release, growth) or kept binding named a destroyed view. MoltenVK makes the written descriptors of a
+        // bound set resident at vkQueueSubmit: SIGSEGV in useResources (WP-DATA-LAYERS, WP-FAR-2, WP22-REST
+        // while textures stream). The replacement's slot is pointed at the view it now holds (this image's old
+        // one), which its own release destroys together with the slot - the same pairing as every image's.
         if ( m_BindlessSlot.IsValid() )
+        {
             GetBindlessTextureTable().Rewrite( m_BindlessSlot, *this );
+            if ( other->m_BindlessSlot.IsValid() )
+                GetBindlessTextureTable().Rewrite( other->m_BindlessSlot, *other );
+        }
         else
             std::swap( m_BindlessSlot, other->m_BindlessSlot );
         return BOOLSUCCESS;
