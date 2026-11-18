@@ -12,8 +12,8 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
-Дано set world WorldPartition.DataLayers [{"Name":"Gameplay","InitiallyLoadedInEditor":true},{"Name":"Props","InitiallyLoadedInEditor":true}]
-Дано set 9000001 DataLayersData.Layers ["Gameplay"]
+Дано set world WorldPartition.DataLayers '[{"Name":"Gameplay","InitiallyLoadedInEditor":true},{"Name":"Props","InitiallyLoadedInEditor":true}]'
+Дано set 9000001 DataLayersData.Layers '["Gameplay"]'
 Дано run Scene "Save"
 Дано --subject viewport set Camera.Position 0,40000,-40000
 Дано --subject viewport set Camera.Direction 0,-1,1

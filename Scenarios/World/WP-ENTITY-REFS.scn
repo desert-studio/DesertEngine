@@ -20,7 +20,7 @@
 Дано run Scene "World Partition: Load All"
 Дано drop-mesh Content/Meshes/Cube.desmesh 1000,0,1000 --id 9200001
 Дано drop-mesh Content/Meshes/Cube.desmesh 27000,0,1000 --id 9200002
-Дано set 9200001 Script.Scripts [{"ScriptKey":"assets:Scripts/World/RefTurret.lua","Props":[{"Name":"Target","Type":7,"Ref":9200002}]}]
+Дано set 9200001 Script.Scripts '[{"ScriptKey":"assets:Scripts/World/RefTurret.lua","Props":[{"Name":"Target","Type":7,"Ref":9200002}]}]'
 Когда run Mode "Select mode"
 Когда run Action "Play"
 Когда advance 2
@@ -34,6 +34,6 @@
 Когда run Action "Stop"
 Дано drop-mesh Content/Meshes/Cube.desmesh 12700,0,1000 --id 9200003
 Дано drop-mesh Content/Meshes/Cube.desmesh 12900,0,1000 --id 9200004
-Когда set 9200003 Script.Scripts [{"ScriptKey":"assets:Scripts/World/RefHardLink.lua","Props":[{"Name":"Part","Type":7,"Ref":9200004}]}]
+Когда set 9200003 Script.Scripts '[{"ScriptKey":"assets:Scripts/World/RefHardLink.lua","Props":[{"Name":"Part","Type":7,"Ref":9200004}]}]'
 Когда run Scene "World Partition: Refresh"
 Тогда-вид refs_script_cluster карта WP: 9200003 и 9200004 (по разные стороны границы ячейки) лежат в ОДНОЙ ячейке - кластер по жёсткой EntityRef скрипта; без hard (Property.Entity()) они в соседних ячейках

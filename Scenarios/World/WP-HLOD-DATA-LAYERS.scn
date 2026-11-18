@@ -18,8 +18,8 @@
 Дано run View "View mode: Lit"
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
-Дано set world WorldPartition.DataLayers [{"Name":"Night","InitiallyLoadedInEditor":true,"Type":"Runtime","InitialRuntimeState":"Activated"}]
-Дано set 200414 DataLayersData.Layers ["Night"]
+Дано set world WorldPartition.DataLayers '[{"Name":"Night","InitiallyLoadedInEditor":true,"Type":"Runtime","InitialRuntimeState":"Activated"}]'
+Дано set 200414 DataLayersData.Layers '["Night"]'
 Дано run Scene "Save"
 Дано run Scene "Build HLODs"
 Дано set 1003 CameraData.Far 800000

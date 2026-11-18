@@ -15,7 +15,7 @@
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Дано run Panel "Open Data Layers"
-Дано set world WorldPartition.DataLayers [{"Name":"Gameplay","InitiallyLoadedInEditor":true,"DebugColor":[0.85,0.35,0.30]},{"Name":"Enemies","InitiallyLoadedInEditor":true,"Parent":"Gameplay","DebugColor":[0.90,0.60,0.20]},{"Name":"Props","InitiallyLoadedInEditor":true,"DebugColor":[0.30,0.65,0.90]}]
+Дано set world WorldPartition.DataLayers '[{"Name":"Gameplay","InitiallyLoadedInEditor":true,"DebugColor":[0.85,0.35,0.30]},{"Name":"Enemies","InitiallyLoadedInEditor":true,"Parent":"Gameplay","DebugColor":[0.90,0.60,0.20]},{"Name":"Props","InitiallyLoadedInEditor":true,"DebugColor":[0.30,0.65,0.90]}]'
 Дано run Scene "Data Layers: Make Current Props"
 Дано --subject viewport set Camera.Position 86000,4000,48000
 Дано --subject viewport set Camera.Direction 0,-0.35,1
