@@ -634,7 +634,8 @@ namespace Desert::Editor
 
     void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
                                                 const bool texturesStreaming, const bool hlodBuildRunning,
-                                                const bool miniMapBuildRunning, const bool meshDropsLoading )
+                                                const bool miniMapBuildRunning, const bool meshDropsLoading,
+                                                const bool editorHLODsReading )
     {
         Control::EditorQuiescence quiescence;
         // CONTENT SETTLING COUNTS AS STARTUP LOADING FOR THE CHANNEL, and it has to: the channel's whole
@@ -696,6 +697,10 @@ namespace Desert::Editor
         // BaseColor bake runs over editor frames (TickBuild), so the reply to `run "Build HLODs"` waits for it -
         // a Save or quit answered earlier cut the bake and no <Scene>_HLOD/ was written (WP-PROTOCOL.scn).
         quiescence.Set( Control::PendingWork::HLODBuild, hlodBuildRunning );
+        // UE's HLOD editor subsystem loads an HLOD actor's package when it is to be shown; here its proxy file is
+        // read on a worker (EditorHLODs), so a frame - and the reply to Build HLODs or a region change - waits for
+        // the HLODs in view as it waits for streaming textures.
+        quiescence.Set( Control::PendingWork::EditorHLODs, editorHLODsReading );
         // UE's Bake Materials is modal too: the reply to "Bake Material to Textures" waits for the offscreen
         // render and its five texture assets (Editor/Baking/MaterialBaking).
         quiescence.Set( Control::PendingWork::MaterialBake, ::Desert::Editor::Baking::IsBakeOfSelectionRunning() );

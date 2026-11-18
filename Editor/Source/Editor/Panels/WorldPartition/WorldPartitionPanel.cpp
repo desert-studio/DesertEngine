@@ -1870,8 +1870,9 @@ namespace Desert::Editor
                           FLT_MAX, "%.0f cm" );
         if ( ImGui::IsItemDeactivatedAfterEdit() )
             EditorPreferences::Save();
-        const std::string line = std::format( "{} of {} saved HLOD(s) drawn. {}", m_EditorHLODs.DrawnCount(),
-                                              m_EditorHLODs.Count(), m_EditorHLODs.Status() );
+        const std::string line =
+             std::format( "{} of {} saved HLOD(s) drawn, {} being read. {}", m_EditorHLODs.DrawnCount(),
+                          m_EditorHLODs.Count(), m_EditorHLODs.WaitingCount(), m_EditorHLODs.Status() );
         ImGui::TextWrapped( "%s", line.c_str() );
     }
 

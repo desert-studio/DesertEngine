@@ -141,6 +141,9 @@ namespace Desert::Editor
         void TickMiniMap();
         /// A Build Minimap is running: its texture is not written yet.
         [[nodiscard]] bool IsBuildingMiniMap() const noexcept { return m_MiniMapBuild != nullptr; }
+        /// Whether a saved HLOD the editor wants drawn is still being read or made (EditorHLODs::WaitingCount):
+        /// a frame drawn now shows its cell without it.
+        [[nodiscard]] bool IsReadingEditorHLODs() const noexcept { return m_EditorHLODs.WaitingCount() > 0; }
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest

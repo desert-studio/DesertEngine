@@ -71,6 +71,7 @@ namespace Desert::Editor::Control
         GrassInstances, ///< the frame drew grass whose instance buffers were sized for another view (a camera cut)
         MaterialBake,   ///< a Bake Material to Textures is still rendering its slot; its textures are not written
                         ///< yet
+        EditorHLODs,    ///< a saved HLOD the editor wants drawn is still being read or made (its cell is drawn empty)
         Count
     };
 
@@ -100,6 +101,7 @@ namespace Desert::Editor::Control
          "a material's pipeline is still compiling (the frame drew the default surface in its place)",
          "the grass is still being counted after a camera cut (the field drew truncated)",
          "Bake Material to Textures is still rendering its slot (its texture assets are not written yet)",
+         "a saved HLOD the editor shows is still being read (the viewport draws its cell without it)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),

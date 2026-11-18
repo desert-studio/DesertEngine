@@ -6,8 +6,7 @@
 //
 // A world opens in the editor in part (EditorRegions, decision O3): without this, everything outside the held
 // regions is empty ground. Here the HLOD Build HLODs saved for every cell (<Scene>_HLOD/, WorldCells::
-// ReadBuiltHLODs) is made entities of the edited scene - one cell's records at a time, through the
-// InstantiateRecords Play makes its HLODs with, so they are drawn, shadowed and lit by the game's own path (the
+// ReadBuiltHLODs) is made entities of the edited scene through the InstantiateRecords Play makes its HLODs with, so they are drawn, shadowed and lit by the game's own path (the
 // card's variant (a): no second, editor-only draw path) - tagged ECS::EditorHLODComponent, which keeps them out of
 // the save, the Play snapshot, the packages, the undo history, the Outliner and picking.
 //
@@ -19,10 +18,18 @@
 // data layers of what it was built from), so the HLOD of a cell none of whose layers this user has loaded in the
 // editor stands in for nothing, as the cell's own records are not held either (EditorRegions::SelectRecords).
 //
+// READ WHEN DRAWN, OFF THE MAIN THREAD (WP-HLOD-HANG; UE 5.5: the HLOD editor subsystem loads an HLOD actor's
+// package when it is to be shown, the editor never loads every HLOD of the world up front): Make reads only the
+// index (HLODs.dhlod: one row per cell, its proxy file and the ids of its records) and plans the switch over it. An
+// HLOD's proxy file is read and parsed on a JobSystem worker the first time Apply wants it drawn, and made entities
+// on the main thread the frame it lands, one HLOD per frame. Before, Make parsed every proxy file of the world on
+// the main thread (598 files, 668 MB on WP_Protocol: the editor stood ~10 min after Build HLODs).
+//
 // Staleness is not judged here: the editor shows what was saved, as UE's editor shows the built HLOD actors; Build
 // HLODs and Play are where a stale cell is named.
 
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODSwitch.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -31,6 +38,8 @@
 #include <glm/glm.hpp>
 
 #include <cstddef>
+#include <cstdint>
+#include <future>
 #include <optional>
 #include <string>
 #include <vector>
@@ -58,12 +67,14 @@ namespace Desert::Editor
     class EditorHLODs final : public ::Desert::Core::Rules::HLODVisibilityWorld
     {
     public:
-        // Makes the saved HLOD of every cell of @p scene's world as tagged entities, hidden until SyncHeld and
-        // Apply say otherwise; what was made before is destroyed first. A scene that is not a partitioned world
+        // Plans the saved HLOD of every cell of @p scene's world from the saved index alone - each is made tagged
+        // entities only once Apply wants it drawn (its proxy file read on a worker); what was made before is
+        // destroyed first. A scene that is not a partitioned world
         // opened from its files, a world no runtime grid of which names an HLOD layer, and a world whose HLODs
         // were never built make none - Status() says which. Refused, by name and leaving nothing made, when the
-        // world's index or a saved HLOD cannot be read or an HLOD record has the id of a record of the world or
-        // of an entity the scene holds (as Play refuses it). @p layerLoaded: SyncHeld's.
+        // world's index cannot be read or it lists an HLOD record with the id of a record of the world or of an
+        // entity the scene holds (as Play refuses it). A proxy file that does not read, or whose records cannot be
+        // made, is refused when it lands: logged by name, that HLOD is never drawn. @p layerLoaded: SyncHeld's.
         [[nodiscard]] Common::BoolResultStr Make( ::Desert::Core::Scene&          scene,
                                                   ::Desert::Assets::AssetManager* assets,
                                                   const std::vector<bool>&        layerLoaded );
@@ -89,8 +100,9 @@ namespace Desert::Editor
                                                       const std::vector<bool>& layerLoaded );
 
         // Every editor frame: an HLOD is drawn when the switch shows it, the user shows HLODs and @p eye (the
-        // editor camera, cm; none = no range test) is within the user's range of its cell. Only a change is told
-        // to the scene.
+        // editor camera, cm; none = no range test) is within the user's range of its cell - and its proxy is made.
+        // One that should be drawn and was never read starts its read here; one read that has landed is made
+        // (one per frame). Only a change is told to the scene.
         void Apply( ::Desert::Core::Scene& scene, const EditorHLODView& view, const std::optional<glm::vec3>& eye );
 
         [[nodiscard]] std::size_t Count() const noexcept
@@ -98,6 +110,12 @@ namespace Desert::Editor
             return m_HLODs.size();
         }
         [[nodiscard]] std::size_t        DrawnCount() const noexcept;
+        // The HLODs the last Apply wanted drawn whose proxy is still being read or is not made yet: a frame drawn
+        // now shows their cells without them (the Control channel's PendingWork::EditorHLODs).
+        [[nodiscard]] std::size_t WaitingCount() const noexcept
+        {
+            return m_Waiting;
+        }
         [[nodiscard]] const std::string& Status() const noexcept
         {
             return m_Status;
@@ -107,17 +125,35 @@ namespace Desert::Editor
         void SetHLODVisible( std::size_t hlod, bool visible ) override;
 
     private:
+        using ProxyRecords = Common::ResultStr<std::vector<::Desert::Assets::EntityData>>;
+        enum class Proxy : std::uint8_t
+        {
+            Unread,  // never wanted drawn: only its index row is known
+            Reading, // its file is being read and parsed on a worker (Read)
+            Made,    // its records are entities of the scene
+            Refused  // its file did not read or its records could not be made (logged): never drawn
+        };
         struct MadeHLOD
         {
-            std::size_t               Unit = 0;         // the cell unit of m_World->Plan it stands in for
-            std::vector<Common::UUID> Ids;              // the entities of its records (what InstantiateRecords made)
-            bool                      StandsIn = false; // the switch shows it: the editor holds nothing of its cell
-            std::optional<bool>       Drawn;            // what Apply last told the scene; none before the first
+            std::size_t                               Unit = 0; // the cell unit of m_World->Plan it stands in for
+            ::Desert::Core::WorldCells::BuiltHLODCell Row;      // its index row: the proxy file, its records' ids
+            std::vector<Common::UUID>                 Ids;      // the ids of its records (the row's): its entities
+            Proxy                                     State = Proxy::Unread;
+            std::future<ProxyRecords>                 Read;             // while Reading
+            bool                                      StandsIn = false; // the switch shows it
+            std::optional<bool>                       Drawn; // what Apply last told the scene; none before the first
         };
+
+        void StartRead( MadeHLOD& made );
+        // The landed read of HLOD @p hlod made entities (hidden), or the HLOD refused by name.
+        void MakeProxy( ::Desert::Core::Scene& scene, std::size_t hlod );
 
         std::optional<::Desert::Core::EditorRegions::WorldOnDisk> m_World;
         std::optional<::Desert::Core::Rules::HLODRuntime>         m_Runtime;
         std::vector<MadeHLOD>                                     m_HLODs; // the switch's HLOD index
+        ::Desert::Core::WorldCells::FileReader                    m_Reader; // a proxy file's bytes by its name
+        ::Desert::Assets::AssetManager*                           m_Assets  = nullptr;
+        std::size_t                                               m_Waiting = 0;
         std::string                                               m_Status;
     };
 } // namespace Desert::Editor

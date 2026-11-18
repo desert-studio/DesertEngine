@@ -727,7 +727,8 @@ namespace Desert::Editor
                                          Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
                                          m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
                                          m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
-                                         ViewportPanel::AnyMeshDropLoading() );
+                                         ViewportPanel::AnyMeshDropLoading(),
+                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsReadingEditorHLODs() );
     }
 
     bool EditorLayer::AdmitShotFrame()
