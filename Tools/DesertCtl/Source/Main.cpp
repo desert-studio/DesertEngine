@@ -31,6 +31,7 @@
 #include <Common/Core/LocalSocket.hpp>
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -106,6 +107,10 @@ namespace
              "                                when the forced path is one the device lacks (expected\n"
              "                                refusal); a refusal of a path the device claims (compile,\n"
              "                                pipeline, readback) or an auto check that ran nothing is 1\n"
+             "  spawn <asset> <x,y,z> [--id <uuid>]\n"
+             "                                place a mesh asset at a world point (cm) as a new entity,\n"
+             "                                through the viewport's drop body (selected, one undo step);\n"
+             "                                --id: the UUID it takes (refused when one exists)\n"
              "  add-component <uuid|selected> <Type>\n"
              "                                add a component as Details' Add Component does (one\n"
              "                                undo step); Type = its Details or reflected name\n"
@@ -553,6 +558,33 @@ static int RunTool( int argc, char** argv )
         }
         request = R"({"id":1,"op":"add-component","entity":")" + Escape( rest[1] ) + R"(","component":")" +
                   Escape( rest[2] ) + R"("})";
+    }
+    else if ( operation == "spawn" )
+    {
+        // spawn <asset> <x,y,z> [--id <uuid>] -- UE Remote Control's SpawnActor: the asset lands at the world
+        // point (cm) as a new entity, through the viewport's own drop body (one undo step). The id is the
+        // caller's, so a scenario can address the entity (set/select/add-component) without asking for it.
+        std::string id;
+        for ( auto it = rest.begin(); it != rest.end(); )
+        {
+            if ( *it == "--id" && std::next( it ) != rest.end() )
+            {
+                id = *std::next( it );
+                it = rest.erase( it, std::next( it, 2 ) );
+            }
+            else
+                ++it;
+        }
+        std::string point;
+        if ( rest.size() != 3 || std::count( rest[2].begin(), rest[2].end(), ',' ) != 2 )
+        {
+            std::fprintf( stderr, "desertctl: spawn needs <asset> <x,y,z> [--id <uuid>] (a world point in cm).\n" );
+            return kNoEditor;
+        }
+        if ( !NumberArray( rest[2], point ) )
+            return kNoEditor;
+        request = R"({"id":1,"op":"spawn","path":")" + Escape( rest[1] ) + R"(","value":)" + point +
+                  ( id.empty() ? std::string() : R"(,"entity":")" + Escape( id ) + R"(")" ) + "}";
     }
     else if ( operation == "properties" && rest.size() == 2 )
     {

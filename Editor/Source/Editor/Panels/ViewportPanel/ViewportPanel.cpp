@@ -29,6 +29,7 @@
 #include <Editor/Import/ImportOptionsDialog.hpp>
 #include <format>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Import/AsyncMeshLoader.hpp>
 #include <filesystem>
@@ -369,12 +370,13 @@ namespace Desert::Editor
     }
 
     Common::BoolResultStr ViewportPanel::DropMeshIntoActiveViewport( const std::string&       path,
-                                                                     const ActorDrop::Target& target )
+                                                                     const ActorDrop::Target& target,
+                                                                     const Common::UUID&      id )
     {
         ViewportPanel* viewport = ActiveViewport();
         if ( viewport == nullptr )
             return Common::MakeFormattedError<bool>( "'{}': no viewport is live to drop it into", path );
-        return viewport->DropMeshAsset( path, target );
+        return viewport->DropMeshAsset( path, target, id );
     }
 
     bool ViewportPanel::AnyMeshDropLoading()
@@ -438,27 +440,39 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, const ActorDrop::Target& target )
+    Common::BoolResultStr ViewportPanel::DropMeshAsset( const std::string& path, const ActorDrop::Target& target,
+                                                        const Common::UUID& id )
     {
         if ( !m_Scene || m_AssetManager == nullptr || !m_AsyncLoader )
             return Common::MakeFormattedError<bool>( "'{}': this viewport has no scene or no asset manager",
                                                      path );
+        // A NAMED ID IS THE CALLER'S HANDLE ON THE NEW ENTITY (UE: an actor's FGuid given to SpawnActor): two
+        // entities under one id would make every later address of it ambiguous, so a taken id places nothing.
+        if ( !id.IsNull() && m_Scene->FindEntityByID( id ) )
+            return Common::MakeFormattedError<bool>( "'{}': entity {} already exists in the open scene", path,
+                                                     static_cast<uint64_t>( id ) );
+
+        // A MESH ASSET IS ALREADY COOKED (.stmesh / .skmesh, the Content Browser's Model kind like a source): it
+        // has no import record because it is no source - nothing to import, it is placed as it is.
+        const std::string extension = std::filesystem::path( path ).extension().string();
+        const bool        cooked    = extension == Common::Constants::Extensions::STATIC_MESH ||
+                              extension == Common::Constants::Extensions::SKINNED_MESH;
 
         // A FILE NEVER IMPORTED (no import record) asks for its options first, as UE's drop runs the FBX
         // factory and its options window before the actor exists: nothing is placed now, and the confirmed
         // import places it at the same point (a cancelled one places nothing). This is the one entrance for
         // every door - the mouse, the palette, the control channel.
         if ( std::error_code ec;
-             !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( path ), ec ) )
+             !cooked && !std::filesystem::is_regular_file( Common::Content::ImportRecordPathFor( path ), ec ) )
         {
             // The closure (a std::string and an ActorDrop::Target, moved into std::function) throws nothing the
             // check can name: it flags the closure's implicit constructor, not the drop.
             ImportOptions::Request(
                  path,
                  // NOLINTNEXTLINE(bugprone-exception-escape)
-                 [path, target]
+                 [path, target, id]
                  {
-                     if ( const auto placed = DropMeshIntoActiveViewport( path, target ); !placed )
+                     if ( const auto placed = DropMeshIntoActiveViewport( path, target, id ); !placed )
                          LOG_ERROR( "[Viewport] '{}' imported but not placed: {}", path, placed.GetError() );
                  } );
             LOG_INFO( "[Viewport] '{}' is new: confirm the Import Options window to place it", path );
@@ -468,7 +482,7 @@ namespace Desert::Editor
         // ASYNC spawn: create the (empty) entity NOW and cook the mesh on a worker thread so a heavy FBX
         // doesn't hitch the editor. UpdateAsyncLoads() assigns the mesh once the cook finishes.
         const std::string name = std::filesystem::path( path ).stem().string();
-        auto&             e    = m_Scene->CreateNewEntity( std::string( name ) );
+        auto& e = id.IsNull() ? m_Scene->CreateNewEntity( std::string( name ) ) : m_Scene->CreateEntityWithUUID( id, name );
         e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
         e.SetLocalTranslation( target.Point );
         const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
@@ -476,7 +490,10 @@ namespace Desert::Editor
         Core::SelectionManager::SetSelected( uuid );
         Commands::NotifyCreated( { uuid } ); // undo removes the pending entity; the async cook no-ops when
                                              // its target entity is gone
-        m_AsyncLoader->Request( path, static_cast<uint64_t>( uuid ) );
+        if ( cooked )
+            m_AsyncLoader->RequestCooked( path, static_cast<uint64_t>( uuid ) );
+        else
+            m_AsyncLoader->Request( path, static_cast<uint64_t>( uuid ) );
         return BOOLSUCCESS;
     }
 

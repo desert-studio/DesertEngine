@@ -14,8 +14,8 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
-Дано drop-mesh Content/Meshes/Cube.desmesh 60000,0,60000 --id 9300001
-Дано drop-mesh Content/Meshes/Cube.desmesh 0,0,0 --id 9300002
+Дано spawn Content/Meshes/Modeling/Box.stmesh 60000,0,60000 --id 9300001
+Дано spawn Content/Meshes/Modeling/Box.stmesh 0,0,0 --id 9300002
 Дано set 9300001 Tag.Tag "MapCheckHouse"
 Дано set 9300002 Tag.Tag "MapCheckProbe"
 Дано set 9300002 AlwaysLoaded {}
