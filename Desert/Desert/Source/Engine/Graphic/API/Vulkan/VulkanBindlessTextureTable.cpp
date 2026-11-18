@@ -221,10 +221,20 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanBindlessTextureTable::Release( BindlessTextureSlot slot )
     {
         const std::scoped_lock lock( m_Mutex );
-        // The descriptor keeps naming the destroyed view until the slot is reused: legal, because the binding is
-        // PARTIALLY_BOUND and no frame recorded from now on indexes it.
+        // GPUSCENE-UAF-MAC: THE RELEASED SLOT LEAVES THE SET FRAMES BIND, NOT ONLY THE SET FRAMES INDEX. Its view
+        // is queued for destruction by the image (VulkanAllocator::RT_DestroyImage, frame q) and destroyed once
+        // frame q has completed. The live set used to keep naming it until the slot was reused - legal Vulkan (the
+        // binding is PARTIALLY_BOUND and no frame recorded from now on indexes it), but MoltenVK encodes a bound
+        // set at vkQueueSubmit and makes EVERY written descriptor resident (useResources): the first dispatch that
+        // bound the set after the view was destroyed retained a freed MTLTexture (SIGSEGV in vkQueueSubmit,
+        // WP-DATA-LAYERS / WP-FAR-2; a GraphDeclaredBindless attachment remade by a viewport resize is the common
+        // case). As a Rewrite does, the change lands in a NEW set at this frame's EndFrame (Rebuild writes live
+        // slots only): the frames up to q bind the old set, which retires after them, and no frame after q binds a
+        // set that names the view (UE: a bindless handle is freed by the same deferred deletion that destroys its
+        // resource).
         m_Views[slot.Index] = {};
         m_Slots.Release( slot.Index, m_Frame );
+        m_RebuildPending = true;
     }
 
     void VulkanBindlessTextureTable::Rewrite( BindlessTextureSlot slot, const Image2D& image )
@@ -236,7 +246,7 @@ namespace Desert::Graphic::API::Vulkan
         DESERT_VERIFY( slot.Index < m_Views.size() && m_Views[slot.Index].View != VK_NULL_HANDLE,
                        "bindless table: slot {} rewritten but not live", slot.Index );
         m_Views[slot.Index] = { vulkanImage->GetResource().ImageView, vulkanImage->GetDefaultLayout() };
-        m_RewritePending    = true;
+        m_RebuildPending    = true;
     }
 
     void VulkanBindlessTextureTable::EndFrame( uint64_t frame, uint32_t framesInFlight )
@@ -261,9 +271,9 @@ namespace Desert::Graphic::API::Vulkan
             changed                 = changed || sampler != m_Samplers[index];
             m_Samplers[index]       = sampler;
         }
-        if ( changed || m_RewritePending )
+        if ( changed || m_RebuildPending )
         {
-            m_RewritePending   = false;
+            m_RebuildPending   = false;
             const auto rebuilt = Rebuild( m_Slots.Capacity() );
             DESERT_VERIFY( rebuilt.IsSuccess(), "{}", rebuilt.IsSuccess() ? std::string{} : rebuilt.GetError() );
         }

@@ -117,7 +117,8 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<RetiringSet>                          m_Retiring;
         std::shared_ptr<Image2D>                          m_Missing;
         uint64_t                                          m_Frame = 0;
-        bool m_RewritePending                                     = false; // Rewrite -> new set at EndFrame
+        // Rewrite or Release -> a new set at EndFrame, so no set bound later names a view that is gone.
+        bool                                              m_RebuildPending = false;
         mutable std::mutex                                m_Mutex;
     };
 

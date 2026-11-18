@@ -489,7 +489,9 @@ namespace Desert::Graphic::API::Vulkan
         struct Entry
         {
             std::shared_ptr<T> Resource;
-            uint64_t           LastFrame = 0; // frame counter of the last hand-out
+            // The last frame that could reference it: its hand-out, then every BeginFrame that finds it still held
+            // by an extraction target (GPUSCENE-UAF). Released or handed out again only once that frame is fenced.
+            uint64_t LastFrame = 0;
         };
         struct RetiredTexture
         {
