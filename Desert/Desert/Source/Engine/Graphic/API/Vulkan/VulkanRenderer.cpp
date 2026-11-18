@@ -1513,6 +1513,29 @@ namespace Desert::Graphic::API::Vulkan
             CheckRawImageBind( *static_cast<const RDG::PassContext*>( user ), binding, image, "compute setter" );
         }
 #endif
+
+        // GPUSCENE-UAF-MAC: A KEPT SET LIST NAMES THE BINDLESS TABLE'S SET THAT WAS LIVE WHEN IT WAS KEPT. The
+        // table replaces its set (growth, a sampler change, a streamed image's Rewrite, a Release) and destroys
+        // the old one once the frames in flight have retired, while a pass set memo keeps its entry for as long as
+        // its key repeats (the key says only THAT the table is bound, FPS-SET-MEMO3). A memo hit bound the
+        // destroyed set: MoltenVK encodes a bound set at vkQueueSubmit and made its freed resources resident
+        // (SIGSEGV in useResources, the WP scenarios on Mac, right after a streamed mip swap). Every hit binds the
+        // set live NOW, as the bound-sets memo's hit already did (UE: the bindless heap is bound per command list,
+        // never cached in a binding).
+        std::span<const VkDescriptorSet> WithLiveBindlessSet( const std::vector<DescriptorSetLayoutRef>& layouts,
+                                                              std::span<const VkDescriptorSet>           kept )
+        {
+            const VulkanBindlessTextureTable* bindless = BindlessTableIn( layouts );
+            if ( bindless == nullptr || kept.size() <= kBindlessSetIndex )
+                return kept;
+            const VkDescriptorSet live = bindless->GetDescriptorSet();
+            if ( kept[kBindlessSetIndex] == live )
+                return kept;
+            thread_local std::vector<VkDescriptorSet> t_Live;
+            t_Live.assign( kept.begin(), kept.end() );
+            t_Live[kBindlessSetIndex] = live;
+            return t_Live;
+        }
     } // namespace
 
 #if DESERT_DEV_INSTRUMENTS
@@ -1687,7 +1710,7 @@ namespace Desert::Graphic::API::Vulkan
             else
                 kept = memo->Keep( key, fresh );
         }
-        const std::span<const VkDescriptorSet> sets = *kept;
+        const std::span<const VkDescriptorSet> sets = WithLiveBindlessSet( built.Layouts, *kept );
 
         // FPS-CPU2-VKRECORD (CPU-FRAME-6's skip, for compute): the pipeline and the sets are recorded only when
         // the command buffer does not hold exactly these, bound with this layout and no foreign bind since.
@@ -2768,7 +2791,7 @@ namespace Desert::Graphic::API::Vulkan
 #endif
             t_Stamps.clear(); // holds no cache entry past the draw
         }
-        const std::span<const VkDescriptorSet> sets = *kept;
+        const std::span<const VkDescriptorSet> sets = WithLiveBindlessSet( layouts, *kept );
 
         // A pipeline still in the driver (PSO1) is not drawn this frame and is not an error: the content gate waits
         // for engine pipelines (BindGraphicsPipeline). Success(false) tells the draw to skip.
