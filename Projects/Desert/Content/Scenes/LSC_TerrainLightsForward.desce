@@ -7,7 +7,7 @@
             "LGHT": 1,
             "SCNE": 75,
             "UNIT": 1,
-            "WPAR": 1
+            "WPAR": 2
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "239102b0b0735153c9b59f5e6558ca50", "80a31d6cbbb94e2680f8d4fa2d3cc8a9", "c2407e5571ff7898af741eafd1abdfeb"]
     },
@@ -38,7 +38,18 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0,
-                "VolumetricScatteringIntensity": 1.0
+                "VolumetricScatteringIntensity": 1.0,
+                "IesProfile": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "UseIesBrightness": false,
+                "IesBrightnessScale": 1.0,
+                "LightFunctionMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "LightFunctionScale": [1024.0, 1024.0, 1024.0]
             }
         },
         {

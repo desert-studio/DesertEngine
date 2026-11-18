@@ -7,7 +7,7 @@
             "LGHT": 1,
             "SCNE": 75,
             "UNIT": 1,
-            "WPAR": 1
+            "WPAR": 2
         },
         "Dependencies": ["5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "95cdc28154e34f40b1ff8399d707b5b8", "c730e67be3da4598b852ba1021a94692", "cc91578c315f46bdacd58fde6183a144", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
     },
