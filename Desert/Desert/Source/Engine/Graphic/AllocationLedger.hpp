@@ -48,6 +48,15 @@ namespace Desert::Graphic
             return m_Rows.erase( handle ) > 0;
         }
 
+        // The tag a live handle was recorded with, empty when it is not recorded: a destruction's log line names
+        // the object it destroys (GPUSCENE-UAF-2).
+        [[nodiscard]] std::string TagOf( const uint64_t handle ) const
+        {
+            const std::scoped_lock lock( m_Mutex );
+            const auto             found = m_Rows.find( handle );
+            return found != m_Rows.end() ? found->second.Tag : std::string{};
+        }
+
         [[nodiscard]] std::size_t LiveCount() const
         {
             const std::scoped_lock lock( m_Mutex );
