@@ -52,7 +52,9 @@ namespace Desert::Core::DescriptorIndex
     // an index of 2 is rebuilt, never read without them.
     // 4 (WP-LOADER-ADAPTERS): a descriptor states its LocationVolume box - an index of 3 is rebuilt, so the editor
     // never resolves a Location Volume from a row read before it had one.
-    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 4 )
+    // 5 (WP-ENTITY-REFS): a descriptor states its scripts' Entity properties (ScriptReferences) and its references
+    // by name (NamedReferences, Names) - an index of 4 is rebuilt, never planned without them.
+    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 5 )
 
     // Where the index of the scene at `scenePath` lives.
     [[nodiscard]] std::filesystem::path PathOf( const std::filesystem::path& scenePath );

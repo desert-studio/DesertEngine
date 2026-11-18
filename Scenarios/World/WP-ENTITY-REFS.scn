@@ -1,0 +1,39 @@
+# WP-ENTITY-REFS (UE 5.5: a soft actor reference to an actor of another cell resolves while that actor is loaded; hard
+# references - a Blueprint's included, FWorldPartitionActorDesc::GetReferences - join the actors into one cluster,
+# FActorClusterContext). One resolver, Rules::ResolveEntityReferences: the register's component fields, a script's
+# Entity properties (Property.Entity() soft = Observation, Property.Entity({ hard = true }) = Containment) and names
+# (kEntityReferencesByName). Residency lists Rebound / Unbound pairs; WorldStreamer publishes them to ScriptSystem
+# (ECS::EntityReferenceBindings), which writes the property into the running script again (entity / nil).
+# Expected log lines (editor.log "[WorldPartition] 'WP_Protocol': ..."):
+#   "rebound 1 reference into G0L0(<x>,<z>)"   (the beacon's cell, as DescribeResidencyUnit spells it)
+#   "unbound 1 reference from G0L0(<x>,<z>); they read nil until it returns"
+# CONTENT the lead adds before the run (not in this sparse tree): Scripts/World/RefTurret.lua -
+#   Properties = { Target = Property.Entity( { tooltip = "What the turret tracks." } ) }
+#   function OnUpdate(dt) if Properties.Target and Properties.Target:valid() then <yaw self toward Target's position> end end
+# and Scripts/World/RefHardLink.lua - Properties = { Part = Property.Entity( { hard = true } ) }.
+# Ids: turret 9200001 (cell A, by the Player), beacon 9200002 (cell B, ~2 cells along +X), hard pair 9200003 -> 9200004
+# (neighbouring cells). LEAD: if `set ... ScriptComponent...` is not the DesertCtl form on this build, attach the scripts in
+# Details > Add Component > Script and pick the targets in the Entity field (as GDT-1 does for its demo script).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано drop-mesh Content/Meshes/Cube.desmesh 1000,0,1000 --id 9200001
+Дано drop-mesh Content/Meshes/Cube.desmesh 27000,0,1000 --id 9200002
+Дано set 9200001 Script.Scripts [{"ScriptKey":"assets:Scripts/World/RefTurret.lua","Props":[{"Name":"Target","Type":7,"Ref":9200002}]}]
+Когда run Mode "Select mode"
+Когда run Action "Play"
+Когда advance 2
+Тогда refs_deferred турель у игрока стоит в исходном повороте (маяк в ячейке B не загружен, Target = nil); в логе "reference(s) from records just activated name an entity that is not resident"
+Когда --subject viewport set Camera.Position 26000,600,-500
+Когда --subject viewport set Camera.Direction 0,-0.3,1
+Когда advance 3
+Тогда refs_rebound маяк в ячейке B на месте; турель повернулась на маяк; лог: "rebound 1 reference into G0L0(…)" (ячейка маяка)
+Когда --subject viewport set Camera.Position 0,600,-500
+Когда advance 3
+Когда run Action "Stop"
+Дано drop-mesh Content/Meshes/Cube.desmesh 12700,0,1000 --id 9200003
+Дано drop-mesh Content/Meshes/Cube.desmesh 12900,0,1000 --id 9200004
+Когда set 9200003 Script.Scripts [{"ScriptKey":"assets:Scripts/World/RefHardLink.lua","Props":[{"Name":"Part","Type":7,"Ref":9200004}]}]
+Когда run Scene "World Partition: Refresh"
+Тогда-вид refs_script_cluster карта WP: 9200003 и 9200004 (по разные стороны границы ячейки) лежат в ОДНОЙ ячейке - кластер по жёсткой EntityRef скрипта; без hard (Property.Entity()) они в соседних ячейках

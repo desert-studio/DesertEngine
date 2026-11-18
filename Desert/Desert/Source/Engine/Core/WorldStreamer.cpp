@@ -13,6 +13,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/EntityReferenceEvents.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Projects/WorldPartitionSettings.hpp>
@@ -328,7 +329,7 @@ namespace Desert::Core
         for ( const Assets::EntityData& record : snapshot->Entities )
             streamer->m_RecordIds.push_back( record.id.value_or( Common::UUID( 0 ) ) );
         auto begun = Rules::BeginWorldStreaming( *snapshot, RegistryMeshBounds(), streamer->m_Settings, sources,
-                                                 *streamer );
+                                                 *streamer, WorldCells::ScriptReferenceKinds() );
         if ( !begun )
             return Common::MakeError<Result>( "world streaming: " + begun.GetError() );
         if ( !begun.GetValue().has_value() )
@@ -990,6 +991,33 @@ namespace Desert::Core
                       "is not resident (they resolve when it is), and {2} reference(s) from resident records "
                       "named an entity that just left (they read null until it returns).",
                       m_SceneName, done.DeferredReferences, done.UnboundReferences );
+        }
+        // WP-ENTITY-REFS: a reference whose target arrived or left is carried to the running scripts that hold the
+        // entity it named (ECS::EntityReferenceBindings) and said per cell.
+        if ( !done.Rebound.empty() || !done.Unbound.empty() )
+        {
+            std::vector<ECS::EntityReferenceBinding> bindings;
+            bindings.reserve( done.Rebound.size() + done.Unbound.size() );
+            std::map<std::size_t, std::size_t> reboundInto;
+            std::map<std::size_t, std::size_t> unboundFrom;
+            for ( const auto& [holder, target] : done.Rebound )
+            {
+                bindings.push_back( ECS::EntityReferenceBinding{ m_RecordIds.at( holder ), m_RecordIds.at( target ) } );
+                ++reboundInto[Executor().UnitOf( target )];
+            }
+            for ( const auto& [holder, target] : done.Unbound )
+            {
+                bindings.push_back( ECS::EntityReferenceBinding{ m_RecordIds.at( holder ), m_RecordIds.at( target ) } );
+                ++unboundFrom[Executor().UnitOf( target )];
+            }
+            ECS::PublishEntityReferenceBindings( m_Scene->GetRegistry(), bindings );
+            for ( const auto& [unit, count] : reboundInto )
+                LOG_INFO( "[WorldPartition] '{0}': rebound {1} reference{2} into {3}", m_SceneName, count,
+                          count == 1 ? "" : "s", Rules::DescribeResidencyUnit( Executor().Plan(), unit ) );
+            for ( const auto& [unit, count] : unboundFrom )
+                LOG_INFO( "[WorldPartition] '{0}': unbound {1} reference{2} from {3}; they read nil until it returns",
+                          m_SceneName, count, count == 1 ? "" : "s",
+                          Rules::DescribeResidencyUnit( Executor().Plan(), unit ) );
         }
         SayDataLayerUnits();
         return BOOLSUCCESS;
