@@ -10,8 +10,16 @@
 #include <ImGui/imgui.h> // the panel interface no longer hands the toolkit over (IPanel.hpp)
 #include "EntityTypeCensus.hpp"
 
+#include <Engine/Core/Serialize/EditorRegions.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace Desert::Editor::Commands
 {
@@ -20,6 +28,8 @@ namespace Desert::Editor::Commands
 
 namespace Desert::Editor
 {
+    class WorldPartitionPanel;
+
     class SceneHierarchyPanel final : public IPanel
     {
     public:
@@ -31,7 +41,15 @@ namespace Desert::Editor
         void OnUIRender() override;
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override
         {
-            m_Scene = scene;
+            m_Scene          = scene;
+            m_WorldRowsValid = false;
+        }
+        // UE's Scene Outliner in World Partition mode pins and loads actors through the world's loader adapters;
+        // here the World Partition window holds what the editor holds of the world (its regions, pins and data
+        // layers) and asks before an unload. EditorPanels wires it; without it the Pinned column is not offered.
+        void SetWorldPartition( WorldPartitionPanel* worldPartition )
+        {
+            m_WorldPartition = worldPartition;
         }
 
         // The outliner's "Add > Shapes" entry for one primitive: an entity drawing it, one undo step. The
@@ -52,6 +70,14 @@ namespace Desert::Editor
         void                  DrawReplacePrefabPopup();
         void               DrawSavePrefabPopup();
         void               SelectRangeTo( const Common::UUID& target ); // Shift+click
+
+        // World Partition mode (a partitioned world opened from its files): the descriptor rows of the records
+        // left on disk, re-read when a region change moved EntityPackages::RegionGeneration; the Unsaved filter's
+        // rows of this frame; one grey row per record not loaded (UE FActorDescTreeItem); the Pinned gutter.
+        void RefreshWorldRows();
+        void CollectUnsavedRows();
+        void DrawNotLoadedRow( std::size_t index );
+        void DrawPinToggle( std::uint64_t record );
 
     private:
         std::shared_ptr<Desert::Core::Scene>        m_Scene;
@@ -118,5 +144,21 @@ namespace Desert::Editor
         Common::UUID                 m_LastRevealedSelection = Common::UUID::Null();
         std::unordered_set<uint64_t> m_ExpandToSelection; // ancestor UUIDs to open once, this frame
         bool                         m_ScrollToSelection = false;
+
+        // ── World Partition mode ──
+        WorldPartitionPanel* m_WorldPartition = nullptr; // not owned: the panel registry outlives both panels
+        bool                 m_WorldMode      = false;   // this frame: a partitioned world opened from its files
+        bool                 m_UnsavedOnly    = false;   // UE's "Unsaved" filter: dirty entities and their parents
+        bool                 m_ShowUnloaded   = true;    // UE lists unloaded actors unless they are filtered out
+        std::unordered_set<std::uint64_t> m_UnsavedShown; // this frame, Unsaved filter: the rows that pass it
+        bool                              m_WorldRowsValid      = false;
+        std::uint64_t                     m_WorldRowsGeneration = 0;
+        std::optional<::Desert::Core::EditorRegions::WorldRows>     m_WorldRows;
+        std::string                                                 m_WorldRowsStatus; // why there are no rows
+        std::unordered_set<std::uint64_t>                           m_WorldRecords;    // every record of the world
+        std::unordered_map<std::uint64_t, std::vector<std::size_t>> m_NotLoadedChildren; // parent id -> rows
+        std::vector<std::size_t>                                    m_NotLoadedRoots;
+        // A Pin toggle or a double-click on a row not loaded: applied after the tree walk (it loads / unloads).
+        std::optional<std::pair<std::uint64_t, bool>> m_PendingPin;
     };
 } // namespace Desert::Editor

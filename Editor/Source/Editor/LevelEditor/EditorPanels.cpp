@@ -49,7 +49,7 @@ namespace Desert::Editor
                                              AssetThumbnailPool&                                 thumbnailPool )
     {
         EditorPanelHandles handles;
-        panels.Add<Editor::SceneHierarchyPanel>( workspace.ActiveScene(), assetManager );
+        auto& outliner = panels.Add<Editor::SceneHierarchyPanel>( workspace.ActiveScene(), assetManager );
         panels.Add<Editor::ScenePropertiesPanel>( workspace.ActiveScene(), assetManager, animationLibrary.get() );
         panels.Add<Editor::ParticleDebuggerPanel>( workspace.ActiveScene() );
         {
@@ -79,6 +79,9 @@ namespace Desert::Editor
         // UE's Data Layer Outliner (WP-DATA-LAYER-OUTLINER): the tree of the world's data layers and their
         // members.
         panels.Add<Editor::DataLayerOutlinerPanel>( workspace.ActiveScene() );
+        // The outliner's World Partition mode pins records and unloads through the window's loader (its regions,
+        // pins and data layers are the one copy of what the editor holds).
+        outliner.SetWorldPartition( handles.WorldPartition );
         panels.Add<Editor::LogsPanel>();
         panels.Add<Editor::CollectionsPanel>( assetManager.get() );
         panels.Add<Editor::HistoryPanel>();

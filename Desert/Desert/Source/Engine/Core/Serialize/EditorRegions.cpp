@@ -8,6 +8,7 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/ECS/Components.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -93,7 +94,8 @@ namespace Desert::Core::EditorRegions
             return Common::MakeSuccess( std::move( selected ) );
         }
 
-        Common::ResultStr<RegionOutcome> Hold( Scene& scene, Assets::AssetManager* assets, const HeldRegions& held )
+        Common::ResultStr<RegionOutcome> Hold( Scene& scene, Assets::AssetManager* assets, const HeldRegions& held,
+                                               const UnsavedPolicy policy )
         {
             using Result         = RegionOutcome;
             const auto& baseline = scene.Packages()->BaselinePath();
@@ -122,8 +124,8 @@ namespace Desert::Core::EditorRegions
                 if ( !wanted.contains( id ) )
                     notLoaded.emplace_back( id );
 
-            // What the scene holds now, and what of it leaves. A dirty entity refuses the change before anything
-            // is read or destroyed.
+            // What the scene holds now, and what of it leaves. Under UnsavedPolicy::Ask a dirty entity that would
+            // leave stops the change before anything is read or destroyed.
             SceneSerializer const             serializer( &scene, assets );
             const std::vector<LiveEntity>     live = serializer.LiveEntities();
             // An entity whose record the world's files do not hold (made since the open or last save, e.g. the
@@ -134,6 +136,7 @@ namespace Desert::Core::EditorRegions
             std::unordered_set<std::uint64_t>       made;
             std::vector<Common::UUID>               leaving;
             std::vector<Common::UUID>               unsaved;
+            std::vector<UnsavedEntity>              unsavedLeaving; // Ask: the dirty entities that would leave
             for ( const LiveEntity& entity : live )
             {
                 const auto record = static_cast<std::uint64_t>( entity.Record );
@@ -146,14 +149,31 @@ namespace Desert::Core::EditorRegions
                     made.insert( record );
                 if ( wanted.contains( record ) )
                     continue;
-                if ( scene.Packages()->IsDirty( entity.Id ) )
-                    return Common::MakeError<Result>(
-                         fmt::format( "'{}': entity {} differs from its file and would leave the loaded regions. "
-                                      "Save it first. "
-                                      "Nothing was loaded or unloaded.",
-                                      path.string(), static_cast<std::uint64_t>( entity.Id ) ) );
+                if ( policy == UnsavedPolicy::Ask && scene.Packages()->IsDirty( entity.Id ) )
+                {
+                    // Every one is named, not the first: the prompt lists what a Save or a Discard decides.
+                    const auto found = scene.FindEntityByID( entity.Id );
+                    unsavedLeaving.push_back( UnsavedEntity{
+                         entity.Id, found.has_value()
+                                         ? found->get().GetComponent<ECS::TagComponent>().Tag
+                                         : fmt::format( "{}", static_cast<std::uint64_t>( entity.Id ) ) } );
+                    continue;
+                }
                 if ( static_cast<std::uint64_t>( entity.Id ) == record )
                     leaving.push_back( entity.Id );
+            }
+            // An entity deleted since the last save would come back from its file: the change asks about it too
+            // (Discard brings it back where the regions hold it, a Save deletes its file first).
+            if ( policy == UnsavedPolicy::Ask )
+                for ( const Common::UUID gone : scene.Packages()->GoneSince( live ) )
+                    unsavedLeaving.push_back( UnsavedEntity{
+                         gone, fmt::format( "{} (deleted)", static_cast<std::uint64_t>( gone ) ) } );
+            // UE asks before it unloads a dirty actor: nothing is read or destroyed until the user answers.
+            if ( !unsavedLeaving.empty() )
+            {
+                outcome.Unsaved   = std::move( unsavedLeaving );
+                outcome.NotLoaded = scene.Packages()->NotLoadedCount();
+                return Common::MakeSuccess( std::move( outcome ) );
             }
 
             // Read and parsed before the scene is touched: a file that cannot be read changes nothing.
@@ -574,9 +594,10 @@ namespace Desert::Core::EditorRegions
         return rows;
     }
 
-    Common::ResultStr<RegionOutcome> LoadHeld( Scene& scene, Assets::AssetManager* assets, const HeldRegions& held )
+    Common::ResultStr<RegionOutcome> LoadHeld( Scene& scene, Assets::AssetManager* assets, const HeldRegions& held,
+                                               const UnsavedPolicy policy )
     {
-        return Hold( scene, assets, held );
+        return Hold( scene, assets, held, policy );
     }
 
     Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path, const HeldRegions& held )
@@ -675,6 +696,69 @@ namespace Desert::Core::EditorRegions
         std::vector<Assets::EntityData> arriving = rest.ExtractValue();
         for ( Assets::EntityData& record : arriving )
             world.Entities.push_back( std::move( record ) );
+        return Common::MakeSuccess( std::move( world ) );
+    }
+
+    Common::ResultStr<WorldRows> DescribeWorld( Scene& scene )
+    {
+        using Result         = WorldRows;
+        const auto& baseline = scene.Packages()->BaselinePath();
+        if ( !baseline )
+            return Common::MakeError<Result>(
+                 fmt::format( "'{}' was not opened from or saved to its files.", scene.GetSceneName() ) );
+        const std::filesystem::path path = *baseline;
+        if ( !scene.GetWorldPartition() )
+            return Common::MakeError<Result>( fmt::format( "'{}' is not a partitioned world.", path.string() ) );
+
+        auto index = DescriptorIndex::Refresh( path );
+        if ( !index )
+            return Common::MakeError<Result>( index.GetError() );
+        const DescriptorIndex::DescriptorIndexFile& rows        = index.GetValue().Index;
+        const std::vector<Rules::EntityDescriptor>  descriptors = DescriptorIndex::Descriptors( rows );
+        const Rules::WorldPartitionPlan             plan =
+             Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( descriptors ),
+                                        *scene.GetWorldPartition(), RegistryMeshBounds(),
+                                        WorldCells::ScriptReferenceKinds() );
+
+        std::vector<std::size_t> compositeOf( rows.Entities.size(), Rules::kNoRecord );
+        for ( std::size_t c = 0; c < plan.Composites.size(); ++c )
+            for ( const std::size_t member : plan.Composites[c].Members )
+                if ( member < compositeOf.size() )
+                    compositeOf[member] = c;
+        const std::unordered_set<std::size_t> always( plan.AlwaysLoaded.begin(), plan.AlwaysLoaded.end() );
+
+        WorldRows world;
+        world.Records.reserve( rows.Entities.size() );
+        for ( std::size_t r = 0; r < rows.Entities.size(); ++r )
+        {
+            const DescriptorIndex::DescriptorRow& row = rows.Entities[r];
+            world.Records.push_back( row.Id );
+            if ( scene.Packages()->IsLoaded( Common::UUID( row.Id ) ) )
+                continue;
+            NotLoadedRow entry;
+            entry.Id            = row.Id;
+            entry.Parent        = row.Descriptor.Parent.has_value() ? *row.Descriptor.Parent : 0;
+            entry.Name          = row.Descriptor.Tag;
+            entry.Components    = row.Descriptor.Components;
+            entry.DataLayers    = row.Descriptor.DataLayers;
+            const std::size_t c = compositeOf[r];
+            if ( c == Rules::kNoRecord )
+                entry.Cell = "not planned";
+            else if ( always.contains( c ) )
+                entry.Cell = "always loaded";
+            else if ( !plan.Composites[c].Footprint.has_value() )
+                entry.Cell = "no place";
+            else
+            {
+                const Rules::PlannedComposite& composite = plan.Composites[c];
+                entry.Cell =
+                     composite.Grid == 0
+                          ? fmt::format( "L{} ({}, {})", composite.Level, composite.Cell.X, composite.Cell.Z )
+                          : fmt::format( "grid {} L{} ({}, {})", composite.Grid, composite.Level, composite.Cell.X,
+                                         composite.Cell.Z );
+            }
+            world.NotLoaded.push_back( std::move( entry ) );
+        }
         return Common::MakeSuccess( std::move( world ) );
     }
 

@@ -1,7 +1,17 @@
 #include "SceneHierarchyPanel.hpp"
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Common/Core/Logger.hpp>
+
+#include <Editor/Panels/WorldPartition/WorldPartitionPanel.hpp>
+
+#include <Engine/Core/Serialize/ComponentRegistry.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <format>
+#include <string_view>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
@@ -209,37 +219,88 @@ namespace Desert::Editor
         return e.GetComponent<ECS::UUIDComponent>().UUID;
     }
 
+    namespace
+    {
+        // The Data Layers column's width (World Partition mode), in ems: two short layer names.
+        constexpr float kOutlinerLayersEm = 7.0f;
+
+        // THE OUTLINER'S TYPE PRECEDENCE, one table for a loaded entity and for a record left on disk (whose type
+        // is read off the component keys its descriptor states). Order is precedence, not taste: an entity
+        // carrying both a SkyAtmosphere and a Skybox is a procedural sky that keeps an HDR fallback, and the
+        // atmosphere is what it is named for (the same precedence ScenePropertiesPanel::GetPrimaryComponentName
+        // uses). The landscape ROOT (the actor that owns the tiles) reads as one environment thing; its tiles are
+        // children with their own component and fall through to Actor like any other part of an actor. The keys
+        // are the ComponentRegistry's, and an entity is asked through the registered component's Has.
+        struct TypeRule
+        {
+            std::string_view Key;
+            EntityTypeKind   Kind;
+        };
+        constexpr TypeRule kTypePrecedence[] = {
+             { "Folder", EntityTypeKind::Folder },
+             { "Camera", EntityTypeKind::Camera },
+             { "DirectionLight", EntityTypeKind::DirectionalLight },
+             { "PointLight", EntityTypeKind::PointLight },
+             { "SpotLight", EntityTypeKind::SpotLight },
+             { "RectLight", EntityTypeKind::RectLight },
+             { "SkyAtmosphere", EntityTypeKind::SkyAtmosphere },
+             { "Skybox", EntityTypeKind::Skybox },
+             { "Landscape", EntityTypeKind::Landscape },
+             { "SkinnedMesh", EntityTypeKind::SkinnedMesh },
+             { "StaticMesh", EntityTypeKind::StaticMesh },
+             { "Text", EntityTypeKind::Text },
+        };
+        constexpr std::size_t kTypeRules = std::size( kTypePrecedence );
+
+        // Each rule's registered component, resolved once. A key the registry does not hold is a broken table:
+        // named in the log, and that rule never matches.
+        const std::array<const ::Desert::Core::Serialize::ComponentSerializer*, kTypeRules>& TypeRuleComponents()
+        {
+            static const std::array<const ::Desert::Core::Serialize::ComponentSerializer*, kTypeRules> resolved =
+                 []
+            {
+                std::array<const ::Desert::Core::Serialize::ComponentSerializer*, kTypeRules> found{};
+                const auto& all = ::Desert::Core::Serialize::ComponentRegistry::Get().All();
+                for ( std::size_t rule = 0; rule < kTypeRules; ++rule )
+                {
+                    const auto match =
+                         std::find_if( all.begin(), all.end(),
+                                       [&]( const ::Desert::Core::Serialize::ComponentSerializer& serializer )
+                                       { return serializer.Key == kTypePrecedence[rule].Key; } );
+                    if ( match == all.end() )
+                        LOG_ERROR( "[Outliner] type rule '{}' names no registered component",
+                                   kTypePrecedence[rule].Key );
+                    else
+                        found[rule] = &*match;
+                }
+                return found;
+            }();
+            return resolved;
+        }
+
+        EntityTypeKind ClassifyComponentKeys( const std::vector<std::string>& keys )
+        {
+            for ( const TypeRule& rule : kTypePrecedence )
+                if ( std::find( keys.begin(), keys.end(), rule.Key ) != keys.end() )
+                    return rule.Kind;
+            return EntityTypeKind::Actor;
+        }
+
+        std::string JoinNames( const std::vector<std::string>& names )
+        {
+            std::string joined;
+            for ( const std::string& name : names )
+                joined += joined.empty() ? name : std::format( ", {}", name );
+            return joined;
+        }
+    } // namespace
+
     EntityTypeKind SceneHierarchyPanel::ClassifyEntity( const ECS::Entity& entity )
     {
-        // Order is precedence, not taste: an entity carrying both a SkyAtmosphere and a Skybox is a
-        // procedural sky that keeps an HDR fallback, and the atmosphere is what it is named for (the
-        // same precedence ScenePropertiesPanel::GetPrimaryComponentName uses).
-        if ( entity.HasComponent<ECS::FolderComponent>() )
-            return EntityTypeKind::Folder;
-        if ( entity.HasComponent<ECS::CameraComponent>() )
-            return EntityTypeKind::Camera;
-        if ( entity.HasComponent<ECS::DirectionLightComponent>() )
-            return EntityTypeKind::DirectionalLight;
-        if ( entity.HasComponent<ECS::PointLightComponent>() )
-            return EntityTypeKind::PointLight;
-        if ( entity.HasComponent<ECS::SpotLightComponent>() )
-            return EntityTypeKind::SpotLight;
-        if ( entity.HasComponent<ECS::RectLightComponent>() )
-            return EntityTypeKind::RectLight;
-        if ( entity.HasComponent<ECS::SkyAtmosphereComponent>() )
-            return EntityTypeKind::SkyAtmosphere;
-        if ( entity.HasComponent<ECS::SkyboxComponent>() )
-            return EntityTypeKind::Skybox;
-        // The landscape ROOT (the actor that owns the tiles) reads as one environment thing; its tiles are
-        // children with their own component and fall through to Actor like any other part of an actor.
-        if ( entity.HasComponent<ECS::LandscapeComponent>() )
-            return EntityTypeKind::Landscape;
-        if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
-            return EntityTypeKind::SkinnedMesh;
-        if ( entity.HasComponent<ECS::StaticMeshComponent>() )
-            return EntityTypeKind::StaticMesh;
-        if ( entity.HasComponent<ECS::TextComponent>() )
-            return EntityTypeKind::Text;
+        const auto& components = TypeRuleComponents();
+        for ( std::size_t rule = 0; rule < kTypeRules; ++rule )
+            if ( components[rule] != nullptr && components[rule]->Has( entity ) )
+                return kTypePrecedence[rule].Kind;
         return EntityTypeKind::Actor;
     }
 
@@ -254,6 +315,8 @@ namespace Desert::Editor
         const auto         UUID = entity.GetComponent<ECS::UUIDComponent>().UUID;
 
         if ( m_HierarchyFilter.IsActive() && !m_HierarchyFilter.PassFilter( name.c_str() ) )
+            return;
+        if ( m_WorldMode && m_UnsavedOnly && !m_UnsavedShown.contains( static_cast<std::uint64_t>( UUID ) ) )
             return;
 
         Utils::ImGuiUtilities::PushID();
@@ -449,6 +512,15 @@ namespace Desert::Editor
                             editorCam->Focus( glm::vec3( ref->get().GetWorldTransform()[3] ) );
             }
         }
+        // UE's unsaved marker on an actor whose own package is dirty (One File Per Actor): this entity differs
+        // from its file (EntityPackages::IsDirty - the same question a save and an unload ask).
+        if ( m_WorldMode && m_Scene->Packages()->IsDirty( UUID ) )
+        {
+            ImGui::SameLine( 0.0f, 2.0f );
+            ImGui::TextColored( ImVec4( 0.95f, 0.75f, 0.30f, 1.0f ), "*" );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Unsaved: differs from its file" );
+        }
         if ( isPrefab )
         {
             ImGui::SameLine();
@@ -491,6 +563,15 @@ namespace Desert::Editor
                     if ( const auto piloted = PilotCameraEntity( UUID ); !piloted )
                         LOG_WARN( "[Outliner] pilot of '{}' refused: {}", name, piloted.GetError() );
                 }
+            }
+            // Pin / Unpin, as UE's outliner offers it on an actor of a World Partition world (the Pinned
+            // column's toggle, for a record of the world's files).
+            if ( m_WorldMode && m_WorldPartition != nullptr &&
+                 m_WorldRecords.contains( static_cast<std::uint64_t>( UUID ) ) )
+            {
+                const bool pinned = m_WorldPartition->IsPinned( static_cast<std::uint64_t>( UUID ) );
+                if ( ImGui::Selectable( pinned ? ICON_MDI_PIN_OUTLINE " Unpin" : ICON_MDI_PIN " Pin" ) )
+                    m_PendingPin = std::make_pair( static_cast<std::uint64_t>( UUID ), !pinned );
             }
             // An operation on a MULTI-selected entity applies to the whole selection (UE behavior).
             auto targetSet = [&]() -> std::vector<Common::UUID>
@@ -644,6 +725,25 @@ namespace Desert::Editor
             ImGui::SetTooltip( locked ? "Unlock (allow picking and gizmo edits)"
                                       : "Lock (refuse picking and gizmo edits)" );
 
+        // Columns 4 and 5 (World Partition mode): UE's Pinned gutter, on the world's records only (an entity made
+        // since the last save has no file to keep loaded), and the entity's Data Layers.
+        if ( m_WorldMode )
+        {
+            ImGui::TableSetColumnIndex( 4 );
+            if ( m_WorldRecords.contains( static_cast<std::uint64_t>( UUID ) ) )
+                DrawPinToggle( static_cast<std::uint64_t>( UUID ) );
+            ImGui::TableSetColumnIndex( 5 );
+            if ( entity.HasComponent<ECS::DataLayersComponent>() )
+            {
+                ImGui::PushStyleColor( ImGuiCol_Text, visible
+                                                           ? ImGui::GetStyleColorVec4( ImGuiCol_Text )
+                                                           : ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
+                ImGui::TextUnformatted(
+                     JoinNames( entity.GetComponent<ECS::DataLayersComponent>().Data.Layers ).c_str() );
+                ImGui::PopStyleColor();
+            }
+        }
+
         if ( nodeOpen )
         {
             if ( hasChildren )
@@ -668,6 +768,157 @@ namespace Desert::Editor
         }
 
         Utils::ImGuiUtilities::PopID();
+    }
+
+    void SceneHierarchyPanel::RefreshWorldRows()
+    {
+        const auto& packages = *m_Scene->Packages();
+        // Edit only: Play runs the whole world in this scene, so its records are all loaded there and its edits
+        // are not the files' (UE's outliner shows the PIE world without the unloaded actors).
+        m_WorldMode = m_Scene->GetWorldPartition().has_value() && packages.BaselinePath().has_value() &&
+                      !( m_WorldPartition != nullptr && m_WorldPartition->Playing() );
+        if ( !m_WorldMode )
+        {
+            m_WorldRowsValid = false;
+            m_WorldRows.reset();
+            m_WorldRowsStatus.clear();
+            m_WorldRecords.clear();
+            m_NotLoadedChildren.clear();
+            m_NotLoadedRoots.clear();
+            return;
+        }
+        // The records left on disk change only with a region change (AdoptRegion) or a new open (Forget).
+        if ( m_WorldRowsValid && m_WorldRowsGeneration == packages.RegionGeneration() )
+            return;
+        m_WorldRowsValid      = true;
+        m_WorldRowsGeneration = packages.RegionGeneration();
+        m_WorldRecords.clear();
+        m_NotLoadedChildren.clear();
+        m_NotLoadedRoots.clear();
+        auto described = ::Desert::Core::EditorRegions::DescribeWorld( *m_Scene );
+        if ( !described )
+        {
+            m_WorldRows.reset();
+            m_WorldRowsStatus = described.GetError();
+            return;
+        }
+        m_WorldRowsStatus.clear();
+        m_WorldRows = described.ExtractValue();
+        m_WorldRecords.insert( m_WorldRows->Records.begin(), m_WorldRows->Records.end() );
+        // A record left on disk hangs under its parent when the parent is left on disk too (a composite leaves
+        // whole); otherwise it is a root row.
+        std::unordered_set<std::uint64_t> notLoaded;
+        for ( const ::Desert::Core::EditorRegions::NotLoadedRow& row : m_WorldRows->NotLoaded )
+            notLoaded.insert( row.Id );
+        for ( std::size_t r = 0; r < m_WorldRows->NotLoaded.size(); ++r )
+        {
+            const std::uint64_t parent = m_WorldRows->NotLoaded[r].Parent;
+            if ( parent != 0 && notLoaded.contains( parent ) )
+                m_NotLoadedChildren[parent].push_back( r );
+            else
+                m_NotLoadedRoots.push_back( r );
+        }
+    }
+
+    void SceneHierarchyPanel::CollectUnsavedRows()
+    {
+        m_UnsavedShown.clear();
+        if ( !m_WorldMode || !m_UnsavedOnly )
+            return;
+        auto&       registry = m_Scene->GetRegistry();
+        const auto& packages = *m_Scene->Packages();
+        // A dirty entity and every ancestor of it, so the tree still reaches it (UE's filters keep the parents).
+        for ( const auto handle : registry.view<ECS::UUIDComponent>() )
+        {
+            if ( !packages.IsDirty( registry.get<ECS::UUIDComponent>( handle ).UUID ) )
+                continue;
+            entt::entity e = handle;
+            while ( e != entt::null && registry.has<ECS::UUIDComponent>( e ) )
+            {
+                if ( !m_UnsavedShown
+                           .insert( static_cast<std::uint64_t>( registry.get<ECS::UUIDComponent>( e ).UUID ) )
+                           .second )
+                    break; // its ancestors are in already
+                if ( !registry.has<ECS::RelationshipComponent>( e ) )
+                    break;
+                e = registry.get<ECS::RelationshipComponent>( e ).Parent;
+            }
+        }
+    }
+
+    void SceneHierarchyPanel::DrawPinToggle( const std::uint64_t record )
+    {
+        if ( m_WorldPartition == nullptr )
+            return;
+        const bool pinned = m_WorldPartition->IsPinned( record );
+        ImGui::PushStyleColor( ImGuiCol_Text, pinned ? ThemeManager::GetIconColor()
+                                                     : ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
+        ImGui::TextUnformatted( pinned ? ICON_MDI_PIN : ICON_MDI_PIN_OUTLINE );
+        ImGui::PopStyleColor();
+        if ( ImGui::IsItemClicked() )
+            m_PendingPin = std::make_pair( record, !pinned );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( pinned ? "Unpin (left to the loaded regions again)"
+                                      : "Pin (kept loaded whatever the regions)" );
+    }
+
+    void SceneHierarchyPanel::DrawNotLoadedRow( const std::size_t index )
+    {
+        const ::Desert::Core::EditorRegions::NotLoadedRow& row = m_WorldRows->NotLoaded[index];
+        if ( m_HierarchyFilter.IsActive() && !m_HierarchyFilter.PassFilter( row.Name.c_str() ) )
+            return;
+        const auto  children    = m_NotLoadedChildren.find( row.Id );
+        const bool  hasChildren = children != m_NotLoadedChildren.end();
+        const void* nodeId      = reinterpret_cast<const void*>( static_cast<std::uintptr_t>( row.Id ) );
+        const float rowHeight   = ImGui::GetFrameHeight() + 2.0f * ImGui::GetStyle().CellPadding.y;
+        ImGui::TableNextRow( ImGuiTableRowFlags_None, rowHeight );
+        ImGui::TableSetColumnIndex( 0 );
+        // Outside the clip rect: the row's height and its open children only (as DrawEntityNode).
+        if ( !ImGui::IsRectVisible( ImVec2( 1.0f, ImGui::GetFrameHeight() ) ) )
+        {
+            if ( hasChildren && ImGui::GetStateStorage()->GetInt( ImGui::GetID( nodeId ), 0 ) != 0 )
+            {
+                ImGui::TreePush( nodeId );
+                for ( const std::size_t child : children->second )
+                    DrawNotLoadedRow( child );
+                ImGui::TreePop();
+            }
+            return;
+        }
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_FramePadding |
+                                   ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if ( !hasChildren )
+            flags |= ImGuiTreeNodeFlags_Leaf;
+        // Grey: UE draws an unloaded actor's row in the subdued text colour.
+        const ImVec4 grey = ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled );
+        ImGui::PushStyleColor( ImGuiCol_Text, grey );
+        const bool open = ImGui::TreeNodeEx( nodeId, flags, "%s", ICON_MDI_CUBE_OUTLINE );
+        bool       load = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left );
+        ImGui::SameLine();
+        ImGui::TextUnformatted( row.Name.c_str() );
+        load = load || ( ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Not loaded (cell %s). Double-click to load it: it is pinned.", row.Cell.c_str() );
+        ImGui::SameLine();
+        ImGui::TextUnformatted( std::format( "[{}]", row.Cell ).c_str() );
+        ImGui::TableSetColumnIndex( 1 );
+        ImGui::TextUnformatted( EntityTypeOf( ClassifyComponentKeys( row.Components ) ).Name );
+        ImGui::TableSetColumnIndex( 5 );
+        ImGui::TextUnformatted( JoinNames( row.DataLayers ).c_str() );
+        ImGui::PopStyleColor();
+        ImGui::TableSetColumnIndex( 4 );
+        DrawPinToggle( row.Id );
+        // UE loads an unloaded actor by pinning it (the pinned actors loader adapter).
+        if ( load )
+            m_PendingPin = std::make_pair( row.Id, true );
+
+        if ( open )
+        {
+            if ( hasChildren )
+                for ( const std::size_t child : children->second )
+                    DrawNotLoadedRow( child );
+            ImGui::TreePop();
+        }
     }
 
     void SceneHierarchyPanel::SelectRangeTo( const Common::UUID& target )
@@ -956,6 +1207,9 @@ namespace Desert::Editor
                 Core::SelectionManager::ClearSelection();
         }
 
+        RefreshWorldRows();
+        CollectUnsavedRows();
+
         // Entity / selection counters (compact, above the table).
         {
             const size_t total = m_Scene->GetAllEntities().size();
@@ -964,6 +1218,26 @@ namespace Desert::Editor
                 ImGui::TextDisabled( "%zu entities, %zu selected", total, sel );
             else
                 ImGui::TextDisabled( "%zu entities", total );
+            // World Partition mode: UE's Unsaved filter and its unloaded-actors toggle, and how much is on disk.
+            if ( m_WorldMode )
+            {
+                ImGui::SameLine();
+                ImGui::Checkbox( "Unsaved", &m_UnsavedOnly );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "Only the entities that differ from their files (and their parents)" );
+                ImGui::SameLine();
+                ImGui::Checkbox( "Unloaded", &m_ShowUnloaded );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip(
+                         "List the world's entities that are not loaded (grey; double-click loads)" );
+                if ( m_WorldRows.has_value() )
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled( "%zu not loaded", m_WorldRows->NotLoaded.size() );
+                }
+                if ( !m_WorldRowsStatus.empty() )
+                    ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.4f, 1.0f ), "%s", m_WorldRowsStatus.c_str() );
+            }
         }
 
         // Entity table
@@ -994,11 +1268,19 @@ namespace Desert::Editor
                  TypeColumnWidth( []( const char* s ) { return ImGui::CalcTextSize( s ).x; }, 12.0f );
 
             constexpr float kCellPadX = 4.0f;
-            constexpr int   kColumns  = 4;
-            // Each column's cell padding on both sides, and the three inner borders between four columns.
-            constexpr float            kChrome = ( kColumns * 2.0f * kCellPadX ) + ( kColumns - 1 );
+            // Name, Type, the eye and padlock gutters - and in World Partition mode UE's Pinned gutter and Data
+            // Layers column. All six are always declared (Disabled outside the mode) so the table's id and its
+            // column indices never change with the mode; the chrome counts the columns shown.
+            constexpr int kColumns    = 6;
+            const int     shown       = m_WorldMode ? 6 : 4;
+            const float   layersWidth = m_WorldMode ? kOutlinerLayersEm * ImGui::GetFontSize() : 0.0f;
+            const float   gutters     = ( m_WorldMode ? 3.0f : 2.0f ) * gutterWidth;
+            const float   chrome =
+                 ( static_cast<float>( shown ) * 2.0f * kCellPadX ) + static_cast<float>( shown - 1 );
+            const ImGuiTableColumnFlags worldOnly =
+                 m_WorldMode ? ImGuiTableColumnFlags_None : ImGuiTableColumnFlags_Disabled;
             const OutlinerColumnWidths split =
-                 OutlinerColumns( ImGui::GetContentRegionAvail().x - kChrome - ( 2.0f * gutterWidth ), typeWidth,
+                 OutlinerColumns( ImGui::GetContentRegionAvail().x - chrome - gutters - layersWidth, typeWidth,
                                   kOutlinerNameMinEm * ImGui::GetFontSize() );
 
             ImGui::PushStyleVar( ImGuiStyleVar_CellPadding, ImVec2( kCellPadX, 2.0f ) );
@@ -1022,6 +1304,12 @@ namespace Desert::Editor
                                          ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize |
                                               ImGuiTableColumnFlags_NoHeaderLabel,
                                          gutterWidth );
+                ImGui::TableSetupColumn(
+                     ICON_MDI_PIN "##pinned",
+                     ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize | worldOnly, gutterWidth );
+                ImGui::TableSetupColumn(
+                     "Data Layers", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize | worldOnly,
+                     layersWidth );
                 ImGui::TableHeadersRow();
 
                 auto& registry = m_Scene->GetRegistry();
@@ -1064,6 +1352,16 @@ namespace Desert::Editor
                                      entity.GetComponent<ECS::RelationshipComponent>().Parent != entt::null;
                     if ( !hasParent )
                         DrawEntityNode( entity );
+                }
+
+                // UE's FActorDescTreeItem rows: the world's records left on disk, grey, after the loaded tree. Not
+                // under the Unsaved filter - a record on disk is its file.
+                if ( m_WorldMode && m_ShowUnloaded && !m_UnsavedOnly && m_WorldRows.has_value() )
+                {
+                    ImGui::PushID( "NotLoaded" );
+                    for ( const std::size_t root : m_NotLoadedRoots )
+                        DrawNotLoadedRow( root );
+                    ImGui::PopID();
                 }
 
                 ImGui::EndTable();
@@ -1126,6 +1424,17 @@ namespace Desert::Editor
         {
             Commands::DeleteEntities( m_PendingDelete ); // one undo step restores everything
             m_PendingDelete.clear();
+        }
+        // A pin toggled or a record double-clicked: the editor holds the world again (an unpin that would
+        // unload an unsaved entity opens the World Partition prompt instead).
+        if ( m_PendingPin.has_value() )
+        {
+            const auto [record, pin] = *m_PendingPin;
+            m_PendingPin.reset();
+            if ( m_WorldPartition != nullptr )
+                if ( const auto changed = m_WorldPartition->SetPinned( record, pin ); !changed )
+                    LOG_WARN( "[Outliner] {} of record {} refused: {}", pin ? "pin" : "unpin", record,
+                              changed.GetError() );
         }
         if ( !m_PendingDuplicate.empty() )
         {

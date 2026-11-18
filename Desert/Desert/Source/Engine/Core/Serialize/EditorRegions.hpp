@@ -11,8 +11,11 @@
 //   - every always-loaded composite is loaded whatever the regions (the sun, the sky, the player start);
 //   - a composite with no place (an unplaced prefab instance or landscape tile) is loaded only by Load All
 //     (HeldRegions::Whole), or by an entity list or a pin naming one of its records.
-// Changing the regions unloads what left them. An entity that differs from its file is not unloaded: the change
-// is refused, naming it, until it is saved (UE asks the same before it unloads a dirty actor).
+// Changing the regions unloads what left them. An entity that differs from its file is not unloaded behind the
+// user's back: the change names every such entity and changes nothing (UnsavedPolicy::Ask) until the user saves
+// them or discards their changes (UE's save prompt before it unloads dirty actors, FEditorFileUtils::
+// SaveDirtyPackages). Records the user PINNED are held whatever the regions (UE's pinned actors loader adapter,
+// FLoaderAdapterPinnedActors - the Scene Outliner's Pinned column).
 //
 // The entities that stay on disk are NOT deleted: the scene's packages keep them as not loaded
 // (EntityPackages::AdoptRegion), the header keeps listing them, and a save writes only loaded entities.
@@ -98,6 +101,21 @@ namespace Desert::Core::EditorRegions
                                                     std::span<const std::uint64_t>   rowIds,
                                                     std::span<const bool>            layerLoaded );
 
+    // What a region change does with an entity that differs from its file and would leave the loaded part.
+    enum class UnsavedPolicy
+    {
+        Ask, // nothing changes: the outcome names every such entity (the editor's Save / Discard / Cancel prompt)
+        Discard, // it is unloaded with its changes dropped - its file is what the world holds of it
+    };
+
+    // One entity a region change would drop the edits of: it differs from its file and would leave, or it was
+    // deleted since the last save (Name: "<id> (deleted)").
+    struct UnsavedEntity
+    {
+        Common::UUID Id;
+        std::string  Name; // its Tag
+    };
+
     // What a region change did.
     struct RegionOutcome
     {
@@ -105,6 +123,10 @@ namespace Desert::Core::EditorRegions
         std::size_t     Loaded    = 0; // records read from their files and made
         std::size_t     Unloaded  = 0; // records whose entities were destroyed (their files kept)
         std::size_t     NotLoaded = 0; // records of the world the scene does not hold now
+        // UnsavedPolicy::Ask: the entities that differ from their files and would leave, and those deleted since
+        // the last save (EntityPackages::GoneSince). Not empty = NOTHING was loaded or unloaded; the caller asks
+        // the user and calls again (Discard, or Ask after a save).
+        std::vector<UnsavedEntity> Unsaved;
     };
 
     // THE EDITOR'S LOADERS (WP-LOADER-ADAPTERS) - UE IWorldPartitionActorLoaderInterface and its adapters
@@ -221,10 +243,10 @@ namespace Desert::Core::EditorRegions
     // included (WithWorldVolumes) - read through the descriptor index (refreshed first, so an index older than its
     // files is rebuilt rather than used). A composite whose data layers are all unloaded in the editor under
     // held.DataLayers is not held, wherever the loaders are. Refused, changing nothing, naming why: the scene is not
-    // a partitioned world opened from its files, the index or a file cannot be read, an entity to unload differs
-    // from its file.
+    // a partitioned world opened from its files, the index or a file cannot be read. An entity to unload that
+    // differs from its file is `policy`'s (UnsavedPolicy, WP-OUTLINER).
     [[nodiscard]] Common::ResultStr<RegionOutcome> LoadHeld( Scene& scene, Assets::AssetManager* assets,
-                                                             const HeldRegions& held );
+                                                             const HeldRegions& held, UnsavedPolicy policy );
 
     // What an editor open reads of the scene at a path.
     struct OpenRead
@@ -244,6 +266,33 @@ namespace Desert::Core::EditorRegions
     // disk. Refused, naming the file, as ReadSceneFileText and LoadHeld refuse.
     [[nodiscard]] Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path,
                                                            const HeldRegions&           held );
+
+    // ONE RECORD OF THE WORLD THE SCENE DOES NOT HOLD, as the editor's outliner lists it (UE's FActorDescTreeItem:
+    // an unloaded actor is listed from its descriptor, never by loading it).
+    struct NotLoadedRow
+    {
+        std::uint64_t            Id     = 0;
+        std::uint64_t            Parent = 0; // 0: the record states no parent
+        std::string              Name;       // its Tag
+        std::vector<std::string> Components; // its component keys, in file order: its type
+        std::vector<std::string> DataLayers;
+        // Where the plan streams its composite: "L<level> (<x>, <z>)" (and its grid past the first), "always
+        // loaded", "no place" (an unplaced composite) or "not planned" (a record no composite lists).
+        std::string Cell;
+    };
+
+    // The world of a partitioned scene opened from its files, as its descriptor index states it.
+    struct WorldRows
+    {
+        std::vector<std::uint64_t> Records;   // every record of the world, in the world's order
+        std::vector<NotLoadedRow>  NotLoaded; // the records the scene does not hold, in the world's order
+    };
+
+    // THE OUTLINER'S WORLD: every record of the world the scene was opened from (its packages' baseline) and a row
+    // per record the scene does not hold, read off the descriptor index (refreshed first, as a region load reads
+    // it) and planned as the cook plans it - no record's file is parsed. Refused, naming why: the scene is not a
+    // partitioned world opened from its files, the index cannot be read.
+    [[nodiscard]] Common::ResultStr<WorldRows> DescribeWorld( Scene& scene );
 
     // THE PLAYED WORLD OF A WORLD HELD IN PART (WP20). UE's Play-in-Editor plays the WHOLE partitioned world:
     // every actor the editor holds as it is in memory (unsaved edits included), every other one from its
