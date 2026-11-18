@@ -585,6 +585,13 @@ namespace Desert::Migration
     //       alike.
     inline constexpr int kWorldPartitionVersionHLODMergeMaterials = 9;
 
+    //  10 - RUNTIME PARTITION DEBUG COLOURS (WP-DEBUG-DRAW; UE FSpatialHashRuntimeGrid::DebugColor). A runtime
+    //       partition states its `DebugColor`, which the gameplay debugger's World Partition category paints its
+    //       cells in (a data layer's is v4's). The step states Core::SeededDebugColor of each partition's name - the
+    //       colour the panel gives a new partition - so a migrated world and a new one colour alike. Scenes only (a
+    //       prefab states no World Partition block).
+    inline constexpr int kWorldPartitionVersionDebugColors = 10;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -632,7 +639,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionHLODMergeMaterials == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionDebugColors == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1427,6 +1434,8 @@ namespace Desert::Migration
         bool        HLODBuildersRaised          = false; // below kWorldPartitionVersionHLODBuilders
         std::size_t HLODSimplifySettingsMoved   = 0;     // layers whose SimplifyTrianglePercent became Settings
         bool        HLODMergeMaterialsRaised = false; // below kWorldPartitionVersionHLODMergeMaterials (additive)
+        bool        DebugColorsRaised        = false; // below kWorldPartitionVersionDebugColors
+        std::size_t DebugColorsStated        = 0;     // runtime partitions given SeededDebugColor
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected

@@ -240,6 +240,19 @@ namespace Desert::Editor
         std::string                                      m_RegionStatus;
         std::string                                      m_GridEditStatus; ///< the last Runtime grids refusal
         std::string m_DataLayerStatus; ///< the last Data Layers refusal or reload
+        /// THE DEBUG COLOUR A PICKER IS BEING DRAGGED TO (UE FSpatialHashRuntimeGrid / UDataLayerAsset
+        /// DebugColor): held while the picker is active and committed as ONE undo step when it lets go, not one
+        /// per frame of the drag (each would also remake the plan).
+        struct PendingDebugColor
+        {
+            bool        Layer = false; ///< false = a runtime grid
+            std::size_t Index = 0;
+            glm::vec3   Color{ 0.5f };
+        };
+        std::optional<PendingDebugColor> m_PendingDebugColor;
+        /// The swatch of grid / data layer @p index stating @p stated: the colour to commit once the picker let go
+        /// of an edit, std::nullopt otherwise.
+        std::optional<glm::vec3> DebugColorEdit( bool layer, std::size_t index, const glm::vec3& stated );
         std::array<char, 128> m_NewDataLayer{}; ///< the Data Layers section's name field
         /// What the editor holds of this world for this user - the regions, or the whole world, and the data-layer
         /// state - as EditorLoadedRegions remembers it; read once per scene, written after every reload.

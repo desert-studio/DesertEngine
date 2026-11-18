@@ -9,7 +9,11 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
 #include <array>
+#include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -180,7 +184,11 @@ namespace Desert::Core
     // v8 layer states none and builds one section per material, as it did - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionHLODMergeMaterials) states the tag and changes nothing else; the number moves so a v8
     // build refuses a world whose merged material it would silently drop.
-    inline constexpr int kWorldPartitionVersion = 9;
+    // v10 (WP-DEBUG-DRAW): a runtime partition states its `DebugColor` (UE FSpatialHashRuntimeGrid::DebugColor) -
+    // the gameplay debugger's World Partition category colours a partition's cells by it, and a data layer's cells
+    // by the layer's DebugColor (v4). The step (Tools/SceneMigrator, StateRuntimePartitionDebugColorsV9ToV10) states
+    // SeededDebugColor of each partition's name; nothing else changes.
+    inline constexpr int kWorldPartitionVersion = 10;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -315,6 +323,12 @@ namespace Desert::Core
         // nothing; optional so a partition with none writes no key and an empty list is not a second spelling of
         // "none". Refused on Persistent: what it holds is never away, so nothing would ever stand in for it.
         std::optional<std::vector<RuntimePartitionHLODSetupSerialized>> HLODSetups;
+
+        // UE FSpatialHashRuntimeGrid::DebugColor (WP v10, WP-DEBUG-DRAW): the colour the gameplay debugger's World
+        // Partition category paints this grid's cells in when it colours by grid - an on-screen RGB, 0..1. A new
+        // grid gets SeededDebugColor of its name (the panel's Add partition, the v9 -> v10 step), as UE seeds a new
+        // layer's colour; after that it is the author's.
+        glm::vec3 DebugColor = glm::vec3( 0.5f );
 
         // Compared, not just written: the editor's World Partition panel keeps the plan it painted and
         // the partition that plan was made from, and a plan is remade when the two stop matching. Without
@@ -492,6 +506,40 @@ namespace Desert::Core
 
         bool operator==( const DataLayerSerialized& ) const = default;
     };
+
+    // THE COLOUR A NEW GRID OR DATA LAYER IS GIVEN (UE FColor::MakeRandomSeededColor, which seeds a new data layer's
+    // DebugColor): a hue from the FNV-1a hash of @p name - FNV and not std::hash, whose value is the standard
+    // library's choice and would give one world two colours on two platforms - at full value and 0.75 saturation,
+    // so two names read apart on the debugger's dark map.
+    [[nodiscard]] inline glm::vec3 SeededDebugColor( std::string_view name )
+    {
+        std::uint32_t hash = 2166136261u;
+        for ( const char c : name )
+        {
+            hash ^= static_cast<std::uint8_t>( c );
+            hash *= 16777619u;
+        }
+        const float hue        = static_cast<float>( hash % 360u ) / 60.0f; // sextant 0..6
+        const float saturation = 0.75f;
+        const float x          = 1.0f - std::abs( std::fmod( hue, 2.0f ) - 1.0f );
+        const float low        = 1.0f - saturation;
+        const float mid        = low + saturation * x;
+        switch ( static_cast<int>( hue ) )
+        {
+            case 0:
+                return { 1.0f, mid, low };
+            case 1:
+                return { mid, 1.0f, low };
+            case 2:
+                return { low, 1.0f, mid };
+            case 3:
+                return { low, mid, 1.0f };
+            case 4:
+                return { mid, low, 1.0f };
+            default:
+                return { 1.0f, low, mid };
+        }
+    }
 
     struct WorldPartitionSerialized
     {

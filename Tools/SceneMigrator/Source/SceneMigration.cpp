@@ -5564,6 +5564,23 @@ namespace Desert::Migration
             // v8 -> v9 is additive the same way: a layer that states no MergeMaterials builds as it did.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODMergeMaterials )
                 report.HLODMergeMaterialsRaised = true;
+            // v9 -> v10 restates nothing but each partition's colour (StateRuntimePartitionDebugColorsV9ToV10, on a
+            // scene's block).
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDebugColors )
+                report.DebugColorsRaised = true;
+        }
+
+        // v9 -> v10 (WP-DEBUG-DRAW): every runtime partition states Core::SeededDebugColor of its name - what the
+        // panel's Add partition gives a new one (a data layer's DebugColor is v4's). Returns how many were stated.
+        std::size_t StateRuntimePartitionDebugColorsV9ToV10( WorldPartitionSerialized& partition )
+        {
+            std::size_t stated = 0;
+            for ( Core::RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
+            {
+                runtime.DebugColor = Core::SeededDebugColor( runtime.Name );
+                ++stated;
+            }
+            return stated;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
@@ -5916,6 +5933,8 @@ namespace Desert::Migration
             else
                 report.Refused = std::format( "{}: {}", scene.SceneName, moved.GetError() );
         }
+        if ( report.Refused.empty() && report.DebugColorsRaised && scene.WorldPartition.has_value() )
+            report.DebugColorsStated = StateRuntimePartitionDebugColorsV9ToV10( *scene.WorldPartition );
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
         if ( report.Refused.empty() )

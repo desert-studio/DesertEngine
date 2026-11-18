@@ -614,7 +614,7 @@ namespace Desert::Editor
         const ::Desert::Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
         std::optional<::Desert::Core::WorldPartitionSerialized> after;
         std::string                                             label;
-        if ( ImGui::BeginTable( "##runtimepartitions", 6,
+        if ( ImGui::BeginTable( "##runtimepartitions", 7,
                                 ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
         {
             ImGui::TableSetupColumn( "Name" );
@@ -622,6 +622,7 @@ namespace Desert::Editor
             ImGui::TableSetupColumn( "Cell size (cm)" );
             ImGui::TableSetupColumn( "Loading range (cm)" );
             ImGui::TableSetupColumn( "Priority" );
+            ImGui::TableSetupColumn( "Debug colour" );
             ImGui::TableSetupColumn( "" );
             ImGui::TableHeadersRow();
             constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
@@ -686,6 +687,14 @@ namespace Desert::Editor
                     }
                 }
                 ImGui::TableNextColumn();
+                // UE FSpatialHashRuntimeGrid::DebugColor: what the gameplay debugger paints this grid's cells in.
+                if ( const std::optional<glm::vec3> debugColor = DebugColorEdit( false, g, runtime.DebugColor ) )
+                {
+                    after                                  = current;
+                    after->RuntimePartitions[g].DebugColor = *debugColor;
+                    label = std::format( "Set debug colour of partition {}", runtime.Name );
+                }
+                ImGui::TableNextColumn();
                 if ( ImGui::SmallButton( "Remove" ) )
                 {
                     after = current;
@@ -710,6 +719,7 @@ namespace Desert::Editor
             while ( ::Desert::Core::Rules::GridIndexOf( *after, runtime.Name ).has_value() );
             if ( type == ::Desert::Core::RuntimePartitionType::LHGrid )
                 runtime.LHGrid.emplace();
+            runtime.DebugColor = ::Desert::Core::SeededDebugColor( runtime.Name ); // UE seeds a new grid's colour
             label = std::format( "Add {} partition {}", ::Desert::Core::Rules::RuntimePartitionTypeName( type ),
                                  runtime.Name );
             after->RuntimePartitions.push_back( std::move( runtime ) );
@@ -726,6 +736,24 @@ namespace Desert::Editor
         }
         if ( !m_GridEditStatus.empty() )
             ImGui::TextWrapped( "%s", m_GridEditStatus.c_str() );
+    }
+
+    std::optional<glm::vec3> WorldPartitionPanel::DebugColorEdit( const bool layer, const std::size_t index,
+                                                                  const glm::vec3& stated )
+    {
+        const auto mine = [&] {
+            return m_PendingDebugColor && m_PendingDebugColor->Layer == layer &&
+                   m_PendingDebugColor->Index == index;
+        };
+        glm::vec3 color = mine() ? m_PendingDebugColor->Color : stated;
+        if ( ImGui::ColorEdit3( "##debugcolor", &color.x, ImGuiColorEditFlags_NoInputs ) )
+            m_PendingDebugColor = PendingDebugColor{ layer, index, color };
+        // ColorEdit reports its picker popup's active widget as its own (IsItemActive), so the drag is one edit.
+        if ( !mine() || ImGui::IsItemActive() )
+            return std::nullopt;
+        const glm::vec3 chosen = m_PendingDebugColor->Color;
+        m_PendingDebugColor.reset();
+        return chosen != stated ? std::optional<glm::vec3>( chosen ) : std::nullopt;
     }
 
     Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()
@@ -1287,7 +1315,7 @@ namespace Desert::Editor
         ImGui::TextDisabled( "Tree, visibility, current layer and membership: the Data Layers panel." );
         if ( layers.empty() )
             ImGui::TextDisabled( "This world has no data layers." );
-        else if ( ImGui::BeginTable( "##datalayers", 6,
+        else if ( ImGui::BeginTable( "##datalayers", 7,
                                      ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
                                           ImGuiTableFlags_SizingStretchProp ) )
         {
@@ -1296,6 +1324,7 @@ namespace Desert::Editor
             ImGui::TableSetupColumn( "Initially Loaded" );
             ImGui::TableSetupColumn( "Type" );
             ImGui::TableSetupColumn( "Initial Runtime State" );
+            ImGui::TableSetupColumn( "Debug colour" );
             ImGui::TableSetupColumn( "Entities" );
             ImGui::TableHeadersRow();
             for ( std::size_t index = 0; index < layers.size(); ++index )
@@ -1358,6 +1387,16 @@ namespace Desert::Editor
                 }
                 else
                     ImGui::TextDisabled( "%s", layer.Type == DataLayerType::Runtime ? "none stated" : "Editor layer" );
+                ImGui::TableNextColumn();
+                // UE UDataLayerAsset::DebugColor: what the gameplay debugger paints this layer's cells in.
+                // The layer's colour is the v4 sRGB triple the Data Layers outliner swatches too (one value).
+                if ( const std::optional<glm::vec3> debugColor = DebugColorEdit(
+                          true, index, glm::vec3( layer.DebugColor[0], layer.DebugColor[1], layer.DebugColor[2] ) ) )
+                {
+                    ::Desert::Core::WorldPartitionSerialized after = current;
+                    ( *after.DataLayers )[index].DebugColor        = { debugColor->x, debugColor->y, debugColor->z };
+                    commit( std::format( "Set debug colour of data layer '{}'", layer.Name ), std::move( after ) );
+                }
                 ImGui::TableNextColumn();
                 ImGui::Text( "%zu", members[index] );
                 ImGui::SameLine();

@@ -604,6 +604,12 @@ namespace
                              Desert::Migration::kWorldPartitionVersionHLODBuilders )
                 << "->v" << Desert::Migration::kWorldPartitionVersionHLODMergeMaterials
                 << " (merged HLOD materials: additive, nothing restated)";
+        if ( report.DebugColorsRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionHLODMergeMaterials )
+                << "->v" << Desert::Migration::kWorldPartitionVersionDebugColors << " ("
+                << report.DebugColorsStated << " runtime partition DebugColor(s) stated)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
