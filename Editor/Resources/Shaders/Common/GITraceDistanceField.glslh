@@ -169,13 +169,45 @@ uint GITraceSeed( GITraceInput ray )
            ( d.y * 2246822519u );
 }
 
+// FPS-SP-TRACE-FIELD-2 THE ORIGIN'S CULL (UE LumenMeshSDFCulling's per-tile cone cull of the near field's objects):
+// the first GI_NEAR_FIELD_CULL_WORDS * 32 objects of a froxel list carry one bit each - set: a ray of the caller's
+// bundle may reach the object, clear: none can, the march skips it (no box test, no record fetch). Objects past
+// them are walked unculled. GI_NEAR_FIELD_CULL_ALL keeps every object (one ray, no bundle).
+#define GI_NEAR_FIELD_CULL_WORDS 8 // a plain int: an array size
+#define GI_NEAR_FIELD_CULL_ALL   uint[8]( ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u )
+
+// Whether a ray from @p origin into the hemisphere of the unit @p normal (every direction d with dot(d, normal) >= 0:
+// a screen probe's rays) can reach object @p objectIndex: false when the object's volume box - the only place
+// GITraceMeshObject finds a hit, the ray clipped to it - lies wholly below the plane through @p origin. The box's
+// highest point above the plane, in world cm: the plane's normal taken to volume space (m with A^T m = normal, A the
+// world -> volume rows' linear part; Cramer), h = dot(|m|, extent) - dot(m, origin in volume space). A degenerate
+// transform culls nothing. @p margin absorbs a ray direction a rounding below the plane.
+bool GINearFieldObjectAbove( uint objectIndex, vec3 origin, vec3 normal, float margin )
+{
+    const uint  base   = objectIndex * uint( DF_OBJECT_STRIDE );
+    const vec4  r0     = DistanceFieldObjects[base + 0u];
+    const vec4  r1     = DistanceFieldObjects[base + 1u];
+    const vec4  r2     = DistanceFieldObjects[base + 2u];
+    const vec3  extent = DistanceFieldObjects[base + 3u].xyz;
+    const vec3  c12    = cross( r1.xyz, r2.xyz );
+    const float det    = dot( r0.xyz, c12 );
+    if ( abs( det ) < 1e-20 )
+        return true;
+    const vec3 m  = vec3( dot( normal, c12 ), dot( normal, cross( r2.xyz, r0.xyz ) ), dot( normal, cross( r0.xyz, r1.xyz ) ) ) / det;
+    const vec3 vo = vec3( dot( r0, vec4( origin, 1.0 ) ), dot( r1, vec4( origin, 1.0 ) ), dot( r2, vec4( origin, 1.0 ) ) );
+    return dot( abs( m ), extent ) - dot( m, vo ) >= -margin;
+}
+
 // THE NEAR FIELD'S MARCH (UE TraceMeshSDFs): the mesh SDFs of the origin's froxel from ray.tMin, up to
 // DF_MESH_SDF_TRACE_DISTANCE - true on a hit, @p tHit its distance and @p hitObject the closest object's index (its
 // surface: GINearFieldSurface). @p farStart is where the far field goes on: the hit's distance; after a miss the near
 // field's end when the origin's froxel listed the objects (the list holds every object the ray can reach before it),
 // ray.tMin outside the grid. GITraceNearField's walk, apart for a caller that lights the hit in a pass of its own
 // (ScreenProbeTrace.shader SP_TRACE_NEAR_HIT_LIGHTING: UE's hit lighting is its own compacted pass).
-bool GITraceNearFieldMarch( GITraceInput ray, out float farStart, out float tHit, out uint hitObject )
+// Here over a given list: @p inGrid and @p list the origin's froxel (GIMeshObjectList), @p cull its
+// objects' bits (THE ORIGIN'S CULL). GITraceNearFieldMarch below with the list looked up and nothing culled.
+bool GITraceNearFieldMarchOver( GITraceInput ray, bool inGrid, uvec2 list, uint cull[GI_NEAR_FIELD_CULL_WORDS],
+                                out float farStart, out float tHit, out uint hitObject )
 {
     // A gather ray passes foliage stochastically (UE bDitheredTransparency); a shadow ray stops on it.
     const bool dithered = ( ray.flags & GI_TRACE_SHADOW_RAY ) == 0u;
@@ -184,32 +216,51 @@ bool GITraceNearFieldMarch( GITraceInput ray, out float farStart, out float tHit
 
     // The near field: the objects of the origin's froxel, the closest hit. The list holds every object the ray can
     // reach before DF_MESH_SDF_TRACE_DISTANCE (each within that of the froxel), uncapped, closest to the froxel first:
-    // an early near hit clips every later object to its box test.
+    // an early near hit clips every later object to its box test. The kept objects in list order (findLSB per word).
     farStart            = ray.tMin;
     const float nearEnd = min( ray.tMax, DF_MESH_SDF_TRACE_DISTANCE );
     tHit                = nearEnd;
-    uvec2 list          = uvec2( 0u );
-    if ( !( ray.tMin < nearEnd && GIMeshObjectList( ray.origin, list ) ) )
+    if ( !( ray.tMin < nearEnd && inGrid ) )
         return false;
     bool        hit     = false;
+    bool        done    = false;
     const float tanCone = tan( ray.coneAngle );
-    for ( uint i = 0u; i < list.y; ++i )
+    for ( uint word = 0u; word * 32u < list.y && !done; ++word )
     {
-        const uint object = giTracerMeshSDFGridCells[list.x + i];
-        if ( GITraceMeshObject( object, ray.origin, ray.direction, ray.tMin, tHit, dithered, tanCone, seed ) )
+        const uint count = min( list.y - word * 32u, 32u );
+        uint       bits  = word < uint( GI_NEAR_FIELD_CULL_WORDS ) ? cull[word] : ~0u;
+        if ( count < 32u )
+            bits &= ( 1u << count ) - 1u;
+        while ( bits != 0u )
         {
-            hit       = true;
-            hitObject = object;
-            // A shadow ray is answered by any hit (UE's shadow traces are any-hit): the rest of the list could
-            // only move it closer.
-            if ( !dithered )
-                break;
+            const uint at     = uint( findLSB( bits ) );
+            bits             &= bits - 1u;
+            const uint object = giTracerMeshSDFGridCells[list.x + word * 32u + at];
+            if ( GITraceMeshObject( object, ray.origin, ray.direction, ray.tMin, tHit, dithered, tanCone, seed ) )
+            {
+                hit       = true;
+                hitObject = object;
+                // A shadow ray is answered by any hit (UE's shadow traces are any-hit): the rest of the list could
+                // only move it closer.
+                if ( !dithered )
+                {
+                    done = true;
+                    break;
+                }
+            }
         }
     }
     // A miss: the global field goes on from where the near field ended (UE: the global SDF trace starts at the mesh
     // SDF trace distance).
     farStart = hit ? tHit : nearEnd;
     return hit;
+}
+
+bool GITraceNearFieldMarch( GITraceInput ray, out float farStart, out float tHit, out uint hitObject )
+{
+    uvec2      list;
+    const bool inGrid = GIMeshObjectList( ray.origin, list );
+    return GITraceNearFieldMarchOver( ray, inGrid, list, GI_NEAR_FIELD_CULL_ALL, farStart, tHit, hitObject );
 }
 
 // The surface of a near-field hit (GITraceNearFieldMarch): object @p hitObject at @p tHit along the ray (@p origin,
@@ -565,28 +616,41 @@ float GIFarFieldOffset( vec3 position )
     return GITraceVoxelAt( position );
 }
 
-GITraceBias GIRayBias( vec3 position, vec3 normal )
+// One object's term of the near offset (GIRayBias): its finest voxel when its world box, grown by
+// DF_MESH_SDF_SURFACE_BIAS, holds @p position, else 0. FPS-SP-TRACE-FIELD-2: the box grows by the fixed surface bias,
+// no longer by the running maximum of the objects before it in the list - the offset is the MAX over the list of
+// independent terms, the same for any order, so a group can take it over the list's objects side by side
+// (ScreenProbeTrace.shader SPNearFieldProbeSetup) and match this walk bit for bit.
+float GIRayBiasObjectTerm( vec3 position, uint object )
 {
-    const float voxel = GIFarFieldOffset( position );
+    const uint  base = object * uint( DF_OBJECT_STRIDE );
+    const vec3  lo   = DistanceFieldObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MIN )].xyz;
+    const vec3  hi   = DistanceFieldObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MAX )].xyz;
+    const float grow = DF_MESH_SDF_SURFACE_BIAS;
+    return all( greaterThanEqual( position, lo - grow ) ) && all( lessThanEqual( position, hi + grow ) )
+               ? GIMeshObjectVoxel( object )
+               : 0.0;
+}
+
+// The near offset from the list walk's maximum @p nearTerms (at least DF_MESH_SDF_SURFACE_BIAS) and the far field's
+// voxel @p voxel at the position: never past the voxel.
+GITraceBias GIRayBiasFrom( float voxel, bool inGrid, float nearTerms )
+{
     GITraceBias bias;
     bias.farOffset       = voxel;
     bias.screenTolerance = voxel;
-    bias.nearOffset      = voxel;
-    uvec2 list;
-    if ( !GIMeshObjectList( position, list ) )
-        return bias;
-    float near = DF_MESH_SDF_SURFACE_BIAS;
-    for ( uint i = 0u; i < list.y; ++i )
-    {
-        const uint object = giTracerMeshSDFGridCells[list.x + i];
-        const uint base   = object * uint( DF_OBJECT_STRIDE );
-        const vec3 lo     = DistanceFieldObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MIN )].xyz;
-        const vec3 hi     = DistanceFieldObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MAX )].xyz;
-        if ( all( greaterThanEqual( position, lo - near ) ) && all( lessThanEqual( position, hi + near ) ) )
-            near = max( near, GIMeshObjectVoxel( object ) );
-    }
-    bias.nearOffset = min( near, voxel );
+    bias.nearOffset      = inGrid ? min( nearTerms, voxel ) : voxel;
     return bias;
+}
+
+GITraceBias GIRayBias( vec3 position, vec3 normal )
+{
+    uvec2      list;
+    const bool inGrid = GIMeshObjectList( position, list );
+    float      near   = DF_MESH_SDF_SURFACE_BIAS;
+    for ( uint i = 0u; i < list.y; ++i )
+        near = max( near, GIRayBiasObjectTerm( position, giTracerMeshSDFGridCells[list.x + i] ) );
+    return GIRayBiasFrom( GIFarFieldOffset( position ), inGrid, near );
 }
 
 // Out of geometry along the field's gradient: up to @p clearance of free space around @p position, never more than

@@ -599,6 +599,131 @@ Shader "ScreenProbeTrace"
         }
         #endif // SP_TRACE_LEG_BINS_RAYS
 
+        #if defined( SP_TRACE_DEFERS_NEAR_HITS )
+        // FPS-SP-TRACE-FIELD-2 THE GROUP'S PROBES' NEAR-FIELD SETUP (UE ScreenProbeTraceMeshSDFsCS: the probe tile's
+        // mesh SDFs culled once into a list its rays walk, per-probe data computed once). A probe's rays share its
+        // point and normal, so they share GIRayBias and the origin (point + normal x near offset), hence the origin's
+        // froxel list; and they all go into the probe's hemisphere, so an object whose volume box lies wholly below the
+        // probe's plane through the origin is reached by none of them (GINearFieldObjectAbove). Once for each distinct
+        // probe among the group's rays (the open-addressing table of SPLegProbeBias), with every lane taking a share of
+        // each probe's list - the near offset's terms (GIRayBiasObjectTerm, a maximum: any order, the same bits as
+        // GIRayBias) and the cull bits of the origin's list (THE ORIGIN'S CULL, Common/GITraceDistanceField.glslh) -
+        // where every lane walked the whole list for the bias and box-tested every object of it per ray. The march
+        // then walks the kept objects in list order: the same hits, the same closest hit.
+        #define SP_NF_NO_PROBE 0xFFFFFFFFu
+        #define SP_NF_IN_GRID  0x80000000u // a list length's flag: the froxel grid holds the point (GIMeshObjectList)
+        // A ray's direction below the probe's plane by a rounding: dot(d, N) >= -1e-6, times at most
+        // DF_MESH_SDF_TRACE_DISTANCE, and the box test's own rounding - far below a millimetre.
+        #define SP_NF_CULL_MARGIN 0.1
+        shared uint s_NfKey[SP_TRACE_LEG_THREADS];   // the table: a probe, or SP_NF_NO_PROBE
+        shared uint s_NfIndex[SP_TRACE_LEG_THREADS]; // the table: that probe's dense index
+        shared uint s_NfProbe[SP_TRACE_LEG_THREADS]; // dense index -> probe
+        shared uint s_NfNear[SP_TRACE_LEG_THREADS];  // the near offset's terms' maximum, then the near offset (bits)
+        shared uint s_NfListX[SP_TRACE_LEG_THREADS]; // the point's, then the origin's froxel list: first object
+        shared uint s_NfListY[SP_TRACE_LEG_THREADS]; // ... its length | SP_NF_IN_GRID
+        shared uint s_NfCull[SP_TRACE_LEG_THREADS * GI_NEAR_FIELD_CULL_WORDS]; // dense index -> its origin list's bits
+        shared uint s_NfProbes;                      // the group's distinct probes
+
+        struct SPNearFieldSetup
+        {
+            GITraceBias bias;
+            bool        inGrid;
+            uvec2       list;
+            uint        cull[GI_NEAR_FIELD_CULL_WORDS];
+        };
+
+        // Called by every thread of the group in uniform control flow (it holds the barriers), with whether the lane
+        // holds a ray and the probe of its slot. The setup of @p probe's rays when @p listed.
+        SPNearFieldSetup SPNearFieldProbeSetup( const bool listed, const uint probe )
+        {
+            const uint lane  = gl_LocalInvocationIndex;
+            const uint words = uint( GI_NEAR_FIELD_CULL_WORDS );
+            s_NfKey[lane]    = SP_NF_NO_PROBE;
+            s_NfNear[lane]   = floatBitsToUint( DF_MESH_SDF_SURFACE_BIAS );
+            for ( uint w = 0u; w < words; ++w )
+                s_NfCull[lane * words + w] = 0u;
+            if ( lane == 0u )
+                s_NfProbes = 0u;
+            barrier();
+            uint entry = probe % SP_TRACE_LEG_GROUP_SIZE; // a group's probes are mostly consecutive
+            if ( listed )
+            {
+                for ( uint tries = 0u; tries < SP_TRACE_LEG_GROUP_SIZE; ++tries )
+                {
+                    const uint held = atomicCompSwap( s_NfKey[entry], SP_NF_NO_PROBE, probe );
+                    if ( held == SP_NF_NO_PROBE )
+                    {
+                        const uint dense = atomicAdd( s_NfProbes, 1u );
+                        s_NfProbe[dense] = probe;
+                        s_NfIndex[entry] = dense;
+                        break;
+                    }
+                    if ( held == probe )
+                        break;
+                    entry = ( entry + 1u ) % SP_TRACE_LEG_GROUP_SIZE;
+                }
+            }
+            barrier();
+            const uint probes = s_NfProbes;
+            if ( lane < probes ) // the bias's list: the probe point's froxel
+            {
+                uvec2      list;
+                const bool inGrid = GIMeshObjectList( screenProbes[s_NfProbe[lane]].position.xyz, list );
+                s_NfListX[lane]   = list.x;
+                s_NfListY[lane]   = list.y | ( inGrid ? SP_NF_IN_GRID : 0u );
+            }
+            barrier();
+            for ( uint p = 0u; p < probes; ++p ) // the near offset's terms, a share of each list a lane
+            {
+                const vec3 position = screenProbes[s_NfProbe[p]].position.xyz;
+                const uint first    = s_NfListX[p];
+                const uint count    = s_NfListY[p] & ~SP_NF_IN_GRID;
+                for ( uint i = lane; i < count; i += SP_TRACE_LEG_GROUP_SIZE )
+                {
+                    const float term = GIRayBiasObjectTerm( position, giTracerMeshSDFGridCells[first + i] );
+                    if ( term > DF_MESH_SDF_SURFACE_BIAS )
+                        atomicMax( s_NfNear[p], floatBitsToUint( term ) ); // >= 0: the bits order as the values
+                }
+            }
+            barrier();
+            if ( lane < probes ) // the probe's bias (GIRayBiasFrom, as GIRayBias), its origin and the origin's list
+            {
+                const ScreenProbe state  = screenProbes[s_NfProbe[lane]];
+                const bool        inGrid = ( s_NfListY[lane] & SP_NF_IN_GRID ) != 0u;
+                const GITraceBias bias   = GIRayBiasFrom( GIFarFieldOffset( state.position.xyz ), inGrid,
+                                                          uintBitsToFloat( s_NfNear[lane] ) );
+                uvec2             list;
+                const bool originInGrid =
+                     GIMeshObjectList( state.position.xyz + state.normal.xyz * bias.nearOffset, list );
+                s_NfNear[lane]  = floatBitsToUint( bias.nearOffset );
+                s_NfListX[lane] = list.x;
+                s_NfListY[lane] = list.y | ( originInGrid ? SP_NF_IN_GRID : 0u );
+            }
+            barrier();
+            for ( uint p = 0u; p < probes; ++p ) // the origin list's cull bits, a share of each list a lane
+            {
+                const ScreenProbe state  = screenProbes[s_NfProbe[p]];
+                const vec3        origin = state.position.xyz + state.normal.xyz * uintBitsToFloat( s_NfNear[p] );
+                const uint        first  = s_NfListX[p];
+                const uint        count  = min( s_NfListY[p] & ~SP_NF_IN_GRID, words * 32u );
+                for ( uint i = lane; i < count; i += SP_TRACE_LEG_GROUP_SIZE )
+                    if ( GINearFieldObjectAbove( giTracerMeshSDFGridCells[first + i], origin, state.normal.xyz,
+                                                 SP_NF_CULL_MARGIN ) )
+                        atomicOr( s_NfCull[p * words + ( i >> 5u )], 1u << ( i & 31u ) );
+            }
+            barrier();
+            const uint       index = listed ? s_NfIndex[entry] : 0u; // an unlisted lane's setup is never read
+            SPNearFieldSetup setup;
+            const float      near  = uintBitsToFloat( s_NfNear[index] );
+            setup.bias             = GIRayBiasFrom( GIFarFieldOffset( screenProbes[probe].position.xyz ), true, near );
+            setup.inGrid           = ( s_NfListY[index] & SP_NF_IN_GRID ) != 0u;
+            setup.list             = uvec2( s_NfListX[index], s_NfListY[index] & ~SP_NF_IN_GRID );
+            for ( uint w = 0u; w < words; ++w )
+                setup.cull[w] = s_NfCull[index * words + w];
+            return setup;
+        }
+        #endif // SP_TRACE_DEFERS_NEAR_HITS
+
         void main()
         {
 #if defined( SP_TRACE_LEG_BINS_RAYS )
@@ -611,6 +736,14 @@ Shader "ScreenProbeTrace"
             // Every lane reaches THE PROBE'S CELLS' barrier: a lane past the list's end leaves after it.
             const bool listed = gl_GlobalInvocationID.x < screenProbeCompactAllocator;
             const uint slot   = listed ? screenProbeCompactTexels[gl_GlobalInvocationID.x] : 0u; // list order: by probe
+#elif defined( SP_TRACE_DEFERS_NEAR_HITS )
+            // Every lane reaches THE GROUP'S PROBES' NEAR-FIELD SETUP's barriers: a lane past the list's end leaves
+            // after them.
+            const bool             listed = gl_GlobalInvocationID.x < screenProbeCompactAllocator;
+            const uint             slot   = listed ? screenProbeCompactTexels[gl_GlobalInvocationID.x] : 0u;
+            const SPNearFieldSetup setup  = SPNearFieldProbeSetup( listed, slot / ( SP_RES * SP_RES ) );
+            if ( !listed )
+                return;
 #else
             if ( gl_GlobalInvocationID.x >= screenProbeCompactAllocator )
                 return;
@@ -639,6 +772,8 @@ Shader "ScreenProbeTrace"
             }
             else
                 bias = GIRayBias( texel.position, N );
+#elif defined( SP_TRACE_DEFERS_NEAR_HITS )
+            const GITraceBias bias = setup.bias; // the probe's, taken once for the group's rays of it
 #elif !defined( SP_TRACE_LEG_BINS_RAYS )
             // A function of the probe's point and normal (GIRayBias): its lanes share the probe, so they share it.
             const GITraceBias bias   = GIRayBias( texel.position, N );
@@ -662,7 +797,10 @@ Shader "ScreenProbeTrace"
             float      farStart;
             float      tHit;
             uint       hitObject;
-            const bool hit     = GITraceNearFieldMarch( ray, farStart, tHit, hitObject );
+            // The origin's froxel list and its cull bits from the setup (the origin is the probe's: GIMeshObjectList of
+            // it, as GITraceNearFieldMarch would look it up).
+            const bool hit     = GITraceNearFieldMarchOver( ray, setup.inGrid, setup.list, setup.cull, farStart, tHit,
+                                                            hitObject );
             bool       atCache = !hit && texel.coverage.valid && farStart >= texel.tMax;
             // FPS-SP-FARFIELD (UE compacts the voxel trace to rays with something left to find): a miss bound for the
             // cache whose far-field span is provably empty - nothing to march, or the march's first step crosses it
