@@ -95,13 +95,23 @@ namespace Desert::Graphic::System
         // size is fine.
         constexpr uint32_t kMarchWorkGroupSize = 8;
 
-        // GPU-FARFIELD-4: lanes per view ray, CloudRaymarch.shader CLOUD_MARCH_SEGMENT_LANES. Each lane marches
-        // one contiguous eighth of the ray's segment and the eight are composed front to back, so the dispatch
-        // is eight times as wide for the same rays and one 8-wide group row is one ray (FPS-CLOUDS-MARCH-2: four
-        // left the pass bound by its serial chain; see the shader for why).
-        constexpr uint32_t kMarchSegmentLanes = 8;
-        static_assert( kMarchWorkGroupSize % kMarchSegmentLanes == 0,
+        // GPU-FARFIELD-4: lanes per view ray, CloudRaymarch.shader CLOUD_MARCH_SEGMENT_LANES. The lanes march the
+        // ray as one packet (CLOUD_MARCH_PACKET): lane j takes the j-th next lattice point or fine sample of the
+        // ray's single march, so the dispatch is kMarchSegmentLanes times as wide for the same rays and one group
+        // row is one ray. SIXTEEN (FPS-CLOUDS-MARCH-4): at eight the pass was still the serial chain of its
+        // longest ray (ceil(samples / 8) dependent fetch rounds); sixteen halves that chain with the same
+        // samples. See the shader for why.
+        constexpr uint32_t kMarchSegmentLanes = 16;
+
+        // THE MARCH'S OWN GROUP SHAPE, CloudRaymarch.shader LocalSize(16, 4, 1): one ray per group row, 64
+        // invocations as every other pass of this renderer. Its own constants rather than kMarchWorkGroupSize
+        // because a 16-lane ray no longer fits that pass family's 8-wide row.
+        constexpr uint32_t kMarchGroupWidth  = 16;
+        constexpr uint32_t kMarchGroupHeight = 4;
+        static_assert( kMarchGroupWidth % kMarchSegmentLanes == 0,
                        "a ray's lanes must sit in one group row, aligned, for the shader's subgroup shuffles" );
+        static_assert( kMarchGroupWidth * kMarchGroupHeight == kMarchWorkGroupSize * kMarchWorkGroupSize,
+                       "the march keeps the 64-invocation group of the renderer's other passes" );
 
         // One spelling with the material schema's own — the march program IS the cloud material shader.
         constexpr const char* kMarchShaderName        = kCloudMaterialShaderName;
@@ -2536,8 +2546,8 @@ namespace Desert::Graphic::System
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( push );
             return Renderer::DispatchCompute( bindings, *m_MarchPipeline,
-                                              GroupCount( marchColumns, kMarchWorkGroupSize ),
-                                              GroupCount( marchRows, kMarchWorkGroupSize ), 1 );
+                                              GroupCount( marchColumns, kMarchGroupWidth ),
+                                              GroupCount( marchRows, kMarchGroupHeight ), 1 );
         };
         nodes.push_back( std::move( march ) );
 

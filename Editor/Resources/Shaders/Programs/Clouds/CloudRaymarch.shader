@@ -435,9 +435,9 @@ Shader "CloudRaymarch"
         // the ray count. Each of these lanes marches one contiguous stretch of the ray's segment with its own
         // local transmittance; the lanes are then composed front to back, which is exact for an
         // emission-absorption integral: L = sum_k P_k L_k, T = prod_k T_k, P_k = prod_{j<k} T_j (and the
-        // transmittance-weighted front the same way). The lanes of a ray sit side by side in x, so an 8-wide
-        // group row IS one ray and a ray's lanes are eight consecutive subgroup lanes, aligned (every subgroup
-        // size Vulkan ships for compute, 8 to 64, is a multiple of the row).
+        // transmittance-weighted front the same way). The lanes of a ray sit side by side in x, so a group row
+        // (LocalSize) IS one ray and a ray's lanes are CLOUD_MARCH_SEGMENT_LANES consecutive subgroup lanes,
+        // aligned, wherever the subgroup is a multiple of the row.
         //
         // EIGHT, NOT FOUR (FPS-CLOUDS-MARCH-2). At four the FIELD_Barn trace was 3259 rays = 13k invocations, about
         // 400 waves on a GPU with room for thousands: the pass still waited on the serial chain of its longest
@@ -445,7 +445,35 @@ Shader "CloudRaymarch"
         // the waves that hide each other's fetches, with the same samples per ray and the same exact composition,
         // so the picture is High's own; what it costs is one more lane start per ray (below, the step-back keeps
         // that start on the ray's dither) and four more shuffles an iteration.
-        #define CLOUD_MARCH_SEGMENT_LANES 8u
+        //
+        // SIXTEEN, NOT EIGHT (FPS-CLOUDS-MARCH-4). The census of the FIELD_Barn turn after the packet march
+        // (scn-1119-101951): 'Clouds: March' 0.33-0.42 ms. Everything the brief asked to cut already exists - a
+        // quarter-resolution trace, one 2x2 lattice phase and one 2x2 sub-pixel a frame (each half-res pixel traced
+        // once in 16 frames, Unreal's mode-2 rate; 1.57 % of the view's pixels a frame), geometry-covered
+        // footprints never march and partly covered ones stop at the geometry (CloudFootprintOccluded,
+        // segment.y = geomKm), the per-ray empty-space trim and skip walk (CLOUD_RAY_EMPTY_SPACE_TRIM /
+        // _SKIP_WALK), the column-probe jumps, and the shadow map in place of the full light ray inside its square.
+        // With ~8k rays the pass is still under one wave of the GPU's occupancy, so a smaller ray count buys little:
+        // the pass lasts as long as its longest ray's chain of dependent fetch rounds, ceil(samples / lanes) as a
+        // packet. Sixteen lanes halve that chain with the same samples in the same order (the packet's walk is
+        // the single march's), at the price of 2x the invocations (still ~4k waves of 32) and of the speculative
+        // fine fetches past a ray's stop (CLOUD_PACKET_FINE_WIDTH bounds those). The subgroup must be at least 16
+        // wide and linear in the group's x (NVIDIA / Apple 32, AMD 32 / 64; the previous 8 assumed the same
+        // linear layout, see the REMAINDER for Intel's varying sizes).
+        #define CLOUD_MARCH_SEGMENT_LANES 16u
+
+        // THE FINE TIER'S PACKET WIDTH (FPS-CLOUDS-MARCH-4): how many of the ray's lanes fetch a fine sample per
+        // iteration (lanes past it fetch nothing and the walk visits this many). The coarse tier always uses every
+        // lane - its probes are the cheap part and the search is what the census follows; a fine sample carries a
+        // shadow ray and sky occlusion, and those past the ray's stop or its empty run back to coarse are wasted.
+        // CLOUD_MARCH_SEGMENT_LANES = the full packet; 8 = the fine walk FPS-CLOUDS-MARCH-3 measured, for the A/B.
+        // A power of two no larger than CLOUD_MARCH_SEGMENT_LANES.
+        #define CLOUD_PACKET_FINE_WIDTH CLOUD_MARCH_SEGMENT_LANES
+
+        // THE SHORTEST STRETCH the trim leaves a ray that might hold cloud, in coarse strides. It was
+        // CLOUD_MARCH_SEGMENT_LANES strides when the lanes were segments (one stride a lane); eight, the value it
+        // had, so sixteen packet lanes leave the trimmed stretch - and so the picture - as it was.
+        #define CLOUD_TRIM_MIN_STRETCH_STRIDES 8.0f
 
         // THE LANES' EXCHANGE AS A LOG-SCAN (FPS-CLOUDS-SCAN): 1 = the front transmittance every iteration, the
         // ray's activity, the front-to-back composition and the census sums go through a butterfly over the
@@ -571,7 +599,9 @@ Shader "CloudRaymarch"
             vec4 CloudVisualize;
         };
 
-        LocalSize(8, 8, 1);
+        // 16 x 4 (VolumetricCloudRenderer.cpp kMarchGroupWidth / kMarchGroupHeight): one CLOUD_MARCH_SEGMENT_LANES-wide
+        // row per ray, 64 invocations a group.
+        LocalSize(16, 4, 1);
 
         // THE SUN'S COLOUR AT A SAMPLE, which is one colour for the whole shell unless the layer asked
         // otherwise.
@@ -1352,7 +1382,7 @@ Shader "CloudRaymarch"
                 // would sample once or not at all together - the stretch's cloud drawn all-or-nothing from frame to
                 // frame, a flicker the reconstruction cannot settle. At a stride a lane every lane holds a sample, as
                 // every lane of the untrimmed segment did. The stretch grows past its end first, then before its start.
-                float minStretchKm = min(segment.y - segment.x, float(CLOUD_MARCH_SEGMENT_LANES) * coarseStepKm);
+                float minStretchKm = min(segment.y - segment.x, CLOUD_TRIM_MIN_STRETCH_STRIDES * coarseStepKm);
                 if (span.x < kTrimNone && marchEndKm - marchStartKm < minStretchKm)
                 {
                     marchEndKm   = min(segment.y, marchStartKm + minStretchKm);
@@ -1545,8 +1575,10 @@ Shader "CloudRaymarch"
                     // THE FINE TIER: lane j fetches the j-th sample from t. Its distance is the walk's own sum of the
                     // footprint steps before it (the same float adds the walk below makes, so the same t), and its
                     // fetches depend on that position alone (CloudFetchFineSample).
-                    float sampleT = t;
-                    for (uint k = 0u; k < segmentLane; ++k)
+                    // Lanes from CLOUD_PACKET_FINE_WIDTH on take no fine sample (their walk is never read).
+                    bool  fineLane = segmentLane < CLOUD_PACKET_FINE_WIDTH;
+                    float sampleT  = t;
+                    for (uint k = 0u; k < segmentLane && fineLane; ++k)
                         sampleT += CloudFootprintStepKm(stepKm, coarseStepKm, sampleT, pixelAngle);
                     float litStepKm = CloudFootprintStepKm(stepKm, coarseStepKm, sampleT, pixelAngle);
 
@@ -1559,7 +1591,7 @@ Shader "CloudRaymarch"
                     fetched.LightCost = vec2(0.0f, 0.0f);
                     // A sample past the stretch is never reached by the walk (its head test ends the ray first); the
                     // first one always is, the loop head tested its t.
-                    if (segmentLane == 0u || sampleT < laneEndKm)
+                    if (segmentLane == 0u || (fineLane && sampleT < laneEndKm))
                         fetched = CloudFetchFineSample(layer, params, originKm, rayDir, sampleT, litStepKm, toSun,
                                                        lightMarchKm, lightSamples, extinction, series, ambientRadiance,
                                                        phase, albedo);
@@ -1568,7 +1600,7 @@ Shader "CloudRaymarch"
 
                     // THE WALK, in order, the segmented fine walk's rules per sample. Every exchange sits at the top
                     // of the step, before any branch, so each reads a lane of the ray that is here.
-                    for (uint j = 0u; j < CLOUD_MARCH_SEGMENT_LANES; ++j)
+                    for (uint j = 0u; j < CLOUD_PACKET_FINE_WIDTH; ++j)
                     {
                         uint  source       = laneBase + j;
                         float sampleStepKm = subgroupShuffle(litStepKm, source);
