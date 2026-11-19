@@ -56,6 +56,15 @@
 #define SP_TRACE_HIT_BIT     0x00000001u
 #define SP_TRACE_MOVING_BIT  0x00000002u
 #define SP_TRACE_REACHED_BIT 0x80000000u
+// FPS-SP-TRACE-FIELD THE NEAR FIELD HANDS THE FAR FIELD ITS SPAN (UE: the voxel trace continues the mesh SDF trace's
+// compacted rays from where it stopped, rebuilding nothing). Bit 1 of a ray WITHOUT a hit that the software near field
+// listed for the far field: the near field already took the ray's far-field span (GIFarFieldSpanClear: the occupied
+// box and ceiling walks) and its near offset (GIRayBias: the walk of the probe froxel's object list), and left both in
+// ScreenProbes.NearHit (x = the near offset's bits, y = the span's march length's bits), so the far field marches
+// straight away. Only between those two legs: the far field rewrites every ray it is given (its final state, at the
+// cache or a deferred hit), and a ray the screen listed for the far field never carries it (the far field takes its
+// span itself). Never set on a zero distance: that state alone is SP_TRACE_SKIPPED_STATE (Common/ScreenProbes.glslh).
+#define SP_TRACE_FAR_SPAN_BIT 0x00000002u
 
 // UE r.Lumen.ScreenProbeGather.Temporal.RelativeSpeedDifferenceToConsiderLightingMoving: the difference between the
 // probe's world speed and its hit's, per cm of the probe's scene depth, above which the ray's lighting is moving.

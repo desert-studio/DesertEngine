@@ -939,7 +939,9 @@ namespace Desert::Graphic::GlobalIllumination
             hitLightingList = rayList( "hit lighting" );
         // FPS-NEAR-FIELD: the software near field's hits (UE TraceMeshSDFs leaves its hits to the hit lighting
         // pass) - their list, and each listed ray's hit object and exact distance (ScreenProbes.NearHit, two uints
-        // a ray, indexed like the trace hit buffer).
+        // a ray, indexed like the trace hit buffer). FPS-SP-TRACE-FIELD: a near-field miss listed for the far
+        // field holds its near offset and far-field span in the same slot (read by the far field,
+        // SP_TRACE_FAR_SPAN_BIT).
         std::optional<RayList> nearHitLightingList;
         RDG::BufferRef         nearHit;
         if ( TraceLegExists( inputs.Tracer.Pipeline.Tracer, kTraceNearHitLightingDefine ) )
@@ -1181,6 +1183,12 @@ namespace Desert::Graphic::GlobalIllumination
                      }
                      if ( program == TraceNearHitLighting )
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeNearHitUB, nearHit, kR );
+                     // FPS-SP-TRACE-FIELD: the software far field reads the near offset and far-field span the
+                     // near field handed each ray it listed (ScreenProbeTrace.shader SP_TRACE_TAKES_FAR_SPAN, the
+                     // software tracer's far field - the tracer that has the near hit lighting's list).
+                     if ( program == TraceFarField && nearHitLightingList )
+                         block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeNearHitUB, nearHit,
+                                        kR );
                      // The cache-read leg traces nothing (ScreenProbeTrace.shader includes no tracer); a leg that
                      // lights no hit samples nothing point-clamped (the object grid is fetched).
                      const TracerPointClamp pointClamp = lightsHits ? TracerPointClamp::Bind : TracerPointClamp::Skip;
