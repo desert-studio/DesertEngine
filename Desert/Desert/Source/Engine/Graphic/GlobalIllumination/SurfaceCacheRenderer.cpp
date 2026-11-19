@@ -1138,6 +1138,14 @@ namespace Desert::Graphic::SurfaceCache
         if ( const std::string_view missing = GlobalIllumination::SurfaceCacheFrameMissing( inputs.Hits );
              !missing.empty() )
             return Common::MakeFormattedError<bool>( "surface cache radiosity: {}", missing );
+        // FPS-GI-VOXEL-LIGHT-3: a software tracer's hits take their directional shadow from the global field's voxel
+        // lighting (Common/SurfaceCacheRadiosityTraceTexel.glslh GI_VOXEL_LIGHTING_BINDING; GIHitLighting.glslh
+        // declares it on a software tracer only), bound by both trace paths below under the same rule.
+        const bool readsVoxelLighting =
+             inputs.Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::SoftwareDistanceField;
+        if ( const std::string_view missing = GlobalIllumination::VoxelLightingMissing( inputs.Tracer );
+             readsVoxelLighting && !missing.empty() )
+            return Common::MakeFormattedError<bool>( "surface cache radiosity: {}", missing );
         if ( !inputs.GIFrame.IsValid() || !inputs.PointLights.IsValid() || !inputs.SpotLights.IsValid() ||
              !inputs.WorldGridParams.IsValid() || !inputs.WorldGridCells.IsValid() || !inputs.EnvSpecular.IsValid() ||
              !inputs.GBufferDepth.IsValid() || !inputs.GBufferA.IsValid() || !inputs.GBufferEmissive.IsValid() )
@@ -1209,6 +1217,8 @@ namespace Desert::Graphic::SurfaceCache
                      pass.Read( tileArgs, RDG::Access::IndirectArgs );
                      GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
                      GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                     if ( readsVoxelLighting )
+                         GlobalIllumination::DeclareVoxelLightingReads( block, inputs.Tracer, kS );
                      if ( SamplesEmissiveLights( inputs.Tracer.Pipeline ) )
                          block.Texture( kRadiosityExcludedEmissive, layers[4], kS, all );
                  },
@@ -1286,6 +1296,8 @@ namespace Desert::Graphic::SurfaceCache
                       .PushConstants<ShaderPush::SurfaceRadiosityPush>();
                  GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                 if ( readsVoxelLighting )
+                     GlobalIllumination::DeclareVoxelLightingReads( block, inputs.Tracer, kS );
                  // The emission the hits leave out: the direct lighting sampled the emitters (GI-EMISSIVE-LIGHTS).
                  if ( SamplesEmissiveLights( inputs.Tracer.Pipeline ) )
                      block.Texture( kRadiosityExcludedEmissive, layers[4], kS, all );
