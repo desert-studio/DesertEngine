@@ -2395,6 +2395,11 @@ namespace Desert::Graphic
             reads.ShadowCascades = SceneViewInputsOf( refs ).ShadowCascades;
             if ( !reads.ShadowCascades.IsValid() )
                 return refuse( "the view's cascade array was not imported (ImportSceneViewTextures)" );
+            // FPS-GI-VOXEL-LIGHT-2: past the cascades the hit reads the global field's voxel lighting
+            // (SSRTrace.glslh GI_VOXEL_LIGHTING_BINDING), lit this frame by AddFrameGlobalDistanceField.
+            if ( const std::string_view missing = GlobalIllumination::VoxelLightingMissing( reads.Tracer );
+                 !missing.empty() )
+                return refuse( missing );
         }
         return reads;
     }

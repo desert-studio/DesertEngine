@@ -160,6 +160,48 @@ namespace Desert::Graphic::DistanceField
             hi                    = glm::ivec3( glm::floor( box.Max / brickSize ) );
         }
 
+        // FPS-GI-VOXEL-LIGHT-2: the bricks of the window of level @p level (placed at @p place: centre brick x brick
+        // size, voxel size) whose cells' test towards a light of direction @p towards (xyz, w > 0.5: on) can cross
+        // @p box - the box grown by the level's influence (the field's distances change that far) and one brick
+        // (a cell's start point is projected up to two cells onto the surface; the read is trilinear), swept away
+        // from the light in brick steps until it leaves the window. Appended to @p bricks once each (@p seen).
+        void GdfAppendShadowBricks( const Common::Math::AABB& box, const glm::vec4& towards, const int level,
+                                    const glm::vec4& place, std::unordered_set<uint64_t>& seen,
+                                    std::vector<glm::ivec4>& bricks )
+        {
+            if ( towards.w <= 0.5f || glm::dot( glm::vec3( towards ), glm::vec3( towards ) ) <= 0.0f )
+                return;
+            const float      voxel     = place.w;
+            const float      brickSize = voxel * static_cast<float>( kGdfBrick );
+            const glm::ivec3 centre    = glm::ivec3( glm::round( glm::vec3( place ) / brickSize ) );
+            const glm::ivec3 lo        = centre - kGdfHalfBricks;
+            const glm::ivec3 hi        = centre + kGdfHalfBricks - 1;
+            const float      grow      = GdfInfluenceRadius( voxel ) + brickSize;
+            const glm::vec3  away      = -glm::normalize( glm::vec3( towards ) );
+            // The window's diagonal: no step past it can reach a brick of the window.
+            const int steps = static_cast<int>( std::ceil( std::sqrt( 3.0f ) * kGdfBricksPerSide ) ) + 1;
+            for ( int step = 0; step <= steps; ++step )
+            {
+                const glm::vec3          shift = away * ( brickSize * static_cast<float>( step ) );
+                const Common::Math::AABB moved{ box.Min - grow + shift, box.Max + grow + shift };
+                glm::ivec3               blo, bhi;
+                GdfBrickRange( moved, voxel, blo, bhi );
+                blo = glm::max( blo, lo );
+                bhi = glm::min( bhi, hi );
+                for ( int z = blo.z; z <= bhi.z; ++z )
+                    for ( int y = blo.y; y <= bhi.y; ++y )
+                        for ( int x = blo.x; x <= bhi.x; ++x )
+                        {
+                            const glm::uvec3 o( glm::ivec3( x, y, z ) - lo );
+                            const uint64_t   key =
+                                 ( ( static_cast<uint64_t>( level ) * kGdfBricksPerSide + o.z ) * kGdfBricksPerSide +
+                                   o.y ) * kGdfBricksPerSide + o.x;
+                            if ( seen.insert( key ).second )
+                                bricks.emplace_back( x, y, z, level );
+                        }
+            }
+        }
+
         // The identity of a placed field: its address and its transform's bits.
         uint64_t GdfObjectKey( const GlobalDistanceFieldObject& object )
         {
@@ -750,7 +792,7 @@ namespace Desert::Graphic::DistanceField
         // The voxel lighting's share of the plan (AddVoxelLightingPasses): the bricks rewritten, and whether an
         // object moved - its shadow may fall on bricks the plan does not rewrite.
         m_FrameBricks.clear();
-        m_FrameMovedObjects = !changed.empty();
+        m_FrameMovedBoxes = changed;
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
         {
             const float      voxel     = ClipmapVoxelSize( level );
@@ -903,14 +945,25 @@ namespace Desert::Graphic::DistanceField
                  engineFrame );
         m_VoxelLightingFrame = engineFrame;
 
-        // A relight sweep over every window: the lights changed (every cell's visibility is the old light's), or
-        // an object moved (its shadow falls on bricks the composite did not rewrite). A sweep pending restarts its
-        // count, so it covers every brick after the last change.
-        if ( m_VoxelLightingLights != lights || m_FrameMovedObjects )
+        // A relight sweep over every window when the lights changed (every cell's visibility is the old light's).
+        // A sweep pending restarts its count, so it covers every brick after the last change.
+        if ( m_VoxelLightingLights != lights )
             m_SweepRemaining = kGdfBricksPerLevel * kGlobalDistanceFieldClipmaps;
         m_VoxelLightingLights = lights;
 
         std::vector<glm::ivec4> bricks = m_FrameBricks;
+        // FPS-GI-VOXEL-LIGHT-2: a moved object relights only the bricks its shadow can fall on, before and after
+        // the move (GdfAppendShadowBricks), not every window: an animated object costs its own shadow volume.
+        if ( !m_FrameMovedBoxes.empty() )
+        {
+            std::unordered_set<uint64_t> seen;
+            for ( const Common::Math::AABB& box : m_FrameMovedBoxes )
+                for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
+                {
+                    GdfAppendShadowBricks( box, lights.Sun, level, frame.Levels[level], seen, bricks );
+                    GdfAppendShadowBricks( box, lights.Light1, level, frame.Levels[level], seen, bricks );
+                }
+        }
         const uint32_t          sweep  = std::min( m_SweepRemaining, kGdfLightingSweepBricks );
         for ( uint32_t i = 0; i < sweep; ++i )
         {

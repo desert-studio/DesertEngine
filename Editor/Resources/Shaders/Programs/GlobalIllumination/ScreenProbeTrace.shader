@@ -324,6 +324,9 @@ Shader "ScreenProbeTrace"
         #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
         #define GI_SURFACE_CACHE_BINDING 25
+        // FPS-GI-VOXEL-LIGHT-2: a software leg that lights its hits reads the global field's voxel lighting at 43
+        // (Common/GIHitLighting.glslh declares it only there; ScreenProbeGather.cpp binds it under the same rule).
+        #define GI_VOXEL_LIGHTING_BINDING 43
         #include <Common/GIHitLighting.glslh>
 #endif
 

@@ -268,11 +268,12 @@ namespace Desert::Graphic::DistanceField
         // instead of marching the field to the light per hit, every frame. Persistent, toroidal as the clipmaps.
         // Once per @p engineFrame (a later call of the frame imports it only), after AddUpdatePasses of the same
         // frame: one pass over the bricks the composite rewrote this frame (new geometry, scrolled-in bricks: lit
-        // the frame they appear) plus, while a relight sweep is pending, the next kGdfLightingSweepBricks (256)
-        // bricks of every clipmap's window in order - a sweep starts when @p lights differ from the last frame's
-        // or the frame's update moved an object (its shadow falls on bricks the composite did not rewrite), and
-        // ends once it has covered every window (UE updates its voxel lighting incrementally the same way). Sets
-        // @p frame.VoxelLighting.
+        // the frame they appear), plus the bricks a moved object's shadow can fall on (FPS-GI-VOXEL-LIGHT-2: its
+        // old and new boxes, grown by the field's influence and a brick, swept away from each light on through
+        // the window), plus, while a relight sweep is pending, the next kGdfLightingSweepBricks (256) bricks of
+        // every clipmap's window in order - a sweep starts only when @p lights differ from the last frame's, and
+        // ends once it has covered every window; with nothing changed nothing is lit (UE updates its voxel
+        // lighting incrementally the same way). Sets @p frame.VoxelLighting.
         [[nodiscard]] Common::BoolResultStr AddVoxelLightingPasses( RDG::Builder& graph, const ImportImage& import,
                                                                     FrameField&                frame,
                                                                     const VoxelLightingLights& lights,
@@ -393,7 +394,9 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<ComputePipeline>   m_VoxelLightingPipeline;
         mutable ShaderBindingLayoutCache   m_VoxelLightingLayout;
         std::vector<glm::ivec4>            m_FrameBricks;
-        bool                               m_FrameMovedObjects = false;
+        // FPS-GI-VOXEL-LIGHT-2: the boxes the frame's update dirtied (a moved object's old and new bounds, an
+        // arrival, a departure) - the voxel lighting relights the bricks their shadows can reach, nothing else.
+        std::vector<Common::Math::AABB>    m_FrameMovedBoxes;
         std::optional<uint64_t>            m_VoxelLightingFrame;
         std::optional<VoxelLightingLights> m_VoxelLightingLights;
         uint32_t                           m_SweepNext      = 0;
