@@ -31,7 +31,7 @@
 Когда run Mode "Select mode"
 Когда run Action "Play"
 Когда advance 2
-Тогда refs_deferred турель у игрока стоит в исходном повороте (маяк в ячейке B не загружен, Target = nil); в логе "reference(s) from records just activated name an entity that is not resident"
+Тогда refs_deferred турель у игрока стоит в исходном повороте (маяк в ячейке B не загружен, Target = nil); в логе "reference(s) from records resident at the start name an entity that is not resident" (турель резидентна с начала Play, маяк - нет)
 # The source walks to the beacon; the camera follows 30 m up (at 6 m it stood under the terrain, 11-19).
 Когда select 9000001
 Когда --subject selection set Translation 60000,0,1000

@@ -540,6 +540,10 @@ namespace Desert::Core
                   "and destroy).",
                   streamer->m_SceneName, snapshot->Entities.size(), streamer->m_MostResident,
                   streamer->m_LastSources.size(), MsSince( started ) );
+        if ( const std::size_t unresolved = streamer->Executor().UnresolvedReferences(); unresolved > 0 )
+            LOG_INFO( "[WorldPartition] '{0}': {1} reference(s) from records resident at the start name an entity "
+                      "that is not resident (they resolve when it is).",
+                      streamer->m_SceneName, unresolved );
         // THE PLAY START IS THE LARGEST DEPARTURE OF ALL. The editor had the whole world open; the executor has
         // just destroyed every record outside the resident cells, and what those records drew - built meshes,
         // materials, textures - stayed resident until the first cell happened to leave. Measured (WP14 flight):
