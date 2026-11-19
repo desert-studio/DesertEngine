@@ -188,6 +188,10 @@ layout(std430, binding = 50) readonly buffer SsrShadowUB
 #define CASCADED_SHADOW_NOISE_PIXEL vec2(gl_GlobalInvocationID.xy)
 #include <Mesh/CascadedShadow.glslh>
 #define GI_HIT_DIRECTIONAL_CASCADES
+// FPS-GI-VOXEL-LIGHT-2: past the cascades (and across their hand-over band) the hit reads the global field's voxel
+// lighting instead of marching to the light (GIHitLighting.glslh GI_HIT_VOXEL_LIGHTING; bound under the same rule:
+// System::SSRRenderer::DeclareTracedReads, TracedReadsCascades).
+#define GI_VOXEL_LIGHTING_BINDING 51
 #endif
 #include <Common/GIHitLighting.glslh>
 #if defined( DESERT_REFLECTIONS_HIT_LIGHTING )

@@ -237,6 +237,8 @@ namespace Desert::Graphic::GlobalIllumination
         std::array<RDG::TextureRef, 4> GlobalDistanceField{};
         RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB" (TracerSoftwarePayload)
         RDG::TextureRef                GlobalDistanceFieldObjectGrid; // "GlobalDistanceFieldObjectGridTexture"
+        // "GlobalDistanceFieldVoxelLightingTexture": bound by DeclareVoxelLightingReads, not DeclareTracerReads
+        RDG::TextureRef                       GlobalDistanceFieldVoxelLighting;
         DistanceField::MeshDistanceFieldReads MeshDistanceFields;
         RDG::BufferRef                        Tlas;
         RayTracing::RayTracingMetadataFrame   Metadata;
@@ -331,6 +333,15 @@ namespace Desert::Graphic::GlobalIllumination
     // layers' access (SampledGraphics for a raster consumer).
     void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame,
                                    RDG::Access sampled = RDG::Access::SampledCompute );
+
+    // FPS-GI-VOXEL-LIGHT: the global field's voxel lighting a software global-field hit samples its directional
+    // shadow from (Common/GIHitLighting.glslh, declared where the includer defines GI_VOXEL_LIGHTING_BINDING:
+    // ScreenProbeTrace.shader's hit-lighting legs, SSRTrace.glslh's software cache-hit program). Texel-fetched
+    // through the includer's PointClampSampler, which DeclareSurfaceCacheReads binds. Empty when @p frame holds
+    // it; otherwise what is missing.
+    [[nodiscard]] std::string_view VoxelLightingMissing( const TracerFrame& frame );
+    void DeclareVoxelLightingReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame,
+                                    RDG::Access sampled = RDG::Access::SampledCompute );
 
     // THE DIRECTIONAL LIGHTS A CACHE'S HISTORY WAS LIT BY: the frame sun and atmosphere light 1 (the moon), each
     // as the lit passes receive it (SceneRenderer::GetFrameSun / GetFrameLight1: direction it travels, rgb colour

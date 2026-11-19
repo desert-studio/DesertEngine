@@ -690,6 +690,12 @@ namespace Desert::Graphic::GlobalIllumination
         if ( const std::string_view missing = SurfaceCacheFrameMissing( inputs.SurfaceCache );
              readsCards && !missing.empty() )
             return Common::MakeFormattedError<ScreenProbeGatherFrame>( "screen probes: {}", missing );
+        // FPS-GI-VOXEL-LIGHT-2: a software hit that reads the cards shadows its directional lights from the voxel
+        // lighting (GIHitLighting.glslh GI_HIT_VOXEL_LIGHTING).
+        const bool softwareTracer = inputs.Tracer.Pipeline.Tracer == Tracer::SoftwareDistanceField;
+        if ( const std::string_view missing = VoxelLightingMissing( inputs.Tracer );
+             readsCards && softwareTracer && !missing.empty() )
+            return Common::MakeFormattedError<ScreenProbeGatherFrame>( "screen probes: {}", missing );
         if ( const auto programs = EnsureLayoutPrograms( inputs.Downsample, inputs.TracedTexels ); !programs )
             return Common::MakeError<ScreenProbeGatherFrame>( programs.GetError() );
         if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
@@ -1182,6 +1188,11 @@ namespace Desert::Graphic::GlobalIllumination
                          DeclareTracerReads( block, inputs.Tracer, kS, pointClamp );
                      if ( readsCards && lightsHits )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
+                     // FPS-GI-VOXEL-LIGHT-2: the software legs that light a hit read the directional visibility
+                     // from the global field's voxel lighting (ScreenProbeTrace.shader GI_VOXEL_LIGHTING_BINDING,
+                     // declared by Common/GIHitLighting.glslh under the same rule).
+                     if ( readsCards && lightsHits && softwareTracer )
+                         DeclareVoxelLightingReads( block, inputs.Tracer, kS );
 #if DESERT_DEV_INSTRUMENTS
                      if ( TraceLegCountsRays( TraceLegDefine( program ) ) )
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,

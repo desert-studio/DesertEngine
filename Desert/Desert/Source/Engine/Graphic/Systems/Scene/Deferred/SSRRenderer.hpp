@@ -1017,8 +1017,12 @@ namespace Desert::Graphic::System
             if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )
                 GlobalIllumination::DeclareSurfaceCacheReads( block, traced.SurfaceCache );
             if ( TracedReadsCascades( traced.Tracer.Pipeline ) )
+            {
                 block.Texture( SSRShaderParameters::ShadowCascadesTexture, traced.ShadowCascades, kS, all )
                      .Storage( SSRShaderParameters::SsrShadowUB, traced.Shadow, kR );
+                // FPS-GI-VOXEL-LIGHT-2: SSRTrace.glslh GI_VOXEL_LIGHTING_BINDING, the same condition.
+                GlobalIllumination::DeclareVoxelLightingReads( block, traced.Tracer, kS );
+            }
         }
 
     public:

@@ -52,6 +52,16 @@ namespace Desert::Graphic::DistanceField
 
         constexpr int kGdfGridCells = DFShared::GDF_OBJECT_GRID_RESOLUTION;
         constexpr int kGdfGridSlots = DFShared::GDF_OBJECT_GRID_SLOTS;
+
+        // THE VOXEL LIGHTING (GlobalDistanceField::AddVoxelLightingPasses): cells per level side, and the bricks
+        // the relight sweep lights per frame - every window (4 x 16^3 bricks) in 64 frames.
+        constexpr int      kGdfLightingCells = DFShared::GDF_VOXEL_LIGHTING_RESOLUTION;
+        constexpr uint32_t kGdfBricksPerLevel =
+             static_cast<uint32_t>( kGdfBricksPerSide * kGdfBricksPerSide * kGdfBricksPerSide );
+        constexpr uint32_t kGdfLightingSweepBricks = 256u;
+        static_assert( kGdfLightingCells * DFShared::GDF_VOXEL_LIGHTING_CELL_VOXELS == kGdfResolution );
+        static_assert( DFShared::GDF_VOXEL_LIGHTING_BRICK_CELLS * DFShared::GDF_VOXEL_LIGHTING_CELL_VOXELS ==
+                       kGdfBrick );
         static_assert( kGdfGridCells * DFShared::GDF_OBJECT_GRID_CELL_VOXELS == kGdfResolution );
         static_assert( kGdfBrick % DFShared::GDF_OBJECT_GRID_CELL_VOXELS == 0, "a brick holds whole cells" );
 
@@ -148,6 +158,48 @@ namespace Desert::Graphic::DistanceField
             const float brickSize = voxelSize * static_cast<float>( kGdfBrick );
             lo                    = glm::ivec3( glm::floor( box.Min / brickSize ) );
             hi                    = glm::ivec3( glm::floor( box.Max / brickSize ) );
+        }
+
+        // FPS-GI-VOXEL-LIGHT-2: the bricks of the window of level @p level (placed at @p place: centre brick x brick
+        // size, voxel size) whose cells' test towards a light of direction @p towards (xyz, w > 0.5: on) can cross
+        // @p box - the box grown by the level's influence (the field's distances change that far) and one brick
+        // (a cell's start point is projected up to two cells onto the surface; the read is trilinear), swept away
+        // from the light in brick steps until it leaves the window. Appended to @p bricks once each (@p seen).
+        void GdfAppendShadowBricks( const Common::Math::AABB& box, const glm::vec4& towards, const int level,
+                                    const glm::vec4& place, std::unordered_set<uint64_t>& seen,
+                                    std::vector<glm::ivec4>& bricks )
+        {
+            if ( towards.w <= 0.5f || glm::dot( glm::vec3( towards ), glm::vec3( towards ) ) <= 0.0f )
+                return;
+            const float      voxel     = place.w;
+            const float      brickSize = voxel * static_cast<float>( kGdfBrick );
+            const glm::ivec3 centre    = glm::ivec3( glm::round( glm::vec3( place ) / brickSize ) );
+            const glm::ivec3 lo        = centre - kGdfHalfBricks;
+            const glm::ivec3 hi        = centre + kGdfHalfBricks - 1;
+            const float      grow      = GdfInfluenceRadius( voxel ) + brickSize;
+            const glm::vec3  away      = -glm::normalize( glm::vec3( towards ) );
+            // The window's diagonal: no step past it can reach a brick of the window.
+            const int steps = static_cast<int>( std::ceil( std::sqrt( 3.0f ) * kGdfBricksPerSide ) ) + 1;
+            for ( int step = 0; step <= steps; ++step )
+            {
+                const glm::vec3          shift = away * ( brickSize * static_cast<float>( step ) );
+                const Common::Math::AABB moved{ box.Min - grow + shift, box.Max + grow + shift };
+                glm::ivec3               blo, bhi;
+                GdfBrickRange( moved, voxel, blo, bhi );
+                blo = glm::max( blo, lo );
+                bhi = glm::min( bhi, hi );
+                for ( int z = blo.z; z <= bhi.z; ++z )
+                    for ( int y = blo.y; y <= bhi.y; ++y )
+                        for ( int x = blo.x; x <= bhi.x; ++x )
+                        {
+                            const glm::uvec3 o( glm::ivec3( x, y, z ) - lo );
+                            const uint64_t   key =
+                                 ( ( static_cast<uint64_t>( level ) * kGdfBricksPerSide + o.z ) * kGdfBricksPerSide +
+                                   o.y ) * kGdfBricksPerSide + o.x;
+                            if ( seen.insert( key ).second )
+                                bricks.emplace_back( x, y, z, level );
+                        }
+            }
         }
 
         // The identity of a placed field: its address and its transform's bits.
@@ -402,6 +454,37 @@ namespace Desert::Graphic::DistanceField
         if ( const auto valid = m_CompositeLayout.Validate( m_CompositeShader, GlobalDistanceFieldCompositeShaderParameters::kAll );
              !valid )
             return valid;
+        // THE VOXEL LIGHTING: every level's cells in one RG8 volume, the levels stacked in Z
+        // (Common/GlobalDistanceFieldVoxelLighting.glslh).
+        {
+            m_VoxelLightingShader = shaders->GetByName( "GlobalDistanceFieldVoxelLighting" );
+            if ( !m_VoxelLightingShader )
+                return Common::MakeError<bool>(
+                     "global distance field: shader GlobalDistanceFieldVoxelLighting not found" );
+            auto lightingPipeline = ComputePipeline::Create(
+                 { .Shader = m_VoxelLightingShader, .DebugName = "GlobalDistanceFieldVoxelLighting" } );
+            if ( !lightingPipeline )
+                return Common::MakeError<bool>( lightingPipeline.GetError() );
+            const Core::Formats::Image3DSpecification spec{
+                 .Tag        = "GlobalDistanceField.VoxelLighting",
+                 .Width      = static_cast<uint32_t>( kGdfLightingCells ),
+                 .Height     = static_cast<uint32_t>( kGdfLightingCells ),
+                 .Depth      = static_cast<uint32_t>( kGdfLightingCells * kGlobalDistanceFieldClipmaps ),
+                 .Format     = Core::Formats::ImageFormat::RG8_UNORM,
+                 .Data       = Core::Formats::EmptyPixelData{},
+                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
+            };
+            m_VoxelLighting = Image3D::Create( spec );
+            if ( !m_VoxelLighting )
+                return Common::MakeFormattedError<bool>(
+                     "global distance field: the voxel lighting ({}x{}x{} RG8) was not created", spec.Width,
+                     spec.Height, spec.Depth );
+            if ( const auto valid = m_VoxelLightingLayout.Validate(
+                      m_VoxelLightingShader, GlobalDistanceFieldVoxelLightingShaderParameters::kAll );
+                 !valid )
+                return valid;
+            m_VoxelLightingPipeline = lightingPipeline.GetValue();
+        }
         // Last: IsInitialized() reads the composite pipeline, so a field is initialised only once everything is.
         m_CompositePipeline = pipeline.GetValue();
         return BOOLSUCCESS;
@@ -706,6 +789,10 @@ namespace Desert::Graphic::DistanceField
         std::vector<glm::ivec4>                                                 updateBricks;
         std::vector<uint32_t>                                                   brickObjects;
         std::array<std::pair<uint32_t, uint32_t>, kGlobalDistanceFieldClipmaps> levelRange{};
+        // The voxel lighting's share of the plan (AddVoxelLightingPasses): the bricks rewritten, and whether an
+        // object moved - its shadow may fall on bricks the plan does not rewrite.
+        m_FrameBricks.clear();
+        m_FrameMovedBoxes = changed;
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
         {
             const float      voxel     = ClipmapVoxelSize( level );
@@ -754,6 +841,7 @@ namespace Desert::Graphic::DistanceField
             for ( uint32_t i = 0; i < plan.size(); ++i )
             {
                 updateBricks.emplace_back( plan[i], static_cast<int>( brickObjects.size() ) );
+                m_FrameBricks.emplace_back( plan[i], level );
                 brickObjects.push_back( static_cast<uint32_t>( lists[i].size() ) );
                 brickObjects.insert( brickObjects.end(), lists[i].begin(), lists[i].end() );
             }
@@ -840,6 +928,103 @@ namespace Desert::Graphic::DistanceField
                  } );
         }
         return Common::MakeSuccess( frame );
+    }
+
+    Common::BoolResultStr
+    GlobalDistanceField::AddVoxelLightingPasses( RDG::Builder& graph, const ImportImage& import, FrameField& frame,
+                                                 const VoxelLightingLights& lights, const uint64_t engineFrame )
+    {
+        frame.VoxelLighting = import( m_VoxelLighting, "GlobalDistanceField.VoxelLighting" );
+        // Once per frame, as the composite (the class comment): a later view of the frame reads what it lit.
+        if ( m_VoxelLightingFrame == engineFrame )
+            return BOOLSUCCESS;
+        if ( !m_FrameUpdate || m_FrameUpdate->Frame != engineFrame )
+            return Common::MakeFormattedError<bool>(
+                 "global distance field: the voxel lighting of frame {} asked before the frame's update "
+                 "(AddUpdatePasses first: it plans the bricks the lighting follows)",
+                 engineFrame );
+        m_VoxelLightingFrame = engineFrame;
+
+        // A relight sweep over every window when the lights changed (every cell's visibility is the old light's).
+        // A sweep pending restarts its count, so it covers every brick after the last change.
+        if ( m_VoxelLightingLights != lights )
+            m_SweepRemaining = kGdfBricksPerLevel * kGlobalDistanceFieldClipmaps;
+        m_VoxelLightingLights = lights;
+
+        std::vector<glm::ivec4> bricks = m_FrameBricks;
+        // FPS-GI-VOXEL-LIGHT-2: a moved object relights only the bricks its shadow can fall on, before and after
+        // the move (GdfAppendShadowBricks), not every window: an animated object costs its own shadow volume.
+        if ( !m_FrameMovedBoxes.empty() )
+        {
+            std::unordered_set<uint64_t> seen;
+            for ( const Common::Math::AABB& box : m_FrameMovedBoxes )
+                for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
+                {
+                    GdfAppendShadowBricks( box, lights.Sun, level, frame.Levels[level], seen, bricks );
+                    GdfAppendShadowBricks( box, lights.Light1, level, frame.Levels[level], seen, bricks );
+                }
+        }
+        const uint32_t          sweep  = std::min( m_SweepRemaining, kGdfLightingSweepBricks );
+        for ( uint32_t i = 0; i < sweep; ++i )
+        {
+            const uint32_t   index = ( m_SweepNext + i ) % ( kGdfBricksPerLevel * kGlobalDistanceFieldClipmaps );
+            const int        level = static_cast<int>( index / kGdfBricksPerLevel );
+            const uint32_t   local = index % kGdfBricksPerLevel;
+            const glm::vec4& place = frame.Levels[level];
+            // The window's centre brick (AddUpdatePasses: Levels[level].xyz = centre brick x brick size).
+            const glm::ivec3 centre = glm::ivec3( glm::round( glm::vec3( place ) / ( place.w * kGdfBrick ) ) );
+            const uint32_t   side   = static_cast<uint32_t>( kGdfBricksPerSide );
+            const glm::ivec3 offset( static_cast<int>( local % side ), static_cast<int>( ( local / side ) % side ),
+                                     static_cast<int>( local / ( side * side ) ) );
+            bricks.emplace_back( centre - kGdfHalfBricks + offset, level );
+        }
+        m_SweepNext = ( m_SweepNext + sweep ) % ( kGdfBricksPerLevel * kGlobalDistanceFieldClipmaps );
+        m_SweepRemaining -= sweep;
+        if ( bricks.empty() )
+            return BOOLSUCCESS;
+
+        const RDG::BufferRef list = graph.CreateBuffer( RDG::BufferDesc{ bricks.size() * sizeof( glm::ivec4 ) },
+                                                        "GlobalDistanceField.VoxelLightingBricks" );
+        graph.QueueBufferUpload( list, std::as_bytes( std::span<const glm::ivec4>( bricks ) ) );
+
+        ShaderPush::GlobalDistanceFieldVoxelLighting push;
+        push.Level0                     = frame.Levels[0];
+        push.Level1                     = frame.Levels[1];
+        push.Level2                     = frame.Levels[2];
+        push.Level3                     = frame.Levels[3];
+        push.OccupiedMin                = frame.OccupiedBox[0];
+        push.OccupiedMax                = frame.OccupiedBox[1];
+        push.SunL                       = lights.Sun;
+        push.Light1L                    = lights.Light1;
+        const uint32_t         groups   = static_cast<uint32_t>( bricks.size() );
+        ComputePipeline* const pipeline = m_VoxelLightingPipeline.get();
+        const RDG::TextureRef  lighting = frame.VoxelLighting;
+        // ASYNC COMPUTE beside the composite it follows: it reads the clipmaps the composites wrote (declared, so
+        // the graph orders it after them) and writes only the voxel lighting.
+        graph.AddPass(
+             "GlobalDistanceField: Voxel Lighting", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 auto block = pass.Bindings( m_VoxelLightingLayout.Get( m_VoxelLightingShader ),
+                                             Renderer::GetPipelineRouteFill( *pipeline ) );
+                 for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
+                     block.Texture( kGlobalDistanceFieldClipmapTextures[level], frame.Clipmaps[level],
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+                 block.Sampler( GlobalDistanceFieldVoxelLightingShaderParameters::LinearRepeatSampler,
+                                RDG::SamplerDesc::LinearRepeat() )
+                      .Storage( GlobalDistanceFieldVoxelLightingShaderParameters::GDFVoxelLightingBricks, list,
+                                RDG::Access::StorageRead )
+                      .Storage( GlobalDistanceFieldVoxelLightingShaderParameters::VoxelLightingTexture, lighting,
+                                RDG::Access::StorageWrite )
+                      .PushConstants<ShaderPush::GlobalDistanceFieldVoxelLighting>();
+             },
+             [pipeline, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( push );
+                 return Renderer::DispatchCompute( bindings, *pipeline, groups, 1, 1 );
+             } );
+        return BOOLSUCCESS;
     }
 
     Common::ResultStr<GlobalDistanceField::FrameField>

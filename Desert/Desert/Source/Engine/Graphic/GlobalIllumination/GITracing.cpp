@@ -131,4 +131,18 @@ namespace Desert::Graphic::GlobalIllumination
              .Texture( GITracingShaderParameters::SurfaceCacheOpacityTexture, frame.Opacity,
                        sampled, all );
     }
+
+    std::string_view VoxelLightingMissing( const TracerFrame& frame )
+    {
+        if ( !frame.GlobalDistanceFieldVoxelLighting.IsValid() )
+            return "the global distance field's voxel lighting was not lit this frame";
+        return {};
+    }
+
+    void DeclareVoxelLightingReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame,
+                                    RDG::Access sampled )
+    {
+        block.Texture( DistanceField::kGlobalDistanceFieldVoxelLightingTexture,
+                       frame.GlobalDistanceFieldVoxelLighting, sampled, RDG::SubresourceRange::All() );
+    }
 } // namespace Desert::Graphic::GlobalIllumination
