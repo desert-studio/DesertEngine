@@ -206,6 +206,33 @@ Shader "SSR"
         	return place;
         }
 
+        // Lists @p hit in the hit list when @p listed (SSRLegPlace's compaction, the hit lighting's workgroups raised).
+        // Every lane calls it (barriers). The near field (its cut spans the far field would only miss), the far field
+        // and its rest append to the one list.
+        void SSRListWorldHit(bool listed, uvec4 hit)
+        {
+        	const uint place = SSRLegPlace(listed);
+        	if (gl_LocalInvocationIndex == 0u && s_LegCount > 0u)
+        	{
+        		s_LegStart = atomicAdd(ssrWorldHitArgs.w, s_LegCount);
+        		atomicMax(ssrWorldHitArgs.x, (s_LegStart + s_LegCount + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
+        	}
+        	barrier();
+        	if (listed)
+        		ssrWorldHit[s_LegStart + place] = hit;
+        }
+
+        // The hit list entry of far ray @p far's finished @p march: a hit with its clipmap code and T, a miss at the
+        // radiance cache's cut as kSSRWorldHitAtCache with the cut's length; @p listed false for a whole span missed.
+        uvec4 SSRWorldFarHit(SSRWorldFarRay far, GlobalDistanceFieldHit march, out bool listed)
+        {
+        	listed = march.Hit || far.Dir.w > 0.5;
+        	const uint code = march.Hit ? uint(clamp(march.Level + 1, 0, int(kSSRWorldHitAtCache) - 1))
+        	                            : kSSRWorldHitAtCache;
+        	return uvec4(far.Listed.x | (code << 28u), far.Listed.y, far.Listed.z,
+        	             floatBitsToUint(march.Hit ? march.T : far.Start.w));
+        }
+
         // THE RADIANCE CACHE'S END of texel @p q's world ray (FPS-SSR-FAR; UE LumenReflections' radiance cache reuse,
         // r.Lumen.Reflections.RadianceCache): valid when the texel is rough enough (Common/SSRGate.glslh
         // TracedReflectionsRadianceCacheAlpha, dithered per texel and frame) and a clipmap covers its point - then the
@@ -229,7 +256,8 @@ Shader "SSR"
         void TraceWorldNearField()
         {
         	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
-        	bool           toFar = false;
+        	bool           toFar     = false;
+        	bool           toAtCache = false;
         	SSRWorldFarRay far;
         	far.Listed = uvec4(0u);
         	far.Start  = vec4(0.0);
@@ -269,6 +297,17 @@ Shader "SSR"
         			                   GITraceSeed(ray));
         			far.Start  = vec4(ray.origin + ray.direction * globalStart, marchLength);
         			far.Dir    = vec4(ray.direction, atCache);
+        			// FPS-SSR-FAR-2: a march whose first step already crosses its span (GlobalDistanceFieldFirstStepClears,
+        			// the march's own step 0 - most of the cut spans, which end a few cache cells out) is not listed: the
+        			// far field would only miss it. Missed whole, the texel stays as the screen leg wrote it; missed at
+        			// the cut, it goes straight to the hit list as the far field would list it (kSSRWorldHitAtCache,
+        			// T = the cut's length) - the far list keeps the marches that run.
+        			if (toFar && GlobalDistanceFieldFirstStepClears(far.Start.xyz, far.Dir.xyz, marchLength,
+        			                                                GI_TRACE_GDF_LEVELS))
+        			{
+        				toFar     = false;
+        				toAtCache = atCache > 0.5;
+        			}
         		}
         	}
         	const uint place = SSRLegPlace(toFar);
@@ -280,37 +319,73 @@ Shader "SSR"
         	barrier();
         	if (toFar)
         		ssrWorldFar[s_LegStart + place] = far;
+        	SSRListWorldHit(toAtCache, uvec4(far.Listed.x | (kSSRWorldHitAtCache << 28u), far.Listed.y, far.Listed.z,
+        	                                 floatBitsToUint(far.Start.w)));
         }
 
         // --- FAR FIELD (SsrParams3.w = 3, "SSR: World far field"): one thread per far list entry - the global
         // field's march the near field listed (SSRWorldFarRay: its start, direction, length and dither seed), nothing
         // rebuilt; a hit listed for the hit lighting, and so is a march cut at the radiance cache that found nothing
-        // (kSSRWorldHitAtCache: the hit lighting reads the cache). ---
+        // (kSSRWorldHitAtCache: the hit lighting reads the cache). The march runs its first kSSRWorldFarFirstSteps
+        // steps here; one still going is listed in the far rest list with its state (FPS-SSR-FAR-2), so this
+        // dispatch's waves end with their short marches and the long ones run packed in the rest's. ---
         void TraceWorldFarField()
+        {
+        	const uint index  = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
+        	bool  toHit  = false;
+        	bool  toRest = false;
+        	uvec4 hit    = uvec4(0u);
+        	uvec4 rest   = uvec4(0u);
+        	if (index < ssrWorldFarArgs.w)
+        	{
+        		const SSRWorldFarRay          far   = ssrWorldFar[index];
+        		GlobalDistanceFieldMarchState state = GlobalDistanceFieldMarchBegin();
+        		const GlobalDistanceFieldHit  march = GITraceFarFieldMarchSteps(far.Start.xyz, far.Dir.xyz, far.Start.w,
+        		                                                                far.Listed.w, 0u, state,
+        		                                                                kSSRWorldFarFirstSteps);
+        		toRest = GlobalDistanceFieldMarchUnfinished(march, state, kSSRWorldFarFirstSteps, far.Start.w) &&
+        		         kSSRWorldFarFirstSteps < GI_GDF_MAX_STEPS;
+        		if (toRest)
+        			rest = uvec4(index | (state.previousInBand ? 0x80000000u : 0u), floatBitsToUint(state.t),
+        			             floatBitsToUint(state.previousT), uint(state.step));
+        		else
+        			hit = SSRWorldFarHit(far, march, toHit);
+        	}
+        	const uint restPlace = SSRLegPlace(toRest);
+        	if (gl_LocalInvocationIndex == 0u && s_LegCount > 0u)
+        	{
+        		s_LegStart = atomicAdd(ssrWorldFarRestArgs.w, s_LegCount);
+        		atomicMax(ssrWorldFarRestArgs.x,
+        		          (s_LegStart + s_LegCount + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
+        	}
+        	barrier();
+        	if (toRest)
+        		ssrWorldFarRest[s_LegStart + restPlace] = rest;
+        	SSRListWorldHit(toHit, hit);
+        }
+
+        // --- FAR FIELD REST (SsrParams3.w = 5, "SSR: World far field rest"): one thread per far rest list entry - the
+        // march the far field left unfinished, resumed from its state to its end (GITraceFarFieldMarchSteps up to
+        // GI_GDF_MAX_STEPS: the uninterrupted march's remaining steps); listed for the hit lighting as there. ---
+        void TraceWorldFarFieldRest()
         {
         	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
         	bool  toHit = false;
         	uvec4 hit   = uvec4(0u);
-        	if (index < ssrWorldFarArgs.w)
+        	if (index < ssrWorldFarRestArgs.w)
         	{
-        		const SSRWorldFarRay         far   = ssrWorldFar[index];
-        		const GlobalDistanceFieldHit march = GITraceFarFieldMarchFrom(far.Start.xyz, far.Dir.xyz, far.Start.w,
-        		                                                              far.Listed.w, 0u);
-        		toHit = march.Hit || far.Dir.w > 0.5;
-        		const uint code = march.Hit ? uint(clamp(march.Level + 1, 0, int(kSSRWorldHitAtCache) - 1))
-        		                            : kSSRWorldHitAtCache;
-        		hit = uvec4(far.Listed.x | (code << 28u), far.Listed.y, far.Listed.z,
-        		            floatBitsToUint(march.Hit ? march.T : far.Start.w));
+        		const uvec4                   rest = ssrWorldFarRest[index];
+        		const SSRWorldFarRay          far  = ssrWorldFar[rest.x & 0x7FFFFFFFu];
+        		GlobalDistanceFieldMarchState state;
+        		state.t              = uintBitsToFloat(rest.y);
+        		state.previousT      = uintBitsToFloat(rest.z);
+        		state.previousInBand = (rest.x & 0x80000000u) != 0u;
+        		state.step           = int(rest.w);
+        		const GlobalDistanceFieldHit march = GITraceFarFieldMarchSteps(far.Start.xyz, far.Dir.xyz, far.Start.w,
+        		                                                               far.Listed.w, 0u, state, GI_GDF_MAX_STEPS);
+        		hit = SSRWorldFarHit(far, march, toHit);
         	}
-        	const uint place = SSRLegPlace(toHit);
-        	if (gl_LocalInvocationIndex == 0u && s_LegCount > 0u)
-        	{
-        		s_LegStart = atomicAdd(ssrWorldHitArgs.w, s_LegCount);
-        		atomicMax(ssrWorldHitArgs.x, (s_LegStart + s_LegCount + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
-        	}
-        	barrier();
-        	if (toHit)
-        		ssrWorldHit[s_LegStart + place] = hit;
+        	SSRListWorldHit(toHit, hit);
         }
 
         // --- HIT LIGHTING (SsrParams3.w = 4, "SSR: World hit lighting"): one thread per hit list entry - the far
@@ -479,9 +554,11 @@ Shader "SSR"
         void main()
         {
         #if defined( DESERT_REFLECTIONS_WORLD_STAGE ) && defined( DESERT_GI_TRACER_SOFTWARE )
-        	// The legs by SsrParams3.w (SSRRenderer::TraceStage World / WorldFarField / WorldHitLighting): uniform
-        	// across the dispatch, so the legs' barriers are in uniform control flow.
-        	if (SsrParams3.w >= 3.5)
+        	// The legs by SsrParams3.w (SSRRenderer::TraceStage World / WorldFarField / WorldHitLighting /
+        	// WorldFarFieldRest): uniform across the dispatch, so the legs' barriers are in uniform control flow.
+        	if (SsrParams3.w >= 4.5)
+        		TraceWorldFarFieldRest();
+        	else if (SsrParams3.w >= 3.5)
         		LightWorldHits();
         	else if (SsrParams3.w >= 2.5)
         		TraceWorldFarField();

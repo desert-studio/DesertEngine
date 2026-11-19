@@ -2467,6 +2467,8 @@ namespace Desert::Graphic
             {
                 addWorldPass( "Deferred: Reflections World Far Field (SoftwareTraced)", Stage::WorldFarField,
                               worldList->Far );
+                addWorldPass( "Deferred: Reflections World Far Field Rest (SoftwareTraced)", Stage::WorldFarFieldRest,
+                              worldList->FarRest );
                 addWorldPass( "Deferred: Reflections World Hit Lighting (SoftwareTraced)", Stage::WorldHitLighting,
                               worldList->Hits );
             }
