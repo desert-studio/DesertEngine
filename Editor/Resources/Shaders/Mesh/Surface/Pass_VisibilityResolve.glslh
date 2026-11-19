@@ -3,8 +3,8 @@
 // Two triangles per tile holding the variety's rows (Vertex_GrassBlade.glslh's resolve branch; FPS-GRASS-RESOLVE
 // tiles, Common/VisibilityTiles.glslh - a tile it misses runs no fragment) into the G-buffer: a pixel
 // whose word (Common/VisibilityBuffer.glslh) names a row of THIS variety (Blade.Visibility.x, + its capacity) rebuilds
-// the blade triangle that won it - the same BladeAt the raster placed it with, the same wind push, the level from the
-// bucket table - takes the perspective-correct barycentrics of the pixel centre, evaluates the surface ONCE and
+// the blade triangle that won it - from the blade's setup record (FPS-GRASS-RESOLVE-2, "Grass: Blade Setup": the
+// raster's BladeCurveAt with its wind, evaluated once a blade; BladeCurvePoint places the corners) - takes the perspective-correct barycentrics of the pixel centre, evaluates the surface ONCE and
 // writes the texel through the G-buffer's one writer (GBufferOutputs.glslh). No depth is written here
 // (FPS-GRASS-RESOLVE, UE Nanite's material pass): the pass's depth target is the material depth
 // ("Grass: Visibility Material Depth", Common/VisibilityTiles.glslh DesertVisibilityMaterialDepth), tested EQUAL
@@ -31,8 +31,16 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 #endif
 #ifdef DESERT_SURFACE_PATH_GrassBlade
 #include <Mesh/Surface/GrassBlade.glslh>
-// The view's deformation field: the raster flattened the blade by it (Vertex_GrassBlade.glslh), so does the rebuild.
-#include <Deformation/DeformationFieldRead.glslh>
+// FPS-GRASS-RESOLVE-2: the view's blade setup records (Programs/Grass/GrassBladeSetup.shader, "Grass: Blade Setup"),
+// by device address (Blade.Lists.yz, GrassRenderer::CommitBladeSetup): each drawn blade's curve now and one wind
+// step before - the raster's wind, local wind, gust and deformation field already applied - its width, card and
+// strip level, at its raster-stream row. The rebuild reads it instead of the transform, the ids and the field.
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassBladeSetupRef
+{
+    GrassBladeSetupData Records[];
+};
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
     GrassBladeShapeData Blade;
@@ -130,43 +138,31 @@ void main()
     if ( row < Blade.Visibility.x || row - Blade.Visibility.x >= Blade.Visibility.w )
         discard;
     const uint instance = row - Blade.Visibility.x;
-#ifdef DESERT_SURFACE_INSTANCE_IDS
-    // CPU-GRASS-POOL-6: the ids are the shared pool's (binding 18 is the whole pool), the camera list's slot
-    // `instance` lies at Lists.x + instance; the id is absolute in the instances pool (UE GPUScene's InstanceId).
-    const uint idSlot = Blade.Lists.x + instance;
-    if ( idSlot >= uint( instanceIds.length() ) )
+    // FPS-GRASS-RESOLVE-2: the blade's setup record, at its raster-stream row (a row a word names was drawn, so
+    // "Grass: Blade Setup" wrote it this frame). No records this frame (address 0): no blade pixel to rebuild.
+    if ( Blade.Lists.y == 0u && Blade.Lists.z == 0u )
         discard;
-    const mat4 model    = transforms[instanceIds[idSlot]];
-#else
-    if ( instance >= uint( transforms.length() ) )
-        discard;
-    const mat4 model    = transforms[instance];
-#endif
-    const uint segments = BladeLevelSegments( Blade, instance );
-    vec2       corner[3];
+    const GrassBladeSetupData setup = GrassBladeSetupRef( Blade.Lists.yz ).Records[row];
+    const uint                segments = max( setup.Strip.y, 1u );
+    vec2                      corner[3];
     BladeTriangleCorners( segments, triangle, corner[0], corner[1], corner[2] );
-    const vec4 windPrev = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
     // FPS-GRASS-HULL: the raster's rows stood on the card's hull (Vertex_GrassBlade.glslh, mesh z = 1 / segments).
-    const float rowSpan = 1.0 / float( max( segments, 1u ) );
-    // The local wind at the blade's root, now and one step before (the raster's, Vertex_GrassBlade.glslh).
-    const vec2  localAir     = LocalWindXZ( vec3( model[3] ), false );
-    const vec2  prevLocalAir = LocalWindXZ( vec3( model[3] ), true );
-    // The deformation field under the root (DEFORM-GRASS), the raster's one cell.
-    const vec3  trample      = DeformationFieldTrampleAt( vec3( model[3] ) );
-    BladePoint  point[3];
-    vec3        previous[3];
-    vec4        jittered[3];
-    float       hullSide[3];
+    const float      rowSpan   = 1.0 / float( segments );
+    const BladeCurve curve     = BladeSetupCurve( setup, false );
+    const BladeCurve prevCurve = BladeSetupCurve( setup, true );
+    const float      width     = setup.Right.w;
+    const uint       cardIndex = setup.Strip.x;
+    BladePoint       point[3];
+    vec3             previous[3];
+    vec4             jittered[3];
+    float            hullSide[3];
     for ( int k = 0; k < 3; ++k )
     {
-        const BladePoint full = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA,
-                                         m_PushConstants.WindB, cameraUB.WindGust, localAir, trample );
-        hullSide[k] = BladeHullSide( model, full, corner[k].x, corner[k].y, rowSpan );
-        point[k]    = BladeHullPoint( model, full, corner[k].x, hullSide[k] );
-        previous[k] = BladeHullPoint( model,
-                                      BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev,
-                                               cameraUB.PrevWindGust, prevLocalAir, trample ),
-                                      corner[k].x, hullSide[k] )
+        const BladePoint full = BladeCurvePoint( curve, width, corner[k].x, corner[k].y );
+        hullSide[k] = BladeHullSideOf( cardIndex, width, full, corner[k].x, corner[k].y, rowSpan );
+        point[k]    = BladeHullPointOf( width, full, corner[k].x, hullSide[k] );
+        previous[k] = BladeHullPointOf( width, BladeCurvePoint( prevCurve, width, corner[k].x, corner[k].y ),
+                                        corner[k].x, hullSide[k] )
                            .Position;
         jittered[k] = cameraUB.JitteredViewProjection * vec4( point[k].Position, 1.0 );
     }
@@ -179,7 +175,7 @@ void main()
     const vec3 bx    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( pixel.x, 0.0 ) );
     const vec3 by    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, pixel.y ) );
 
-    const vec4 card = BladeCard( Blade, model[0].w );
+    const vec4 card = Blade.Cards[cardIndex];
     vec2       uv[3];
     vec3       normal[3];
     for ( int k = 0; k < 3; ++k )
@@ -213,7 +209,7 @@ void main()
     const bool frontFacing = ( ( s1.x - s0.x ) * ( s2.y - s0.y ) - ( s2.x - s0.x ) * ( s1.y - s0.y ) ) > 0.0;
 
     // The vertex stage's interpolants (Vertex_GrassBlade.glslh), at this pixel.
-    SurfaceInput i = DesertSurfaceInput( position, n, uv0, mat3( right, along, n ), vec2( model[2].w, t ), vec4( 1.0 ),
+    SurfaceInput i = DesertSurfaceInput( position, n, uv0, mat3( right, along, n ), vec2( setup.PrevTip.w, t ), vec4( 1.0 ),
                                          frontFacing );
 #ifdef DESERT_SURFACE_WEATHER
     i.ObjectScaleUp       = 1.0;
