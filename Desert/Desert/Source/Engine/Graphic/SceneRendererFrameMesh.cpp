@@ -673,6 +673,10 @@ namespace Desert::Graphic
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // FPS-GRASS-RASTER-VS: the blade strips are placed from this phase's setup records (Vertex_GrassBlade.glslh,
+        // AddFrameGrassBladeSetup ran before), read by address: each raster declares the read.
+        const RDG::BufferRef bladeSetup =
+             m_Systems.Grass != nullptr ? m_Systems.Grass->BladeSetupRef() : RDG::BufferRef{};
         using Slice = System::MeshRenderer::GrassRasterSlice;
         // FPS-GRASS-VIS-2, THE OCCLUDERS FIRST (MeshRenderer::GrassRasterSlice): phase 1 rasters the sections'
         // nearest buckets, writes the words' depth ("Grass: Visibility Depth Near", the pass below's twin), then
@@ -684,8 +688,12 @@ namespace Desert::Graphic
                  graph, "Grass: Visibility Raster Near", depthOnly, {}, RDG::LoadOp::Load(), {},
                  [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return meshRenderer->RenderGrassVisibilityRasterManual( context, false, Slice::Near ); },
-                 [meshRenderer, view, words = visibility.Words]( RDG::PassBuilder& pass )
-                 { meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, false, Slice::Near ); } );
+                 [meshRenderer, view, words = visibility.Words, bladeSetup]( RDG::PassBuilder& pass )
+                 {
+                     if ( bladeSetup.IsValid() )
+                         pass.Read( bladeSetup, RDG::Access::StorageRead );
+                     meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, false, Slice::Near );
+                 } );
             AddRaster(
                  graph, "Grass: Visibility Depth Near", depthOnly, {}, RDG::LoadOp::Load(), {},
                  [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
@@ -701,8 +709,12 @@ namespace Desert::Graphic
              {}, RDG::LoadOp::Load(), {},
              [meshRenderer, postOcclusion, slice]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGrassVisibilityRasterManual( context, postOcclusion, slice ); },
-             [meshRenderer, view, words = visibility.Words, postOcclusion, slice]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, postOcclusion, slice ); } );
+             [meshRenderer, view, words = visibility.Words, postOcclusion, slice, bladeSetup]( RDG::PassBuilder& pass )
+             {
+                 if ( bladeSetup.IsValid() )
+                     pass.Read( bladeSetup, RDG::Access::StorageRead );
+                 meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, postOcclusion, slice );
+             } );
         if ( postOcclusion )
             return;
         AddRaster(
@@ -735,6 +747,12 @@ namespace Desert::Graphic
             const char*    Name;
             MeshVertexPath Path;
         };
+        // FPS-GRASS-RESOLVE-2 (Ghost of Tsushima, GDC 2021): every drawn blade evaluated once - its curve now and
+        // one wind step before, width, card and strip level - by each phase's "Grass: Blade Setup" before its
+        // raster (AddFrameGrassBladeSetup); the blade resolve reads those records. A refused records buffer leaves
+        // their address 0 and the raster places no blade: logged, never a silent stand-in.
+        const RDG::BufferRef bladeSetup =
+             m_Systems.Grass != nullptr ? m_Systems.Grass->BladeSetupRef() : RDG::BufferRef{};
         m_GrassVisibility.AddClassify( graph, visibility );
         // FPS-GRASS-RESOLVE (UE 5 Nanite EmitMaterialDepth + the material pass's depth EQUAL): the material depth
         // of each won pixel's section, tested EQUAL by every resolve on its own depth target, so the hardware
@@ -768,8 +786,13 @@ namespace Desert::Graphic
                  [meshRenderer, path]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return meshRenderer->RenderGrassVisibilityResolveManual( context, path ); },
                  [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), words = visibility.Words,
-                  args = visibility.ResolveArgs, path]( RDG::PassBuilder& pass )
-                 { meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path ); } );
+                  args = visibility.ResolveArgs, path, bladeSetup]( RDG::PassBuilder& pass )
+                 {
+                     // The blade setup records, read by address (GrassBladeShapeData Lists.yz).
+                     if ( path == MeshVertexPath::GrassBlade && bladeSetup.IsValid() )
+                         pass.Read( bladeSetup, RDG::Access::StorageRead );
+                     meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path );
+                 } );
         }
     }
 
@@ -822,7 +845,26 @@ namespace Desert::Graphic
                  { meshRenderer->DeclareGrassGBufferPostOcclusionDraws( pass, view ); } );
         }
         if ( visibility.IsValid() )
+        {
+            // FPS-GRASS-RASTER-VS: phase 2's blades set up before phase 2's raster reads them.
+            AddFrameGrassBladeSetup( graph, meshRenderer, frame, true );
             AddFrameGrassVisibility( graph, textures, meshRenderer, visibility, true );
+        }
+    }
+
+    void SceneRenderer::AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer,
+                                                 const ViewFrame& frame, const bool postOcclusion )
+    {
+        // Not gated on MeshRenderer::DrawsGrassVisibility: phase 1's sections are chosen later, in the masked
+        // prepass's setup (DeclareMaskedDepthDraws). The caller runs it only with a grass visibility frame; a variety
+        // that ends up on the G-buffer path costs its setup threads and nothing reads its rows.
+        auto* grass = m_Systems.Grass.get();
+        if ( grass == nullptr || meshRenderer == nullptr )
+            return;
+        if ( const auto setup =
+                  grass->AddFrameBladeSetup( graph, frame, meshRenderer->GetFrameDeformationField(), postOcclusion );
+             !setup )
+            LOG_ERROR( "[Grass] Blade Setup{}: {}", postOcclusion ? " Post-Occlusion" : "", setup.GetError() );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )

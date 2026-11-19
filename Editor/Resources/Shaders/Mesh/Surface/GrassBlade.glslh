@@ -169,19 +169,66 @@ BladeCurve BladeCurveAt( vec4 size, vec4 bend, mat4 model, vec4 windA, vec4 wind
     return c;
 }
 
-// The blade of @p shape at height share @p t, @p side across, for the instance matrix @p model: BladeCurveAt's
-// curve, as wide as the instance's card (BladeWidth).
-BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, vec4 windA, vec4 windB, vec4 gust,
-                    vec2 localAir, vec3 trample )
+// The point of curve @p c at height share @p t, @p side across a strip @p width wide: the one expression BladeAt
+// and the resolve's setup record (BladeSetupCurve) place a blade's point with.
+BladePoint BladeCurvePoint( BladeCurve c, float width, float side, float t )
 {
-    const BladeCurve c     = BladeCurveAt( shape.Size, shape.Bend, model, windA, windB, gust, localAir, trample );
-    const float      width = BladeWidth( shape, model );
-
     BladePoint p;
     p.Right    = c.Right;
     p.Position = c.Root + c.Up * ( c.Rise * t ) + c.Tip * pow( t, c.Bend ) + c.Right * ( 0.5 * width * side );
     p.Along    = c.Up * c.Rise + c.Tip * ( c.Bend * pow( t, c.Bend - 1.0 ) );
     return p;
+}
+
+// The blade of @p shape at height share @p t, @p side across, for the instance matrix @p model: BladeCurveAt's
+// curve, as wide as the instance's card (BladeWidth).
+BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, vec4 windA, vec4 windB, vec4 gust,
+                    vec2 localAir, vec3 trample )
+{
+    const BladeCurve c = BladeCurveAt( shape.Size, shape.Bend, model, windA, windB, gust, localAir, trample );
+    return BladeCurvePoint( c, BladeWidth( shape, model ), side, t );
+}
+
+// THE BLADE'S SETUP RECORD (FPS-GRASS-RESOLVE-2; Ghost of Tsushima, GDC 2021: each visible blade is evaluated once
+// into a compact record, shading reads it). Programs/Grass/GrassBladeSetup.shader writes one per drawn blade of
+// the camera's list, at its raster-stream row, from the raster's own BladeCurveAt now and one wind step before;
+// Mesh/Surface/Pass_VisibilityResolve.glslh rebuilds the pixel's triangle from it. The two curves share the root,
+// the frame and the power (the press is the same field cell, the wind moves only the tip): only the tip and the
+// rise differ. Mirrors GrassRenderer kBladeSetupRecordBytes (96), std430.
+struct GrassBladeSetupData
+{
+    vec4  Root;    // xyz the root, w the rise now
+    vec4  Up;      // xyz unit up, w the curve's power (Bend)
+    vec4  Right;   // xyz unit across, w the strip's width (BladeWidth)
+    vec4  Tip;     // xyz the tip now, w the rise one wind step before
+    vec4  PrevTip; // xyz the tip one wind step before, w the clump draw (the instance's column 2 w, UV1.x)
+    uvec4 Strip;   // x the card (BladeCardIndex), y the strip level's segments (BladeLevelSegments), zw 0
+};
+
+GrassBladeSetupData BladeSetupOf( BladeCurve now, BladeCurve before, float width, uint card, uint segments,
+                                  float clumpDraw )
+{
+    GrassBladeSetupData s;
+    s.Root    = vec4( now.Root, now.Rise );
+    s.Up      = vec4( now.Up, now.Bend );
+    s.Right   = vec4( now.Right, width );
+    s.Tip     = vec4( now.Tip, before.Rise );
+    s.PrevTip = vec4( before.Tip, clumpDraw );
+    s.Strip   = uvec4( card, segments, 0u, 0u );
+    return s;
+}
+
+// The record's curve now (@p previous false) or one wind step before.
+BladeCurve BladeSetupCurve( GrassBladeSetupData s, bool previous )
+{
+    BladeCurve c;
+    c.Root  = s.Root.xyz;
+    c.Up    = s.Up.xyz;
+    c.Right = s.Right.xyz;
+    c.Tip   = previous ? s.PrevTip.xyz : s.Tip.xyz;
+    c.Rise  = previous ? s.Tip.w : s.Root.w;
+    c.Bend  = s.Up.w;
+    return c;
 }
 
 // THE RAY TRACER'S BLADE INSTANCE (GrassBladeRayTracing.hpp): the identity instance with the median per-blade draws

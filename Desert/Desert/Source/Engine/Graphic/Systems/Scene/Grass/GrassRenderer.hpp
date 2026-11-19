@@ -34,6 +34,7 @@ namespace Desert
 namespace Desert::Graphic
 {
     struct ViewFrame;
+    struct DeformationFieldReads;
 }
 
 namespace Desert::Graphic::System
@@ -254,6 +255,24 @@ namespace Desert::Graphic::System
         // missing HZB never drops the grass phase 1 held back. False: nothing was added (no tested list this frame).
         [[nodiscard]] bool AddFramePostOcclusion( RDG::Builder& graph, RDG::TextureRef hzb,
                                                   const glm::mat4& viewProjection, const glm::uvec3& extent );
+
+        // FPS-GRASS-RESOLVE-2, THE BLADE SETUP (Ghost of Tsushima, GDC 2021: each visible blade evaluated once into a
+        // compact record; Programs/Grass/GrassBladeSetup.shader): one pass writes the GrassBladeSetupData of every
+        // blade a phase's records draw, at its raster-stream row - the curve now and one wind step before from the
+        // raster's wind, @p frame's camera block (gust, local wind) and @p field. FPS-GRASS-RASTER-VS: the
+        // visibility raster (Vertex_GrassBlade.glslh) and "Grass: Visibility Resolve" both read them by address
+        // (GrassBladeShapeData Lists.yz), so it runs per phase BEFORE that phase's raster: @p postOcclusion false
+        // after the camera cull ("Grass: Blade Setup", the camera records), true after AddFramePostOcclusion
+        // ("Grass: Blade Setup Post-Occlusion", phase 2's records - their slots follow phase 1's in the same list,
+        // so the two passes write disjoint rows; nothing when phase 2 was not added).
+        [[nodiscard]] Common::BoolResultStr AddFrameBladeSetup( RDG::Builder& graph, const ViewFrame& frame,
+                                                                const DeformationFieldReads& field,
+                                                                bool                         postOcclusion );
+        // This frame's setup records (CommitFrame imports them): the resolve declares its read of them.
+        [[nodiscard]] RDG::BufferRef BladeSetupRef() const noexcept
+        {
+            return m_BladeSetupRef;
+        }
 
         // GRASS-VIS: the last AddFrame handed out more raster-stream rows than a visibility word addresses
         // (kGrassVisibilityMaxRows): the view refuses its grass visibility buffer path this frame.
@@ -895,6 +914,25 @@ namespace Desert::Graphic::System
         // refs: the table, and the cull's dispatch buffer (a graph buffer, AddFrame).
         std::shared_ptr<ShaderResources::StorageBuffer> m_Table;
         RDG::ExternalBuffer                             m_TableImport;
+        // FPS-GRASS-RESOLVE-2: the blade setup program, the view's setup records (device-local, one per raster-stream
+        // row, grown with m_VisibilityRows, CommitBladeSetup) and the blade varieties CommitFrame drew this frame
+        // with their view wind (the raster's draw row's, PackViewInstanceWind).
+        struct BladeSetupVariety
+        {
+            VarietyGpu*      Gpu = nullptr;
+            InstanceWindPush Wind{};
+        };
+        std::shared_ptr<ComputePipeline>                m_BladeSetupProgram;
+        mutable ShaderBindingLayoutCache                m_BladeSetupLayout;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_BladeSetup;
+        RDG::ExternalBuffer                             m_BladeSetupImport;
+        RDG::BufferRef                                  m_BladeSetupRef{};
+        uint64_t                                        m_BladeSetupAddress  = 0;
+        uint64_t                                        m_BladeSetupCapacity = 0; // rows
+        std::vector<BladeSetupVariety>                  m_BladeSetupVarieties;
+        bool m_FramePostAdded = false; // AddFramePostOcclusion added phase 2 this frame (its records are drawn)
+        // Grows and imports the setup records for this frame's m_VisibilityRows; m_BladeSetupAddress 0 on failure.
+        [[nodiscard]] Common::BoolResultStr CommitBladeSetup( RDG::Builder& graph );
         // CPU-GRASS-POOL-1: the pooled kinds (VarietyGpu::Candidates), committed by CommitListPools.
         BufferPool m_CandidatesPool{ "GrassCandidates", 7u };
         // CPU-GRASS-POOL-5: the rows, the id lists and the draw records of every variety (VarietyGpu::Instances,

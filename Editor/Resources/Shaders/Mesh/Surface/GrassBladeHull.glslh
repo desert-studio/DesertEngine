@@ -66,13 +66,15 @@ vec2 BladeHullBand( const uint card, const uint cls, const uint band )
 // Where the strip vertex at @p side (-1 / +1) of the row at height share @p t stands across the card, for a level
 // whose segments are @p rowSpan of t each; @p blade is BladeAt at (side, t). The full card (side itself) when the
 // variety draws no hull.
-float BladeHullSide( const mat4 model, const BladePoint blade, const float side, const float t, const float rowSpan )
+// @p card is the blade's card (BladeCardIndex), @p width its strip's width (BladeWidth): the resolve takes both from
+// the blade's setup record (Mesh/Surface/GrassBlade.glslh GrassBladeSetupData), a raster cell from its matrix
+// (BladeHullSide below).
+float BladeHullSideOf( const uint card, const float width, const BladePoint blade, const float side, const float t,
+                       const float rowSpan )
 {
     if ( BladeHullTexels.z < 0.5 )
         return side;
-    const uint  card  = BladeCardIndex( Blade, model[0].w );
     const vec4  rect  = Blade.Cards[card];
-    const float width = BladeWidth( Blade, model );
     const uint  cls   = BladeHullClass( blade, rect, width );
     // The bands the two segments meeting at this row cover, t - rowSpan .. t + rowSpan, inclusive at the edges.
     const float bands = float( GRASS_BLADE_HULL_BANDS );
@@ -88,16 +90,29 @@ float BladeHullSide( const mat4 model, const BladePoint blade, const float side,
         return 0.0; // nothing of the row's segments passes: a zero-width row
     return clamp( side < 0.0 ? span.x : span.y, -1.0, 1.0 );
 }
+float BladeHullSide( const mat4 model, const BladePoint blade, const float side, const float t, const float rowSpan )
+{
+    if ( BladeHullTexels.z < 0.5 )
+        return side;
+    return BladeHullSideOf( BladeCardIndex( Blade, model[0].w ), BladeWidth( Blade, model ), blade, side, t,
+                            rowSpan );
+}
 
-// The point of the strip at the narrowed side @p hullSide of the row whose BladeAt at @p side is @p blade: the
-// row's place moved across by the card's width (BladeAt's position is affine in side, its frame is not a function
-// of it). Every cell and the resolve place a narrowed corner through this one expression.
-BladePoint BladeHullPoint( const mat4 model, const BladePoint blade, const float side, const float hullSide )
+// The point of the strip at the narrowed side @p hullSide of the row whose BladeAt at @p side is @p blade, on a
+// strip @p width wide: the row's place moved across by the card's width (BladeAt's position is affine in side, its
+// frame is not a function of it). Every cell and the resolve place a narrowed corner through this one expression.
+BladePoint BladeHullPointOf( const float width, const BladePoint blade, const float side, const float hullSide )
 {
     BladePoint p = blade;
     if ( hullSide != side )
-        p.Position += blade.Right * ( 0.5 * BladeWidth( Blade, model ) * ( hullSide - side ) );
+        p.Position += blade.Right * ( 0.5 * width * ( hullSide - side ) );
     return p;
+}
+BladePoint BladeHullPoint( const mat4 model, const BladePoint blade, const float side, const float hullSide )
+{
+    if ( hullSide == side )
+        return blade;
+    return BladeHullPointOf( BladeWidth( Blade, model ), blade, side, hullSide );
 }
 
 // The shading normal at the narrowed side @p hullSide of the row whose full strip has its corners at side -1 / +1:

@@ -1701,8 +1701,18 @@ namespace Desert::Graphic
         // @p postOcclusion (AddFrameGrassPostOcclusion): the two nodes over the grass's phase-2 records.
         void AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                                       const VirtualGeometry::VisibilityBufferFrame& visibility, bool postOcclusion );
+        // FPS-GRASS-RASTER-VS (Ghost of Tsushima, GDC 2021: a compute pass evaluates each visible blade once; the
+        // raster and the shading read it): "Grass: Blade Setup" (GrassRenderer::AddFrameBladeSetup, @p frame's
+        // camera block, the frame's deformation field) over phase 1's records (@p postOcclusion false: from
+        // OnUpdate once the grass visibility frame is made, before any phase-1 raster) or phase 2's (true: from
+        // AddFrameGrassPostOcclusion, before its raster). The visibility raster's vertex stage and the blade resolve
+        // read those records instead of placing each blade per vertex / per pixel. A refusal is logged.
+        void AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer, const ViewFrame& frame,
+                                      bool postOcclusion );
         // GRASS-VIS-23: the ONE material pass over the visibility buffer, after both phases' rasters (UE Nanite's
         // base pass after the post pass): every word - phase 1's and phase 2's - shaded once into the G-buffer.
+        // The blade resolve reads both phases' setup records (AddFrameGrassBladeSetup) instead of rebuilding each
+        // blade per pixel.
         void AddFrameGrassVisibilityResolve( RDG::Builder& graph, FrameTextures& textures,
                                              System::MeshRenderer*                         meshRenderer,
                                              const VirtualGeometry::VisibilityBufferFrame& visibility );

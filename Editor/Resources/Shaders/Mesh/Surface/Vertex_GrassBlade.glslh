@@ -144,6 +144,20 @@ DESERT_SURFACE_VARYINGS( out )
 #ifdef DESERT_SURFACE_PASS_Visibility
 // The blade's raster-stream row (Common/VisibilityBuffer.glslh): the variety's first row + the instance index.
 layout( location = 15 ) flat out uint v_VisibilityRow;
+// FPS-GRASS-RASTER-VS (Ghost of Tsushima, GDC 2021: a compute pass evaluates each visible blade once, the raster
+// reads it and never derives it again per vertex): the visibility raster places its strip from the blade's setup
+// record ("Grass: Blade Setup", Programs/Grass/GrassBladeSetup.shader - run for phase 1's records before phase 1's
+// raster and for phase 2's before phase 2's, SceneRenderer::AddFrameGrassBladeSetup), the very record the resolve
+// rebuilds its pixel from (Pass_VisibilityResolve.glslh): the curve, width, card and clump draw are read, not the
+// transform, the ids, the deformation field and the local wind. Per vertex only BladeCurvePoint and the hull remain.
+// The record is addressed by Blade.Lists.yz (GrassRenderer::CommitBladeSetup), at the row the word names.
+#define GRASS_BLADE_FROM_SETUP 1
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassBladeSetupRef
+{
+    GrassBladeSetupData Records[];
+};
 #endif
 // The card's cooked hull narrows the strip (FPS-GRASS-HULL).
 #include <Mesh/Surface/GrassBladeHull.glslh>
@@ -162,9 +176,37 @@ void main()
     // A blade row's column w carries its draws, not a LOD side: a blade never cross-fades its strip levels.
     v_Surface.LodFadeSide = 0.0;
 #endif
-#ifdef DESERT_SURFACE_PASS_Visibility
-    v_VisibilityRow = Blade.Visibility.x + ( uint( gl_InstanceIndex ) - Blade.Lists.x ); // the variety's slot
-#endif
+#ifdef GRASS_BLADE_FROM_SETUP
+    const uint row  = Blade.Visibility.x + ( uint( gl_InstanceIndex ) - Blade.Lists.x ); // the variety's slot
+    v_VisibilityRow = row;
+    // No records this frame (address 0, the setup buffer refused - logged by GrassRenderer): no blade is placed,
+    // as the resolve then draws no blade pixel.
+    if ( Blade.Lists.y == 0u && Blade.Lists.z == 0u )
+    {
+        gl_Position = vec4( 0.0, 0.0, -2.0, 1.0 ); // a degenerate, clipped
+        return;
+    }
+    const GrassBladeSetupData setup = GrassBladeSetupRef( Blade.Lists.yz ).Records[row];
+    const float               side  = a_Position.x;
+    const float               t     = a_Position.y;
+    const float               width = setup.Right.w;
+    const BladePoint full = BladeCurvePoint( BladeSetupCurve( setup, false ), width, side, t );
+    // FPS-GRASS-HULL: the row narrowed to its card's cooked hull, as the resolve rebuilds it (mesh z = the row span).
+    const float      hullSide = BladeHullSideOf( setup.Strip.x, width, full, side, t, a_Position.z );
+    const BladePoint blade    = BladeHullPointOf( width, full, side, hullSide );
+#define GRASS_BLADE_CARD  Blade.Cards[setup.Strip.x]
+#define GRASS_BLADE_CLUMP setup.PrevTip.w
+#define GRASS_BLADE_PREVIOUS()                                                                                     \
+    BladeHullPointOf( width, BladeCurvePoint( BladeSetupCurve( setup, true ), width, side, t ), side, hullSide )
+#else
+#define GRASS_BLADE_CARD  BladeCard( Blade, model[0].w )
+#define GRASS_BLADE_CLUMP model[2].w
+#define GRASS_BLADE_PREVIOUS()                                                                                     \
+    BladeHullPoint( model,                                                                                         \
+                    BladeAt( Blade, model, side, t, windA,                                                         \
+                             vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ), cameraUB.PrevWindGust, \
+                             LocalWindXZ( vec3( model[3] ), true ), trample ),                                     \
+                    side, hullSide )
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
     mat4             model  = transforms[GRASS_BLADE_ROW( uint( gl_InstanceIndex ) )];
 #else
@@ -227,6 +269,7 @@ void main()
     const float      hullSide = BladeHullSide( model, full, side, t, a_Position.z );
 #endif
     const BladePoint blade = BladeHullPoint( model, full, side, hullSide );
+#endif // GRASS_BLADE_FROM_SETUP
 // The visibility raster (Pass_Visibility.glslh) is a depth cell too, as Vertex_Instanced.glslh's: its fragment
 // stage reads the opacity mask's UV and nothing else; the resolve rebuilds the frame and the previous wind step.
 #if defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_PASS_ShadowDepth ) ||                          \
@@ -244,8 +287,8 @@ void main()
     // the blade drawn. (A `.Parallax` depth cell evaluates the surface, so it takes the full set below.)
     v_Surface.WorldPosition = blade.Position;
     v_Surface.Normal        = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
-    v_Surface.UV0           = BladeCardUV( BladeCard( Blade, model[0].w ), hullSide, t );
-    v_Surface.UV1           = vec2( model[2].w, t );
+    v_Surface.UV0           = BladeCardUV( GRASS_BLADE_CARD, hullSide, t );
+    v_Surface.UV1           = vec2( GRASS_BLADE_CLUMP, t );
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.Along         = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
     v_Surface.Right         = vec3( 1.0, 0.0, 0.0 ); // not read by the depth cells' fragment stage
@@ -263,11 +306,11 @@ void main()
     // The blade's look is its material's: UV0 is the card's place on the scanned atlas (texture space, set
     // directly, not a stored mesh UV), UV1 carries the clump's draw and the height share for the material's clump
     // tint and root occlusion (GrassBladeSurface.shader), so neither is a colour decided here.
-    const vec4 card = BladeCard( Blade, model[0].w );
+    const vec4 card = GRASS_BLADE_CARD;
     v_Surface.WorldPosition = blade.Position;
     v_Surface.Normal        = normal;
     v_Surface.UV0           = BladeCardUV( card, hullSide, t );
-    v_Surface.UV1           = vec2( model[2].w, t );
+    v_Surface.UV1           = vec2( GRASS_BLADE_CLUMP, t );
     v_Surface.ObjectScaleUp = 1.0;
     // The shading frame (Right, Along, Normal) without its third axis - Normal is it - and with the blade's one
     // across axis flat; no vertex colour: the strip has none (SurfaceTypes.glslh DESERT_SURFACE_GRASS_BLADE_VARYINGS).
@@ -277,10 +320,7 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
-    const BladePoint previous = BladeHullPoint(
-         model, BladeAt( Blade, model, side, t, windA,
-                         vec4( GRASS_BLADE_WIND_B.x, GRASS_BLADE_WIND_B.z, 0.0, 0.0 ), cameraUB.PrevWindGust,
-                         LocalWindXZ( vec3( model[3] ), true ), trample ), side, hullSide );
+    const BladePoint previous = GRASS_BLADE_PREVIOUS();
 #ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
 #endif
