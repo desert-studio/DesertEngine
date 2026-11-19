@@ -17,7 +17,7 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Дано run Panel "Open World Partition"
-Тогда-вид cmdlet_panel панель World Partition: «0 stale» (HLOD построены коммандлетом, не кнопкой)
+Тогда cmdlet_panel панель World Partition: «0 stale» (HLOD построены коммандлетом, не кнопкой)
 Когда run Mode "Select mode"
 Когда run Action "Play"
 Когда advance 2

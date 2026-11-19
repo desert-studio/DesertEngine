@@ -11,7 +11,7 @@
 #   Properties = { Target = Property.Entity( { tooltip = "What the turret tracks." } ) }
 #   function OnUpdate(dt) if Properties.Target and Properties.Target:valid() then <yaw self toward Target's position> end end
 # and Scripts/World/RefHardLink.lua - Properties = { Part = Property.Entity( { hard = true } ) }.
-# Ids: turret 9200001 (cell A, by the Player), beacon 9200002 (cell B, ~2 cells along +X), hard pair 9200003 -> 9200004
+# Ids: turret 9200001 (cell A, by the Player), beacon 9200002 (cell B, 600 m along +X), hard pair 9200003 -> 9200004
 # (neighbouring cells). LEAD: if `set ... ScriptComponent...` is not the DesertCtl form on this build, attach the scripts in
 # Details > Add Component > Script and pick the targets in the Entity field (as GDT-1 does for its demo script).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
@@ -19,19 +19,27 @@
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Дано spawn Content/Meshes/Modeling/Box.stmesh 1000,0,1000 --id 9200001
-Дано spawn Content/Meshes/Modeling/Box.stmesh 27000,0,1000 --id 9200002
+Дано spawn Content/Meshes/Modeling/Box.stmesh 60000,0,1000 --id 9200002
+# The turret is always loaded (UE bIsSpatiallyLoaded = false) so its reference outlives the source's walk; the beacon
+# stands 600 m out (G0L0(24,0)), three loading ranges from the start, so only moving the source brings it in
+# (at 270 m it was resident 4.5 s into Play, before refs_deferred).
+Дано set 9200001 WorldPartition.IsSpatiallyLoaded false
+Дано set 9000001 StreamingSourceData.Enabled true
+Дано set 9000002 StreamingSourceData.Enabled false
 Дано add-component 9200001 Script
 Дано set 9200001 Script.Scripts '[{"ScriptKey":"assets:Scripts/World/RefTurret.lua","Props":[{"Name":"Target","Type":7,"Ref":9200002}]}]'
 Когда run Mode "Select mode"
 Когда run Action "Play"
 Когда advance 2
 Тогда refs_deferred турель у игрока стоит в исходном повороте (маяк в ячейке B не загружен, Target = nil); в логе "reference(s) from records just activated name an entity that is not resident"
-# 30 m up: at 6 m the camera stood under the terrain (refs_rebound 11-19 showed its underside).
-Когда --subject viewport set Camera.Position 26000,3000,-2000
+# The source walks to the beacon; the camera follows 30 m up (at 6 m it stood under the terrain, 11-19).
+Когда set 9000001 Transform.Translation 60000,0,1000
+Когда --subject viewport set Camera.Position 59000,3000,-2000
 Когда --subject viewport set Camera.Direction 0.23,-0.69,0.69
 Когда advance 2
 Когда advance 1
-Тогда refs_rebound маяк в ячейке B на месте; турель повернулась на маяк; лог: "rebound 1 reference into G0L0(…)" (ячейка маяка)
+Тогда refs_rebound маяк в ячейке B (600 м) на месте после прихода источника; лог: "rebound 1 reference into G0L0(24,0)" (ячейка маяка), и только после кадра refs_deferred
+Когда set 9000001 Transform.Translation 0,0,0
 Когда --subject viewport set Camera.Position 0,600,-500
 Когда advance 2
 Когда advance 1
