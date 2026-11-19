@@ -33,13 +33,15 @@
 Когда advance 2
 Тогда refs_deferred турель у игрока стоит в исходном повороте (маяк в ячейке B не загружен, Target = nil); в логе "reference(s) from records just activated name an entity that is not resident"
 # The source walks to the beacon; the camera follows 30 m up (at 6 m it stood under the terrain, 11-19).
-Когда set 9000001 Transform.Translation 60000,0,1000
+Когда select 9000001
+Когда --subject selection set Translation 60000,0,1000
 Когда --subject viewport set Camera.Position 59000,3000,-2000
 Когда --subject viewport set Camera.Direction 0.23,-0.69,0.69
 Когда advance 2
 Когда advance 1
 Тогда refs_rebound маяк в ячейке B (600 м) на месте после прихода источника; лог: "rebound 1 reference into G0L0(24,0)" (ячейка маяка), и только после кадра refs_deferred
-Когда set 9000001 Transform.Translation 0,0,0
+Когда select 9000001
+Когда --subject selection set Translation 0,0,0
 Когда --subject viewport set Camera.Position 0,600,-500
 Когда advance 2
 Когда advance 1
