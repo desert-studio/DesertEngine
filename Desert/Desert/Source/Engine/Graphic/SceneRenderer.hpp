@@ -591,6 +591,13 @@ namespace Desert::Graphic
         {
             return m_ScreenProbeGather ? &m_ScreenProbeGather->LastMissReasons() : nullptr;
         }
+        /// FPS-SP-INTEGRATE: the screen probe gather's census (GlobalIllumination::ScreenProbeCensus: probes
+        /// placed against the budget, the integrate's tiles by kind), slots-in-flight late; nullptr without a
+        /// gather.
+        [[nodiscard]] const GlobalIllumination::ScreenProbeCensus* GetScreenProbeCensus() const
+        {
+            return m_ScreenProbeGather ? &m_ScreenProbeGather->LastCensus() : nullptr;
+        }
 #endif
         /// PROBE-TRACE-COST-3: the radiance cache update's counts (GlobalIllumination::RadianceCacheUpdateCounts,
         /// read back slots-in-flight late): stamped, never traced, traced, slots taken / refused / freed by why.
@@ -1954,7 +1961,18 @@ namespace Desert::Graphic
         {
             GlobalIllumination::RadianceCacheUpdateInputs Inputs;
             GlobalIllumination::RadianceCacheFrame        Cache;
+            // FPS-ASYNC-WAIT: set when Cache is the last filtered update, read before this frame's update - the
+            // resources registered for it, which AddFrameRadianceCacheDeferredUpdate's update reuses after the
+            // last reader. Empty: Cache is this frame's update, declared before its readers.
+            std::optional<GlobalIllumination::WorldRadianceCache::GraphResources> UpdateAfterReaders;
         };
+        // The frame's update after its readers (FPS-ASYNC-WAIT), from AddFrameTracedGIUpdate to
+        // AddFrameRadianceCacheDeferredUpdate in the same graph; reset by the frame's head and by that call.
+        std::optional<TracedGIUpdate> m_FrameRadianceCacheUpdate;
+        // This frame's radiance cache update (Mark .. Filter) after the last reader of the cache, when
+        // AddFrameTracedGIUpdate gave the readers the last filtered update (TracedGIUpdate::UpdateAfterReaders);
+        // nothing otherwise. Its refusal is said once (m_TracedGIRefusal): the readers keep the last update.
+        void AddFrameRadianceCacheDeferredUpdate( RDG::Builder& graph, FrameTextures& textures );
         std::optional<TracedGIUpdate> AddFrameTracedGIUpdate( RDG::Builder& graph, FrameTextures& textures,
                                                               const std::vector<RDG::TextureRef>& gbuffer,
                                                               const glm::vec4& lightDir, const glm::vec4& lightColor,

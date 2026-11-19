@@ -19,6 +19,7 @@
 #include <Common/Core/Math/Rounding.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -47,6 +48,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeSpeedUB );
         DESERT_SHADER_PARAMETER( Texture, Velocity );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbePlacedArgsUB );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -159,6 +161,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredMaskUB );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWord ); // SP_INTEGRATE_UNCOVERED: the backface's foliage test
     };
     struct ScreenProbeGatherDisocclusionShaderParameters
     {
@@ -535,6 +538,50 @@ namespace Desert::Graphic::GlobalIllumination
         slot = RDG::ExternalBuffer{};
         graph.Extract( counts, slot, RDG::Access::HostRead );
     }
+
+    void ScreenProbeCensusCounts::AddFrame( RDG::Builder& graph, const uint64_t frameIndex, const Frame& frame,
+                                            const RDG::BufferRef placedArgs, const RDG::BufferRef integrateArgs,
+                                            const RDG::BufferRef uncoveredArgs )
+    {
+        const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_Slots.size() != slots )
+        {
+            m_Slots.clear();
+            m_Slots.resize( slots );
+        }
+        Slot& slot = m_Slots[static_cast<std::size_t>( frameIndex % slots )];
+        // The words this slot was handed slots-in-flight frames ago: its fence has passed.
+        if ( slot.PlacedArgs.Physical && slot.IntegrateArgs.Physical && slot.UncoveredArgs.Physical )
+        {
+            std::array<uint32_t, 4>          placed{};
+            std::array<uint32_t, 8>          integrate{};
+            std::array<uint32_t, 4>          uncovered{};
+            const std::span<const std::byte> placedBytes    = slot.PlacedArgs.Physical->ReadForHost();
+            const std::span<const std::byte> integrateBytes = slot.IntegrateArgs.Physical->ReadForHost();
+            const std::span<const std::byte> uncoveredBytes = slot.UncoveredArgs.Physical->ReadForHost();
+            if ( placedBytes.size() >= sizeof( placed ) && integrateBytes.size() >= sizeof( integrate ) &&
+                 uncoveredBytes.size() >= sizeof( uncovered ) )
+            {
+                std::memcpy( placed.data(), placedBytes.data(), sizeof( placed ) );
+                std::memcpy( integrate.data(), integrateBytes.data(), sizeof( integrate ) );
+                std::memcpy( uncovered.data(), uncoveredBytes.data(), sizeof( uncovered ) );
+                m_Last.UniformProbes  = slot.Host.UniformProbes;
+                m_Last.AdaptiveBudget = slot.Host.AdaptiveBudget;
+                m_Last.Tiles          = slot.Host.Tiles;
+                m_Last.AdaptiveWanted = placed[3];
+                m_Last.AdaptivePlaced =
+                     placed[0] > slot.Host.UniformProbes ? placed[0] - slot.Host.UniformProbes : 0u;
+                m_Last.SimpleTiles    = integrate[3];
+                m_Last.FullTiles      = integrate[7];
+                m_Last.UncoveredTiles = uncovered[3];
+                m_Last.Valid          = true;
+            }
+        }
+        slot = Slot{ .Host = frame };
+        graph.Extract( placedArgs, slot.PlacedArgs, RDG::Access::HostRead );
+        graph.Extract( integrateArgs, slot.IntegrateArgs, RDG::Access::HostRead );
+        graph.Extract( uncoveredArgs, slot.UncoveredArgs, RDG::Access::HostRead );
+    }
 #endif
 
     Common::BoolResultStr ScreenProbeGather::EnsureTraceProgram( const Pipeline& pipeline )
@@ -740,6 +787,13 @@ namespace Desert::Graphic::GlobalIllumination
         graph.QueueBufferUpload( paramsBuffer, std::as_bytes( std::span( &params, 1 ) ) );
         const RDG::BufferRef index =
              graph.CreateBuffer( RDG::BufferDesc{ layout.IndexEntries * 4ull }, "ScreenProbes.Index" );
+        // THE PLACED PROBES' DISPATCH (UE ScreenProbeIndirectArgs, sized by NumAdaptiveScreenProbes): one group a
+        // placed probe - the uniform grid plus the adaptive probes the budget let through - written by the
+        // placement (ScreenProbePlace.shader), read as the indirect args of every one-group-a-probe pass (the
+        // screen trace, the spatial filter, the filter). Was layout.Probes() groups (uniform + the whole adaptive
+        // budget), the unplaced ones leaving on screenProbeIndex[0].
+        const RDG::BufferRef placedArgs =
+             graph.CreateBuffer( RDG::BufferDesc{ 4ull * sizeof( uint32_t ) }, "ScreenProbes.PlacedArgs" );
         const RDG::BufferRef probes = graph.CreateBuffer(
              RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( ScreenProbePayload ) ) },
              "ScreenProbes.Probes" );
@@ -801,6 +855,7 @@ namespace Desert::Graphic::GlobalIllumination
                           .Texture( ScreenProbeGatherPlaceShaderParameters::Velocity, inputs.Velocity, kS, all )
                           .Sampler( ScreenProbeGatherPlaceShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() )
+                          .Storage( ScreenProbeGatherPlaceShaderParameters::ScreenProbePlacedArgsUB, placedArgs, kW )
                           .PushConstants<ShaderPush::ScreenProbePlace>();
                      gbuf( block );
                  },
@@ -1043,12 +1098,13 @@ namespace Desert::Graphic::GlobalIllumination
                      bindOut( block, nearList );
                      bindOut2( block, farList );
                      bindOut3( block, cacheReadList );
+                     builder.Read( placedArgs, RDG::Access::IndirectArgs );
                  },
-                 [pipeline, probeGroups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, args = placedArgs, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( push );
-                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                  } );
         }
 
@@ -1345,11 +1401,12 @@ namespace Desert::Graphic::GlobalIllumination
                               .Storage(
                                    ScreenProbeGatherSpatialFilterShaderParameters::FilteredScreenProbeRadiance,
                                    output, kW );
+                         builder.Read( placedArgs, RDG::Access::IndirectArgs );
                      },
-                     [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     [pipeline, args = placedArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                         return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                      } );
                 radiance = output;
             }
@@ -1398,11 +1455,12 @@ namespace Desert::Graphic::GlobalIllumination
                                     inputs.RadianceCache.Depth, kS, all )
                           .Sampler( ScreenProbeGatherFilterShaderParameters::LinearClampSampler,
                                     RDG::SamplerDesc::LinearClamp() );
+                     builder.Read( placedArgs, RDG::Access::IndirectArgs );
                  },
-                 [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, args = placedArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                  } );
         }
         // One integrate permutation over its tiles: the simple-diffuse one binds no filtered radiance (it samples
@@ -1497,6 +1555,7 @@ namespace Desert::Graphic::GlobalIllumination
                                     kS, all )
                           .Texture( IntegrateSlots::RadianceCacheDepthTexture, inputs.RadianceCache.Depth, kS, all )
                           .Texture( IntegrateSlots::ShortRangeAoTexture, shortRangeAO, kS, all )
+                          .Texture( IntegrateSlots::GBufferShadingWord, inputs.GBufferShadingWord, kS, all )
                           .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() );
                      gbuf( block );
                  },
@@ -1506,6 +1565,14 @@ namespace Desert::Graphic::GlobalIllumination
                      return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                  } );
         }
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-SP-INTEGRATE: the placement's and the integrate's census, after the last pass that writes its words.
+        m_Census.AddFrame( graph, m_FrameIndex,
+                           ScreenProbeCensusCounts::Frame{ .UniformProbes  = layout.UniformProbes,
+                                                           .AdaptiveBudget = layout.AdaptiveProbes,
+                                                           .Tiles = static_cast<uint32_t>( integrateTileCount ) },
+                           placedArgs, integrateArgs, uncoveredArgs );
+#endif
 
         if ( !inputs.Denoise )
             return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse      = diffuse,

@@ -220,14 +220,64 @@ namespace Desert::Graphic::GlobalIllumination
         m_Shape    = shape;
         m_HasShape = true;
         m_Reset    = true;
+        m_FilteredParams.reset(); // the new buffers hold no update yet
         return BOOLSUCCESS;
     }
 
-    Common::ResultStr<RadianceCacheFrame>
-    WorldRadianceCache::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
-                                         const RadianceCache::RadianceCacheInputs& shape,
-                                         const RadianceCacheUpdateInputs&          inputs )
+    Common::ResultStr<WorldRadianceCache::GraphResources>
+    WorldRadianceCache::RegisterResources( RDG::Builder& graph, const ImportImage& import )
     {
+        for ( const auto& [buffer, external, name] :
+              { std::tuple{ &m_Indirection, &m_IndirectionImport, "RadianceCache.Indirection" },
+                std::tuple{ &m_LastUsed, &m_LastUsedImport, "RadianceCache.LastUsed" },
+                std::tuple{ &m_Probes, &m_ProbesImport, "RadianceCache.Probes" },
+                std::tuple{ &m_FreeList, &m_FreeListImport, "RadianceCache.FreeList" } } )
+            if ( const auto imported = Renderer::ImportBuffer( *buffer, *external ); !imported )
+                return Common::MakeFormattedError<GraphResources>( "radiance cache: {}: {}", name,
+                                                                   imported.GetError() );
+        GraphResources registered;
+        registered.Frame.Indirection = graph.RegisterExternal( m_IndirectionImport, "RadianceCache.Indirection" );
+        registered.LastUsed          = graph.RegisterExternal( m_LastUsedImport, "RadianceCache.LastUsed" );
+        registered.Frame.Probes      = graph.RegisterExternal( m_ProbesImport, "RadianceCache.Probes" );
+        registered.FreeList          = graph.RegisterExternal( m_FreeListImport, "RadianceCache.FreeList" );
+        registered.Frame.Radiance    = import( m_RadianceAtlas, "RadianceCache.Radiance" );
+        registered.Frame.Irradiance  = import( m_IrradianceAtlas, "RadianceCache.Irradiance" );
+        registered.Frame.Depth       = import( m_DepthAtlas, "RadianceCache.Depth" );
+        return Common::MakeSuccess( registered );
+    }
+
+    bool WorldRadianceCache::HoldsFilteredUpdate( const RadianceCache::RadianceCacheInputs& shape ) const
+    {
+        return m_HasShape && shape == m_Shape && m_FilteredParams.has_value() && !m_PendingFilter;
+    }
+
+    Common::ResultStr<WorldRadianceCache::GraphResources>
+    WorldRadianceCache::AddReadFrame( RDG::Builder& graph, const ImportImage& import,
+                                      const RadianceCache::RadianceCacheInputs& shape )
+    {
+        if ( !HoldsFilteredUpdate( shape ) )
+            return Common::MakeError<GraphResources>(
+                 "radiance cache: no filtered update of this shape to read before this frame's update" );
+        auto registered = RegisterResources( graph, import );
+        if ( !registered )
+            return registered;
+        GraphResources frame = registered.GetValue();
+        // The last filtered update's clipmaps: the indirection the readers walk is laid out by them.
+        const RadianceCache::RadianceCacheParamsPayload paramsPayload = *m_FilteredParams;
+        frame.Frame.Params =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( paramsPayload ) }, "RadianceCache.Params (read)" );
+        graph.QueueBufferUpload( frame.Frame.Params, std::as_bytes( std::span( &paramsPayload, 1 ) ) );
+        return Common::MakeSuccess( frame );
+    }
+
+    Common::ResultStr<RadianceCacheFrame> WorldRadianceCache::AddUpdatePasses(
+         RDG::Builder& graph, const ImportImage& import, const RadianceCache::RadianceCacheInputs& shape,
+         const RadianceCacheUpdateInputs& inputs, const GraphResources* registered )
+    {
+        // Resources registered before a rebuild name the buffers the rebuild just replaced.
+        if ( registered != nullptr && !( m_HasShape && shape == m_Shape ) )
+            return Common::MakeError<RadianceCacheFrame>(
+                 "radiance cache: the resources read this frame were registered under another quality's shape" );
         // The last update's Filter never declared: that graph traced probes it did not filter (the caller's
         // contract, AddFilterPass). Said, and dropped, so the next update starts clean.
         if ( m_PendingFilter )
@@ -260,22 +310,24 @@ namespace Desert::Graphic::GlobalIllumination
         if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
             return Common::MakeError<RadianceCacheFrame>( traced.GetError() );
 
-        for ( const auto& [buffer, external, name] :
-              { std::tuple{ &m_Indirection, &m_IndirectionImport, "RadianceCache.Indirection" },
-                std::tuple{ &m_LastUsed, &m_LastUsedImport, "RadianceCache.LastUsed" },
-                std::tuple{ &m_Probes, &m_ProbesImport, "RadianceCache.Probes" },
-                std::tuple{ &m_FreeList, &m_FreeListImport, "RadianceCache.FreeList" } } )
-            if ( const auto imported = Renderer::ImportBuffer( *buffer, *external ); !imported )
-                return Common::MakeFormattedError<RadianceCacheFrame>( "radiance cache: {}: {}", name,
-                                                                       imported.GetError() );
-        const RDG::BufferRef indirection =
-             graph.RegisterExternal( m_IndirectionImport, "RadianceCache.Indirection" );
-        const RDG::BufferRef  lastUsed   = graph.RegisterExternal( m_LastUsedImport, "RadianceCache.LastUsed" );
-        const RDG::BufferRef  probes     = graph.RegisterExternal( m_ProbesImport, "RadianceCache.Probes" );
-        const RDG::BufferRef  freeList   = graph.RegisterExternal( m_FreeListImport, "RadianceCache.FreeList" );
-        const RDG::TextureRef radiance   = import( m_RadianceAtlas, "RadianceCache.Radiance" );
-        const RDG::TextureRef irradiance = import( m_IrradianceAtlas, "RadianceCache.Irradiance" );
-        const RDG::TextureRef depth      = import( m_DepthAtlas, "RadianceCache.Depth" );
+        // The registration AddReadFrame made in this graph is of THESE resources only while the shape held
+        // (EnsureResources above rebuilt nothing): the caller asked HoldsFilteredUpdate( shape ) first.
+        GraphResources registeredHere;
+        if ( registered == nullptr )
+        {
+            auto made = RegisterResources( graph, import );
+            if ( !made )
+                return Common::MakeError<RadianceCacheFrame>( made.GetError() );
+            registeredHere = made.GetValue();
+            registered     = &registeredHere;
+        }
+        const RDG::BufferRef  indirection = registered->Frame.Indirection;
+        const RDG::BufferRef  lastUsed    = registered->LastUsed;
+        const RDG::BufferRef  probes      = registered->Frame.Probes;
+        const RDG::BufferRef  freeList    = registered->FreeList;
+        const RDG::TextureRef radiance    = registered->Frame.Radiance;
+        const RDG::TextureRef irradiance  = registered->Frame.Irradiance;
+        const RDG::TextureRef depth       = registered->Frame.Depth;
 
         // THE FULL UPDATE (UE r.Lumen.RadianceCache.ForceFullUpdate): the directional lights changed significantly
         // since the last one, so every probe this frame uses is traced in it with no history - the cache's cells
@@ -369,6 +421,7 @@ namespace Desert::Graphic::GlobalIllumination
         std::memcpy( update.Push.data(), &push, sizeof( push ) );
         update.FrameIndex = push.FrameIndex;
         update.FullUpdate = fullUpdate;
+        update.ParamsPayload = paramsPayload;
         // Mark .. Trace now; Filter by AddFilterPass, after the async work the view declares beside it.
         for ( uint32_t pass = Mark; pass < Filter; ++pass )
             DeclarePass( graph, static_cast<Pass>( pass ), update, &inputs );
@@ -383,6 +436,7 @@ namespace Desert::Graphic::GlobalIllumination
         const UpdateDeclaration update = *m_PendingFilter;
         m_PendingFilter.reset();
         DeclarePass( graph, Filter, update, nullptr );
+        m_FilteredParams = update.ParamsPayload;
 
         m_UpdateCounts.AddFrame( graph, update.FrameIndex, update.UpdateCounts );
         // GPU-TURN-4: does the budget hold on a camera turn - the newest read-back frame's traced / budget, and

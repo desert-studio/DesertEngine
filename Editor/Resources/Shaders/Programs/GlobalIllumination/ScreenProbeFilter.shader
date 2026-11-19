@@ -104,6 +104,12 @@ Shader "ScreenProbeFilter"
         shared vec3  s_Direction[SP_RES * SP_RES];
         shared float s_SolidAngle[SP_RES * SP_RES];
         shared float s_Moving[SP_RES * SP_RES];
+        // THE REDUCTION (FPS-SP-CHAIN): up to one warp of threads each sums a strided segment of the probe's texels
+        // for all nine SH coefficients, the solid angle and the moving share; nine threads then sum the segments.
+        #define SP_FILTER_TEXELS ( SP_RES * SP_RES )
+        #define SP_FILTER_SEGMENTS ( SP_FILTER_TEXELS < 32u ? SP_FILTER_TEXELS : 32u )
+        shared vec3 s_SHPartial[SP_FILTER_SEGMENTS * 9u];
+        shared vec2 s_TotalPartial[SP_FILTER_SEGMENTS]; // x the solid angle, y the moving texels
 
         vec3 TexelDirection( mat3 frame, vec2 texel )
         {
@@ -173,15 +179,38 @@ Shader "ScreenProbeFilter"
                 imageStore( ScreenProbeFilteredTexture, tileOrigin + b, vec4( s_Radiance[s.x + s.y * R], 1.0 ) );
             }
 
-            // ---- Irradiance SH: nine coefficients, one thread each.
+            // ---- Irradiance SH and the moving share, THE REDUCTION above: each segment thread evaluates one
+            // direction's nine basis values at once (SPSHBasisAll, every switch folded) for each of its texels. It
+            // was nine threads of one warp looping over every texel with a switch on their own coefficient (nine
+            // divergent cases an iteration), then the moving loop and the backface read serialized behind them.
+            if ( texel < SP_FILTER_SEGMENTS )
+            {
+                vec3 c[9];
+                for ( uint k = 0u; k < 9u; ++k )
+                    c[k] = vec3( 0.0 );
+                vec2 totals = vec2( 0.0 );
+                for ( uint i = texel; i < SP_FILTER_TEXELS; i += SP_FILTER_SEGMENTS )
+                {
+                    float basis[9];
+                    SPSHBasisAll( s_Direction[i], basis );
+                    const vec3 weighted = s_Radiance[i] * s_SolidAngle[i];
+                    for ( uint k = 0u; k < 9u; ++k )
+                        c[k] += weighted * basis[k];
+                    totals += vec2( s_SolidAngle[i], s_Moving[i] );
+                }
+                for ( uint k = 0u; k < 9u; ++k )
+                    s_SHPartial[texel * 9u + k] = c[k];
+                s_TotalPartial[texel] = totals;
+            }
+            barrier();
             if ( texel < 9u )
             {
                 vec3  c     = vec3( 0.0 );
                 float total = 0.0;
-                for ( uint i = 0u; i < SP_RES * SP_RES; ++i )
+                for ( uint s = 0u; s < SP_FILTER_SEGMENTS; ++s )
                 {
-                    c     += s_Radiance[i] * ( SPSHBasis( texel, s_Direction[i] ) * s_SolidAngle[i] );
-                    total += s_SolidAngle[i];
+                    c     += s_SHPartial[s * 9u + texel];
+                    total += s_TotalPartial[s].x;
                 }
                 // The texels cover the hemisphere: their solid angles sum to 2 pi up to the corner chords.
                 c *= 6.28318531 / max( total, 1e-4 );
@@ -191,21 +220,22 @@ Shader "ScreenProbeFilter"
                 screenProbeSH[packed + 1u] = sh.g;
                 screenProbeSH[packed + 2u] = sh.b;
             }
-            // ---- Backface irradiance: one thread.
+            // ---- Moving: one thread.
             else if ( texel == 9u )
+            {
+                float moving = 0.0;
+                for ( uint s = 0u; s < SP_FILTER_SEGMENTS; ++s )
+                    moving += s_TotalPartial[s].y;
+                screenProbeMoving[probe] = moving / float( SP_FILTER_TEXELS );
+            }
+            // ---- Backface irradiance: the group's last thread (SP_RES >= 4: never one of the ten above), in the
+            // second warp from SP_RES 6 up, so its cache read overlaps the SH sums instead of following them.
+            if ( texel == SP_FILTER_TEXELS - 1u )
             {
                 const vec3  toCamera = giFrame.camera.xyz - p;
                 const vec3  v        = toCamera / max( length( toCamera ), 1e-3 );
                 const vec4  cache    = RadianceCacheIrradianceAt( p, -state.normal.xyz, v, 0.5 );
                 screenProbeBackface[probe] = cache.a > 0.0 ? vec4( cache.rgb, 1.0 ) : vec4( 0.0 );
-            }
-            // ---- Moving: one thread.
-            else if ( texel == 10u )
-            {
-                float moving = 0.0;
-                for ( uint i = 0u; i < SP_RES * SP_RES; ++i )
-                    moving += s_Moving[i];
-                screenProbeMoving[probe] = moving / float( SP_RES * SP_RES );
             }
         }
     }

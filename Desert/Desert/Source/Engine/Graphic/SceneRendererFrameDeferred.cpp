@@ -643,9 +643,40 @@ namespace Desert::Graphic
 
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
+        // FPS-ASYNC-WAIT: THE UPDATE AFTER ITS READERS. On FIELD_Barn TURN (scn-1119-093535) the async queue ran
+        // the cache's Mark .. Filter (0.9 ms) and then the screen probes' chain (1.73 ms) from the depth's last
+        // writer, and the graphics queue idled 0.32-0.41 ms before 'Deferred: Composite' for that 2.6 ms FIFO:
+        // the cache headed the chain because every probe leg that lights a hit reads it. Once the cache holds a
+        // filtered update of this shape, this frame's readers (the screen probes, the cards' radiosity, the
+        // reflections, the forward meshes, the glass) read it as the last update left it - its Params re-uploaded
+        // from that update's clipmaps - and this frame's Mark .. Filter (marked from this frame's G-buffer) is
+        // declared after the last reader (AddFrameRadianceCacheDeferredUpdate), where its async run overlaps the
+        // temporal upscale and the post chain. The probes' chain then forks at its own inputs with nothing ahead
+        // of it on the async queue. UE updates the cache in the frame that reads it; here a new probe lights its
+        // readers one frame later (they read the fallback clipmap meanwhile), as the budgeted cache already
+        // lights most cells several frames late. A (re)built cache - the first frame, a quality change - has no
+        // filtered update: that frame updates before its readers (Mark .. Trace here, Filter by the gather).
+        if ( m_RadianceCache->HoldsFilteredUpdate( m_RadianceCacheInputs ) )
+        {
+            auto read = m_RadianceCache->AddReadFrame( graph, import, m_RadianceCacheInputs );
+            if ( !read )
+            {
+                refuse( std::format( "RadianceCache: {}", read.GetError() ) );
+                return std::nullopt;
+            }
+            const GlobalIllumination::RadianceCacheFrame& cache = read.GetValue().Frame;
+            m_TracedFrameShared.RadianceCache                   = cache;
+            textures.Transients.RadianceCacheParams             = cache.Params;
+            textures.Transients.RadianceCacheIndirection        = cache.Indirection;
+            textures.Transients.RadianceCacheProbes             = cache.Probes;
+            textures.Transients.RadianceCacheIrradiance         = cache.Irradiance;
+            textures.Transients.RadianceCacheDepth              = cache.Depth;
+            return TracedGIUpdate{ .Inputs = inputs, .Cache = cache, .UpdateAfterReaders = read.GetValue() };
+        }
         // Mark .. Trace: declared before the screen trace's HZB (FPS-PROBE-WAIT-2), so the cache's run forks
         // after the depth's last writer; its Filter is the gather's (AddFrameTracedGIGather).
-        const auto cache = m_RadianceCache->AddUpdatePasses( graph, import, m_RadianceCacheInputs, inputs );
+        const auto cache =
+             m_RadianceCache->AddUpdatePasses( graph, import, m_RadianceCacheInputs, inputs, nullptr );
         if ( !cache )
         {
             refuse( std::format( "RadianceCache: {}", cache.GetError() ) );
@@ -664,8 +695,11 @@ namespace Desert::Graphic
     Common::BoolResultStr SceneRenderer::AddFrameRadianceCacheFinish( RDG::Builder& graph, FrameTextures& textures,
                                                                       const TracedGIUpdate& update )
     {
-        if ( const auto filtered = m_RadianceCache->AddFilterPass( graph ); !filtered )
-            return filtered;
+        // An update after its readers (FPS-ASYNC-WAIT) is filtered by AddFrameRadianceCacheDeferredUpdate; the
+        // radiosity below reads the cache as the last update left it, like every other reader of this frame.
+        if ( !update.UpdateAfterReaders )
+            if ( const auto filtered = m_RadianceCache->AddFilterPass( graph ); !filtered )
+                return filtered;
         const GlobalIllumination::RadianceCacheUpdateInputs& inputs = update.Inputs;
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
@@ -704,6 +738,28 @@ namespace Desert::Graphic
                 m_TracedGICardLightingRefusal.Clear();
         }
         return BOOLSUCCESS;
+    }
+
+    void SceneRenderer::AddFrameRadianceCacheDeferredUpdate( RDG::Builder& graph, FrameTextures& textures )
+    {
+        std::optional<TracedGIUpdate> update = std::move( m_FrameRadianceCacheUpdate );
+        m_FrameRadianceCacheUpdate.reset();
+        if ( !update || !update->UpdateAfterReaders || !m_RadianceCache )
+            return;
+        const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
+        { return textures.Import( image, name ); };
+        // Mark .. Trace and the Filter of this frame, after every reader declared above read the last update:
+        // the async run forks after the last of them and joins at the graph end, beside the frame's tail.
+        const auto  cache = m_RadianceCache->AddUpdatePasses( graph, import, m_RadianceCacheInputs, update->Inputs,
+                                                              &*update->UpdateAfterReaders );
+        std::string refused;
+        if ( !cache )
+            refused = cache.GetError();
+        else if ( const Common::BoolResultStr filtered = m_RadianceCache->AddFilterPass( graph ); !filtered )
+            refused = filtered.GetError();
+        if ( !refused.empty() && m_TracedGIRefusal.Claim( std::format(
+                                      "RadianceCache: not updated after its readers: {}", refused ) ) )
+            LOG_ERROR( "[SceneRenderer] {}", m_TracedGIRefusal.Last() );
     }
 
     void SceneRenderer::AddFrameTracedGIGather( RDG::Builder& graph, FrameTextures& textures,
