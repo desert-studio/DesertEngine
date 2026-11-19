@@ -3709,12 +3709,17 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr GrassRenderer::AddFrameBladeSetup( RDG::Builder& graph, const ViewFrame& frame,
-                                                             const DeformationFieldReads& field )
+                                                             const DeformationFieldReads& field,
+                                                             const bool                   postOcclusion )
     {
         if ( m_BladeSetupVarieties.empty() || !m_BladeSetupRef.IsValid() || !m_BladeSetupProgram )
             return BOOLSUCCESS;
+        // Phase 2 sets up only what AddFramePostOcclusion added this frame (a scene capture adds none).
+        if ( postOcclusion && !m_FramePostAdded )
+            return BOOLSUCCESS;
         // The table: the header, then one row a drawn blade variety (its shape without the hull, its view wind,
-        // its camera (and phase 2's) records).
+        // this phase's records: the camera list's, or phase 2's). Args.y stays kNoPostArgs: each phase's pass
+        // reads its own records (FPS-GRASS-RASTER-VS: the phase's raster reads the rows right after it).
         std::vector<GrassBladeSetupRowGpu> rows;
         rows.reserve( m_BladeSetupVarieties.size() );
         uint32_t maxSlots = 0u;
@@ -3732,11 +3737,11 @@ namespace Desert::Graphic::System
             row.Lists       = gpu.ShapeData.Lists;
             row.WindA       = entry.Wind.A;
             row.WindB       = entry.Wind.B;
-            const bool post = m_FramePostAdded && gpu.PostArgs.Bytes > 0u;
-            row.Args =
-                 glm::uvec4( static_cast<uint32_t>( gpu.CameraArgs.Offset / 4u ),
-                             post ? static_cast<uint32_t>( gpu.PostArgs.Offset / 4u ) : kBladeSetupNoPostArgs,
-                             ( gpu.TableWord - kBladeSetupArgsHeaderWords ) / kBladeSetupRecordWords, 0u );
+            if ( postOcclusion && gpu.PostArgs.Bytes == 0u )
+                continue; // phase 2 drew nothing of this variety
+            const uint64_t records = postOcclusion ? gpu.PostArgs.Offset : gpu.CameraArgs.Offset;
+            row.Args = glm::uvec4( static_cast<uint32_t>( records / 4u ), kBladeSetupNoPostArgs,
+                                   ( gpu.TableWord - kBladeSetupArgsHeaderWords ) / kBladeSetupRecordWords, 0u );
             maxSlots = std::max( maxSlots, row.Visibility.w );
             rows.push_back( row );
         }
@@ -3762,7 +3767,7 @@ namespace Desert::Graphic::System
 
         using P = GrassBladeSetupShaderParameters;
         graph.AddPass(
-             "Grass: Blade Setup", RDG::PassFlags::Compute,
+             postOcclusion ? "Grass: Blade Setup Post-Occlusion" : "Grass: Blade Setup", RDG::PassFlags::Compute,
              [this, table, camera, &field]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( m_BladeSetupLayout.Get( m_BladeSetupProgram->GetSpecification().Shader ),
