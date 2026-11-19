@@ -561,9 +561,4 @@ namespace Desert::Editor
     {
         return PersistCurrent( {} );
     }
-
-    bool EditorPreferences::SaveMigrated( const std::string& what )
-    {
-        return PersistCurrent( what );
-    }
 } // namespace Desert::Editor

@@ -5,9 +5,9 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 75,
+            "SCNE": 76,
             "UNIT": 1,
-            "WPAR": 2
+            "WPAR": 13
         },
         "Dependencies": []
     },
@@ -74,8 +74,10 @@
         {
             "id": 7202,
             "parent": 7201,
-            "PrefabPath": "assets:Prefabs/UI_CardStripe.deprefab"
+            "PrefabPath": "assets:Prefabs/UI_CardStripe.deprefab",
+            "RuntimeBehavior": "Standalone"
         }
     ],
-    "Root": 7201
+    "Root": 7201,
+    "RuntimeBehavior": "Partitioned"
 }

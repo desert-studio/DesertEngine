@@ -43,10 +43,21 @@ Shader "RadianceCacheFilter"
 
         // FPS-RC-DIRTY: after the last slice the parts' sums take the slice arrays' first RC_FILTER_JOBS entries
         // (s_Radiance: rgb = irradiance sum, a = cosine sum; s_Direction: xy = moment sum, z = lobe sum) instead of
-        // two arrays of their own: 29 KB of shared memory a group, not 36, so three groups share an SM, not two.
+        // two arrays of their own: 30 KB of shared memory a group, not 36, so three groups share an SM, not two.
         shared vec4 s_Radiance[RC_FILTER_MAX_TEXELS];
         // Each loaded texel's direction, decoded once by its loader (not once per output thread).
-        shared vec3 s_Direction[RC_FILTER_MAX_TEXELS];
+        // RC-FILTER-LDS: three float arrays, not vec3 - a std430 vec3 array strides 16 bytes, which made the group
+        // 34304 bytes, over a 32768-byte device (Apple M1: every GI method refused); 12 bytes a texel gives 30208.
+        shared float s_DirectionX[RC_FILTER_MAX_TEXELS];
+        shared float s_DirectionY[RC_FILTER_MAX_TEXELS];
+        shared float s_DirectionZ[RC_FILTER_MAX_TEXELS];
+        vec3 RCFilterDirection( uint i ) { return vec3( s_DirectionX[i], s_DirectionY[i], s_DirectionZ[i] ); }
+        void RCFilterSetDirection( uint i, vec3 d )
+        {
+            s_DirectionX[i] = d.x;
+            s_DirectionY[i] = d.y;
+            s_DirectionZ[i] = d.z;
+        }
         shared vec3 s_Irradiance[64];
         shared vec2 s_Distance[64];
 
@@ -89,8 +100,8 @@ Shader "RadianceCacheFilter"
                 {
                     const uint k   = first + i;
                     s_Radiance[i]  = imageLoad( RadianceCacheRadianceTexture, origin + ivec2( k % res, k / res ) );
-                    s_Direction[i] =
-                         RadianceCacheOctDecode( ( vec2( k % res, k / res ) + 0.5 ) / float( res ) * 2.0 - 1.0 );
+                    RCFilterSetDirection(
+                         i, RadianceCacheOctDecode( ( vec2( k % res, k / res ) + 0.5 ) / float( res ) * 2.0 - 1.0 ) );
                 }
                 barrier();
                 // This part's contiguous run of the slice (none for a thread that sums nothing).
@@ -101,7 +112,7 @@ Shader "RadianceCacheFilter"
                 {
                     for ( uint i = runBegin; i < runEnd; ++i )
                     {
-                        const vec3  direction = s_Direction[i];
+                        const vec3  direction = RCFilterDirection( i );
                         const float l         = dot( outDirection, direction );
                         if ( l <= RC_DISTANCE_LOBE_MIN_COSINE )
                             continue;
@@ -121,7 +132,7 @@ Shader "RadianceCacheFilter"
                 {
                     for ( uint i = runBegin; i < runEnd; ++i )
                     {
-                        const float c = dot( outDirection, s_Direction[i] );
+                        const float c = dot( outDirection, RCFilterDirection( i ) );
                         if ( c > 0.0 )
                         {
                             irradianceSum += s_Radiance[i].rgb * c;
@@ -134,16 +145,16 @@ Shader "RadianceCacheFilter"
             // The slice loop's last barrier ended every read of the slice arrays: they now hold the parts' sums, each
             // at its thread's index (depth parts in s_Direction, irradiance parts in s_Radiance).
             s_Radiance[thread]  = vec4( irradianceSum, cosineSum );
-            s_Direction[thread] = vec3( momentSum, lobeSum );
+            RCFilterSetDirection( thread, vec3( momentSum, lobeSum ) );
             barrier();
             // Part 0 of each output adds its parts (the same output's parts are `outputs` threads apart).
             if ( sums && part == 0u )
             {
                 if ( isDepth )
                 {
-                    vec3 mom = s_Direction[thread];
+                    vec3 mom = RCFilterDirection( thread );
                     for ( uint p = 1u; p < RC_FILTER_SPLIT; ++p )
-                        mom += s_Direction[thread + outputs * p];
+                        mom += RCFilterDirection( thread + outputs * p );
                     s_Distance[local] = mom.z > 0.0 ? mom.xy / mom.z : vec2( 1.0 );
                 }
                 else

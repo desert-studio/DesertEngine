@@ -16,6 +16,7 @@
 #include <ImGui/imgui_internal.h> // ImGuiDockNodeFlags_NoWindowMenuButton / NoCloseButton
 
 #include <filesystem>
+#include <optional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -66,6 +67,8 @@ namespace Desert::Editor
 
         // io.IniFilename = <Project>/Saved/Config/EditorLayout.ini. Before the first frame.
         [[nodiscard]] static Common::BoolResultStr BindLayoutFile();
+        // The layout file's own version entry ([DockLayout][Version]). Before the first frame, after BindLayoutFile.
+        void RegisterLayoutVersionHandler();
 
         // On quit with a panel maximized: the layout file gets the arrangement from before the maximize, and
         // ImGui's own save at shutdown is switched off so the lifted-out panel is not written as a floating
@@ -122,6 +125,10 @@ namespace Desert::Editor
         std::filesystem::path m_RecoveryAutosave;
 
         bool m_ResetDefaultLayout  = false;
+        // The version the layout file was written at: nullopt = no file (first run), 0 = a file from before the
+        // entry. Read by the first frame's check only (m_LayoutVersionChecked).
+        std::optional<int> m_SavedLayoutVersion;
+        bool               m_LayoutVersionChecked = false;
         bool m_ShowSaveLayoutPopup = false;
         char m_LayoutNameBuf[64]   = {};
 

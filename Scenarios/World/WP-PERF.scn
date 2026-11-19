@@ -19,6 +19,9 @@
 Дано set world WorldPartitionEditor.HLODMinDrawDistance 0
 Дано set world WorldPartitionEditor.HLODMaxDrawDistance 0
 Дано set world WorldPartitionEditor.Selection -10000,-10000,10000,10000
+# Load Region adds a loader and keeps Load All (UE loader adapters), and the world opens as the last run left it:
+# every loader off first.
+Дано run Scene "World Partition: Unload All"
 Дано run Scene "World Partition: Load Region (map selection)"
 Дано --subject viewport set Camera.Position 0,60000,-30000
 Дано --subject viewport set Camera.Direction 0,-1,0.5

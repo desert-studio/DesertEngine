@@ -97,10 +97,6 @@ namespace Desert::Editor
         // 1024 in the Content Browser). The rest stay on disk and are decoded again when a tile shows them.
         // Read by ThumbnailCache on every upload; per machine, because it is this GPU's memory.
         int ThumbnailPoolSize = 1024;
-        // Bumped when the default dock layout's window IDs change (e.g. panel-title icons add a ### suffix,
-        // which changes every window's ImGui ID). A stored value below the current forces ONE automatic
-        // "reset to default layout" so panels re-dock cleanly instead of scattering against a stale imgui.ini.
-        int DockLayoutVersion = 0;
 
         // `MSAASamples` USED TO BE HERE and К3 moved it, not because the KIND was wrong — a fidelity
         // ladder is per machine — but because the FILE was. It reached the renderer through
@@ -348,11 +344,5 @@ namespace Desert::Editor
         // skipped write as of a performed one; false means it could not be written (reason logged) and the
         // values are live in this session only.
         static bool Save();
-
-        // THE EDITOR, NOT THE USER, CHANGED A VALUE — the dock layout raising DockLayoutVersion after it
-        // reset the layout to this build's default (UE's layout-version check). `what` is the sentence
-        // that reaches the log in place of the changed-field list Save() derives, because that write is not
-        // a field the user moved. Same deduplication and same return meaning as Save().
-        static bool SaveMigrated( const std::string& what );
     };
 } // namespace Desert::Editor

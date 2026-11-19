@@ -1,6 +1,5 @@
 #include "Editor/LevelEditor/DockLayout.hpp"
 
-#include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Core/IconsMaterialDesignIcons.hpp"
 #include "Editor/Core/LayoutManager.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
@@ -19,14 +18,27 @@
 #include <Engine/Core/Application.hpp>
 #include <ImGui/imgui_internal.h>
 
+#include <charconv>
 #include <format>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // Bumped when the default layout changes in a way an old layout file cannot express (window IDs, a
+        // panel's home): every layout file below it is rebuilt to the default ONCE, at its next open.
+        // 3: the centre is split and documents get a node of their own (layout option B.1).
+        // 4: the centre is the level's alone again; documents open as tabs beside it (DocumentPlacement)
+        //    and the Documents index moves to the bottom drawer.
+        // 5: Data Layers is a tab of the left column (WP-INT-1117).
+        constexpr int kDockLayoutVersion = 5;
+    } // namespace
+
     DockLayout::DockLayout( PanelRegistry& panels, DocumentHost& documents, SceneWorkspace& workspace,
                             SceneFiles& sceneFiles )
          : m_Panels( panels ), m_Documents( documents ), m_Workspace( workspace ), m_SceneFiles( sceneFiles )
@@ -53,6 +65,46 @@ namespace Desert::Editor
         }
 
         return BOOLSUCCESS;
+    }
+
+    void DockLayout::RegisterLayoutVersionHandler()
+    {
+        // "[DockLayout][Version]\nVersion=<n>" in EditorLayout.ini: the version is a property of the layout
+        // file, as UE names it inside EditorLayout.ini, never of the user's editor.json - one editor.json serves
+        // every project and worktree, so a version held there was raised by the first layout rebuilt and every
+        // other project's file kept its old arrangement (Data Layers floating at 342x89 in all trees but one).
+        // ReadInit runs before each load: a file without the entry predates it, version 0. Written as this
+        // build's version, because what is written is this build's arrangement.
+        ImGuiSettingsHandler handler;
+        handler.TypeName   = "DockLayout";
+        handler.TypeHash   = ImHashStr( handler.TypeName );
+        handler.UserData   = this;
+        handler.ReadInitFn = []( ImGuiContext*, ImGuiSettingsHandler* self )
+        { static_cast<DockLayout*>( self->UserData )->m_SavedLayoutVersion = 0; };
+        handler.ReadOpenFn = []( ImGuiContext*, ImGuiSettingsHandler* self, const char* ) -> void*
+        { return self->UserData; };
+        handler.ReadLineFn = []( ImGuiContext*, ImGuiSettingsHandler* self, void*, const char* line )
+        {
+            const std::string_view text( line );
+            if ( text.empty() )
+                return;
+            constexpr std::string_view key = "Version=";
+            int                        version = 0;
+            const char*                last    = text.data() + text.size();
+            const auto [end, error] = text.starts_with( key ) ? std::from_chars( text.data() + key.size(), last, version )
+                                                              : std::from_chars_result{ text.data(), std::errc::invalid_argument };
+            if ( error != std::errc{} || end != last )
+            {
+                LOG_WARN( "[Editor] The layout's [DockLayout] entry has an unknown line '{}'; the layout counts as "
+                          "version 0 and is rebuilt once.",
+                          text );
+                version = 0;
+            }
+            static_cast<DockLayout*>( self->UserData )->m_SavedLayoutVersion = version;
+        };
+        handler.WriteAllFn = []( ImGuiContext*, ImGuiSettingsHandler*, ImGuiTextBuffer* out )
+        { out->appendf( "[DockLayout][Version]\nVersion=%d\n\n", kDockLayoutVersion ); };
+        ::ImGui::AddSettingsHandler( &handler );
     }
 
     Common::BoolResultStr DockLayout::KeepLayoutAcrossQuit()
@@ -205,40 +257,25 @@ namespace Desert::Editor
 
             const ImGuiID dockspace_id = ::ImGui::GetID( "MyDockSpace" );
 
-            // One-time auto-relayout: when the default layout's window IDs change (panel-title icons add a
-            // ### suffix, changing every window's ImGui ID), old imgui.ini bindings stop matching and panels
-            // scatter. Bump kDockLayoutVersion to force a single clean rebuild for everyone, then persist it.
-            // 3: the centre is split and documents get a node of their own (layout option B.1).
-            // 4: the centre is the level's alone again; documents open as tabs beside it (DocumentPlacement)
-            //    and the Documents index moves to the bottom drawer.
-            constexpr int kDockLayoutVersion = 5; // 5: Data Layers is a tab of the left column (WP-INT-1117)
-            if ( EditorPreferences::Get().DockLayoutVersion < kDockLayoutVersion )
+            // ONE REBUILD PER LAYOUT FILE, decided once, at the first frame (ImGui has just read the file and with
+            // it the [DockLayout][Version] entry, RegisterLayoutVersionHandler). A layout file without the entry
+            // predates it and counts as version 0; no file at all is the first run, handled below.
+            if ( !m_LayoutVersionChecked )
             {
-                // SAID OUT LOUD. Every existing imgui.ini is rebuilt once here, and a layout that changes
-                // in silence is read as the editor having lost the user's panels — which is the same
-                // complaint an area that collapses on its own produces, and the reason B.1 does not
-                // collapse. One line naming the old and new versions is the difference between "my layout
-                // was reset by the update" and "my layout is gone".
-                LOG_INFO( "[Editor] Docking layout rebuilt once: saved layout is version {}, this build lays "
-                          "out version {} (asset documents open as tabs beside the level viewport, the Documents "
-                          "index is a tab in the bottom drawer, and Data Layers is a tab beside World Partition). "
-                          "Your named layouts under View -> "
-                          "Layouts are untouched.",
-                          EditorPreferences::Get().DockLayoutVersion, kDockLayoutVersion );
-
-                m_ResetDefaultLayout = true;
-
-                // SaveMigrated, NOT Save: nothing the user did triggered this write. It fires on the
-                // first frame after an update, because a stored layout version is being raised to the
-                // one this build lays out, and it must be written back (a version that did not persist would
-                // rebuild the layout on every launch). Save() means "the user changed a setting" and would have
-                // logged this one as if they had.
-                const std::string migration =
-                     std::format( "docking layout version {} -> {}", EditorPreferences::Get().DockLayoutVersion,
-                                  kDockLayoutVersion );
-
-                EditorPreferences::Get().DockLayoutVersion = kDockLayoutVersion;
-                EditorPreferences::SaveMigrated( migration );
+                m_LayoutVersionChecked = true;
+                if ( m_SavedLayoutVersion.has_value() && *m_SavedLayoutVersion < kDockLayoutVersion )
+                {
+                    // SAID OUT LOUD: a layout that changes in silence reads as the editor having lost the user's
+                    // panels. One line naming the old and new versions is the difference between "my layout was
+                    // reset by the update" and "my layout is gone".
+                    LOG_INFO( "[Editor] Docking layout rebuilt once: '{}' is layout version {}, this build lays "
+                              "out version {} (asset documents open as tabs beside the level viewport, the "
+                              "Documents index is a tab in the bottom drawer, and Data Layers is a tab beside World "
+                              "Partition). Your named layouts under View -> Layouts are untouched.",
+                              ::ImGui::GetIO().IniFilename, *m_SavedLayoutVersion, kDockLayoutVersion );
+                    m_ResetDefaultLayout = true;
+                    ::ImGui::MarkIniSettingsDirty();
+                }
             }
 
             // First run (nothing saved in imgui.ini for this dockspace): lay the panels
