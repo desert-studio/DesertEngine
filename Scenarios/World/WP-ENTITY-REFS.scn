@@ -26,8 +26,9 @@
 Когда run Action "Play"
 Когда advance 2
 Тогда refs_deferred турель у игрока стоит в исходном повороте (маяк в ячейке B не загружен, Target = nil); в логе "reference(s) from records just activated name an entity that is not resident"
-Когда --subject viewport set Camera.Position 26000,600,-500
-Когда --subject viewport set Camera.Direction 0,-0.3,1
+# 30 m up: at 6 m the camera stood under the terrain (refs_rebound 11-19 showed its underside).
+Когда --subject viewport set Camera.Position 26000,3000,-2000
+Когда --subject viewport set Camera.Direction 0.23,-0.69,0.69
 Когда advance 2
 Когда advance 1
 Тогда refs_rebound маяк в ячейке B на месте; турель повернулась на маяк; лог: "rebound 1 reference into G0L0(…)" (ячейка маяка)
@@ -40,4 +41,8 @@
 Когда add-component 9200003 Script
 Когда set 9200003 Script.Scripts '[{"ScriptKey":"assets:Scripts/World/RefHardLink.lua","Props":[{"Name":"Part","Type":7,"Ref":9200004}]}]'
 Когда run Scene "World Partition: Refresh"
-Тогда-вид refs_script_cluster карта WP: 9200003 и 9200004 (по разные стороны границы ячейки) лежат в ОДНОЙ ячейке - кластер по жёсткой EntityRef скрипта; без hard (Property.Entity()) они в соседних ячейках
+# The cluster is read off each entity's Details > World Partition > Cell (the WP map is drawn in Play only).
+Когда select 9200003
+Тогда refs_cluster_a Details 9200003: World Partition > Cell - одна ячейка с 9200004 (кадр refs_cluster_b), хотя они по разные стороны границы ячейки
+Когда select 9200004
+Тогда refs_cluster_b Details 9200004: World Partition > Cell - та же, что у 9200003 в refs_cluster_a - кластер по жёсткой EntityRef скрипта
