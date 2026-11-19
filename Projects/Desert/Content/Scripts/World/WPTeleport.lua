@@ -3,7 +3,8 @@
 -- (entity tagged WPTeleportTarget) is enabled first, then the script waits on the query and moves the pawn.
 
 local P = vector.create( 70000, 0, 0 )
-local query = { Location = P, Radius = 5000 }
+-- No Radius: the grids' own loading ranges around P (UE bUseGridLoadingRange), the cells the player needs there.
+local query = { Location = P }
 
 function OnStart()
     World.find( "WPTeleportTarget" ):component( "StreamingSource" ).Enabled = true
