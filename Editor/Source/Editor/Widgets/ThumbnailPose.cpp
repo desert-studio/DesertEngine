@@ -15,6 +15,7 @@
 
 #include <filesystem>
 #include <unordered_map>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor::ThumbnailPose
 {

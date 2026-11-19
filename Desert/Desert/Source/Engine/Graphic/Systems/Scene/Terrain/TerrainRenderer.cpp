@@ -42,6 +42,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace
 {

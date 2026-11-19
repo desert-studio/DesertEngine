@@ -29,6 +29,13 @@
 #include <cstring>
 #include <limits>
 #include <span>
+#include <Engine/Runtime/Services/CloudLayout/CloudLayoutService.hpp>
+#include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
+#include <Engine/Runtime/Services/CloudNoise/CloudNoiseService.hpp>
+#include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace
 {

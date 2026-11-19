@@ -79,6 +79,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <string_view>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor
 {

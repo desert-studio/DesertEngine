@@ -9,7 +9,7 @@
 // "Save and Open"), the recent list, the Scenes menu and the Open Scene / unsaved-changes dialogs
 // (SceneFileDialogs.cpp). A member of EditorLayer BY VALUE, declared after SceneWorkspace and ViewportCapture.
 
-#include <Engine/Desert.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 

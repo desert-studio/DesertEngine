@@ -5,6 +5,8 @@
 #include <Common/Core/JobSystem.hpp>
 
 #include <cassert>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

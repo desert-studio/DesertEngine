@@ -11,7 +11,7 @@
 
 #include "Editor/Core/ShotRecordGate.hpp"
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Camera.hpp>
 
 #include <cstdint>
 #include <optional>

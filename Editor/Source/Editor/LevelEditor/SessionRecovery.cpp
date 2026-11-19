@@ -14,7 +14,9 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Common/Core/Logger.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
 #include <filesystem>

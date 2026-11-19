@@ -36,6 +36,7 @@
 #include <cmath>
 #include <functional>
 #include <optional>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor
 {

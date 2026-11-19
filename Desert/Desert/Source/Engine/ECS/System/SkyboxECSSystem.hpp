@@ -10,6 +10,8 @@
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 
 #include <Engine/Graphic/Render/Commands/SkyboxCommand.hpp>
 #include <Engine/Graphic/Render/Commands/ProceduralSkyCommand.hpp>

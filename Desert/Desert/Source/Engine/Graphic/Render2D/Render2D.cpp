@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <bit>
 #include <format>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace
 {
@@ -422,7 +423,7 @@ namespace Desert::Graphic::Render2D
                                    RDG::SamplerDesc::LinearClamp() )
                          .Texture( Render2DMaskedLayerShaderParameters::MaskLayerTexture, pic.Mask,
                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                         .PushConstants<ShaderPush::UIRetainer>();
+                         .template PushConstants<ShaderPush::UIRetainer>();
                 }
                 else
                 {
@@ -447,7 +448,7 @@ namespace Desert::Graphic::Render2D
                                RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( Render2DBackdropShaderParameters::LinearClampSampler,
                                RDG::SamplerDesc::LinearClamp() )
-                     .PushConstants<ShaderPush::UIGlass>();
+                     .template PushConstants<ShaderPush::UIGlass>();
                 continue;
             }
             // A material draw's row, projection and row index were written by Resolve (UIMaterialCache::

@@ -24,7 +24,7 @@
 #include "Editor/Core/Control/ControlState.hpp"
 #include "Editor/Core/Selection/SelectionTransformProperties.hpp"
 
-#include <Engine/Desert.hpp>
+
 
 #include <Engine/Graphic/Neural/FusedMlpCompute.hpp>
 

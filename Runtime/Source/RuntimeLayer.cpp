@@ -102,6 +102,10 @@
 #include <filesystem>
 #include <format>
 #include <string_view>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/Video/VideoService.hpp>
 
 namespace
 {

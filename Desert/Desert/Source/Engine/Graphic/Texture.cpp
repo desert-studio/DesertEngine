@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <type_traits>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace Desert::Graphic
 {

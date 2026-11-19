@@ -9,6 +9,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/gtc/constants.hpp>
+#include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
 
 namespace Desert::ECS
 {

@@ -5,6 +5,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace Desert::Graphic
 {

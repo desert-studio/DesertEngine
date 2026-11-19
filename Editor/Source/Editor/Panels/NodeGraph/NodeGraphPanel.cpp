@@ -24,6 +24,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 namespace ed = ax::NodeEditor;
 
