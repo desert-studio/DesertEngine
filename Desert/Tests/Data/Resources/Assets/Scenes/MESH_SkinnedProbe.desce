@@ -5,9 +5,9 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 75,
+            "SCNE": 76,
             "UNIT": 1,
-            "WPAR": 2
+            "WPAR": 13
         },
         "Dependencies": ["047623816f024edf9fd7a557f6501f7e", "443da08f9e394860b5c2bd3bb619e9cd", "e06572ed86a043209146d11062e05b5c"]
     },
@@ -279,6 +279,13 @@
                     "MotionBlurAmount": 0.5,
                     "MotionBlurMax": 5.0,
                     "MotionBlurTargetFPS": 30.0,
+                    "FilmGrainIntensity": 0.0,
+                    "FilmGrainTexelSize": 1.0,
+                    "ChromaticAberrationIntensity": 0.0,
+                    "ChromaticAberrationStartOffset": 0.0,
+                    "VignetteIntensity": 0.0,
+                    "PaniniD": 0.0,
+                    "PaniniS": 0.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
                     "LensFlareTint": [1.0, 1.0, 1.0],

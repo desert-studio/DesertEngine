@@ -324,6 +324,7 @@ namespace Desert::Editor
             return Common::MakeError( bound.GetError() );
 
         // Before the first frame, which is when ImGui reads the layout file.
+        m_Dock.RegisterLayoutVersionHandler();
         m_Documents.RegisterDocumentWellLayoutHandler();
         m_Documents.RegisterDocumentPlacementHandler();
 
