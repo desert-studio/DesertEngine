@@ -66,9 +66,13 @@ Shader "ScreenProbeSpatialFilter"
             if ( state.position.w <= 0.0 )
                 return;
 
-            const ivec2 t = ivec2( gl_LocalInvocationID.xy );
+            // The probe's neighbourhood once for the group (the returns above are the whole group's: uniform flow).
+            SPSpatialFilterLoadNeighbourhood( probe, state, gl_LocalInvocationIndex );
+            const ivec2 t   = ivec2( gl_LocalInvocationID.xy );
+            const vec3  dir = SPProbeFrame( state.normal.xyz ) *
+                             SPHemiOctDecode( ( vec2( t ) + 0.5 ) / float( SP_RES ) * 2.0 - 1.0 );
             imageStore( FilteredScreenProbeRadiance, SPAtlasOrigin( probe, SP_RES ) + t,
-                        SPSpatialFilterTexel( probe, state, t ) );
+                        SPSpatialFilterTexel( probe, state, t, dir ) );
         }
     }
 }

@@ -51,43 +51,102 @@ vec4 SPSpatialFilterFetch( uint probe, ivec2 t )
     return texelFetch( ScreenProbeRadiance, origin + t, 0 );
 }
 
-// Texel @p t of traced @p probe (whose record is @p state): the filtered radiance in rgb, the texel's own hit distance
-// carried through in a for the next pass.
-vec4 SPSpatialFilterTexel( uint probe, ScreenProbe state, ivec2 t )
+// THE NEIGHBOURHOOD (FPS-SP-FILTER, UE LumenScreenProbeFiltering's per-probe neighbour setup): everything about the
+// four neighbouring uniform probes that does not depend on the texel - which probe, its position and frame, its plane
+// (position) weight, and whether this probe's tile is disoccluded - belongs to the probe, not the texel. The
+// workgroup (one per probe, one thread per texel) builds it once in shared memory, one neighbour a lane; every texel
+// then reads it. Before, each of the SP_RES² texels redid the four index reads, probe records, frames and exp2
+// weights. Same expressions, same order: the same values as the per-texel form.
+struct SPSpatialNeighbour
 {
-    const mat3  frame       = SPProbeFrame( state.normal.xyz );
-    const vec3  dir         = frame * SPHemiOctDecode( ( vec2( t ) + 0.5 ) / float( SP_RES ) * 2.0 - 1.0 );
-    const vec4  own         = SPSpatialFilterFetch( probe, t );
-    const float hitDistance = own.a;
-    const vec3  p           = state.position.xyz;
-    const ivec2 tile        = SPUniformTileOf( SPProbePixelOf( state ) );
+    mat3  frame;          // SPProbeFrame of its normal; frame[2] is the normal
+    vec3  position;
+    float positionWeight; // exp2( -scale * plane² ): how near it lies to this probe's plane
+    uint  probe;          // SP_INVALID: none on that side (off the grid, untraced, or this probe itself)
+};
+shared SPSpatialNeighbour s_SPSpatialNeighbour[4];
+shared uint               s_SPSpatialRelaxAngle; // 1: the probe's tile is disoccluded (or off the grid)
+shared uint               s_SPSpatialNeighbours; // how many of the four are valid; 0: every texel keeps its own
+
+// Builds THE NEIGHBOURHOOD of traced @p probe (record @p state) on lanes 0..4 of its workgroup (SP_RES >= 4: at least
+// 16 lanes). Every lane of the group calls it, in uniform control flow: it contains barriers.
+void SPSpatialFilterLoadNeighbourhood( uint probe, ScreenProbe state, uint lane )
+{
+    const ivec2 tile = SPUniformTileOf( SPProbePixelOf( state ) );
+    if ( lane < 4u )
+    {
+        const ivec2        offsets[4] = ivec2[4]( ivec2( -1, 0 ), ivec2( 1, 0 ), ivec2( 0, -1 ), ivec2( 0, 1 ) );
+        SPSpatialNeighbour n;
+        n.probe          = SPUniformProbeAt( tile + offsets[lane] );
+        n.frame          = mat3( 1.0 );
+        n.position       = vec3( 0.0 );
+        n.positionWeight = 0.0;
+        if ( n.probe == probe )
+            n.probe = SP_INVALID;
+        if ( n.probe != SP_INVALID )
+        {
+            const ScreenProbe neighbour = screenProbes[n.probe];
+            if ( neighbour.position.w <= 0.0 )
+                n.probe = SP_INVALID;
+            else
+            {
+                const float plane = abs( dot( neighbour.position.xyz - state.position.xyz, state.normal.xyz ) ) /
+                                    state.position.w;
+                n.frame          = SPProbeFrame( neighbour.normal.xyz );
+                n.position       = neighbour.position.xyz;
+                n.positionWeight = exp2( -SP_SPATIAL_FILTER_POSITION_WEIGHT_SCALE * plane * plane );
+            }
+        }
+        s_SPSpatialNeighbour[lane] = n;
+    }
     // The disoccluded share of the probe's uniform tile (ScreenProbeDisocclusion measures each tile once; an adaptive
     // probe takes its tile's); a probe off the grid counts as disoccluded.
-    const bool relaxAngle = !SPUniformTileInside( tile ) ||
-                            screenProbeDisocclusion[SPUniformTileIndex( tile )] > SP_DISOCCLUSION_FRACTION;
-
-    vec3        sum        = own.rgb;
-    float       weight     = 1.0;
-    const ivec2 offsets[4] = ivec2[4]( ivec2( -1, 0 ), ivec2( 1, 0 ), ivec2( 0, -1 ), ivec2( 0, 1 ) );
-    for ( int i = 0; i < 4; ++i )
+    else if ( lane == 4u )
     {
-        const uint other = SPUniformProbeAt( tile + offsets[i] );
-        if ( other == SP_INVALID || other == probe )
+        const bool relax = !SPUniformTileInside( tile ) ||
+                           screenProbeDisocclusion[SPUniformTileIndex( tile )] > SP_DISOCCLUSION_FRACTION;
+        s_SPSpatialRelaxAngle = relax ? 1u : 0u;
+    }
+    barrier();
+    if ( lane == 0u )
+    {
+        uint valid = 0u;
+        for ( uint i = 0u; i < 4u; ++i )
+            valid += s_SPSpatialNeighbour[i].probe != SP_INVALID ? 1u : 0u;
+        s_SPSpatialNeighbours = valid;
+    }
+    barrier();
+}
+
+// Texel @p t of traced @p probe (record @p state, the texel's world direction @p dir), after
+// SPSpatialFilterLoadNeighbourhood: the filtered radiance in rgb, the texel's own hit distance carried through in a
+// for the next pass.
+vec4 SPSpatialFilterTexel( uint probe, ScreenProbe state, ivec2 t, vec3 dir )
+{
+    const vec4 own = SPSpatialFilterFetch( probe, t );
+    // No valid neighbour: the texel is its own answer (sum / 1). Uniform over the group, no divergence.
+    if ( s_SPSpatialNeighbours == 0u )
+        return own;
+    const float hitDistance = own.a;
+    const vec3  p           = state.position.xyz;
+    const bool  relaxAngle  = s_SPSpatialRelaxAngle != 0u;
+
+    vec3  sum    = own.rgb;
+    float weight = 1.0;
+    for ( uint i = 0u; i < 4u; ++i )
+    {
+        const SPSpatialNeighbour neighbour = s_SPSpatialNeighbour[i];
+        if ( neighbour.probe == SP_INVALID || dot( dir, neighbour.frame[2] ) <= 0.0 )
             continue;
-        const ScreenProbe neighbour = screenProbes[other];
-        if ( neighbour.position.w <= 0.0 || dot( dir, neighbour.normal.xyz ) <= 0.0 )
-            continue;
-        const float plane          = abs( dot( neighbour.position.xyz - p, state.normal.xyz ) ) / state.position.w;
-        const float positionWeight = exp2( -SP_SPATIAL_FILTER_POSITION_WEIGHT_SCALE * plane * plane );
-        const vec4  ray = SPSpatialFilterFetch( other, SPProbeTexel( SPProbeFrame( neighbour.normal.xyz ), dir ) );
-        float angleWeight = 1.0;
+        const vec4 ray         = SPSpatialFilterFetch( neighbour.probe, SPProbeTexel( neighbour.frame, dir ) );
+        float      angleWeight = 1.0;
         if ( !relaxAngle )
         {
-            const vec3  toHit = neighbour.position.xyz + dir * min( ray.a, hitDistance ) - p;
+            const vec3  toHit = neighbour.position + dir * min( ray.a, hitDistance ) - p;
             const float angle = acos( clamp( dot( toHit, dir ) / max( length( toHit ), 1e-4 ), -1.0, 1.0 ) );
             angleWeight       = 1.0 - clamp( angle / SP_SPATIAL_FILTER_MAX_RADIANCE_HIT_ANGLE, 0.0, 1.0 );
         }
-        const float w = positionWeight * angleWeight;
+        const float w = neighbour.positionWeight * angleWeight;
         sum += ray.rgb * w;
         weight += w;
     }
