@@ -33,8 +33,10 @@ namespace Desert::Graphic
     //   3. NeighborMax — per tile: the longest of the 3x3 tile neighbourhood, so a moving silhouette blurs over
     //   the
     //                    still pixels next to it (the soft edge);
-    //   4. Gather      — per OUTPUT pixel: Samples taps of the resolved colour along the neighbourhood's dominant
-    //                    velocity, weighted by depth (foreground / background) and by each tap's own velocity.
+    //   4. Gather      — per OUTPUT pixel: taps of the resolved colour along the neighbourhood's dominant velocity,
+    //                    one per output pixel of blur, at most Samples, weighted by depth and each tap's own
+    //                    velocity; a neighbourhood whose slowest pixel moves near its fastest (TileMax / NeighborMax
+    //                    z) moves as one and skips the per-tap velocity read (Jimenez, CoD:AW tile classes).
     //
     // WHERE IT RUNS. On the resolved colour, after the temporal resolve (and the spatial upscale / SSAA downsample
     // / sharpen that complete it) and before the overlay target set is built, so the overlays (debug lines,
@@ -60,7 +62,7 @@ namespace Desert::Graphic
         float Amount     = 0.0f; // shutter: the fraction of the frame's motion that blurs (UE MotionBlurAmount)
         float MaxPercent = 0.0f; // longest blur, percent of the output width (UE MotionBlurMax)
         float TargetFPS  = 0.0f; // > 0: blur as if the frame lasted 1 / TargetFPS (UE MotionBlurTargetFPS)
-        int   Samples    = 0;    // gather taps per pixel; 0 = off (MotionBlurQuality 0)
+        int   Samples    = 0;    // most gather taps per pixel (a short blur takes fewer); 0 = off
     };
 
     // PostProcess.MotionBlurQuality -> gather taps: 0 off, 1 Low, 2 High (UE r.MotionBlurQuality, sg.PostProcess).

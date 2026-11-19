@@ -28,7 +28,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
     };
 
-    // Programs/Deferred/HZBSinglePass.shader's slots: the source and the dispatch's up to four mips.
+    // Programs/Deferred/HZBSinglePass.shader's slots: the source and the dispatch's up to six mips.
     struct HZBSinglePassShaderParameters
     {
         DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
@@ -37,6 +37,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, DestinationMip1 );
         DESERT_SHADER_PARAMETER( StorageTexture, DestinationMip2 );
         DESERT_SHADER_PARAMETER( StorageTexture, DestinationMip3 );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMip4 );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMip5 );
     };
 
     // Which hierarchy a build makes: the CLOSEST depth (screen traces) or the FURTHEST (occlusion culling, UE
@@ -49,7 +51,7 @@ namespace Desert::Graphic::System
 
     // THE CLOSEST-DEPTH HIERARCHICAL Z-BUFFER of the view (UE: BuildHZB's ClosestHZB), built from the scene depth
     // once per frame as a transient of the frame graph: mip 0 the depth at full resolution, each mip above it the
-    // closest depth of the texels it covers (Programs/Deferred/HZBSinglePass.shader, up to four mips per dispatch
+    // closest depth of the texels it covers (Programs/Deferred/HZBSinglePass.shader, up to six mips per dispatch
     // through group-shared memory, UE BuildHZB / AMD SPD; RenderPipeline.HZBSinglePass 0 = HZB.shader, one
     // dispatch per mip, the same texels bit for bit - the A/B and the rollback). Screen tracing
     // walks it (Common/HZBTrace.glslh): today SSR's rays; it is the view's, not SSR's - occlusion culling and
@@ -79,7 +81,7 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        // RenderPipeline.HZBSinglePass (SceneRenderer::OnUpdate, per frame): true = up to four mips per dispatch
+        // RenderPipeline.HZBSinglePass (SceneRenderer::OnUpdate, per frame): true = up to six mips per dispatch
         // (HZBSinglePass.shader), false = one dispatch per mip (HZB.shader). The same hierarchy either way.
         void SetSinglePass( const bool singlePass ) noexcept
         {
@@ -145,18 +147,19 @@ namespace Desert::Graphic::System
 
     private:
         // HZBSinglePass.shader: mips per dispatch, and the side of the top-mip tile a group owns.
-        static constexpr uint32_t kMipsPerDispatch = 4u;
-        static constexpr uint32_t kSinglePassTile  = 4u;
-        // Up to 16 mips (a 65535-texel side): four dispatches, each named once (no per-frame string).
-        static constexpr uint32_t                                     kMaxDispatches = 4u;
-        static constexpr std::array<std::string_view, kMaxDispatches> kClosestNames{
-             "HZB: Mips 0-3", "HZB: Mips 4-7", "HZB: Mips 8-11", "HZB: Mips 12-15" };
+        // A group owns one texel of the dispatch's top mip: a 32 x 32 tile of its first (AMD SPD's reduction per
+        // group), so a 12-mip view is two dispatches (mips 0-5, then 6-11 in one group).
+        static constexpr uint32_t kMipsPerDispatch = 6u;
+        static constexpr uint32_t kSinglePassTile  = 1u;
+        // Up to 18 mips (a 262143-texel side): three dispatches, each named once (no per-frame string).
+        static constexpr uint32_t                                     kMaxDispatches = 3u;
+        static constexpr std::array<std::string_view, kMaxDispatches> kClosestNames{ "HZB: Mips 0-5", "HZB: Mips 6-11",
+                                                                                     "HZB: Mips 12-17" };
         static constexpr std::array<std::string_view, kMaxDispatches> kFurthestNames{
-             "HZB Furthest: Mips 0-3", "HZB Furthest: Mips 4-7", "HZB Furthest: Mips 8-11",
-             "HZB Furthest: Mips 12-15" };
+             "HZB Furthest: Mips 0-5", "HZB Furthest: Mips 6-11", "HZB Furthest: Mips 12-17" };
 
-        // The single-pass build of @p hzb (@p mips mips): ceil(mips / 4) dispatches, each reading the mip below
-        // its first (the depth for mip 0) and writing up to four. A dispatch of fewer than four binds its unused
+        // The single-pass build of @p hzb (@p mips mips): ceil(mips / 6) dispatches, each reading the mip below
+        // its first (the depth for mip 0) and writing up to six. A dispatch of fewer than six binds its unused
         // slots to the mips of one scratch transient (distinct subresources, never written by the shader).
         [[nodiscard]] RDG::TextureRef AddSinglePassDispatches( RDG::Builder& graph, const RDG::TextureRef depth,
                                                                const RDG::TextureRef hzb, const uint32_t width,
@@ -168,7 +171,7 @@ namespace Desert::Graphic::System
                 return {};
             RDG::TextureRef scratch;
             if ( mips % kMipsPerDispatch != 0u )
-                scratch = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 4u, .Height = 4u },
+                scratch = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 16u, .Height = 16u },
                                                                  .Format = ViewTargetFormats::kHZB,
                                                                  .Mips   = kMipsPerDispatch - 1u },
                                                "HZB.Scratch" );
@@ -198,7 +201,8 @@ namespace Desert::Graphic::System
                          block.Texture( P::SourceMipTexture, source, RDG::Access::SampledCompute, range )
                               .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() );
                          const std::array<RDG::StorageTextureParameter, kMipsPerDispatch> slots{
-                              P::DestinationMip0, P::DestinationMip1, P::DestinationMip2, P::DestinationMip3 };
+                              P::DestinationMip0, P::DestinationMip1, P::DestinationMip2,
+                              P::DestinationMip3, P::DestinationMip4, P::DestinationMip5 };
                          for ( uint32_t slot = 0; slot < kMipsPerDispatch; ++slot )
                          {
                              if ( slot < count )

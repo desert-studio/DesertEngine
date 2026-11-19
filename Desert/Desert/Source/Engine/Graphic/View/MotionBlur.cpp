@@ -67,7 +67,7 @@ namespace Desert::Graphic
 
         // Flattened velocity: output-pixel velocity (xy) and the scene's device depth (z).
         constexpr auto kFlatFormat     = Core::Formats::ImageFormat::RGBA16F;
-        constexpr auto kBlurTileFormat = Core::Formats::ImageFormat::RG16F;
+        constexpr auto kBlurTileFormat = Core::Formats::ImageFormat::RGBA16F; // xy longest, z shortest length
         constexpr auto kBlurOutFormat  = Core::Formats::ImageFormat::RGBA16F;
 
         uint32_t BlurGroupCount( uint32_t size )

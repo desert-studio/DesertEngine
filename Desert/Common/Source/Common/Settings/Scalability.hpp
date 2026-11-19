@@ -457,7 +457,7 @@ namespace Common::Scalability
         // (RenderConfig::ParallelSetupOverride). Key "RenderPipeline.ParallelSetup": equal at every level (a CPU
         // scheduling choice, not a quality step), so only a machine override names it.
         ParallelSetup,
-        // 0/1: the view's hierarchical Z-buffers are built up to four mips per dispatch through group-shared
+        // 0/1: the view's hierarchical Z-buffers are built up to six mips per dispatch through group-shared
         // memory (GPU-TERRAIN-HZB; UE BuildHZB, AMD SPD: HZBSinglePass.shader). 0 = one dispatch per mip
         // (HZB.shader): the same texels bit for bit, for the A/B and as the rollback. Read by
         // SceneRenderer::OnUpdate -> HZBRenderer::SetSinglePass. Key "RenderPipeline.HZBSinglePass": equal at
