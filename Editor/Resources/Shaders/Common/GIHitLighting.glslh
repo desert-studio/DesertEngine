@@ -37,7 +37,9 @@
 // EnvironmentSpecularTexture, GBufferDepthTexture, GBufferATexture, GBufferEmissiveTexture, GBufferShadingWordTexture
 // (a usampler2D, texelFetch: the EMISSION_IS_LIGHT mark; unread under GI_HIT_EXCLUDES_EMISSION), includes the tracer
 // (Common/GITracer.glslh), and defines GI_SURFACE_CACHE_BINDING (the surface cache's seven bindings). Nothing here
-// knows which tracer that is.
+// knows which tracer that is. Optionally GI_HIT_DIRECTIONAL_CASCADES with Mesh/CascadedShadow.glslh included (its
+// bindings declared): a global-field hit inside a directional slot's cascades takes that light's shadow from the
+// cascades instead of the global-field march (GIHitDirectionalVisibility).
 
 #include <Common/SkyLook.glslh>
 #include <Common/ReconstructPosition.glslh>
@@ -188,10 +190,36 @@ vec3 GIHitRadianceMeshField( GIHit hit, vec3 rayDirection )
 }
 #endif
 
-// The response of the directional light of travel @p travel (w > 0.5: on) and radiance @p radiance (w > 0.5: casts
-// shadows) at a hit, the shadow from ONE visibility test through the global field (GITraceVisibilityGlobalField),
-// from @p origin already the far field's offset off the hit (no farTMin left to walk).
-vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 origin, vec4 travel, vec4 radiance )
+// The visibility of directional slot @p slot (Mesh/CascadedShadow.glslh kShadowLightSun / kShadowLightAtmosphere1)
+// along @p L at a global-field hit, from @p origin already the far field's offset off the hit: ONE visibility test
+// through the global field (GITraceVisibilityGlobalField, up to 1e6 cm).
+// GI_HIT_DIRECTIONAL_CASCADES (the includer declared the view's cascades and ShadowUB values and included
+// Mesh/CascadedShadow.glslh; FPS-SSR-HIT-2): inside the slot's cascades the cascaded shadow map answers - the one
+// text the deferred composite shadows the sun with (ShadowFactor), read at the offset point - and the march runs
+// only outside them and across the hand-over band of the last cascade (DistanceFieldShadowHandOver, the band the
+// composite and the cards cross over in), as UE's hit lighting reads the directional light's shadow map where it
+// covers the hit and traces only past it. A slot that publishes no cascade (casts none, or a screen-mask sun this
+// frame) chooses none: the march answers, as before.
+float GIHitDirectionalVisibility( int slot, vec3 origin, vec3 N, vec3 L )
+{
+#if defined( GI_HIT_DIRECTIONAL_CASCADES )
+    int         cascade  = -1;
+    const float cascades = ShadowFactor( slot, origin, N, L, cascade );
+    if ( cascade >= 0 )
+    {
+        const float band = DistanceFieldShadowHandOver( slot, cascade, origin );
+        if ( band <= 0.0 )
+            return cascades;
+        return mix( cascades, GITraceVisibilityGlobalField( origin, L, 0.0, 1.0e6 ), band );
+    }
+#endif
+    return GITraceVisibilityGlobalField( origin, L, 0.0, 1.0e6 );
+}
+
+// The response of the directional light of slot @p slot, travel @p travel (w > 0.5: on) and radiance @p radiance
+// (w > 0.5: casts shadows) at a hit, shadowed by GIHitDirectionalVisibility from @p origin.
+vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 origin, int slot, vec4 travel,
+                                  vec4 radiance )
 {
     if ( travel.w <= 0.5 )
         return vec3( 0.0 );
@@ -200,7 +228,7 @@ vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 ori
         return vec3( 0.0 );
     float visibility = 1.0;
     if ( radiance.w > 0.5 )
-        visibility = GITraceVisibilityGlobalField( origin, L, 0.0, 1.0e6 );
+        visibility = GIHitDirectionalVisibility( slot, origin, N, L );
     return GIHitLightResponse( surface, origin, N, V, L, radiance.rgb * visibility );
 }
 
@@ -221,8 +249,10 @@ vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surfac
     // shifted along L (at a grazing L far along it, skipping the occluders beside the hit). The hardware tracer's
     // two offsets are one, so its origin and start are the same as before.
     const vec3 origin = hit.position + N * GIFarFieldOffset( hit.position );
-    vec3       direct = GIHitDirectionalGlobalField( surface, N, V, origin, giFrame.sunTravel, giFrame.sunRadiance );
-    direct += GIHitDirectionalGlobalField( surface, N, V, origin, giFrame.light1Travel, giFrame.light1Radiance );
+    // Slot 0 the sun, slot 1 atmosphere light 1 (the moon): GIFrame's two directional lights are the cascades'
+    // two slots (SceneResources::kMaxShadowedDirectionalLights).
+    vec3 direct = GIHitDirectionalGlobalField( surface, N, V, origin, 0, giFrame.sunTravel, giFrame.sunRadiance );
+    direct += GIHitDirectionalGlobalField( surface, N, V, origin, 1, giFrame.light1Travel, giFrame.light1Radiance );
     const vec3 diffuseAlbedo = surface.BaseColor * ( 1.0 - surface.Metallic );
     const vec4 bounce        = RadianceCacheIrradianceAt( hit.position, N, -rayDirection, 0.5 );
     return direct + diffuseAlbedo * max( bounce.rgb, vec3( 0.0 ) ) + surface.Emissive;

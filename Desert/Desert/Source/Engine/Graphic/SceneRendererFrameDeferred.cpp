@@ -2350,6 +2350,27 @@ namespace Desert::Graphic
         reads.GBufferEmissive = gbuffer[3];
         reads.GBufferShadingWord = gbuffer[2];
         reads.HitGroups       = hitLit ? &m_ReflectionHitGroups : nullptr;
+        // FPS-SSR-HIT-2: the software tracer's global-field hits take the directional lights' shadow from the
+        // view's cascades where those cover the hit (SSRTrace.glslh GI_HIT_DIRECTIONAL_CASCADES). The block is the
+        // composite's ShadowUB values for the cascade arm, packed as the surface cache's cards pack theirs
+        // (SceneRendererFrameSurfaceCache: no contact march, the view's filter): a slot that publishes no cascade
+        // this frame (a screen-mask sun, a light casting none) chooses none and the hit marches the global field.
+        if ( System::SSRRenderer::TracedReadsCascades( tracer ) )
+        {
+            const auto&         mesh = m_Systems.Mesh;
+            DeferredShadowInput shadow;
+            shadow.Sun =
+                 DeferredCascadeShadow{ .Lights = mesh != nullptr ? mesh->DirectionalShadows()
+                                                                  : SceneResources::DirectionalShadowViews{} };
+            shadow.Contact                            = GetContactShadowSettings( frame, false );
+            shadow.Filter                             = GetShadowFilterSettings();
+            const SceneResources::ShadowUBData packed = PackDeferredShadow( shadow );
+            reads.Shadow = graph.CreateBuffer( RDG::BufferDesc{ sizeof( packed ) }, "Reflections.ShadowUB" );
+            graph.QueueBufferUpload( reads.Shadow, std::as_bytes( std::span( &packed, 1 ) ) );
+            reads.ShadowCascades = SceneViewInputsOf( refs ).ShadowCascades;
+            if ( !reads.ShadowCascades.IsValid() )
+                return refuse( "the view's cascade array was not imported (ImportSceneViewTextures)" );
+        }
         return reads;
     }
 

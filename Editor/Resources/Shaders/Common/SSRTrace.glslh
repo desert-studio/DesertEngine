@@ -164,6 +164,31 @@ layout(binding = 41) uniform texture2D RadianceCacheRadianceAtlasTexture;
 #define GI_TRACER_BINDING 23
 #include <Common/GITracer.glslh>
 #define GI_SURFACE_CACHE_BINDING 34
+#if defined( DESERT_GI_TRACER_SOFTWARE ) && !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+// FPS-SSR-HIT-2: the software tracer's global-field hits no card holds (terrain) take the directional lights'
+// shadow from the view's cascades where those cover the hit (GIHitLighting.glslh GIHitDirectionalVisibility; UE's
+// hit lighting reads the directional shadow map), the global-field march only past them - the two marches up to
+// 1e6 cm per hit were the hit lighting's largest cost. The deferred composite's cascade array and its ShadowUB
+// values (System::SSRRenderer::TracedReads ShadowCascades / Shadow, the same packer: PackDeferredShadow), read
+// through Mesh/CascadedShadow.glslh, the one text that shadows the sun; the soft filter's disc keyed on the
+// thread (a compute receiver has no fragment).
+layout(binding = 49) uniform texture2DArray ShadowCascadesTexture; // layer DirectionalShadow[slot].w + cascade
+#define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
+layout(std430, binding = 50) readonly buffer SsrShadowUB
+{
+    mat4 LightViewProjection[8]; // Mesh/ShadowUB.glslh's members (SceneResources::ShadowUBData), same packer
+    vec4 DirectionalShadow[2];
+    vec4 CascadeTexelWorld[2];
+    vec4 CascadeDepthRange[2];
+    vec4 DebugParams;            // unread here
+    vec4 ContactShadowView;      // z: the dither frame the soft filter's disc turns by
+    vec4 SunContactShadow;       // unread here
+    vec4 ShadowFilter;           // x = PCSS blocker search taps, y = filter taps
+};
+#define CASCADED_SHADOW_NOISE_PIXEL vec2(gl_GlobalInvocationID.xy)
+#include <Mesh/CascadedShadow.glslh>
+#define GI_HIT_DIRECTIONAL_CASCADES
+#endif
 #include <Common/GIHitLighting.glslh>
 #if defined( DESERT_REFLECTIONS_HIT_LIGHTING )
 // HIT LIGHTING (Reflections.HitLighting, UE Lumen reflections' r.Lumen.HardwareRayTracing.LightingMode = hit

@@ -108,6 +108,9 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, DFObjects );
         DESERT_SHADER_PARAMETER( StorageBuffer, GIMeshSDFObjectRowsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, GIMeshSDFCulledUB );
+        // FPS-SSR-HIT-2: the software tracer's global-field hits read the view's cascades (SSRTrace.glslh).
+        DESERT_SHADER_PARAMETER( Texture, ShadowCascadesTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SsrShadowUB );
     };
 
     // Screen-space reflections (SSR2): one compute program dispatched twice, classify then trace (TraceStage; UE
@@ -227,6 +230,12 @@ namespace Desert::Graphic::System
             RDG::TextureRef                                                 EnvSpecular;
             RDG::TextureRef                                                 GBufferA;
             RDG::TextureRef                                                 GBufferEmissive;
+            // FPS-SSR-HIT-2: the view's cascade array and its ShadowUB values (PackDeferredShadow, uploaded as
+            // SsrShadowUB) - read by the software tracer over the surface cache (SSRTrace.glslh
+            // GI_HIT_DIRECTIONAL_CASCADES: a global-field hit inside the cascades takes their shadow, no march).
+            // Required exactly when DeclareTracedReads binds them (TracedReadsCascades).
+            RDG::TextureRef                                                 ShadowCascades;
+            RDG::BufferRef                                                  Shadow;
             // The uint shading word: a hit's EMISSION_IS_LIGHT mark (Common/GIHitLighting.glslh GIHitMaterial).
             RDG::TextureRef                                                 GBufferShadingWord;
         };
@@ -1007,7 +1016,23 @@ namespace Desert::Graphic::System
             GlobalIllumination::DeclareTracerReads( block, traced.Tracer );
             if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )
                 GlobalIllumination::DeclareSurfaceCacheReads( block, traced.SurfaceCache );
+            if ( TracedReadsCascades( traced.Tracer.Pipeline ) )
+                block.Texture( SSRShaderParameters::ShadowCascadesTexture, traced.ShadowCascades, kS, all )
+                     .Storage( SSRShaderParameters::SsrShadowUB, traced.Shadow, kR );
         }
+
+    public:
+        // Whether the traced permutation of @p pipeline reads the view's cascades (SSRTrace.glslh: the software
+        // tracer over the surface cache, DESERT_GI_TRACER_SOFTWARE without DESERT_GI_HIT_LIGHTING_IN_PLACE) - the
+        // one statement of that condition for the shader's #if, DeclareTracedReads and the reads' producer
+        // (SceneRenderer::MakeTracedReflectionReads).
+        [[nodiscard]] static bool TracedReadsCascades( const GlobalIllumination::Pipeline& pipeline )
+        {
+            return pipeline.Tracer == GlobalIllumination::Tracer::SoftwareDistanceField &&
+                   pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache;
+        }
+
+    private:
 
         // Screen pixels per tile edge. The grid is ceil(size / kTileSize) and SSR.shader stretches the
         // tiles over the target, so every pixel belongs to exactly one tile.
