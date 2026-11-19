@@ -70,13 +70,31 @@ Shader "ScreenProbeIntegrate"
 
         // UE CalculateSpecularOcclusion (LumenScreenProbeGather.usf, SHORT_RANGE_AO): how much of a reflection cone
         // of @p roughness around @p direction the bent normal's unoccluded cone (AO x pi) holds.
+        // UE acosFast (FastMath.ush, the one CalculateSpecularOcclusion uses): first-order polynomial x sqrt, max
+        // error ~7e-3 rad - inside the cone-cone smoothstep's resolution - for the full acos's longer polynomial,
+        // once a GGX sample.
+        float SPAcosFast( float x )
+        {
+            const float a = abs( x );
+            const float r = ( -0.156583 * a + 1.5707963 ) * sqrt( 1.0 - a );
+            return x >= 0.0 ? r : 3.14159265 - r;
+        }
+
+        // The share of SPSpecularOcclusion the AO's open cone lets through at all: 0 below an unoccluded angle of
+        // 0.1 rad, where every reflection direction is occluded (the GGX samples are then skipped: their weights
+        // would all be 0).
+        float SPSpecularOcclusionFade( float ao )
+        {
+            return clamp( ( ao * 3.14159265 - 0.1 ) / 0.2, 0.0, 1.0 );
+        }
+
         float SPSpecularOcclusion( vec3 bentNormal, float ao, float roughness, vec3 direction )
         {
             const float reflectionCone  = max( roughness, 0.1 ) * 3.14159265;
             const float unoccludedAngle = ao * 3.14159265;
-            const float between         = acos( clamp( dot( bentNormal, direction ), -1.0, 1.0 ) );
+            const float between         = SPAcosFast( clamp( dot( bentNormal, direction ), -1.0, 1.0 ) );
             const float occlusion = SPApproximateConeConeIntersection( reflectionCone, unoccludedAngle, between );
-            return mix( 0.0, occlusion, clamp( ( unoccludedAngle - 0.1 ) / 0.2, 0.0, 1.0 ) );
+            return mix( 0.0, occlusion, SPSpecularOcclusionFade( ao ) );
         }
 
         // THE UNCOVERED PIXELS (UE Lumen: the pixels no screen probe covers are shaded apart, not by the lane that
@@ -494,21 +512,31 @@ Shader "ScreenProbeIntegrate"
             }
         }
 
-        // Per pixel, sample and frame (PCG, as ScreenProbeTrace's TexelNoise). @p index below
-        // SP_PIXEL_NOISE_STREAMS: each (pixel, index, frame) its own key (the index rode in y as pixel.y * 4 + index,
-        // so a pixel's index 8 was the pixel two rows down's index 0: its first sample's pick was that pixel's
-        // jitter).
+        // Per pixel, stream and frame (PCG3D, as ScreenProbeTrace's TexelNoise): 96 bits, six 16-bit uniforms
+        // (SPPixelNoiseLow / High). @p index below SP_PIXEL_NOISE_STREAMS: each (pixel, index, frame) its own key
+        // (the index rode in y as pixel.y * 4 + index, so a pixel's index 8 was the pixel two rows down's index 0).
+        // The rough specular needs 1 + 2 x SAMPLES uniforms: the jitter and samples 0..1 from stream 0, samples
+        // 2..3 from stream 1 - two hashes a pixel (FPS-SP-INTEGRATE-2; was one a sample plus the jitter's, five,
+        // of which the jitter's used 16 of 96 bits).
         #define SP_PIXEL_NOISE_STREAMS 8u
-        #if SP_ROUGH_SPECULAR_SAMPLES + 1 > 8
-        #error "the rough specular's noise indices 0..SAMPLES must stay below SP_PIXEL_NOISE_STREAMS"
+        #if SP_ROUGH_SPECULAR_SAMPLES != 4
+        #error "the rough specular's noise layout (SPRoughSpecularNoise) is written for four samples"
         #endif
-        vec2 SPPixelNoise( uvec2 pixel, uint index, uint frame )
+        uvec3 SPPixelHash( uvec2 pixel, uint index, uint frame )
         {
             uvec3 h = uvec3( pixel.x, pixel.y, frame * SP_PIXEL_NOISE_STREAMS + index ) * 1664525u + 1013904223u;
             h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
             h ^= h >> 16u;
             h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
-            return vec2( h.xy & 0xFFFFu ) / 65536.0;
+            return h;
+        }
+        vec3 SPPixelNoiseLow( uvec3 h )
+        {
+            return vec3( h & 0xFFFFu ) / 65536.0;
+        }
+        vec3 SPPixelNoiseHigh( uvec3 h )
+        {
+            return vec3( h >> 16u ) / 65536.0;
         }
 
         // UE MonteCarlo.ush ImportanceSampleVisibleGGX (Dupuy & Benyoub 2023, spherical caps; isotropic, unbounded):
@@ -697,18 +725,19 @@ Shader "ScreenProbeIntegrate"
             uvec4 heldSlot;
             ivec2 heldCorner0;
             SPInterpolateSlots( pixel, p, n, distance, SP_LEVELS, heldId, heldW, heldSlot, heldCorner0 );
-            SPHeld held[4];
+            // The held probes as vectors, each read only at a constant index of an unrolled loop, the GGX samples'
+            // pick by selects: no array indexed by a run-time value (a dynamically indexed local array of structs is
+            // placed in local memory, a scratch load a GGX sample - FPS-SP-INTEGRATE-2).
+            uvec4 heldNbTile = uvec4( SP_INVALID );
+            uvec4 heldEntry  = uvec4( SP_INVALID );
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
             for ( int i = 0; i < 4; ++i )
             {
-                held[i].id     = heldId[i];
-                held[i].nbTile = SP_INVALID;
-                held[i].entry  = SP_INVALID;
-#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
                 const uint nbTile = SPNeighbourTile( heldCorner0 + ivec2( i & 1, i >> 1 ) );
-                held[i].nbTile    = heldSlot[i] == 0u ? nbTile : SP_INVALID;
-                held[i].entry     = nbTile * SP_NB_SLOTS + heldSlot[i];
-#endif
+                heldNbTile[i]     = heldSlot[i] == 0u ? nbTile : SP_INVALID;
+                heldEntry[i]      = nbTile * SP_NB_SLOTS + heldSlot[i];
             }
+#endif
             const float total = dot( heldW, vec4( 1.0 ) );
             if ( total >= SP_ADAPTIVE_EPSILON )
             {
@@ -720,9 +749,10 @@ Shader "ScreenProbeIntegrate"
                 for ( int i = 0; i < 4; ++i )
                     if ( heldW[i] > 0.0 )
                     {
-                        diffuse += heldW[i] * ProbeIrradiance( held[i], basis );
-                        lightIsMoving += heldW[i] * SPHeldMoving( held[i] );
-                        const vec4 back = SPHeldBackface( held[i] );
+                        const SPHeld held = SPHeld( heldId[i], heldNbTile[i], heldEntry[i] );
+                        diffuse += heldW[i] * ProbeIrradiance( held, basis );
+                        lightIsMoving += heldW[i] * SPHeldMoving( held );
+                        const vec4 back = SPHeldBackface( held );
                         backface += heldW[i] * back.a * back.rgb;
                         backTotal += heldW[i] * back.a;
                     }
@@ -738,25 +768,33 @@ Shader "ScreenProbeIntegrate"
                 // across the interpolation. A shading normal facing away (a normal-mapped or two-sided leaf
                 // seen edge-on) samples with |N.V|, UE's BxDF convention (BxDFContext NoV = saturate(abs(NoV))); a
                 // sample that leaves below the surface carries nothing, as the GGX integrand's N.L does.
-                if ( diffuseLerp < 1.0 )
+                // A pixel whose AO closes the open cone below 0.1 rad (SPSpecularOcclusionFade 0) weighs every sample
+                // 0: it skips them, the same sum (0) as before.
+                if ( diffuseLerp < 1.0 && SPSpecularOcclusionFade( ao ) > 0.0 )
                 {
                     const mat3  frame = SPProbeFrame( n );
                     vec3        vt    = transpose( frame ) * v;
                     vt.z              = max( abs( vt.z ), 1e-4 );
                     const float alpha = max( roughness, SP_ROUGH_SPECULAR_MIN_ROUGHNESS ) *
                                         max( roughness, SP_ROUGH_SPECULAR_MIN_ROUGHNESS );
-                    // UE BiasBSDFImportantSample: the second coordinate squeezed 10% toward its middle.
-                    const vec2 jitter     = SPPixelNoise( uvec2( pixel ), 0u, screenProbeParams.atlas.y );
-                    const uint frameIndex = screenProbeParams.atlas.y;
+                    // The pixel's nine uniforms from two hashes (SPPixelHash): the stratified jitter of the first
+                    // coordinate, and a sample's VNDF second coordinate and held-probe pick - independent 16-bit
+                    // fields, no two samples sharing one.
+                    const uint  frameIndex = screenProbeParams.atlas.y;
+                    const uvec3 hash0      = SPPixelHash( uvec2( pixel ), 0u, frameIndex );
+                    const uvec3 hash1      = SPPixelHash( uvec2( pixel ), 1u, frameIndex );
+                    const vec3  noise0     = SPPixelNoiseLow( hash0 );
+                    const vec3  noise1     = SPPixelNoiseHigh( hash0 );
+                    const vec3  noise2     = SPPixelNoiseLow( hash1 );
+                    const vec3  noise3     = SPPixelNoiseHigh( hash1 );
+                    const float jitter     = noise0.x;
+                    const vec4  sampleY    = vec4( noise0.y, noise1.x, noise2.x, noise3.x );
+                    const vec4  samplePick = vec4( noise0.z, noise1.y, noise2.y, noise3.y );
                     for ( int k = 0; k < SP_ROUGH_SPECULAR_SAMPLES; ++k )
                     {
-                        // One hash a sample (FPS-SP-CACHE-MISS; was two): y the VNDF's second coordinate, x the
-                        // held probe it reads - independent outputs of one key (indices 1..SAMPLES, below
-                        // SP_PIXEL_NOISE_STREAMS).
-                        const vec2 sampleNoise = SPPixelNoise( uvec2( pixel ), uint( k ) + 1u, frameIndex );
-                        vec2       e = vec2( fract( jitter.x + float( k ) / float( SP_ROUGH_SPECULAR_SAMPLES ) ),
-                                             sampleNoise.y );
-                        e.y           = ( e.y - 0.5 ) * 0.9 + 0.5;
+                        // UE BiasBSDFImportantSample: the second coordinate squeezed 10% toward its middle.
+                        vec2 e = vec2( fract( jitter + float( k ) / float( SP_ROUGH_SPECULAR_SAMPLES ) ), sampleY[k] );
+                        e.y    = ( e.y - 0.5 ) * 0.9 + 0.5;
                         const vec3 h  = SPSampleVisibleGGX( e, alpha, vt );
                         const vec3 lt = reflect( -vt, h );
                         if ( lt.z <= 0.0 )
@@ -766,17 +804,21 @@ Shader "ScreenProbeIntegrate"
                                              float( SP_ROUGH_SPECULAR_SAMPLES );
                         if ( weight <= 0.0 )
                             continue;
-                        float pick = sampleNoise.x * total;
-                        int j = 0;
+                        // The held probe the sample reads, picked by weight: the same probe as the former walk
+                        // (the first held whose running weight passes the pick, else the last held), by selects.
+                        float pick      = samplePick[k] * total;
+                        uint  pickId    = heldId.x;
+                        uint  pickEntry = heldEntry.x;
+                        bool  picked    = false;
                         for ( int i = 0; i < 4; ++i )
-                            if ( heldW[i] > 0.0 )
+                            if ( !picked && heldW[i] > 0.0 )
                             {
-                                j = i;
-                                if ( pick < heldW[i] )
-                                    break;
+                                pickId    = heldId[i];
+                                pickEntry = heldEntry[i];
+                                picked    = pick < heldW[i];
                                 pick -= heldW[i];
                             }
-                        specular += weight * ProbeRadiance( held[j], l );
+                        specular += weight * ProbeRadiance( SPHeld( pickId, SP_INVALID, pickEntry ), l );
                     }
                 }
                 specular = mix( specular, diffuse, diffuseLerp );
