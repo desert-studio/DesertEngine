@@ -1,0 +1,101 @@
+#ifndef DESERT_VOLUME_LIGHTING_GLSLH
+#define DESERT_VOLUME_LIGHTING_GLSLH
+
+// THE LIGHT A POINT OF A PARTICIPATING MEDIUM RECEIVES - one text for every medium the engine lights by the same
+// rules: the volumetric fog's froxels (Programs/Fog/VolumetricFogLightScattering.shader) and the heterogeneous
+// volumes' lighting cache (Programs/HeterogeneousVolumes/HeterogeneousVolumeLightingCache.shader). Both read the
+// lighting half of the same parameter block (Common/VolumetricFog.glslh, packed by
+// VolumetricFogRenderer::PackVolumeLighting), so a smoke plume and the fog around it can never disagree about the
+// sun, a lamp or the sky.
+//
+// THE INCLUDER DECLARES (before including this): Common/VolumetricFog.glslh; ShadowCascadesTexture (sampler2DArray,
+// raw depths); Mesh/PointLight.glslh, Mesh/Spotlight.glslh, Mesh/LightGrid.glslh with LightGridParamsUB /
+// LightGridCellsUB; Mesh/LocalLightShadowLookup.glslh (atlas or DESERT_LOCAL_SHADOW_VSM); Common/
+// CloudShadowReceiver.glslh; Common/RainOcclusion.glslh; DistantSkyLightTexture with Common/SkyScattering.glslh.
+
+// The sun's shadow at p: the first cascade that contains it, one bilinear 2x2 comparison (UE's volume shadowing is
+// a single filtered lookup too; jitter and history blur it further).
+float SunShadow(vec3 p)
+{
+    for (int c = 0; c < int(VfSunRadiance.w); ++c)
+    {
+        vec4 lc  = VfCascadeViewProj[c] * vec4(p, 1.0);
+        vec3 ndc = lc.xyz / lc.w;
+        vec2 uv  = ndc.xy * 0.5 + 0.5;
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
+            continue;
+        vec2  size  = vec2(textureSize(ShadowCascadesTexture, 0).xy);
+        vec4  d     = textureGather(ShadowCascadesTexture, vec3(uv, float(c)), 0);
+        vec4  lit   = step(vec4(ndc.z - VfCascadeBias[c]), d);
+        vec2  f     = fract(uv * size - 0.5);
+        return mix(mix(lit.w, lit.z, f.x), mix(lit.x, lit.y, f.x), f.y);
+    }
+    return 1.0;
+}
+
+// One point or spot light of the frame's lists at p, through the medium's Henyey-Greenstein phase g and the light's
+// VolumetricScatteringIntensity, shadowed through the local shadow atlas or the light's virtual map.
+vec3 LocalLight(uint index, vec3 p, vec3 viewDir, float g)
+{
+    if (index < lightGrid.counts.x)
+    {
+        PointLight source = pointLights[index];
+        DesertLight light = DesertPointLightAt(source, p);
+        if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) <= 0.0)
+            return vec3(0.0);
+        return light.Radiance * source.volumetricScatteringIntensity * PointLightShadow(source, p, light.L) *
+               VolumetricFogPhaseHG(g, dot(light.L, viewDir));
+    }
+    SpotLight source = spotLights[index - lightGrid.counts.x];
+    DesertLight light = DesertSpotLightAt(source, p);
+    if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) <= 0.0)
+        return vec3(0.0);
+    return light.Radiance * source.volumetricScatteringIntensity * SpotLightShadow(source, p, light.L) *
+           VolumetricFogPhaseHG(g, dot(light.L, viewDir));
+}
+
+// Every local light whose bounds touch p, found through the view's light grid at the pixel p projects to. A point
+// off the screen (a lighting-cache voxel behind the camera) or a cell that overflowed walks the whole list: the
+// grid only knows the cells of the view.
+vec3 VolumeLocalLighting(vec3 p, vec3 viewDir, float g)
+{
+    vec3 lighting = vec3(0.0);
+    vec4 clip     = VfViewProjection * vec4(p, 1.0);
+    vec2 ndc      = clip.xy / max(clip.w, 1e-6);
+    // A froxel's jittered point may sit up to one froxel edge past the screen (the grid rounds up): still its cell.
+    vec2 margin   = vec2(1.0) + 2.0 * VfGridPixel.x / max(VfGridPixel.yz, vec2(1.0));
+    bool onScreen = clip.w > 0.0 && all(lessThanEqual(abs(ndc), margin));
+    uint gridCell = 0u;
+    uint count    = 0u;
+    if (onScreen)
+    {
+        vec2 pixel = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * VfGridPixel.yz;
+        gridCell   = LightGridCellAt(lightGrid, pixel, p);
+        count      = lightGridCells[gridCell];
+    }
+    if (!onScreen || LightGridCellOverflowed(lightGrid, count))
+    {
+        for (uint i = 0u; i < lightGrid.counts.x + lightGrid.counts.y; ++i)
+            lighting += LocalLight(i, p, viewDir, g);
+    }
+    else
+    {
+        uint offset = LightGridListOffset(lightGrid, gridCell);
+        for (uint i = 0u; i < count; ++i)
+            lighting += LocalLight(lightGridCells[offset + i], p, viewDir, g);
+    }
+    return lighting;
+}
+
+// The sky from every direction at once (the phase integrates to 1 over the sphere), through what covers p from
+// above (1 in the open, 0 under a roof).
+vec3 VolumeSkyLighting(vec3 p)
+{
+    vec3 sky = VfSkyAmbient.rgb;
+    if (VfSkyAmbient.w > 0.5)
+        sky += VfSkyAmbientScale.rgb *
+               texelFetch(DistantSkyLightTexture, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
+    return sky * (1.0 - DesertRainOcclusionAt(p));
+}
+
+#endif

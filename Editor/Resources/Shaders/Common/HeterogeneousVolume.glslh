@@ -1,0 +1,160 @@
+#ifndef DESERT_HETEROGENEOUS_VOLUME_GLSLH
+#define DESERT_HETEROGENEOUS_VOLUME_GLSLH
+
+// THE HETEROGENEOUS VOLUMES' MEDIUM (UE 5.3+ HeterogeneousVolumes, reimplemented): one text for the density, the
+// temperature and the lighting-cache addressing, read by
+//   * Programs/HeterogeneousVolumes/HeterogeneousVolumeLightingCache.shader - lights every cache voxel;
+//   * Programs/HeterogeneousVolumes/HeterogeneousVolumeMarch.shader         - the half-res view march;
+//   * Programs/Fog/VolumetricFogLightScattering.shader                     - the smoke's shadow on the froxels.
+//
+// THE INCLUDER DECLARES the volumes buffer (heterogeneousVolumes[], HETEROGENEOUS_VOLUMES_BINDING) itself, so a
+// shader that reads only the cache (the froxels) and one that reads only the medium bind the same struct.
+
+// Must equal Graphic::kHeterogeneousVolumesBinding (SetStorageBuffer takes the number, not reflection).
+#define HETEROGENEOUS_VOLUMES_BINDING 15
+// Must equal Graphic::kHeterogeneousVolumeCacheResolution.
+#define HETEROGENEOUS_VOLUME_CACHE_RES 32.0
+// Must equal Graphic::kHeterogeneousVolumeMaxVolumes (the cache atlas holds this many slabs along Z).
+#define HETEROGENEOUS_VOLUME_MAX 8.0
+
+// Byte for byte Graphic::HeterogeneousVolumeGpu (HeterogeneousVolumePayload.hpp), std430.
+struct HeterogeneousVolumeGpu
+{
+    mat4 LocalToWorld; // the unit box [-1, 1]^3 -> world
+    mat4 WorldToLocal; // world -> the unit box
+    vec4 Medium;       // x = extinction per cm, y = phase g, z = coverage, w = edge fade
+    vec4 Albedo;       // rgb = albedo, w = 1 / noise scale (per cm)
+    vec4 HalfSize;     // xyz = world half size along the box axes (cm)
+    vec4 Wind;         // xyz = local advection velocity (cm/s), w = the noise clock (s)
+    vec4 Emissive;     // rgb = emission per unit extinction, w = peak temperature (K)
+    vec4 Blackbody;    // x = blackbody intensity, y = lighting-cache slab
+};
+
+// Integer hash -> [0, 1) (PCG3D-style), the value-noise lattice.
+float HvHash(ivec3 c)
+{
+    uvec3 v = uvec3(c) * uvec3(1664525u) + uvec3(1013904223u);
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v ^= v >> 16u;
+    v.x += v.y * v.z;
+    return float(v.x & 0x00ffffffu) / 16777216.0;
+}
+
+float HvValueNoise(vec3 q)
+{
+    ivec3 i = ivec3(floor(q));
+    vec3  f = fract(q);
+    vec3  u = f * f * (3.0 - 2.0 * f);
+    float n000 = HvHash(i);
+    float n100 = HvHash(i + ivec3(1, 0, 0));
+    float n010 = HvHash(i + ivec3(0, 1, 0));
+    float n110 = HvHash(i + ivec3(1, 1, 0));
+    float n001 = HvHash(i + ivec3(0, 0, 1));
+    float n101 = HvHash(i + ivec3(1, 0, 1));
+    float n011 = HvHash(i + ivec3(0, 1, 1));
+    float n111 = HvHash(i + ivec3(1, 1, 1));
+    return mix(mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y),
+               mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y), u.z);
+}
+
+// Four octaves of turbulence, each advected a little faster than the one below it (billows that roll).
+float HvFbm(vec3 q, vec3 drift)
+{
+    float sum  = 0.0;
+    float amp  = 0.5;
+    float norm = 0.0;
+    for (int o = 0; o < 4; ++o)
+    {
+        sum  += amp * HvValueNoise(q - drift * (1.0 + 0.35 * float(o)));
+        norm += amp;
+        q    *= 2.03;
+        drift *= 2.03;
+        amp  *= 0.5;
+    }
+    return sum / norm;
+}
+
+// The shape's envelope at a unit-box point: 1 inside, fading to 0 over EdgeFade toward every face, and an
+// ellipsoidal falloff so a plume reads round rather than as a box.
+float HvEnvelope(HeterogeneousVolumeGpu v, vec3 local)
+{
+    vec3  edge  = clamp((vec3(1.0) - abs(local)) / v.Medium.w, 0.0, 1.0);
+    float faces = edge.x * edge.y * edge.z;
+    float round = clamp(1.25 - dot(local, local) * 0.5, 0.0, 1.0);
+    return faces * faces * (3.0 - 2.0 * faces) * round;
+}
+
+// The normalised density [0, 1] at a unit-box point (DensitySource ProceduralNoise). The baked sparse brick atlas
+// source slots in here behind the same signature.
+float HvDensity01(HeterogeneousVolumeGpu v, vec3 local)
+{
+    float envelope = HvEnvelope(v, local);
+    if (envelope <= 0.0)
+        return 0.0;
+    vec3  cm    = local * v.HalfSize.xyz;
+    vec3  drift = v.Wind.xyz * v.Wind.w * v.Albedo.w;
+    float n     = HvFbm(cm * v.Albedo.w, drift);
+    float cover = v.Medium.z;
+    float d     = clamp((n - (1.0 - cover)) / max(cover, 1e-3), 0.0, 1.0);
+    return d * envelope;
+}
+
+// Extinction per cm at a unit-box point.
+float HvExtinction(HeterogeneousVolumeGpu v, vec3 local)
+{
+    return HvDensity01(v, local) * v.Medium.x;
+}
+
+// Planck's law at three wavelengths (610, 550, 465 nm) in W sr^-1 m^-2 nm^-1, taken to the engine's photometric
+// scene units as 683 lm/W over a ~100 nm band per channel (cd/m^2): the blackbody's linear colour and brightness at
+// temperature t (K). 1500 K glows a dull red (~1e4 cd/m^2), 3000 K orange-yellow.
+vec3 HvBlackbody(float t)
+{
+    if (t < 500.0)
+        return vec3(0.0);
+    const vec3  lambda = vec3(610e-9, 550e-9, 465e-9);
+    const float c1     = 1.191042972e-16; // 2 h c^2 (W m^2 sr^-1)
+    const float c2     = 1.4387769e-2;    // h c / k (m K)
+    vec3 l5 = lambda * lambda * lambda * lambda * lambda;
+    vec3 b  = c1 / (l5 * (exp(c2 / (lambda * t)) - 1.0)); // W sr^-1 m^-3
+    return b * 1e-9 * 68300.0;
+}
+
+// The medium's own emission per unit extinction at a unit-box point of normalised density d: the authored
+// emissive plus the blackbody of its temperature - hottest where it is dense and low (the flame's root).
+vec3 HvEmission(HeterogeneousVolumeGpu v, vec3 local, float d01)
+{
+    vec3 e = v.Emissive.rgb;
+    if (v.Emissive.w > 0.0)
+    {
+        float height = clamp(0.5 - 0.5 * local.y, 0.0, 1.0);
+        float t      = v.Emissive.w * d01 * (0.35 + 0.65 * height);
+        e += HvBlackbody(t) * v.Blackbody.x;
+    }
+    return e;
+}
+
+// Ray [origin + dir * t] against the unit box in local space: (tNear, tFar), tNear > tFar when it misses.
+vec2 HvIntersectUnitBox(vec3 localOrigin, vec3 localDir)
+{
+    vec3 inv = 1.0 / localDir;
+    vec3 t0  = (vec3(-1.0) - localOrigin) * inv;
+    vec3 t1  = (vec3(1.0) - localOrigin) * inv;
+    vec3 lo  = min(t0, t1);
+    vec3 hi  = max(t0, t1);
+    return vec2(max(max(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z));
+}
+
+// The lighting-cache atlas coordinate of a unit-box point of volume slab s: 32^3 voxels per slab, slabs stacked
+// along Z; the half-texel inset keeps the trilinear filter inside the slab.
+vec3 HvCacheUVW(vec3 local, float slab)
+{
+    vec3 uvw  = clamp(local * 0.5 + 0.5, vec3(0.5 / HETEROGENEOUS_VOLUME_CACHE_RES),
+                      vec3(1.0 - 0.5 / HETEROGENEOUS_VOLUME_CACHE_RES));
+    uvw.z = (uvw.z + slab) / HETEROGENEOUS_VOLUME_MAX;
+    return uvw;
+}
+
+#endif

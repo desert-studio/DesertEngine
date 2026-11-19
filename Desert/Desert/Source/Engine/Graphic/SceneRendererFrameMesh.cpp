@@ -265,9 +265,24 @@ namespace Desert::Graphic
         // First the far field, the cloud composite: everything after it is nearer the camera and paints over it.
         // Then the particles, then the passes registered at the AfterTranslucency extension point (the editor
         // grid). All on the scene target: the graph merges them into one render pass.
+        // The heterogeneous volumes' march and upsample (the scene depth is final here); their lighting cache was
+        // declared with the froxels, or is declared now on a path that ran none. Nothing without a volume on screen.
+        auto* smoke = m_Systems.HeterogeneousVolume.get();
+        if ( smoke != nullptr && !m_HeterogeneousVolumes.empty() )
+        {
+            AddComputeNodes( graph, textures,
+                             smoke->DeclareLightingNodes( graph.GetFrameArena(), textures.GraphRefs(), frame,
+                                                          GatherVolumeSunInput( 1.0f ), LocalShadowsAreVirtual(),
+                                                          m_HeterogeneousVolumes ) );
+            AddComputeNodes( graph, textures,
+                             smoke->DeclareViewNodes( graph.GetFrameArena(), textures.GraphRefs(), frame ) );
+        }
         AddSystemRaster( graph, textures,
                          m_Systems.VolumetricCloud
                               ->CompositePass() );
+        // The smoke over the clouds (it is nearer than the sky), under the particles and the translucency after it.
+        if ( smoke != nullptr && !m_HeterogeneousVolumes.empty() )
+            AddSystemRaster( graph, textures, smoke->CompositePass() );
         if ( auto* particles = m_Systems.Particle.get();
              particles != nullptr && !m_ViewProfile.SceneCapture )
         {

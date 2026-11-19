@@ -109,6 +109,7 @@
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
 #include "Systems/Scene/Fog/VolumetricFogRenderer.hpp"
+#include "Systems/Scene/Fog/HeterogeneousVolumeRenderer.hpp"
 #include "Systems/Scene/Translucency/TranslucencyLightingVolume.hpp"
 
 #include <Engine/Core/PostProcessSettings.hpp>
@@ -187,6 +188,7 @@ namespace Desert::Graphic
         class VelocityViewRenderer;
         class VolumetricCloudRenderer;
         class VolumetricFogRenderer;
+        class HeterogeneousVolumeRenderer;
         class TranslucencyLightingVolumeRenderer;
         class WaterRenderer;
     } // namespace System
@@ -218,6 +220,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::VelocityViewRenderer>      VelocityView;
         std::shared_ptr<System::HeightFogRenderer>         HeightFog;
         std::shared_ptr<System::VolumetricFogRenderer>     VolumetricFog;
+        std::shared_ptr<System::HeterogeneousVolumeRenderer> HeterogeneousVolume;
         std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
         std::shared_ptr<System::VolumetricCloudRenderer>   VolumetricCloud;
         std::shared_ptr<System::ParticleRenderer>          Particle;
@@ -1064,6 +1067,9 @@ namespace Desert::Graphic
         // One local fog volume of this frame (LocalFogVolumeCommand, replayed per view: by const reference).
         // The list is reserved once at kVolumetricFogMaxLocalVolumes and emptied with the lights at frame end.
         void AddLocalFogVolume( const LocalFogVolumeGpu& volume );
+        // One heterogeneous volume of this frame (HeterogeneousVolumeCommand, replayed per view). Reserved once at
+        // kHeterogeneousVolumeMaxVolumes, emptied with the lights at frame end; culled per view by the renderer.
+        void AddHeterogeneousVolume( const HeterogeneousVolumeGpu& volume );
 
         const auto& GetSpotLights() const
         {
@@ -2178,6 +2184,7 @@ namespace Desert::Graphic
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume
+        std::vector<HeterogeneousVolumeGpu> m_HeterogeneousVolumes; // this frame's, AddHeterogeneousVolume
         std::vector<LocalLightShadowSettings> m_SpotLightShadows;
         std::vector<GlobalIllumination::LocalLighting> m_FrameLocalLighting; // GatherFrameLocalLighting
 

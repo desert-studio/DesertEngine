@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Fog/FogPayload.hpp>
+#include <Engine/Graphic/Fog/HeterogeneousVolumePayload.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -209,11 +210,56 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    void VolumetricFogRenderer::PackVolumeLighting( VolumetricFogGpuPayload& p, const ViewFrame& frame,
+                                                    const VolumetricFogSunInput& sun,
+                                                    const AtmosphereEnv&         atmosphere,
+                                                    const glm::vec3&             skyAmbientColorScale,
+                                                    const bool                   skyOcclusionMapValid )
+    {
+        p.InvViewProjection  = frame.InvViewProjection;
+        p.ViewProjection     = frame.ViewProjection;
+        p.PrevViewProjection = frame.PrevViewProjection;
+        for ( uint32_t c = 0; c < 4; ++c )
+            p.LightViewProj[c] = sun.CascadeViewProj[c];
+        p.Camera            = glm::vec4( frame.CameraPosition, 0.0f );
+        p.CameraForward     = glm::vec4( FogCameraForward( frame.View ), 0.0f );
+        p.PrevCamera        = glm::vec4( frame.PrevCameraPosition, 0.0f );
+        p.PrevCameraForward = glm::vec4( FogCameraForward( frame.PrevView ), 0.0f );
+        p.SunDirection      = glm::vec4( sun.TowardSun, sun.Present ? 1.0f : 0.0f );
+        p.SunRadiance       = glm::vec4( sun.Radiance, static_cast<float>( std::min( sun.CascadeCount, 4u ) ) );
+        // A cascade's comparison bias in its map's depth units: one and a half texels of world size over the
+        // world length the map's [0,1] depth spans - the receiver is a point of a medium, not a surface, so there
+        // is no normal to offset along and no slope to scale by.
+        for ( int c = 0; c < 4; ++c )
+            p.CascadeBias[c] = 1.5f * sun.CascadeWorldPerTexel[c] / std::max( sun.CascadeDepthRange[c], 1e-3f );
+        // The sky: the same two models the height fog's ambient follows (PackFogParams). Physical: the distant
+        // sky light texel, scaled; artistic: the dome's mean, folded here.
+        const bool physical = atmosphere.Valid && atmosphere.DistantSkyLight != nullptr;
+        p.SkyAmbient        = glm::vec4( 0.0f );
+        p.SkyAmbientScale   = glm::vec4( 0.0f );
+        if ( physical )
+        {
+            p.SkyAmbient      = glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f );
+            p.SkyAmbientScale = glm::vec4( skyAmbientColorScale, 0.0f );
+        }
+        else if ( atmosphere.Valid )
+        {
+            p.SkyAmbient = glm::vec4(
+                 skyAmbientColorScale * 0.5f * ( atmosphere.ZenithRadiance + atmosphere.GroundRadiance ), 0.0f );
+        }
+        // The cloud layer's shadow on the sun term and what covers the sky from each point: the surfaces' values.
+        p.CloudShadowWorldToMap   = sun.CloudShadow.WorldToMap;
+        p.CloudShadowParams       = sun.CloudShadow.Params;
+        p.RainOcclusionWorldToMap = sun.SkyOcclusion.WorldToMap;
+        p.RainOcclusionParams     = skyOcclusionMapValid ? sun.SkyOcclusion.Params : glm::vec4( 0.0f );
+    }
+
     ComputeNodeList
     VolumetricFogRenderer::DeclareFrameNodes( Common::Memory::FrameArena& arena, const FrameGraphRefs& refs,
                                               const ViewFrame& frame, const VolumetricFogSunInput& sun,
                                               const bool                               virtualLocalShadows,
-                                              const std::span<const LocalFogVolumeGpu> localVolumes )
+                                              const std::span<const LocalFogVolumeGpu> localVolumes,
+                                              const HeterogeneousVolumeShadowInput&    heterogeneousShadow )
     {
         ComputeNodeList nodes = MakeComputeNodeList( arena );
         m_Result = VolumetricFogFrameResult{};
@@ -267,64 +313,31 @@ namespace Desert::Graphic::System
         const uint32_t current      = historyValid ? 1u - m_Current : m_Current;
         const uint32_t history      = 1u - current;
 
-        const AtmosphereEnv& atmosphere = m_SceneRenderer->GetAtmosphere();
-        const bool           physical   = atmosphere.Valid && atmosphere.DistantSkyLight != nullptr;
-
+        const AtmosphereEnv&    atmosphere = m_SceneRenderer->GetAtmosphere();
         VolumetricFogGpuPayload p{};
-        p.InvViewProjection  = frame.InvViewProjection;
-        p.ViewProjection     = frame.ViewProjection;
-        p.PrevViewProjection = frame.PrevViewProjection;
-        for ( uint32_t c = 0; c < 4; ++c )
-            p.LightViewProj[c] = sun.CascadeViewProj[c];
+        // The lighting half (cameras, sun, cascades, sky, cloud shadow, sky occlusion): the one packing the
+        // heterogeneous volumes' march reads too (PackVolumeLighting), so the two media can never be lit apart.
+        PackVolumeLighting( p, frame, sun, atmosphere, m_Data.SkyAtmosphereAmbientContributionColorScale,
+                            t.RainOcclusionMap.IsValid() );
         const uint32_t jitterIndex = static_cast<uint32_t>( frame.FrameIndex % kJitterSequenceLength ) + 1u;
         p.GridSize                 = glm::uvec4( grid, jitterIndex );
         p.GridZParams              = zParams;
         p.GridPixel =
              glm::vec4( static_cast<float>( std::max( m_Quality.GridPixels, 1u ) ), static_cast<float>( width ),
                         static_cast<float>( height ), historyValid ? 1.0f : 0.0f );
-        p.Jitter        = glm::vec4( Halton( jitterIndex, 2 ), Halton( jitterIndex, 3 ), Halton( jitterIndex, 5 ),
-                                     kVolumetricFogHistoryWeight );
-        p.Camera        = glm::vec4( frame.CameraPosition,
-                                     glm::clamp( m_Data.VolumetricFogScatteringDistribution, -0.9f, 0.9f ) );
-        p.CameraForward = glm::vec4( FogCameraForward( frame.View ), 0.0f );
-        p.PrevCamera    = glm::vec4( frame.PrevCameraPosition, 0.0f );
-        p.PrevCameraForward = glm::vec4( FogCameraForward( frame.PrevView ), 0.0f );
-        p.Albedo       = glm::vec4( glm::clamp( m_Data.VolumetricFogAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ),
-                                    glm::max( m_Data.VolumetricFogExtinctionScale, 0.0f ) );
-        p.Emissive     = glm::vec4( glm::max( m_Data.VolumetricFogEmissive, glm::vec3( 0.0f ) ),
-                                    glm::max( m_Data.VolumetricFogStartDistance, 0.0f ) );
-        p.Fade         = glm::vec4( glm::max( m_Data.VolumetricFogNearFadeInDistance, 0.0f ), 0.0f, 0.0f, 0.0f );
-        p.Layer0       = glm::vec4( glm::max( m_Data.FogDensity, 0.0f ) * kUEUnitsPerCm,
-                                    glm::max( m_Data.FogHeightFalloff, 0.0f ) * kUEUnitsPerCm, m_FogHeightY, 0.0f );
-        p.Layer1       = glm::vec4( glm::max( m_Data.SecondFogDensity, 0.0f ) * kUEUnitsPerCm,
-                                    glm::max( m_Data.SecondFogHeightFalloff, 0.0f ) * kUEUnitsPerCm,
-                                    m_FogHeightY + m_Data.SecondFogHeightOffset, 0.0f );
-        p.SunDirection = glm::vec4( sun.TowardSun, sun.Present ? 1.0f : 0.0f );
-        p.SunRadiance  = glm::vec4( sun.Radiance, static_cast<float>( std::min( sun.CascadeCount, 4u ) ) );
-        // A cascade's comparison bias in its map's depth units: one and a half texels of world size over the
-        // world length the map's [0,1] depth spans - the receiver is a point of fog, not a surface, so there is no
-        // normal to offset along and no slope to scale by.
-        for ( int c = 0; c < 4; ++c )
-            p.CascadeBias[c] = 1.5f * sun.CascadeWorldPerTexel[c] / std::max( sun.CascadeDepthRange[c], 1e-3f );
-        // The sky: the same two models the height fog's ambient follows (PackFogParams). Physical: the distant
-        // sky light texel, scaled; artistic: the dome's mean, folded here.
-        if ( physical )
-        {
-            p.SkyAmbient      = glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f );
-            p.SkyAmbientScale = glm::vec4( m_Data.SkyAtmosphereAmbientContributionColorScale, 0.0f );
-        }
-        else if ( atmosphere.Valid )
-        {
-            p.SkyAmbient = glm::vec4( m_Data.SkyAtmosphereAmbientContributionColorScale * 0.5f *
-                                           ( atmosphere.ZenithRadiance + atmosphere.GroundRadiance ),
-                                      0.0f );
-        }
-
-        // The cloud layer's shadow on the sun term and what covers the sky from each froxel: the surfaces' values.
-        p.CloudShadowWorldToMap   = sun.CloudShadow.WorldToMap;
-        p.CloudShadowParams       = sun.CloudShadow.Params;
-        p.RainOcclusionWorldToMap = sun.SkyOcclusion.WorldToMap;
-        p.RainOcclusionParams     = t.RainOcclusionMap.IsValid() ? sun.SkyOcclusion.Params : glm::vec4( 0.0f );
+        p.Jitter   = glm::vec4( Halton( jitterIndex, 2 ), Halton( jitterIndex, 3 ), Halton( jitterIndex, 5 ),
+                                kVolumetricFogHistoryWeight );
+        p.Camera.w = glm::clamp( m_Data.VolumetricFogScatteringDistribution, -0.9f, 0.9f );
+        p.Albedo   = glm::vec4( glm::clamp( m_Data.VolumetricFogAlbedo, glm::vec3( 0.0f ), glm::vec3( 1.0f ) ),
+                                glm::max( m_Data.VolumetricFogExtinctionScale, 0.0f ) );
+        p.Emissive = glm::vec4( glm::max( m_Data.VolumetricFogEmissive, glm::vec3( 0.0f ) ),
+                                glm::max( m_Data.VolumetricFogStartDistance, 0.0f ) );
+        p.Fade     = glm::vec4( glm::max( m_Data.VolumetricFogNearFadeInDistance, 0.0f ), 0.0f, 0.0f, 0.0f );
+        p.Layer0   = glm::vec4( glm::max( m_Data.FogDensity, 0.0f ) * kUEUnitsPerCm,
+                                glm::max( m_Data.FogHeightFalloff, 0.0f ) * kUEUnitsPerCm, m_FogHeightY, 0.0f );
+        p.Layer1   = glm::vec4( glm::max( m_Data.SecondFogDensity, 0.0f ) * kUEUnitsPerCm,
+                                glm::max( m_Data.SecondFogHeightFalloff, 0.0f ) * kUEUnitsPerCm,
+                                m_FogHeightY + m_Data.SecondFogHeightOffset, 0.0f );
 
         // The frame's local fog volumes (UE 5.3, voxelised into the froxels): the count rides in the block, the
         // volumes in the pass's own buffer. A frame without volumes uploads nothing and the loop runs zero times.
@@ -342,6 +355,10 @@ namespace Desert::Graphic::System
                            localCount, uploadedVolumes.GetError() );
         }
 
+        // The heterogeneous volumes' shadow on the sun term (their lighting cache's transmittance): y of them.
+        if ( heterogeneousShadow.Count > 0 && heterogeneousShadow.Cache && heterogeneousShadow.Volumes )
+            p.LocalFog.y = heterogeneousShadow.Count;
+
         if ( const auto uploaded = m_ParamsBuffer->SetData( &p, static_cast<uint32_t>( sizeof( p ) ) );
              !uploaded.IsSuccess() )
         {
@@ -352,6 +369,21 @@ namespace Desert::Graphic::System
         }
         scatteringPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
         scatteringPipeline->SetStorageBuffer( kVolumetricFogLocalVolumesBinding, m_LocalFogBuffer.get() );
+        // The volumes' buffer is the heterogeneous renderer's; without volumes the slot holds the local fog buffer
+        // (a declared block needs a buffer) and VfLocalFog.y = 0 keeps it unread.
+        // Named here, not as a conditional inside the argument (MSVC 19.44 hangs on that shape).
+        ShaderResources::StorageBuffer* heterogeneousVolumes = m_LocalFogBuffer.get();
+        if ( p.LocalFog.y > 0 )
+            heterogeneousVolumes = heterogeneousShadow.Volumes;
+        scatteringPipeline->SetStorageBuffer( kHeterogeneousVolumesBinding, heterogeneousVolumes );
+        std::shared_ptr<Image> heterogeneousCache =
+             FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        std::string heterogeneousCacheName = "VolumetricFog.HeterogeneousCacheFallback";
+        if ( p.LocalFog.y > 0 )
+        {
+            heterogeneousCache     = heterogeneousShadow.Cache;
+            heterogeneousCacheName = "HeterogeneousVolumes.LightingCache";
+        }
         m_IntegrationPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
 
         const std::shared_ptr<Image> distantSkyLight =
@@ -412,8 +444,11 @@ namespace Desert::Graphic::System
              .Texture( Scattering::CloudShadowMapTexture, CloudShadowMapOrWhite( refs ),
                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              // Read with textureGather (raw depths); white = depth 1, "nothing overhead", when the view has none.
-             .Texture( Scattering::RainOcclusionMapTexture, rainOcclusionMap,
-                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+             .Texture( Scattering::RainOcclusionMapTexture, rainOcclusionMap, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             // The smoke's sun transmittance (HeterogeneousVolumeLightingCache.shader .a), or the fallback.
+             .Texture( Scattering::HeterogeneousVolumeCacheTexture, heterogeneousCache,
+                       RDG::Access::SampledCompute, std::move( heterogeneousCacheName ) );
         if ( virtualLocalShadows )
         {
             // The reader's tables (Common/VirtualShadowMap.glslh, DESERT_VSM_READ): this frame's map of the view.

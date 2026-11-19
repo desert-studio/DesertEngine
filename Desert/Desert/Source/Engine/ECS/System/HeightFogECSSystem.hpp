@@ -6,6 +6,9 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Render/Commands/HeightFogCommand.hpp>
 #include <Engine/Graphic/Render/Commands/LocalFogVolumeCommand.hpp>
+#include <Engine/Graphic/Render/Commands/HeterogeneousVolumeCommand.hpp>
+
+#include <cmath>
 
 #include <Common/Core/Logger.hpp>
 
@@ -35,9 +38,10 @@ namespace Desert::ECS
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
-                     const Common::Timestep& /*ts*/ ) override
+                     const Common::Timestep& ts ) override
         {
             CollectLocalFogVolumes( registry, renderCommandBuffer );
+            CollectHeterogeneousVolumes( registry, renderCommandBuffer, ts.GetSeconds() );
 
             std::vector<entt::entity> entities;
             auto                      view = registry.view<ECS::ExponentialHeightFogComponent>();
@@ -114,6 +118,40 @@ namespace Desert::ECS
             }
         }
 
+        // Every enabled, visible HeterogeneousVolumeComponent, packed with its entity's world transform and the
+        // noise clock - one command per volume. Nothing is emitted for a scene without volumes, and the renderer
+        // declares no pass then (zero cost). Which of them a view sees is the renderer's per-view cull.
+        void CollectHeterogeneousVolumes( entt::registry& registry, Graphic::Render::RenderCommandBuffer& commands,
+                                          float seconds )
+        {
+            auto volumes = registry.view<ECS::HeterogeneousVolumeComponent, ECS::TransformComponent>();
+            if ( volumes.begin() == volumes.end() )
+                return;
+            // The advection clock: frame time, wrapped so the offset keeps its precision (kHeterogeneousVolumeClockWrap).
+            if ( std::isfinite( seconds ) && seconds > 0.0f )
+                m_HeterogeneousClock =
+                     std::fmod( m_HeterogeneousClock + seconds, Graphic::kHeterogeneousVolumeClockWrap );
+            uint32_t gathered = 0;
+            for ( const auto entity : volumes )
+            {
+                const auto& volume = volumes.get<ECS::HeterogeneousVolumeComponent>( entity );
+                if ( !volume.Data.Enabled || ECS::IsHidden( registry, entity ) )
+                    continue;
+                if ( gathered == Graphic::kHeterogeneousVolumeMaxVolumes )
+                {
+                    if ( !m_HeterogeneousCapLogged )
+                        LOG_WARN( "[HeterogeneousVolume] more than {} enabled heterogeneous volumes in the scene; "
+                                  "the first {} are drawn and the rest are not.",
+                                  Graphic::kHeterogeneousVolumeMaxVolumes, Graphic::kHeterogeneousVolumeMaxVolumes );
+                    m_HeterogeneousCapLogged = true;
+                    break;
+                }
+                commands.Emplace<Graphic::Render::HeterogeneousVolumeCommand>( Graphic::PackHeterogeneousVolume(
+                     volume.Data, WorldTransform( registry, entity ), m_HeterogeneousClock ) );
+                ++gathered;
+            }
+        }
+
         static glm::mat4 WorldTransform( entt::registry& registry, entt::entity entity )
         {
             glm::mat4    world   = registry.get<ECS::TransformComponent>( entity ).GetTransform();
@@ -147,5 +185,8 @@ namespace Desert::ECS
         // Describes the SCENE, not the frame, so it is said once.
         bool m_DuplicateLogged      = false;
         bool m_LocalVolumeCapLogged = false;
+        bool m_HeterogeneousCapLogged = false;
+        // The heterogeneous volumes' noise clock (s), wrapped at kHeterogeneousVolumeClockWrap.
+        float m_HeterogeneousClock = 0.0f;
     };
 } // namespace Desert::ECS

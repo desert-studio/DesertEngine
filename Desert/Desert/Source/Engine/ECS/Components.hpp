@@ -49,6 +49,7 @@ namespace Desert::Assets::Serialization
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/LocalFogVolumeComponent.hpp>
+#include <Engine/ECS/HeterogeneousVolumeComponent.hpp>
 #include <Engine/ECS/LightUnits.hpp>
 #include <Engine/Core/Serialize/StreamingSourceTargetBehavior.hpp>
 #include <Common/Settings/RenderMethods.hpp>

@@ -274,9 +274,21 @@ namespace Desert::Graphic
              GatherVolumeSunInput( glm::max( m_SunVolumetricScatteringIntensity, 0.0f ) );
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
         // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
+        // The heterogeneous volumes' lighting cache first (once per view frame, nothing without a volume on
+        // screen): its sun transmittance shadows the froxels below. Lit by the sun as the surfaces are (scale 1).
+        System::HeterogeneousVolumeShadowInput heterogeneousShadow{};
+        if ( auto* smoke = m_Systems.HeterogeneousVolume.get(); smoke != nullptr && !m_HeterogeneousVolumes.empty() )
+        {
+            AddComputeNodes( graph, textures,
+                             smoke->DeclareLightingNodes( graph.GetFrameArena(), textures.GraphRefs(), frame,
+                                                          GatherVolumeSunInput( 1.0f ), LocalShadowsAreVirtual(),
+                                                          m_HeterogeneousVolumes ) );
+            heterogeneousShadow = smoke->GetShadowInput();
+        }
         AddComputeNodes( graph, textures,
                          volume->DeclareFrameNodes( graph.GetFrameArena(), textures.GraphRefs(), frame, sun,
-                                                    LocalShadowsAreVirtual(), m_LocalFogVolumes ) );
+                                                    LocalShadowsAreVirtual(), m_LocalFogVolumes,
+                                                    heterogeneousShadow ) );
     }
 
     void SceneRenderer::AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,

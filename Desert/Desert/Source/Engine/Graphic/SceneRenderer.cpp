@@ -527,6 +527,11 @@ namespace Desert::Graphic
                                                                m_TargetFramebuffer );
                 if ( const auto volumeInit = m_Systems.VolumetricFog->Initialize(); !volumeInit )
                     LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
+                // The heterogeneous volumes (smoke, steam, fire); non-fatal like the fog.
+                RegisterSystem<System::HeterogeneousVolumeRenderer>( m_Systems.HeterogeneousVolume, this,
+                                                                     m_TargetFramebuffer );
+                if ( const auto smokeInit = m_Systems.HeterogeneousVolume->Initialize(); !smokeInit )
+                    LOG_WARN( "[SceneRenderer] Heterogeneous volume system unavailable: {}", smokeInit.GetError() );
                 // The translucency lighting volume the lit particles read; non-fatal like the fog.
                 RegisterSystem<System::TranslucencyLightingVolumeRenderer>( m_Systems.TranslucencyLightingVolume,
                                                                             this, m_TargetFramebuffer );
@@ -3329,6 +3334,7 @@ namespace Desert::Graphic
         m_PointLightShadows.clear();
         m_SpotLightShadows.clear();
         m_LocalFogVolumes.clear(); // keeps the capacity reserved by AddLocalFogVolume
+        m_HeterogeneousVolumes.clear(); // keeps the capacity reserved by AddHeterogeneousVolume
         m_FrameExtensions         = nullptr;
 #if DESERT_DEV_INSTRUMENTS
         if ( m_DebugDraw )
@@ -5456,6 +5462,14 @@ namespace Desert::Graphic
             m_SpotLight.SpotLights.back().IesAtlasTexture =
                  Runtime::ResourceRegistry::GetIesProfileService()->AtlasTexture();
         m_SpotLightShadows.push_back( shadow );
+    }
+
+    void SceneRenderer::AddHeterogeneousVolume( const HeterogeneousVolumeGpu& volume )
+    {
+        if ( m_HeterogeneousVolumes.capacity() < kHeterogeneousVolumeMaxVolumes )
+            m_HeterogeneousVolumes.reserve( kHeterogeneousVolumeMaxVolumes );
+        if ( m_HeterogeneousVolumes.size() < kHeterogeneousVolumeMaxVolumes )
+            m_HeterogeneousVolumes.push_back( volume );
     }
 
     void SceneRenderer::AddLocalFogVolume( const LocalFogVolumeGpu& volume )

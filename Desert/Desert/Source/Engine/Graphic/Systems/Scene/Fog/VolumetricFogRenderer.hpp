@@ -27,6 +27,7 @@
 namespace Desert::Graphic
 {
     struct ViewFrame;
+    struct AtmosphereEnv;
 }
 
 namespace Desert::Graphic::System
@@ -63,6 +64,17 @@ namespace Desert::Graphic::System
         RainOcclusionUniforms SkyOcclusion{};
     };
 
+    // What the froxels need to receive the heterogeneous volumes' shadow (HeterogeneousVolumeRenderer::
+    // GetShadowInput): this frame's lighting cache (its .a is each voxel's sun transmittance through its volume) and
+    // the volumes it was built for. Count 0 = no volume on screen: the froxels bind the 3D fallback and loop over
+    // none.
+    struct HeterogeneousVolumeShadowInput
+    {
+        std::shared_ptr<Image>          Cache;
+        ShaderResources::StorageBuffer* Volumes = nullptr;
+        uint32_t                        Count   = 0;
+    };
+
     // The LightScattering shader's parameters (Programs/Fog/VolumetricFogLightScattering.shader): the one spelling
     // the froxel lighting node binds and Initialize checks. The parameter block (VolumetricFogParamsBuffer) is the
     // pipeline's own (SetStorageBuffer), not a graph binding. Two permutations, picked by Graphic::LocalShadowsVirtual:
@@ -86,7 +98,9 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, LightGridCellsUB );
         DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
         DESERT_SHADER_PARAMETER( Texture, RainOcclusionMapTexture );
+        DESERT_SHADER_PARAMETER( Texture, HeterogeneousVolumeCacheTexture );
         static constexpr std::array kAll{
+             RDG::Erase( HeterogeneousVolumeCacheTexture ),
              RDG::Erase( LightScatteringTexture ), RDG::Erase( LightScatteringHistoryTexture ),
              RDG::Erase( ShadowCascadesTexture ),  RDG::Erase( LocalShadowAtlasTexture ),
              RDG::Erase( DistantSkyLightTexture ), RDG::Erase( LinearClampSampler ),
@@ -96,6 +110,7 @@ namespace Desert::Graphic::System
              RDG::Erase( LightGridCellsUB ),       RDG::Erase( CloudShadowMapTexture ),
              RDG::Erase( RainOcclusionMapTexture ) };
         static constexpr std::array kVirtualLocal{
+             RDG::Erase( HeterogeneousVolumeCacheTexture ),
              RDG::Erase( LightScatteringTexture ), RDG::Erase( LightScatteringHistoryTexture ),
              RDG::Erase( ShadowCascadesTexture ),  RDG::Erase( DistantSkyLightTexture ),
              RDG::Erase( LinearClampSampler ),     RDG::Erase( LinearRepeatSampler ),
@@ -152,6 +167,16 @@ namespace Desert::Graphic::System
         [[nodiscard]] static Core::ShaderVariant ScatteringVsmVariant();
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
+        // THE LIGHTING HALF of the parameter block (Common/VolumetricFog.glslh: cameras now and last frame, the sun
+        // and its cascades with their bias, the sky ambient by the height fog's two models, the cloud shadow and the
+        // sky occlusion). The one packing every participating medium is lit from: the froxels (DeclareFrameNodes)
+        // and the heterogeneous volumes' lighting cache and march (HeterogeneousVolumeRenderer) - Common/
+        // VolumeLighting.glslh reads it in both. The medium's own fields (grid, jitter, albedo, layers, phase g in
+        // Camera.w) are the caller's.
+        static void PackVolumeLighting( VolumetricFogGpuPayload& p, const ViewFrame& frame,
+                                        const VolumetricFogSunInput& sun, const AtmosphereEnv& atmosphere,
+                                        const glm::vec3& skyAmbientColorScale, bool skyOcclusionMapValid );
+
         // The light-scattering history is the only state that outlives a frame (IRenderSystem::OnSceneReplaced,
         // kind 1): a new scene must not reproject the old one's fog, nor a camera cut the shot before it. The
         // volumes themselves are content-keyed (the grid size) and the settings are pushed every frame.
@@ -190,7 +215,8 @@ namespace Desert::Graphic::System
         ComputeNodeList DeclareFrameNodes( Common::Memory::FrameArena& arena, const FrameGraphRefs& refs,
                                            const ViewFrame& frame, const VolumetricFogSunInput& sun,
                                            bool                               virtualLocalShadows,
-                                           std::span<const LocalFogVolumeGpu> localVolumes );
+                                           std::span<const LocalFogVolumeGpu> localVolumes,
+                                           const HeterogeneousVolumeShadowInput& heterogeneousShadow = {} );
 
         // The integrated volume of THIS frame for the height fog pass (Integrated null when no node was declared).
         [[nodiscard]] const VolumetricFogFrameResult& GetFrameResult() const

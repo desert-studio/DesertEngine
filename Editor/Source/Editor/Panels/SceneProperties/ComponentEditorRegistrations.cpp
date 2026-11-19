@@ -250,6 +250,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ExponentialHeightFogComponen
                                      "ExponentialHeightFogData", "Exponential Height Fog" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::LocalFogVolumeComponent, Data, "LocalFogVolumeData",
                                      "Local Fog Volume" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::HeterogeneousVolumeComponent, Data, "HeterogeneousVolumeData",
+                                     "Heterogeneous Volume" )
 // Post Process Volume likewise: its bounds are the entity's Translation plus the Extent field.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PostProcessVolumeComponent, Data, "PostProcessVolumeData",
                                      "Post Process Volume" )

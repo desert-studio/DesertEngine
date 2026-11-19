@@ -20,6 +20,7 @@ Shader "VolumetricFogLightScattering"
         // per cm. Programs/Fog/VolumetricFogIntegration.shader integrates it along the view.
 
         #include <Common/VolumetricFog.glslh>
+        #include <Common/HeterogeneousVolume.glslh>
         #include <Mesh/PointLight.glslh>
         #include <Mesh/Spotlight.glslh>
         #include <Mesh/LightGrid.glslh>
@@ -105,6 +106,12 @@ Shader "VolumetricFogLightScattering"
         // The frame's local fog volumes (Graphic::kVolumetricFogLocalVolumesBinding, the pipeline's own buffer
         // like the parameter block); VfLocalFog.x of them are valid.
         ReadBuffer(14) LocalFogVolumesBuffer { LocalFogVolumeGpu localFogVolumes[]; };
+        // THE HETEROGENEOUS VOLUMES' SHADOW (smoke between the sun and the fog): their buffer (Graphic::
+        // kHeterogeneousVolumesBinding) and this frame's lighting cache, whose .a is the sun's transmittance through
+        // the volume from each voxel. VfLocalFog.y of them; 0 = the fallback, never read.
+        ReadBuffer(15) HeterogeneousVolumesBuffer { HeterogeneousVolumeGpu heterogeneousVolumes[]; };
+        Uniform(16) texture3D HeterogeneousVolumeCacheTexture;
+        #define HeterogeneousVolumeCacheTexture sampler3D(HeterogeneousVolumeCacheTexture, LinearClampSampler)
 
         // A froxel has no fragment and no ShadowUB: its froxel keys the PCF rotation, one tap per froxel.
         #define LOCAL_SHADOW_FILTER_PIXEL vec2(gl_GlobalInvocationID.xy)
@@ -113,43 +120,27 @@ Shader "VolumetricFogLightScattering"
 
         LocalSize(4, 4, 4);
 
-        // The sun's shadow at p: the first cascade that contains it, one bilinear 2x2 comparison (UE's volume
-        // shadowing is a single filtered lookup too; the froxel jitter and the history blur it further).
-        float SunShadow(vec3 p)
-        {
-            for (int c = 0; c < int(VfSunRadiance.w); ++c)
-            {
-                vec4 lc  = VfCascadeViewProj[c] * vec4(p, 1.0);
-                vec3 ndc = lc.xyz / lc.w;
-                vec2 uv  = ndc.xy * 0.5 + 0.5;
-                if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
-                    continue;
-                vec2  size  = vec2(textureSize(ShadowCascadesTexture, 0).xy);
-                vec4  d     = textureGather(ShadowCascadesTexture, vec3(uv, float(c)), 0);
-                vec4  lit   = step(vec4(ndc.z - VfCascadeBias[c]), d);
-                vec2  f     = fract(uv * size - 0.5);
-                return mix(mix(lit.w, lit.z, f.x), mix(lit.x, lit.y, f.x), f.y);
-            }
-            return 1.0;
-        }
+        // The sun, the local lights and the sky as every medium receives them (one text with the heterogeneous
+        // volumes' lighting cache).
+        #include <Common/VolumeLighting.glslh>
 
-        vec3 LocalLight(uint index, vec3 p, vec3 viewDir, float g)
+        // The sun's transmittance through every heterogeneous volume its ray from p crosses: the cache's .a at the
+        // ray's entry into the box (the voxel's own march toward the sun covers the rest of the chord).
+        float HeterogeneousVolumeSunTransmittance(vec3 p)
         {
-            if (index < lightGrid.counts.x)
+            float t = 1.0;
+            for (uint v = 0u; v < VfLocalFog.y; ++v)
             {
-                PointLight source = pointLights[index];
-                DesertLight light = DesertPointLightAt(source, p);
-                if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) <= 0.0)
-                    return vec3(0.0);
-                return light.Radiance * source.volumetricScatteringIntensity * PointLightShadow(source, p, light.L) *
-                       VolumetricFogPhaseHG(g, dot(light.L, viewDir));
+                HeterogeneousVolumeGpu volume = heterogeneousVolumes[v];
+                vec3 lo  = (volume.WorldToLocal * vec4(p, 1.0)).xyz;
+                vec3 ld  = (volume.WorldToLocal * vec4(VfSunDirection.xyz, 0.0)).xyz;
+                vec2 hit = HvIntersectUnitBox(lo, ld);
+                if (hit.y <= max(hit.x, 0.0))
+                    continue;
+                vec3 entry = lo + ld * max(hit.x, 0.0);
+                t *= textureLod(HeterogeneousVolumeCacheTexture, HvCacheUVW(entry, float(v)), 0.0).a;
             }
-            SpotLight source = spotLights[index - lightGrid.counts.x];
-            DesertLight light = DesertSpotLightAt(source, p);
-            if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) <= 0.0)
-                return vec3(0.0);
-            return light.Radiance * source.volumetricScatteringIntensity * SpotLightShadow(source, p, light.L) *
-                   VolumetricFogPhaseHG(g, dot(light.L, viewDir));
+            return t;
         }
 
         void main()
@@ -184,33 +175,11 @@ Shader "VolumetricFogLightScattering"
             {
                 if (VfSunDirection.w > 0.5)
                     lighting += VfSunRadiance.rgb * SunShadow(p) * CloudShadowFactor(p) *
+                                HeterogeneousVolumeSunTransmittance(p) *
                                 VolumetricFogPhaseHG(g, dot(VfSunDirection.xyz, viewDir));
 
-                // The point's own cell of the light grid: the pixel it projects to and its view depth.
-                vec4 clip = VfViewProjection * vec4(p, 1.0);
-                vec2 ndc  = clip.xy / max(clip.w, 1e-6);
-                vec2 pixel = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * VfGridPixel.yz;
-                uint gridCell = LightGridCellAt(lightGrid, pixel, p);
-                uint count    = lightGridCells[gridCell];
-                if (LightGridCellOverflowed(lightGrid, count))
-                {
-                    for (uint i = 0u; i < lightGrid.counts.x + lightGrid.counts.y; ++i)
-                        lighting += LocalLight(i, p, viewDir, g);
-                }
-                else
-                {
-                    uint offset = LightGridListOffset(lightGrid, gridCell);
-                    for (uint i = 0u; i < count; ++i)
-                        lighting += LocalLight(lightGridCells[offset + i], p, viewDir, g);
-                }
-
-                // The sky from every direction at once: the phase integrates to 1 over the sphere.
-                vec3 sky = VfSkyAmbient.rgb;
-                if (VfSkyAmbient.w > 0.5)
-                    sky += VfSkyAmbientScale.rgb *
-                           texelFetch(DistantSkyLightTexture, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
-                // ... through what covers the froxel from above (1 in the open, 0 under a roof).
-                lighting += sky * (1.0 - DesertRainOcclusionAt(p));
+                lighting += VolumeLocalLighting(p, viewDir, g);
+                lighting += VolumeSkyLighting(p);
             }
 
             vec4 current = vec4(scattering * lighting + emissive, extinction);
