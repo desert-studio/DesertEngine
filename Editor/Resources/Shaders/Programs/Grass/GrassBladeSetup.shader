@@ -1,14 +1,16 @@
 // DesertAsset {"Kind":"Shader","Guid":"45b47d20a7974d9eb7bcb2b6d531f624","Versions":{"SHDR":1},"Dependencies":[]}
 // THE BLADE SETUP (FPS-GRASS-RESOLVE-2; Ghost of Tsushima, GDC 2021 "Procedural Grass in Ghost of Tsushima": a
 // compute pass evaluates each visible blade ONCE into a compact buffer, and the raster and the shading read it
-// instead of deriving it again per pixel). After the camera's lists are final (phase 1's records, and phase 2's when
-// "Grass: Post-Occlusion" ran), one thread per slot of a blade variety's camera list that a record drew evaluates
+// instead of deriving it again per pixel). Once per phase, before that phase's raster (FPS-GRASS-RASTER-VS: after the
+// camera cull for phase 1's records, after "Grass: Post-Occlusion" for phase 2's - SceneRenderer::
+// AddFrameGrassBladeSetup), one thread per slot of a blade variety's camera list that a record drew evaluates
 // that blade's curve now and one wind step before (Mesh/Surface/GrassBlade.glslh BladeCurveAt - the raster's one
 // statement of it, with the raster's wind, local wind, gust and deformation field read at the root), its strip
 // width, its card and its strip level, into the blade's row of the view's setup records (GrassBladeSetupData,
 // indexed by the raster-stream row Visibility.x + slot, the row the visibility word names).
-// "Grass: Visibility Resolve" (Mesh/Surface/Pass_VisibilityResolve.glslh) reads that record per pixel in place of
-// the transform, the ids, the deformation fetch, both local wind loops and the two BladeCurveAt per corner.
+// The visibility raster (Mesh/Surface/Vertex_GrassBlade.glslh) places its strip from that record per vertex, and
+// "Grass: Visibility Resolve" (Mesh/Surface/Pass_VisibilityResolve.glslh) reads it per pixel, in place of the
+// transform, the ids, the deformation fetch, both local wind loops and the two BladeCurveAt per corner.
 // A slot no record drew this frame is not written: no word names its row.
 // Dispatch: x = slots, kSetupGroupThreads a group (BladeSetupInfo.y groups cover the largest variety's list),
 // y = the table's rows (GrassRenderer::AddFrameBladeSetup).
@@ -32,9 +34,9 @@ Shader "GrassBladeSetup"
             GrassBladeShapeData Shape;
             vec4                WindA;
             vec4                WindB;
-            // x = the camera list's records' first word in BladeSetupArgs (VarietyGpu::CameraArgs), y = phase 2's
-            // (VarietyGpu::PostArgs; kNoPostArgs: phase 2 drew nothing this frame), z = the records (one per strip
-            // level), w = 0.
+            // x = this phase's records' first word in BladeSetupArgs (VarietyGpu::CameraArgs for phase 1,
+            // VarietyGpu::PostArgs for phase 2), y = a second list's (kNoPostArgs: none - GrassRenderer sets up
+            // each phase in its own pass), z = the records (one per strip level), w = 0.
             uvec4 Args;
         };
 
