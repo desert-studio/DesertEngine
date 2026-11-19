@@ -1,0 +1,48 @@
+# WP-FAR-8: spatially loaded HLODs in the packaged game - the cook packs the HLOD hierarchy into HLOD cells
+# (WorldCells.hpp THE HLOD CELLS; UE UHLODLayer::bIsSpatiallyLoaded) and the game streams them (BeginCooked ->
+# BeginHLODCells, the second residency with the HLOD gate). World: Scenes/WP_Protocol as SCOPE-FAR-HLOD.scn plays it:
+# HLOD_Main (Main grid) spatially loaded - CellSize 51200 (512 m), LoadingRange 102400 (1024 m) - with ParentLayer
+# HLOD_Main_Far always loaded (the tops). Source: the Plane 9000002 (WP-SRC-ALTITUDE.scn), its shape raised 2 km by
+# ShapeOffset.y, the Player 9000001 off. Before WP-FAR-8 the package step failed: "HLOD layer 'HLOD_Main' is spatially
+# loaded (CellSize, LoadingRange), and a cooked world does not stream HLOD cells yet".
+# Package Game bundles build/Bin/<PackageConfig>/Runtime (~/.desertengine/editor.json): Debug, so --shot works.
+# After PASS, outside the editor (the scenario drives the editor only; Runtime has no camera flag - its view is the
+# player's, so for [far8_packaged_far] save camera 1003 2 km up in a copy, as WP23 did with WP23_Regions):
+#   WorldCook --source Content/Scenes/WP_Protocol.desce ... --verify: "verify HLODs : N HLOD record(s) back from M
+#                 HLOD unit(s) of the hierarchy the index states", exit 0
+#   [far8_packaged_far]  <package>/Runtime --scene Content/Scenes/WP_Protocol.desce --shot far8_packaged_far.png
+#                 --shot-frames 600: the whole city as HLOD_Main_Far blocks + landscape/foliage HLOD, no hole, no double;
+#                 log "[WorldPartition] 'WP_Protocol': K cooked HLOD(s) in U HLOD unit(s) (16 HLOD cell(s))", no
+#                 "HLOD_Main(x,z) loaded" while the source is 2 km up
+#   [far8_packaged_near] the same package after ShapeOffset 0,0,0 + Save + Package Game: Main cells around the plane real
+#                 ("G0_L0_..." loaded only after "HLOD HLOD_Main(x,z) loaded" above it - the gate), HLOD_Main beyond,
+#                 HLOD_Main_Far past 1 km; the log has no cook refusal
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Build HLODs"
+Дано wait-idle 2400
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000002 StreamingSourceData.Enabled true
+Дано set 9000002 StreamingSourceData.ShapeOffset 0,195000,0
+Дано set 1003 CameraData.Far 800000
+Дано run Action "Save Scene"
+Когда run Build "Package Game"
+Тогда far8_pak пакет собран без отказа кука; в логе «[Package] world '…WP_Protocol…' cooked into N file(s)» (N включает файлы H<grid>_<x>_<z>.dwcell 16 ячеек HLOD_Main и HLOD_H… вершин HLOD_Main_Far); нет «does not stream HLOD cells»
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 2
+Когда advance 1
+Когда --subject viewport set Camera.Position 0,200000,-150000
+Когда --subject viewport set Camera.Direction 0,-1,0.75
+Когда advance 2
+Тогда far8_packaged_far (тот же мир в Play, эталон для кадра пакета) с 2 км весь город виден как HLOD (HLOD_Main_Far + HLOD ландшафта/листвы), без дыр и двойных блоков
+Когда run Action "Stop"
+Дано set 9000002 StreamingSourceData.ShapeOffset 0,0,0
+Когда run Action "Play from Here"
+Когда advance 2
+Когда advance 1
+Когда --subject viewport set Camera.Position 0,40000,-40000
+Когда --subject viewport set Camera.Direction 0,-1,1
+Когда advance 2
+Тогда far8_packaged_near (эталон для кадра пакета) у земли: вокруг самолёта настоящие ячейки Main, дальше HLOD_Main, за 1 км HLOD_Main_Far; ни дыр, ни двойных
+Когда run Action "Stop"

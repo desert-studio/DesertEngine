@@ -1,10 +1,12 @@
 #include "PrefabAsset.hpp"
 #include "PrefabFormat.hpp"
 #include "PrefabPlacement.hpp"
+#include "PackedPrefab.hpp"
 #include <optional>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
+#include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
@@ -13,7 +15,10 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
+#include <unordered_map>
 #include <unordered_set>
+#include <algorithm>
+#include <format>
 
 namespace Desert::Assets
 {
@@ -54,8 +59,10 @@ namespace Desert::Assets
         }
 
         // The identity the file states, which Serialize writes back.
-        m_Guid       = PrefabStatedGuid( loadable.GetValue() );
-        m_EntityData = std::move( loadable.GetValue().Entities );
+        m_Guid            = PrefabStatedGuid( loadable.GetValue() );
+        m_RuntimeBehavior = loadable.GetValue().RuntimeBehavior;
+        m_EntityData      = std::move( loadable.GetValue().Entities );
+        AdoptOrRepack( std::move( loadable.GetValue().Packed ) );
         m_IsLoaded   = true;
         // The file IS the payload now, whatever this asset held before.
         m_CapturedInMemory = false;
@@ -82,6 +89,7 @@ namespace Desert::Assets
         // entities keeps every byte of its capacity. Every other clearing implementation in this directory
         // shrinks; this one did not.
         m_EntityData.shrink_to_fit();
+        m_Packed.reset();
         m_IsLoaded = false;
         return BOOLSUCCESS;
     }
@@ -91,6 +99,7 @@ namespace Desert::Assets
         PrefabData data;
         data.Name = m_Metadata.Filepath.stem().string();
         data.Entities = m_EntityData;
+        data.RuntimeBehavior = m_RuntimeBehavior;
         // Root names the first record BY ID, so it can only be written when that record has one. It used to
         // fall back to a default-constructed UUID, which was a random number — a root id pointing at no
         // entity, baked into the file.
@@ -107,13 +116,12 @@ namespace Desert::Assets
         // own rule, with each mesh and nested prefab measured by its registry row - nothing is loaded for it.
         // A block the rule cannot read is named on the log and adds no box; the body itself is saved as is.
         data.Bounds.reset();
-        Common::Json::Issues boundsIssues;
-        if ( const auto box =
-                  Core::Rules::PrefabBounds( data.Entities, data.Root, &ContentRegistry::BoundsOf, boundsIssues );
-             box.has_value() )
+        if ( const auto box = BodyBounds(); box.has_value() )
             data.Bounds = PrefabBoundsSer{ box->Min, box->Max };
-        if ( !boundsIssues.empty() )
-            Common::Json::ReportIssues( boundsIssues, "prefab bounds of '" + m_Metadata.Filepath.string() + "'" );
+
+        // THE PACKED FORM, derived from exactly the body written here (PackedPrefab.hpp), so the file never states
+        // a form of another body.
+        data.Packed = PackPrefab( data.Entities );
 
         // The one writer: stamps both generation integers, so every file this engine saves is one its
         // own gate accepts. Writing rfl::json directly here would be a prefab the loader refuses.
@@ -161,99 +169,260 @@ namespace Desert::Assets
         return Common::MakeSuccess( std::move( created ) );
     }
 
+    namespace
+    {
+        // THE LINKS INSIDE A CAPTURED BODY FOLLOW THE IDS (CreateFromEntity, CreateFromEntities). A record carries
+        // its RECORD id, but the serializer wrote its `parent` and its entity references (Rules::kEntityReferences)
+        // as the LIVE uuids the factory minted - so a re-instantiated body found no parent for any record below the
+        // root and hung them all off the scene root, and an attachment named an entity of the instance it was
+        // captured from. Both are rewritten through @p liveToRecord; a link that leaves the body (the root's own
+        // parent, a new root CreateFromEntities made) names no record and is kept.
+        void RemapBodyLinks( std::vector<EntityData>&                              records,
+                             const std::unordered_map<Common::UUID, Common::UUID>& liveToRecord )
+        {
+            const Core::Rules::EntityIdRemap toRecord =
+                 [&liveToRecord]( const Common::UUID& live ) -> std::optional<Common::UUID>
+            {
+                const auto hit = liveToRecord.find( live );
+                if ( hit == liveToRecord.end() )
+                    return std::nullopt;
+                return hit->second;
+            };
+            for ( EntityData& record : records )
+            {
+                if ( record.parent.has_value() )
+                    if ( const auto parent = toRecord( *record.parent ); parent.has_value() )
+                        record.parent = *parent;
+                Core::Rules::RemapEntityReferences( record, toRecord );
+            }
+        }
+    } // namespace
+
+    void PrefabAsset::AppendSubtree( ECS::Entity e, bool isRoot, const AssetManager& assetManager,
+                                     std::unordered_map<Common::UUID, Common::UUID>& liveToRecord )
+    {
+        if ( !e )
+            return;
+
+        EntityData                        record = Core::Serialize::EntitySerializer::SerializeEntity( e, assetManager );
+        const std::optional<Common::UUID> liveId = record.id;
+
+        // A NESTED PREFAB IS A LINK, NOT A COPY OF ITS BODY.
+        //
+        // This walk used to descend into nested instances as well, writing the nested prefab's every
+        // entity into THIS file beside the link to it. Instantiating the result then produced both:
+        // PrefabFactory creates a PrefabPath record in place (CreatedInPlace) AND hangs the nested
+        // file's body underneath it, so every nested entity appeared TWICE — and an edit to the
+        // nested prefab reached only one of the two copies. Stopping here is what makes "nested
+        // prefab" mean a reference at all; what the instance holds of its own travels as overrides
+        // on this record, exactly as it does for a scene.
+        const bool stopsHere = !isRoot && e.HasComponent<ECS::PrefabComponent>() && record.PrefabPath.has_value();
+
+        // A RECORD ID IS A LINK KEY, AND IT MUST SURVIVE "APPLY INSTANCE CHANGES TO PREFAB".
+        //
+        // EntitySerializer writes the entity's own uuid, and PrefabFactory mints those fresh on every
+        // instantiation — so rewriting a prefab from one of its instances used to renumber every
+        // record in the file. Nothing depended on that before; now every override in every scene is
+        // addressed by these ids, and renumbering them would orphan the lot in one save, silently.
+        // The entity already knows which record it came from, so the file keeps that number.
+        //
+        // WHICH ELEMENT OF THE PATH. The last one for an entity this walk descends through — that is
+        // its own record in the prefab it belongs to. The one BEFORE last for an entity the walk
+        // stops at, because the record being written there is not the nested root's: it is the
+        // NESTING record of the file being written, and its id is what the nested body will be
+        // addressed under. Both are unique among the records this walk emits, because everything it
+        // descends through belongs to one prefab.
+        if ( e.HasComponent<ECS::PrefabInstanceComponent>() )
+        {
+            const auto& path = e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
+            if ( stopsHere && path.size() >= 2 )
+            {
+                record.id = path[path.size() - 2];
+            }
+            else if ( !stopsHere && !path.empty() )
+            {
+                record.id = path.back();
+            }
+        }
+        if ( liveId.has_value() && record.id.has_value() )
+            liveToRecord.emplace( *liveId, *record.id );
+
+        if ( stopsHere )
+        {
+            // A LINK STANDS WHERE ITS RECORD SAYS (UE: a level instance nested in a level carries its own actor
+            // transform there). The record keeps the nested root's local transform SerializeEntity wrote, and the
+            // root's override loses the same three fields, so the placement has one home: the one the factory
+            // places the nested root by, the one IndexBaseRecords bases the next capture on, and the one
+            // Rules::PrefabBounds composes the nested box with (an override is invisible to it, so a link whose
+            // placement lived there was measured at its parent's origin).
+            auto capture = Core::Serialize::CapturePrefabInstance( e, assetManager );
+            if ( capture.RootPath.has_value() )
+            {
+                for ( PrefabOverrideData& over : capture.Overrides )
+                {
+                    if ( over.Path != *capture.RootPath )
+                        continue;
+                    over.Translation.reset();
+                    over.Rotation.reset();
+                    over.Scale.reset();
+                }
+                std::erase_if( capture.Overrides,
+                               [&]( const PrefabOverrideData& over )
+                               {
+                                   return over.Path == *capture.RootPath && !over.Tag.has_value() &&
+                                          over.Components.begin() == over.Components.end();
+                               } );
+            }
+            if ( !capture.Overrides.empty() )
+            {
+                record.PrefabOverrides = std::move( capture.Overrides );
+            }
+
+            record.Tag = std::nullopt;
+            record.Components.clear();
+
+            m_EntityData.push_back( std::move( record ) );
+            return;
+        }
+
+        m_EntityData.push_back( std::move( record ) );
+
+        // Traverse children
+        if ( e.HasComponent<ECS::RelationshipComponent>() )
+        {
+            const auto& rel = e.GetComponent<ECS::RelationshipComponent>();
+            for ( auto childHandle : rel.Children )
+            {
+                AppendSubtree( ECS::Entity{ childHandle, *e.GetRegistry() }, false, assetManager, liveToRecord );
+            }
+        }
+    }
+
     void PrefabAsset::CreateFromEntity( ECS::Entity rootEntity, const AssetManager& assetManager )
     {
-        if ( !rootEntity ) return;
+        if ( !rootEntity )
+            return;
 
         m_EntityData.clear();
 
-        std::function<void( ECS::Entity, bool )> traverse = [&]( ECS::Entity e, bool isRoot )
-        {
-            if ( !e )
-                return;
+        // The live uuid each record was written from -> the record id it is written under (RemapBodyLinks).
+        std::unordered_map<Common::UUID, Common::UUID> liveToRecord;
+        AppendSubtree( rootEntity, true, assetManager, liveToRecord );
 
-            EntityData record = Core::Serialize::EntitySerializer::SerializeEntity( e, assetManager );
-
-            // A NESTED PREFAB IS A LINK, NOT A COPY OF ITS BODY.
-            //
-            // This walk used to descend into nested instances as well, writing the nested prefab's every
-            // entity into THIS file beside the link to it. Instantiating the result then produced both:
-            // PrefabFactory creates a PrefabPath record in place (CreatedInPlace) AND hangs the nested
-            // file's body underneath it, so every nested entity appeared TWICE — and an edit to the
-            // nested prefab reached only one of the two copies. Stopping here is what makes "nested
-            // prefab" mean a reference at all; what the instance holds of its own travels as overrides
-            // on this record, exactly as it does for a scene.
-            const bool stopsHere =
-                 !isRoot && e.HasComponent<ECS::PrefabComponent>() && record.PrefabPath.has_value();
-
-            // A RECORD ID IS A LINK KEY, AND IT MUST SURVIVE "APPLY INSTANCE CHANGES TO PREFAB".
-            //
-            // EntitySerializer writes the entity's own uuid, and PrefabFactory mints those fresh on every
-            // instantiation — so rewriting a prefab from one of its instances used to renumber every
-            // record in the file. Nothing depended on that before; now every override in every scene is
-            // addressed by these ids, and renumbering them would orphan the lot in one save, silently.
-            // The entity already knows which record it came from, so the file keeps that number.
-            //
-            // WHICH ELEMENT OF THE PATH. The last one for an entity this walk descends through — that is
-            // its own record in the prefab it belongs to. The one BEFORE last for an entity the walk
-            // stops at, because the record being written there is not the nested root's: it is the
-            // NESTING record of the file being written, and its id is what the nested body will be
-            // addressed under. Both are unique among the records this walk emits, because everything it
-            // descends through belongs to one prefab.
-            if ( e.HasComponent<ECS::PrefabInstanceComponent>() )
-            {
-                const auto& path = e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
-                if ( stopsHere && path.size() >= 2 )
-                {
-                    record.id = path[path.size() - 2];
-                }
-                else if ( !stopsHere && !path.empty() )
-                {
-                    record.id = path.back();
-                }
-            }
-
-            if ( stopsHere )
-            {
-                const auto capture = Core::Serialize::CapturePrefabInstance( e, assetManager );
-                if ( !capture.Overrides.empty() )
-                {
-                    record.PrefabOverrides = capture.Overrides;
-                }
-
-                record.Tag = std::nullopt;
-                record.Translation.reset();
-                record.Rotation.reset();
-                record.Scale.reset();
-                record.Components.clear();
-
-                m_EntityData.push_back( std::move( record ) );
-                return;
-            }
-
-            m_EntityData.push_back( std::move( record ) );
-
-            // Traverse children
-            if ( e.HasComponent<ECS::RelationshipComponent>() )
-            {
-                const auto& rel = e.GetComponent<ECS::RelationshipComponent>();
-                for ( auto childHandle : rel.Children )
-                {
-                    traverse( ECS::Entity{ childHandle, *e.GetRegistry() }, false );
-                }
-            }
-        };
-
-        traverse( rootEntity, true );
+        // THE LINKS INSIDE THE BODY FOLLOW THE IDS. A record now carries its RECORD id, but the serializer wrote
+        // its `parent` and its entity references (Rules::kEntityReferences) as the LIVE uuids the factory minted -
+        // so a re-instantiated body found no parent for any record below the root and hung them all off the scene
+        // root, and an attachment named an entity of the instance it was captured from. Both are rewritten here
+        // through the same map; a link that leaves the body (the root's own parent) names no record and is kept.
+        RemapBodyLinks( m_EntityData, liveToRecord );
 
         // Root entity's own PrefabComponent points to this very file — strip it from the
         // serialized data so that re-instantiating doesn't recurse into itself.
         if ( !m_EntityData.empty() )
             m_EntityData[0].PrefabPath = std::nullopt;
 
+        // The captured root's own streaming override is the instance's word on how this prefab streams: applied,
+        // it becomes the prefab's (WP21-WHOLE). The record keeps none - a body record with no PrefabPath that
+        // stated one would be a setting nothing reads, and the cook refuses it.
+        if ( !m_EntityData.empty() && m_EntityData[0].RuntimeBehavior.has_value() )
+            m_RuntimeBehavior = *m_EntityData[0].RuntimeBehavior;
+        if ( !m_EntityData.empty() )
+            m_EntityData[0].RuntimeBehavior.reset();
+
+        // A new body is a new source: every packed instance of this prefab follows the form packed from it.
+        AdoptOrRepack( std::nullopt );
         m_IsLoaded = true;
         // Nothing on disk holds this yet — see IsReloadableFromFile and Unload's refusal.
         m_CapturedInMemory = true;
+    }
+
+    void PrefabAsset::ReplaceBody( std::vector<EntityData> records )
+    {
+        m_EntityData = std::move( records );
+        m_IsLoaded   = true;
+        // As CreateFromEntity: the body is the caller's until SaveTo puts it in the file.
+        AdoptOrRepack( std::nullopt );
+        m_CapturedInMemory = true;
+    }
+
+    Common::BoolResultStr PrefabAsset::CreateFromEntities( std::string_view        rootTag,
+                                                           std::span<const Member> members,
+                                                           const AssetManager&     assetManager )
+    {
+        std::vector<EntityData> previous = std::move( m_EntityData );
+        m_EntityData.clear();
+        const auto refuse = [&]( std::string reason )
+        {
+            m_EntityData = std::move( previous );
+            return Common::MakeError<bool>( std::move( reason ) );
+        };
+        if ( members.empty() )
+            return refuse(
+                 std::format( "prefab '{}' not captured: no entity to capture", m_Metadata.Filepath.string() ) );
+
+        // THE NEW ROOT IS DATA ONLY: no entity stands for it in the scene, so nothing is created and torn down
+        // again.
+        EntityData root;
+        root.id                   = Common::UUID::Generate();
+        root.Tag                  = std::string( rootTag );
+        root.Translation          = glm::vec3( 0.0f );
+        root.Rotation             = glm::vec3( 0.0f );
+        root.Scale                = glm::vec3( 1.0f );
+        const Common::UUID rootId = *root.id;
+        m_EntityData.push_back( std::move( root ) );
+
+        std::unordered_map<Common::UUID, Common::UUID> liveToRecord;
+        for ( const Member& member : members )
+        {
+            if ( !member.Entity )
+                return refuse( std::format( "prefab '{}' not captured: a member entity no longer exists",
+                                            m_Metadata.Filepath.string() ) );
+            // The member's own record is the first its walk appends, a plain entity's or a nested link's alike:
+            // both state their placement on the record (AppendSubtree), so the new frame is written there for
+            // both.
+            const std::size_t first = m_EntityData.size();
+            AppendSubtree( member.Entity, false, assetManager, liveToRecord );
+            EntityData& top = m_EntityData[first];
+            top.parent      = rootId;
+            top.Translation = member.InRoot.Translation;
+            top.Rotation    = member.InRoot.Rotation;
+            top.Scale       = member.InRoot.Scale;
+        }
+
+        RemapBodyLinks( m_EntityData, liveToRecord );
+
+        m_IsLoaded = true;
+        // Nothing on disk holds this yet — see IsReloadableFromFile and Unload's refusal.
+        AdoptOrRepack( std::nullopt );
+        m_CapturedInMemory = true;
+        return BOOLSUCCESS;
+    }
+
+    std::optional<Common::Math::AABB> PrefabAsset::BodyBounds() const
+    {
+        const Common::UUID   root = m_EntityData.empty() ? Common::UUID::Null()
+                                                         : m_EntityData.front().id.value_or( Common::UUID::Null() );
+        Common::Json::Issues issues;
+        auto box = Core::Rules::PrefabBounds( m_EntityData, root, &ContentRegistry::BoundsOf, issues );
+        if ( !issues.empty() )
+            Common::Json::ReportIssues( issues, "prefab bounds of '" + m_Metadata.Filepath.string() + "'" );
+        return box;
+    }
+
+    void PrefabAsset::AdoptOrRepack( std::optional<PackedPrefabSer> stated )
+    {
+        const std::string checksum = PrefabSourceHash( m_EntityData );
+        if ( stated.has_value() && stated->SourceHash == checksum )
+        {
+            m_Packed = std::make_shared<const PackedPrefabSer>( std::move( *stated ) );
+            return;
+        }
+        // A stated form of another body: the file was edited outside the editor, or by a build whose writer
+        // spelled the body differently. Derived data, so it is rebuilt rather than refused - and said.
+        if ( stated.has_value() )
+            LOG_INFO( "[Prefab] '{}': the packed form states source checksum {} and the body is {}; repacked.",
+                      m_Metadata.Filepath.string(), stated->SourceHash, checksum );
+        m_Packed = std::make_shared<const PackedPrefabSer>( PackPrefab( m_EntityData ) );
     }
 
     // Placing an instance in the world. The BUILDING of the instance is not here and must not be: it is

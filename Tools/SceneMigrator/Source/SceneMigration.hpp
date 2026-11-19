@@ -57,24 +57,69 @@ namespace Desert::Migration
     // them when it stamps the header, and rfl omits an empty optional, so the file this tool writes is the
     // file the engine reads. A deliberate second copy of the shape; the static_assert below is what keeps
     // it from forking (a member added to the engine's struct and not here fails to compile).
+    // ONE GRID OF A v1..v4 WORLD (World Partition format), frozen here: the engine's struct became
+    // Core::RuntimePartitionSerialized at v5 (WP-HASH-SET). Read, never written - MigrateRuntimePartitionsV4ToV5
+    // restates every grid as an LHGrid partition and clears the list.
+    struct WorldPartitionGridSerialized
+    {
+        std::string                Name;
+        float                      CellSize     = 12800.0f;
+        float                      LoadingRange = 25600.0f;
+        int                        Priority     = 0;
+        std::optional<std::string> HLODLayer;
+    };
+
+    // ONE HLOD LAYER AS EVERY GENERATION READS IT: Core::HLODLayerSerialized, member for member and in its order,
+    // PLUS the WP v1..v4 ParentLayer, the WP v1..v7 SimplifyTrianglePercent and the WP v9..v11 MergeMaterials,
+    // frozen here. v5 states the chain as a partition's ordered HLOD setups
+    // (Core::RuntimePartitionHLODSetupSerialized): MigrateRuntimePartitionsV4ToV5 reads ParentLayer into them and
+    // clears it. v8 moved SimplifyTrianglePercent into the layer's Settings (its MeshSimplify builder's
+    // TrianglePercent): MigrateHLODBuilderSettingsV7ToV8 moves it and clears it. v12 moved MergeMaterials into the
+    // mesh builder's Settings.MergeMaterials: MigrateHLODMergeMaterialsV11ToV12 moves it and clears it. rfl omits
+    // an empty optional, so the layer this tool writes is the layer the engine reads.
+    struct HLODLayerSerialized
+    {
+        std::string                 Name;
+        Core::HLODLayerType         Type = Core::HLODLayerType::Instancing;
+        std::optional<std::string>  Builder;
+        std::optional<rfl::Generic>                      Settings;
+        std::optional<float>        CellSize;
+        std::optional<float>        LoadingRange;
+        std::optional<std::string>  ParentLayer;             // WP v1..v4 files only
+        std::optional<float>        SimplifyTrianglePercent; // WP v1..v7 files only
+        std::optional<Core::HLODMaterialMergeSerialized> MergeMaterials;          // WP v9..v11 files only
+    };
+    static_assert(
+         rfl::named_tuple_t<HLODLayerSerialized>::size() ==
+              rfl::named_tuple_t<Core::HLODLayerSerialized>::size() + 3,
+         "Core::HLODLayerSerialized gained or lost a member: mirror it in Migration::HLODLayerSerialized, "
+         "or this tool drops it from every scene it rewrites" );
+
     // THE WORLD PARTITION BLOCK THIS TOOL READS: the engine's Core::WorldPartitionSerialized PLUS the v50..v66
-    // world-wide DefaultHLODLayer, frozen here. v67 moved the layer onto each grid (Core::
-    // WorldPartitionGridSerialized::HLODLayer), and the read is strict, so an older file's key needs a member to
-    // land in. Read, never written: MigrateGridHLODLayerV67ToV68 moves it onto the grids and clears it, and rfl
-    // omits an empty optional, so the block this tool writes is the block the engine reads.
+    // world-wide DefaultHLODLayer and the v1..v4 Grids, frozen here. v67 moved the layer onto each grid, v5 the
+    // grids into RuntimePartitions, and the read is strict, so an older file's key needs a member to land in.
+    // Read, never written: MigrateGridHLODLayerV67ToV68 and MigrateRuntimePartitionsV4ToV5 move them and clear
+    // them, and rfl omits an empty optional, so the block this tool writes is the block the engine reads.
+    // RuntimePartitions is optional HERE only, because a v1..v4 file states no such key.
     struct WorldPartitionSerialized
     {
-        std::vector<Core::WorldPartitionGridSerialized>       Grids;
-        std::optional<std::vector<Core::HLODLayerSerialized>> HLODLayers;
+        std::optional<std::vector<WorldPartitionGridSerialized>>     Grids; // v1..v4 files only
+        std::optional<std::vector<Core::RuntimePartitionSerialized>> RuntimePartitions;
+        std::optional<std::vector<HLODLayerSerialized>>              HLODLayers;
         // Core::WorldPartitionSerialized::ChunkRegionSize, carried through untouched (no step reads it).
         std::optional<float> ChunkRegionSize;
         // Core::WorldPartitionSerialized::DataLayers (WP v2), carried through untouched (no step reads it).
         std::optional<std::vector<Core::DataLayerSerialized>> DataLayers;
+        // Core::WorldPartitionSerialized::DataLayersLogicOperator (WP v3), carried through. Optional HERE because this
+        // tool's read is strict (no rfl::DefaultIfMissing) and no v1/v2 file states it; absent, the engine reads Or.
+        std::optional<Core::WorldPartitionDataLayersLogicOperator> DataLayersLogicOperator;
+        // Core::WorldPartitionSerialized::MiniMap (WP v4), carried through untouched (no step reads it).
+        std::optional<Core::WorldPartitionMiniMapSerialized> MiniMap;
         // v50..v66 files only.
         std::optional<std::string> DefaultHLODLayer;
     };
     static_assert( rfl::named_tuple_t<WorldPartitionSerialized>::size() ==
-                        rfl::named_tuple_t<Core::WorldPartitionSerialized>::size() + 1,
+                        rfl::named_tuple_t<Core::WorldPartitionSerialized>::size() + 2,
                    "Core::WorldPartitionSerialized gained or lost a member: mirror it in "
                    "Migration::WorldPartitionSerialized, or this tool drops it from every scene it rewrites" );
 
@@ -102,6 +147,11 @@ namespace Desert::Migration
         std::string                                               Name;
         std::vector<Assets::EntityData>                           Entities;
         Common::UUID                                              Root;
+        // Assets::PrefabData::RuntimeBehavior (WP v4). Optional HERE because this tool's read is strict (no
+        // rfl::DefaultIfMissing) and no file before v4 states it; ToEnginePrefab writes it, Partitioned when absent.
+        std::optional<Assets::PrefabRuntimeBehavior> RuntimeBehavior;
+        // Assets::PrefabData::Packed (WP-PACKED-PREFAB): carried as read, absent stays absent.
+        std::optional<Assets::PackedPrefabSer> Packed;
         // Pre-v26 files only; read so a refusal can name the version, never written.
         std::optional<int> SceneVersion;
         std::optional<int> UnitVersion;
@@ -113,7 +163,9 @@ namespace Desert::Migration
     // pre-v26 integers, which a migrated prefab no longer states.
     [[nodiscard]] inline Assets::PrefabData ToEnginePrefab( const PrefabData& prefab )
     {
-        return Assets::PrefabData{ prefab.Header, prefab.Bounds, prefab.Name, prefab.Entities, prefab.Root };
+        return Assets::PrefabData{ prefab.Header,   prefab.Bounds, prefab.Name,
+                                   prefab.Entities, prefab.Root,
+                                   prefab.RuntimeBehavior.value_or( Assets::PrefabRuntimeBehavior::Partitioned ), prefab.Packed };
     }
 
     // THE MINIMUM GENERATION THIS TOOL READS. A file stating less than this - on either integer - is
@@ -461,7 +513,17 @@ namespace Desert::Migration
     //       prefabs alike, the record and every prefab override.
     inline constexpr int kSceneVersionGrassRasterPath = 75;
 
-    static_assert( kSceneVersionGrassRasterPath == kSceneVersion,
+    //  76 - ONE ENTITY PER LANDSCAPE SPLINE (WP-LANDSCAPE-SPLINES; UE 5.5 ALandscapeSplineActor,
+    //       ULandscapeInfo::MoveSplinesToLevel). A Landscape block's Splines {ControlPoints, Segments} leaves the
+    //       root: every connected group of its control points (joined by segments; a lone point is its own group)
+    //       becomes one new record {LandscapeSpline: {Landscape: the root's id, Splines: the group, its segments
+    //       re-indexed}}, Tag "Landscape Spline", its id FNV-1a over "LandscapeSpline:<root id>:<group>" so a
+    //       re-run states the same identity. Scene-side; a prefab (or a prefab override) whose Landscape states
+    //       control points is refused naming it - no prefab in the content carries splines, and a spline cannot
+    //       become an entity of an instance (MigrateLandscapeSplineEntitiesV75ToV76).
+    inline constexpr int kSceneVersionLandscapeSplineEntities = 76;
+
+    static_assert( kSceneVersionLandscapeSplineEntities == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -482,6 +544,95 @@ namespace Desert::Migration
     //       meant, so the step has no transform of its own - the stamp states WPAR 2. The number moves so a v1
     //       build refuses a world whose layers it would silently ignore. Scenes and prefabs alike.
     inline constexpr int kWorldPartitionVersionDataLayers = 2;
+
+    //   3 - RUNTIME DATA LAYERS (WP-DATA-LAYERS-RUNTIME; UE EDataLayerType::Runtime, UDataLayerInstance::
+    //       InitialRuntimeState, UWorldPartition::DataLayersLogicOperator). A layer states its `Type` and a Runtime
+    //       one its `InitialRuntimeState`; the block states `DataLayersLogicOperator`. ADDITIVE: a v2 file's layers
+    //       are Editor layers and its operator Or, which the read gives every missing key (DefaultIfMissing) and the
+    //       rewrite states - nothing else changes. The number moves so a v2 build refuses a world whose runtime
+    //       layers it would stream as if they were not there. Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionRuntimeDataLayers = 3;
+
+    //   4 - NESTED, COLOURED, VISIBLE DATA LAYERS (WP-DATA-LAYER-OUTLINER; UE UDataLayerInstance::Parent,
+    //       UDataLayerAsset::DebugColor, UDataLayerInstance::bIsInitiallyVisible). A layer may state `Parent` and
+    //       states `DebugColor` and `InitiallyVisible`. ADDITIVE: a v3 file's layers are top-level (no key), grey
+    //       and initially visible, which the read gives every missing key (DefaultIfMissing) and the rewrite
+    //       states - nothing else changes. The number moves so a v3 build refuses a world whose nesting it would
+    //       read flat (a runtime child streaming past its parent). Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionDataLayerOutliner = 4;
+
+    //   5 - THE RUNTIME HASH SET (WP-HASH-SET; UE UWorldPartitionRuntimeHashSet). `Grids` is `RuntimePartitions`:
+    //       every grid becomes an LHGrid partition of the same Name whose LHGrid block states its CellSize,
+    //       LoadingRange and Priority - in the same order, so a record that names no partition still streams on
+    //       the first. A grid's HLODLayer and that layer's ParentLayer chain become the partition's HLOD setups in
+    //       chain order (Core::RuntimePartitionHLODSetupSerialized, each named after its layer); every layer's
+    //       ParentLayer is cleared, the order of the setups being the chain now. A grid with no HLODLayer states
+    //       no HLODSetups. No Persistent partition is invented: what was always loaded stays so by its own reason.
+    //       Scenes only - a prefab has no WorldPartition block, so its step is the stamp.
+    //       MigrateRuntimePartitionsV4ToV5.
+    inline constexpr int kWorldPartitionVersionRuntimePartitions = 5;
+    //   6 - LOCATION VOLUMES (WP-LOADER-ADAPTERS; UE ALocationVolume). A record may state a `LocationVolume`
+    //       component (Extent, AutoLoad): an editor loader's box, always loaded in the editor and left out by the
+    //       cook. ADDITIVE: a v5 file states none and means exactly what it meant, so the step has no transform of
+    //       its own - the stamp states WPAR 6. The number moves so a v5 build refuses a world whose volumes it would
+    //       cook as entities. Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionLocationVolumes = 6;
+
+    //   7 - PREFAB RUNTIME BEHAVIOUR (WP21-WHOLE; UE ALevelInstance::DesiredRuntimeBehavior). A prefab states its
+    //       `RuntimeBehavior` (Assets::PrefabRuntimeBehavior) and an instance record may state its own. The read
+    //       gives a prefab Partitioned (what every prefab meant) and the rewrite states it; every NESTED instance
+    //       record inside a prefab that states none is given Standalone, because a nested body was always kept
+    //       whole under its root and a Partitioned nested instance now opens into the outer world. Scene records
+    //       change nothing.
+    inline constexpr int kWorldPartitionVersionPrefabRuntimeBehavior = 7;
+
+    //   8 - HLOD BUILDERS BY NAME (WP-HLOD-BUILDERS; UE UHLODLayer::HLODBuilderClass + HLODBuilderSettings).
+    //       A layer states its builder's `Settings` object and a Custom layer its `Builder`; MeshSimplify's
+    //       SimplifyTrianglePercent is its Settings' TrianglePercent: every layer stating it states
+    //       {"TrianglePercent": <the same number>} instead (MigrateHLODBuilderSettingsV7ToV8). Scenes only carry
+    //       layers; a prefab's chain raises the number and changes nothing.
+    inline constexpr int kWorldPartitionVersionHLODBuilders = 8;
+
+    //   9 - MERGED HLOD MATERIALS (WP-HLOD-MATBAKE; UE FMeshMergingSettings::bMergeMaterials +
+    //       FMaterialProxySettings). An HLOD layer may state `MergeMaterials` (Core::HLODMaterialMergeSerialized:
+    //       TextureSize, NormalMap, ORMMap, EmissiveMap). ADDITIVE: a v8 layer states none and builds one section
+    //       per material, as it did, so the step has no transform of its own - the stamp states WPAR 9. The number
+    //       moves so a v8 build refuses a world whose merged material it would silently drop. Scenes and prefabs
+    //       alike.
+    inline constexpr int kWorldPartitionVersionHLODMergeMaterials = 9;
+
+    //  10 - RUNTIME PARTITION DEBUG COLOURS (WP-DEBUG-DRAW; UE FSpatialHashRuntimeGrid::DebugColor). A runtime
+    //       partition states its `DebugColor`, which the gameplay debugger's World Partition category paints its
+    //       cells in (a data layer's is v4's). The step states Core::SeededDebugColor of each partition's name - the
+    //       colour the panel gives a new partition - so a migrated world and a new one colour alike. Scenes only (a
+    //       prefab states no World Partition block).
+    inline constexpr int kWorldPartitionVersionDebugColors = 10;
+
+    //  11 - THE MINIMAP (WP-MAP-VIEW; UE AWorldPartitionMiniMap). The block may state `MiniMap`
+    //       (Core::WorldPartitionMiniMapSerialized: the texture Build Minimap captured and the world rectangle it
+    //       spans). ADDITIVE: a v10 file states none and means exactly what it meant, so the step has no transform
+    //       of its own - the stamp states WPAR 11. The number moves because the read is strict: a v10 build would
+    //       refuse the key without naming this tool. Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionMiniMap = 11;
+
+    //  12 - EVERY MESH BUILDER READS ITS OWN SETTINGS (WP-INT-HLOD; UE UHLODLayer::HLODBuilderSettings:
+    //       UHLODBuilderMeshMergeSettings / UHLODBuilderMeshSimplifySettings /
+    //       UHLODBuilderMeshApproximateSettings). A MeshMerge or MeshSimplify layer's `MergeMaterials` is its
+    //       builder's Settings.MergeMaterials: every layer stating it states Settings {..., "MergeMaterials": <the
+    //       same object>} instead (MigrateHLODMergeMaterialsV11ToV12). HLODLayerType gains MeshApproximate
+    //       (WP-HLOD-APPROX), whose Settings are Core::HLODApproximationSettings - additive, no v11 layer states
+    //       it. Scenes only carry layers; a prefab's chain raises the number and changes nothing. (v10 and v11 are
+    //       the WP-INT-1117 integration's steps.)
+    inline constexpr int kWorldPartitionVersionHLODBuilderSettings = 12;
+
+    //  13 - HLOD LAYER PER ENTITY (WP-SETTINGS-UI; UE AActor::HLODLayer). A record may state an `HLODLayer`
+    //       component naming one of the world's HLOD layers: its composite's part of its cell's HLOD is built by
+    //       that layer and its builder's Settings instead of its partition's first HLOD setup's
+    //       (Rules::CellHLODParts). ADDITIVE: a v12 record states none and is built by its partition's layer,
+    //       exactly as before - the step has no transform of its own, the stamp states WPAR 13. The number moves
+    //       so a v12 build refuses a world whose per-entity layers it would silently ignore. Scenes and prefabs
+    //       alike.
+    inline constexpr int kWorldPartitionVersionEntityHLODLayer = 13;
 
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
@@ -530,7 +681,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionDataLayers == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionEntityHLODLayer == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -643,6 +794,20 @@ namespace Desert::Migration
         std::size_t Disagreeing      = 0;     // further cloud layers whose wind differed from the one kept
         std::size_t OverridesDropped = 0;     // wind keys taken out of prefab overrides
     };
+
+    // What MigrateLandscapeSplineEntitiesV75ToV76 did to one file.
+    struct LandscapeSplineEntitiesReport
+    {
+        std::size_t RootsCleared   = 0;   // Landscape blocks (and overrides) whose Splines key was taken out
+        std::size_t SplinesCreated = 0;   // LandscapeSpline records added, one per connected group
+        std::vector<std::string> Refused; // a Splines value of the wrong shape, or splines in a prefab
+    };
+
+    // Splits every Landscape block's Splines into LandscapeSpline records under the rule
+    // kSceneVersionLandscapeSplineEntities states. @p createEntities: true for a scene, false for a prefab (whose
+    // control points are refused). PURE.
+    LandscapeSplineEntitiesReport
+    MigrateLandscapeSplineEntitiesV75ToV76( std::vector<Assets::EntityData>& entities, bool createEntities );
 
     // Moves the cloud layer's wind into a WindSource record under the rule kSceneVersionWindSource states.
     // @p createSource: true for a scene, false for a prefab. The record's id is derived from @p fileName so a
@@ -967,6 +1132,22 @@ namespace Desert::Migration
     // Moves a partitioned world's DefaultHLODLayer onto every grid that states no HLODLayer and clears it
     // (kSceneVersionGridHLODLayer); how many grids were given the layer.
     std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene );
+
+    // Restates a partitioned world's Grids as LHGrid RuntimePartitions and the layers' ParentLayer chains as the
+    // partitions' HLOD setups (kWorldPartitionVersionRuntimePartitions); how many grids it restated. Refuses (by
+    // message, appended to @p refused) a chain that names no layer or loops - such a file was refused by the build
+    // that wrote it too.
+    std::size_t MigrateRuntimePartitionsV4ToV5( SceneSerialized& scene, std::vector<std::string>& refused );
+
+    // Restates every HLOD layer's SimplifyTrianglePercent as its Settings {"TrianglePercent": ...} and clears it
+    // (kWorldPartitionVersionHLODBuilders); how many layers moved. Refused, by layer, when a layer states both.
+    Common::ResultStr<std::size_t> MigrateHLODBuilderSettingsV7ToV8( SceneSerialized& scene );
+
+    // Restates every MeshMerge / MeshSimplify layer's MergeMaterials as its Settings' "MergeMaterials" and clears
+    // it (kWorldPartitionVersionHLODBuilderSettings); how many layers moved. Refused, by layer, when another type
+    // states it (a v9..v11 build refused that layer too), when its Settings is not an object or already states
+    // "MergeMaterials".
+    Common::ResultStr<std::size_t> MigrateHLODMergeMaterialsV11ToV12( SceneSerialized& scene );
 
     // Drops siblingIndex from every root record of a partitioned (external-entities) scene
     // (kSceneVersionRootSiblingIndex); how many records lost it.
@@ -1313,6 +1494,22 @@ namespace Desert::Migration
         int         StatedWorldPartitionVersion = 0; // what the file stated under kWorldPartitionSchemaTag
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
         bool        DataLayersRaised        = false; // below kWorldPartitionVersionDataLayers (additive)
+        bool        RuntimeDataLayersRaised = false; // below kWorldPartitionVersionRuntimeDataLayers (additive)
+        bool        DataLayerOutlinerRaised = false; // below kWorldPartitionVersionDataLayerOutliner (additive)
+        bool        RuntimePartitionsRaised = false; // below kWorldPartitionVersionRuntimePartitions
+        std::size_t GridsRestated           = 0;     // grids restated as LHGrid runtime partitions
+        bool        LocationVolumesRaised   = false; // below kWorldPartitionVersionLocationVolumes (additive)
+        bool        PrefabRuntimeBehaviorRaised = false; // below kWorldPartitionVersionPrefabRuntimeBehavior
+        std::size_t NestedInstancesKeptWhole    = 0;     // nested instance records given Standalone by that step
+        bool        HLODBuildersRaised          = false; // below kWorldPartitionVersionHLODBuilders
+        std::size_t HLODSimplifySettingsMoved   = 0;     // layers whose SimplifyTrianglePercent became Settings
+        bool        HLODMergeMaterialsRaised = false; // below kWorldPartitionVersionHLODMergeMaterials (additive)
+        bool        DebugColorsRaised        = false; // below kWorldPartitionVersionDebugColors
+        std::size_t DebugColorsStated        = 0;     // runtime partitions given SeededDebugColor
+        bool        MiniMapRaised            = false; // below kWorldPartitionVersionMiniMap (additive)
+        bool        HLODBuilderSettingsRaised   = false; // below kWorldPartitionVersionHLODBuilderSettings
+        std::size_t HLODMergeMaterialsMoved     = 0; // layers whose MergeMaterials became Settings.MergeMaterials
+        bool        EntityHLODLayerRaised       = false; // below kWorldPartitionVersionEntityHLODLayer (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1361,6 +1558,8 @@ namespace Desert::Migration
         FilmicDefaultReport FilmicDefault;
         bool                  GrassRasterPathRaised = false; // below kSceneVersionGrassRasterPath
         GrassRasterPathReport GrassRasterPath;
+        bool                  LandscapeSplineEntitiesRaised = false; // below kSceneVersionLandscapeSplineEntities
+        LandscapeSplineEntitiesReport LandscapeSplineEntities;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -1378,9 +1577,13 @@ namespace Desert::Migration
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
-                   RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised || ReflectedAssetRefsRaised ||
-                   SunRotationRaised || VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised ||
-                   FilmicDefaultRaised || GrassRasterPathRaised;
+                   RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised ||
+                   RuntimeDataLayersRaised || DataLayerOutlinerRaised || RuntimePartitionsRaised ||
+                   LocationVolumesRaised || PrefabRuntimeBehaviorRaised || HLODBuildersRaised ||
+                   ReflectedAssetRefsRaised || SunRotationRaised || VolumetricFogRaised || TracedRequestRaised ||
+                   ComposedGIRaised || FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
+                   DebugColorsRaised || MiniMapRaised || LandscapeSplineEntitiesRaised ||
+                   HLODBuilderSettingsRaised || EntityHLODLayerRaised;
         }
     };
 

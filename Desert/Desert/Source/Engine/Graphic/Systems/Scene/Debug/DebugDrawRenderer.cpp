@@ -156,7 +156,8 @@ namespace Desert::Graphic
 
     bool DebugDrawRenderer::HasStrings() const
     {
-        return m_World != nullptr && ( !m_World->GetStrings().empty() || !m_World->GetScreenPanels().empty() );
+        return m_World != nullptr && ( !m_World->GetStrings().empty() || !m_World->GetScreenPanels().empty() ||
+                                       !m_World->GetScreenCanvases().empty() );
     }
 
     bool DebugDrawRenderer::EnsureLinePipelines()
@@ -297,6 +298,10 @@ namespace Desert::Graphic
             for ( const Core::DebugDrawCanvasLine& line : panel.Lines )
                 for ( const Core::DebugDrawTextRun& run : line.Runs )
                     (void)fonts.RequestGlyphs( fontHandle, Text::Utf8Decode( run.Text ) );
+        for ( const Core::DebugDrawScreenCanvas& canvas : m_World->GetScreenCanvases() )
+            for ( const Core::DebugDrawCanvasShape& shape : canvas.Canvas.Shapes )
+                if ( shape.Type == Core::DebugDrawCanvasShape::Kind::Text )
+                    (void)fonts.RequestGlyphs( fontHandle, Text::Utf8Decode( shape.Text ) );
         const Runtime::Font* font = fonts.Get( fontHandle );
         if ( font == nullptr || !font->Atlas || !font->Baked.Valid() || font->Baked.PixelHeight <= 0.0f )
             return Common::MakeError( "the debug strings have no font: the engine's default font did not bake" );
@@ -311,6 +316,44 @@ namespace Desert::Graphic
             const glm::vec2 ndc( clip.x / clip.w, clip.y / clip.w );
             const glm::vec2 anchor( ( ndc.x * 0.5f + 0.5f ) * width, ( ndc.y * 0.5f + 0.5f ) * height );
             pen.Draw( anchor, s.Text, s.Color, s.Scale );
+        }
+
+        // The screen canvases (UE's debug canvas drawing - the 2D runtime hash), under the panels' text: placed
+        // from their corner, every shape clipped to the canvas' rectangle.
+        for ( const Core::DebugDrawScreenCanvas& screen : m_World->GetScreenCanvases() )
+        {
+            const Core::DebugDrawCanvas& canvas = screen.Canvas;
+            const glm::vec2              topLeft( canvas.Corner == Core::DebugDrawScreenCorner::TopRight
+                                                       ? width - canvas.Origin.x - canvas.Size.x
+                                                       : canvas.Origin.x,
+                                                  canvas.Origin.y );
+            const glm::vec2              bottomRight = topLeft + canvas.Size;
+            if ( canvas.Background.a > 0.0f )
+                list.AddRectFilled( topLeft, bottomRight, canvas.Background );
+            list.PushClipRect( topLeft, bottomRight );
+            for ( const Core::DebugDrawCanvasShape& shape : canvas.Shapes )
+            {
+                switch ( shape.Type )
+                {
+                    case Core::DebugDrawCanvasShape::Kind::FilledRect:
+                        list.AddRectFilled( topLeft + shape.A, topLeft + shape.B, shape.Color );
+                        break;
+                    case Core::DebugDrawCanvasShape::Kind::Rect:
+                        list.AddRect( topLeft + shape.A, topLeft + shape.B, shape.Color, shape.Thickness );
+                        break;
+                    case Core::DebugDrawCanvasShape::Kind::Line:
+                        list.AddLine( topLeft + shape.A, topLeft + shape.B, shape.Color, shape.Thickness );
+                        break;
+                    case Core::DebugDrawCanvasShape::Kind::FilledTriangle:
+                        list.AddTriangleFilled( topLeft + shape.A, topLeft + shape.B, topLeft + shape.C,
+                                                shape.Color );
+                        break;
+                    case Core::DebugDrawCanvasShape::Kind::Text:
+                        (void)pen.Draw( topLeft + shape.A, shape.Text, shape.Color, shape.Scale );
+                        break;
+                }
+            }
+            list.PopClipRect();
         }
 
         // The screen panels (UE's debug canvas): a background as wide as the widest line, the lines below each

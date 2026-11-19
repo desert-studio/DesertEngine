@@ -566,6 +566,72 @@ namespace
                 << std::max( report.StatedWorldPartitionVersion, Desert::Migration::kWorldPartitionVersionTagged )
                 << "->v" << Desert::Migration::kWorldPartitionVersionDataLayers
                 << " (data layers: additive, nothing restated)";
+        if ( report.RuntimeDataLayersRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion, Desert::Migration::kWorldPartitionVersionDataLayers )
+                << "->v" << Desert::Migration::kWorldPartitionVersionRuntimeDataLayers
+                << " (runtime data layers: every layer's Type and the DataLayersLogicOperator stated)";
+        if ( report.DataLayerOutlinerRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionRuntimeDataLayers )
+                << "->v" << Desert::Migration::kWorldPartitionVersionDataLayerOutliner
+                << " (data layer outliner: every layer's DebugColor and InitiallyVisible stated)";
+        if ( report.RuntimePartitionsRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionDataLayerOutliner )
+                << "->v" << Desert::Migration::kWorldPartitionVersionRuntimePartitions << " ("
+                << report.GridsRestated
+                << " grid(s) restated as LHGrid runtime partitions, HLOD chains as their HLOD setups)";
+        if ( report.LocationVolumesRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionRuntimePartitions )
+                << "->v" << Desert::Migration::kWorldPartitionVersionLocationVolumes
+                << " (location volumes: additive, nothing restated)";
+        if ( report.PrefabRuntimeBehaviorRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionLocationVolumes )
+                << "->v" << Desert::Migration::kWorldPartitionVersionPrefabRuntimeBehavior
+                << " (prefab RuntimeBehavior stated; " << report.NestedInstancesKeptWhole
+                << " nested instance(s) kept whole as Standalone)";
+        if ( report.HLODBuildersRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionPrefabRuntimeBehavior )
+                << "->v" << Desert::Migration::kWorldPartitionVersionHLODBuilders << " ("
+                << report.HLODSimplifySettingsMoved
+                << " MeshSimplify layer(s)' SimplifyTrianglePercent restated as Settings.TrianglePercent)";
+        if ( report.HLODMergeMaterialsRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionHLODBuilders )
+                << "->v" << Desert::Migration::kWorldPartitionVersionHLODMergeMaterials
+                << " (merged HLOD materials: additive, nothing restated)";
+        if ( report.DebugColorsRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionHLODMergeMaterials )
+                << "->v" << Desert::Migration::kWorldPartitionVersionDebugColors << " ("
+                << report.DebugColorsStated << " runtime partition DebugColor(s) stated)";
+        if ( report.MiniMapRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion, Desert::Migration::kWorldPartitionVersionDebugColors )
+                << "->v" << Desert::Migration::kWorldPartitionVersionMiniMap << " (minimap: additive, nothing restated)";
+        if ( report.HLODBuilderSettingsRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion, Desert::Migration::kWorldPartitionVersionMiniMap )
+                << "->v" << Desert::Migration::kWorldPartitionVersionHLODBuilderSettings << " ("
+                << report.HLODMergeMaterialsMoved
+                << " mesh layer(s)' MergeMaterials restated as Settings.MergeMaterials)";
+        if ( report.EntityHLODLayerRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionHLODBuilderSettings )
+                << "->v" << Desert::Migration::kWorldPartitionVersionEntityHLODLayer
+                << " (HLOD layer per entity: additive, nothing restated)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
@@ -593,6 +659,11 @@ namespace
             out << " scene ->v" << Desert::Migration::kSceneVersionGrassRasterPath << " ("
                 << report.GrassRasterPath.Restated << " GrassVisibilityBuffer bool(s) re-stated as GrassRaster: "
                 << "false is Scalability, true VisibilityBuffer)";
+        if ( report.LandscapeSplineEntitiesRaised && report.LandscapeSplineEntities.RootsCleared > 0 )
+            out << std::format( " scene ->v{} ({} landscape spline entit(ies) split out of {} landscape root(s))",
+                                Desert::Migration::kSceneVersionLandscapeSplineEntities,
+                                report.LandscapeSplineEntities.SplinesCreated,
+                                report.LandscapeSplineEntities.RootsCleared );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

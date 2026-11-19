@@ -170,8 +170,16 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, 
 // (::Desert::Core::WorldStreamer). A custom entry for its Target Grids: see MakeStreamingSourceEntry below.
 // UE's Actor > World Partition > Runtime Grid: which grid of a partitioned world the entity streams on (WP22).
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RuntimeGridComponent, Data, "RuntimeGridData", "Runtime Grid" )
+// UE's ALocationVolume: a named box of a partitioned world the World Partition window loads (WP-LOADER-ADAPTERS).
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::LocationVolumeComponent, Data, "LocationVolumeData",
+                                     "Location Volume" )
 // UE's Actor > World Partition > Data Layers: the layers of the world the entity belongs to (WP-DATA-LAYERS). A
 // custom entry for the pick of the world's layer names: see MakeDataLayersEntry below.
+// UE's Actor > World Partition > HLOD Layer (WP-SETTINGS-UI): the layer that builds the entity's part of its cell's
+// HLOD. Its one field is Hidden - Details > World Partition draws it as a pick of the world's layers
+// (WorldPartitionDetails.cpp); the entry is what Add Component, Remove and DesertCtl `set ... HLODLayerData.Layer`
+// address it by.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::HLODLayerComponent, Data, "HLODLayerData", "HLOD Layer" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
 // piece of behaviour behind them belongs to the Animator's control list rather than to this page. The entry
 // next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line
@@ -2059,13 +2067,15 @@ namespace Desert::Editor
         return e;
     }
 
-    // STREAMING SOURCE (UE FWorldPartitionStreamingSource): the reflected fields, then Target Grids as a pick of
-    // the names THIS world's grids carry (UE lists TargetGrids by name; a typed list would invite a name no grid
-    // has). Each toggle is one undo step. A name the world does not have (read from the file) is listed in red
-    // and removed by clicking it; the plan names it as an Issue (Entities[i].StreamingSource.TargetGrids).
+    // STREAMING SOURCE (UE FWorldPartitionStreamingSource): the reflected fields (Target Behavior among them),
+    // then Target Grids and Target HLOD Layers as picks of the names THIS world's grids and HLOD layers carry (UE
+    // lists TargetGrids / TargetHLODLayers by name; a typed list would invite a name nothing has). Each toggle is
+    // one undo step. A name the world does not have (read from the file) is listed in red and removed by clicking
+    // it; the plan names it as an Issue (Entities[i].StreamingSource.TargetGrids / .TargetHLODLayers).
     static ComponentEditorEntry MakeStreamingSourceEntry()
     {
         using C        = ::Desert::ECS::StreamingSourceComponent;
+        using D        = ::Desert::ECS::StreamingSourceData;
         auto e         = MakeReflectedComponentEntry<C>( "Streaming Source", "StreamingSourceData", &C::Data );
         auto reflected = e.Draw;
         e.Draw         = [reflected]( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene,
@@ -2075,74 +2085,93 @@ namespace Desert::Editor
             if ( ctx.FieldFilter )
                 return;
 
-            const std::vector<std::string>& targets = en.GetComponent<C>().Data.TargetGrids;
-            std::vector<std::string>        grids;
-            if ( scene && scene->GetWorldPartition().has_value() )
-                for ( const auto& grid : scene->GetWorldPartition()->Grids )
-                    grids.push_back( grid.Name );
-            const auto isGrid = [&grids]( const std::string& name )
-            { return std::find( grids.begin(), grids.end(), name ) != grids.end(); };
-
-            std::string preview;
-            for ( const std::string& name : targets )
-                preview += std::format( "{}{}{}", preview.empty() ? "" : ", ", name,
-                                        isGrid( name ) ? "" : " (no such grid)" );
-            if ( preview.empty() )
-                preview = "Every grid";
-
-            // The one way the list changes: a whole-entity snapshot around the edit, so Ctrl+Z restores it.
-            const auto edit = [&en]( const std::function<void( std::vector<std::string>& )>& change )
+            // One pick of names per list: @p names is what THIS world states, @p member the list it edits.
+            const auto pick = [&en]( const char* label, const char* id, std::vector<std::string> D::*member,
+                                     const std::vector<std::string>& names, const char* noun,
+                                     const char* everyText, const char* tooltip )
             {
-                ::Desert::Editor::Commands::MutateEntityUndoable(
-                     en.GetComponent<::Desert::ECS::UUIDComponent>().UUID,
-                     [&] { change( en.GetComponent<C>().Data.TargetGrids ); } );
+                const std::vector<std::string>& targets = en.GetComponent<C>().Data.*member;
+                const auto                      isName  = [&names]( const std::string& name )
+                { return std::find( names.begin(), names.end(), name ) != names.end(); };
+
+                std::string preview;
+                for ( const std::string& name : targets )
+                    preview += std::format( "{}{}{}", preview.empty() ? "" : ", ", name,
+                                            isName( name ) ? "" : std::format( " (no such {})", noun ) );
+                if ( preview.empty() )
+                    preview = everyText;
+
+                // The one way the list changes: a whole-entity snapshot around the edit, so Ctrl+Z restores it.
+                const auto edit = [&en, member]( const std::function<void( std::vector<std::string>& )>& change )
+                {
+                    ::Desert::Editor::Commands::MutateEntityUndoable(
+                         en.GetComponent<::Desert::ECS::UUIDComponent>().UUID,
+                         [&] { change( en.GetComponent<C>().Data.*member ); } );
+                };
+
+                ImGui::TextUnformatted( label );
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth( -1.0f );
+                if ( !ImGui::BeginCombo( id, preview.c_str() ) )
+                {
+                    ::Desert::Editor::Utils::ImGuiUtilities::Tooltip( tooltip );
+                    return;
+                }
+                if ( names.empty() )
+                    ImGui::TextDisabled( "%s", std::format( "This world states no {}.", noun ).c_str() );
+                for ( const std::string& name : names )
+                {
+                    const bool on = std::find( targets.begin(), targets.end(), name ) != targets.end();
+                    if ( ImGui::Selectable( name.c_str(), on, ImGuiSelectableFlags_DontClosePopups ) )
+                    {
+                        edit(
+                             [&name, on]( std::vector<std::string>& list )
+                             {
+                                 if ( on )
+                                     list.erase( std::remove( list.begin(), list.end(), name ), list.end() );
+                                 else
+                                     list.push_back( name );
+                             } );
+                        break; // the list moved under `targets`; the combo is drawn again next frame
+                    }
+                }
+                for ( const std::string& name : targets )
+                {
+                    if ( isName( name ) )
+                        continue;
+                    ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.95f, 0.35f, 0.30f, 1.0f ) );
+                    const bool clicked = ImGui::Selectable(
+                         std::format( "{}  (no such {} - click to remove)", name, noun ).c_str(), true,
+                         ImGuiSelectableFlags_DontClosePopups );
+                    ImGui::PopStyleColor();
+                    if ( clicked )
+                    {
+                        const std::string gone = name;
+                        edit( [&gone]( std::vector<std::string>& list )
+                              { list.erase( std::remove( list.begin(), list.end(), gone ), list.end() ); } );
+                        break;
+                    }
+                }
+                ImGui::EndCombo();
             };
 
-            ImGui::TextUnformatted( "Target Grids" );
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth( -1.0f );
-            if ( !ImGui::BeginCombo( "##TargetGrids", preview.c_str() ) )
+            std::vector<std::string> grids;
+            std::vector<std::string> hlodLayers;
+            if ( scene && scene->GetWorldPartition().has_value() )
             {
-                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
-                     "The World Partition grids this source streams; none picked = every grid." );
-                return;
+                for ( const auto& grid : scene->GetWorldPartition()->RuntimePartitions )
+                    grids.push_back( grid.Name );
+                if ( scene->GetWorldPartition()->HLODLayers.has_value() )
+                    for ( const auto& layer : *scene->GetWorldPartition()->HLODLayers )
+                        hlodLayers.push_back( layer.Name );
             }
-            if ( grids.empty() )
-                ImGui::TextDisabled( "This world is not partitioned: it has no grids." );
-            for ( const std::string& grid : grids )
-            {
-                const bool on = std::find( targets.begin(), targets.end(), grid ) != targets.end();
-                if ( ImGui::Selectable( grid.c_str(), on, ImGuiSelectableFlags_DontClosePopups ) )
-                {
-                    edit(
-                         [&grid, on]( std::vector<std::string>& list )
-                         {
-                             if ( on )
-                                 list.erase( std::remove( list.begin(), list.end(), grid ), list.end() );
-                             else
-                                 list.push_back( grid );
-                         } );
-                    break; // the list moved under `targets`; the combo is drawn again next frame
-                }
-            }
-            for ( const std::string& name : targets )
-            {
-                if ( isGrid( name ) )
-                    continue;
-                ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.95f, 0.35f, 0.30f, 1.0f ) );
-                const bool clicked =
-                     ImGui::Selectable( std::format( "{}  (no such grid - click to remove)", name ).c_str(), true,
-                                        ImGuiSelectableFlags_DontClosePopups );
-                ImGui::PopStyleColor();
-                if ( clicked )
-                {
-                    const std::string gone = name;
-                    edit( [&gone]( std::vector<std::string>& list )
-                          { list.erase( std::remove( list.begin(), list.end(), gone ), list.end() ); } );
-                    break;
-                }
-            }
-            ImGui::EndCombo();
+            pick( "Target Grids", "##TargetGrids", &D::TargetGrids, grids, "grid", "Every grid",
+                  "The World Partition grids this source streams, read with Target Behavior; none picked (and no "
+                  "HLOD layer) = every grid." );
+            pick( "Target HLOD Layers", "##TargetHLODLayers", &D::TargetHLODLayers, hlodLayers, "HLOD layer",
+                  "None",
+                  "The HLOD layers this source streams, read with Target Behavior. An HLOD layer standing "
+                  "for a grid the source streams streams too." );
         };
         return e;
     }

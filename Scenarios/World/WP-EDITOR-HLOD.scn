@@ -1,0 +1,26 @@
+# WP-EDITOR-HLOD (UE 5.5 editor HLODs, UWorldPartitionHLODEditorSubsystem): with the world held in part, the editor
+# draws the SAVED HLOD (<Scene>_HLOD/) of every cell it does not hold - Play's HLODRuntime switch over the residency the
+# editor holds (a cell held = any of its records loaded) - as entities tagged EditorHLODComponent: not in the Outliner,
+# not selectable, never saved, not in undo, gone before Play's snapshot and made again after Stop. Show HLODs and the
+# Min/Max draw distance are this user's (EditorPreferences, View > Show > HLODs, World Partition window "HLODs in the
+# editor"). Log: "[WorldPartition] Editor HLODs of '...': N saved HLOD(s), R record(s); M cell(s) have no saved HLOD."
+# WorldPartitionEditor.* are the World Partition window's per-user state (ControlService -> SetEditorProperty):
+# Selection = minX,minZ,maxX,maxZ cm, the rectangle Load Region (map selection) loads.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано run Scene "Build HLODs"
+Дано wait-idle 2400
+Дано set world WorldPartitionEditor.ShowHLODs true
+Дано set world WorldPartitionEditor.HLODMinDrawDistance 0
+Дано set world WorldPartitionEditor.HLODMaxDrawDistance 0
+Дано set world WorldPartitionEditor.Selection -10000,-10000,10000,10000
+Дано run Scene "World Partition: Load Region (map selection)"
+Дано --subject viewport set Camera.Position 0,60000,-30000
+Дано --subject viewport set Camera.Direction 0,-1,0.5
+Тогда edhlod_shown вид сверху 600 м: квадрат 200x200 м у центра - настоящие сущности, вокруг него весь мир виден HLOD-силуэтами (инстансы зданий, ландшафт HLOD), пустоты нет, двойной отрисовки на краю квадрата нет; в Outliner только сущности региона и всегда загруженные (ни одной HLOD-сущности); в окне World Partition "HLODs in the editor": "N of N saved HLOD(s) drawn" минус ячейки региона
+Когда run Scene "World Partition: Hide HLODs"
+Тогда edhlod_hidden тот же вид: вне квадрата 200x200 м пусто (только всегда загруженное: небо, свет), внутри квадрата всё на месте
+Когда run Scene "World Partition: Show HLODs"
+Когда run Scene "World Partition: Load All"
+Тогда edhlod_restored тот же вид: весь мир настоящими сущностями, ни одного HLOD поверх (все ячейки удерживаются - HLOD сняты)

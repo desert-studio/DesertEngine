@@ -20,7 +20,7 @@
 // RuntimeSpatialHashGridHelper.h, FSquare2DGridHelper::ForEachIntersectingCells).
 //
 // Distance is THREE-dimensional (WP-SRC-ALTITUDE, owner 10-06: "a plane does not need the small things under
-// it"). The grid stays two-dimensional - the vertical axis is not partitioned (WorldPartitionGridSerialized) -
+// it"). The grid stays two-dimensional - the vertical axis is not partitioned (RuntimePartitionLHGridSerialized) -
 // but every cell knows the Y span of what it holds (PlannedCell::Height, UE's cell content bounds in Z), and the
 // distance is to the box that span raises over the cell's streaming bounds: the ground distance and the gap
 // between the source's altitude and that span, combined (WithAltitude). So a source 2 km up does not want a 25 m
@@ -86,6 +86,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/StreamingSourceTargetBehavior.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <glm/vec2.hpp>
@@ -157,24 +158,54 @@ namespace Desert::Core::Rules
         float MaxLookAhead  = 0.0f;
         // Empty = one circle of SourceRadius at Position (UE: no shapes, a sphere of the grid's range).
         std::vector<StreamingSourceShape> Shapes;
-        // The grids this source streams, by WorldPartitionGridSerialized::Name (UE's
-        // FWorldPartitionStreamingSource::TargetGrids); empty = every grid. A grid not named here is not
-        // queried for this source at all - see TargetsGrid. A name no grid of the world carries targets nothing;
-        // the streamer names it (WorldStreamer::Tick), it is never matched by a guess.
+        // The partitions this source streams, by RuntimePartitionSerialized::Name (UE's
+        // FWorldPartitionStreamingSource::TargetGrids), read under TargetBehavior; this and TargetHLODLayers both
+        // empty = every partition. A partition the source does not target is not queried for it at all - see
+        // TargetsGrid. A name no partition of the world carries targets nothing; the world's plan names it as an
+        // Issue (PlanWorldPartition, Entities[i].StreamingSource.TargetGrids), it is never matched by a guess.
         std::vector<std::string> TargetGrids;
+        // The HLOD layers this source streams, by HLODLayerSerialized::Name (UE's
+        // FWorldPartitionStreamingSource::TargetHLODLayers); read with TargetBehavior like TargetGrids. An HLOD
+        // layer standing for a world grid the source streams is streamed whatever this says (HLODSources).
+        std::vector<std::string> TargetHLODLayers;
+        // Include: only what the two lists name; Exclude: all but it (UE's TargetBehavior).
+        StreamingSourceTargetBehavior TargetBehavior = StreamingSourceTargetBehavior::Include;
     };
 
-    // Whether @p source streams @p grid: it names no grid (all of them), or names this one.
-    [[nodiscard]] inline bool TargetsGrid( const StreamingSource&              source,
-                                           const WorldPartitionGridSerialized& grid )
+    // Whether @p source streams the partition named @p grid (UE's FWorldPartitionStreamingSource targeting):
+    // every partition when it names neither a partition nor an HLOD layer; otherwise Include streams the ones it
+    // names and Exclude every one it does not. A source naming only HLOD layers under Include streams no world
+    // partition.
+    [[nodiscard]] inline bool TargetsGridNamed( const StreamingSource& source, const std::string& grid )
     {
-        return source.TargetGrids.empty() || std::find( source.TargetGrids.begin(), source.TargetGrids.end(),
-                                                        grid.Name ) != source.TargetGrids.end();
+        if ( source.TargetGrids.empty() && source.TargetHLODLayers.empty() )
+            return true;
+        const bool named =
+             std::find( source.TargetGrids.begin(), source.TargetGrids.end(), grid ) != source.TargetGrids.end();
+        return source.TargetBehavior == StreamingSourceTargetBehavior::Include ? named : !named;
+    }
+
+    // Whether @p source streams @p partition (TargetsGridNamed by the partition's name).
+    [[nodiscard]] inline bool TargetsGrid( const StreamingSource&            source,
+                                           const RuntimePartitionSerialized& partition )
+    {
+        return TargetsGridNamed( source, partition.Name );
+    }
+
+    // Whether @p source streams the HLOD layer named @p layer by its own lists: every layer when it names nothing;
+    // otherwise Include streams the layers it names and Exclude every layer it does not.
+    [[nodiscard]] inline bool TargetsHLODLayer( const StreamingSource& source, const std::string& layer )
+    {
+        if ( source.TargetGrids.empty() && source.TargetHLODLayers.empty() )
+            return true;
+        const bool named = std::find( source.TargetHLODLayers.begin(), source.TargetHLODLayers.end(), layer ) !=
+                           source.TargetHLODLayers.end();
+        return source.TargetBehavior == StreamingSourceTargetBehavior::Include ? named : !named;
     }
 
     // The radius a source with no Shapes loads within on @p grid, cm.
-    [[nodiscard]] inline double SourceRadius( const StreamingSource&              source,
-                                              const WorldPartitionGridSerialized& grid )
+    [[nodiscard]] inline double SourceRadius( const StreamingSource&                  source,
+                                              const RuntimePartitionLHGridSerialized& grid )
     {
         const float range = source.LoadingRange.value_or( grid.LoadingRange );
         return static_cast<double>( range ) * static_cast<double>( source.RangeScale );
@@ -229,11 +260,15 @@ namespace Desert::Core::Rules
     // target (TargetsGrid) has no sector at all, so every reader of the shapes - the query, the assessment, the
     // map - honours the targeting the same way (UE FWorldPartitionStreamingSource::TargetGrids in
     // UWorldPartitionRuntimeHash::ForEachStreamingCellsSources).
-    [[nodiscard]] inline std::vector<SourceSector> SourceSectors( const StreamingSource&              source,
-                                                                  const WorldPartitionGridSerialized& grid )
+    // A partition that makes no cells (Persistent) has no sector either: nothing of it streams by distance.
+    [[nodiscard]] inline std::vector<SourceSector> SourceSectors( const StreamingSource&            source,
+                                                                  const RuntimePartitionSerialized& partition )
     {
-        if ( !TargetsGrid( source, grid ) )
+        const RuntimePartitionLHGridSerialized* cellGrid =
+             RuntimePartitionClass( partition.Type ).CellGrid( partition );
+        if ( cellGrid == nullptr || !TargetsGrid( source, partition ) )
             return {};
+        const RuntimePartitionLHGridSerialized& grid     = *cellGrid;
         const glm::dvec2 position = Detail::Ground( source.Position );
         glm::dvec2       forward =
              source.Facing ? Detail::UnitOrZero( Detail::Ground( *source.Facing ) ) : glm::dvec2( 0.0 );
@@ -342,7 +377,8 @@ namespace Desert::Core::Rules
 
     namespace Detail
     {
-        // Plan order: level, then X, then Z — the order PlanWorldPartition sorts `Cells` in.
+        // Plan order: level, then X, then Z — the order PlanWorldPartition sorts `Cells` in (then their runtime
+        // data layers, which a coordinate lookup walks past: see the enumeration below).
         [[nodiscard]] inline bool CellBefore( const PlannedCell& cell, int level, const CellCoord& coord )
         {
             if ( cell.Level != level )
@@ -629,35 +665,42 @@ namespace Desert::Core::Rules
         if ( plan.Cells.empty() || sources.empty() )
             return Common::MakeSuccess( std::move( wish ) );
 
-        if ( settings.Grids.empty() )
+        if ( settings.RuntimePartitions.empty() )
         {
             return Common::MakeError<StreamingWish>( std::format(
-                 "QueryStreamingCells: the plan has {} cell(s) but the partition settings state no grid",
+                 "QueryStreamingCells: the plan has {} cell(s) but the partition settings state no partition",
                  plan.Cells.size() ) );
         }
-        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
+        for ( std::size_t gridIndex = 0; gridIndex < settings.RuntimePartitions.size(); ++gridIndex )
         {
-            const WorldPartitionGridSerialized& grid = settings.Grids[gridIndex];
+            const RuntimePartitionLHGridSerialized* cellGrid = CellGridOf( settings, gridIndex );
+            if ( cellGrid == nullptr )
+                continue; // a partition that makes no cells has no numbers to check here
+            const RuntimePartitionLHGridSerialized& grid = *cellGrid;
             if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) || !( grid.LoadingRange >= 0.0f ) ||
                  !std::isfinite( grid.LoadingRange ) )
             {
                 return Common::MakeError<StreamingWish>( std::format(
                      "QueryStreamingCells: grid {} '{}' has CellSize {} and LoadingRange {}; a cell must be wider "
                      "than zero and a range non-negative",
-                     gridIndex, grid.Name, grid.CellSize, grid.LoadingRange ) );
+                     gridIndex, settings.RuntimePartitions[gridIndex].Name, grid.CellSize, grid.LoadingRange ) );
             }
         }
-        if ( plan.Cells.back().Grid >= settings.Grids.size() )
-        {
-            return Common::MakeError<StreamingWish>(
-                 std::format( "QueryStreamingCells: the plan has a cell of grid {} but the settings state {} grid(s)",
-                              plan.Cells.back().Grid, settings.Grids.size() ) );
-        }
+        for ( const PlannedCell& cell : plan.Cells )
+            if ( CellGridOf( settings, cell.Grid ) == nullptr )
+                return Common::MakeError<StreamingWish>( std::format(
+                     "QueryStreamingCells: the plan has a cell of partition {} but the settings state {} "
+                     "partition(s), and a cell is only ever made by an LHGrid one",
+                     cell.Grid, settings.RuntimePartitions.size() ) );
 
         std::vector<WantedCell> hits;
-        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
+        for ( std::size_t gridIndex = 0; gridIndex < settings.RuntimePartitions.size(); ++gridIndex )
         {
-            const WorldPartitionGridSerialized& grid = settings.Grids[gridIndex];
+            const RuntimePartitionSerialized&       partition = settings.RuntimePartitions[gridIndex];
+            const RuntimePartitionLHGridSerialized* cellGrid  = CellGridOf( settings, gridIndex );
+            if ( cellGrid == nullptr )
+                continue; // Persistent: nothing of it is wanted by distance - it is in AlwaysLoaded
+            const RuntimePartitionLHGridSerialized& grid = *cellGrid;
             // This grid's cells: the plan is ordered by grid first, so they are one run, found by binary search.
             const auto gridFirst = std::lower_bound( plan.Cells.begin(), plan.Cells.end(), gridIndex,
                                                      []( const PlannedCell& cell, std::size_t key )
@@ -695,7 +738,7 @@ namespace Desert::Core::Rules
             for ( std::size_t sourceIndex = 0; sourceIndex < sources.size(); ++sourceIndex )
             {
                 const int priority = sources[sourceIndex].Priority;
-                for ( const SourceSector& sector : SourceSectors( sources[sourceIndex], grid ) )
+                for ( const SourceSector& sector : SourceSectors( sources[sourceIndex], partition ) )
                 {
                     const double x      = sector.Centre.x;
                     const double z      = sector.Centre.y;
@@ -757,8 +800,10 @@ namespace Desert::Core::Rules
                                 const auto      found = std::lower_bound(
                                      begin, end, coord, [level]( const PlannedCell& cell, const CellCoord& key )
                                      { return Detail::CellBefore( cell, level, key ); } );
-                                if ( found != end && found->Cell == coord )
-                                    consider( static_cast<std::size_t>( found - plan.Cells.begin() ) );
+                                // One cell per set of runtime data layers at a coordinate (PlannedCell::
+                                // DataLayers, ordered after Z): every one of them, adjacent in plan order.
+                                for ( auto cell = found; cell != end && cell->Cell == coord; ++cell )
+                                    consider( static_cast<std::size_t>( cell - plan.Cells.begin() ) );
                             }
                         }
                     }

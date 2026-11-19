@@ -9,6 +9,7 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/World/Landscape/LandscapeSplines.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
@@ -1250,35 +1251,42 @@ namespace Desert::Editor
         if ( !m_Scene )
             return;
         auto& registry = m_Scene->GetRegistry();
-        for ( const auto rootEntity : registry.view<ECS::LandscapeComponent>() )
+        // Every spline entity (UE: every ALandscapeSplineActor), sampled at its landscape's sample spacing.
+        for ( const auto splineEntity : registry.view<ECS::LandscapeSplineComponent>() )
         {
-        const auto& splines = registry.get<ECS::LandscapeComponent>( rootEntity ).Splines;
-        if ( splines.ControlPoints.empty() )
-            continue;
-        ImDrawList*     drawList  = ImGui::GetWindowDrawList();
-        const ImVec2    windowPos = ImGui::GetWindowPos();
-        const glm::mat4 mvp       = camera->GetProjectionMatrix() * camera->GetViewMatrix();
-        const auto&     body      = registry.get<ECS::LandscapeComponent>( rootEntity );
-        // UE's colours: the segment white, its edges dimmer, the falloff fainter still.
-        const ImU32 centre  = IM_COL32( 255, 255, 255, 235 );
-        const ImU32 edge    = IM_COL32( 255, 255, 255, 150 );
-        const ImU32 falloff = IM_COL32( 255, 255, 255, 70 );
-        for ( size_t s = 0; s < splines.Segments.size(); ++s )
-        {
-            const auto points = World::Landscape::LandscapeSplineSegmentPoints( splines, s, body.SpacingCm * 2.0f );
-            for ( size_t i = 0; i + 1 < points.size(); ++i )
+            const auto& component = registry.get<ECS::LandscapeSplineComponent>( splineEntity );
+            const auto& splines   = component.Splines;
+            if ( splines.ControlPoints.empty() )
+                continue;
+            ImDrawList*     drawList  = ImGui::GetWindowDrawList();
+            const ImVec2    windowPos = ImGui::GetWindowPos();
+            const glm::mat4 mvp       = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+            const auto      rootOf    = ECS::FindLandscapeRootEntity( registry, component.Landscape );
+            const float     spacingCm = rootOf == entt::null
+                                             ? World::Landscape::kLandscapeDefaultSpacingCm
+                                             : registry.get<ECS::LandscapeComponent>( rootOf ).SpacingCm;
+            // UE's colours: the segment white, its edges dimmer, the falloff fainter still.
+            const ImU32 centre  = IM_COL32( 255, 255, 255, 235 );
+            const ImU32 edge    = IM_COL32( 255, 255, 255, 150 );
+            const ImU32 falloff = IM_COL32( 255, 255, 255, 70 );
+            for ( size_t s = 0; s < splines.Segments.size(); ++s )
             {
-                const auto& a = points[i];
-                const auto& b = points[i + 1];
-                DrawWorldLine( drawList, a.Center, b.Center, mvp, width, height, windowPos.x, windowPos.y, centre,
-                               2.5f );
-                DrawWorldLine( drawList, a.Left, b.Left, mvp, width, height, windowPos.x, windowPos.y, edge, 1.5f );
-                DrawWorldLine( drawList, a.Right, b.Right, mvp, width, height, windowPos.x, windowPos.y, edge, 1.5f );
-                DrawWorldLine( drawList, a.FalloffLeft, b.FalloffLeft, mvp, width, height, windowPos.x, windowPos.y,
-                               falloff, 1.0f );
-                DrawWorldLine( drawList, a.FalloffRight, b.FalloffRight, mvp, width, height, windowPos.x,
-                               windowPos.y, falloff, 1.0f );
-            }
+                const auto points = World::Landscape::LandscapeSplineSegmentPoints( splines, s, spacingCm * 2.0f );
+                for ( size_t i = 0; i + 1 < points.size(); ++i )
+                {
+                    const auto& a = points[i];
+                    const auto& b = points[i + 1];
+                    DrawWorldLine( drawList, a.Center, b.Center, mvp, width, height, windowPos.x, windowPos.y,
+                                   centre, 2.5f );
+                    DrawWorldLine( drawList, a.Left, b.Left, mvp, width, height, windowPos.x, windowPos.y, edge,
+                                   1.5f );
+                    DrawWorldLine( drawList, a.Right, b.Right, mvp, width, height, windowPos.x, windowPos.y, edge,
+                                   1.5f );
+                    DrawWorldLine( drawList, a.FalloffLeft, b.FalloffLeft, mvp, width, height, windowPos.x,
+                                   windowPos.y, falloff, 1.0f );
+                    DrawWorldLine( drawList, a.FalloffRight, b.FalloffRight, mvp, width, height, windowPos.x,
+                                   windowPos.y, falloff, 1.0f );
+                }
         }
         const auto& selected = Core::LandscapeSculptState::Get().SelectedSplinePoint;
         for ( size_t i = 0; i < splines.ControlPoints.size(); ++i )
@@ -1288,8 +1296,8 @@ namespace Desert::Editor
                 continue;
             const ImVec2 at( windowPos.x + screen.x, windowPos.y + screen.y );
             const bool   picked = selected && *selected == i &&
-                                Core::LandscapeSculptState::Get().SplineLandscape ==
-                                     registry.get<ECS::UUIDComponent>( rootEntity ).UUID;
+                                Core::LandscapeSculptState::Get().SelectedSpline ==
+                                     registry.get<ECS::UUIDComponent>( splineEntity ).UUID;
             const ImU32  fill = picked ? IM_COL32( 255, 170, 40, 255 ) : IM_COL32( 255, 255, 255, 255 );
             drawList->AddCircleFilled( at, 6.0f, fill, 16 );
             drawList->AddCircle( at, 6.0f, IM_COL32( 0, 0, 0, 200 ), 16, 1.5f );

@@ -1,0 +1,31 @@
+# WP-HLOD-BUILDERS: HLOD layers are built by REGISTERED builders (UE UHLODLayer::HLODBuilderClass + HLODBuilderSettings):
+# Instancing / MeshMerge / MeshSimplify / Landscape live in Core::HLODBuilders(), a Custom layer names its Builder,
+# and a builder reads its layer's Settings (MeshSimplify: {"TrianglePercent": ...}, formerly SimplifyTrianglePercent).
+# Opens WP_Protocol AFTER the migrator (WP v8). Part 1: a Custom layer naming an unregistered builder - the panel
+# shows the builder's refusal in red and Build HLODs is refused with the same text. Part 2: the far layer
+# HLOD_Main_Far as MeshSimplify at 0.1 - Build HLODs, Play, camera 1 km up: the far silhouettes are the merged
+# city blocks as before the refactor (simplified to 10 % of the triangles).
+# Part 3 restores WP_Protocol as WP-PROTOCOL.scn states it (HLOD_Main_Far = MeshMerge), saved and its HLODs rebuilt,
+# so the other WP scenarios find the world they expect - and the MeshMerge builder is exercised too.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Когда set world WorldPartition '{"RuntimePartitions":[{"Name":"Main","Type":"LHGrid","LHGrid":{"CellSize":2500,"LoadingRange":20000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Main","HLODLayer":"HLOD_Main"},{"Name":"HLOD_Main_Far","HLODLayer":"HLOD_Main_Far"}]},{"Name":"Foliage","Type":"LHGrid","LHGrid":{"CellSize":1280,"LoadingRange":6400,"Priority":0},"HLODSetups":[{"Name":"HLOD_Foliage","HLODLayer":"HLOD_Foliage"}]},{"Name":"LandscapeTiles","Type":"LHGrid","LHGrid":{"CellSize":5000,"LoadingRange":51000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Landscape","HLODLayer":"HLOD_Landscape"}]}],"HLODLayers":[{"Name":"HLOD_Main","Type":"Instancing","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"Custom","Builder":"Missing"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
+Когда run Action "Save Scene"
+Когда run Scene "Build HLODs"
+Когда wait-idle 2400
+Тогда hlodb_custom_unknown панель World Partition: красная строка «HLOD layer 'HLOD_Main_Far': builder 'Missing' is not registered» над разделами; лог: Build HLODs отказан с «'WP_Protocol': HLOD layer 'HLOD_Main_Far': builder 'Missing' is not registered», файлы _HLOD не тронуты
+Когда set world WorldPartition '{"RuntimePartitions":[{"Name":"Main","Type":"LHGrid","LHGrid":{"CellSize":2500,"LoadingRange":20000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Main","HLODLayer":"HLOD_Main"},{"Name":"HLOD_Main_Far","HLODLayer":"HLOD_Main_Far"}]},{"Name":"Foliage","Type":"LHGrid","LHGrid":{"CellSize":1280,"LoadingRange":6400,"Priority":0},"HLODSetups":[{"Name":"HLOD_Foliage","HLODLayer":"HLOD_Foliage"}]},{"Name":"LandscapeTiles","Type":"LHGrid","LHGrid":{"CellSize":5000,"LoadingRange":51000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Landscape","HLODLayer":"HLOD_Landscape"}]}],"HLODLayers":[{"Name":"HLOD_Main","Type":"Instancing","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshSimplify","Settings":{"TrianglePercent":0.1}},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
+Когда run Action "Save Scene"
+Когда run Scene "Build HLODs"
+Когда wait-idle 2400
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.Position 0,100000,-100000
+Когда --subject viewport set Camera.Direction 0,-1,1
+Тогда hlodb_simplify_far город с 1 км: дальние силуэты кварталов - те же слитые блоки HLOD_Main_Far, что до рефакторинга (MeshSimplify 10 % треугольников, без дыр и двойных блоков), HLOD ландшафта и листвы на месте; красных строк в панели WP нет; лог Build HLODs без отказов
+Когда run Action "Stop"
+Когда set world WorldPartition '{"RuntimePartitions":[{"Name":"Main","Type":"LHGrid","LHGrid":{"CellSize":2500,"LoadingRange":20000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Main","HLODLayer":"HLOD_Main"},{"Name":"HLOD_Main_Far","HLODLayer":"HLOD_Main_Far"}]},{"Name":"Foliage","Type":"LHGrid","LHGrid":{"CellSize":1280,"LoadingRange":6400,"Priority":0},"HLODSetups":[{"Name":"HLOD_Foliage","HLODLayer":"HLOD_Foliage"}]},{"Name":"LandscapeTiles","Type":"LHGrid","LHGrid":{"CellSize":5000,"LoadingRange":51000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Landscape","HLODLayer":"HLOD_Landscape"}]}],"HLODLayers":[{"Name":"HLOD_Main","Type":"Instancing","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
+Когда run Action "Save Scene"
+Когда run Scene "Build HLODs"
+Когда wait-idle 2400
+Когда run Action "Save Scene"
+Тогда hlodb_restored панель World Partition после Stop: красных строк нет; лог: Build HLODs без отказов (HLOD_Main_Far снова MeshMerge, как в WP-PROTOCOL.scn)

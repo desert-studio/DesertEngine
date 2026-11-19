@@ -767,6 +767,54 @@ namespace Desert::Runtime
         }
     } // namespace
 
+    uint32_t TextureService::TailMipOf( const Entry& entry, const TextureStreamingSettings& settings )
+    {
+        const auto levels = static_cast<uint32_t>( entry.LevelBytes.size() );
+        uint32_t   tail   = 0;
+        while ( std::max( entry.FullWidth >> tail, entry.FullHeight >> tail ) > settings.TailSize &&
+                tail + 1 < levels )
+            ++tail;
+        return tail;
+    }
+
+    uint32_t TextureService::FirstMipFor( const Entry& entry, const float asked,
+                                          const TextureStreamingSettings& settings )
+    {
+        const uint32_t tail = TailMipOf( entry, settings );
+        if ( !( asked > 0.0f ) )
+            return tail;
+        const float    needed = asked * settings.TexelsPerPixel;
+        const uint32_t top    = std::max( entry.FullWidth, entry.FullHeight );
+        uint32_t       first  = 0;
+        while ( first < tail && static_cast<float>( top >> ( first + 1 ) ) >= needed )
+            ++first;
+        return first;
+    }
+
+    TextureWarmth TextureService::WarmthFor( const Assets::AssetHandle& handle, const float screenPixels ) const
+    {
+        const std::shared_lock lock( m_TableLock );
+        const auto             it = m_Entries.find( handle );
+        if ( it == m_Entries.end() )
+            return TextureWarmth::Absent;
+        const Entry& entry = it->second;
+        if ( entry.Failed || !entry.Source )
+            return TextureWarmth::Absent;
+        if ( !entry.Built || entry.Reading || entry.Cooking )
+            return TextureWarmth::Arriving;
+        if ( entry.LevelBytes.empty() )
+            return TextureWarmth::Resident; // not streamed: built is whole
+        if ( !( screenPixels > 0.0f ) )
+            return TextureWarmth::Arriving;
+        const uint32_t needed = FirstMipFor( entry, screenPixels, m_StreamingSettings );
+        if ( entry.ResidentFirstMip <= needed )
+            return TextureWarmth::Resident;
+        // The pool's answer: the step wanted at least what this size needs and the fit granted less.
+        const bool poolHeld = entry.FitFirstMip > entry.WantedFirstMip && entry.WantedFirstMip <= needed;
+        return poolHeld && entry.ResidentFirstMip <= entry.FitFirstMip ? TextureWarmth::Resident
+                                                                       : TextureWarmth::Arriving;
+    }
+
     void TextureService::UpdateStreaming()
     {
         ++m_StreamingFrame;
@@ -818,7 +866,7 @@ namespace Desert::Runtime
         struct Want
         {
             Assets::AssetHandle Handle;
-            const Entry*        Row   = nullptr;
+            Entry*              Row   = nullptr;
             uint32_t            First = 0;
             uint32_t            Tail  = 0;
             float               Asked = 0.0f; // the held ask, 0 for a texture unseen past UnseenFrames
@@ -826,28 +874,17 @@ namespace Desert::Runtime
         std::vector<Want> wants;
         uint64_t          resident = 0, full = 0, wanted = 0;
         uint32_t          streaming = 0;
-        for ( const auto& [handle, entry] : m_Entries )
+        for ( auto& [handle, entry] : m_Entries )
         {
             if ( !entry.Built || !entry.Source || entry.LevelBytes.empty() )
                 continue;
             if ( entry.Cooking )
                 ++streaming;
-            const auto levels = static_cast<uint32_t>( entry.LevelBytes.size() );
-            uint32_t   tail   = 0;
-            while ( std::max( entry.FullWidth >> tail, entry.FullHeight >> tail ) > settings.TailSize &&
-                    tail + 1 < levels )
-                ++tail;
-            uint32_t    first = tail;
-            const bool  seen  = m_StreamingFrame - entry.LastAskedFrame <= settings.UnseenFrames;
-            const float asked = seen ? entry.AskedPixels : 0.0f;
-            if ( asked > 0.0f )
-            {
-                const float    needed = asked * settings.TexelsPerPixel;
-                const uint32_t top    = std::max( entry.FullWidth, entry.FullHeight );
-                first                 = 0;
-                while ( first < tail && static_cast<float>( top >> ( first + 1 ) ) >= needed )
-                    ++first;
-            }
+            const uint32_t tail  = TailMipOf( entry, settings );
+            const bool     seen  = m_StreamingFrame - entry.LastAskedFrame <= settings.UnseenFrames;
+            const float    asked = seen ? entry.AskedPixels : 0.0f;
+            const uint32_t first = FirstMipFor( entry, asked, settings );
+            entry.WantedFirstMip = first;
             resident += BytesFrom( entry.LevelBytes, entry.ResidentFirstMip );
             full += BytesFrom( entry.LevelBytes, 0 );
             wanted += BytesFrom( entry.LevelBytes, first );
@@ -876,6 +913,10 @@ namespace Desert::Runtime
                 }
             }
         }
+
+        // What the fit granted, for the warmup's question (WarmthFor).
+        for ( const Want& want : wants )
+            want.Row->FitFirstMip = want.First;
 
         // LIST THE MOVES. RAISES nearest first: a texture short of its wanted level reads it. DROPS only under
         // pool pressure (UE FRenderAssetStreamingManager keeps unwanted mips while the pool has room): when the

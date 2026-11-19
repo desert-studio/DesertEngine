@@ -2,7 +2,9 @@
 
 #include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Core/CommandHistory.hpp>
+#include <Common/Json/Document.hpp>
 #include <Engine/Reflection/FieldValue.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <charconv>
@@ -331,6 +333,91 @@ namespace Desert::Editor
             Value                      m_After;
         };
 
+        // A WHOLE LIST OR STRUCT FIELD FROM ITS JSON FORM (UE Remote Control: a property set from JSON,
+        // FJsonObjectConverter): {"<Field>": <json>} is read by the scene loader's own reader
+        // (Reflection::DeserializeReflected), so `set` accepts exactly what a scene file holds for the field. A
+        // value the loader would refuse is refused with its Issue and the field is left as it was.
+        Common::BoolResultStr ReadFieldJson( const TypeInfo& owner, void* at, const FieldInfo& field,
+                                             const Common::Json::Value& value )
+        {
+            Common::Json::Object one;
+            one[field.Name] = value;
+            const Common::Json::Value document( std::move( one ) );
+            Common::Json::Issues      issues;
+            Reflection::DeserializeReflected( owner, at, Common::Json::Root( document ), issues );
+            if ( issues.empty() )
+                return Common::MakeSuccess( true );
+            return Common::MakeError<bool>( std::format( "'{}.{}' refused the JSON value: {}", owner.Name,
+                                                         field.Name, Common::Json::Describe( issues.front() ) ) );
+        }
+        // The field's JSON form as the scene writer spells it.
+        Common::Json::Value FieldJson( const TypeInfo& owner, const void* at, const FieldInfo& field )
+        {
+            for ( const auto& [name, value] : Reflection::SerializeReflected( owner, at ) )
+                if ( name == field.Name )
+                    return value;
+            return {};
+        }
+
+        // A WHOLE-FIELD JSON EDIT, undone and redone by its JSON before/after through the same reader - a
+        // vector's bytes are not its value. An owned object (an entity's component) is reached through its
+        // route, as RoutedFieldCommand; otherwise through the address (volatile, as ContainerElementCommand).
+        class JsonFieldCommand final : public ICommand
+        {
+        public:
+            JsonFieldCommand( ReflectedEditRoute route, void* address, std::size_t ownerOffset,
+                              const TypeInfo& owner, const FieldInfo& field, Common::Json::Value before,
+                              Common::Json::Value after )
+                 : m_Route( std::move( route ) ), m_Address( address ), m_OwnerOffset( ownerOffset ),
+                   m_Owner( owner ), m_Field( field ), m_Before( std::move( before ) ),
+                   m_After( std::move( after ) )
+            {
+            }
+            bool Undo() override
+            {
+                return Apply( m_Before );
+            }
+            bool Redo() override
+            {
+                return Apply( m_After );
+            }
+            bool IsVolatile() const override
+            {
+                return !m_Route;
+            }
+            [[nodiscard]] const void* EditedObject() const override
+            {
+                return m_Route ? nullptr : m_Address;
+            }
+            std::string GetLabel() const override
+            {
+                return "Edit " + m_Field.DisplayName();
+            }
+
+        private:
+            bool Apply( const Common::Json::Value& value )
+            {
+                if ( !m_Route )
+                    return static_cast<bool>( ReadFieldJson( m_Owner, m_Address, m_Field, value ) );
+                bool       written = false;
+                const bool routed  = m_Route(
+                     [&]( void* object )
+                     {
+                         written = static_cast<bool>( ReadFieldJson(
+                              m_Owner, static_cast<char*>( object ) + m_OwnerOffset, m_Field, value ) );
+                     } );
+                return routed && written;
+            }
+
+            ReflectedEditRoute  m_Route;
+            void*               m_Address;
+            std::size_t         m_OwnerOffset;
+            const TypeInfo&     m_Owner;
+            FieldInfo           m_Field;
+            Common::Json::Value m_Before;
+            Common::Json::Value m_After;
+        };
+
         // `Name[index]` -> {Name, index}; a segment without brackets has no index.
         struct SegmentIndex
         {
@@ -475,6 +562,27 @@ namespace Desert::Editor
                 type = inner;
                 rest = rest.substr( dot + 1 );
                 continue;
+            }
+
+            if ( field->IsContainer || field->Type == FieldType::Struct )
+            {
+                // A whole list or struct: its JSON form ('["Gameplay"]', '[{"ScriptKey":..}]').
+                auto json = Common::Json::Parse( text );
+                if ( !json )
+                    return Common::MakeError<bool>(
+                         std::format( "'{}.{}' is a {} and takes its JSON form: {}", type->Name, field->Name,
+                                      field->IsContainer ? "list" : "struct", json.GetError() ) );
+                Common::Json::Value before = FieldJson( *type, at, *field );
+                if ( auto read = ReadFieldJson( *type, at, *field, json.GetValue() ); !read )
+                {
+                    (void)ReadFieldJson( *type, at, *field, before ); // a struct read may have set some members
+                    return read;
+                }
+                Common::Json::Value after = FieldJson( *type, at, *field );
+                history.PushFieldCommand( std::make_unique<JsonFieldCommand>(
+                     route, at, static_cast<std::size_t>( at - static_cast<char*>( object ) ), *type, *field,
+                     std::move( before ), std::move( after ) ) );
+                return Common::MakeSuccess( true );
             }
 
             const auto parsed = Parse( *field, text );

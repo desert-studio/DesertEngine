@@ -1,0 +1,35 @@
+# WP-HASH-SET (UE 5.5 UWorldPartitionRuntimeHashSet): the world states RUNTIME PARTITIONS (WP format v3) - each a
+# Name, a Type (LHGrid = the square hierarchical grid; Persistent = always loaded) and its own ordered HLOD setups
+# (UE FRuntimePartitionDesc::HLODSetups: setup 0 stands in for the cells, setup 1 for setup 0's HLOD cells).
+# The planner, the cook and the streamer ask the partition's class (Rules::IRuntimePartition), never its type.
+# Lead: run scripts/Dev/migrate.sh --write first (WPAR 2 -> 3: Grids -> LHGrid partitions, HLODLayer + ParentLayer
+# chains -> HLOD setups). WP_Protocol's Main grid then states setups HLOD_Main (Instancing, spatial) and
+# HLOD_Main_Far; the Дано below makes the far one MeshSimplify and adds the Persistent partition holding building
+# 200222 "Main C10_04_B00" (~1.1 km from the centre, so it would otherwise stream as an HLOD): it gets a RuntimeGrid
+# block (UE AActor::RuntimeGrid) by add-component, since `set` writes only a component the entity has. Not the
+# player cube 9000001: it is a StreamingSource, always loaded by its component already (Reason Component), so on
+# Persistent it would count nothing.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Дано set world WorldPartition '{"RuntimePartitions":[{"Name":"Main","Type":"LHGrid","LHGrid":{"CellSize":2500.0,"LoadingRange":20000.0,"Priority":0},"HLODSetups":[{"Name":"Near","HLODLayer":"HLOD_Main"},{"Name":"Far","HLODLayer":"HLOD_Main_Far"}]},{"Name":"Foliage","Type":"LHGrid","LHGrid":{"CellSize":1280.0,"LoadingRange":6400.0,"Priority":0},"HLODSetups":[{"Name":"HLOD_Foliage","HLODLayer":"HLOD_Foliage"}]},{"Name":"LandscapeTiles","Type":"LHGrid","LHGrid":{"CellSize":5000.0,"LoadingRange":51000.0,"Priority":0},"HLODSetups":[{"Name":"HLOD_Landscape","HLODLayer":"HLOD_Landscape"}]},{"Name":"Persistent","Type":"Persistent"}],"HLODLayers":[{"Name":"HLOD_Main","Type":"Instancing","CellSize":51200.0,"LoadingRange":102400.0},{"Name":"HLOD_Main_Far","Type":"MeshSimplify","SimplifyTrianglePercent":0.25},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000.0}'
+Дано add-component 200222 RuntimeGridData
+Дано set 200222 RuntimeGridData.Grid "Persistent"
+Дано run Action "Save Scene"
+Дано run Scene "Build HLODs"
+Дано wait-idle 2400
+Тогда hashset_panel панель World Partition, раздел Runtime partitions: 4 строки, у Main/Foliage/LandscapeTiles тип LHGrid с размерами ячеек, у Persistent тип Persistent и прочерки вместо размеров; раздел HLOD setups per partition: Main (LHGrid) - HLOD0 'Near' = HLOD_Main, HLOD1 'Far' = HLOD_Main_Far; Persistent (Persistent) - "always loaded: no HLOD stands in for it"
+Когда run Mode "Select mode"
+Когда run Action "Play"
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 0,100000,-1000
+Когда --subject viewport set Camera.Direction 0,-1,0.01
+Когда advance 2
+Тогда hashset_far вид сверху с 1 км над центром: ближние ячейки (до 200 м от игрока) настоящие здания, средние (до 1 км) - HLOD_Main инстансами, дальние - упрощённые блоки HLOD_Main_Far (MeshSimplify 25 %), на стыках ни дыр, ни двойных; игрок-куб 9000001 на месте; здание 200222 (Main C10_04_B00, ~1.1 км от центра) - полная модель, не HLOD; лог: в строке плана "persistent 1" и "partition 'Persistent' (Persistent)"
+Когда run Action "Stop"
+# No restore: the Дано above IS WP_Protocol's authored state from here on (the card's Дано - MainGrid with HLOD
+# setups Near = Instancing and Far = MeshSimplify, a Persistent partition holding building 200222); it is saved.

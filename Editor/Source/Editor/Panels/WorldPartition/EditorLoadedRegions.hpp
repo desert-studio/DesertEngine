@@ -1,7 +1,8 @@
 #pragma once
 
-// THE REGIONS THE EDITOR HAD LOADED, PER WORLD (WP19-REST) - UE's UWorldPartitionEditorPerProjectUserSettings
-// (EditorLoadedRegions, kept per user and per map in Saved/Config, and loaded again when the map opens).
+// THE LOADERS THE EDITOR HAD, PER WORLD (WP19-REST, WP-LOADER-ADAPTERS) - UE's
+// UWorldPartitionEditorPerProjectUserSettings (EditorLoadedRegions, EditorLoadedLocationVolumes, kept per user and
+// per map in Saved/Config, and loaded again when the map opens): rectangles, Location Volumes, entity lists, pins.
 //
 // The user's state, not the world's: it lives in <Project>/Saved/Config/WorldPartitionEditor.json, beside the
 // editor layout, and never in the scene files (two people editing one world hold different regions). A world is

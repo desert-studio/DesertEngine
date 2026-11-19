@@ -180,11 +180,9 @@ namespace
     void ExpectBudgetAndOrder( const Sim& sim, const ResidencyStep& step,
                                const std::vector<StreamingSource>& sources )
     {
+        // WP-ACTIVATE-SLICED: the step lets units through and the executor spends the budget on the clock, so
+        // the budget half of this check belongs to a ResidencyExecutor suite with a stepped ActivationClockMs.
         const auto activated = Of( step.Actions, ResidencyActionKind::Activate );
-        if ( activated.size() > 1 )
-        {
-            EXPECT_LE( step.ActivationMs, sim.Settings.ActivationBudgetMs + 1e-9 ) << "frame " << sim.Frame - 1;
-        }
         const auto order = WantedUnits( sim.Plan, sources );
         auto       from  = order.begin();
         for ( const std::size_t unit : activated )
@@ -206,7 +204,6 @@ TEST( WorldPartitionResidency, AFlyByActivatesInPriorityOrderWithinTheBudget )
     Sim sim;
     sim.Plan                        = Row( 40 );
     sim.Settings.ActivationBudgetMs = 1.0; // 10 records · 0.05 ms = 0.5 ms a cell: two cells a frame
-    sim.Settings.MsPerRecord        = 0.05;
     sim.Settings.MaxConcurrentLoads = 8;
     sim.Latency                     = 3;
 
@@ -218,7 +215,6 @@ TEST( WorldPartitionResidency, AFlyByActivatesInPriorityOrderWithinTheBudget )
         const ResidencyStep                step = sim.Step( sources );
         ExpectBudgetAndOrder( sim, step, sources );
         mostInOneFrame = std::max( mostInOneFrame, Of( step.Actions, ResidencyActionKind::Activate ).size() );
-        waited += step.WaitingForBudget;
         EXPECT_LE( sim.In( Residency::Loading ).size(), sim.Settings.MaxConcurrentLoads );
     }
     EXPECT_EQ( mostInOneFrame, 2u ) << "the budget fits exactly two cells";

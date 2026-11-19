@@ -32,6 +32,11 @@ namespace Desert::Core
     class Scene;
 }
 
+namespace Desert::Input
+{
+    class LocalPlayerInput;
+}
+
 namespace Desert::Debug
 {
     /// A shape a category shows in the world (UE FGameplayDebuggerShape), as values. Drawn depth-tested, for the
@@ -65,6 +70,8 @@ namespace Desert::Debug
     {
         std::vector<Core::DebugDrawCanvasLine> Lines;
         std::vector<GameplayDebuggerShape>     Shapes;
+        // Drawings in the view's pixels (UE FGameplayDebuggerCanvasContext's DrawItem): a map, a legend.
+        std::vector<Core::DebugDrawCanvas> Canvases;
 
         /// UE AddTextLine, as runs instead of {color} markup.
         void AddTextLine( std::vector<Core::DebugDrawTextRun> runs )
@@ -80,6 +87,7 @@ namespace Desert::Debug
         {
             Lines.clear();
             Shapes.clear();
+            Canvases.clear();
         }
     };
 
@@ -104,13 +112,20 @@ namespace Desert::Debug
             return true;
         }
 
+        /// UE FGameplayDebuggerCategory::BindKeyPress: the category's own keys, read while the debugger shows and
+        /// this category is on (the digits are the debugger's). The base category has none.
+        virtual void ReadInput( const Input::LocalPlayerInput& input )
+        {
+            (void)input;
+        }
+
         /// UE CollectData: what to show about @p target (nullptr when nothing is targeted) into @p out, which
         /// arrives empty. Reads the scene; never keeps a pointer into it.
         virtual void CollectData( const Core::Scene& scene, const ECS::Entity* target,
                                   GameplayDebuggerCategoryData& out ) = 0;
 
         /// UE DrawData: shows @p data - the text into @p panel (the debugger's screen panel, below this category's
-        /// title), the shapes into @p scene's debug drawing for this frame. Override only to draw the same data
+        /// title), the shapes and canvases into @p scene's debug drawing for this frame. Override only to draw the same data
         /// differently; whatever is drawn must come from @p data.
         virtual void DrawData( Core::Scene& scene, const GameplayDebuggerCategoryData& data,
                                std::vector<Core::DebugDrawCanvasLine>& panel ) const;

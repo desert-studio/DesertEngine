@@ -18,6 +18,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
+#include "Editor/Builders/WorldPartitionBuilder.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/MainMenu.hpp"
@@ -154,6 +155,8 @@ namespace Desert::Editor
         ViewportCapture m_Capture{ m_Workspace };
         // New / Open / Save of the level file, its dialogs and the Scenes menu (UE: FEditorFileUtils).
         SceneFiles m_SceneFiles{ m_Workspace, m_AssetManager, m_Capture };
+        // A builder run (`--run WorldPartitionBuilder`, Editor/Builders/WorldPartitionBuilder.hpp); idle otherwise.
+        WorldPartitionBuilderRun m_BuilderRun{ m_Workspace, m_SceneFiles, m_AssetManager };
 
         // Opening, focus and closing of the asset documents, the unsaved-close question, the well and its
         // tabs, the refusal past the view budget (UE: UAssetEditorSubsystem + the document half of

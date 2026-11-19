@@ -1,0 +1,13 @@
+{
+    "id": 1002,
+    "Tag": "Wind Source",
+    "Translation": [0.0, 0.0, 0.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [1.0, 1.0, 1.0],
+    "WindSource": {
+        "Direction": [0.800000011920929, 0.0, 0.6000000238418579],
+        "Speed": 1500.0,
+        "PointWind": false,
+        "Radius": 1000.0
+    }
+}

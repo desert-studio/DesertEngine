@@ -1,3 +1,5 @@
+#include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
+#include <Engine/Libraries/WorldPartitionLibrary.hpp>
 #include <Engine/Scripting/Luau/LuauHost.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
@@ -324,6 +326,23 @@ namespace Desert::Scripting
         }
     }
 
+    void ScriptEngine::RebindEntityProperties( uint32_t entity, uint32_t slot,
+                                               const std::vector<ScriptProperty>& overrides, uint64_t target )
+    {
+        std::vector<ScriptProperty> naming;
+        for ( const ScriptProperty& p : overrides )
+        {
+            const bool held = ( p.Type == PropertyType::Entity && p.Ref == target ) ||
+                              ( p.Type == PropertyType::Array && p.ElementType == PropertyType::Entity &&
+                                std::any_of( p.Items.begin(), p.Items.end(),
+                                             [target]( const ScriptValue& item ) { return item.Ref == target; } ) );
+            if ( held && target != 0 )
+                naming.push_back( p );
+        }
+        if ( !naming.empty() )
+            ApplyProperties( entity, slot, naming );
+    }
+
     void ScriptEngine::SyncProperties( uint32_t entity, uint32_t slot,
                                        const std::vector<ScriptProperty>& overrides, uint64_t revision )
     {
@@ -643,6 +662,43 @@ namespace Desert::Scripting
                 m_Impl->Settle();
             }
         }
+    }
+
+    void ScriptEngine::DeliverWorldPartitionEvents( entt::registry& registry )
+    {
+        if ( m_Impl->Scene == nullptr )
+            return;
+        if ( auto* events = registry.try_ctx<Core::WorldPartitionStreamingEvents>();
+             events != nullptr && !events->Delivered )
+        {
+            events->Delivered = true;
+            // A copy of the news and of the targets: an answering script may destroy entities or stop streaming.
+            const Core::WorldPartitionStreamingEvents  news = *events;
+            std::vector<std::pair<uint32_t, uint32_t>> targets;
+            for ( const auto& [entity, slots] : m_Impl->Slots )
+                for ( uint32_t slot = 0; slot < static_cast<uint32_t>( slots.size() ); ++slot )
+                    targets.emplace_back( entity, slot );
+            const auto broadcast = [&]( const char* hook, std::span<const Reflection::Value> args )
+            {
+                for ( const auto& [entity, slot] : targets )
+                    if ( Common::BoolResultStr const r = m_Impl->CallSlot( entity, slot, hook, args );
+                         !r.IsSuccess() )
+                        LOG_ERROR( "[Lua] {} error: {}", hook, r.GetError() );
+            };
+            for ( const std::string& cell : news.Activated )
+            {
+                const Reflection::Value arg = Reflection::Value::String( cell );
+                broadcast( "OnWorldPartitionCellActivated", { &arg, 1 } );
+            }
+            for ( const std::string& cell : news.Unloaded )
+            {
+                const Reflection::Value arg = Reflection::Value::String( cell );
+                broadcast( "OnWorldPartitionCellUnloaded", { &arg, 1 } );
+            }
+            if ( news.Updated )
+                broadcast( "OnStreamingStateUpdated", {} );
+        }
+        Libraries::WorldPartitionLibrary::FireCompletedWaits( *m_Impl->Scene );
     }
 
     void ScriptEngine::EndPlayerInput()

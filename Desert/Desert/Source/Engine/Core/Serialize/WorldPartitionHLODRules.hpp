@@ -46,9 +46,16 @@
 //   LandscapeTile   — a landscape tile (UE: ALandscapeStreamingProxy). It draws terrain and has no mesh block, so
 //                     reading it as "draws nothing" made the far terrain vanish with the log saying "every
 //                     drawing record has its stand-in" (WP-FAR-1, live). UE stands a landscape HLOD in for it
-//                     (ULandscapeHLODBuilder, a simplified mesh of the proxy). BuildCellHLOD hands every such
-//                     tile to the LandscapeHLODBuilder (WP-FAR-6), which makes it a built mesh of the tile's own
-//                     heights; only a cook given no landscape builder keeps it a NAMED hole.
+//                     (ULandscapeHLODBuilder, a simplified mesh of the proxy). BuildCellHLOD
+//                     (WorldPartitionHLODBuilders.hpp) hands every such tile to the registry's landscape builder
+//                     (WP-FAR-6), which makes it a built mesh of the tile's own heights; only a registry with no
+//                     landscape builder keeps it a NAMED hole.
+//   LandscapeSpline — a landscape spline entity (UE: ALandscapeSplineActor). Its meshes are bent along its
+//                     splines, not stated in a mesh block (UE: USplineMeshComponents, which the HLOD builds into
+//                     its mesh). BuildCellHLOD (WorldPartitionHLODBuilders.hpp) hands every such record to the
+//                     registry's landscape spline builder (HLODBuilderLandscapeSplines), which makes the bent
+//                     meshes one built WORLD-space mesh; only a registry with no spline builder keeps it a NAMED
+//                     hole, and a spline that lays no mesh needs no stand-in.
 // A record that draws nothing — no mesh block, a StaticMesh naming neither asset nor primitive, an ISM
 // without instances, `Visibility.Visible == false` — needs no stand-in and is neither batched nor listed.
 //
@@ -77,6 +84,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Core::Rules
@@ -95,6 +103,7 @@ namespace Desert::Core::Rules
         Unreadable,
         CustomShaderMaterial,
         LandscapeTile,
+        LandscapeSpline,
     };
 
     // WHAT THE BUILDER MAY KNOW ABOUT A MATERIAL FROM OUTSIDE THE FILE: whether the material a slot names (by the
@@ -268,6 +277,12 @@ namespace Desert::Core::Rules
                 hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeTile } );
                 continue;
             }
+            // A landscape spline draws meshes bent along its splines, not a mesh block (the reason above).
+            if ( Detail::PayloadOf( record, kLandscapeSplineComponent ).has_value() )
+            {
+                hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeSpline } );
+                continue;
+            }
             if ( Detail::PayloadOf( record, kSkinnedMeshComponent ).has_value() )
                 hlod.NotInstanced.push_back( { index, HLODExclusion::SkinnedMesh } );
 
@@ -355,9 +370,92 @@ namespace Desert::Core::Rules
         return nullptr;
     }
 
-    // Refused, by name: a layer without a name or named twice, a ParentLayer that names no layer or itself or
-    // closes a loop, a SimplifyTrianglePercent missing on MeshSimplify, outside (0, 1], or stated on another
-    // type, and a grid whose HLODLayer names no layer.
+    // THE LAYER THE HLODs OF @p layer ARE GATHERED INTO (UE HLOD1 of HLOD0): the layer of the setup after the one
+    // that names @p layer, in any partition (RuntimePartitionHLODSetupSerialized: the order is the chain), or null
+    // when @p layer is the last setup wherever it is named. ValidateHLODLayers refuses a layer two partitions
+    // follow with different layers, so the answer does not depend on which partition is read first.
+    [[nodiscard]] inline const HLODLayerSerialized* NextHLODLayer( const WorldPartitionSerialized& partition,
+                                                                   std::string_view                layer )
+    {
+        for ( const RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
+        {
+            if ( !runtime.HLODSetups.has_value() )
+                continue;
+            const std::vector<RuntimePartitionHLODSetupSerialized>& setups = *runtime.HLODSetups;
+            for ( std::size_t k = 0; k + 1 < setups.size(); ++k )
+                if ( setups[k].HLODLayer == layer )
+                    return FindHLODLayer( partition, setups[k + 1].HLODLayer );
+        }
+        return nullptr;
+    }
+
+    // The built-in layer types and the names their builders are registered under (Rules::HLODBuilderRegistry; UE
+    // UHLODLayer::GetHLODBuilderClass maps a type to UHLODBuilderInstancing / MeshMerge / MeshSimplify the same
+    // way). Custom is not here: its builder is the one its layer names.
+    inline constexpr std::array<std::pair<HLODLayerType, std::string_view>, 4> kBuiltInHLODBuilders = { {
+         { HLODLayerType::Instancing, "Instancing" },
+         { HLODLayerType::MeshMerge, "MeshMerge" },
+         { HLODLayerType::MeshSimplify, "MeshSimplify" },
+         { HLODLayerType::MeshApproximate, "MeshApproximate" },
+    } };
+
+    // The name of the builder @p layer is built by: its type's (kBuiltInHLODBuilders), or a Custom layer's
+    // Builder. Empty for a Custom layer stating none (ValidateHLODLayers refuses it).
+    [[nodiscard]] inline std::string_view HLODBuilderNameOf( const HLODLayerSerialized& layer )
+    {
+        if ( layer.Type == HLODLayerType::Custom )
+            return layer.Builder.has_value() ? std::string_view( *layer.Builder ) : std::string_view();
+        for ( const auto& [type, name] : kBuiltInHLODBuilders )
+            if ( type == layer.Type )
+                return name;
+        return {};
+    }
+
+    // Refused, by name: a layer without a name or named twice, a Custom layer stating no Builder or a built-in
+    // type's name as its Builder, a Builder on any other type (each builder refuses
+    // its own Settings - MergeMaterials, TrianglePercent, the approximation - HLODLayerBuilderIssues), a CellSize
+    // without a LoadingRange; and per
+    // partition's HLOD setups (UE FRuntimePartitionDesc::HLODSetups): setups on a partition whose content is never
+    // away, a setup without a name or named twice, a layer that is no layer of the world or named twice in one
+    // partition, a chain with a hole (a spatially loaded last setup, an always-loaded setup before another), ranges
+    // that do not grow along the chain, and one layer followed by different layers in two partitions. The layer's
+    // builder and Settings are the REGISTRY's to judge (HLODLayerBuilderIssues, WorldPartitionHLODBuilders.hpp): a
+    // world naming a builder this process has not registered still loads, edits and plays its saved HLODs - only
+    // Build HLODs is refused.
+    // A MeshApproximate layer's settings, refused by name outside the ranges its readers take
+    // (HLODApproximationSettings states each); Core::BuildApproximateShell refuses through this same check.
+    [[nodiscard]] inline Common::BoolResultStr ValidateHLODApproximation( const HLODApproximationSettings& settings )
+    {
+        if ( !( settings.WorldSpaceApproximationAccuracy > 0.0f ) )
+            return Common::MakeError<bool>( std::format( "WorldSpaceApproximationAccuracy {:f} cm is not > 0",
+                                                         settings.WorldSpaceApproximationAccuracy ) );
+        if ( settings.ClampVoxelDimension < 8 || settings.ClampVoxelDimension > 1024 )
+            return Common::MakeError<bool>(
+                 std::format( "ClampVoxelDimension {} is outside 8..1024", settings.ClampVoxelDimension ) );
+        if ( !( settings.WindingThreshold >= -10.0f && settings.WindingThreshold <= 10.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "WindingThreshold {:f} is outside -10..10", settings.WindingThreshold ) );
+        if ( settings.FillGaps && !( settings.GapDistance > 0.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "FillGaps with GapDistance {:f} cm, which is not > 0", settings.GapDistance ) );
+        if ( !( settings.GeometricDeviation > 0.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "GeometricDeviation {:f} cm is not > 0", settings.GeometricDeviation ) );
+        const auto powerOfTwo = []( int32_t value ) { return value > 0 && ( value & ( value - 1 ) ) == 0; };
+        if ( settings.TextureSize < 64 || settings.TextureSize > 8192 || !powerOfTwo( settings.TextureSize ) )
+            return Common::MakeError<bool>(
+                 std::format( "TextureSize {} is not a power of two in 64..8192", settings.TextureSize ) );
+        if ( settings.CaptureResolution < 64 || settings.CaptureResolution > 8192 )
+            return Common::MakeError<bool>(
+                 std::format( "CaptureResolution {} is outside 64..8192", settings.CaptureResolution ) );
+        if ( !( settings.HardNormalAngle > 0.0f && settings.HardNormalAngle < 180.0f ) )
+            return Common::MakeError<bool>(
+                 std::format( "HardNormalAngle {:f} is outside (0, 180)", settings.HardNormalAngle ) );
+        return BOOLSUCCESS;
+    }
+
+    // Refused, by name: a layer without a name or named twice, and what the long comment above lists (the
+    // builder, the spatial loading, the partitions' HLOD setups).
     [[nodiscard]] inline Common::BoolResultStr ValidateHLODLayers( const WorldPartitionSerialized& partition )
     {
         const std::vector<HLODLayerSerialized>  none;
@@ -373,119 +471,253 @@ namespace Desert::Core::Rules
             for ( std::size_t j = 0; j < i; ++j )
                 if ( layers[j].Name == layer.Name )
                     return Common::MakeError<bool>( "HLOD layer '" + layer.Name + "' is named twice" );
-            const bool simplify = layer.Type == HLODLayerType::MeshSimplify;
-            if ( simplify && !layer.SimplifyTrianglePercent.has_value() )
-                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                "' is MeshSimplify and states no SimplifyTrianglePercent" );
-            if ( !simplify && layer.SimplifyTrianglePercent.has_value() )
+            // THE BUILDER'S NAME (UE UHLODLayer::HLODBuilderClass, read only for EHLODLayerType::Custom).
+            const bool custom = layer.Type == HLODLayerType::Custom;
+            if ( custom && ( !layer.Builder.has_value() || layer.Builder->empty() ) )
                 return Common::MakeError<bool>(
-                     "HLOD layer '" + layer.Name +
-                     "' states SimplifyTrianglePercent, which only MeshSimplify reads" );
-            if ( simplify && !( *layer.SimplifyTrianglePercent > 0.0f && *layer.SimplifyTrianglePercent <= 1.0f ) )
+                     std::format( "HLOD layer '{}' is Custom and names no Builder", layer.Name ) );
+            if ( !custom && layer.Builder.has_value() )
                 return Common::MakeError<bool>(
-                     std::format( "HLOD layer '{}': SimplifyTrianglePercent {:f} is outside (0, 1]", layer.Name,
-                                  *layer.SimplifyTrianglePercent ) );
-            // Walk the parent chain: every link must resolve, and it must end within the list's length.
-            const HLODLayerSerialized* at = &layer;
-            for ( std::size_t steps = 0; at->ParentLayer.has_value(); ++steps )
-            {
-                const HLODLayerSerialized* parent = FindHLODLayer( partition, *at->ParentLayer );
-                if ( parent == nullptr )
-                    return Common::MakeError<bool>( "HLOD layer '" + at->Name + "' names ParentLayer '" +
-                                                    *at->ParentLayer + "', which is no layer of this world" );
-                if ( steps >= layers.size() || parent == &layer )
-                    return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                    "': its ParentLayer chain loops back on itself" );
-                at = parent;
-            }
+                     std::format( "HLOD layer '{}' is {} and names Builder '{}', which only a Custom layer reads",
+                                  layer.Name, HLODBuilderNameOf( layer ), *layer.Builder ) );
+            if ( custom )
+                for ( const auto& builtIn : kBuiltInHLODBuilders )
+                    if ( *layer.Builder == builtIn.second )
+                        return Common::MakeError<bool>(
+                             std::format( "HLOD layer '{}' is Custom and names the built-in builder '{}'; state "
+                                          "Type {} instead",
+                                          layer.Name, builtIn.second, builtIn.second ) );
             // SPATIAL LOADING (WP-FAR-8): both numbers or neither; positive and finite.
             if ( layer.CellSize.has_value() != layer.LoadingRange.has_value() )
                 return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
                                                 "' states one of CellSize and LoadingRange; a spatially loaded "
                                                 "layer states both, an always-loaded one neither" );
-            const bool spatial = layer.CellSize.has_value();
-            if ( spatial && !( std::isfinite( *layer.CellSize ) && *layer.CellSize > 0.0f &&
-                               std::isfinite( *layer.LoadingRange ) && *layer.LoadingRange > 0.0f ) )
+            if ( layer.CellSize.has_value() &&
+                 !( std::isfinite( *layer.CellSize ) && *layer.CellSize > 0.0f &&
+                    std::isfinite( *layer.LoadingRange ) && *layer.LoadingRange > 0.0f ) )
                 return Common::MakeError<bool>( std::format(
                      "HLOD layer '{}': CellSize {:f} and LoadingRange {:f} must both be positive and finite",
                      layer.Name, *layer.CellSize, *layer.LoadingRange ) );
-            // NO HOLE AT ANY DISTANCE: beyond a spatially loaded layer's range only its parent stands in, so the
-            // chain must go on; and an always-loaded layer's own cells never leave, so a parent of it is never
-            // drawn - a setting nobody sees.
-            if ( spatial && !layer.ParentLayer.has_value() )
-                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                "' is spatially loaded and names no ParentLayer: beyond its "
-                                                "LoadingRange nothing would stand in for its cells" );
-            if ( !spatial && layer.ParentLayer.has_value() )
-                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
-                                                "' is always loaded and names "
-                                                "ParentLayer '" +
-                                                *layer.ParentLayer +
-                                                "', whose HLODs would never be drawn; state its CellSize and "
-                                                "LoadingRange or drop the parent" );
-            // A parent must reach further than its child, or the band where the child's cell has left and the
-            // parent's has not arrived is a hole.
-            if ( spatial )
-            {
-                const HLODLayerSerialized* parent = FindHLODLayer( partition, *layer.ParentLayer );
-                if ( parent->LoadingRange.has_value() && !( *parent->LoadingRange > *layer.LoadingRange ) )
-                    return Common::MakeError<bool>( std::format(
-                         "HLOD layer '{}' (LoadingRange {:f}) has ParentLayer '{}' with LoadingRange {:f}; a "
-                         "parent must load further out than its child",
-                         layer.Name, *layer.LoadingRange, parent->Name, *parent->LoadingRange ) );
-            }
         }
-        for ( const WorldPartitionGridSerialized& grid : partition.Grids )
+        for ( const RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
         {
-            if ( grid.HLODLayer.has_value() && FindHLODLayer( partition, *grid.HLODLayer ) == nullptr )
-                return Common::MakeError<bool>( "grid '" + grid.Name + "' names HLODLayer '" + *grid.HLODLayer +
-                                                "', which is no layer of this world's HLODLayers" );
-            const HLODLayerSerialized* layer =
-                 grid.HLODLayer.has_value() ? FindHLODLayer( partition, *grid.HLODLayer ) : nullptr;
-            if ( layer != nullptr && layer->LoadingRange.has_value() &&
-                 !( *layer->LoadingRange > grid.LoadingRange ) )
-                return Common::MakeError<bool>( std::format(
-                     "grid '{}' (LoadingRange {:f}) builds its HLODs with spatially loaded layer '{}' of "
-                     "LoadingRange {:f}; the layer must load further out than the cells it stands in for",
-                     grid.Name, grid.LoadingRange, layer->Name, *layer->LoadingRange ) );
+            if ( !runtime.HLODSetups.has_value() )
+                continue;
+            const std::vector<RuntimePartitionHLODSetupSerialized>& setups = *runtime.HLODSetups;
+            if ( setups.empty() )
+                return Common::MakeError<bool>(
+                     "partition '" + runtime.Name +
+                     "' states HLODSetups and none; a partition without HLODs states no "
+                     "HLODSetups" );
+            if ( !RuntimePartitionClass( runtime.Type ).CanBeAway() )
+                return Common::MakeError<bool>( "partition '" + runtime.Name +
+                                                "' states HLODSetups, but what streams on it is never away, so no "
+                                                "HLOD would ever stand in for it" );
+            const RuntimePartitionLHGridSerialized* grid =
+                 RuntimePartitionClass( runtime.Type ).CellGrid( runtime );
+            for ( std::size_t k = 0; k < setups.size(); ++k )
+            {
+                const RuntimePartitionHLODSetupSerialized& setup = setups[k];
+                if ( setup.Name.empty() )
+                    return Common::MakeError<bool>(
+                         std::format( "partition '{}': HLOD setup {} has no Name", runtime.Name, k ) );
+                for ( std::size_t j = 0; j < k; ++j )
+                {
+                    if ( setups[j].Name == setup.Name )
+                        return Common::MakeError<bool>( std::format(
+                             "partition '{}': HLOD setup '{}' is named twice", runtime.Name, setup.Name ) );
+                    // A layer twice in one chain would stand in for its own HLODs: the chain loops.
+                    if ( setups[j].HLODLayer == setup.HLODLayer )
+                        return Common::MakeError<bool>(
+                             std::format( "partition '{}': HLOD layer '{}' is named by setups '{}' and '{}'; the "
+                                          "chain would loop back on itself",
+                                          runtime.Name, setup.HLODLayer, setups[j].Name, setup.Name ) );
+                }
+                const HLODLayerSerialized* layer = FindHLODLayer( partition, setup.HLODLayer );
+                if ( layer == nullptr )
+                    return Common::MakeError<bool>(
+                         std::format( "partition '{}': HLOD setup '{}' names HLODLayer '{}', which is no layer of "
+                                      "this world's HLODLayers",
+                                      runtime.Name, setup.Name, setup.HLODLayer ) );
+                const bool last    = k + 1 == setups.size();
+                const bool spatial = layer->LoadingRange.has_value();
+                // NO HOLE AT ANY DISTANCE: beyond a spatially loaded layer's range only the next setup stands in,
+                // so the chain must go on; and an always-loaded layer's own HLODs never leave, so a setup after it
+                // is never drawn - a setting nobody sees.
+                if ( spatial && last )
+                    return Common::MakeError<bool>( std::format(
+                         "partition '{}': the last HLOD setup '{}' builds with spatially loaded layer '{}': "
+                         "beyond "
+                         "its LoadingRange nothing would stand in for its cells; add a setup after it",
+                         runtime.Name, setup.Name, layer->Name ) );
+                if ( !spatial && !last )
+                    return Common::MakeError<bool>( std::format(
+                         "partition '{}': HLOD setup '{}' builds with always-loaded layer '{}', so setup '{}' "
+                         "after "
+                         "it would never be drawn; state the layer's CellSize and LoadingRange or drop the later "
+                         "setups",
+                         runtime.Name, setup.Name, layer->Name, setups[k + 1].Name ) );
+                // What stands in must reach further than what it stands in for, or the band where the one has
+                // left and the other has not arrived is a hole: setup 0 beyond the partition's cells, each further
+                // spatially loaded setup beyond the one before.
+                if ( spatial && k == 0 && grid != nullptr && !( *layer->LoadingRange > grid->LoadingRange ) )
+                    return Common::MakeError<bool>( std::format( "partition '{}' (LoadingRange {:f}) builds its "
+                                                                 "first HLOD setup '{}' with spatially loaded "
+                                                                 "layer '{}' of LoadingRange {:f}; the layer must "
+                                                                 "load further out than the cells it stands "
+                                                                 "in for",
+                                                                 runtime.Name, grid->LoadingRange, setup.Name,
+                                                                 layer->Name, *layer->LoadingRange ) );
+                if ( k > 0 )
+                {
+                    const HLODLayerSerialized* before = FindHLODLayer( partition, setups[k - 1].HLODLayer );
+                    if ( spatial && !( *layer->LoadingRange > *before->LoadingRange ) )
+                        return Common::MakeError<bool>( std::format(
+                             "partition '{}': HLOD setup '{}' (layer '{}', LoadingRange {:f}) follows layer '{}' "
+                             "of "
+                             "LoadingRange {:f}; a later setup must load further out than the one before",
+                             runtime.Name, setup.Name, layer->Name, *layer->LoadingRange, before->Name,
+                             *before->LoadingRange ) );
+                }
+                // ONE HIERARCHY OF LAYERS PER WORLD: the HLODs of a layer are gathered into one next layer, so a
+                // layer two partitions follow with different layers would make its parent a guess.
+                const HLODLayerSerialized* next =
+                     last ? nullptr : FindHLODLayer( partition, setups[k + 1].HLODLayer );
+                for ( const RuntimePartitionSerialized& other : partition.RuntimePartitions )
+                {
+                    if ( !other.HLODSetups.has_value() )
+                        continue;
+                    const std::vector<RuntimePartitionHLODSetupSerialized>& theirs = *other.HLODSetups;
+                    for ( std::size_t j = 0; j < theirs.size(); ++j )
+                    {
+                        if ( theirs[j].HLODLayer != setup.HLODLayer )
+                            continue;
+                        const HLODLayerSerialized* theirNext =
+                             j + 1 < theirs.size() ? FindHLODLayer( partition, theirs[j + 1].HLODLayer ) : nullptr;
+                        if ( theirNext != next )
+                            return Common::MakeError<bool>( std::format(
+                                 "HLOD layer '{}' is followed by '{}' in partition '{}' and by '{}' in partition "
+                                 "'{}'; one layer's HLODs are gathered into one next layer",
+                                 setup.HLODLayer, next != nullptr ? next->Name : std::string( "nothing" ),
+                                 runtime.Name, theirNext != nullptr ? theirNext->Name : std::string( "nothing" ),
+                                 other.Name ) );
+                    }
+                }
+            }
         }
         return Common::MakeSuccess( true );
     }
 
-    // The layer a cell's HLOD is built with: its GRID's HLODLayer (UE FRuntimePartitionDesc::HLODSetups), null
-    // when the grid states none (that grid's cells then have no HLOD). Call after ValidateHLODLayers.
-    [[nodiscard]] inline const HLODLayerSerialized* GridHLODLayer( const WorldPartitionSerialized&     partition,
-                                                                   const WorldPartitionGridSerialized& grid )
+    // The layer a cell's FIRST HLOD is built with: its PARTITION's first HLOD setup (UE FRuntimePartitionDesc::
+    // HLODSetups[0]), null when the partition states none (its cells then have no HLOD). The later setups are the
+    // chain above it (NextHLODLayer). Call after ValidateHLODLayers.
+    [[nodiscard]] inline const HLODLayerSerialized* GridHLODLayer( const WorldPartitionSerialized&   partition,
+                                                                   const RuntimePartitionSerialized& runtime )
     {
-        return grid.HLODLayer.has_value() ? FindHLODLayer( partition, *grid.HLODLayer ) : nullptr;
+        if ( !runtime.HLODSetups.has_value() || runtime.HLODSetups->empty() )
+            return nullptr;
+        return FindHLODLayer( partition, runtime.HLODSetups->front().HLODLayer );
     }
 
-    // Whether any grid of the world states an HLOD layer, i.e. whether any cell has an HLOD to build or load.
+    // Whether any partition of the world states an HLOD setup, i.e. whether any cell has an HLOD to build or load.
     [[nodiscard]] inline bool AnyGridHLODLayer( const WorldPartitionSerialized& partition )
     {
-        for ( const WorldPartitionGridSerialized& grid : partition.Grids )
-            if ( GridHLODLayer( partition, grid ) != nullptr )
+        for ( const RuntimePartitionSerialized& runtime : partition.RuntimePartitions )
+            if ( GridHLODLayer( partition, runtime ) != nullptr )
                 return true;
         return false;
+    }
+
+    // The layer that builds composite @p composite of @p plan (WP-SETTINGS-UI, UE UHLODLayer::GetHLODLayer: the
+    // actor's own HLODLayer, else the default): its anchor's HLODLayer block when it names a layer of the world
+    // (PlannedComposite::HLODLayer), else its partition's first HLOD setup's. Null when neither states one. Call after ValidateHLODLayers.
+    [[nodiscard]] inline const HLODLayerSerialized* CompositeHLODLayer( const WorldPartitionSerialized& partition,
+                                                                        const PlannedComposite&         composite )
+    {
+        if ( composite.HLODLayer.has_value() && partition.HLODLayers.has_value() &&
+             *composite.HLODLayer < partition.HLODLayers->size() )
+            return &( *partition.HLODLayers )[*composite.HLODLayer];
+        return GridHLODLayer( partition, partition.RuntimePartitions.at( composite.Grid ) );
+    }
+
+    // ONE PART OF A CELL'S HLOD: the members one layer builds (UE FWorldPartitionHLODUtilities::CreateHLODActors
+    // groups a cell's actors by their HLOD layer and builds each group with its layer's builder).
+    struct CellHLODPart
+    {
+        const HLODLayerSerialized* Layer = nullptr;
+        std::vector<std::size_t>   Members; // record indices, in the order of the cell's members
+    };
+
+    // THE PARTS OF CELL @p cell OF @p plan: @p members (ResidencyUnitMembers of the cell) grouped by the layer that
+    // builds their composite (CompositeHLODLayer), in the order each layer is first met. The parts make ONE HLOD of
+    // the cell, streamed by its GRID's layer (WorldPartitionHLODHierarchy.hpp): in UE an actor's own layer also
+    // decides where its HLOD actor streams; here the cell's HLOD is one residency unit (one HLOD per cell unit,
+    // HLODRuntime), so the entity's layer decides how its part is BUILT - Instancing, MeshMerge, MeshSimplify and its
+    // triangle share - and the parents above the cell are its grid layer's chain. Empty when the grid states no
+    // layer and no composite names one. Refused, by the entity's path, when the grid states no layer and a composite
+    // names one (that cell has no HLOD to put the part in), and for a member of no composite of the cell.
+    [[nodiscard]] inline Common::ResultStr<std::vector<CellHLODPart>>
+    CellHLODParts( const WorldPartitionSerialized& partition, const WorldPartitionPlan& plan, const PlannedCell& cell,
+                   std::span<const std::size_t> members )
+    {
+        using Result                              = std::vector<CellHLODPart>;
+        const RuntimePartitionSerialized&   grid  = partition.RuntimePartitions.at( cell.Grid );
+        const HLODLayerSerialized* const    gridL = GridHLODLayer( partition, grid );
+        std::map<std::size_t, const HLODLayerSerialized*> layerOf; // record -> the layer that builds it
+        for ( const std::size_t c : cell.Composites )
+        {
+            const PlannedComposite&          composite = plan.Composites.at( c );
+            const HLODLayerSerialized* const layer     = CompositeHLODLayer( partition, composite );
+            if ( gridL == nullptr && layer != nullptr )
+                return Common::MakeError<Result>( std::format(
+                     "Entities[{}].{}.Layer names HLOD layer '{}', and its partition '{}' builds no HLOD; give the "
+                     "partition an HLOD setup (World Partition > HLOD setups) or clear the entity's HLOD Layer",
+                     composite.Anchor, kHLODLayerComponent, layer->Name, grid.Name ) );
+            for ( const std::size_t member : composite.Members )
+                layerOf[member] = layer;
+        }
+        Result parts;
+        if ( gridL == nullptr )
+            return Common::MakeSuccess( std::move( parts ) );
+        for ( const std::size_t member : members )
+        {
+            const auto found = layerOf.find( member );
+            if ( found == layerOf.end() )
+                return Common::MakeError<Result>(
+                     std::format( "record {} of a cell of partition '{}' is in none of the cell's composites", member,
+                                  grid.Name ) );
+            const auto part = std::find_if( parts.begin(), parts.end(),
+                                            [&]( const CellHLODPart& p ) { return p.Layer == found->second; } );
+            if ( part != parts.end() )
+                part->Members.push_back( member );
+            else
+                parts.push_back( CellHLODPart{ found->second, { member } } );
+        }
+        return Common::MakeSuccess( std::move( parts ) );
     }
 
     // WHAT A MESH LAYER HANDS THE GEOMETRY BUILDER: the instanced parts the Instancing pass already chose (so a
     // merged HLOD leaves out exactly what an instanced one would, for the same named reasons), each an ISM
     // block naming its mesh and materials with WORLD instance matrices. The builder merges every instance into
-    // one mesh in world space, one section per distinct material, and for MeshSimplify keeps
-    // `TrianglePercent` of the triangles (UHLODBuilderMeshMerge / UHLODBuilderMeshSimplify).
+    // one mesh in world space, one section per distinct material (UHLODBuilderMeshMerge), and when
+    // `TrianglePercent` is stated keeps that share of the triangles (UHLODBuilderMeshSimplify, its settings'
+    // target - Core::HLODMeshSimplifySettings).
+    // With `MergeMaterials` (the mesh builder's Settings.MergeMaterials, WP v12) the mesh is ONE section over one UV
+    // atlas, its material baked by the editor's Build HLODs (HLODMeshBuilder.hpp, BuildHLODMeshForBake).
     struct HLODMeshRequest
     {
-        HLODLayerType                                            Type            = HLODLayerType::MeshMerge;
-        float                                                    TrianglePercent = 1.0f;
+        std::optional<float>                                     TrianglePercent; // absent = merge only
+        std::optional<HLODMaterialMergeSerialized>               MergeMaterials;
+        // MeshApproximate only (its builder's Settings, UE UHLODBuilderMeshApproximateSettings): stated = the
+        // parts are wrapped into ONE closed shell (Core::BuildApproximateShell) instead of merged.
+        std::optional<HLODApproximationSettings>                 Approximation;
         std::span<const Assets::InstancedStaticMeshComponentSer> Parts;
     };
 
-    // The geometry side, which reads mesh assets and runs the simplifier, so it is given to the rules rather
-    // than linked into them (as CustomShaderSource is). Answers a StaticMesh block with the built EditMesh and
-    // the material slot lists, or an error naming the part that could not be read. AN EMPTY BUILDER IS A
-    // STATED CONDITION: a mesh layer then REFUSES the build by name (BuildCellHLOD) rather than falling back
-    // to instancing.
+    // The geometry side (Core::BuildHLODMesh), which reads mesh assets and runs the simplifier, so it is given to
+    // the merge pass (MergeHLODBatches) rather than linked into the rules (as CustomShaderSource is). Answers a
+    // StaticMesh block with the built EditMesh and the material slot lists, or an error naming the part that could
+    // not be read.
     using HLODMeshBuilder =
          std::function<Common::ResultStr<Assets::StaticMeshComponentSer>( const HLODMeshRequest& request )>;
 
@@ -499,8 +731,8 @@ namespace Desert::Core::Rules
     // `MinVisibleDistance` - the nearest the HLOD is ever drawn, FHLODBuildContext::MinVisibleDistance, which is
     // the source cell's grid LoadingRange - and keeps the first landscape LOD whose screen size the tile no longer
     // exceeds. A heightfield is simplified by skipping samples (a landscape LOD), not by the layer's edge
-    // collapses, so SimplifyTrianglePercent does not apply to it (UE: the landscape builder ignores the layer's
-    // mesh settings too).
+    // collapses, so MeshSimplify's TrianglePercent does not apply to it (UE: the landscape builder ignores the
+    // layer's mesh settings too).
     struct LandscapeHLODRequest
     {
         std::span<const Assets::EntityData> Records;
@@ -508,99 +740,22 @@ namespace Desert::Core::Rules
         std::size_t                         Tile               = kNoRecord;
         float                               MinVisibleDistance = 0.0f; // cm
     };
-    // The geometry side (it reads the tile's height file), given to the rules as HLODMeshBuilder is. AN EMPTY
-    // BUILDER IS A STATED CONDITION: every landscape tile then stays a named LandscapeTile hole. An error (the
-    // height file is missing, the root does not resolve) refuses the HLOD build by name.
+    // The geometry side (it reads the tile's height file: Core::BuildLandscapeHLODMesh), given to the landscape
+    // builder (Rules::HLODBuilderLandscape) as HLODMeshBuilder is given to the merge. An error (the height file is
+    // missing, the root does not resolve) refuses the HLOD build by name.
     using LandscapeHLODBuilder =
          std::function<Common::ResultStr<Assets::StaticMeshComponentSer>( const LandscapeHLODRequest& request )>;
 
-    // THE HLOD OF ONE CELL BY ITS LAYER, seen from @p minVisibleDistance on (the cell's grid LoadingRange,
-    // HLODMinVisibleDistance; it picks the landscape tiles' LOD). Instancing: BuildInstancingHLOD. MeshMerge /
-    // MeshSimplify: the same pass chooses the parts and the holes, then every batch that casts shadows becomes one
-    // built mesh and every batch that does not becomes another (a merged mesh has one CastShadows), each standing
-    // in for the union of its batches' sources. Refused when a mesh layer has no builder or the builder refuses.
-    [[nodiscard]] inline Common::ResultStr<InstancingHLOD>
-    BuildCellHLOD( const HLODLayerSerialized& layer, std::span<const Assets::EntityData> records,
-                   std::span<const glm::mat4> world, std::span<const std::size_t> members,
-                   float minVisibleDistance, const CustomShaderSource& customShader, Common::Json::Issues& issues,
-                   const FoliageHLODSource& foliage, const HLODMeshBuilder& meshBuilder,
-                   const LandscapeHLODBuilder& landscape = {} )
+    // THE SPLINE MESHES OF ONE LANDSCAPE SPLINE RECORD (UE: the USplineMeshComponents of an ALandscapeSplineActor
+    // merged into its cell's HLOD): record @p Spline of @p Records answered with a StaticMesh block whose EditMesh
+    // is every segment's bent meshes in WORLD space (the splines are world cm), or nullopt when the spline lays no
+    // mesh and so needs no stand-in.
+    struct LandscapeSplineHLODRequest
     {
-        // Every landscape tile the instancing pass named becomes its own batch (UE: one HLOD component per
-        // landscape proxy), whatever the layer does with the meshes.
-        const auto withLandscape = [&]( InstancingHLOD hlod ) -> Common::ResultStr<InstancingHLOD>
-        {
-            if ( !landscape )
-                return Common::MakeSuccess( std::move( hlod ) );
-            std::vector<HLODNotInstanced> holes;
-            for ( const HLODNotInstanced& missing : hlod.NotInstanced )
-            {
-                if ( missing.Reason != HLODExclusion::LandscapeTile )
-                {
-                    holes.push_back( missing );
-                    continue;
-                }
-                LandscapeHLODRequest request;
-                request.Records         = records;
-                request.World           = world;
-                request.Tile            = missing.Record;
-                request.MinVisibleDistance = minVisibleDistance;
-                auto built              = landscape( request );
-                if ( !built )
-                    return Common::MakeError<InstancingHLOD>(
-                         "HLOD layer '" + layer.Name + "', landscape tile record " +
-                         std::to_string( missing.Record ) + ": " + built.GetError() );
-                HLODBatch batch;
-                batch.Mesh    = built.ExtractValue();
-                batch.Sources = { missing.Record };
-                hlod.Batches.push_back( std::move( batch ) );
-            }
-            hlod.NotInstanced = std::move( holes );
-            return Common::MakeSuccess( std::move( hlod ) );
-        };
-        InstancingHLOD instanced = BuildInstancingHLOD( records, world, members, customShader, issues, foliage );
-        if ( layer.Type == HLODLayerType::Instancing || instanced.Batches.empty() )
-            return withLandscape( std::move( instanced ) );
-        if ( !meshBuilder )
-            return Common::MakeError<InstancingHLOD>( "HLOD layer '" + layer.Name +
-                                                      "' builds meshes and this cook was given no HLOD mesh "
-                                                      "builder; cook it where meshes can be read (the editor)" );
-        InstancingHLOD merged;
-        merged.NotInstanced   = std::move( instanced.NotInstanced );
-        merged.Instances      = instanced.Instances;
-        merged.FoliageLeftOut = instanced.FoliageLeftOut;
-        for ( const bool shadows : { true, false } )
-        {
-            std::vector<Assets::InstancedStaticMeshComponentSer> parts;
-            std::vector<std::size_t>                             sources;
-            for ( HLODBatch& batch : instanced.Batches )
-            {
-                if ( batch.Block.CastShadows.value_or( true ) != shadows )
-                    continue;
-                parts.push_back( batch.Block );
-                sources.insert( sources.end(), batch.Sources.begin(), batch.Sources.end() );
-            }
-            if ( parts.empty() )
-                continue;
-            HLODMeshRequest request;
-            request.Type            = layer.Type;
-            request.TrianglePercent = layer.SimplifyTrianglePercent.value_or( 1.0f );
-            request.Parts           = parts;
-            auto built              = meshBuilder( request );
-            if ( !built )
-                return Common::MakeError<InstancingHLOD>( "HLOD layer '" + layer.Name + "': " + built.GetError() );
-            HLODBatch batch;
-            batch.Mesh = built.ExtractValue();
-            if ( !shadows )
-                batch.Mesh->CastShadows = false;
-            // Sources in member order, once each (a record may feed several batches).
-            for ( const std::size_t member : members )
-                if ( std::find( sources.begin(), sources.end(), member ) != sources.end() )
-                    batch.Sources.push_back( member );
-            merged.Batches.push_back( std::move( batch ) );
-        }
-        return withLandscape( std::move( merged ) );
-    }
+        std::span<const Assets::EntityData> Records;
+        std::span<const glm::mat4>          World;
+        std::size_t                         Spline = kNoRecord;
+    };
 
     // The id of batch @p batch of the HLOD named @p name in world @p world: a function of the three, as a file's
     // GUID is, so a re-cook (and a second Play of the same scene) reproduces it. Zero is a possible hash and is

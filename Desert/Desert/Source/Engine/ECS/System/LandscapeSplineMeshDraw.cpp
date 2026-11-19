@@ -62,19 +62,19 @@ namespace Desert::ECS
                                           uint32_t materialsVersion, const Services& services )
     {
         std::unordered_set<entt::entity> seen;
-        registry.view<LandscapeComponent>().each(
-             [&]( entt::entity entity, const LandscapeComponent& landscape )
+        registry.view<LandscapeSplineComponent>().each(
+             [&]( entt::entity entity, const LandscapeSplineComponent& spline )
              {
                  seen.insert( entity );
                  Built& built = m_Built[entity];
                  if ( !built.Complete || built.MaterialsVersion != materialsVersion ||
-                      !( built.Splines == landscape.Splines ) )
+                      !( built.Splines == spline.Splines ) )
                  {
-                     built.Splines          = landscape.Splines;
+                     built.Splines          = spline.Splines;
                      built.Complete         = true;
                      built.MaterialsVersion = materialsVersion;
                      built.Draws.clear();
-                     const auto& segments = landscape.Splines.Segments;
+                     const auto& segments = spline.Splines.Segments;
                      for ( size_t s = 0; s < segments.size() && built.Complete; ++s )
                      {
                          std::vector<Source> sources;
@@ -93,7 +93,7 @@ namespace Desert::ECS
                          std::vector<WL::LandscapeSplineMeshSource> geometry;
                          for ( const Source& source : sources )
                              geometry.push_back( source.Geometry );
-                         auto meshes = WL::BuildLandscapeSplineSegmentMeshes( landscape.Splines, s, geometry );
+                         auto meshes = WL::BuildLandscapeSplineSegmentMeshes( spline.Splines, s, geometry );
                          for ( size_t e = 0; e < meshes.size(); ++e )
                          {
                              if ( meshes[e].Vertices.empty() )

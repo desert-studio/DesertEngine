@@ -119,18 +119,24 @@ namespace Desert::Editor
     {
         float Name = 0.0f; // what the fill column receives
         float Type = 0.0f; // 0: the Type column is dropped for this frame (no room beside Name's minimum)
+        float Layers =
+             0.0f; // 0: the Data Layers column is dropped for this frame (or the world is not partitioned)
     };
 
     // The per-frame split of @p available (the table's inner width less the gutters and cell chrome) between
-    // Name and Type. Type gives way first: it shrinks from @p typeWidth down to nothing so that Name keeps
+    // Name, Data Layers (World Partition mode; @p layersWidth 0 outside it) and Type. The service columns give
+    // way first, Type before Data Layers: each shrinks from its width down to nothing so that Name keeps
     // @p nameMin; only a panel narrower than @p nameMin itself leaves Name below it (all of the room is Name's).
-    // Without this the fixed Type column kept its full width and Name, the column the outliner exists for,
-    // was squeezed to one character in a docked panel ("F Actor").
-    [[nodiscard]] constexpr OutlinerColumnWidths OutlinerColumns( float available, float typeWidth, float nameMin )
+    // Without this a fixed service column kept its full width and Name, the column the outliner exists for, was
+    // squeezed to one character in a docked panel ("F Actor") - in World Partition mode to nothing at all (the
+    // Data Layers column took a docked outliner's whole spare width: WP-INT-1117, rows of bare icons).
+    [[nodiscard]] constexpr OutlinerColumnWidths OutlinerColumns( float available, float typeWidth,
+                                                                  float layersWidth, float nameMin )
     {
-        const float room  = available > 0.0f ? available : 0.0f;
-        const float spare = room - nameMin;
-        const float type  = spare <= 0.0f ? 0.0f : std::min( spare, typeWidth );
-        return { room - type, type };
+        const float room   = available > 0.0f ? available : 0.0f;
+        const float spare  = room - nameMin;
+        const float layers = spare <= 0.0f ? 0.0f : std::min( spare, layersWidth );
+        const float type   = spare - layers <= 0.0f ? 0.0f : std::min( spare - layers, typeWidth );
+        return { room - type - layers, type, layers };
     }
 } // namespace Desert::Editor

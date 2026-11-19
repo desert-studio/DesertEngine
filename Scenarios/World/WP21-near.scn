@@ -10,4 +10,5 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP21_PrefabSpan_Near.desce
 Дано run Panel "Open World Partition"
 Когда run Scene "Build HLODs"
+Когда wait-idle 2400
 Тогда wp21_near_built HLODs построены без ошибки (в журнале «[Build HLODs] 'WP21_PrefabSpan_Near': 4 cell(s) … 0 stale»); вид сцены с префабом

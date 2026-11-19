@@ -40,12 +40,17 @@ namespace Desert::Core::Serialize
 
         if ( entity.HasComponent<ECS::PrefabComponent>() )
         {
-            auto handle = entity.GetComponent<ECS::PrefabComponent>().Prefab;
+            const auto& link   = entity.GetComponent<ECS::PrefabComponent>();
+            auto        handle = link.Prefab;
             if ( handle )
             {
                 auto asset = assetManager.FindByHandle<Assets::PrefabAsset>( handle );
                 if ( asset )
+                {
                     data.PrefabPath = Assets::StatePrefabPath( asset->GetMetadata().Filepath );
+                    // Only beside the PrefabPath it overrides: the cook refuses it on any other record.
+                    data.RuntimeBehavior = link.RuntimeBehavior;
+                }
             }
         }
 
@@ -115,7 +120,11 @@ namespace Desert::Core::Serialize
             auto asset =
                  assetManager.FindByPath<Assets::PrefabAsset>( Assets::ResolvePrefabPath( *data.PrefabPath ) );
             if ( asset )
-                entity.AddComponent<ECS::PrefabComponent>().Prefab = asset->GetMetadata().Handle;
+            {
+                auto& link           = entity.AddComponent<ECS::PrefabComponent>();
+                link.Prefab          = asset->GetMetadata().Handle;
+                link.RuntimeBehavior = data.RuntimeBehavior;
+            }
         }
     }
 } // namespace Desert::Core::Serialize

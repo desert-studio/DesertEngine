@@ -1,4 +1,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
+#include "Editor/Panels/WorldPartition/EditorHLODs.hpp"
+
+#include <Engine/GameplayDebugger/GameplayDebuggerCategoryWorldPartition.hpp>
 
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/PlayKeptChanges.hpp"
@@ -106,6 +109,8 @@ namespace Desert::Editor
         // Snapshot the authored scene so Stop can restore it exactly (play-time edits are discarded). Timed
         // like a load: it is the other half of the round trip Stop pays.
         Desert::Core::SceneLoadPhases       phases( "Play start" );
+        // The editor's HLODs leave first (WP-EDITOR-HLOD): Play streams the world's own, which share their ids.
+        Editor::EditorHLODs::ReleaseAll( *scene );
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         m_PlayWorld.Begin( serializer.SerializeToJson() );
         PlayKeptChanges::Clear(); // a new session keeps nothing an earlier one left unapplied
@@ -556,6 +561,85 @@ namespace Desert::Editor
             commands.push_back( { std::string( CommandInfo( command ).Context ),
                                   std::string( CommandInfo( command ).Label ),
                                   [this, command] { return Run( command ); } } );
+        // RUNTIME DATA LAYERS (WP-DATA-LAYERS-RUNTIME): UE's Data Layer Outliner in PIE - a Runtime layer's state set
+        // by hand, one entry per layer and state; the same call a game makes (WorldStreamer::SetDataLayerRuntimeState).
+        if ( const auto& partition = m_Workspace.ActiveScene()->GetWorldPartition();
+             partition.has_value() && partition->DataLayers.has_value() )
+            for ( const ::Desert::Core::DataLayerSerialized& layer : *partition->DataLayers )
+            {
+                if ( layer.Type != ::Desert::Core::DataLayerType::Runtime )
+                    continue;
+                for ( const auto state : { ::Desert::Core::DataLayerRuntimeState::Unloaded,
+                                           ::Desert::Core::DataLayerRuntimeState::Loaded,
+                                           ::Desert::Core::DataLayerRuntimeState::Activated } )
+                    commands.push_back(
+                         { "Scene",
+                           std::format( "World Partition: Data layer {} -> {}", layer.Name,
+                                        ::Desert::Core::Rules::DataLayerRuntimeStateName( state ) ),
+                           [this, name = layer.Name, state]
+                           {
+                               ::Desert::Core::WorldStreamer* const streamer = Streamer();
+                               if ( streamer == nullptr || !streamer->Streams( *m_Workspace.ActiveScene() ) )
+                                   return PaletteCommandOutcome( false, "nothing is streaming: a runtime data layer "
+                                                                        "has a state in Play only." );
+                               return streamer->SetDataLayerRuntimeState( name, state );
+                           } } );
+            }
+#if DESERT_DEV_INSTRUMENTS
+        // THE WORLD PARTITION DEBUG VIEW (WP-DEBUG-DRAW; UE wp.Runtime.ToggleDrawRuntimeHash2D / 3D,
+        // ToggleDrawStreamingSources, ToggleDrawRuntimeCellsDetails, ShowRuntimeSpatialHashGridLevel): the
+        // gameplay debugger's World Partition category shown and switched - what Shift+M/B/O/I/G/C do in a
+        // packaged game.
+        {
+            using WorldPartitionView = ::Desert::Debug::GameplayDebuggerCategoryWorldPartition;
+            const auto viewCommand = [this]( std::string label, std::function<void( WorldPartitionView& )> change )
+            {
+                return PaletteCommand{
+                     "Scene", std::move( label ),
+                     [this, change = std::move( change )]() -> Common::BoolResultStr
+                     {
+                         ::Desert::Debug::GameplayDebugger& debugger = m_Workspace.ActiveScene()->GetGameplayDebugger();
+                         auto* category = dynamic_cast<WorldPartitionView*>( debugger.FindCategory( "World Partition" ) );
+                         if ( category == nullptr )
+                             return Common::MakeError<bool>(
+                                  std::string( "the gameplay debugger has no World Partition category" ) );
+                         debugger.SetActive( true );
+                         if ( !debugger.SetCategoryEnabled( "World Partition", true ) )
+                             return PaletteCommandOutcome( false, "the gameplay debugger did not turn its World "
+                                                                  "Partition category on" );
+                         change( *category );
+                         return PaletteCommandDone();
+                     } };
+            };
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition 3D",
+                                             []( WorldPartitionView& c )
+                                             {
+                                                 c.GetView().Hash3D = true;
+                                                 c.GetView().Hash2D = false;
+                                             } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition 2D",
+                                             []( WorldPartitionView& c )
+                                             {
+                                                 c.GetView().Hash2D = true;
+                                                 c.GetView().Hash3D = false;
+                                             } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition 2D + 3D",
+                                             []( WorldPartitionView& c )
+                                             {
+                                                 c.GetView().Hash2D = true;
+                                                 c.GetView().Hash3D = true;
+                                             } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition toggle streaming sources",
+                                             []( WorldPartitionView& c ) { c.GetView().Sources = !c.GetView().Sources; } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition toggle cell details",
+                                             []( WorldPartitionView& c )
+                                             { c.GetView().CellDetails = !c.GetView().CellDetails; } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition next grid level",
+                                             []( WorldPartitionView& c ) { c.NextGridLevel(); } ) );
+            commands.push_back( viewCommand( "Gameplay Debugger: World Partition next colour mode",
+                                             []( WorldPartitionView& c ) { c.NextColorMode(); } ) );
+        }
+#endif
         // Play at one TAGGED start - the control channel's spelling of `--player-start <tag>`.
         auto& registry = m_Workspace.ActiveScene()->GetRegistry();
         for ( const auto entity : registry.view<ECS::PlayerStartComponent>() )

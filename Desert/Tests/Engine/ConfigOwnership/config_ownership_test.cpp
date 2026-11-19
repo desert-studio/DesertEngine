@@ -265,6 +265,8 @@ namespace
     constexpr const char* kPreviewEnvironment = "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp";
     constexpr const char* kBuildPanel     = "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp";
     constexpr const char* kThumbnailCache     = "Editor/Source/Editor/Widgets/ThumbnailCache.cpp";
+    constexpr const char* kWorldPartitionPanel =
+         "Editor/Source/Editor/Panels/WorldPartition/WorldPartitionPanel.cpp";
 
     constexpr Row kEditorPrefsRows[] = {
          // Applied to the editor camera once a camera exists.
@@ -282,6 +284,12 @@ namespace
 
          { "AutosaveMinutes", Owner::Machine, kSessionRecovery },
          { "ShowPerfHud", Owner::Machine, kViewportPanel },
+         // UE UWorldPartitionEditorPerProjectUserSettings: whether, and from how far, this user's editor draws the
+         // saved HLODs of the cells it does not hold (WP-EDITOR-HLOD), read every frame by the World Partition
+         // window.
+         { "ShowHLODsInEditor", Owner::Machine, kWorldPartitionPanel },
+         { "HLODInEditorMinDrawDistance", Owner::Machine, kWorldPartitionPanel },
+         { "HLODInEditorMaxDrawDistance", Owner::Machine, kWorldPartitionPanel },
          // How many thumbnails stay GPU textures: this machine's video memory, read on every upload.
          { "ThumbnailPoolSize", Owner::Machine, kThumbnailCache },
 

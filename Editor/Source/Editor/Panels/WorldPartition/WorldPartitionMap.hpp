@@ -61,7 +61,7 @@ namespace Desert::Editor::WorldPartitionMap
     [[nodiscard]] View Follow( glm::dvec2 screenSize, glm::dvec2 sourceXZ );
 
     // Every reader below takes @p grid: only the cells of that runtime grid (PlannedCell::Grid, index into
-    // WorldPartitionSerialized::Grids - the panel's grid picker); nullopt = every grid's cells.
+    // WorldPartitionSerialized::RuntimePartitions - the panel's partition picker); nullopt = every grid's cells.
 
     // The bounds of every cell of @p plan; nullopt for a plan without cells.
     [[nodiscard]] std::optional<::Desert::Core::Rules::CellBounds>
@@ -93,8 +93,9 @@ namespace Desert::Editor::WorldPartitionMap
         Unstreamed, // Edit: nothing streams, the cell is where the partition puts it
         Unloaded,
         Loading,
-        Loaded,   // read, not yet an entity: waiting for the activation budget
-        Resident, // its records are entities
+        Loaded,        // read, not yet an entity: waiting for the activation budget
+        MakingVisible, // part made, hidden until every record is an entity and collides (UE LEVEL_MakingVisible)
+        Resident,      // its records are entities
         Failed,
         // Edit, a world opened by region (WP20, UE's World Partition editor colours its loaded regions): what
         // of the cell's composites the editor holds now.
@@ -141,4 +142,53 @@ namespace Desert::Editor::WorldPartitionMap
 
     // The streaming source's loading circle and its unload band, in pixels.
     [[nodiscard]] double RadiusPixels( const View& view, double radiusCm );
+
+    // ── THE HELD ENTITIES' FOOTPRINTS (UE SWorldPartitionEditorGrid2D: ShowActors, DrawActorLabels) ──
+    // UE draws over the cells the bounds of every actor the editor holds once the view is close enough for a box to
+    // be legible, fading it in, and its label once the label fits inside the box. Here what is drawn is a composite
+    // of the plan (an entity and everything that hangs off it, placed as one): its PlannedComposite::Footprint.
+
+    // UE's MinimumAreaCull: a footprint narrower than this on both axes is not drawn.
+    inline constexpr double kMinFootprintPixels = 32.0;
+    // UE's AreaFadeDistance: above the cull a footprint fades in over this many pixels.
+    inline constexpr double kFootprintFadePixels = 128.0;
+    // The room a label keeps from its box's edges.
+    inline constexpr double kLabelPaddingPixels = 4.0;
+
+    struct FootprintOnScreen
+    {
+        std::size_t Composite = 0; // index into WorldPartitionPlan::Composites
+        glm::dvec2  Min{ 0.0 };    // panel-local pixels, top-left corner
+        glm::dvec2  Max{ 0.0 };    // bottom-right corner
+        float       Opacity = 1.0f; // UE's area fade, 0..1
+    };
+
+    // The composites of @p plan whose anchor record the editor holds - @p held( anchor record index ) - and whose
+    // footprint meets the panel and spans at least kMinFootprintPixels on screen, in plan order, each with its fade.
+    // A composite without a footprint (an unplaced prefab instance) has nothing to draw. PURE.
+    [[nodiscard]] std::vector<FootprintOnScreen>
+    VisibleFootprints( const ::Desert::Core::Rules::WorldPartitionPlan& plan, const View& view, glm::dvec2 screenSize,
+                       const std::function<bool( std::size_t )>& held );
+
+    // UE DrawActorLabel: a label of @p labelSize pixels is drawn only where it fits inside its box with
+    // kLabelPaddingPixels on every side.
+    [[nodiscard]] bool LabelFits( const FootprintOnScreen& footprint, glm::dvec2 labelSize );
+
+    // ── THE HLOD OVERLAY: what Build HLODs left for each cell, judged against the saved world ──
+    enum class HLODState
+    {
+        None,  // no HLOD built for the cell, or the cell batches nothing
+        Built, // its stored HLOD draws something and was built from the cell as it is saved now
+        Stale, // its stored HLOD is missing or was built from other records (WorldCells::StaleHLODCells)
+    };
+
+    // One state per cell of @p plan: Stale when @p staleUnits names its residency unit (Rules::DescribeResidencyUnit),
+    // else Built when @p builtUnits does (the stored index's rows that hold a file), else None. PURE.
+    [[nodiscard]] std::vector<HLODState> HLODCellStates( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                                         std::span<const std::string>                     builtUnits,
+                                                         std::span<const std::string>                     staleUnits );
+
+    // The outline an HLOD state draws around its cell (None draws nothing), and its legend name.
+    [[nodiscard]] glm::vec4   ColorOf( HLODState state );
+    [[nodiscard]] const char* NameOf( HLODState state );
 } // namespace Desert::Editor::WorldPartitionMap

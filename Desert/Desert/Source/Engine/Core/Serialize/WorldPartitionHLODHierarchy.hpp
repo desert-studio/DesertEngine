@@ -1,18 +1,20 @@
 #pragma once
 // THE HLOD HIERARCHY OF A WORLD, STREAMED BY RESIDENCY (WP-FAR-8).
 //
-// Pattern of UE World Partition (UHLODLayer::ParentLayer / bIsSpatiallyLoaded / CellSize / LoadingRange, and
-// UWorldPartitionHLODRuntimeSubsystem): the HLODs one layer builds are actors of their own runtime grid, streamed
-// by the same policy as the world's cells; the layer's ParentLayer builds, per cell of that grid, an HLOD that
-// stands in for the whole cell while it is not shown. The top of a chain is not spatially loaded, so there is
-// always something to draw at any distance. Not UE's code: a plan over this engine's residency units.
+// Pattern of UE World Partition (FRuntimePartitionHLODSetup / UHLODLayer::bIsSpatiallyLoaded / CellSize /
+// LoadingRange, and UWorldPartitionHLODRuntimeSubsystem): the HLODs one layer builds are actors of their own
+// runtime grid, streamed by the same policy as the world's cells; the NEXT HLOD setup's layer
+// (RuntimePartitionHLODSetupSerialized: the order is the chain, UE FRuntimePartitionDesc::HLODSetups) builds, per
+// cell of that grid, an HLOD that stands in for the whole cell while it is not shown. The top of a chain is not
+// spatially loaded, so there is always something to draw at any distance. Not UE's code: a plan over this engine's
+// residency units.
 //
 // ── THE NODES ─────────────────────────────────────────────────────────────────────────────────────
 //
 // A NODE is one HLOD object. Depth 1: one per cell unit of the world's plan whose grid states an HLOD layer
 // (the HLOD WP10/WP11 built), standing in for that cell. If its layer is spatially loaded it LIVES in the
 // layer's square cell (CellSize, by the centre of the cell it stands in for); every such HLOD CELL gets one node
-// of the ParentLayer that stands in for the HLOD cell as a whole, built from the records of every world cell
+// of the next layer that stands in for the HLOD cell as a whole, built from the records of every world cell
 // beneath it - and so on up the chain. A node of an always-loaded layer lives nowhere: it is resident from the
 // first frame to the last.
 //
@@ -70,8 +72,15 @@ namespace Desert::Core::Rules
         CellBounds Bounds;
         // The union of the height spans of what it stands in for (PlannedCell::Height, WP-SRC-ALTITUDE).
         HeightSpan Height;
-        // Its key in the saved HLOD index: a depth-1 node is its cell unit's DescribeResidencyUnit (the WP-FAR-6B
-        // row, unchanged); a parent is "<child layer>(X,Z)" of the HLOD cell it stands in for.
+        // The RUNTIME data layers it belongs to (indices into WorldPartitionSerialized::DataLayers, ascending;
+        // empty = none) - UE's AWorldPartitionHLOD carries the DataLayerInstances of the runtime cell it was built
+        // from (WP-HLOD-DATA-LAYERS). A depth-1 node: its cell's (PlannedCell::DataLayers); a parent: those of the
+        // HLOD cell it stands in for. It is shown only while their effective state is Activated
+        // (HLODRuntime::Sync) and its HLOD cell streams by them (MakeHLODResidency).
+        std::vector<std::size_t> DataLayers;
+        // Its key in the saved HLOD index: a depth-1 node is HLODRowName of its cell unit (the WP-FAR-6B row; a
+        // cell of runtime layers adds their suffix); a parent is "<child layer>(X,Z)" of the HLOD cell it stands
+        // in for, with the same suffix (DataLayersCellSuffix) for a cell of runtime layers.
         std::string Name;
     };
 
@@ -82,7 +91,9 @@ namespace Desert::Core::Rules
         CellBounds               Square;
         CellBounds               Bounds; // Square widened by its nodes' bounds
         HeightSpan               Height; // the union of its nodes' height spans
-        std::vector<std::size_t> Nodes;  // ascending
+        // Its runtime data layers - its nodes' (they share them: the set is part of the cell's key).
+        std::vector<std::size_t> DataLayers;
+        std::vector<std::size_t> Nodes; // ascending
     };
 
     struct HLODHierarchy
@@ -93,10 +104,14 @@ namespace Desert::Core::Rules
         // Per layer: its residency grid (MakeHLODResidency) when spatially loaded, else kNoRecord.
         std::vector<std::size_t> GridOfLayer;
 
-        // Whether any HLOD is spatially loaded, i.e. whether a second residency streams HLOD cells.
+        // Whether a second residency streams the HLODs: any HLOD is spatially loaded (it lives in an HLOD cell),
+        // or any belongs to runtime data layers (WP-HLOD-DATA-LAYERS) - such an HLOD is read and made only while
+        // its layers want it, also one of an always-loaded HLOD layer (UE streams an AWorldPartitionHLOD by the
+        // data layers it carries, wherever it lives), so it is never made at the start of Play only to be hidden.
         [[nodiscard]] bool Streams() const
         {
-            return !Cells.empty();
+            return !Cells.empty() || std::any_of( Nodes.begin(), Nodes.end(), []( const HLODNode& node )
+                                                  { return !node.DataLayers.empty(); } );
         }
     };
 
@@ -117,6 +132,17 @@ namespace Desert::Core::Rules
             return kNoRecord;
         }
     } // namespace Detail
+
+    // THE KEY OF A CELL UNIT'S SAVED HLOD (BuiltHLODCell::Unit, HLODNode::Name; WP-HLOD-DATA-LAYERS): its
+    // DescribeResidencyUnit, and for a cell of runtime data layers their suffix (DataLayersCellSuffix, as its
+    // file's name carries it) - two cells of one square in different sets of layers are different cells with
+    // different HLODs, so the key Build HLODs writes, the cook packs by and Play reads by must tell them apart.
+    [[nodiscard]] inline std::string HLODRowName( const WorldPartitionSerialized& partition,
+                                                  const WorldPartitionPlan& plan, std::size_t unit )
+    {
+        return DescribeResidencyUnit( plan, unit ) +
+               DataLayersCellSuffix( partition, UnitRuntimeDataLayers( plan, partition, unit ) );
+    }
 
     // The hierarchy of @p partition over @p plan. Call after ValidateHLODLayers (a refused partition is refused
     // here too, by its message). A world whose layers are all always loaded gets only depth-1 nodes, none
@@ -141,16 +167,18 @@ namespace Desert::Core::Rules
         for ( std::size_t c = 0; c < plan.Cells.size(); ++c )
         {
             const PlannedCell& cell = plan.Cells[c];
-            const auto&        grid = partition.Grids.at( cell.Grid );
-            if ( !grid.HLODLayer.has_value() )
+            const HLODLayerSerialized* first =
+                 GridHLODLayer( partition, partition.RuntimePartitions.at( cell.Grid ) );
+            if ( first == nullptr )
                 continue;
             HLODNode node;
-            node.Layer       = Detail::HLODLayerIndex( layers, *grid.HLODLayer );
+            node.Layer       = Detail::HLODLayerIndex( layers, first->Name );
             node.StandsFor   = plan.AlwaysLoaded.size() + c;
             node.SourceUnits = { node.StandsFor };
             node.Bounds      = cell.Square;
             node.Height      = cell.Height;
-            node.Name        = DescribeResidencyUnit( plan, node.StandsFor );
+            node.DataLayers  = cell.DataLayers;
+            node.Name        = HLODRowName( partition, plan, node.StandsFor );
             out.Nodes.push_back( std::move( node ) );
         }
 
@@ -158,9 +186,10 @@ namespace Desert::Core::Rules
         std::vector<std::size_t> level( layers.size(), 0 );
         for ( std::size_t pass = 0; pass < layers.size(); ++pass )
             for ( std::size_t i = 0; i < layers.size(); ++i )
-                if ( layers[i].ParentLayer.has_value() )
+                if ( const HLODLayerSerialized* next = NextHLODLayer( partition, layers[i].Name );
+                     next != nullptr )
                 {
-                    const std::size_t parent = Detail::HLODLayerIndex( layers, *layers[i].ParentLayer );
+                    const std::size_t parent = Detail::HLODLayerIndex( layers, next->Name );
                     level[parent]            = std::max( level[parent], level[i] + 1 );
                 }
         std::vector<std::size_t> order( layers.size() );
@@ -169,16 +198,23 @@ namespace Desert::Core::Rules
         std::stable_sort( order.begin(), order.end(),
                           [&]( std::size_t a, std::size_t b ) { return level[a] < level[b]; } );
 
-        using Key = std::tuple<std::size_t, std::int32_t, std::int32_t>; // grid, X, Z
+        // grid, X, Z, runtime data layers
+        using Key = std::tuple<std::size_t, std::int32_t, std::int32_t, std::vector<std::size_t>>;
         std::map<Key, std::vector<std::size_t>> cellNodes;
         std::vector<std::optional<Key>>         livesIn;   // per node
         std::vector<std::optional<Key>>         standsKey; // per parent node
         for ( const std::size_t layer : order )
         {
-            if ( out.GridOfLayer[layer] == kNoRecord )
+            // A spatially loaded layer no partition's HLOD setups name has no node and no next layer.
+            const HLODLayerSerialized* const next = NextHLODLayer( partition, layers[layer].Name );
+            if ( out.GridOfLayer[layer] == kNoRecord || next == nullptr )
                 continue;
             const double size = *layers[layer].CellSize;
-            std::map<std::pair<std::int32_t, std::int32_t>, std::vector<std::size_t>> mine;
+            // An HLOD cell is (grid, X, Z, runtime data layers): the HLODs of one square in different sets of
+            // runtime layers are different cells, as the world's own cells are (PlannedCell::DataLayers; UE builds
+            // an AWorldPartitionHLOD per runtime cell and data layer set and streams it by those layers).
+            std::map<std::tuple<std::int32_t, std::int32_t, std::vector<std::size_t>>, std::vector<std::size_t>>
+                 mine;
             for ( std::size_t n = 0; n < out.Nodes.size(); ++n )
             {
                 if ( out.Nodes[n].Layer != layer )
@@ -186,14 +222,16 @@ namespace Desert::Core::Rules
                 const CellBounds& b  = out.Nodes[n].Bounds;
                 const double      cx = 0.5 * ( static_cast<double>( b.MinX ) + b.MaxX );
                 const double      cz = 0.5 * ( static_cast<double>( b.MinZ ) + b.MaxZ );
-                mine[{ static_cast<std::int32_t>( std::floor( cx / size ) ),
-                       static_cast<std::int32_t>( std::floor( cz / size ) ) }]
+                mine[std::make_tuple( static_cast<std::int32_t>( std::floor( cx / size ) ),
+                                      static_cast<std::int32_t>( std::floor( cz / size ) ),
+                                      out.Nodes[n].DataLayers )]
                      .push_back( n );
             }
-            const std::size_t parent = Detail::HLODLayerIndex( layers, *layers[layer].ParentLayer );
+            const std::size_t parent = Detail::HLODLayerIndex( layers, next->Name );
             for ( const auto& [coord, members] : mine )
             {
-                const Key key{ out.GridOfLayer[layer], coord.first, coord.second };
+                const auto& [x, z, dataLayers] = coord;
+                const Key key{ out.GridOfLayer[layer], x, z, dataLayers };
                 cellNodes[key] = members;
                 livesIn.resize( out.Nodes.size() );
                 for ( const std::size_t n : members )
@@ -201,6 +239,7 @@ namespace Desert::Core::Rules
                 HLODNode up;
                 up.Layer       = parent;
                 up.ForHLODCell = true;
+                up.DataLayers  = dataLayers;
                 up.Bounds      = out.Nodes[members.front()].Bounds;
                 up.Height      = out.Nodes[members.front()].Height;
                 for ( const std::size_t n : members )
@@ -213,7 +252,8 @@ namespace Desert::Core::Rules
                 std::sort( up.SourceUnits.begin(), up.SourceUnits.end() );
                 up.SourceUnits.erase( std::unique( up.SourceUnits.begin(), up.SourceUnits.end() ),
                                       up.SourceUnits.end() );
-                up.Name = std::format( "{}({},{})", layers[layer].Name, coord.first, coord.second );
+                up.Name = std::format( "{}({},{}){}", layers[layer].Name, x, z,
+                                       DataLayersCellSuffix( partition, dataLayers ) );
                 out.Nodes.push_back( std::move( up ) );
                 standsKey.resize( out.Nodes.size() );
                 standsKey.back() = key;
@@ -222,11 +262,11 @@ namespace Desert::Core::Rules
         livesIn.resize( out.Nodes.size() );
         standsKey.resize( out.Nodes.size() );
 
-        // The cells in key order, which is the order the query needs (grid, then X, then Z).
+        // The cells in key order, which is the order the query needs (grid, then X, then Z, then data layers).
         std::map<Key, std::size_t> cellIndex;
         for ( const auto& [key, members] : cellNodes )
         {
-            const auto [grid, x, z] = key;
+            const auto& [grid, x, z, dataLayers] = key;
             std::size_t layer       = kNoRecord;
             for ( std::size_t i = 0; i < out.GridOfLayer.size(); ++i )
                 if ( out.GridOfLayer[i] == grid )
@@ -235,6 +275,7 @@ namespace Desert::Core::Rules
             HLODCell    cell;
             cell.Layer  = layer;
             cell.Coord  = { x, z };
+            cell.DataLayers = dataLayers;
             cell.Square = { static_cast<float>( static_cast<double>( x ) * size ),
                             static_cast<float>( static_cast<double>( z ) * size ),
                             static_cast<float>( static_cast<double>( x + 1 ) * size ),
@@ -270,10 +311,13 @@ namespace Desert::Core::Rules
         std::vector<std::size_t> UnitOfNode;
         std::vector<std::size_t> FirstRecord;
         std::size_t              Records = 0;
-        // Per grid of Partition: the WORLD grids (by WorldPartitionGridSerialized::Name) whose cells that HLOD
-        // layer stands in for - every grid whose HLODLayer chain passes through it. A source's TargetGrids names
-        // world grids; HLODSources reads it through this.
+        // Per partition of Partition: the WORLD partitions (by RuntimePartitionSerialized::Name) whose cells that
+        // HLOD layer stands in for - every partition whose HLOD setups name it. A source's TargetGrids names world
+        // partitions; HLODSources reads it through this.
         std::vector<std::vector<std::string>> StandsForGrids;
+        // Per grid of Partition: the HLOD layer it is (HLODLayerSerialized::Name) - what a source's
+        // TargetHLODLayers names (HLODSources).
+        std::vector<std::string> LayerOfGrid;
     };
 
     // @p recordsOfNode: per node of @p hierarchy, how many records its saved HLOD holds (0 for one that has none:
@@ -288,30 +332,32 @@ namespace Desert::Core::Rules
                               "for {} HLOD(s)",
                               recordsOfNode.size(), hierarchy.Nodes.size() ) );
         HLODResidency out;
+        // The world's data layers, so a node's and an HLOD cell's runtime layers (indices into them) mean the same
+        // here, the HLOD residency starts them in their InitialRuntimeState, and TickWithHLODs keeps them at the
+        // world's states: an HLOD cell of an Unloaded layer is not read, of a Loaded one is not made entities.
+        out.Partition.DataLayers              = partition.DataLayers;
+        out.Partition.DataLayersLogicOperator = partition.DataLayersLogicOperator;
         if ( partition.HLODLayers.has_value() )
             for ( std::size_t i = 0; i < partition.HLODLayers->size(); ++i )
             {
                 if ( hierarchy.GridOfLayer.at( i ) == kNoRecord )
                     continue;
-                const HLODLayerSerialized&   layer = ( *partition.HLODLayers )[i];
-                WorldPartitionGridSerialized grid;
-                grid.Name         = "HLOD " + layer.Name;
-                grid.CellSize     = *layer.CellSize;
-                grid.LoadingRange = *layer.LoadingRange;
-                out.Partition.Grids.push_back( std::move( grid ) );
+                const HLODLayerSerialized& layer = ( *partition.HLODLayers )[i];
+                // The layer's HLOD cells are an LHGrid partition of their own (UE: an HLOD setup's
+                // PartitionLayer).
+                RuntimePartitionSerialized grid;
+                grid.Name   = "HLOD " + layer.Name;
+                grid.Type   = RuntimePartitionType::LHGrid;
+                grid.LHGrid = RuntimePartitionLHGridSerialized{ *layer.CellSize, *layer.LoadingRange, 0 };
+                out.LayerOfGrid.push_back( layer.Name );
+                out.Partition.RuntimePartitions.push_back( std::move( grid ) );
                 std::vector<std::string> standsFor;
-                for ( const WorldPartitionGridSerialized& world : partition.Grids )
-                    for ( const HLODLayerSerialized* at = world.HLODLayer.has_value()
-                                                               ? FindHLODLayer( partition, *world.HLODLayer )
-                                                               : nullptr;
-                          at != nullptr;
-                          at = at->ParentLayer.has_value() ? FindHLODLayer( partition, *at->ParentLayer )
-                                                           : nullptr )
-                        if ( at == &layer )
-                        {
-                            standsFor.push_back( world.Name );
-                            break;
-                        }
+                for ( const RuntimePartitionSerialized& world : partition.RuntimePartitions )
+                    if ( world.HLODSetups.has_value() &&
+                         std::any_of( world.HLODSetups->begin(), world.HLODSetups->end(),
+                                      [&]( const RuntimePartitionHLODSetupSerialized& setup )
+                                      { return setup.HLODLayer == layer.Name; } ) )
+                        standsFor.push_back( world.Name );
                 out.StandsForGrids.push_back( std::move( standsFor ) );
             }
         out.FirstRecord.resize( hierarchy.Nodes.size() );
@@ -326,6 +372,7 @@ namespace Desert::Core::Rules
             composite.Anchor    = composite.Members.empty() ? kNoRecord : composite.Members.front();
             composite.Footprint = node.Bounds;
             composite.Height    = node.Height;
+            composite.DataLayers = node.DataLayers;
             if ( node.Cell != kNoRecord )
             {
                 const HLODCell& cell = hierarchy.Cells.at( node.Cell );
@@ -345,6 +392,7 @@ namespace Desert::Core::Rules
             planned.Square     = cell.Square;
             planned.Bounds     = cell.Bounds;
             planned.Height     = cell.Height;
+            planned.DataLayers = cell.DataLayers;
             planned.Composites = cell.Nodes;
             out.Plan.Cells.push_back( std::move( planned ) );
         }
@@ -358,13 +406,14 @@ namespace Desert::Core::Rules
         return Common::MakeSuccess( std::move( out ) );
     }
 
-    // THE SOURCES THE HLOD CELLS STREAM FOR. A source's TargetGrids names WORLD grids; the HLOD cells of a layer
-    // stand in for the cells of the world grids beneath it, so a source streams an HLOD grid exactly when it
-    // streams one of those. In UE the source carries a second list, TargetHLODLayers, set apart from TargetGrids;
-    // here it is derived, because the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell
-    // above it, so a source naming "Main" read literally (never "HLOD <layer>") would hold its Main cells forever.
-    // A source naming none streams every grid, HLOD grids included; one targeting no HLOD grid is left out (an
-    // emptied list would read as "every grid").
+    // THE SOURCES THE HLOD CELLS STREAM FOR. A source streams an HLOD grid when its own lists target that HLOD
+    // layer (UE's TargetHLODLayers under TargetBehavior, TargetsHLODLayer) OR when it streams a world grid beneath
+    // that layer (StandsForGrids): the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell
+    // above it, so a source streaming "Main" must stream Main's HLOD too or it would hold its Main cells forever -
+    // which is why an HLOD layer standing for a streamed world grid cannot be excluded. So a source excluding Main
+    // shows Main's HLOD around it (UE: the HLOD grid is not in its exclusion), and one including only Main streams
+    // Main's HLOD and nothing else. A source naming nothing streams every grid, HLOD grids included; one targeting
+    // no HLOD grid is left out (an emptied list would read as "every grid").
     [[nodiscard]] inline std::vector<StreamingSource> HLODSources( const HLODResidency&             residency,
                                                                    std::span<const StreamingSource> sources )
     {
@@ -372,21 +421,23 @@ namespace Desert::Core::Rules
         out.reserve( sources.size() );
         for ( const StreamingSource& source : sources )
         {
-            if ( source.TargetGrids.empty() )
+            if ( source.TargetGrids.empty() && source.TargetHLODLayers.empty() )
             {
                 out.push_back( source );
                 continue;
             }
             StreamingSource mapped = source;
             mapped.TargetGrids.clear();
-            for ( std::size_t g = 0; g < residency.Partition.Grids.size(); ++g )
+            mapped.TargetHLODLayers.clear();
+            mapped.TargetBehavior = StreamingSourceTargetBehavior::Include;
+            for ( std::size_t g = 0; g < residency.Partition.RuntimePartitions.size(); ++g )
+            {
+                bool streams = TargetsHLODLayer( source, residency.LayerOfGrid.at( g ) );
                 for ( const std::string& world : residency.StandsForGrids.at( g ) )
-                    if ( std::find( source.TargetGrids.begin(), source.TargetGrids.end(), world ) !=
-                         source.TargetGrids.end() )
-                    {
-                        mapped.TargetGrids.push_back( residency.Partition.Grids[g].Name );
-                        break;
-                    }
+                    streams = streams || TargetsGridNamed( source, world );
+                if ( streams )
+                    mapped.TargetGrids.push_back( residency.Partition.RuntimePartitions[g].Name );
+            }
             if ( !mapped.TargetGrids.empty() )
                 out.push_back( std::move( mapped ) );
         }
@@ -400,8 +451,10 @@ namespace Desert::Core::Rules
     {
         if ( unit < residency.Plan.AlwaysLoaded.size() )
             return "HLOD " + hierarchy.Nodes.at( residency.Plan.AlwaysLoaded[unit] ).Name;
+        // An HLOD cell of runtime data layers carries their suffix (WP-HLOD-DATA-LAYERS): two cells of one square
+        // in different sets of layers are two cells, and a log line must say which one loaded.
         const PlannedCell& cell = residency.Plan.Cells.at( unit - residency.Plan.AlwaysLoaded.size() );
-        return std::format( "{}({},{})", residency.Partition.Grids.at( cell.Grid ).Name, cell.Cell.X,
-                            cell.Cell.Z );
+        return std::format( "{}({},{}){}", residency.Partition.RuntimePartitions.at( cell.Grid ).Name, cell.Cell.X,
+                            cell.Cell.Z, DataLayersCellSuffix( residency.Partition, cell.DataLayers ) );
     }
 } // namespace Desert::Core::Rules

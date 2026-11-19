@@ -84,6 +84,8 @@ namespace Desert::Editor::Control
         ProfileDump, ///< write the profiler's per-pass table (CPU/GPU ms per scope) to editor.log, the same
                      ///< ProfilerWindow::DumpProfilerToLog a headless --shot ends with (UE ProfileGPU)
         Lua, ///< run a Luau chunk in the open (or played) scene's world, as the editor's Lua console does
+        Spawn, ///< place an asset (a mesh or a prefab) at a world point as a new entity, through the viewport's
+               ///< own drop body (one undo step), under the UUID the caller names (UE Remote Control SpawnActor)
     };
 
     /**
@@ -145,6 +147,7 @@ namespace Desert::Editor::Control
          { "profile-dump", Op::ProfileDump, RequiresReady::Yes },
          { "select", Op::Select, RequiresReady::Yes },
          { "lua", Op::Lua, RequiresReady::Yes },
+         { "spawn", Op::Spawn, RequiresReady::Yes },
     };
 
     /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp
@@ -257,7 +260,8 @@ namespace Desert::Editor::Control
         /// (not by its label: two properties may display the same words).
         std::string Property;
 
-        /// Subject::Entity — the entity's UUID, decimal.
+        /// Subject::Entity — the entity's UUID, decimal. Op::Spawn — the UUID the new entity takes (empty: a
+        /// fresh one, as a drop by mouse gets).
         std::string Entity;
 
         /// Op::Set on Subject::Entity / Subject::World — the value as text, parsed by the field's own type
@@ -278,7 +282,8 @@ namespace Desert::Editor::Control
         /// Op::SaveAs — the scene's new name; the file is <scene dir>/<name with spaces as _>.desce.
         std::string SceneName;
 
-        /// Op::ShotWindow / Op::ShotViewport — where the PNG goes.
+        /// Op::ShotWindow / Op::ShotViewport — where the PNG goes. Op::Spawn — the asset placed, as the Content
+        /// Browser names it (Content/... or a path under the project); Value holds the world point (x, y, z, cm).
         std::string Path;
 
         /// Op::State — which sections to include. Empty means all of them.
@@ -653,6 +658,17 @@ namespace Desert::Editor::Control
                 request.Entity = ReadString( fields, "entity" );
                 if ( request.Entity.empty() )
                     return Common::MakeError<Request>( "'select' needs 'entity' (the entity's UUID, decimal)." );
+                break;
+            }
+            case Op::Spawn:
+            {
+                request.Path   = ReadString( fields, "path" );
+                request.Entity = ReadString( fields, "entity" );
+                if ( request.Path.empty() || ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                     request.Value.size() != 3 )
+                    return Common::MakeError<Request>(
+                         "'spawn' needs 'path' (the asset) and 'value' as three numbers: the world point it lands "
+                         "at, in centimetres. 'entity' (the new entity's UUID, decimal) is optional." );
                 break;
             }
             case Op::AddComponent:

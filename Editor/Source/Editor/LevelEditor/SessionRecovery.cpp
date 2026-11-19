@@ -2,6 +2,7 @@
 
 #include "Editor/Core/AutosavePaths.hpp"
 #include "Editor/Core/CommandHistory.hpp"
+#include "Editor/Core/BuilderRunOptions.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
 #include "Editor/Core/CrashRecovery.hpp"
 #include "Editor/Core/EditorPreferences.hpp"
@@ -64,7 +65,9 @@ namespace Desert::Editor
         // dialog) and leaves the lock alone both ways: a modal nobody clicks would sit over every frame the
         // client captures (FIELD-MEM p3, 3_barn_again), and arming then disarming would erase the previous
         // interactive session's lock, so the user would never be offered the work it lost.
-        if ( Control::ControlChannelOptions::Get().Requested() )
+        // A BUILDER RUN (`--run WorldPartitionBuilder`) is a commandlet: unattended the same way (UE's commandlets
+        // run -unattended), with no window at all for the prompt to sit in.
+        if ( Control::ControlChannelOptions::Get().Requested() || BuilderRunOptions::Get().Active() )
         {
             if ( CrashRecovery::WasUncleanExit() )
                 LOG_WARN( "[Recovery] driven session (--control-socket): the previous session's lock is left for "
@@ -189,8 +192,9 @@ namespace Desert::Editor
     void SessionRecovery::Disarm()
     {
         // After a device loss CrashRecovery::DisarmSession refuses, on purpose — see its own comment.
-        // A driven session never armed one (OfferAndArm): the lock on disk, if any, is another session's.
-        if ( Control::ControlChannelOptions::Get().Requested() )
+        // A driven session or a builder run never armed one (OfferAndArm): the lock on disk, if any, is another
+        // session's.
+        if ( Control::ControlChannelOptions::Get().Requested() || BuilderRunOptions::Get().Active() )
             return;
         CrashRecovery::DisarmSession();
     }

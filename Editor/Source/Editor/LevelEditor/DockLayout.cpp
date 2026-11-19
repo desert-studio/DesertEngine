@@ -211,7 +211,7 @@ namespace Desert::Editor
             // 3: the centre is split and documents get a node of their own (layout option B.1).
             // 4: the centre is the level's alone again; documents open as tabs beside it (DocumentPlacement)
             //    and the Documents index moves to the bottom drawer.
-            constexpr int kDockLayoutVersion = 4;
+            constexpr int kDockLayoutVersion = 5; // 5: Data Layers is a tab of the left column (WP-INT-1117)
             if ( EditorPreferences::Get().DockLayoutVersion < kDockLayoutVersion )
             {
                 // SAID OUT LOUD. Every existing imgui.ini is rebuilt once here, and a layout that changes
@@ -220,8 +220,9 @@ namespace Desert::Editor
                 // collapse. One line naming the old and new versions is the difference between "my layout
                 // was reset by the update" and "my layout is gone".
                 LOG_INFO( "[Editor] Docking layout rebuilt once: saved layout is version {}, this build lays "
-                          "out version {} (asset documents now open as tabs beside the level viewport, and the "
-                          "Documents index is a tab in the bottom drawer). Your named layouts under View -> "
+                          "out version {} (asset documents open as tabs beside the level viewport, the Documents "
+                          "index is a tab in the bottom drawer, and Data Layers is a tab beside World Partition). "
+                          "Your named layouts under View -> "
                           "Layouts are untouched.",
                           EditorPreferences::Get().DockLayoutVersion, kDockLayoutVersion );
 
@@ -326,6 +327,9 @@ namespace Desert::Editor
                 // UE's World Partition editor is a docked tab whose map fills it. The left column is the
                 // tallest node that is not the level, so the map gets a near-square canvas beside the Outliner.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "World Partition" ).c_str(), left );
+                // UE's Data Layers Outliner is a tab of the same column (WP-DATA-LAYER-OUTLINER): without a home
+                // it opened as a split a few rows tall above the World Partition map, its layer tree out of sight.
+                ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Data Layers" ).c_str(), left );
 
                 // The well is the INDEX of open documents, not where they open: a document opens as a tab
                 // beside the level viewport (DocumentPlacement), so the well is a tab in the drawer and

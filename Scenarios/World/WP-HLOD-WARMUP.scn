@@ -1,0 +1,70 @@
+# WP-HLOD-WARMUP: the swap between a cell and its HLOD is warmed (WorldPartitionHLODSwitch.hpp, THE WARMUP).
+# World: Scenes/WP_Protocol (WP-PROTOCOL.scn). HLOD_Main is switched to MeshSimplify (a built mesh with a baked
+# material - its textures are the HLOD's own, drawn by nobody while the cells are shown) and rebuilt; the texture
+# pool (Scalability Textures.StreamingPoolMiB) is cut so unseen mips are really dropped and must come back.
+# Source: the far flyer 9000003 (Scripts/World/WPFarFly.lua: 0-30 s hold at X=0, 250 m/s, 37-67 s hold at
+# X=1800 m, 80-110 s hold at X=5000 m); Player 9000001 off. Main cells: 25 m, LoadingRange 200 m.
+# Expected in editor.log ("[WorldPartition] 'WP_Protocol': ..."): cells near X=1800 m "grid 'Main' HLOD of ...
+# hidden." only after their warmup (no line "the HLOD warmup of ... ran out of 60 frames" for them, or a few at
+# most under the cut pool); when the flyer leaves, "HLOD of ... shown." after the HLOD warmup.
+# The pool is cut through the Quality palette (QualityOverridePaletteCommands: 256 is the parameter's Min, the
+# smallest it takes); the override is saved to machine.json, so the last line clears it again.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано set world WorldPartition '{"RuntimePartitions":[{"Name":"Main","Type":"LHGrid","LHGrid":{"CellSize":2500,"LoadingRange":20000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Main","HLODLayer":"HLOD_Main"}]},{"Name":"Foliage","Type":"LHGrid","LHGrid":{"CellSize":1280,"LoadingRange":6400,"Priority":0},"HLODSetups":[{"Name":"HLOD_Foliage","HLODLayer":"HLOD_Foliage"}]},{"Name":"LandscapeTiles","Type":"LHGrid","LHGrid":{"CellSize":5000,"LoadingRange":51000,"Priority":0},"HLODSetups":[{"Name":"HLOD_Landscape","HLODLayer":"HLOD_Landscape"}]}],"HLODLayers":[{"Name":"HLOD_Main","Type":"MeshSimplify"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
+Дано run Scene "Build HLODs"
+Дано wait-idle 2400
+Дано run Quality "Quality: Textures.StreamingPoolMiB 256"
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000003 StreamingSourceData.Enabled true
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 150000,6000,-8000
+Когда --subject viewport set Camera.Direction 1,-0.25,0.6
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 1.2
+Тогда warmup_no_blur флаер долетел до X=1800 м: ячейки Main у X 1.8 км только что показаны - текстуры зданий чёткие (без мыльного мипа хвоста), ни дыры, ни двойного; в логе HLOD этих ячеек hidden после прогрева
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 175000,9000,-20000
+Когда --subject viewport set Camera.Direction 0.2,-0.3,1
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 1.5
+Тогда warmup_hlod_sharp флаер ушёл к X=5 км: ячейки у X 1.8 км ушли в HLOD MeshSimplify - запечённые текстуры HLOD сразу чёткие, дыры нет; в логе HLOD of ... shown после прогрева HLOD
+Когда run Action "Stop"
+Когда run Quality "Quality: Textures.StreamingPoolMiB Level"

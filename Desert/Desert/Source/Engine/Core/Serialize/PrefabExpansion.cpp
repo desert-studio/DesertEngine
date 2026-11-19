@@ -1,20 +1,31 @@
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 
+#include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
+
+#include <Engine/Assets/Prefab/PackedPrefab.hpp>
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
+
+#include <array>
+#include <optional>
+#include <unordered_map>
+#include <vector>
 
 #include <charconv>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <optional>
 #include <string>
-#include <system_error>
 #include <unordered_set>
 #include <utility>
 
@@ -47,6 +58,10 @@ namespace Desert::Core::WorldCells
             std::size_t               Parent = kNone; // index into the body
             std::size_t               Scope  = 0;     // which prefab file instance stated it (ids are per file)
             Common::UUID              Local;          // the id the file states (or the stitch minted)
+            // The root of a prefab file's body - the top instance's or a nested one's - and, for such a root, how
+            // that instance streams: its file's RuntimeBehavior, or the nesting / instance record's override.
+            bool                          InstanceRoot = false;
+            Assets::PrefabRuntimeBehavior Behavior     = Assets::PrefabRuntimeBehavior::Partitioned;
         };
 
         struct Expander
@@ -108,6 +123,12 @@ namespace Desert::Core::WorldCells
                 if ( plan.Shadowed > 0 )
                     return Common::MakeFormattedError<Result>( "prefab '{}': {} record(s) repeat an id", stated,
                                                                plan.Shadowed );
+                for ( const Assets::EntityData& record : records )
+                    if ( record.RuntimeBehavior.has_value() && !record.PrefabPath.has_value() )
+                        return Common::MakeFormattedError<Result>(
+                             "prefab '{}': record '{}' states a RuntimeBehavior and instances no prefab; only an "
+                             "instance streams by one",
+                             stated, record.Tag.value_or( "" ) );
 
                 Result body( plan.Created.size() );
                 for ( std::size_t slot = 0; slot < plan.Created.size(); ++slot )
@@ -121,6 +142,8 @@ namespace Desert::Core::WorldCells
                 }
                 for ( const Rules::PlannedLoad& load : plan.Loads )
                     body[load.Target].Parent = load.Parent == Rules::kNoSlot ? kNone : load.Parent;
+                body.front().InstanceRoot = true;
+                body.front().Behavior     = prefab.RuntimeBehavior;
 
                 Stack.emplace_back( stated );
                 for ( const Rules::PlannedPrefab& nesting : plan.PrefabRecords )
@@ -144,6 +167,9 @@ namespace Desert::Core::WorldCells
                         body.push_back( std::move( record ) );
                     }
                     body[from].Parent = nesting.Parent == Rules::kNoSlot ? kNone : nesting.Parent;
+                    // The nesting record's override of how the nested instance streams (absent = its file's).
+                    body[from].Behavior =
+                         Assets::ResolvePrefabRuntimeBehavior( data.RuntimeBehavior, body[from].Behavior );
                     if ( data.PrefabOverrides.has_value() )
                         if ( auto layered =
                                   Layer( body, from, *data.PrefabOverrides, nestedPrefix, *data.PrefabPath );
@@ -155,40 +181,20 @@ namespace Desert::Core::WorldCells
             }
         };
 
-        // Rewrites every kEntityReferences field of @p record that names a body record of its own scope.
+        // Rewrites every kEntityReferences field of @p record that names a body record of its own scope - through
+        // Rules::RemapEntityReferences, the one remap the factory and the capture use as well.
         void RemapReferences( Assets::EntityData& record, std::size_t scope,
                               const std::map<std::pair<std::size_t, std::uint64_t>, Common::UUID>& remap )
         {
-            for ( const Rules::EntityReferenceRow& row : Rules::kEntityReferences )
-            {
-                const std::string key( row.ComponentKey );
-                const auto        payload = record.Components.get( key );
-                if ( !payload )
-                    continue;
-                auto object = payload.value().to_object();
-                if ( !object )
-                    continue;
-                Common::Json::Object block = object.value();
-                const auto           field = block.get( std::string( row.Field ) );
-                if ( !field )
-                    continue;
-                const auto text = field.value().to_string();
-                if ( !text )
-                    continue;
-                // The whole text is the decimal id (std::to_string wrote it), or it is not an id; the planner
-                // reports that one as an Issue.
-                const std::string& digits = text.value();
-                std::uint64_t      id     = 0;
-                const auto         idRead = std::from_chars( digits.data(), digits.data() + digits.size(), id );
-                if ( idRead.ec != std::errc{} || idRead.ptr != digits.data() + digits.size() )
-                    continue;
-                const auto hit = remap.find( { scope, id } );
-                if ( hit == remap.end() )
-                    continue;
-                block[std::string( row.Field )] =
-                     Common::Json::Value( std::to_string( static_cast<std::uint64_t>( hit->second ) ) );
-                record.Components[key] = Common::Json::Value( block );
-            }
+            Rules::RemapEntityReferences( record,
+                                          [&remap, scope]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+                                          {
+                                              const auto hit =
+                                                   remap.find( { scope, static_cast<std::uint64_t>( stated ) } );
+                                              if ( hit == remap.end() )
+                                                  return std::nullopt;
+                                              return hit->second;
+                                          } );
         }
     } // namespace
 
@@ -204,6 +210,8 @@ namespace Desert::Core::WorldCells
         for ( const Assets::EntityData& record : scene.Entities )
             if ( record.id.has_value() )
                 taken.insert( static_cast<std::uint64_t>( *record.id ) );
+        // Every source record's world matrix, composed once when the first packed instance needs its root's.
+        std::optional<std::vector<glm::mat4>> sourceWorld;
 
         for ( std::size_t source = 0; source < scene.Entities.size(); ++source )
         {
@@ -211,6 +219,11 @@ namespace Desert::Core::WorldCells
             auto&                     out      = expanded.Scene.Entities;
             if ( !instance.PrefabPath.has_value() )
             {
+                if ( instance.RuntimeBehavior.has_value() )
+                    return Common::MakeFormattedError<Result>(
+                         "record {} ('{}') of '{}' states a RuntimeBehavior and instances no prefab; only an "
+                         "instance streams by one",
+                         source, instance.Tag.value_or( "" ), scene.SceneName );
                 expanded.Slots.push_back( ExpandedSlot{ out.size(), 1, false } );
                 out.push_back( instance );
                 continue;
@@ -228,6 +241,76 @@ namespace Desert::Core::WorldCells
             if ( !stated )
                 return Common::MakeFormattedError<Result>( "{}: {}", what, stated.GetError() );
 
+            // A PACKED INSTANCE (EntityData::PrefabPacked) streams as what the editor draws: its root and one
+            // InstancedStaticMesh record per group of the prefab's packed form (UE: a Packed Level Actor in a
+            // World Partition cell is one actor of ISM components, not the level it was packed from). The form is
+            // the asset's own rule - the file's stated form while its checksum is the body's, otherwise the body
+            // packed (PrefabAsset::AdoptOrRepack) - and a record the loader would place UNPACKED (overrides, a
+            // prefab that no longer packs) is expanded unpacked below, so the cooked world is the edited one.
+            if ( instance.PrefabPacked.value_or( false ) &&
+                 !( instance.PrefabOverrides.has_value() && !instance.PrefabOverrides->empty() ) )
+            {
+                auto file = reader( *instance.PrefabPath );
+                if ( !file )
+                    return Common::MakeFormattedError<Result>( "{}: {}", what, file.GetError() );
+                const Assets::PrefabData&     prefab = file.GetValue();
+                const Assets::PackedPrefabSer form =
+                     prefab.Packed.has_value() &&
+                               prefab.Packed->SourceHash == Assets::PrefabSourceHash( prefab.Entities )
+                          ? *prefab.Packed
+                          : Assets::PackPrefab( prefab.Entities );
+                if ( !form.Refused.has_value() && !prefab.Entities.empty() )
+                {
+                    if ( !sourceWorld.has_value() )
+                    {
+                        std::unordered_map<Common::UUID, std::size_t> byId;
+                        for ( std::size_t record = 0; record < scene.Entities.size(); ++record )
+                            if ( scene.Entities[record].id.has_value() && !scene.Entities[record].id->IsNull() )
+                                byId.emplace( *scene.Entities[record].id, record );
+                        sourceWorld = Rules::Detail::ComposeWorld( scene.Entities, byId );
+                    }
+
+                    // The root: the instance's own record (id, parent, sibling place, the transform it states),
+                    // named as the prefab's root and carrying nothing else - what InstantiatePacked builds.
+                    Assets::EntityData root = instance;
+                    root.PrefabPath.reset();
+                    root.PrefabOverrides.reset();
+                    root.PrefabPacked.reset();
+                    root.Components.clear();
+                    root.Tag = prefab.Entities.front().Tag;
+
+                    // THE SPLIT, as below: each group hangs off the instance's own parent. Its instances are WORLD
+                    // matrices (InstancedStaticMeshComponent), the form's root-frame ones composed with the
+                    // root's.
+                    const glm::mat4     rootWorld = ( *sourceWorld )[source];
+                    const std::uint64_t seed      = static_cast<std::uint64_t>( *instance.id );
+                    expanded.Slots.push_back( ExpandedSlot{ out.size(), 1 + form.Groups.size(), true } );
+                    ++expanded.Instances;
+                    out.push_back( std::move( root ) );
+                    for ( std::size_t group = 0; group < form.Groups.size(); ++group )
+                    {
+                        Assets::InstancedStaticMeshComponentSer block = form.Groups[group].Block;
+                        if ( block.InstanceTransforms.has_value() )
+                            for ( std::array<float, 16>& flat : *block.InstanceTransforms )
+                                flat = Rules::Detail::Flatten( rootWorld * glm::make_mat4( flat.data() ) );
+
+                        Assets::EntityData record;
+                        record.id = ExpandedId( seed, std::format( "packed/{}", group ) );
+                        if ( record.id->IsNull() ||
+                             !taken.insert( static_cast<std::uint64_t>( *record.id ) ).second )
+                            return Common::MakeFormattedError<Result>( "{}: the expanded id of packed group {} of "
+                                                                       "prefab '{}' is null or another record's",
+                                                                       what, group, *instance.PrefabPath );
+                        record.parent = instance.parent;
+                        record.Tag    = form.Groups[group].Name;
+                        record.Components[std::string( Rules::kInstancePointsComponent )] =
+                             Common::Json::FromStruct( block );
+                        out.push_back( std::move( record ) );
+                    }
+                    continue;
+                }
+            }
+
             Expander expander{ reader, {}, 0 };
             auto     read = expander.Body( *instance.PrefabPath, {} );
             if ( !read )
@@ -239,6 +322,8 @@ namespace Desert::Core::WorldCells
                      !layered )
                     return Common::MakeFormattedError<Result>( "{}: {}", what, layered.GetError() );
             Assets::PlaceInstanceRoot( body.front().Data, stated.GetValue() );
+            body.front().Behavior =
+                 Assets::ResolvePrefabRuntimeBehavior( instance.RuntimeBehavior, body.front().Behavior );
 
             // Ids: the root is the instance (as the loader does), the rest stable hashes of their path.
             const std::uint64_t       seed = static_cast<std::uint64_t>( *instance.id );
@@ -257,27 +342,64 @@ namespace Desert::Core::WorldCells
                                ids[record] );
             }
 
-            const glm::mat4 rootLocal = Rules::Detail::ComposeLocal( body.front().Data );
-            expanded.Slots.push_back( ExpandedSlot{ out.size(), body.size(), true } );
+            // THE SPLIT, by each instance's runtime behaviour (WP21-WHOLE; UE
+            // ALevelInstance::DesiredRuntimeBehavior). A record is LIFTED out of the instance - it hangs off the
+            // instance's own parent, its transform composed up to it - when its parent is an OPENED instance root.
+            // The top root is always lifted (it takes the instance's place) and opens when the instance streams
+            // Partitioned; a nested instance's root opens when it was lifted itself and streams Partitioned (UE: a
+            // Partitioned level instance's actors, a nested Partitioned one's included, are the outer world's).
+            // Every other link is kept, and is containment: a Standalone instance stays one composite under its
+            // root - one cell, one HLOD source, carried by the root.
+            std::vector<char>      lifted( body.size(), 0 ), opened( body.size(), 0 ), resolved( body.size(), 0 );
+            std::vector<glm::mat4> liftedLocal( body.size(), glm::mat4( 1.0f ) );
+            const std::function<void( std::size_t )> resolve = [&]( std::size_t record )
+            {
+                if ( resolved[record] != 0 )
+                    return;
+                resolved[record]       = 1; // before the parent: a corrupt cycle ends here, unopened
+                const bool partitioned = body[record].InstanceRoot &&
+                                         body[record].Behavior == Assets::PrefabRuntimeBehavior::Partitioned;
+                if ( record == 0 )
+                {
+                    lifted[0]      = 1;
+                    liftedLocal[0] = Rules::Detail::ComposeLocal( body.front().Data );
+                    opened[0]      = partitioned ? 1 : 0;
+                    return;
+                }
+                const std::size_t parent = body[record].Parent;
+                if ( parent == kNone )
+                    return;
+                resolve( parent );
+                if ( opened[parent] == 0 )
+                    return;
+                lifted[record]      = 1;
+                liftedLocal[record] = liftedLocal[parent] * Rules::Detail::ComposeLocal( body[record].Data );
+                opened[record]      = partitioned ? 1 : 0;
+            };
+            for ( std::size_t record = 0; record < body.size(); ++record )
+                resolve( record );
+
+            const Assets::PrefabRuntimeBehavior behavior = body.front().Behavior;
+            expanded.Slots.push_back( ExpandedSlot{ out.size(), body.size(), true, behavior } );
             ++expanded.Instances;
+            if ( behavior == Assets::PrefabRuntimeBehavior::Standalone )
+                ++expanded.Standalone;
             for ( std::size_t record = 0; record < body.size(); ++record )
             {
                 Assets::EntityData data = std::move( body[record].Data );
                 data.id                 = ids[record];
                 data.PrefabPath.reset();
                 data.PrefabOverrides.reset();
-                if ( record == 0 || body[record].Parent == 0 )
+                data.RuntimeBehavior.reset();
+                if ( lifted[record] != 0 )
                 {
-                    // The root, and THE SPLIT: a direct child leaves the root and hangs off the instance's own
-                    // parent, its transform composed with the root's.
                     data.parent = instance.parent;
                     if ( record != 0 )
                     {
-                        const glm::mat4 local = rootLocal * Rules::Detail::ComposeLocal( data );
-                        glm::vec3       scale, translation, skew;
-                        glm::vec4       perspective;
-                        glm::quat       rotation;
-                        glm::decompose( local, scale, rotation, translation, skew, perspective );
+                        glm::vec3 scale, translation, skew;
+                        glm::vec4 perspective;
+                        glm::quat rotation;
+                        glm::decompose( liftedLocal[record], scale, rotation, translation, skew, perspective );
                         data.Translation = translation;
                         data.Rotation    = glm::eulerAngles( rotation );
                         data.Scale       = scale;

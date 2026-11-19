@@ -5,6 +5,7 @@ desert_glob(_sources "Source/*.cpp")
 desert_add_executable(TextureCook FOLDER Tools SOURCES ${_sources}
     "${DESERT_ROOT}/Desert/Projects/Source/Projects/ProjectContext.cpp"
     "${DESERT_ROOT}/Desert/Projects/Source/Projects/RendererSettings.cpp" # the Texture Encoding efforts
+    "${DESERT_ROOT}/Desert/Projects/Source/Projects/EngineConfig.cpp" # Config/Engine.json and its platform layer
     "${DESERT_ROOT}/Desert/Projects/Source/Projects/StartupLayout.cpp"
     "${DESERT_ROOT}/Editor/Source/Editor/Import/TextureImporter.cpp"
     "${DESERT_ROOT}/Editor/Source/Editor/Import/DdsSource.cpp"

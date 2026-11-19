@@ -78,7 +78,8 @@ namespace
     struct SetWorld final : ResidencyWorld
     {
         std::set<std::size_t> Live;
-        Common::BoolResultStr Activate( std::size_t, std::span<const std::size_t> records ) override
+        Common::BoolResultStr Activate( std::size_t, std::size_t /*firstMember*/,
+                                        std::span<const std::size_t> records ) override
         {
             Live.insert( records.begin(), records.end() );
             return Common::MakeSuccess( true );
@@ -216,21 +217,22 @@ TEST( WorldPartitionMap, EveryResidencyHasItsOwnColour )
 {
     WorldPartitionPlan plan;
     plan.AlwaysLoaded = { 0 }; // unit 0 is the composite; cell c is unit c + 1
-    plan.Cells.resize( 5 );
+    plan.Cells.resize( 6 );
     ResidencyState state;
-    state.Units.resize( 6 );
-    const Residency order[] = { Residency::Unloaded, Residency::Loading, Residency::Loaded, Residency::Activated,
-                                Residency::Failed };
-    const Map::CellState  expected[] = { Map::CellState::Unloaded, Map::CellState::Loading, Map::CellState::Loaded,
+    state.Units.resize( 7 );
+    const Residency       order[]    = { Residency::Unloaded,   Residency::Loading,   Residency::Loaded,
+                                         Residency::Activating, Residency::Activated, Residency::Failed };
+    const Map::CellState  expected[] = { Map::CellState::Unloaded, Map::CellState::Loading,
+                                         Map::CellState::Loaded,   Map::CellState::MakingVisible,
                                          Map::CellState::Resident, Map::CellState::Failed };
     std::set<std::string> names;
-    for ( std::size_t cell = 0; cell < 5; ++cell )
+    for ( std::size_t cell = 0; cell < 6; ++cell )
     {
         state.Units[cell + 1].State = order[cell];
         EXPECT_EQ( Map::StateOf( plan, &state, cell ), expected[cell] ) << cell;
         names.insert( Map::NameOf( expected[cell] ) );
     }
-    EXPECT_EQ( names.size(), 5u );
+    EXPECT_EQ( names.size(), 6u );
     EXPECT_EQ( Map::ColorOf( Map::CellState::Loading ), glm::vec4( 1.0f, 1.0f, 0.0f, 0.25f ) );
     EXPECT_EQ( Map::ColorOf( Map::CellState::Loaded ), glm::vec4( 0.0f, 1.0f, 1.0f, 0.25f ) );
     EXPECT_NEAR( Map::RadiusPixels( Map::View{ glm::dvec2( 0.0 ), 0.02 }, 25600.0 ), 512.0, kEps );
@@ -292,6 +294,6 @@ TEST( WorldPartitionMap, TheLegendNamesEveryStateAndSumsToTheCellCount )
     }
 
     // Every state is named in Play even at zero, and Edit names its one state.
-    EXPECT_EQ( Map::LegendStates( true ).size(), 5u );
+    EXPECT_EQ( Map::LegendStates( true ).size(), 6u );
     EXPECT_EQ( Map::LegendStates( false ).size(), 1u );
 }

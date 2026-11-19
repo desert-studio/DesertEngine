@@ -4,6 +4,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <Editor/Core/BuilderRunOptions.hpp>
 #include <Editor/Core/ShotOptions.hpp>
 #include <Editor/Core/TextList.hpp>
 #include <Engine/Localization/LocaleFormat.hpp>
@@ -118,6 +119,13 @@ namespace Desert::Editor
          { "--flight-csv", true, "/tmp/flight.csv",
            "--play --flight line:0,200,0:1000,200,0 --flight-speed 1000" },
          { "--stream-delay-ticks", true, "30", "--play" },
+         // A builder run (UE: -run=WorldPartitionBuilderCommandlet -Builder=<Class>): no window, the builder runs
+         // on the scene and the process exits with its status (Editor/Builders/WorldPartitionBuilder.hpp).
+         { "--run", true, "WorldPartitionBuilder", "--builder HLODs --scene Scene.desce" },
+         { "--builder", true, "HLODs", "--run WorldPartitionBuilder --scene Scene.desce" },
+         { "--builder-cell-size", true, "102400",
+           "--run WorldPartitionBuilder --builder ResaveEntities --scene Scene.desce" },
+         { "--only-dirty", false, nullptr, "--run WorldPartitionBuilder --builder ResaveEntities --scene Scene.desce" },
     };
 
     /// Everything the command line resolved to. Held by value and copied into the process-wide singletons
@@ -192,6 +200,11 @@ namespace Desert::Editor
         /// editor, have it fault, and then read the report off disk. The palette entry
         /// ("Debug > Crash (test)") covers the same ground for a human with the editor already open.
         std::optional<Common::Crash::TestKind> CrashTest;
+
+        /// `--run`, `--builder`, `--builder-cell-size`, `--only-dirty`: a builder run instead of an editing
+        /// session (Editor/Core/BuilderRunOptions.hpp). The builder's NAME is checked against the builder table
+        /// by the process (Sandbox), which owns the table; this parse checks what the flags say together.
+        BuilderRunOptions Builder;
     };
 
     namespace CommandLineDetail
@@ -322,7 +335,18 @@ namespace Desert::Editor
 
         for ( std::size_t i = 0; i < args.size(); ++i )
         {
-            const std::string& arg = args[i];
+            // `--name=value` IS `--name value` (UE's `-Builder=HLODs` spelling, which a builder run is written in
+            // more often than not). Split once, at the first '=', so a value may itself hold one.
+            std::string                arg = args[i];
+            std::optional<std::string> inlineValue;
+            if ( arg.starts_with( "--" ) )
+            {
+                if ( const std::size_t equals = arg.find( '=' ); equals != std::string::npos )
+                {
+                    inlineValue = arg.substr( equals + 1 );
+                    arg.resize( equals );
+                }
+            }
 
             // Find the flag in the table first. This is what makes an unknown token an ERROR rather than
             // something that falls off the end of an if/else chain, which is how the old loop lost them.
@@ -347,6 +371,11 @@ namespace Desert::Editor
 
             if ( !flag->TakesValue )
             {
+                if ( inlineValue )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "'{}' takes no value, and '{}' gives it one.", arg, args[i] );
+                }
                 if ( arg == "--gpu-profile" )
                     options.Shot.GpuProfile = true;
                 else if ( arg == "--no-gpu-timing" )
@@ -357,11 +386,18 @@ namespace Desert::Editor
                     options.Shot.GpuOrderTrace = true;
                 else if ( arg == "--play" )
                     options.Shot.Play = true;
+                else if ( arg == "--only-dirty" )
+                    options.Builder.OnlyDirty = true;
                 // `--console` is acted on in main(), before the application exists; nothing to record here.
                 continue;
             }
 
-            if ( i + 1 >= args.size() )
+            if ( inlineValue && inlineValue->empty() )
+            {
+                return Common::MakeFormattedError<CommandLineOptions>(
+                     "'{}' gives '{}' an empty value; a flag that takes a value is given one.", args[i], arg );
+            }
+            if ( !inlineValue && i + 1 >= args.size() )
             {
                 return Common::MakeFormattedError<CommandLineOptions>(
                      "'{}' needs a value and is the last token on the command line. Written this way it "
@@ -369,7 +405,7 @@ namespace Desert::Editor
                      arg );
             }
 
-            const std::string& value = args[++i];
+            const std::string& value = inlineValue ? *inlineValue : args[++i];
 
             if ( arg == "--project" )
                 options.Project = value;
@@ -387,6 +423,30 @@ namespace Desert::Editor
                 options.ControlSocket = value;
             else if ( arg == "--device-profile" )
                 options.DeviceProfile = value;
+            else if ( arg == "--run" )
+            {
+                // A commandlet is a NAME the editor knows; an unknown one would start an ordinary editor in a
+                // run nobody is watching.
+                if ( value != BuilderRunOptions::kWorldPartitionBuilder )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--run '{}' is not a commandlet this editor has; it has: {}", value,
+                         BuilderRunOptions::kWorldPartitionBuilder );
+                }
+                options.Builder.Run = value;
+            }
+            else if ( arg == "--builder" )
+                options.Builder.Builder = value;
+            else if ( arg == "--builder-cell-size" )
+            {
+                float size = 0.0f;
+                if ( !ParseFloatStrict( value, size ) || size <= 0.0f )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--builder-cell-size '{}' is not a cell side in centimetres (a number above 0).", value );
+                }
+                options.Builder.IterativeCellSize = size;
+            }
             else if ( arg == "--log-level" )
             {
                 options.LogLevel = Common::Logger::LevelFromName( value );
@@ -656,6 +716,35 @@ namespace Desert::Editor
                  "the camera has no path to walk" );
         }
 
+        // A BUILDER RUN IS ITS FOUR FLAGS AND A SCENE, AND NOTHING THAT NEEDS A PERSON OR A PICTURE. Each refusal
+        // is a run that would otherwise do something other than what the command line says: a builder flag
+        // without --run is an editor session that ignores it, a run without a builder or a scene builds nothing
+        // (or the project's default scene), and a capture, a Play or a control channel beside it would be a
+        // second process's job in this one.
+        const BuilderRunOptions& builder = options.Builder;
+        if ( !builder.Active() &&
+             ( !builder.Builder.empty() || builder.IterativeCellSize > 0.0f || builder.OnlyDirty ) )
+        {
+            return Common::MakeError<CommandLineOptions>(
+                 "--builder, --builder-cell-size and --only-dirty need --run WorldPartitionBuilder" );
+        }
+        if ( builder.Active() )
+        {
+            if ( builder.Builder.empty() || options.Shot.Scene.empty() )
+            {
+                return Common::MakeError<CommandLineOptions>(
+                     "--run WorldPartitionBuilder needs --builder <Name> and --scene <file>: the builder is what "
+                     "runs, the scene is the world it runs on" );
+            }
+            if ( options.Shot.Active() || options.Shot.Play || options.Shot.FlightRoute.has_value() ||
+                 !options.ControlSocket.empty() )
+            {
+                return Common::MakeError<CommandLineOptions>(
+                     "--run WorldPartitionBuilder has no window: --shot, --shot-sequence, --play, --flight and "
+                     "--control-socket belong to an editor session, not to a builder run" );
+            }
+        }
+
         return Common::MakeSuccess( std::move( options ) );
     }
 
@@ -698,9 +787,13 @@ namespace Desert::Editor
      * or by dropping the channel from it. Anybody about to do the latter is undoing a decision, not
      * fixing an oversight.
      */
-    [[nodiscard]] inline bool IsUnattendedSession( const ShotOptions& shot, bool controlChannelRequested )
+    ///
+    /// A BUILDER RUN (`--run`) is the third such session: a commandlet with no window at all, which saves the
+    /// worlds it builds and must leave the developer's registries and the project's tile as they were.
+    [[nodiscard]] inline bool IsUnattendedSession( const ShotOptions& shot, bool controlChannelRequested,
+                                                   bool builderRunRequested )
     {
-        return shot.Active() || controlChannelRequested;
+        return shot.Active() || controlChannelRequested || builderRunRequested;
     }
 
     /**

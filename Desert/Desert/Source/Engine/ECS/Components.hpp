@@ -21,6 +21,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/Prefab/PrefabRuntimeBehavior.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -49,6 +50,7 @@ namespace Desert::Assets::Serialization
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/LocalFogVolumeComponent.hpp>
 #include <Engine/ECS/LightUnits.hpp>
+#include <Engine/Core/Serialize/StreamingSourceTargetBehavior.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
@@ -210,6 +212,17 @@ namespace Desert::ECS
         registry.emplace<VisibilityComponent>( entity, visible );
         return true;
     }
+
+    // HIDDEN IN THE EDITOR BY ITS DATA LAYERS - UE AActor::bHiddenEdLayer (WP-DATA-LAYER-OUTLINER). A transient
+    // tag: no COMPONENT key, so it is never saved, copied, pasted or snapshotted for undo or Play, and never
+    // authored. The editor's data-layer state stamps it on an entity none of whose data layers is visible and
+    // lifts it again (Editor DataLayerEditor::UpdateEntityVisibility; never while the scene plays). It is NOT
+    // VisibilityComponent: that bit is the author's and is saved; this one is one user's view of the world in one
+    // session. ECS::IsHidden honours both, so every collector and the viewport's picking do; Core::Scene marks
+    // render state dirty on it.
+    struct HiddenByDataLayersComponent
+    {
+    };
 
     // One overridden material parameter (keyed by the shader's Properties name). vec4 stores any
     // scalar/vector value (float uses .x, color uses rgba). Data-driven: NOT a fixed C++ field per param.
@@ -1184,10 +1197,8 @@ namespace Desert::ECS
         // layer's data lives on the tiles it touched (LandscapeTileData::EditLayers, in the DLHT blob), and a
         // tile's samples are their merge (MergeLandscapeEditLayers).
         World::Landscape::LandscapeEditLayerStack EditLayers;
-        // UE ULandscapeSplinesComponent: the landscape's spline control points and segments, world cm. They
-        // write the stack's Splines edit layer (RasterizeLandscapeSplines); the heights they make are that
-        // layer's data on the tiles, so a cooked landscape needs only the merged heights.
-        World::Landscape::LandscapeSplines Splines;
+        // No splines here: every spline is its own entity (LandscapeSplineComponent below, UE 5.5
+        // ALandscapeSplineActor), placed by World Partition by its own band.
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
@@ -1222,6 +1233,22 @@ namespace Desert::ECS
         std::string  HeightFile;
 
         std::optional<World::Landscape::LandscapeTileData> Heights;
+    };
+
+    // ONE LANDSCAPE SPLINE (UE 5.5: ALandscapeSplineActor + its ULandscapeSplinesComponent - in a World Partition
+    // world every spline is its own spatially loaded actor, ULandscapeInfo::MoveSplinesToLevel /
+    // CreateSplineActor). The control points and segments are WORLD cm and they write the root's Splines edit
+    // layer (RasterizeLandscapeSplines over every loaded spline of the root, combined); the bent meshes are
+    // derived from them (LandscapeSplineMeshDraw, and the cell HLOD's LandscapeSpline builder).
+    //
+    // `Landscape` names the root BY ID, as LandscapeTileComponent does and for the same reason: as an
+    // OBSERVATION (WorldPartitionRules.hpp, kEntityReferences) the spline is its own composite, placed by the box
+    // around its band (EntityDescriptor::LandscapeSpline) - so a long road goes up to the grid level whose cell
+    // holds it - and never drags the root, or the root it. Nothing reads this entity's transform.
+    struct LandscapeSplineComponent
+    {
+        Common::UUID                       Landscape = Common::UUID::Null(); // the root entity
+        World::Landscape::LandscapeSplines Splines;
     };
 
     // One overridden texture param (keyed by the shader's Texture2D property name) -> texture asset.
@@ -2880,6 +2907,10 @@ namespace Desert::ECS
     struct PrefabComponent
     {
         Assets::AssetHandle Prefab;
+        // This instance's override of how it streams in a partitioned world (WP21-WHOLE; UE ALevelInstance::
+        // DesiredRuntimeBehavior); absent = what the prefab states (PrefabAsset::GetRuntimeBehavior). Saved as the
+        // instance record's RuntimeBehavior; Play and the cook read it from there (ExpandPrefabInstances).
+        std::optional<Assets::PrefabRuntimeBehavior> RuntimeBehavior;
     };
 
     // WHICH RECORD OF WHICH PREFAB FILE THIS ENTITY CAME FROM — the link an override is addressed by.
@@ -3274,6 +3305,23 @@ namespace Desert::ECS
                   Hidden )
         std::vector<std::string> TargetGrids;
 
+        // UE's FWorldPartitionStreamingSource::TargetHLODLayers: the HLOD layers this source streams, by
+        // HLODLayerSerialized::Name, read under Target Behavior like Target Grids (Rules::TargetsHLODLayer). An
+        // HLOD layer standing for a world grid the source streams is streamed whatever this says (Rules::
+        // HLODSources). A name the world has no layer of is an Issue of the world's plan (Entities[i].
+        // StreamingSource.TargetHLODLayers). Details draws it as a pick of the world's HLOD layer names
+        // (ComponentEditorRegistrations.cpp, MakeStreamingSourceEntry).
+        PROPERTY( DisplayName( "Target HLOD Layers" ), Category( "Streaming Source" ),
+                  Tooltip( "The HLOD layers this source streams, by name, read with Target Behavior." ), Hidden )
+        std::vector<std::string> TargetHLODLayers;
+
+        // UE's FWorldPartitionStreamingSource::TargetBehavior (Rules::TargetsGridNamed).
+        PROPERTY( DisplayName( "Target Behavior" ), Category( "Streaming Source" ),
+                  Tooltip( "Include = only the Target Grids and Target HLOD Layers stream; Exclude = every grid "
+                           "but those. With both lists empty every grid streams either way." ) )
+        Core::Rules::StreamingSourceTargetBehavior TargetBehavior =
+             Core::Rules::StreamingSourceTargetBehavior::Include;
+
         // THE LOOK-AHEAD (Rules::StreamingSource): a plane or a car streams the cells it is about to reach, not
         // only those around it. UE has no such setting; there a game adds a predicted source by hand.
         PROPERTY( DisplayName( "Look Ahead Time" ), Category( "Streaming Source" ), Units( "s" ),
@@ -3338,6 +3386,57 @@ namespace Desert::ECS
     {
         COMPONENT( Key( "DataLayers" ), Block( Data ), Run( ActorsAndUI ) )
         DataLayersData Data;
+    };
+
+    // A PLACE OF A PARTITIONED WORLD THE EDITOR LOADS BY NAME - UE's ALocationVolume (WP-LOADER-ADAPTERS): its box
+    // (the +-Extent box placed by the entity's world transform, seen from above as an X/Z rectangle) is a loader of
+    // the World Partition window (Core::EditorRegions): Load holds every composite whose footprint meets it, and it
+    // is listed there whether loaded or not. Always loaded in the editor (UE: bIsSpatiallyLoaded = false), so the list never misses one;
+    // an editor-only entity - the cook leaves it out (WorldCells), as UE never cooks an editor-only actor.
+    struct LocationVolumeData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Extent" ), Category( "Location Volume" ), Summary,
+                  Tooltip( "Half size of the volume box, cm, around the entity, placed by its transform (rotation "
+                           "and scale included); Load holds what meets the box's X/Z rectangle." ) )
+        glm::vec3 Extent{ 15000.0f, 15000.0f, 15000.0f };
+
+        PROPERTY( DisplayName( "Auto Load" ), Category( "Location Volume" ),
+                  Tooltip( "Loaded when the world is opened in the editor, unless this user unloaded it (UE "
+                           "ALocationVolume::bIsAutoLoad)." ) )
+        bool AutoLoad = false;
+    };
+
+    struct LocationVolumeComponent
+    {
+        COMPONENT( Key( "LocationVolume" ), Block( Data ), Run( ActorsAndUI ) )
+        LocationVolumeData Data;
+    };
+
+    // WHICH HLOD LAYER BUILDS THIS ENTITY'S PART OF ITS CELL'S HLOD - UE's AActor::HLODLayer (WP-SETTINGS-UI, WP v13).
+    // Absent = its partition's first HLOD setup's layer (Core::Rules::GridHLODLayer), so there is no
+    // present-and-empty second spelling of "the partition's". A composite is built by its ANCHOR's layer; a name the world has no layer
+    // of, or a member that states another layer than its anchor, is an Issue of the world's plan with the entity's
+    // path (Rules::PlanWorldPartition), and a grid that builds no HLOD refuses Build HLODs for a member that names
+    // one (Rules::CompositeHLODLayer).
+    struct HLODLayerData
+    {
+        REFLECT()
+
+        // Hidden: Details draws it as a pick of THIS world's HLOD layers (WorldPartitionDetails.cpp), as UE's
+        // Details picks an actor's HLOD Layer asset - a typed name would invite one no layer has.
+        PROPERTY( DisplayName( "HLOD Layer" ), Category( "World Partition" ),
+                  Tooltip( "The World Partition HLOD layer that builds this entity's part of its cell's HLOD, "
+                           "instead of its grid's layer." ),
+                  Hidden )
+        std::string Layer;
+    };
+
+    struct HLODLayerComponent
+    {
+        COMPONENT( Key( "HLODLayer" ), Block( Data ), Run( ActorsAndUI ) )
+        HLODLayerData Data;
     };
 
     // Attaches a Lua script to an entity. The ScriptSystem loads the file and calls its OnStart()/OnUpdate(dt);

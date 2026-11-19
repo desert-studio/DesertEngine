@@ -18,13 +18,20 @@
 //
 // ── STATES ────────────────────────────────────────────────────────────────────────────────────────
 //
-//   Unloaded ──StartLoad──▶ Loading ──completed──▶ Loaded ──Activate (budget)──▶ Activated
-//                             │ failed                 ▲
+//   Unloaded ──StartLoad──▶ Loading ──completed──▶ Loaded ──first slice──▶ Activating ──last slice, collision
+//                             │ failed                 ▲                                  ready──▶ Activated
 //                             ▼                        └── an in-range cell waits here for the budget
 //                           Failed ──retry time reached, still wanted──▶ Loading
 //
-// Leaving range: Activated ─Deactivate+Unload─▶ Unloaded; Loaded ─Unload─▶ Unloaded; Loading ─CancelLoad─▶
-// Unloaded; Failed ──▶ Unloaded (the failure is forgotten: a cell that comes back is tried at once).
+// Leaving range: Activated or Activating ─Deactivate+Unload─▶ Unloaded (an Activating unit's made part goes);
+// Loaded ─Unload─▶ Unloaded; Loading ─CancelLoad─▶ Unloaded; Failed ──▶ Unloaded (the failure is forgotten: a
+// cell that comes back is tried at once).
+//
+// ACTIVATING (WP-ACTIVATE-SLICED, UE ULevel between the first and the last step of UWorld::AddToWorld): some of
+// the unit's records are entities, HIDDEN, and the rest are still to be made. `Made` counts the made ones. The
+// step never moves a unit into or out of Activating by itself: the executor does, as it makes slices
+// (WorldPartitionResidencyExecutor.hpp, THE SLICES), and it makes a unit Activated only once every record is an
+// entity AND every body of the unit is in the physics world — so "Activated" means "drawn and collidable".
 //
 // A load is identified by a TICKET. An outcome whose ticket is not the unit's current load — it was cancelled,
 // or superseded by a later load — is stale: it changes nothing and is counted in `StaleOutcomes`, because an
@@ -47,14 +54,15 @@
 //
 // ── THE BUDGET ────────────────────────────────────────────────────────────────────────────────────
 //
-// Activation runs on the main thread, so it is what a frame pays for. Each Loaded unit that is wanted is
-// activated in priority order — always-loaded composites first, then cells in the query's nearest-first order —
-// while the frame's estimated activation time stays within `ActivationBudgetMs`. The estimate is the unit's
-// record count times `MsPerRecord`, a coefficient measured in WP5b (see its field). Activation stops at the
-// first unit that does not fit rather than skipping to a cheaper one behind it: priority is the order the world
-// fills in around the camera, and a cheap far cell must not overtake a nearer one. The first activation of
-// a frame always goes ahead even when it alone exceeds the budget; otherwise a unit larger than the budget
-// would never activate at all. `MaxConcurrentLoads` bounds the loads in flight, in the same priority order —
+// Activation runs on the main thread, so it is what a frame pays for. The step names the units that may be
+// advanced this frame — every wanted unit that is Loaded or Activating and that no gate holds, in priority order:
+// always-loaded composites first, then cells in the query's nearest-first order — as Activate actions, and
+// spends nothing itself. The EXECUTOR spends `ActivationBudgetMs` on them, on the clock, a slice of whole
+// composites at a time (WorldPartitionResidencyExecutor.hpp, THE SLICES; the slices are sized by a measured
+// cost per record kind, WorldPartitionActivationCost.hpp). It stops where the budget is spent rather than
+// skipping to a cheaper unit behind it: priority is the order the world fills in around the camera, and a cheap
+// far cell must not overtake a nearer one. The first slice of a frame always goes ahead, so every unit
+// progresses however large it is. `MaxConcurrentLoads` bounds the loads in flight, in the same priority order —
 // UE's MaxCellsToLoad.
 //
 // Deactivation and unloading are not budgeted: whatever leaves range leaves in the frame it does. UE does the
@@ -73,14 +81,17 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
+#include <Projects/WorldPartitionSettings.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <functional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -91,6 +102,7 @@ namespace Desert::Core::Rules
         Unloaded,
         Loading,
         Loaded,
+        Activating, // part made and hidden; see ACTIVATING
         Activated,
         Failed,
     };
@@ -102,6 +114,7 @@ namespace Desert::Core::Rules
         std::uint32_t Failures = 0; // consecutive failed loads; reset by a success or by leaving range
         double        FailedAt = 0.0;
         std::string   FailureReason; // the loader's message; set in Failed only
+        std::size_t   Made = 0;      // Activating: records of the unit already entities (a composite boundary)
     };
 
     struct ResidencyState
@@ -111,26 +124,15 @@ namespace Desert::Core::Rules
         std::uint64_t              NextTicket = 1;
     };
 
-    struct ResidencySettings
+    // The project's streaming settings (Projects/WorldPartitionSettings.hpp: the WorldPartition section of
+    // Config/Engine.json with the platform layer over it, read by the WorldStreamer as Play or the game begins)
+    // and what the engine MEASURED rather than a project chooses.
+    struct ResidencySettings : Project::WorldPartitionSettings
     {
-        // Main-thread time one frame may spend activating, milliseconds.
-        double ActivationBudgetMs = 2.0;
-        // Activation cost of one record, MEASURED (WP5b, 2026-09-24): WorldStreamer times every
-        // SceneSerializer::InstantiateRecords it makes and logs the total at the end of Play. Release editor,
-        // World_Grid8km with a 128 m grid (StaticMesh cubes, ~9 records a unit), headless --play flights across
-        // the map on an M-series Mac: 0.0152 ms/record over 3350 records, 0.0198 over 3159. Rounded UP to the
-        // worse run, so a frame is not promised more than it gets; a world of heavier records (prefab
-        // instances, skinned meshes) is a new measurement, and the streamer's log line is where it comes from.
-        double MsPerRecord = 0.02;
-        // The hysteresis band: a resident unit is kept while within LoadingRange·RangeScale·(1 + UnloadMargin),
-        // and a sector's angle and a look-ahead's sweep length are widened by the same factor.
-        float UnloadMargin = 0.25f;
-        // Loads in flight at once.
-        std::uint32_t MaxConcurrentLoads = 4;
-        // The wait before retrying a failed load, growing by RetryBackoff per consecutive failure.
-        double RetryDelaySeconds    = 1.0;
-        double RetryBackoff         = 2.0;
-        double MaxRetryDelaySeconds = 30.0;
+        // While a cell under a streaming source is not Activated the game waits behind the loading overlay
+        // (WorldPartitionStreamingPerformance.hpp, CRITICAL), and that frame draws nothing the budget protects:
+        // activation gets this much more. UE 5.5 s.PriorityLevelStreamingActorsUpdateExtraTime, same default.
+        double PriorityExtraMs = 5.0;
     };
 
     // What the loader reports about one StartLoad.
@@ -161,31 +163,154 @@ namespace Desert::Core::Rules
     struct ResidencyStep
     {
         ResidencyState State;
-        // In the order to perform them: every leaving unit (unit order), then loads started, then activations
-        // (both in priority order).
+        // In the order to perform them: every leaving unit (unit order), then loads started, then the units the
+        // executor may advance this frame (Activate; both in priority order — see THE BUDGET).
         std::vector<ResidencyAction> Actions;
-        double                       ActivationMs     = 0.0; // the estimate spent by this frame's activations
-        std::size_t                  WaitingForBudget = 0;   // wanted Loaded units left for a later frame
-        std::size_t                  WaitingForGate   = 0;   // wanted Loaded units a ResidencyGate held back
+        std::size_t                  WaitingForGate   = 0; // wanted Loaded/Activating units a ResidencyGate held back
         std::size_t                  StaleOutcomes    = 0;
+        std::size_t                  HeldByDataLayers = 0; // wanted Loaded units their data layers keep Loaded
     };
 
     // WHAT ANOTHER RESIDENCY ASKS OF THIS STEP (WP-FAR-8: a world's cells and the HLOD cells that stand in for
     // them, WorldPartitionHLODSwitch.hpp). Per unit, empty = nothing held:
-    //  HoldActivation 1 = a Loaded unit stays Loaded this step even when wanted (what stands in for it is not
-    //                     yet in a state to give way to it); counted in WaitingForGate.
+    //  HoldActivation 1 = a Loaded or Activating unit is not advanced this step even when wanted (what stands
+    //                     in for it is not yet in a state to give way to it); counted in WaitingForGate.
     //  HoldRelease    1 = an Activated unit stays Activated this step even outside its band (something beneath
     //                     it is still drawn and would be drawn twice once it goes).
     // A gate only delays; it never starts a load, activates or releases anything by itself.
+    //
+    // THE LAST WORD, ASKED AT THE MOMENT OF THE CHANGE (WP-HLOD-WARMUP; UE UWorldPartitionHLODRuntimeSubsystem::
+    // CanMakeVisible / CanMakeInvisible, asked by the streaming policy for the cell it is about to show or hide):
+    //  MayActivate(unit) = a Loaded unit the step would activate now (wanted, not held above) may activate;
+    //                      false keeps it Loaded this step, counted in WaitingForGate.
+    //  MayRelease(unit)  = an Activated unit outside its band (not held above) may be released; false keeps it.
+    // Asked once per step per such unit, before the activation budget, so an asker can count the steps it held a
+    // unit for. Empty = always yes. The asker is the HLOD warmup (WorldPartitionHLODSwitch.hpp): it requests
+    // what the change is about to draw and answers yes once that is resident.
     struct ResidencyGate
     {
-        std::vector<std::uint8_t> HoldActivation;
-        std::vector<std::uint8_t> HoldRelease;
+        std::vector<std::uint8_t>          HoldActivation;
+        std::vector<std::uint8_t>          HoldRelease;
+        std::function<bool( std::size_t )> MayActivate;
+        std::function<bool( std::size_t )> MayRelease;
     };
 
     [[nodiscard]] inline std::size_t ResidencyUnitCount( const WorldPartitionPlan& plan )
     {
         return plan.AlwaysLoaded.size() + plan.Cells.size();
+    }
+
+    // ── RUNTIME DATA LAYERS (WP-DATA-LAYERS-RUNTIME; UE UDataLayerManager + GetCellEffectiveWantedState) ─────
+    //
+    // Every runtime layer of the world has a state (DataLayerRuntimeState), starting at its InitialRuntimeState
+    // and moved by the game (WorldStreamer::SetDataLayerRuntimeState). A unit of runtime layers - a cell of that
+    // set (PlannedCell::DataLayers) or an always-loaded composite in such layers - has an EFFECTIVE state, its
+    // layers' states combined by the world's DataLayersLogicOperator (Or: the furthest, And: the least); a unit of
+    // no runtime layer is Activated by its layers (only distance moves it). StepResidency then:
+    //   Unloaded  - the unit is neither wanted nor kept: not read, and released when it was resident;
+    //   Loaded    - wanted and kept like any unit in range, read, and NOT activated; an Activated one is
+    //               deactivated and stays Loaded (its records in memory, no entity);
+    //   Activated - as before: distance decides.
+    // An editor layer's entry is Activated: it gates nothing (no unit counts it among its runtime layers).
+
+    // A state's name in a log line or a palette command (UE's enum names).
+    [[nodiscard]] constexpr std::string_view DataLayerRuntimeStateName( DataLayerRuntimeState state )
+    {
+        switch ( state )
+        {
+            case DataLayerRuntimeState::Unloaded:
+                return "Unloaded";
+            case DataLayerRuntimeState::Loaded:
+                return "Loaded";
+            case DataLayerRuntimeState::Activated:
+                return "Activated";
+        }
+        return "Unknown";
+    }
+
+    // The runtime layers of @p unit: a cell's third coordinate, or an always-loaded composite's runtime layers.
+    [[nodiscard]] inline std::vector<std::size_t> UnitRuntimeDataLayers( const WorldPartitionPlan&       plan,
+                                                                         const WorldPartitionSerialized& partition,
+                                                                         std::size_t                     unit )
+    {
+        if ( unit < plan.AlwaysLoaded.size() )
+            return RuntimeDataLayersOf( partition, plan.Composites.at( plan.AlwaysLoaded[unit] ).DataLayers );
+        return plan.Cells.at( unit - plan.AlwaysLoaded.size() ).DataLayers;
+    }
+
+    // The state each layer of the world starts Play (and a packaged game) in, index = layer: a Runtime layer's
+    // InitialRuntimeState. Refused, by the layer's name, for a Runtime layer that states none (CheckDataLayers
+    // names the same Issue) - which state it starts in is not guessed.
+    [[nodiscard]] inline Common::ResultStr<std::vector<DataLayerRuntimeState>>
+    InitialDataLayerStates( const WorldPartitionSerialized& partition )
+    {
+        std::vector<DataLayerRuntimeState> states;
+        if ( !partition.DataLayers.has_value() )
+            return Common::MakeSuccess( std::move( states ) );
+        for ( const DataLayerSerialized& layer : *partition.DataLayers )
+        {
+            if ( layer.Type == DataLayerType::Editor )
+            {
+                states.push_back( DataLayerRuntimeState::Activated );
+                continue;
+            }
+            if ( !layer.InitialRuntimeState.has_value() )
+                return Common::MakeError<std::vector<DataLayerRuntimeState>>( std::format(
+                     "the Runtime data layer '{}' states no InitialRuntimeState (Unloaded, Loaded or Activated)",
+                     layer.Name ) );
+            states.push_back( *layer.InitialRuntimeState );
+        }
+        return Common::MakeSuccess( std::move( states ) );
+    }
+
+    // UE UWorldPartitionRuntimeCell::GetCellEffectiveWantedState: @p runtimeLayers' states combined by @p logic.
+    [[nodiscard]] inline DataLayerRuntimeState
+    EffectiveDataLayerState( WorldPartitionDataLayersLogicOperator logic, std::span<const DataLayerRuntimeState> layerStates,
+                             std::span<const std::size_t> runtimeLayers )
+    {
+        if ( runtimeLayers.empty() )
+            return DataLayerRuntimeState::Activated;
+        const bool            any   = logic == WorldPartitionDataLayersLogicOperator::Or;
+        DataLayerRuntimeState state = any ? DataLayerRuntimeState::Unloaded : DataLayerRuntimeState::Activated;
+        for ( const std::size_t layer : runtimeLayers )
+            state = any ? std::max( state, layerStates[layer] ) : std::min( state, layerStates[layer] );
+        return state;
+    }
+
+    // UE UDataLayerInstance::GetEffectiveRuntimeState (WP v4, DataLayerSerialized::Parent): a runtime layer is
+    // never further along than its parent - its own state clamped by every ancestor's, the least of the chain.
+    // Index = the world's layer, as @p layerStates. Bounded by the layer count, so an unchecked cycle ends.
+    [[nodiscard]] inline std::vector<DataLayerRuntimeState>
+    EffectiveDataLayerStates( const WorldPartitionSerialized&        partition,
+                              std::span<const DataLayerRuntimeState> layerStates )
+    {
+        std::vector<DataLayerRuntimeState> effective( layerStates.begin(), layerStates.end() );
+        for ( std::size_t layer = 0; layer < effective.size(); ++layer )
+        {
+            std::optional<std::size_t> at = DataLayerParentIndex( partition, layer );
+            for ( std::size_t steps = 0; at.has_value() && steps < effective.size(); ++steps )
+            {
+                if ( *at < layerStates.size() )
+                    effective[layer] = std::min( effective[layer], layerStates[*at] );
+                at = DataLayerParentIndex( partition, *at );
+            }
+        }
+        return effective;
+    }
+
+    // Every unit's effective state, index = unit: what StepResidency's @p unitLayerStates takes. Each layer's
+    // state is first clamped by its parents' (EffectiveDataLayerStates), then a unit's layers combine by the
+    // operator.
+    [[nodiscard]] inline std::vector<DataLayerRuntimeState>
+    DataLayerUnitStates( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
+                         std::span<const DataLayerRuntimeState> layerStates )
+    {
+        const std::vector<DataLayerRuntimeState> clamped = EffectiveDataLayerStates( partition, layerStates );
+        std::vector<DataLayerRuntimeState> units( ResidencyUnitCount( plan ), DataLayerRuntimeState::Activated );
+        for ( std::size_t unit = 0; unit < units.size(); ++unit )
+            units[unit] = EffectiveDataLayerState( partition.DataLayersLogicOperator, clamped,
+                                                   UnitRuntimeDataLayers( plan, partition, unit ) );
+        return units;
     }
 
     // A unit's name for a report: "L1(3,-2)" for the level-1 cell at X 3, Z -2, "A5" for the sixth
@@ -195,7 +320,12 @@ namespace Desert::Core::Rules
         if ( unit < plan.AlwaysLoaded.size() )
             return std::format( "A{}", unit );
         const PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
-        return std::format( "G{}L{}({},{})", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z );
+        // A cell of runtime data layers names its set (WP-DATA-LAYERS-RUNTIME): two cells of one square in
+        // different sets are two units, and the saved HLOD index keys its rows by this name. "DL0+2" = layers 0, 2.
+        std::string layers;
+        for ( const std::size_t layer : cell.DataLayers )
+            layers += std::format( "{}{}", layers.empty() ? "DL" : "+", layer );
+        return std::format( "G{}L{}({},{}){}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z, layers );
     }
 
     // THE NEAREST AN HLOD OF @p unit IS EVER DRAWN (UE FHLODBuildContext::MinVisibleDistance, WP-FAR-6B): the
@@ -204,7 +334,8 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline float HLODMinVisibleDistance( const WorldPartitionSerialized& partition,
                                                        const WorldPartitionPlan& plan, std::size_t unit )
     {
-        return partition.Grids.at( plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid ).LoadingRange;
+        // A cell is only ever made by a partition with a cell grid (IRuntimePartition::GenerateStreaming).
+        return CellGridOf( partition, plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid )->LoadingRange;
     }
 
     // Records a unit brings into the world: the members of every composite it holds.
@@ -256,19 +387,22 @@ namespace Desert::Core::Rules
         {
             const auto finiteAtLeast = []( double value, double low )
             { return std::isfinite( value ) && value >= low; };
-            if ( !finiteAtLeast( s.ActivationBudgetMs, 0.0 ) || !finiteAtLeast( s.MsPerRecord, 0.0 ) ||
+            if ( !finiteAtLeast( s.ActivationBudgetMs, 0.0 ) || !finiteAtLeast( s.PriorityExtraMs, 0.0 ) ||
                  !finiteAtLeast( s.UnloadMargin, 0.0 ) || s.MaxConcurrentLoads == 0 ||
                  !std::isfinite( s.RetryDelaySeconds ) || s.RetryDelaySeconds <= 0.0 ||
                  !finiteAtLeast( s.RetryBackoff, 1.0 ) ||
-                 !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) )
+                 !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) ||
+                 !finiteAtLeast( s.SlowStreamingRatio, 0.0 ) || !finiteAtLeast( s.SlowStreamingWarningFactor, 1.0 ) )
             {
                 return Common::MakeError<bool>( std::format(
-                     "StepResidency: settings ActivationBudgetMs {:f}, MsPerRecord {:f}, UnloadMargin {:f}, "
+                     "StepResidency: settings ActivationBudgetMs {:f}, PriorityExtraMs {:f}, UnloadMargin {:f}, "
                      "MaxConcurrentLoads {}, RetryDelaySeconds {:f}, RetryBackoff {:f}, MaxRetryDelaySeconds "
-                     "{:f}; budget, cost and margin must be finite and >= 0, loads >= 1, the delay > 0, the "
-                     "backoff >= 1 and the longest delay >= the first",
-                     s.ActivationBudgetMs, s.MsPerRecord, s.UnloadMargin, s.MaxConcurrentLoads,
-                     s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds ) );
+                     "{:f}, SlowStreamingRatio {:f}, SlowStreamingWarningFactor {:f}; budget, extra time, margin "
+                     "and ratio must be finite and >= 0, loads >= 1, the delay > 0, the backoff and the warning "
+                     "factor >= 1 and the longest delay >= the first",
+                     s.ActivationBudgetMs, s.PriorityExtraMs, s.UnloadMargin, s.MaxConcurrentLoads,
+                     s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds, s.SlowStreamingRatio,
+                     s.SlowStreamingWarningFactor ) );
             }
             return Common::MakeSuccess( true );
         }
@@ -298,7 +432,7 @@ namespace Desert::Core::Rules
     StepResidency( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
                    std::span<const StreamingSource> sources, const ResidencySettings& settings,
                    ResidencyState state, std::span<const LoadOutcome> outcomes, double nowSeconds,
-                   const ResidencyGate* gate = nullptr )
+                   const ResidencyGate* gate = nullptr, std::span<const DataLayerRuntimeState> unitLayerStates = {} )
     {
         if ( auto valid = Detail::CheckResidencySettings( settings ); !valid.IsSuccess() )
             return Common::MakeError<ResidencyStep>( valid.GetError() );
@@ -324,6 +458,12 @@ namespace Desert::Core::Rules
                               gate->HoldActivation.size(), gate->HoldRelease.size(), unitCount ) );
         const auto held = []( const std::vector<std::uint8_t>& holds, std::size_t unit )
         { return !holds.empty() && holds[unit] != 0; };
+        if ( !unitLayerStates.empty() && unitLayerStates.size() != unitCount )
+            return Common::MakeError<ResidencyStep>(
+                 std::format( "StepResidency: {} data layer state(s) for {} unit(s)", unitLayerStates.size(), unitCount ) );
+        // Empty = a world of no runtime layer: every unit Activated by its layers (see RUNTIME DATA LAYERS).
+        const auto layerState = [&unitLayerStates]( std::size_t unit )
+        { return unitLayerStates.empty() ? DataLayerRuntimeState::Activated : unitLayerStates[unit]; };
 
         ResidencyStep step;
 
@@ -381,9 +521,17 @@ namespace Desert::Core::Rules
         if ( !keptWish.IsSuccess() )
             return Common::MakeError<ResidencyStep>( "StepResidency: " + keptWish.GetError() );
 
-        const std::vector<std::size_t> wanted = Detail::UnitsInOrder( plan, wished.GetValue() );
-        std::vector<bool>              kept( unitCount, false );
+        // A unit whose data layers are Unloaded is neither wanted nor kept, wherever the sources are.
+        std::vector<std::size_t> wanted;
+        for ( const std::size_t unit : Detail::UnitsInOrder( plan, wished.GetValue() ) )
+            if ( layerState( unit ) != DataLayerRuntimeState::Unloaded )
+                wanted.push_back( unit );
+        std::vector<std::size_t> keptInOrder;
         for ( const std::size_t unit : Detail::UnitsInOrder( plan, keptWish.GetValue() ) )
+            if ( layerState( unit ) != DataLayerRuntimeState::Unloaded )
+                keptInOrder.push_back( unit );
+        std::vector<bool> kept( unitCount, false );
+        for ( const std::size_t unit : keptInOrder )
             kept[unit] = true;
 
         // 3. Whatever is outside the band leaves, in unit order.
@@ -392,13 +540,15 @@ namespace Desert::Core::Rules
             UnitResidency& unit = state.Units[index];
             if ( kept[index] || unit.State == Residency::Unloaded )
                 continue;
-            if ( unit.State == Residency::Activated && gate != nullptr && held( gate->HoldRelease, index ) )
+            if ( unit.State == Residency::Activated && gate != nullptr &&
+                 ( held( gate->HoldRelease, index ) || ( gate->MayRelease && !gate->MayRelease( index ) ) ) )
                 continue;
             switch ( unit.State )
             {
                 case Residency::Loading:
                     step.Actions.push_back( { ResidencyActionKind::CancelLoad, index, unit.Ticket } );
                     break;
+                case Residency::Activating: // its made part goes; HoldRelease holds only what is drawn
                 case Residency::Activated:
                     step.Actions.push_back( { ResidencyActionKind::Deactivate, index, 0 } );
                     step.Actions.push_back( { ResidencyActionKind::Unload, index, 0 } );
@@ -412,7 +562,24 @@ namespace Desert::Core::Rules
             }
             unit.State    = Residency::Unloaded;
             unit.Failures = 0;
+            unit.Made     = 0;
             unit.FailureReason.clear();
+        }
+
+        // 3b. A kept Activated or part-made (Activating) unit whose data layers went to Loaded stops being entities
+        //     and stays read (UE: a cell of a Loaded layer is loaded and not activated); left Activating, step 5
+        //     would never advance it and its made part would stay hidden and collidable. Not budgeted, as any
+        //     deactivation; HoldRelease holds only what is drawn (step 2).
+        for ( std::size_t index = 0; index < unitCount; ++index )
+        {
+            UnitResidency& unit = state.Units[index];
+            if ( !kept[index] || ( unit.State != Residency::Activated && unit.State != Residency::Activating ) ||
+                 layerState( index ) != DataLayerRuntimeState::Loaded )
+                continue;
+            if ( unit.State == Residency::Activated && gate != nullptr && held( gate->HoldRelease, index ) )
+                continue;
+            step.Actions.push_back( { ResidencyActionKind::Deactivate, index, 0 } );
+            unit.State = Residency::Loaded;
         }
 
         // 4. Loads, in priority order, up to the number in flight.
@@ -435,29 +602,42 @@ namespace Desert::Core::Rules
             ++inFlight;
         }
 
-        // 5. Activations, in priority order, within the budget; the first always goes (see THE BUDGET).
-        std::size_t activated   = 0;
-        bool        budgetSpent = false;
+        // 5. The units the executor may advance, in priority order (see THE BUDGET): read, or part made.
         for ( const std::size_t index : wanted )
         {
-            UnitResidency& unit = state.Units[index];
-            if ( unit.State != Residency::Loaded )
+            const UnitResidency& unit = state.Units[index];
+            if ( unit.State != Residency::Loaded && unit.State != Residency::Activating )
                 continue;
+            if ( layerState( index ) != DataLayerRuntimeState::Activated )
+            {
+                ++step.HeldByDataLayers; // read, and its layers want it no further
+                continue;
+            }
             if ( gate != nullptr && held( gate->HoldActivation, index ) )
             {
                 ++step.WaitingForGate;
                 continue;
             }
-            const double cost = static_cast<double>( ResidencyUnitRecords( plan, index ) ) * settings.MsPerRecord;
-            if ( budgetSpent || ( activated > 0 && step.ActivationMs + cost > settings.ActivationBudgetMs ) )
+            step.Actions.push_back( { ResidencyActionKind::Activate, index, 0 } );
+        }
+
+        // 6. A unit part made that the sources no longer want but that the band still keeps is finished too,
+        //    after every wanted unit, in priority order: its made part is hidden and already collides, and the
+        //    band keeps an Activated unit (UE finishes the AddToWorld it began). Left Activating it would stay
+        //    hidden and collidable for as long as the band holds it.
+        std::vector<bool> isWanted( unitCount, false );
+        for ( const std::size_t index : wanted )
+            isWanted[index] = true;
+        for ( const std::size_t index : keptInOrder )
+        {
+            if ( isWanted[index] || state.Units[index].State != Residency::Activating )
+                continue;
+            if ( gate != nullptr &&
+                 ( held( gate->HoldActivation, index ) || ( gate->MayActivate && !gate->MayActivate( index ) ) ) )
             {
-                budgetSpent = true;
-                ++step.WaitingForBudget;
+                ++step.WaitingForGate;
                 continue;
             }
-            ++activated;
-            unit.State = Residency::Activated;
-            step.ActivationMs += cost;
             step.Actions.push_back( { ResidencyActionKind::Activate, index, 0 } );
         }
 

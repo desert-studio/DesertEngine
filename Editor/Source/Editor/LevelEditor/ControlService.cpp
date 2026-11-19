@@ -1,13 +1,18 @@
 #include "Editor/LevelEditor/ControlService.hpp"
 
+#include "Editor/Baking/MaterialBaking.hpp"
+
 #include "Editor/Core/AssetOpen.hpp"
 #include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Core/Commands/CommandRegistry.hpp"
 #include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
+#include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
+#include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
+#include <Engine/Core/RenderTask.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include "Editor/Core/Control/PointerDrag.hpp"
 #include "Editor/Core/ControlNudgeRequest.hpp"
@@ -37,6 +42,7 @@
 #include "Editor/Panels/PropertyEditor/ReflectedFieldText.hpp"
 #include "Editor/Core/CommandHistory.hpp"
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/NumberText.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -63,6 +69,8 @@
 #include <ImGui/imgui_internal.h>
 
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <charconv>
 #include <cmath>
 #include <glm/gtc/quaternion.hpp>
@@ -74,6 +82,13 @@ namespace Desert::Editor
 {
     namespace
     {
+        // The census entries only the frame itself decides, written when it is announced (OnFramePresented's
+        // noteAfterFrame): a frame being built cannot know them, so the window capture's expectation leaves them
+        // out (RecordWindowCaptureIfDue).
+        constexpr Control::PendingWork kDecidedByTheFrame[] = {
+             Control::PendingWork::Displacement, Control::PendingWork::SubsurfaceHistory,
+             Control::PendingWork::MaterialPipelines, Control::PendingWork::GrassInstances };
+
         // Subject::Entity — the entity named by its decimal UUID, in the open scene.
         // The entity a request names: its decimal UUID, or `selected` - the one selected entity, so a scripted
         // scenario can address what it just created without knowing the UUID the editor generated.
@@ -147,19 +162,29 @@ namespace Desert::Editor
             // World Settings > World Partition's one field (WP23): 0 = absent, the world ships in the base archive.
             rows.push_back( { "WorldPartition.ChunkRegionSize", "float",
                               std::format( "{}", partition->ChunkRegionSize.value_or( 0.0f ) ) } );
-            for ( const ::Desert::Core::WorldPartitionGridSerialized& grid : partition->Grids )
+            for ( const ::Desert::Core::RuntimePartitionSerialized& runtime : partition->RuntimePartitions )
             {
-                const std::string at = "WorldPartition.Grids." + grid.Name + ".";
-                rows.push_back( { at + "Name", "string", grid.Name } );
-                rows.push_back( { at + "CellSize", "float", std::format( "{}", grid.CellSize ) } );
-                rows.push_back( { at + "LoadingRange", "float", std::format( "{}", grid.LoadingRange ) } );
-                rows.push_back( { at + "Priority", "int", std::format( "{}", grid.Priority ) } );
-                rows.push_back( { at + "HLODLayer", "string", grid.HLODLayer.value_or( "" ) } );
+                const std::string at = "WorldPartition.RuntimePartitions." + runtime.Name + ".";
+                rows.push_back( { at + "Name", "string", runtime.Name } );
+                rows.push_back(
+                     { at + "Type", "string",
+                       std::string( ::Desert::Core::Rules::RuntimePartitionTypeName( runtime.Type ) ) } );
+                if ( runtime.LHGrid.has_value() )
+                {
+                    rows.push_back( { at + "CellSize", "float", std::format( "{}", runtime.LHGrid->CellSize ) } );
+                    rows.push_back(
+                         { at + "LoadingRange", "float", std::format( "{}", runtime.LHGrid->LoadingRange ) } );
+                    rows.push_back( { at + "Priority", "int", std::format( "{}", runtime.LHGrid->Priority ) } );
+                }
+                rows.push_back( { at + "HLODSetups", "json",
+                                  runtime.HLODSetups.has_value() ? Common::Json::Write( *runtime.HLODSetups )
+                                                                 : std::string( "[]" ) } );
             }
         }
 
-        // `set world WorldPartition <json>` (the whole block) or `set world WorldPartition.Grids.<Name>.<Field>
-        // <text>`: the block after the edit, committed through the panel's own EditWorldPartition (one undo step).
+        // `set world WorldPartition <json>` (the whole block) or `set world
+        // WorldPartition.RuntimePartitions.<Name>.<Field> <text>`: the block after the edit, committed through the
+        // panel's own EditWorldPartition (one undo step).
         Common::BoolResultStr SetWorldPartitionProperty( const std::shared_ptr<::Desert::Core::Scene>& scene,
                                                          const std::string& property, const std::string& text )
         {
@@ -173,7 +198,7 @@ namespace Desert::Editor
             }
             else
             {
-                constexpr std::string_view kGrids  = "WorldPartition.Grids.";
+                constexpr std::string_view kGrids  = "WorldPartition.RuntimePartitions.";
                 const auto&                current = scene->GetWorldPartition();
                 if ( !current )
                     return Common::MakeError<bool>( std::string(
@@ -192,6 +217,22 @@ namespace Desert::Editor
                                                    std::move( parsed.GetValue() ) );
                     return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
                 }
+                // `set world WorldPartition.HLODLayers <json list>`: the world's HLOD layers as a whole (the panel's
+                // HLOD layers section - New / Rename / Delete / Builder / Spatially Loaded / the builder's Settings -
+                // in one edit); `[]` states none, so no key is written. Refused by the same Rules::ValidateHLODLayers
+                // as the panel.
+                if ( property == "WorldPartition.HLODLayers" )
+                {
+                    auto parsed = Common::Json::Read<std::vector<::Desert::Core::HLODLayerSerialized>>( text );
+                    if ( !parsed )
+                        return Common::MakeError<bool>( "WorldPartition.HLODLayers: " + parsed.GetError() );
+                    after            = *current;
+                    after.HLODLayers = parsed.GetValue().empty()
+                                            ? std::nullopt
+                                            : std::optional<std::vector<::Desert::Core::HLODLayerSerialized>>(
+                                                   std::move( parsed.GetValue() ) );
+                    return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
+                }
                 if ( property == "WorldPartition.ChunkRegionSize" )
                 {
                     // The panel's DragFloat in text: centimetres, 0 clears it (the base archive), as the panel.
@@ -207,22 +248,61 @@ namespace Desert::Editor
                 }
                 const std::size_t dot = property.rfind( '.' );
                 if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
-                    return Common::MakeError<bool>( std::format(
-                         "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize, WorldPartition.DataLayers or "
-                         "WorldPartition.Grids.<Name>.<Field>", property ) );
+                    return Common::MakeError<bool>(
+                         std::format( "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize, "
+                                      "WorldPartition.DataLayers, WorldPartition.HLODLayers or "
+                                      "WorldPartition.RuntimePartitions.<Name>.<Field>",
+                                      property ) );
                 const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );
                 const std::string field = property.substr( dot + 1 );
                 after                   = *current;
                 const auto index = ::Desert::Core::Rules::GridIndexOf( after, std::optional<std::string>( name ) );
                 if ( !index )
-                    return Common::MakeError<bool>( std::format( "the world states no grid '{}'", name ) );
-                ::Desert::Core::WorldPartitionGridSerialized& grid = after.Grids[*index];
+                    return Common::MakeError<bool>(
+                         std::format( "the world states no runtime partition '{}'", name ) );
+                ::Desert::Core::RuntimePartitionSerialized& runtime = after.RuntimePartitions[*index];
+                // The LHGrid's own numbers exist on an LHGrid partition only (RuntimePartitionSerialized::LHGrid).
+                const bool gridField = field == "CellSize" || field == "LoadingRange" || field == "Priority";
+                if ( gridField && !runtime.LHGrid.has_value() )
+                    return Common::MakeError<bool>( std::format(
+                         "partition '{}' is not an LHGrid partition; it has no {}", runtime.Name, field ) );
                 if ( field == "Name" )
-                    grid.Name = text;
-                else if ( field == "HLODLayer" )
-                    grid.HLODLayer = text.empty() ? std::nullopt : std::optional<std::string>( text );
+                    runtime.Name = text;
+                else if ( field == "Type" )
+                {
+                    // A type change carries its settings block with it: an LHGrid gains the main grid's
+                    // defaults, any other type states none - never a block its type does not read.
+                    if ( text == "LHGrid" )
+                    {
+                        runtime.Type = ::Desert::Core::RuntimePartitionType::LHGrid;
+                        if ( !runtime.LHGrid.has_value() )
+                            runtime.LHGrid.emplace();
+                    }
+                    else if ( text == "Persistent" )
+                    {
+                        runtime.Type = ::Desert::Core::RuntimePartitionType::Persistent;
+                        runtime.LHGrid.reset();
+                        runtime.HLODSetups.reset();
+                    }
+                    else
+                        return Common::MakeError<bool>(
+                             std::format( "'{}' is not a partition type; LHGrid or Persistent", text ) );
+                }
+                else if ( field == "HLODSetups" )
+                {
+                    auto parsed =
+                         Common::Json::Read<std::vector<::Desert::Core::RuntimePartitionHLODSetupSerialized>>(
+                              text );
+                    if ( !parsed )
+                        return Common::MakeError<bool>( std::format( "{}: {}", property, parsed.GetError() ) );
+                    if ( parsed.GetValue().empty() )
+                        runtime.HLODSetups.reset(); // none is stated as no key, never as an empty list
+                    else
+                        runtime.HLODSetups = std::move( parsed.GetValue() );
+                }
                 else if ( field == "CellSize" || field == "LoadingRange" )
                 {
+                    ::Desert::Core::RuntimePartitionLHGridSerialized& grid  = *runtime.LHGrid;
                     std::size_t                used  = 0;
                     const std::optional<float> value = Common::FloatFromText( text, &used );
                     if ( !value || used != text.size() )
@@ -240,11 +320,12 @@ namespace Desert::Editor
                     if ( read.ec != std::errc{} || read.ptr != text.data() + text.size() )
                         return Common::MakeError<bool>(
                              std::format( "'{}' is not a value for {}", text, property ) );
-                    grid.Priority = priority;
+                    runtime.LHGrid->Priority = priority;
                 }
                 else
                     return Common::MakeError<bool>( std::format(
-                         "a grid's fields are Name, CellSize, LoadingRange, Priority, HLODLayer; not '{}'",
+                         "a runtime partition's fields are Name, Type, CellSize, LoadingRange, Priority, "
+                         "HLODSetups; not '{}'",
                          field ) );
             }
             return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
@@ -564,8 +645,10 @@ namespace Desert::Editor
     }
 
     void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
-                                                const bool texturesStreaming, const bool hlodBuildRunning,
-                                                const bool meshDropsLoading,
+                                                const bool                       texturesStreaming,
+                                                const Control::BackgroundReport& hlodBuild,
+                                                const bool miniMapBuildRunning, const bool meshDropsLoading,
+                                                const bool editorHLODsReading,
                                                 const bool modelingPreviewOutstanding )
     {
         Control::EditorQuiescence quiescence;
@@ -627,10 +710,15 @@ namespace Desert::Editor
         // first Starter shot after boot came back with a black sky that the next frame had filled.
         quiescence.Set( Control::PendingWork::ReflectionCaptures, reflectionCapturesFilling );
         quiescence.Set( Control::PendingWork::TexturesStreaming, texturesStreaming );
-        // UE's Build HLODs is one modal step: it returns once the HLOD packages are on disk. Here the landscape
-        // BaseColor bake runs over editor frames (TickBuild), so the reply to `run "Build HLODs"` waits for it -
-        // a Save or quit answered earlier cut the bake and no <Scene>_HLOD/ was written (WP-PROTOCOL.scn).
-        quiescence.Set( Control::PendingWork::HLODBuild, hlodBuildRunning );
+        // UE's HLOD editor subsystem loads an HLOD actor's package when it is to be shown; here its proxy file is
+        // read on a worker (EditorHLODs), so a frame - and the reply to Build HLODs or a region change - waits for
+        // the HLODs in view as it waits for streaming textures.
+        quiescence.Set( Control::PendingWork::EditorHLODs, editorHLODsReading );
+        // UE's Bake Materials is modal too: the reply to "Bake Material to Textures" waits for the offscreen
+        // render and its five texture assets (Editor/Baking/MaterialBaking).
+        quiescence.Set( Control::PendingWork::MaterialBake, ::Desert::Editor::Baking::IsBakeOfSelectionRunning() );
+        // Build Minimap the same way: the reply to `run "Build Minimap"` waits for the texture and the block's edit.
+        quiescence.Set( Control::PendingWork::MiniMapBuild, miniMapBuildRunning );
         // UE's drop of a source file into the level imports it modally (the factory runs before the actor is
         // spawned). Here the import runs on a worker and the entity waits empty, so the reply to "Drop into the
         // viewport" waits for the mesh: a frame taken earlier showed an entity with no mesh (WP-FAR-2.scn).
@@ -638,6 +726,13 @@ namespace Desert::Editor
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
+        // Build HLODs the same way (UE runs it as the World Partition builder commandlet's job behind a progress
+        // notification): its world reads, cell builds and writes run on a JobSystem worker and its bakes over
+        // editor frames, minutes on a large world, so `run "Build HLODs"` answers "started" and the editor stays
+        // responsive; a client polls `state` (DesertCtl wait-idle) for its progress and outcome. Waiting for idle
+        // also covers the editor HLODs it leaves to read (PendingWork::EditorHLODs) - and a Save or quit sent only
+        // after it.
+        quiescence.Set( Control::BackgroundWork::HLODBuild, hlodBuild );
         m_FrameQuiescence = quiescence;
     }
 
@@ -677,6 +772,28 @@ namespace Desert::Editor
         // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
         // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
         noteAfterFrame( Control::PendingWork::GrassInstances, grassInstancesSettling );
+
+        // THE WINDOW SHOT'S OWN AFTER-THE-FRAME ENTRY. Its copy is recorded while the frame is built, on a frame
+        // EXPECTED to settle (RecordWindowCaptureIfDue) - expected, because the four entries above are known only
+        // now. A frame judged settled that recorded nothing answered with no picture ("no frame capture was
+        // recorded for this frame": every shot.window of the WP sweep, 11-18); it is not the answer, the next one
+        // holding its copy is. Judged only, never in the live census: `state` and the expectation read that one.
+        const bool windowShotWaits = m_ControlInFlight &&
+                                     m_ControlInFlight->Operation == Control::Op::ShotWindow &&
+                                     m_ControlGate.Holding() == Control::GateSubject::Effect;
+        judged.Set( Control::PendingWork::WindowCapture,
+                    windowShotWaits && !m_Capture.WindowCaptureRecordedFor( built.Serial ) );
+        // A copy this frame recorded and nobody collected (judged unsettled, timed out, abandoned) holds the one
+        // capture slot: released once the judgement is over, so a later frame can record its own.
+        struct DiscardUncollected
+        {
+            ViewportCapture& Capture;
+            uint64_t         Frame;
+            ~DiscardUncollected()
+            {
+                Capture.DiscardWindowCapture( Frame );
+            }
+        } discardUncollected{ m_Capture, built.Serial };
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -762,7 +879,7 @@ namespace Desert::Editor
             // just certified as reflecting the command that came before it.
             std::string error;
             const bool  window  = ( m_ControlInFlight->Operation == Control::Op::ShotWindow );
-            const bool  written = window ? m_Capture.WriteWindowPng( m_ControlInFlight->Path, error )
+            const bool  written = window ? m_Capture.WriteWindowPng( m_ControlInFlight->Path, built.Serial, error )
                                          : m_Capture.WriteViewportPng( m_ControlInFlight->Path );
 
             if ( written )
@@ -1190,6 +1307,23 @@ namespace Desert::Editor
                     auto scene = m_Workspace.ActiveScene();
                     if ( !scene )
                         return Control::Response::Failure( request.Id, "no scene is open" );
+                    // The World Partition window's per-user state (WP-EDITOR-HLOD): the map selection Load Region loads
+                    // and the editor HLODs' view - the editor's, not the world's, so no undo entry. Before the world's
+                    // own WorldPartition block, whose prefix it shares.
+                    if ( request.Whose == Control::Subject::World &&
+                         request.Property.starts_with( "WorldPartitionEditor." ) )
+                    {
+                        WorldPartitionPanel* window = nullptr;
+                        for ( const auto& panel : m_Panels )
+                            if ( auto* found = dynamic_cast<WorldPartitionPanel*>( &*panel ) )
+                                window = found;
+                        if ( window == nullptr )
+                            return Control::Response::Failure( request.Id,
+                                                               "the World Partition window does not exist" );
+                        if ( const auto set = window->SetEditorProperty( request.Property, request.Text ); !set )
+                            return Control::Response::Failure( request.Id, set.GetError() );
+                        return Control::Response::Success( request.Id );
+                    }
                     if ( request.Whose == Control::Subject::World &&
                          request.Property.starts_with( "WorldPartition" ) )
                     {
@@ -1225,16 +1359,102 @@ namespace Desert::Editor
                     if ( !entity )
                         return Control::Response::Failure( request.Id, entity.GetError() );
                     ECS::Entity                 en    = entity.GetValue();
+
+                    // THE PREFAB INSTANCE'S STREAMING ROW (WP21-WHOLE): the Details "Prefab" component is a custom
+                    // widget, not a reflected block, so its one authored field is addressed here by the name the
+                    // widget shows it under. Text: Prefab (follow the prefab), Partitioned or Standalone.
+                    if ( typeName == "Prefab" && fieldPath == "RuntimeBehavior" )
+                    {
+                        if ( !en.HasComponent<ECS::PrefabComponent>() )
+                            return Control::Response::Failure(
+                                 request.Id, std::format( "entity {} is no prefab instance", request.Entity ) );
+                        auto& link = en.GetComponent<ECS::PrefabComponent>();
+                        if ( request.Text == "Prefab" )
+                            link.RuntimeBehavior.reset();
+                        else if ( request.Text == "Partitioned" )
+                            link.RuntimeBehavior = Assets::PrefabRuntimeBehavior::Partitioned;
+                        else if ( request.Text == "Standalone" )
+                            link.RuntimeBehavior = Assets::PrefabRuntimeBehavior::Standalone;
+                        else
+                            return Control::Response::Failure(
+                                 request.Id,
+                                 std::format(
+                                      "Prefab.RuntimeBehavior is Prefab, Partitioned or Standalone, not '{}'",
+                                      request.Text ) );
+                        scene->MarkModifiedSubtree( en );
+                        return Control::Response::Success( request.Id );
+                    }
+
+                    // THE ENTITY'S NAME (UE the actor label: Outliner F2 / Details header): the TagComponent is no
+                    // scene block (the name is the record's own), so it is addressed as Tag.Tag and written by the
+                    // Outliner's rename command - one undo step, the entity's file marked for the partitioned
+                    // save.
+                    if ( typeName == "Tag" && fieldPath == "Tag" )
+                    {
+                        if ( request.Text.empty() )
+                            return Control::Response::Failure( request.Id,
+                                                               "Tag.Tag is the entity's name; it is not "
+                                                               "empty" );
+                        const auto entityWord = ControlEntityId( request.Entity );
+                        if ( !entityWord )
+                            return Control::Response::Failure( request.Id, entityWord.GetError() );
+                        Commands::Rename( entityWord.GetValue(), request.Text );
+                        return Control::Response::Success( request.Id );
+                    }
+
+                    // THE WORLD PARTITION SECTION'S "Is Spatially Loaded" ROW (UE AActor::bIsSpatiallyLoaded): a
+                    // checkbox over the AlwaysLoaded marker (WorldPartitionDetails.cpp), addressed by the name the
+                    // row shows. One undo step, as the checkbox records it.
+                    if ( typeName == "WorldPartition" && fieldPath == "IsSpatiallyLoaded" )
+                    {
+                        if ( request.Text != "true" && request.Text != "false" )
+                            return Control::Response::Failure(
+                                 request.Id,
+                                 std::format( "WorldPartition.IsSpatiallyLoaded is true or false, not '{}'",
+                                              request.Text ) );
+                        const bool         spatial  = request.Text == "true";
+                        const auto         entityWord = ControlEntityId( request.Entity );
+                        const Common::UUID entityId   = entityWord.GetValue();
+                        Core::SelectionManager::SetSelected( entityId );
+                        if ( spatial == !en.HasComponent<ECS::AlwaysLoadedComponent>() )
+                            return Control::Response::Success( request.Id );
+                        Commands::MutateEntityUndoable( entityId,
+                                                        [&en, spatial]
+                                                        {
+                                                            if ( spatial )
+                                                                en.RemoveComponent<ECS::AlwaysLoadedComponent>();
+                                                            else
+                                                                en.AddComponent<ECS::AlwaysLoadedComponent>();
+                                                        } );
+                        scene->MarkModifiedSubtree( en );
+                        return Control::Response::Success( request.Id );
+                    }
+
                     const ComponentEditorEntry* found = nullptr;
                     for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
                         if ( entry.DataPtr && ( entry.ReflectedTypeName == typeName || entry.Name == typeName ) &&
                              entry.Has( en ) )
                             found = &entry;
                     if ( found == nullptr )
-                        return Control::Response::Failure(
-                             request.Id,
-                             std::format( "entity {} has no reflected component '{}'; ask 'properties'",
-                                          request.Entity, typeName ) );
+                    {
+                        // A component with no reflected block (Script: a list of slots of variant values) is set
+                        // from its scene block's JSON for that member, as one undo step - selected first, as the
+                        // Details panel that edits it has it selected.
+                        const auto entityWord = ControlEntityId( request.Entity );
+                        Core::SelectionManager::SetSelected( entityWord.GetValue() );
+                        if ( const auto written = Commands::SetComponentBlockMember(
+                                  entityWord.GetValue(), typeName, fieldPath, request.Text );
+                             !written )
+                        {
+                            LOG_WARN( "[Control] set {} {} refused: {}", request.Entity, request.Property,
+                                      written.GetError() );
+                            return Control::Response::Failure( request.Id,
+                                                               std::format( "{} (entity {}; ask 'properties')",
+                                                                            written.GetError(), request.Entity ) );
+                        }
+                        scene->MarkModifiedSubtree( en );
+                        return Control::Response::Success( request.Id );
+                    }
 
                     // Selected first, as a person editing it in Details has it selected: the undo record
                     // and the panel's view of the edit are then the ones a hand edit produces.
@@ -1369,6 +1589,73 @@ namespace Desert::Editor
                     return Control::Response::Failure( request.Id, entity.GetError() );
                 const auto entityWord = ControlEntityId( request.Entity );
                 Core::SelectionManager::SetSelected( entityWord.GetValue() );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::Spawn:
+            {
+                // UE REMOTE CONTROL'S SpawnActor: the asset lands at the world point as a new entity through the
+                // viewport's own drop body (the mouse's and the palette's), so it is selected, one undo step,
+                // marks the scene and its World Partition cell like a drop by hand. The point is exact (no
+                // surface to rest on: the caller placed it); the id, when named, is the entity's UUID.
+                auto scene = m_Workspace.ActiveScene();
+                if ( !scene )
+                    return Control::Response::Failure( request.Id, "no scene is open" );
+                Common::UUID id;
+                if ( !request.Entity.empty() )
+                {
+                    const auto named = ControlEntityId( request.Entity );
+                    if ( !named || named.GetValue().IsNull() || request.Entity == "selected" )
+                        return Control::Response::Failure(
+                             request.Id, std::format( "spawn --id '{}': a new entity takes a non-zero decimal UUID",
+                                                      request.Entity ) );
+                    id = named.GetValue();
+                }
+                // The asset as the Content Browser names it: under the project's Content folder (`Content/...`
+                // or relative to it), or an absolute path.
+                std::filesystem::path asset( request.Path );
+                if ( asset.is_relative() )
+                {
+                    const auto first = asset.begin();
+                    asset            = ( first != asset.end() && *first == "Content" )
+                                            ? Common::Constants::Path::ASSETS_PATH / asset.lexically_relative( "Content" )
+                                            : Common::Constants::Path::ASSETS_PATH / asset;
+                }
+                if ( std::error_code ec; !std::filesystem::is_regular_file( asset, ec ) )
+                    return Control::Response::Failure( request.Id,
+                                                       std::format( "spawn: no asset file '{}'", asset.generic_string() ) );
+                const glm::vec3 point( request.Value[0], request.Value[1], request.Value[2] );
+                std::string     extension = asset.extension().string();
+                std::transform( extension.begin(), extension.end(), extension.begin(),
+                                []( unsigned char c ) { return static_cast<char>( std::tolower( c ) ); } );
+                // A PREFAB lands through the viewport's prefab drop; its entities' ids are minted by the
+                // instantiation (PrefabFactory, nested instances included), so it is addressed as 'selected'.
+                if ( extension == Common::Constants::Extensions::PREFAB_EXTENSION )
+                {
+                    if ( !id.IsNull() )
+                        return Control::Response::Failure(
+                             request.Id, "spawn --id: a prefab's entity ids are minted by its instantiation; "
+                                         "spawn it without --id and address its root as 'selected'" );
+                    if ( const auto placed =
+                              ViewportPanel::DropPrefabIntoActiveViewport( asset.generic_string(), point );
+                         !placed )
+                        return Control::Response::Failure( request.Id, placed.GetError() );
+                    return Control::Response::Success( request.Id );
+                }
+                const bool mesh = extension == Common::Constants::Extensions::STATIC_MESH ||
+                                  extension == Common::Constants::Extensions::SKINNED_MESH ||
+                                  extension == ".fbx" || extension == ".obj" || extension == ".gltf" ||
+                                  extension == ".glb" || extension == ".blend";
+                if ( !mesh )
+                    return Control::Response::Failure(
+                         request.Id, std::format( "spawn: '{}' is not a mesh (.stmesh, .skmesh, a model source) "
+                                                  "or a prefab - nothing to place",
+                                                  asset.generic_string() ) );
+                const ActorDrop::Target target{ point, std::nullopt };
+                if ( const auto placed =
+                          ViewportPanel::DropMeshIntoActiveViewport( asset.generic_string(), target, id );
+                     !placed )
+                    return Control::Response::Failure( request.Id, placed.GetError() );
                 return Control::Response::Success( request.Id );
             }
 
@@ -2100,10 +2387,28 @@ namespace Desert::Editor
         // "the editor is ready" and "the command has landed" from being read as one fact.
         if ( m_ControlGate.Holding() != Control::GateSubject::Effect )
             return;
-        if ( !m_ControlGate.WouldDischarge( m_FrameIndex, m_FrameQuiescence ) )
+        // EXPECTED, NOT KNOWN: the entries only the frame itself decides (kDecidedByTheFrame) are written at its
+        // announcement, so the live census holds an EARLIER frame's - a frame expected unsettled by them can be
+        // judged settled. Those are left out here; the judgement holds a frame without its copy as unsettled
+        // (PendingWork::WindowCapture), and a copy that is not the answer is released at its announcement.
+        Control::EditorQuiescence beforeTheFrame = m_FrameQuiescence;
+        for ( const Control::PendingWork work : kDecidedByTheFrame )
+            beforeTheFrame.Set( work, false );
+        if ( !m_ControlGate.WouldDischarge( m_FrameIndex, beforeTheFrame ) )
             return;
 
-        m_Capture.RecordWindowCapture();
+        // BEHIND THE INTERFACE, ON THE RENDER TASK. The swapchain image is acquired late, by the interface graph's
+        // back-buffer import (VulkanImGui::RecordInterface, PRESENT-COST-2), and that graph runs on the render
+        // task (VulkanImGui::End enqueues it, TICK-JOB-SPLIT-1); recorded here on the game thread, the copy found
+        // no acquired image and every `shot.window` was refused. Jobs run in enqueue order, so this one runs
+        // after this frame's interface and before its submit and present (UE: the screenshot request is served
+        // on the render thread, after the back buffer is drawn). WriteWindowPng joins the task before it reads.
+        ::Desert::Engine::RenderTask::Get().Enqueue( "Window capture",
+                                                     [this, frame = m_FrameIndex]() -> Common::BoolResultStr
+                                                     {
+                                                         m_Capture.RecordWindowCapture( frame );
+                                                         return BOOLSUCCESS;
+                                                     } );
     }
 
     void ControlService::Close()

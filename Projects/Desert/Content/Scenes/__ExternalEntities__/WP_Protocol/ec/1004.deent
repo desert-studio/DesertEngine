@@ -32,11 +32,7 @@
                 "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
                 "Path": "Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
             }
-        ],
-        "Splines": {
-            "ControlPoints": [],
-            "Segments": []
-        }
+        ]
     },
     "LandscapeMaterial": {
         "Material": {

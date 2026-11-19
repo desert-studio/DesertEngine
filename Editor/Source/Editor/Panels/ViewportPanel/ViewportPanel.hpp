@@ -224,8 +224,11 @@ namespace Desert::Editor
 
         // The palette's door to DropMeshAsset (below): the drop lands in the ACTIVE viewport, which is the
         // view the control channel's camera commands address. Refuses when no viewport is live.
+        // @p id: the UUID the new entity takes (Null = a fresh one, as a mouse drop gets) - the control
+        // channel's `spawn --id` (UE Remote Control SpawnActor), so a scenario addresses what it placed.
         static Common::BoolResultStr DropMeshIntoActiveViewport( const std::string&       path,
-                                                                 const ActorDrop::Target& target );
+                                                                 const ActorDrop::Target& target,
+                                                                 const Common::UUID&      id = Common::UUID() );
         // Any live viewport's dropped mesh still importing on its worker, or cooked and not yet spawned (the
         // "Loading meshes" overlay). The control channel's reply gate waits for it (PendingWork::MeshDrops).
         static bool AnyMeshDropLoading();
@@ -269,7 +272,9 @@ namespace Desert::Editor
         // assigned by UpdateAsyncLoads on a later frame, which then rests the mesh's bounds on the surface
         // the target names (ActorDrop::PlacedOrigin, UE's FActorPositioning). Refuses when this view has no scene
         // or no asset manager — nothing to drop into.
-        Common::BoolResultStr DropMeshAsset( const std::string& path, const ActorDrop::Target& target );
+        // @p id as DropMeshIntoActiveViewport's: an id already in the scene is refused, nothing is placed.
+        Common::BoolResultStr DropMeshAsset( const std::string& path, const ActorDrop::Target& target,
+                                             const Common::UUID& id = Common::UUID() );
 
         // THE ONE BODY OF A PREFAB DROP (UE: dragging a Level Instance / Packed Level Actor into the level), for
         // the mouse (a PrefabFile payload) and `Assets / Drop into the viewport: <file>.deprefab` alike. A world

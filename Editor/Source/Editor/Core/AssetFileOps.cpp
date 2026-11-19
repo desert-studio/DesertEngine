@@ -1,11 +1,16 @@
 #include "AssetFileOps.hpp"
 
+#include <Common/Content/ExternalEntitiesFolder.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Core/Constants.hpp>
 
+#include <cstddef>
 #include <filesystem>
 #include <format>
 #include <functional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace Desert::Editor::AssetFileOps
 {
@@ -40,6 +45,75 @@ namespace Desert::Editor::AssetFileOps
                 return false;
             error = "An import record '" + Common::Content::ImportRecordPathFor( to ).string() +
                     "' already exists there.";
+            return true;
+        }
+        bool IsScene( const fs::path& path )
+        {
+            return path.extension() == Common::Constants::Extensions::SCENE_EXTENSION;
+        }
+
+        // A SCENE'S COMPANION FOLDERS GO WHERE THE SCENE GOES (WP-ASSET-OPS): (from, to) for each folder of
+        // Common::Content::SceneCompanionDirectoriesOf(from) that is on disk; none for a file that is not a scene.
+        std::vector<std::pair<fs::path, fs::path>> CompanionPairs( const fs::path& from, const fs::path& to )
+        {
+            std::vector<std::pair<fs::path, fs::path>> pairs;
+            if ( !IsScene( from ) )
+                return pairs;
+            const auto      fromDirs = Common::Content::SceneCompanionDirectoriesOf( from );
+            const auto      toDirs   = Common::Content::SceneCompanionDirectoriesOf( to );
+            std::error_code ec;
+            for ( std::size_t i = 0; i < fromDirs.size(); ++i )
+                if ( fs::is_directory( fromDirs[i], ec ) )
+                    pairs.emplace_back( fromDirs[i], toDirs[i] );
+            return pairs;
+        }
+
+        // A copy's name is free when neither the file nor a companion folder named after it is on disk: a stale
+        // entity folder left under that name would be adopted by the copy (and refused as unlisted files).
+        bool NameTaken( const fs::path& candidate )
+        {
+            std::error_code ec;
+            if ( fs::exists( candidate, ec ) )
+                return true;
+            if ( !IsScene( candidate ) )
+                return false;
+            for ( const fs::path& companion : Common::Content::SceneCompanionDirectoriesOf( candidate ) )
+                if ( fs::exists( companion, ec ) )
+                    return true;
+            return false;
+        }
+
+        // UE's duplicate of a World Partition map (its external actor packages are duplicated with it): `src`
+        // and every companion folder of it, ALL OR NOTHING - a failure removes what this copy made and names
+        // the folder that did not copy.
+        bool CopyWithCompanions( const fs::path& src, const fs::path& dst, std::string& error )
+        {
+            std::error_code ec;
+            fs::copy( src, dst, fs::copy_options::recursive, ec );
+            if ( ec )
+            {
+                error = ec.message();
+                return false;
+            }
+            std::vector<fs::path> made = { dst };
+            for ( const auto& [from, to] : CompanionPairs( src, dst ) )
+            {
+                fs::create_directories( to.parent_path(), ec );
+                if ( !ec )
+                    fs::copy( from, to, fs::copy_options::recursive, ec );
+                if ( !ec )
+                {
+                    made.push_back( to );
+                    continue;
+                }
+                error = std::format( "'{}' did not copy with its scene to '{}': {}; nothing was copied",
+                                     from.string(), to.string(), ec.message() );
+                std::error_code undo;
+                fs::remove_all( to, undo );
+                for ( const fs::path& path : made )
+                    fs::remove_all( path, undo );
+                return false;
+            }
             return true;
         }
     } // namespace
@@ -132,16 +206,16 @@ namespace Desert::Editor::AssetFileOps
     {
         const fs::path  s = src;
         std::error_code ec;
-        const std::string name =
-             UniqueName( s.stem().string(), s.extension().string(),
-                         [&]( const std::string& n ) { return fs::exists( s.parent_path() / n ); } );
-        const fs::path dst = s.parent_path() / name;
-        fs::copy( s, dst, fs::copy_options::recursive, ec );
-        if ( ec )
+        if ( !fs::exists( s, ec ) )
         {
-            error = ec.message();
+            error = "Source no longer exists.";
             return false;
         }
+        const std::string name = UniqueName( s.stem().string(), s.extension().string(), [&]( const std::string& n )
+                                             { return NameTaken( s.parent_path() / n ); } );
+        const fs::path    dst  = s.parent_path() / name;
+        if ( !CopyWithCompanions( s, dst, error ) )
+            return false;
         outNewPath = dst.string();
         return true;
     }
@@ -151,16 +225,16 @@ namespace Desert::Editor::AssetFileOps
     {
         const fs::path  s = src;
         std::error_code ec;
-        const std::string name =
-             UniqueName( s.stem().string(), s.extension().string(),
-                         [&]( const std::string& n ) { return fs::exists( fs::path( destDir ) / n ); } );
-        const fs::path dst = fs::path( destDir ) / name;
-        fs::copy( s, dst, fs::copy_options::recursive, ec );
-        if ( ec )
+        if ( !fs::exists( s, ec ) )
         {
-            error = ec.message();
+            error = "Source no longer exists.";
             return false;
         }
+        const std::string name = UniqueName( s.stem().string(), s.extension().string(), [&]( const std::string& n )
+                                             { return NameTaken( fs::path( destDir ) / n ); } );
+        const fs::path dst = fs::path( destDir ) / name;
+        if ( !CopyWithCompanions( s, dst, error ) )
+            return false;
         outNewPath = dst.string();
         return true;
     }
@@ -168,6 +242,21 @@ namespace Desert::Editor::AssetFileOps
     bool Delete( const std::string& path, std::string& error )
     {
         std::error_code ec;
+        // A scene's companion folders first, while the scene still names them; the `__ExternalEntities__` folder
+        // the entity folder leaves empty goes too (only when empty).
+        if ( IsScene( path ) )
+            for ( const fs::path& companion : Common::Content::SceneCompanionDirectoriesOf( path ) )
+            {
+                fs::remove_all( companion, ec );
+                if ( ec )
+                {
+                    error = std::format( "'{}' (a folder of the scene) was not deleted: {}", companion.string(),
+                                         ec.message() );
+                    return false;
+                }
+                if ( companion.parent_path().filename() == Common::Content::kExternalEntitiesFolder )
+                    fs::remove( companion.parent_path(), ec ); // only when empty
+            }
         fs::remove_all( path, ec );
         if ( ec )
         {

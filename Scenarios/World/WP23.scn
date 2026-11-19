@@ -1,8 +1,8 @@
 # WP23: pak chunks by world region - a copy of WP_Protocol at ChunkRegionSize 20000 cm (200 m regions), packaged.
 # The copy streams around the plane 9000002 (Scripts/World/WPFly.lua: 125 m/s along +X for 8 s = 1 km, five
 # regions) with the Player's source off, as WP-SRC-VELOCITY - so regions behind it lose their last cell.
-# WP23_Regions is the copy p1 made (save-as of WP_Protocol after Load All, sources switched to the plane,
-# HLODs built for both worlds, ~20 min each); it is opened directly so the HLOD build is not repeated.
+# WP23_Regions is a committed asset (made by WP23-AUTHOR.scn: save-as of WP_Protocol after Load All, sources
+# switched to the plane). Its HLODs are build output: built here before Package Game, which refuses a world without.
 # The field is set back to 100000 first, so the edit under test is a real change and one undo returns 100000.
 # Package Game bundles build/Bin/<PackageConfig>/Runtime (~/.desertengine/editor.json): Debug for this proof,
 # because a Shipping Runtime refuses --shot.
@@ -20,5 +20,7 @@
 Тогда wp23_field_undo одна отмена: поле снова 100000 (значение до правки)
 Когда run Action "Redo"
 Когда run Action "Save Scene"
+Когда run Scene "Build HLODs"
+Когда wait-idle 2400
 Когда run Build "Package Game"
 Тогда wp23_pak пакет собран, манифест записан; в логе «[Package] world '…WP23_Regions…' divided into '…_Shared' + N region chunk(s)», N > 1

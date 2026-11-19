@@ -1,4 +1,5 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/ECS/EditorHLODComponent.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -276,6 +277,9 @@ namespace Desert::Core
         const bool externalEntities = m_Scene->GetWorldPartition().has_value();
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
+            // An editor HLOD (ECS/EditorHLODComponent.hpp) is not the world's: no package, no region census.
+            if ( entity.HasComponent<ECS::EditorHLODComponent>() )
+                continue;
             LiveEntity row;
             row.Id     = IdOf( *entity.GetRegistry(), entity.GetHandle() );
             row.Record = RecordOf( entity );
@@ -344,6 +348,10 @@ namespace Desert::Core
         const bool externalEntities = scene.WorldPartition.has_value();
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
+            // An editor HLOD (ECS/EditorHLODComponent.hpp) is never written: not saved, not in the Play snapshot,
+            // not in an undo record. Skipped before the sibling count, as LiveEntities skips it.
+            if ( entity.HasComponent<ECS::EditorHLODComponent>() )
+                continue;
             if ( isPrefabChild( const_cast<ECS::Entity&>(entity) ) )
             {
                 continue;
@@ -379,7 +387,15 @@ namespace Desert::Core
             // out of the root's override, so it is still in one place — and that place is THIS file, which
             // the World Partition planner (a pure function of one scene) can read. Before v37 it lived only
             // in an override addressed by ids the `.deprefab` resolves, and every instance was unplaceable.
-            if ( entity.HasComponent<ECS::PrefabComponent>() && data.PrefabPath.has_value() )
+            // A PACKED INSTANCE draws its source as it is and holds no override (Unpack Prefab Instances to Edit
+            // is how one is made): its record is the link, its placement and the mode. Its ISM children are
+            // skipped with every other entity under a prefab root (isPrefabChild).
+            if ( entity.HasComponent<Runtime::Factory::PackedPrefabComponent>() && data.PrefabPath.has_value() )
+            {
+                Assets::ReduceInstanceRecord( data, {}, nullptr );
+                data.PrefabPacked = true;
+            }
+            else if ( entity.HasComponent<ECS::PrefabComponent>() && data.PrefabPath.has_value() )
             {
                 const Serialize::PrefabInstanceCapture capture =
                      Serialize::CapturePrefabInstance( entity, *m_AssetManager );
@@ -746,8 +762,37 @@ namespace Desert::Core
             // WITH THE ID THE FILE STATES. The factory mints a fresh uuid for every entity of an instance,
             // and for the root that meant this scene was written with a different id for the same instance
             // on every save — the only difference between two consecutive saves of a scene holding one.
-            ECS::Entity prefabRoot = Runtime::Factory::PrefabFactory::Instantiate(
-                 *prefabAsset, *m_Scene, *m_AssetManager, stack, {}, entityData->id );
+            //
+            // PACKED (EntityData::PrefabPacked): the prefab's packed form, one ISM per group. A record stating the
+            // mode AND overrides was not written by this engine (the saver writes one or the other), and a prefab
+            // whose source no longer packs has no form to draw: both are named and placed UNPACKED, which shows
+            // the source and keeps every override - never a packed picture of something else.
+            ECS::Entity prefabRoot;
+            if ( entityData->PrefabPacked.value_or( false ) )
+            {
+                if ( entityData->PrefabOverrides.has_value() && !entityData->PrefabOverrides->empty() )
+                {
+                    LOG_ERROR(
+                         "SceneSerializer: the instance of '{0}' is saved packed AND with {1} override(s); a "
+                         "packed instance draws its source as it is, so it is placed unpacked to keep them.",
+                         *entityData->PrefabPath, entityData->PrefabOverrides->size() );
+                }
+                else if ( auto packed = Runtime::Factory::PrefabFactory::InstantiatePacked(
+                               prefabAsset, *m_Scene, *m_AssetManager, entityData->id );
+                          packed )
+                {
+                    prefabRoot = packed.GetValue();
+                }
+                else
+                {
+                    LOG_ERROR( "SceneSerializer: the instance of '{0}' is saved packed and cannot be: {1}. It is "
+                               "placed unpacked.",
+                               *entityData->PrefabPath, packed.GetError() );
+                }
+            }
+            if ( !prefabRoot )
+                prefabRoot = Runtime::Factory::PrefabFactory::Instantiate( *prefabAsset, *m_Scene, *m_AssetManager,
+                                                                           stack, {}, entityData->id );
 
             if ( !prefabRoot )
                 continue;
@@ -773,6 +818,11 @@ namespace Desert::Core
             ECS::LocalTransform rootLocal = prefabRoot.GetComponent<ECS::TransformComponent>().GetLocal();
             Assets::PlaceInstanceRoot( rootLocal, stated.GetValue() );
             ECS::SetLocalTransform( *prefabRoot.GetRegistry(), prefabRoot.GetHandle(), rootLocal );
+
+            // How this instance streams, when it overrides its prefab (WP21-WHOLE): kept on the link the factory
+            // tagged the root with, so the next save states it again.
+            if ( prefabRoot.HasComponent<ECS::PrefabComponent>() )
+                prefabRoot.GetComponent<ECS::PrefabComponent>().RuntimeBehavior = entityData->RuntimeBehavior;
 
             // Register in map under the original saved UUID so parent links resolve. A prefab root saved
             // without an id has nothing for a child's `parent` to name, so there is nothing to register:

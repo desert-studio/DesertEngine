@@ -314,10 +314,13 @@ namespace Desert::Editor::Core
         std::optional<glm::vec3>              CopyCornerA;
         std::optional<glm::vec3>              CopyCornerB;
         World::Landscape::LandscapeCopyBuffer CopyBuffer;
-        /// The Splines tool's selected control point (index into the landscape's LandscapeSplines), or none:
-        /// a new point joins it. Editor state, as UE's selection is.
+        /// The Splines tool's selected control point (index into SelectedSpline's LandscapeSplines), or none:
+        /// a new point joins it; with none a Ctrl+click starts a new spline entity. Editor state, as UE's
+        /// selection is.
         std::optional<uint32_t> SelectedSplinePoint;
-        /// The landscape whose splines SelectedSplinePoint indexes.
+        /// The spline entity (LandscapeSplineComponent, UE ALandscapeSplineActor) SelectedSplinePoint indexes.
+        Common::UUID SelectedSpline = Common::UUID::Null();
+        /// The landscape SelectedSpline belongs to (the ground its points are traced on).
         Common::UUID SplineLandscape = Common::UUID::Null();
 
         /// Why a stroke cannot start in the current mode, or nothing. The palette asks BEFORE it queues a stroke:

@@ -36,8 +36,9 @@ namespace Desert::Scripting::LuauProperties
 
         /// The options table at `index` (none / nil = no options) into `meta`. An unknown option is an error:
         /// a misspelt `tooltp` would otherwise be a tooltip that silently never shows.
+        /// `hard`: where Property.Entity's `hard` option goes; null for every other kind, which refuses it.
         void ReadOptions( lua_State* L, int index, const char* ctor, Reflection::PropertyMetadata& meta,
-                          bool rangeAllowed )
+                          bool rangeAllowed, bool* hard = nullptr )
         {
             if ( lua_isnoneornil( L, index ) )
                 return;
@@ -81,6 +82,12 @@ namespace Desert::Scripting::LuauProperties
                         luaL_errorL( L, "Property.%s: option 'advanced' must be a boolean", ctor );
                     meta.Advanced = lua_toboolean( L, -1 ) != 0;
                 }
+                else if ( key == "hard" && hard != nullptr )
+                {
+                    if ( lua_type( L, -1 ) != LUA_TBOOLEAN )
+                        luaL_errorL( L, "Property.%s: option 'hard' must be a boolean", ctor );
+                    *hard = lua_toboolean( L, -1 ) != 0;
+                }
                 else if ( key == "min" )
                 {
                     meta.RangeMin = number();
@@ -92,7 +99,8 @@ namespace Desert::Scripting::LuauProperties
                     hasMax        = true;
                 }
                 else
-                    luaL_errorL( L, "Property.%s: unknown option '%s' (known: %s)", ctor, key.data(), kOptions );
+                    luaL_errorL( L, "Property.%s: unknown option '%s' (known: %s%s)", ctor, key.data(), kOptions,
+                                 hard != nullptr ? ", hard" : "" );
                 lua_pop( L, 1 );
             }
             if ( !hasMin && !hasMax )
@@ -259,11 +267,11 @@ namespace Desert::Scripting::LuauProperties
             return Push( L, std::move( decl ) );
         }
 
-        /// Property.Entity ( options ).
+        /// Property.Entity ( options ): `hard = true` makes it a hard reference (ScriptPropertyDecl::HardReference).
         int Entity( lua_State* L )
         {
             ScriptPropertyDecl decl = Make( PropertyType::Entity );
-            ReadOptions( L, 1, "Entity", decl.Meta, false );
+            ReadOptions( L, 1, "Entity", decl.Meta, false, &decl.HardReference );
             return Push( L, std::move( decl ) );
         }
 
@@ -303,6 +311,7 @@ namespace Desert::Scripting::LuauProperties
             ScriptPropertyDecl decl  = Make( PropertyType::Array );
             decl.ElementType         = element->Decl.Default.Type;
             decl.ElementMeta         = element->Decl.Meta;
+            decl.HardReference       = element->Decl.HardReference; // an Array of hard Entities holds each item hard
             decl.EnumOptions         = element->Decl.EnumOptions;
             decl.Default.ElementType = decl.ElementType;
             ReadOptions( L, 3, "Array", decl.Meta, false );

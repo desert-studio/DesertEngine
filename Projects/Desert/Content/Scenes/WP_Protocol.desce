@@ -5,9 +5,9 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 75,
+            "SCNE": 76,
             "UNIT": 1,
-            "WPAR": 2
+            "WPAR": 13
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "0e67a9bfdff1b3cd7ed50e27dadc465e", "3484bb954b28686f2f2c225c75dd9798", "91bde2ac45c15dd230d961a447b6fba7", "c39ddb7d5965f1c080b50b71c51a6db6", "df51ca6ed9cb71779a9b5634db0863bc", "e04d99eaf3ddd30e0184e38e5c3bcc57", "f1310680ea846d17141c59441b901b55"]
     },
@@ -111,34 +111,64 @@
         "SplashFade": 0.4000000059604645
     },
     "WorldPartition": {
-        "Grids": [
+        "RuntimePartitions": [
             {
                 "Name": "Main",
-                "CellSize": 2500.0,
-                "LoadingRange": 20000.0,
-                "Priority": 0,
-                "HLODLayer": "HLOD_Main"
+                "Type": "LHGrid",
+                "LHGrid": {
+                    "CellSize": 2500.0,
+                    "LoadingRange": 20000.0,
+                    "Priority": 0
+                },
+                "HLODSetups": [
+                    {
+                        "Name": "HLOD_Main",
+                        "HLODLayer": "HLOD_Main"
+                    },
+                    {
+                        "Name": "HLOD_Main_Far",
+                        "HLODLayer": "HLOD_Main_Far"
+                    }
+                ],
+                "DebugColor": [0.5500000715255737, 0.25, 1.0]
             },
             {
                 "Name": "Foliage",
-                "CellSize": 1280.0,
-                "LoadingRange": 6400.0,
-                "Priority": 0,
-                "HLODLayer": "HLOD_Foliage"
+                "Type": "LHGrid",
+                "LHGrid": {
+                    "CellSize": 1280.0,
+                    "LoadingRange": 6400.0,
+                    "Priority": 0
+                },
+                "HLODSetups": [
+                    {
+                        "Name": "HLOD_Foliage",
+                        "HLODLayer": "HLOD_Foliage"
+                    }
+                ],
+                "DebugColor": [0.9500000476837158, 0.25, 1.0]
             },
             {
                 "Name": "LandscapeTiles",
-                "CellSize": 5000.0,
-                "LoadingRange": 51000.0,
-                "Priority": 0,
-                "HLODLayer": "HLOD_Landscape"
+                "Type": "LHGrid",
+                "LHGrid": {
+                    "CellSize": 5000.0,
+                    "LoadingRange": 51000.0,
+                    "Priority": 0
+                },
+                "HLODSetups": [
+                    {
+                        "Name": "HLOD_Landscape",
+                        "HLODLayer": "HLOD_Landscape"
+                    }
+                ],
+                "DebugColor": [0.4375, 0.25, 1.0]
             }
         ],
         "HLODLayers": [
             {
                 "Name": "HLOD_Main",
                 "Type": "Instancing",
-                "ParentLayer": "HLOD_Main_Far",
                 "CellSize": 51200.0,
                 "LoadingRange": 102400.0
             },

@@ -4,13 +4,16 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
+#include <Projects/EngineConfig.hpp>
 #include <Projects/ProjectContext.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <string_view>
 #include <utility>
 
 #include <ImGui/imgui.h>
@@ -64,7 +67,8 @@ namespace Desert::Editor
         {
             m_LoadedFor = directory;
             m_Edit          = ::Desert::Project::CurrentGameSettings();
-            m_EditRendering = ::Desert::Project::CurrentRendererSettings();
+            m_EditRendering      = ::Desert::Project::ProjectRendererSettings();
+            m_EditWorldPartition = ::Desert::Project::ProjectWorldPartitionSettings();
             m_Problem.clear();
         }
 
@@ -74,6 +78,7 @@ namespace Desert::Editor
         DrawGameSection();
         DrawMoviesSection();
         DrawRenderingSection();
+        DrawWorldPartitionSection();
 
         if ( !m_Problem.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s %s", ICON_MDI_ALERT, m_Problem.c_str() );
@@ -272,6 +277,110 @@ namespace Desert::Editor
     void ProjectSettingsPanel::CommitRendering()
     {
         const auto saved = ::Desert::Project::SaveRendererSettings( m_EditRendering );
+        if ( saved )
+            m_Problem.clear();
+        else
+            m_Problem = saved.GetError();
+    }
+
+    // UE Project Settings > Engine > World Partition (the wp.Runtime.* values a project sets in
+    // DefaultEngine.ini): the WorldPartition section of Config/Engine.json, read by the WorldStreamer when Play or
+    // the game begins. A value this platform's layer (Config/<Platform>/Engine.json) also sets is marked: this
+    // host runs that one.
+    void ProjectSettingsPanel::DrawWorldPartitionSection()
+    {
+        if ( !Utils::ImGuiUtilities::SectionHeader( "World Partition" ) )
+            return;
+
+        const ::Desert::Project::EngineConfigLayers& layers = ::Desert::Project::CurrentEngineConfig();
+        auto&                                        edit   = m_EditWorldPartition;
+        const auto                                   endRow = [&]( std::string_view key )
+        {
+            const std::string path = std::format( "WorldPartition.{}", key );
+            for ( const std::string& set : layers.PlatformKeys )
+                if ( set == path || set == "WorldPartition" )
+                {
+                    ImGui::TextDisabled( "%s", std::format( "{} sets it on {}", layers.PlatformFile,
+                                                            ::Desert::Project::PlatformConfigName() )
+                                                    .c_str() );
+                    break;
+                }
+            Utils::ImGuiUtilities::EndPropertyRow();
+        };
+        const auto commitOnEdit = [&]
+        {
+            if ( ImGui::IsItemDeactivatedAfterEdit() )
+                CommitWorldPartition();
+        };
+
+        Utils::ImGuiUtilities::ResetPropertyRows();
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Block On Slow Streaming",
+             "UE wp.Runtime.BlockOnSlowStreaming: while the cell under a streaming source is not loaded, the game "
+             "stops behind the loading overlay. Off: play goes on over the HLOD and the log says so." );
+        if ( ImGui::Checkbox( "##BlockOnSlowStreaming", &edit.BlockOnSlowStreaming ) )
+            CommitWorldPartition();
+        endRow( "BlockOnSlowStreaming" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Slow Streaming Ratio",
+             "UE wp.Runtime.BlockOnSlowStreamingRatio: a cell's distance over a source's loading range. Times the "
+             "warning factor, it is where streaming counts as slow while a wanted cell is not loaded yet." );
+        ImGui::DragFloat( "##SlowStreamingRatio", &edit.SlowStreamingRatio, 0.01f, 0.0f, 1.0f, "%.2f" );
+        commitOnEdit();
+        endRow( "SlowStreamingRatio" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow( "Slow Streaming Warning Factor",
+                                                 "UE wp.Runtime.BlockOnSlowStreamingWarningFactor (>= 1)." );
+        ImGui::DragFloat( "##SlowStreamingWarningFactor", &edit.SlowStreamingWarningFactor, 0.05f, 1.0f, 8.0f,
+                          "%.2f" );
+        commitOnEdit();
+        endRow( "SlowStreamingWarningFactor" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Max Concurrent Loads",
+             "UE wp.Runtime.MaxLoadingStreamingCells: cell reads in flight at once (>= 1)." );
+        const std::uint32_t step = 1;
+        ImGui::InputScalar( "##MaxConcurrentLoads", ImGuiDataType_U32, &edit.MaxConcurrentLoads, &step, &step );
+        commitOnEdit();
+        endRow( "MaxConcurrentLoads" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Activation Budget (ms)",
+             "Main-thread time one frame may spend turning loaded cells into entities." );
+        ImGui::InputDouble( "##ActivationBudgetMs", &edit.ActivationBudgetMs, 0.1, 1.0, "%.2f" );
+        commitOnEdit();
+        endRow( "ActivationBudgetMs" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Unload Margin",
+             "A loaded cell is kept until its source is this fraction of the loading range farther away (no "
+             "flicker at the edge)." );
+        ImGui::DragFloat( "##UnloadMargin", &edit.UnloadMargin, 0.01f, 0.0f, 4.0f, "%.2f" );
+        commitOnEdit();
+        endRow( "UnloadMargin" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow( "Retry Delay (s)",
+                                                 "The wait before a failed cell read is retried." );
+        ImGui::InputDouble( "##RetryDelaySeconds", &edit.RetryDelaySeconds, 0.1, 1.0, "%.2f" );
+        commitOnEdit();
+        endRow( "RetryDelaySeconds" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow( "Retry Backoff",
+                                                 "Each consecutive failure multiplies the wait by this (>= 1)." );
+        ImGui::InputDouble( "##RetryBackoff", &edit.RetryBackoff, 0.1, 1.0, "%.2f" );
+        commitOnEdit();
+        endRow( "RetryBackoff" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow( "Max Retry Delay (s)", "The longest wait between two retries." );
+        ImGui::InputDouble( "##MaxRetryDelaySeconds", &edit.MaxRetryDelaySeconds, 1.0, 10.0, "%.1f" );
+        commitOnEdit();
+        endRow( "MaxRetryDelaySeconds" );
+    }
+
+    void ProjectSettingsPanel::CommitWorldPartition()
+    {
+        const auto saved = ::Desert::Project::SaveWorldPartitionSettings( m_EditWorldPartition );
         if ( saved )
             m_Problem.clear();
         else

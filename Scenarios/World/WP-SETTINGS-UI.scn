@@ -1,0 +1,34 @@
+# WP-SETTINGS-UI (UE World Settings > World Partition Setup + the UHLODLayer editor + actor Details > World Partition),
+# merged by WP-INT-HLOD onto the HLOD builder registry (WP v13): the World Partition panel edits the world's HLOD layers
+# (New/Rename/Delete refused while named, Builder = UE HLODBuilderClass picked from the registered builders, Spatially
+# Loaded + Cell size + Loading range) and under the table each layer's BUILDER SETTINGS (UE HLODBuilderSettings: MeshMerge's
+# and MeshSimplify's Merge Materials, MeshSimplify's Triangles kept, MeshApproximate's approximation) - fields of the
+# builder's Settings object, never of the layer; and ChunkRegionSize. The chain above a cell is its partition's HLOD setups
+# (panel section "HLOD setups per partition"). Details shows a World Partition section for every entity of a partitioned
+# world - Is Spatially Loaded, Runtime Grid, HLOD Layer (per-entity override, WP v13, ECS::HLODLayerComponent, read by
+# Rules::CellHLODParts, built by that layer's builder) and Data Layers, plus the cell its composite lands in. Every edit
+# is one undo step. The house: 200207 is WP_Protocol's "Main C05_04_B00" (Main partition); `set` edits a component the
+# entity has, so the HLOD Layer component is added first (DesertCtl add-component, reflected type HLODLayerData).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Когда set world WorldPartition.HLODLayers '[{"Name":"HLOD_Main","Type":"Instancing","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge","Settings":{"MergeMaterials":{"TextureSize":1024,"NormalMap":true,"ORMMap":true,"EmissiveMap":false}}},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"},{"Name":"Far2","Type":"MeshSimplify","Settings":{"TrianglePercent":0.5}}]'
+Когда select 200207
+Когда add-component 200207 HLODLayerData
+Когда set 200207 HLODLayerData.Layer "Far2"
+# The builder settings sit under the HLOD layers table, below the docked panel's fold: scroll it as a user would.
+Когда input scroll "World Partition" 140,300 -5
+Тогда 3_settings панель World Partition, раздел HLOD layers: строка Far2 (Builder MeshSimplify, Spatially Loaded снят, Used by "0 HLOD setup(s), 1 entity"); узел "Far2 - MeshSimplify settings": Triangles kept 50.0 %, Merge Materials снят; узел "HLOD_Main_Far - MeshMerge settings": Merge Materials отмечен, Texture size 1024, Normal map и ORM map отмечены; красного списка отказов сборщиков нет. Details дома 200207 - раздел World Partition: HLOD Layer Far2, ячейка Main
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда select 200207
+Тогда wpui_undo Details дома: HLOD Layer "Partition's layer (HLOD_Main)" (Layer и Add Component - два шага истории); панель как в 3_settings
+Когда run Action "Redo"
+Когда run Action "Redo"
+Когда select 200207
+Тогда wpui_redo то же, что 3_settings: HLOD Layer Far2, ячейка та же
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда select 200207
+Тогда wpui_restored раздел HLOD layers без Far2, слои мира как в начале; Details дома: HLOD Layer "Partition's layer (HLOD_Main)" (сцену не сохранять)
