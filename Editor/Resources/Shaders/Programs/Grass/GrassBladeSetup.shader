@@ -18,6 +18,10 @@
 // The visibility raster (Mesh/Surface/Vertex_GrassBlade.glslh) places its strip from that record per vertex, and
 // "Grass: Visibility Resolve" (Mesh/Surface/Pass_VisibilityResolve.glslh) reads it per pixel. A slot no record
 // drew this phase is not written: no word of this phase names its row.
+// FPS-GRASS-MESH-SETUP: the same two dispatches set up the mesh grass sections the visibility raster draws (a row
+// with Args.y != 0): one thread per drawn instance writes its wind sway now and before and its LOD level
+// (SetUpMeshInstance), so the mesh resolve reads one record instead of evaluating the local wind, the sway and
+// the gust for every vertex of every pixel.
 Shader "GrassBladeSetup"
 {
     Compute
@@ -27,6 +31,7 @@ Shader "GrassBladeSetup"
         // The camera block (Common/CameraUB.glslh, ShaderProtocols::MakeCameraUB of the view's frame): the gust and
         // the local wind sources, now and one step before - the very block the raster's vertex stage read.
         #include <Common/LocalWind.glslh>
+        #include <Common/FoliageWind.glslh>
         #include <Mesh/Surface/GrassBlade.glslh>
         #include <Deformation/DeformationFieldTrample.glslh>
 
@@ -39,8 +44,10 @@ Shader "GrassBladeSetup"
             vec4                WindA;
             vec4                WindB;
             // x = this phase's records' first word in BladeSetupArgs (VarietyGpu::CameraArgs for phase 1,
-            // VarietyGpu::PostArgs for phase 2), y = 0, z = the records (one per strip level), w = the row's first
-            // entry (the entries before it: the earlier rows' records).
+            // VarietyGpu::PostArgs for phase 2), y = 0 for a blade variety, a mesh section's submesh count (its
+            // level L's slots are drawn by records L x y .. L x y + y - 1; entry L reads the first), z = the
+            // entries (a blade's records, one per strip level; a mesh section's levels), w = the row's first
+            // entry (the entries before it: the earlier rows' entries).
             uvec4 Args;
         };
 
@@ -117,10 +124,13 @@ Shader "GrassBladeSetup"
             return lo;
         }
 
-        // The args word of entry @p entry's record (row @p r).
+        // The args word of entry @p entry's record (row @p r): a blade's record per entry, a mesh section's level's
+        // first submesh record (every submesh of a level draws the same slots).
         uint RecordWordOf( uint r, uint entry )
         {
-            return BladeSetupRows[r].Args.x + kArgsHeaderWords + ( entry - BladeSetupRows[r].Args.w ) * kRecordWords;
+            const uint stride = max( BladeSetupRows[r].Args.y, 1u );
+            return BladeSetupRows[r].Args.x + kArgsHeaderWords +
+                   ( entry - BladeSetupRows[r].Args.w ) * stride * kRecordWords;
         }
 
         // The slots entry @p entry's record drew: its instanceCount, from its firstInstance (absolute in the ids
@@ -190,6 +200,44 @@ Shader "GrassBladeSetup"
             return lo;
         }
 
+        // FPS-GRASS-MESH-SETUP ("Grass: Mesh Setup"; UE 5 Nanite's instance scene data, computed once per instance
+        // and only fetched by the material pass): a drawn mesh grass instance's record, at its slot's first
+        // raster-stream row Visibility.x + slot x Visibility.y (rows per instance) - the mesh section's own row, so
+        // no blade's record shares it. GrassMeshSetupData's layout (Mesh/Surface/GrassMeshVisibility.glslh) in
+        // GrassBladeSetupData's words: Root = the sway now (Common/FoliageWind.glslh FoliageWindInstanceSway at the
+        // raster's wind, gust and local wind), Tip = the sway one wind step before (WindB.z, the previous gust and
+        // local wind, at the previous row WindB.w further), Before = 0, Frame.x = the LOD level the slot was drawn
+        // with (GrassMeshVisibilityLevel's rule over the section's bucket firsts).
+        void SetUpMeshInstance( uint r, uint slot, uint id )
+        {
+            const GrassBladeShapeData shape = BladeSetupRows[r].Shape;
+            const uint                row   = shape.Visibility.x + slot * shape.Visibility.y;
+            if ( shape.Visibility.y == 0u || row >= uint( BladeSetupRecord.length() ) )
+                return;
+            const vec4 windA  = BladeSetupRows[r].WindA;
+            const vec4 windB  = BladeSetupRows[r].WindB;
+            const uint prevId = id + floatBitsToUint( windB.w );
+            if ( prevId >= uint( BladeSetupInstances.length() ) )
+                return;
+            const vec3 origin     = vec3( BladeSetupInstances[id][3] );
+            const vec3 prevOrigin = vec3( BladeSetupInstances[prevId][3] );
+            uint       level      = 0u;
+            for ( uint b = 1u; b < min( shape.Visibility.z, 8u ); ++b )
+            {
+                if ( slot < shape.BucketFirst[b / 4u][b % 4u] )
+                    break;
+                level = b;
+            }
+            GrassBladeSetupData record;
+            record.Root   = FoliageWindInstanceSway( origin, windA, windB, cameraUB.WindGust,
+                                                     LocalWindXZ( origin, false ) );
+            record.Tip    = FoliageWindInstanceSway( prevOrigin, windA, vec4( windB.x, windB.z, 0.0, 0.0 ),
+                                                     cameraUB.PrevWindGust, LocalWindXZ( prevOrigin, true ) );
+            record.Before = vec4( 0.0 );
+            record.Frame  = uvec4( level, 0u, 0u, 0u );
+            BladeSetupRecord[row] = record;
+        }
+
         void SetUpBlade()
         {
             const uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
@@ -210,6 +258,11 @@ Shader "GrassBladeSetup"
             const uint id = BladeSetupInstanceIds[idSlot];
             if ( id >= uint( BladeSetupInstances.length() ) )
                 return;
+            if ( BladeSetupRows[r].Args.y != 0u )
+            {
+                SetUpMeshInstance( r, slot, id );
+                return;
+            }
             const uint row = shape.Visibility.x + slot;
             if ( row >= uint( BladeSetupRecord.length() ) )
                 return;
