@@ -494,10 +494,17 @@ Shader "ScreenProbeIntegrate"
             }
         }
 
-        // Per pixel, sample and frame (PCG, as ScreenProbeTrace's TexelNoise).
+        // Per pixel, sample and frame (PCG, as ScreenProbeTrace's TexelNoise). @p index below
+        // SP_PIXEL_NOISE_STREAMS: each (pixel, index, frame) its own key (the index rode in y as pixel.y * 4 + index,
+        // so a pixel's index 8 was the pixel two rows down's index 0: its first sample's pick was that pixel's
+        // jitter).
+        #define SP_PIXEL_NOISE_STREAMS 8u
+        #if SP_ROUGH_SPECULAR_SAMPLES + 1 > 8
+        #error "the rough specular's noise indices 0..SAMPLES must stay below SP_PIXEL_NOISE_STREAMS"
+        #endif
         vec2 SPPixelNoise( uvec2 pixel, uint index, uint frame )
         {
-            uvec3 h = uvec3( pixel.x, pixel.y * 4u + index, frame ) * 1664525u + 1013904223u;
+            uvec3 h = uvec3( pixel.x, pixel.y, frame * SP_PIXEL_NOISE_STREAMS + index ) * 1664525u + 1013904223u;
             h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
             h ^= h >> 16u;
             h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
@@ -743,8 +750,12 @@ Shader "ScreenProbeIntegrate"
                     const uint frameIndex = screenProbeParams.atlas.y;
                     for ( int k = 0; k < SP_ROUGH_SPECULAR_SAMPLES; ++k )
                     {
-                        vec2 e = vec2( fract( jitter.x + float( k ) / float( SP_ROUGH_SPECULAR_SAMPLES ) ),
-                                       SPPixelNoise( uvec2( pixel ), uint( k ) + 1u, frameIndex ).y );
+                        // One hash a sample (FPS-SP-CACHE-MISS; was two): y the VNDF's second coordinate, x the
+                        // held probe it reads - independent outputs of one key (indices 1..SAMPLES, below
+                        // SP_PIXEL_NOISE_STREAMS).
+                        const vec2 sampleNoise = SPPixelNoise( uvec2( pixel ), uint( k ) + 1u, frameIndex );
+                        vec2       e = vec2( fract( jitter.x + float( k ) / float( SP_ROUGH_SPECULAR_SAMPLES ) ),
+                                             sampleNoise.y );
                         e.y           = ( e.y - 0.5 ) * 0.9 + 0.5;
                         const vec3 h  = SPSampleVisibleGGX( e, alpha, vt );
                         const vec3 lt = reflect( -vt, h );
@@ -755,8 +766,7 @@ Shader "ScreenProbeIntegrate"
                                              float( SP_ROUGH_SPECULAR_SAMPLES );
                         if ( weight <= 0.0 )
                             continue;
-                        float pick =
-                             SPPixelNoise( uvec2( pixel ), uint( k ) + 8u, screenProbeParams.atlas.y ).x * total;
+                        float pick = sampleNoise.x * total;
                         int j = 0;
                         for ( int i = 0; i < 4; ++i )
                             if ( heldW[i] > 0.0 )

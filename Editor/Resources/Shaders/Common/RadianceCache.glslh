@@ -250,55 +250,105 @@ float RadianceCacheProbeVisibility( uint probe, vec3 probePos, vec3 point, float
 // With @p second, the same eight probes under the same weights are also read about @p R into @p irradianceR (the
 // irradiance field gather's rough specular lobe: one lookup, visibility and weight per probe for both reads);
 // every other caller passes false, a constant the compiler folds away.
+// THE IRRADIANCE READ IN PIECES (FPS-SP-CACHE-MISS): where the read sits (the clipmap, the biased point, the
+// eight corners' cells) and one corner's weight - the one definition of both, used by RadianceCacheIrradianceAtImpl
+// below for its eight corners in one thread, and by a caller that spreads the eight corners over eight lanes
+// (ScreenProbeFilter's backface: one corner a lane, then summed by one thread in RadianceCacheIrradianceAtImpl's
+// order, the same weights and the same sums).
+struct RadianceCacheIrradianceSite
+{
+    uint  clipmap; // >= radianceCache.shape.x: past the coarsest clipmap (no read)
+    float momentRange;
+    vec3  biased;
+    ivec3 base;
+    vec3  alpha;
+    ivec3 corner;
+    int   grid;
+};
+
+RadianceCacheIrradianceSite RadianceCacheIrradianceSiteAt( vec3 p, vec3 N, vec3 V, float ditherRandom )
+{
+    RadianceCacheIrradianceSite site;
+    site.clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
+    // Past the coarsest clipmap every field below is read from clipmap 0 and never used: the caller returns first.
+    const uint clipmap = site.clipmap < radianceCache.shape.x ? site.clipmap : 0u;
+    site.momentRange   = RadianceCacheDistanceMomentRange( radianceCache, clipmap );
+    // DDGI's surface bias: off the surface, mostly toward the viewer, so the visibility test does not shadow the
+    // surface by itself.
+    site.biased        = RadianceCacheReadPoint( radianceCache, p, N, V, clipmap );
+    const vec3 coord   = RadianceCacheCoordFloat( radianceCache, site.biased, clipmap ) - 0.5;
+    site.base          = ivec3( floor( coord ) );
+    site.alpha         = coord - vec3( site.base );
+    site.corner        = RadianceCacheCornerCell( radianceCache, clipmap );
+    site.grid          = int( radianceCache.shape.y );
+    return site;
+}
+
+// The world cell of corner @p i (0..7, x | y << 1 | z << 2) of @p site.
+ivec3 RadianceCacheIrradianceCornerCell( RadianceCacheIrradianceSite site, uint i )
+{
+    const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
+    return site.corner + clamp( site.base + offset, ivec3( 0 ), ivec3( site.grid - 1 ) );
+}
+
+// Corner @p i's indirection entry.
+uint RadianceCacheIrradianceCornerEntry( RadianceCacheIrradianceSite site, uint i )
+{
+    return RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex(
+         radianceCache, RadianceCacheIrradianceCornerCell( site, i ), site.clipmap )];
+}
+
+// Whether an entry is a traced probe (the only ones the read sums).
+bool RadianceCacheIrradianceEntryUsed( uint entry )
+{
+    return entry != RADIANCE_CACHE_INVALID_PROBE && ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) == 0u;
+}
+
+// Corner @p i's weight at surface point @p p with normal @p N, its @p entry read (an unused entry's weight is
+// computed at the safe probe 0 and dropped by the caller): trilinear x DDGI's backface wrap x Chebyshev visibility,
+// at least 1e-6. @p probe returns the probe its radiance is read from.
+float RadianceCacheIrradianceCornerWeight( RadianceCacheIrradianceSite site, uint i, uint entry, vec3 p, vec3 N,
+                                           out uint probe )
+{
+    probe                     = RadianceCacheIrradianceEntryUsed( entry ) ? entry : 0u;
+    const ivec3 offset        = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
+    const vec3  probePos      = RadianceCacheWorldCellCentre( radianceCache, RadianceCacheIrradianceCornerCell( site, i ),
+                                                              site.clipmap ) +
+                                RADIANCE_CACHE_PROBES[probe].offset.xyz;
+    const vec3  trilinear     = mix( 1.0 - site.alpha, site.alpha, vec3( offset ) );
+    float       w             = trilinear.x * trilinear.y * trilinear.z;
+    // Probes behind the surface count less (DDGI's smooth backface weight).
+    const vec3  toProbe       = probePos - p;
+    const float toProbeLength = max( length( toProbe ), 1e-3 );
+    const float wrap          = ( dot( toProbe / toProbeLength, N ) + 1.0 ) * 0.5;
+    w *= wrap * wrap + 0.2;
+    w *= RadianceCacheProbeVisibility( probe, probePos, site.biased, site.momentRange );
+    return max( w, 1e-6 );
+}
+
 vec4 RadianceCacheIrradianceAtImpl( vec3 p, vec3 N, vec3 V, vec3 R, float ditherRandom, bool second,
                                     out vec3 irradianceR )
 {
     irradianceR = vec3( 0.0 );
-    const uint clipmap = RadianceCacheClipmapAt( radianceCache, p, ditherRandom );
-    if ( clipmap >= radianceCache.shape.x )
+    const RadianceCacheIrradianceSite site = RadianceCacheIrradianceSiteAt( p, N, V, ditherRandom );
+    if ( site.clipmap >= radianceCache.shape.x )
         return vec4( 0.0, 0.0, 0.0, -1.0 );
-    const float momentRange = RadianceCacheDistanceMomentRange( radianceCache, clipmap );
-    // DDGI's surface bias: off the surface, mostly toward the viewer, so the visibility test does not shadow the
-    // surface by itself.
-    const vec3  biased = RadianceCacheReadPoint( radianceCache, p, N, V, clipmap );
-    const vec3  coord  = RadianceCacheCoordFloat( radianceCache, biased, clipmap ) - 0.5;
-    const ivec3 base   = ivec3( floor( coord ) );
-    const vec3  alpha  = coord - vec3( base );
-    const ivec3 corner = RadianceCacheCornerCell( radianceCache, clipmap );
-    const int   grid   = int( radianceCache.shape.y );
 
     // In phases, as the radiance read below (RadianceCacheRadianceInClipmap): the eight entries first, then every
     // corner's reads unconditionally (an unused corner's at the safe probe 0), dropped by a select - no branch
     // makes one corner's offset -> moments chain wait on the corner before it. Same sums in the same order.
     uint entries[8];
     for ( uint i = 0u; i < 8u; ++i )
-    {
-        const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
-        const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
-        entries[i] = RADIANCE_CACHE_INDIRECTION[RadianceCacheIndirectionIndex( radianceCache, world, clipmap )];
-    }
+        entries[i] = RadianceCacheIrradianceCornerEntry( site, i );
 
     vec3  sum    = vec3( 0.0 );
     float weight = 0.0;
     for ( uint i = 0u; i < 8u; ++i )
     {
-        const uint  entry  = entries[i];
-        const bool  used   = entry != RADIANCE_CACHE_INVALID_PROBE &&
-                             ( entry & RADIANCE_CACHE_PROBE_UNTRACED ) == 0u;
-        const uint  probe  = used ? entry : 0u;
-        const ivec3 offset = ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u );
-        const ivec3 world  = corner + clamp( base + offset, ivec3( 0 ), ivec3( grid - 1 ) );
-        const vec3  probePos  = RadianceCacheWorldCellCentre( radianceCache, world, clipmap ) +
-                                RADIANCE_CACHE_PROBES[probe].offset.xyz;
-        const vec3  trilinear = mix( 1.0 - alpha, alpha, vec3( offset ) );
-        float       w         = trilinear.x * trilinear.y * trilinear.z;
-        // Probes behind the surface count less (DDGI's smooth backface weight).
-        const vec3  toProbe   = probePos - p;
-        const float toProbeLength = max( length( toProbe ), 1e-3 );
-        const float wrap      = ( dot( toProbe / toProbeLength, N ) + 1.0 ) * 0.5;
-        w *= wrap * wrap + 0.2;
-        w *= RadianceCacheProbeVisibility( probe, probePos, biased, momentRange );
-        w = max( w, 1e-6 );
+        const uint  entry = entries[i];
+        const bool  used  = RadianceCacheIrradianceEntryUsed( entry );
+        uint        probe;
+        const float w     = RadianceCacheIrradianceCornerWeight( site, i, entry, p, N, probe );
         const vec3 irradiance = RadianceCacheSampleProbeIrradiance( probe, N );
         // @p second: a constant (the branch folds away), or the screen probes' uncovered pixel's own (a pixel whose
         // rough specular is all irradiance skips the eight reads about R; FPS-SP-CHAIN).

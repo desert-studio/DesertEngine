@@ -110,10 +110,22 @@ Shader "ScreenProbeFilter"
         #define SP_FILTER_SEGMENTS ( SP_FILTER_TEXELS < 32u ? SP_FILTER_TEXELS : 32u )
         shared vec3 s_SHPartial[SP_FILTER_SEGMENTS * 9u];
         shared vec2 s_TotalPartial[SP_FILTER_SEGMENTS]; // x the solid angle, y the moving texels
+        // THE BACKFACE READ, one cache corner a lane (FPS-SP-CACHE-MISS): the group's last eight threads each weigh
+        // one of the eight probes around the read (RadianceCacheIrradianceCornerWeight, the definition
+        // RadianceCacheIrradianceAt sums) while the SH segments reduce; the last thread sums them in the read's
+        // own order. rgb = the corner's irradiance, a = its weight (0: no traced probe there, or no clipmap). One
+        // thread walked all eight corners after the reduction, behind both barriers: the group's longest chain.
+        #define SP_FILTER_BACKFACE_FIRST ( SP_FILTER_TEXELS - 8u )
+        shared vec4 s_BackfaceCorner[8];
+
+        vec3 TexelLocalDirection( vec2 texel )
+        {
+            return SPHemiOctDecode( texel / float( SP_RES ) * 2.0 - 1.0 );
+        }
 
         vec3 TexelDirection( mat3 frame, vec2 texel )
         {
-            return frame * SPHemiOctDecode( texel / float( SP_RES ) * 2.0 - 1.0 );
+            return frame * TexelLocalDirection( texel );
         }
 
         void main()
@@ -141,11 +153,13 @@ Shader "ScreenProbeFilter"
 #endif
             const vec3  p        = state.position.xyz;
 
-            // Solid angle of the texel: the area its four corners span on the sphere.
-            const vec3 c00 = TexelDirection( frame, vec2( t ) );
-            const vec3 c10 = TexelDirection( frame, vec2( t ) + vec2( 1.0, 0.0 ) );
-            const vec3 c01 = TexelDirection( frame, vec2( t ) + vec2( 0.0, 1.0 ) );
-            const vec3 c11 = TexelDirection( frame, vec2( t ) + vec2( 1.0, 1.0 ) );
+            // Solid angle of the texel: the area its four corners span on the sphere. A rotation keeps the lengths of
+            // the cross products, so the corners are taken in the hemisphere's own frame (no probe frame: four
+            // matrix products a texel fewer, the same area).
+            const vec3 c00 = TexelLocalDirection( vec2( t ) );
+            const vec3 c10 = TexelLocalDirection( vec2( t ) + vec2( 1.0, 0.0 ) );
+            const vec3 c01 = TexelLocalDirection( vec2( t ) + vec2( 0.0, 1.0 ) );
+            const vec3 c11 = TexelLocalDirection( vec2( t ) + vec2( 1.0, 1.0 ) );
             s_Radiance[texel]   = radiance;
             s_Direction[texel]  = dir;
             s_SolidAngle[texel] = 0.5 * ( length( cross( c10 - c00, c01 - c00 ) ) + length( cross( c10 - c11, c01 - c11 ) ) );
@@ -202,6 +216,28 @@ Shader "ScreenProbeFilter"
                     s_SHPartial[texel * 9u + k] = c[k];
                 s_TotalPartial[texel] = totals;
             }
+            // ---- Backface irradiance, THE BACKFACE READ above: corner texel - SP_FILTER_BACKFACE_FIRST of the
+            // cache read at -N (RadianceCacheIrradianceAt( p, -N, v, 0.5 )). At SP_RES 8 (texels 56..63) these lanes
+            // are in the second 32-wide warp, which has no SH segment; at smaller SP_RES some also run a segment.
+            if ( texel >= SP_FILTER_BACKFACE_FIRST )
+            {
+                const uint                        corner   = texel - SP_FILTER_BACKFACE_FIRST;
+                const vec3                        back     = -state.normal.xyz;
+                const vec3                        toCamera = giFrame.camera.xyz - p;
+                const vec3                        v        = toCamera / max( length( toCamera ), 1e-3 );
+                const RadianceCacheIrradianceSite site     = RadianceCacheIrradianceSiteAt( p, back, v, 0.5 );
+                vec4                              answer   = vec4( 0.0 );
+                if ( site.clipmap < radianceCache.shape.x )
+                {
+                    const uint  entry = RadianceCacheIrradianceCornerEntry( site, corner );
+                    uint        cacheProbe;
+                    const float w     = RadianceCacheIrradianceCornerWeight( site, corner, entry, p, back, cacheProbe );
+                    const vec3  irradiance = RadianceCacheSampleProbeIrradiance( cacheProbe, back );
+                    if ( RadianceCacheIrradianceEntryUsed( entry ) )
+                        answer = vec4( irradiance, w ); // w >= 1e-6: a > 0 marks a used corner
+                }
+                s_BackfaceCorner[corner] = answer;
+            }
             barrier();
             if ( texel < 9u )
             {
@@ -228,14 +264,23 @@ Shader "ScreenProbeFilter"
                     moving += s_TotalPartial[s].y;
                 screenProbeMoving[probe] = moving / float( SP_FILTER_TEXELS );
             }
-            // ---- Backface irradiance: the group's last thread (SP_RES >= 4: never one of the ten above), in the
-            // second warp from SP_RES 6 up, so its cache read overlaps the SH sums instead of following them.
+            // ---- Backface irradiance: the group's last thread (SP_RES >= 4: never one of the ten above) sums the
+            // eight corners in RadianceCacheIrradianceAtImpl's order; no used corner (none traced, or past the
+            // coarsest clipmap) is the read's a <= 0: zero.
             if ( texel == SP_FILTER_TEXELS - 1u )
             {
-                const vec3  toCamera = giFrame.camera.xyz - p;
-                const vec3  v        = toCamera / max( length( toCamera ), 1e-3 );
-                const vec4  cache    = RadianceCacheIrradianceAt( p, -state.normal.xyz, v, 0.5 );
-                screenProbeBackface[probe] = cache.a > 0.0 ? vec4( cache.rgb, 1.0 ) : vec4( 0.0 );
+                vec3  sum    = vec3( 0.0 );
+                float weight = 0.0;
+                for ( uint i = 0u; i < 8u; ++i )
+                {
+                    const vec4 corner = s_BackfaceCorner[i];
+                    if ( corner.a > 0.0 )
+                    {
+                        sum += corner.a * corner.rgb;
+                        weight += corner.a;
+                    }
+                }
+                screenProbeBackface[probe] = weight > 0.0 ? vec4( sum / weight, 1.0 ) : vec4( 0.0 );
             }
         }
     }
