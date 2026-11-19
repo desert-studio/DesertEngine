@@ -617,14 +617,29 @@ Shader "ScreenProbeTrace"
             float      tHit;
             uint       hitObject;
             const bool hit     = GITraceNearFieldMarch( ray, farStart, tHit, hitObject );
-            const bool atCache = !hit && texel.coverage.valid && farStart >= texel.tMax;
+            bool       atCache = !hit && texel.coverage.valid && farStart >= texel.tMax;
+            // FPS-SP-FARFIELD (UE compacts the voxel trace to rays with something left to find): a miss bound for the
+            // cache whose far-field span is provably empty - nothing to march, or the march's first step crosses it
+            // (GIFarFieldSpanClear) - would only miss in the far field and be left at the cache there; it goes
+            // straight to the cache read in the state the far field would leave it in (reached, at tMax). The far
+            // field's ray exactly: tMin from the encoded distance the far field would read back.
+            bool spanClear = false;
+            if ( !hit && !atCache && texel.coverage.valid )
+            {
+                GITraceInput farRay = ray;
+                farRay.tMin = min( SPTraceHitDistance( SPEncodeTraceHit( farStart, false, false, false ) ), texel.tMax );
+                spanClear   = GIFarFieldSpanClear( farRay );
+            }
             if ( hit )
             {
                 screenProbeNearHit[slot]  = uvec2( hitObject, floatBitsToUint( tHit ) );
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( tHit, true, false, false );
             }
+            else if ( spanClear )
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( texel.tMax, false, false, true );
             else
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( farStart, false, false, atCache );
+            atCache = atCache || spanClear;
             // FPS-SP-TRACE-4: a miss at the cache goes straight to the cache read, every other miss on to the far
             // field.
             SPListRay( !hit && !atCache, slot );
