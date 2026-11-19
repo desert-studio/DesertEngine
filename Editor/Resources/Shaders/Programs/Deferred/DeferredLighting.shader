@@ -287,6 +287,8 @@ Shader "DeferredLighting"
         // Atmosphere light 1 keeps its own cascades under the sun's screen mask (DeferredScreenShadowMask::Lights).
         #define DESERT_LIGHT1_SHADOW(worldPos, N, L, cascade) ShadowFactor(kShadowLightAtmosphere1, worldPos, N, L, cascade)
         #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, density) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
+        // The cascade DESERT_SUN_SHADOW reports when it is not run (FPS-LIGHT-COMPLEX): the mask picks none.
+        #define DESERT_SUN_CASCADE(worldPos) (-1)
         #else
         #include <Mesh/CascadedShadow.glslh>
         #include <Common/DistanceFieldShadow.glslh>
@@ -310,6 +312,9 @@ Shader "DeferredLighting"
         // FPS-DIRECT-TILES2: the cascade DESERT_SUN_SHADOW chose (ShadowFactor's cascadeOut, the same worldPos), not a second
         // pick (Mesh/CascadedShadow.glslh TransmissionShadowFactorInCascade).
         #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, density) TransmissionShadowFactorInCascade(kShadowLightSun, cascade, worldPos, density)
+        // The cascade DESERT_SUN_SHADOW reports in its out parameter, for a texel that does not run it
+        // (FPS-LIGHT-COMPLEX): ShadowFactor's cascadeOut without the filter.
+        #define DESERT_SUN_CASCADE(worldPos) ShadowCascade(kShadowLightSun, worldPos)
         #endif
 
         // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
@@ -523,23 +528,38 @@ Shader "DeferredLighting"
         	// a texel the cascades (and its relief) already shadow fully and that transmits nothing (or is not a
         	// subsurface model) has a product of 0 whatever the march returns, so the march is not run. The result
         	// is the same value; only the work behind a zero is gone (the foliage under the barn and deep in the field).
-        	const float cascadeShadow = receivesSun ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) : 1.0;
-        	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
-        	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
-        	// behind the leaf. 1 for every other model (none reads it).
-        	const float cascadeTransmission =
-        	     subsurface ? DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, ContactShadowSubsurfaceDensity(subsurfaceOpacity))
-        	                : 1.0;
-        	const bool  contactMatters = receivesSun && (cascadeShadow * selfShadow > 0.0 || (subsurface && cascadeTransmission > 0.0));
-        	const float sunContact =
-        	     contactMatters ? ContactShadowFactor(worldPos, N, L, SunContactShadow, subsurfaceOpacity) : 1.0;
-        	float shadow   = receivesSun ? cascadeShadow * sunContact : 1.0;
-        	shadow        *= selfShadow;
         	// SHADOW VIEWS (UE's CSM visualization in the lighting pass; ShadowDebugMode, DebugParams.z):
         	// 1 = Shadow Factor - the sun's geometry occlusion alone (cascades or screen mask, contact, relief; the
         	// cloud layer is a separate occluder and stays out), grey with no albedo, pre-exposed like every channel.
         	// 2 = Shadow Cascades - the lit colour tinted by `cascade` at the end of main().
         	const int shadowView = int(DebugParams.z + 0.5);
+        	// FPS-LIGHT-COMPLEX - THE FILTER ONLY WHERE ITS FACTOR IS READ. A directional light's DesertLight::Shadow
+        	// multiplies only the light on the side the surface faces: every model's surface term is 0 where
+        	// dot(S.N, L) <= 0 (the slab's lobes and Lambert return 0 there, Toon's bands take max(N.L, 0), the water's
+        	// lobe is the slab's EvaluateDirectLightSpecular), so the factor is multiplied by 0. Such a texel - the half
+        	// of the grass blades and leaves turned from the sun, the barn's far walls - skips the cascades' PCSS and
+        	// takes 0; its cascade is still picked (DESERT_SUN_CASCADE), for the transmission and the Shadow Cascades
+        	// view. The Shadow Factor view shows the factor itself and keeps it. The test is the slab's own
+        	// (S.N = normalize(N), L.L = normalize(-LightDirection.xyz) = L): the same texels, the same picture.
+        	const bool  sunFiltered   = receivesSun && (dot(normalize(N), L) > 0.0 || shadowView == 1);
+        	if (receivesSun && !sunFiltered)
+        		cascade = DESERT_SUN_CASCADE(worldPos);
+        	const float cascadeShadow = sunFiltered ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) : (receivesSun ? 0.0 : 1.0);
+        	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
+        	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
+        	// behind the leaf. FPS-LIGHT-COMPLEX: read only by a model that lights its far side (UE bHasBackfaceDiffuse,
+        	// the manifests' SubsurfaceColor lines: TwoSidedFoliage); a subsurface model that lets nothing through
+        	// (SubsurfaceProfile) never reads it, so it is not sampled and no contact march is run for it. 1 for every
+        	// model that does not read it.
+        	const bool  transmits = subsurface && DesertHasBackfaceDiffuse(shadingModel);
+        	const float cascadeTransmission =
+        	     transmits ? DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, ContactShadowSubsurfaceDensity(subsurfaceOpacity))
+        	               : 1.0;
+        	const bool  contactMatters = receivesSun && (cascadeShadow * selfShadow > 0.0 || (transmits && cascadeTransmission > 0.0));
+        	const float sunContact =
+        	     contactMatters ? ContactShadowFactor(worldPos, N, L, SunContactShadow, subsurfaceOpacity) : 1.0;
+        	float shadow   = receivesSun ? cascadeShadow * sunContact : 1.0;
+        	shadow        *= selfShadow;
         	if (shadowView == 1) { oDirect = vec4(vec3(shadow) * CompositeView.y, kDeferredDirectShown); return; }
         	float transmissionShadow = subsurface ? cascadeTransmission * sunContact : 1.0;
         	const float cloudShadow = CloudShadowFactor(worldPos);
@@ -572,13 +592,18 @@ Shader "DeferredLighting"
         	{
         		const vec3 L1 = normalize(-Light1Direction.xyz);
         		int        cascade1 = -1;
+        		// FPS-LIGHT-COMPLEX: as the sun's - the filter only where light 1 falls on the side the surface faces
+        		// (its surface term is 0 elsewhere), its cascade picked without it for the transmission, which only a
+        		// model that lights its far side reads.
+        		const bool  filtered1 = receivesSun && dot(normalize(N), L1) > 0.0;
+        		if (receivesSun && !filtered1 && transmits)
+        			cascade1 = ShadowCascade(kShadowLightAtmosphere1, worldPos);
         		const float shadow1 =
-        		     receivesSun ? DESERT_LIGHT1_SHADOW(worldPos, N, L1, cascade1) : 1.0;
+        		     filtered1 ? DESERT_LIGHT1_SHADOW(worldPos, N, L1, cascade1) : (receivesSun ? 0.0 : 1.0);
         		const float transmission1 =
-        		     (receivesSun && subsurfaceOpacity >= 0.0)
-        		          ? TransmissionShadowFactorInCascade(kShadowLightAtmosphere1, cascade1, worldPos,
-        		                                              ContactShadowSubsurfaceDensity(subsurfaceOpacity))
-        		          : 1.0;
+        		     transmits ? TransmissionShadowFactorInCascade(kShadowLightAtmosphere1, cascade1, worldPos,
+        		                                                   ContactShadowSubsurfaceDensity(subsurfaceOpacity))
+        		               : 1.0;
         		const DesertLight light1 =
         		     DesertSunLight(Light1Direction.xyz, Light1Color.rgb * Light1Color.a, shadow1, transmission1);
         		result += DesertEvaluateShadingModel(shadingModel, light1, surface, payload);
