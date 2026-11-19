@@ -514,24 +514,34 @@ Shader "DeferredLighting"
         	// contact shadows fade with the hit distance.
         	const float subsurfaceOpacity = DesertSubsurfaceOpacity(shadingModel, payload);
         	const bool  receivesSun       = DesertReceivesSunShadows(word);
-        	const float sunContact =
-        	     receivesSun ? ContactShadowFactor(worldPos, N, L, SunContactShadow, subsurfaceOpacity) : 1.0;
-        	float shadow   = receivesSun ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) * sunContact : 1.0;
+        	const bool  subsurface        = receivesSun && subsurfaceOpacity >= 0.0;
         	// The relief's own shadow (parallax occlusion, the word's SUN_SELF_SHADOW field): geometry, always applied.
-        	shadow        *= DesertSunSelfShadow(word);
+        	const float selfShadow        = DesertSunSelfShadow(word);
+        	// The cascades first, the subsurface transmission from the SAME cascade pick (`cascade`, FPS-DIRECT-TILES2),
+        	// then the contact march - the near-contact part of the same occlusion, a multiplier in [0, 1] on both.
+        	// FPS-FOLIAGE-SHADOW (UE: GetShadowTerms skips the contact trace once the shadow terms are already zero):
+        	// a texel the cascades (and its relief) already shadow fully and that transmits nothing (or is not a
+        	// subsurface model) has a product of 0 whatever the march returns, so the march is not run. The result
+        	// is the same value; only the work behind a zero is gone (the foliage under the barn and deep in the field).
+        	const float cascadeShadow = receivesSun ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) : 1.0;
+        	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
+        	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
+        	// behind the leaf. 1 for every other model (none reads it).
+        	const float cascadeTransmission =
+        	     subsurface ? DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, ContactShadowSubsurfaceDensity(subsurfaceOpacity))
+        	                : 1.0;
+        	const bool  contactMatters = receivesSun && (cascadeShadow * selfShadow > 0.0 || (subsurface && cascadeTransmission > 0.0));
+        	const float sunContact =
+        	     contactMatters ? ContactShadowFactor(worldPos, N, L, SunContactShadow, subsurfaceOpacity) : 1.0;
+        	float shadow   = receivesSun ? cascadeShadow * sunContact : 1.0;
+        	shadow        *= selfShadow;
         	// SHADOW VIEWS (UE's CSM visualization in the lighting pass; ShadowDebugMode, DebugParams.z):
         	// 1 = Shadow Factor - the sun's geometry occlusion alone (cascades or screen mask, contact, relief; the
         	// cloud layer is a separate occluder and stays out), grey with no albedo, pre-exposed like every channel.
         	// 2 = Shadow Cascades - the lit colour tinted by `cascade` at the end of main().
         	const int shadowView = int(DebugParams.z + 0.5);
         	if (shadowView == 1) { oDirect = vec4(vec3(shadow) * CompositeView.y, kDeferredDirectShown); return; }
-        	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
-        	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
-        	// behind the leaf. 1 for every other model (none reads it).
-        	float transmissionShadow =
-        	     (receivesSun && subsurfaceOpacity >= 0.0)
-        	          ? DESERT_SUN_TRANSMISSION_SHADOW(worldPos, cascade, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) * sunContact
-        	          : 1.0;
+        	float transmissionShadow = subsurface ? cascadeTransmission * sunContact : 1.0;
         	const float cloudShadow = CloudShadowFactor(worldPos);
         	shadow             *= cloudShadow;
         	transmissionShadow *= cloudShadow;
