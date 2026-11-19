@@ -206,20 +206,43 @@ Shader "SSR"
         	return place;
         }
 
-        // Lists @p hit in the hit list when @p listed (SSRLegPlace's compaction, the hit lighting's workgroups raised).
-        // Every lane calls it (barriers). The near field (its cut spans the far field would only miss), the far field
-        // and its rest append to the one list.
+        // Lists @p hit in the hit list when @p listed, at its end of the two-ended list (Common/SSRTrace.glslh
+        // SsrWorldHitListUB: a surface hit from the front, a radiance cache cut from the back), one workgroup
+        // compaction for both ends (two groupshared counts, one barrier pair). Every lane calls it (barriers). The
+        // near field (its cut spans the far field would only miss), the far field and its rest append to the one list.
+        // The dispatch's workgroups come from the two ends' running sum (ssrWorldHitAtCacheArgs.y): its last adder
+        // sees the final total, which neither end's own count gives.
+        shared uint s_LegCountBack;
+        shared uint s_LegStartBack;
         void SSRListWorldHit(bool listed, uvec4 hit)
         {
-        	const uint place = SSRLegPlace(listed);
-        	if (gl_LocalInvocationIndex == 0u && s_LegCount > 0u)
+        	const bool atCache = listed && (hit.x >> 28u) == kSSRWorldHitAtCache;
+        	const bool front   = listed && !atCache;
+        	if (gl_LocalInvocationIndex == 0u)
         	{
-        		s_LegStart = atomicAdd(ssrWorldHitArgs.w, s_LegCount);
-        		atomicMax(ssrWorldHitArgs.x, (s_LegStart + s_LegCount + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
+        		s_LegCount     = 0u;
+        		s_LegCountBack = 0u;
         	}
         	barrier();
-        	if (listed)
+        	uint place = 0u;
+        	if (front)
+        		place = atomicAdd(s_LegCount, 1u);
+        	else if (atCache)
+        		place = atomicAdd(s_LegCountBack, 1u);
+        	barrier();
+        	const uint listedCount = s_LegCount + s_LegCountBack;
+        	if (gl_LocalInvocationIndex == 0u && listedCount > 0u)
+        	{
+        		s_LegStart     = s_LegCount > 0u ? atomicAdd(ssrWorldHitArgs.w, s_LegCount) : 0u;
+        		s_LegStartBack = s_LegCountBack > 0u ? atomicAdd(ssrWorldHitAtCacheArgs.x, s_LegCountBack) : 0u;
+        		const uint total = atomicAdd(ssrWorldHitAtCacheArgs.y, listedCount) + listedCount;
+        		atomicMax(ssrWorldHitArgs.x, (total + kSSRTraceListGroupSize - 1u) / kSSRTraceListGroupSize);
+        	}
+        	barrier();
+        	if (front)
         		ssrWorldHit[s_LegStart + place] = hit;
+        	else if (atCache)
+        		ssrWorldHit[uint(ssrWorldHit.length()) - 1u - (s_LegStartBack + place)] = hit;
         }
 
         // The hit list entry of far ray @p far's finished @p march: a hit with its clipmap code and T, a miss at the
@@ -394,12 +417,16 @@ Shader "SSR"
         // cache's radiance in its direction (RadianceCacheRadianceAt over SSRWorldCacheCoverage's clipmap, as the
         // screen probe gather's SP_TRACE_CACHE_READ); where no traced probe answers yet (cells a turn just brought),
         // the rest of its span is marched here (SP_TRACE_CACHE_MISS's answer, folded in: those rays are few). ---
+        // FPS-SSR-HIT: the entries in the two-ended list's order (Common/SSRTrace.glslh SsrWorldHitListUB) - the
+        // surface hits first, then the cache cuts from the list's back - so only the one wave at the seam mixes them.
         void LightWorldHits()
         {
-        	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
-        	if (index >= ssrWorldHitArgs.w)
+        	const uint index    = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
+        	const uint surfaces = ssrWorldHitArgs.w;
+        	if (index >= surfaces + ssrWorldHitAtCacheArgs.x)
         		return;
-        	const uvec4 hit = ssrWorldHit[index];
+        	const uvec4 hit =
+        	     ssrWorldHit[index < surfaces ? index : uint(ssrWorldHit.length()) - 1u - (index - surfaces)];
         	ivec2        q;
         	SSRTexel     t;
         	SSRTraceSums s;
@@ -415,8 +442,18 @@ Shader "SSR"
         	{
         		const RadianceCacheCoverage coverage = SSRWorldCacheCoverage(q, t);
         		const vec3                  V        = normalize(CameraPosition.xyz - t.worldPos); // SSRTexelSetup's
-        		uint                        why      = RADIANCE_CACHE_READ_EMPTY;
-        		const vec4 cache = RadianceCacheRadianceAt(t.worldPos, t.N, V, s.worldL, coverage.clipmap, why);
+        		// FPS-SSR-HIT: the read's current form (FPS-SP-CHAIN-2's corners, FPS-SP-CACHE-READ's stochastic pick);
+        		// the six-argument read this called is gone since FPS-SP-CHAIN-2, which left this program uncompilable.
+        		// One read a texel: its coverage clipmap's eight corners about its point, the pick per texel and frame
+        		// (the coverage dither's hash, another stream - the frame salted otherwise).
+        		const vec3 coord = RadianceCacheCellCoord(t.worldPos, t.N, V, coverage.clipmap);
+        		uint       entries[8];
+        		vec3       positions[8];
+        		RadianceCacheCorners(coord, coverage.clipmap, entries, positions);
+        		const float pick = hash12(vec2(q) * 1.37 + vec2(CameraPosition.w, 0.0) * 2.83 + vec2(0.5, 17.0));
+        		uint        why  = RADIANCE_CACHE_READ_EMPTY;
+        		const vec4  cache =
+        		     RadianceCacheRadianceAt(t.worldPos, t.N, V, s.worldL, coverage.clipmap, entries, positions, pick, why);
         		if (cache.a > 0.0)
         		{
         			SSRWorldWriteHit(q, t, s, cache.rgb, start + s.worldL * marchT);

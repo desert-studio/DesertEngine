@@ -404,9 +404,18 @@ layout(std430, binding = 46) buffer SsrWorldFarListUB
 	uvec4          ssrWorldFarArgs;
 	SSRWorldFarRay ssrWorldFar[];
 };
+// FPS-SSR-HIT: the hit list is TWO-ENDED, so a hit lighting wave runs one kind of entry (UE Lumen reflections shade
+// the radiance cache reads and the hits in passes of their own): the surface hits (a far-field surface rebuilt, its
+// cards searched, the directional lights' global-field visibility tests) fill it from the front - ssrWorldHitArgs.w
+// of them at ssrWorldHit[0..w) - the radiance cache's cuts (kSSRWorldHitAtCache: the eight-cell cache read) from the
+// back - ssrWorldHitAtCacheArgs.x of them at ssrWorldHit[length - x .. length). Was: one list in the order the
+// workgroups listed them, every wave a mix of both paths, executed one after the other. ssrWorldHitAtCacheArgs.y =
+// both counts' sum, whose last adder sizes the indirect dispatch (ssrWorldHitArgs.x); its z, w unused. Header =
+// two uvec4 (SSRRenderer::kWorldHitListReset), reset by the graph's upload.
 layout(std430, binding = 47) buffer SsrWorldHitListUB
 {
 	uvec4 ssrWorldHitArgs;
+	uvec4 ssrWorldHitAtCacheArgs;
 	uvec4 ssrWorldHit[]; // x = the world list index | (march clipmap + 1) << 28, y = nearOffset, z = globalStart,
 	                     // w = the march's T (float bits); at kSSRWorldHitAtCache the cut's T
 };

@@ -476,9 +476,9 @@ namespace Desert::Graphic::System
         // near field (TraceStage::World) missed, Hits = the far field's hits (TraceStage::WorldFarField's), each a
         // uvec4 header - the next leg's indirect dispatch + w = entries, reset by the graph's upload - then one
         // entry per trace texel at most: Far one SSRWorldFarRay (the march itself, so the far field rebuilds no
-        // texel), Hits one uvec4. FarRest = the far field's unfinished marches (TraceStage::WorldFarField's), the
-        // same header, one uvec4 (the far list index and the march's state) per trace texel at most. Null without
-        // legs (the hardware tracer's one ray query).
+        // texel), Hits one uvec4 (its header two: kWorldHitListReset, the list two-ended). FarRest = the far
+        // field's unfinished marches (TraceStage::WorldFarField's), the same header, one uvec4 (the far list index
+        // and the march's state) per trace texel at most. Null without legs (the hardware tracer's one ray query).
         struct WorldList
         {
             RDG::BufferRef Args;
@@ -494,6 +494,12 @@ namespace Desert::Graphic::System
         static constexpr uint64_t kWorldLegEntryBytes = 16u;
         // sizeof SSRWorldFarRay under std430: a uvec4 and two vec4 (the march's start, length, direction, seed).
         static constexpr uint64_t kWorldFarRayBytes = 48u;
+        // FPS-SSR-HIT: the hit list's header (SsrWorldHitListUB), two uvec4 - the hit lighting's indirect dispatch
+        // + w = the surface hits listed from the list's front, then x = the radiance cache cuts listed from its
+        // back, y = both counts' running sum (the dispatch's sizing). The list is two-ended so each hit lighting
+        // wave runs one path (Common/SSRTrace.glslh); the dispatch reads its arguments at offset 0 as before.
+        static constexpr std::array<uint32_t, 8> kWorldHitListReset{ 0u, 1u, 1u, 0u, 0u, 0u, 0u, 0u };
+        static constexpr uint64_t                kWorldHitHeaderBytes = sizeof( kWorldHitListReset );
 
         // GRAPH BUILD: this frame's world list for @p targets, its arguments reset by the graph's upload pass.
         // @p legs: the software tracer's (the traced frame's tracer is
@@ -511,14 +517,14 @@ namespace Desert::Graphic::System
                 return list;
             list.Far  = graph.CreateBuffer( RDG::BufferDesc{ kWorldLegEntryBytes + texels * kWorldFarRayBytes },
                                             "SSR.WorldFarList" );
-            list.Hits = graph.CreateBuffer( RDG::BufferDesc{ kWorldLegEntryBytes + texels * kWorldLegEntryBytes },
+            list.Hits = graph.CreateBuffer( RDG::BufferDesc{ kWorldHitHeaderBytes + texels * kWorldLegEntryBytes },
                                             "SSR.WorldHitList" );
             list.FarRest = graph.CreateBuffer(
                  RDG::BufferDesc{ kWorldLegEntryBytes + texels * kWorldLegEntryBytes }, "SSR.WorldFarRestList" );
             list.Legs               = true;
             static_assert( sizeof( kTraceListArgsReset ) == kWorldLegEntryBytes );
             graph.QueueStaticBufferUpload( list.Far, std::as_bytes( std::span( kTraceListArgsReset ) ) );
-            graph.QueueStaticBufferUpload( list.Hits, std::as_bytes( std::span( kTraceListArgsReset ) ) );
+            graph.QueueStaticBufferUpload( list.Hits, std::as_bytes( std::span( kWorldHitListReset ) ) );
             graph.QueueStaticBufferUpload( list.FarRest, std::as_bytes( std::span( kTraceListArgsReset ) ) );
             return list;
         }
