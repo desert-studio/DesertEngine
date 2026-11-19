@@ -180,6 +180,10 @@ namespace Desert::Graphic::System
             RDG::TextureRef Neutral{};                  // bound when Hzb is invalid (System.Black)
             glm::mat4       PrevViewProjection{ 1.0f }; // what Hzb was built through, unjittered
             glm::uvec3      Extent{ 0u };               // Hzb's mip-0 size and mip count
+            // RenderPipeline.LandscapeDiceCullAsync (FPS-TERRAIN-LOD; UE Nanite / InstanceCulling on the async
+            // pipe): the frame code, which knows its first reader (the terrain depth prepass) is far, asks for the
+            // async compute queue - the cull reads only the pool's corner nodes, the CPU's uploads and Hzb.
+            bool            Async = false;
         };
         // TERRAIN-DICE-CULL (UE Nanite cluster culling: frustum + last frame's HZB into a compact list), after
         // AddDicePoolPass and before the camera's terrain rasters are declared: "Landscape: Dice Cull"

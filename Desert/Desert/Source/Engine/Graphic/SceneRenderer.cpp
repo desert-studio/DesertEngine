@@ -2166,7 +2166,13 @@ namespace Desert::Graphic
         // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the
         // grass registered it just above: FramePrevHzb hands the same ref), before any node drawing the terrain.
         {
-            System::TerrainRenderer::DiceOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
+            // RenderPipeline.LandscapeDiceCullAsync (FPS-TERRAIN-LOD): the cull as an async segment - its first
+            // reader is the terrain's first raster (the depth prepass), past the landscape's virtual texture pages
+            // declared below, so the graph's join lands after work the cull overlaps.
+            const int diceCullAsync =
+                 m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineLandscapeDiceCullAsync );
+            System::TerrainRenderer::DiceOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black,
+                                                              .Async   = diceCullAsync != 0 };
             if ( m_RenderPath == Core::RenderPath::Deferred && !m_ViewProfile.SceneCapture )
             {
                 if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )

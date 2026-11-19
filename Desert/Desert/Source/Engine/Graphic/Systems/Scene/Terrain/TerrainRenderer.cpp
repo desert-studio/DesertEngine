@@ -397,17 +397,37 @@ namespace Desert::Graphic::System
             instance.DiceWindow =
                  glm::vec4( cx, cz, fadeCells, static_cast<float>( dicingRate ) * l.SpacingCm / pixelsAtCm );
             instance.DisplacementView.w = 1.0f;
-            // Rings finer than the fade's square only exist on a landscape with tiles near the eye (@p slab); h
-            // is taken to the farther of its lowest and highest displaced height - the steeper view, the finer
-            // dice.
+            // Rings finer than the fade's square only exist on a landscape with tiles near the eye (@p slab).
+            //
+            // THE CELL'S SCREEN AREA, NOT ITS WORST CASE TWICE (FPS-TERRAIN-LOD): a flat cell a height h below
+            // (or above) the eye at horizontal distance d is r = sqrt(h^2 + d^2) away, spans S K / r pixels across
+            // the view and S K / r * h / r along it - (S K)^2 h / r^3 pixels of area. The rings took the across
+            // edge at the horizontal d (not r) AND h at the slab's farthest height: at FIELD_Barn's eye (1.7 m
+            // over the ground, the slab metres tall) a cell nearer than sqrt(2) x the slab's reach over the eye was
+            // diced as if seen from the slab's top through a horizontal depth - up to 1.6x finer a side (2.6x the
+            // triangles) than any height of the slab shows it; 1.16 M ring triangles for 0.53 MP. The
+            // ground under a ring cell is SOME height of the slab, unknown here, so the dice keeps the largest
+            // area any height of [hLo, hHi] gives that cell: sqrt(h) / (h^2 + d^2)^(3/4) peaks at h = d / sqrt(2),
+            // clamped into the range - the bound the slab still guarantees, and no finer (UE Nanite's rule: a
+            // diced triangle spans DicingRate pixels, measured where it is, not where the view's worst cell is).
+            // Same on-axis model as before (depth taken as the eye distance), so a cell is never diced coarser
+            // than its own projected area asks at any height the slab allows.
             if ( !slab )
                 return;
-            const float eyeHeight     = std::max( { std::abs( camera.y - ( slab->x - magnitude ) ),
-                                                    std::abs( camera.y - ( slab->y + magnitude ) ), l.SpacingCm } );
+            const float lowGround  = slab->x - magnitude;
+            const float highGround = slab->y + magnitude;
+            const float eyeHigh    = std::max( { std::abs( camera.y - lowGround ), std::abs( camera.y - highGround ),
+                                                 l.SpacingCm } );
+            const float eyeLow     = camera.y >= lowGround && camera.y <= highGround
+                                          ? 0.0f
+                                          : std::min( std::abs( camera.y - lowGround ),
+                                                      std::abs( camera.y - highGround ) );
             const auto  subCellPixels = [&]( float d )
             {
-                const float sine = eyeHeight / std::sqrt( eyeHeight * eyeHeight + d * d );
-                return pixelsAtCm * std::sqrt( sine ) / std::max( d, 1.0f );
+                const float flat  = std::max( d, 1.0f );
+                const float h     = std::clamp( flat * 0.70710678f, eyeLow, eyeHigh );
+                const float range = std::sqrt( h * h + flat * flat );
+                return pixelsAtCm * std::sqrt( h / range ) / range;
             };
             // THE RELIEF'S 1 PX STOP (TERRAIN-DICE-CULL): a sub-vertex is its cell's flat triangle moved by the
             // relief alone, so a dice past 1 adds nothing where the whole relief (DisplacementMagnitude times the
@@ -2497,6 +2517,10 @@ namespace Desert::Graphic::System
         std::vector<ShaderPush::LandscapeDiceCull> pushes;
         std::vector<uint32_t>     groups;
         node.Name = kDiceCullPass;
+        // FPS-TERRAIN-LOD (RenderPipeline.LandscapeDiceCullAsync): the frame code asks for the async queue; the
+        // graph forks after the pool's corner nodes and the uploads above, and joins before the first terrain
+        // raster that reads the lists and the records (and before the census readback).
+        node.AsyncCompute = occlusion.Async;
         for ( std::size_t i = 0; i < m_DiceCullJobs.size(); ++i )
         {
             const DiceCullJob& job = m_DiceCullJobs[i];

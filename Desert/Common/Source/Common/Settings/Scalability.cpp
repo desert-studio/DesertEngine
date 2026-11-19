@@ -524,6 +524,11 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync (the grass camera cull, its finalize and "
                "the camera's and cascades' draw gathers as one async compute segment; 0 = the graphics queue)",
                1, Vis::Advanced },
+             { P::RenderPipelineLandscapeDiceCullAsync, G::ViewDistance, "RenderPipeline.LandscapeDiceCullAsync", 0,
+               1, CL::None,
+               "SceneRenderer -> TerrainRenderer::AddDiceCullPass (DiceOcclusion::Async: the landscape camera dice "
+               "cull as an async compute segment joined before the terrain depth prepass; 0 = the graphics queue)",
+               1, Vis::Advanced },
              { P::RenderPipelineGpuCrashBreadcrumbs, G::Effects, "RenderPipeline.GpuCrashBreadcrumbs", 0, 1,
                CL::None,
                "QualityState listener (VulkanRendererAPI::Init) -> DeviceLost::SetBreadcrumbsWanted -> "

@@ -503,6 +503,16 @@ namespace Common::Scalability
         // Read by SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync. Key "RenderPipeline.GrassCullAsync":
         // equal at every level (a GPU scheduling choice, not a quality step), so only a machine override names it.
         RenderPipelineGrassCullAsync,
+        // 0/1: the landscape's camera dice cull ("Landscape: Dice Cull": the diced rows' ring cells by the
+        // camera's frustum and last frame's HZB) runs as an async compute segment (FPS-TERRAIN-LOD; UE Nanite /
+        // InstanceCulling on the async pipe): it reads only the dice pool's corner nodes, the CPU's uploads and
+        // last frame's HZB, so the graph forks it after the dice pool and joins it before the terrain's first
+        // raster (the depth prepass). 0 = the same pass on the graphics queue, for the A/B and as the rollback;
+        // RenderPipeline.AsyncCompute 0 or a device without a compute family demotes it anyway. Read by
+        // SceneRenderer::OnUpdate -> TerrainRenderer::AddDiceCullPass (DiceOcclusion::Async). Key
+        // "RenderPipeline.LandscapeDiceCullAsync": equal at every level (a GPU scheduling choice, not a quality
+        // step), so only a machine override names it.
+        RenderPipelineLandscapeDiceCullAsync,
         // 0/1: GPU crash breadcrumbs (FPS-GPU-MARKER; UE r.GPUCrashDebugging + FGPUBreadcrumbs, NVIDIA Aftermath
         // markers): every render-graph pass writes its id into a host-visible word of its queue at its start and
         // at its end (VK_AMD_buffer_marker), so the [DeviceLost] report names, per queue, the last pass the GPU
