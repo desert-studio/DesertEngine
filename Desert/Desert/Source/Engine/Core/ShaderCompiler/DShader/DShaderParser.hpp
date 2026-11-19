@@ -93,6 +93,11 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParallaxCellSuffix = ".Parallax";
     inline constexpr std::string_view kSurfaceParallaxDefine     = "DESERT_SURFACE_PARALLAX";
     inline constexpr std::string_view kSurfaceParallaxInclude    = "Mesh/Surface/SurfaceParallax.glslh";
+    // `VertexFactory Impostor` (SurfaceTemplateInfo::Impostor): defined in BOTH stages of every cell of the template,
+    // ahead of every engine header. Vertex_Instanced.glslh places the octahedral impostor's camera-facing card
+    // (Common/ImpostorOctahedral.glslh), SurfaceTypes.glslh turns on the pixel depth offset in every pass
+    // (DESERT_SURFACE_PIXEL_DEPTH_OFFSET, as a `.Parallax` cell), and the template has no ray tracing hit cell.
+    inline constexpr std::string_view kSurfaceImpostorDefine = "DESERT_SURFACE_IMPOSTOR";
     // THE BINNED PERMUTATION (GPU-driven draws; UE: the cached mesh draw command's shaders read every per-draw
     // value through the instance id, nothing is set per draw). Every mesh cell of a binned pass
     // (kSurfaceBinnedCellPasses; a translucent template has none: translucency is sorted per view, never binned) a
@@ -376,6 +381,7 @@ namespace Desert::Core::Preprocess
         // `ResponsiveAA` (UE bResponsiveAA): a Translucent / Additive template only — an opaque surface draws into
         // the G-buffer, which has no responsive slot, and writes the velocity TAA reprojects it with.
         bool ResponsiveAA = false;
+        bool Impostor     = false; // `VertexFactory Impostor`: kSurfaceImpostorDefine in every cell
         Common::UUID             ShadingModel{ ShadingModels::kDefaultLitGuid };
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
         // `RayTracing.Hit` when the template has its hit cell (also in Cells); otherwise empty, and RayHitRefusal

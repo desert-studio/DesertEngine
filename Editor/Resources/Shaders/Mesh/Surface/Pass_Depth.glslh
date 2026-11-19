@@ -10,17 +10,17 @@
 // Mesh/Surface/SurfaceParallax.glslh), the depth its base-pass cell then computes and tests equal.
 // No velocity: the base pass writes the view's motion where its depth test passes (UE: the base pass's velocity
 // output for a mover; the depth pass writes depth alone).
-#if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
+#if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET )
 DESERT_SURFACE_VARYINGS( in )
 #endif
-#ifdef DESERT_SURFACE_PARALLAX
+#ifdef DESERT_SURFACE_PIXEL_DEPTH_OFFSET
 // The Pixel Depth Offset only moves the fragment away from the eye: in this reverse-Z view a smaller depth.
 layout( depth_less ) out float gl_FragDepth;
 #endif
 
 void main()
 {
-#if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
+#if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET )
     // A `.Binned` cell (the deferred early-Z pass's twin of a G-buffer bin): `Material` is the row the vertex stage
     // resolved from the instance id (SurfaceTypes.glslh); nothing otherwise.
     DESERT_SURFACE_BEGIN_FRAGMENT();
@@ -28,7 +28,7 @@ void main()
                                                v_Surface.UV1, DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
 #endif
-#ifdef DESERT_SURFACE_PARALLAX
+#ifdef DESERT_SURFACE_PIXEL_DEPTH_OFFSET
     gl_FragDepth = DesertPixelDepthOffsetDepth( i, EvaluateSurface( i ) );
 #endif
 }

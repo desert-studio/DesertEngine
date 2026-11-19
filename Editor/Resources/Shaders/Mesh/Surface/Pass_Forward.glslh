@@ -145,7 +145,7 @@ layout( binding = 21 ) uniform CloudShadowUB
 // The local lights and the ambient, the one statement every forward-lit opaque cell shades them with.
 #include <Mesh/ForwardSceneLighting.glslh>
 
-#ifdef DESERT_SURFACE_PARALLAX
+#ifdef DESERT_SURFACE_PIXEL_DEPTH_OFFSET
 // The Pixel Depth Offset only moves the fragment away from the eye: a smaller depth in this reverse-Z view.
 layout( depth_less ) out float gl_FragDepth;
 #endif
@@ -167,7 +167,7 @@ void main()
 #else
     const SurfaceOutput s = EvaluateSurface( i );
 #endif
-#ifdef DESERT_SURFACE_PARALLAX
+#ifdef DESERT_SURFACE_PIXEL_DEPTH_OFFSET
     // The relief's depth and motion (SurfaceParallax.glslh), and the point it lights: the moved one, so its cascade
     // lookup, contact shadows and light-grid cell are the relief's, as the deferred composite's reconstruction is.
     {

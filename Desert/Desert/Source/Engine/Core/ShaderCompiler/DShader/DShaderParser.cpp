@@ -1616,6 +1616,9 @@ namespace Desert::Core::Preprocess
         std::string OpacityMaskParamError( const Formats::SurfaceOpacityMask& mask,
                                            const std::vector<ShaderParam>&    params )
         {
+            // The computed form names a function of the surface block, which glslang checks in every cell.
+            if ( !mask.Function.empty() )
+                return {};
             const auto find = [&]( const std::string& name ) -> const ShaderParam*
             {
                 const auto it = std::find_if( params.begin(), params.end(),
@@ -1732,6 +1735,15 @@ namespace Desert::Core::Preprocess
         // parameter is clamped to 0..3.
         std::string OpacityMaskFunction( const Formats::SurfaceOpacityMask& mask )
         {
+            // THE COMPUTED FORM (`OpacityMask Function( <Name> )`): the coverage is a function of the surface block,
+            // `float <Name>( SurfaceInput i )` - an octahedral impostor's blended frame coverage, read at UVs the
+            // view ray picks per pixel, has no single mask texel to name. No UV / gradient pair: the visibility
+            // raster's mask skip (Pass_Visibility.glslh) and a CPU reader have nothing to evaluate, and
+            // DESERT_SURFACE_OPACITY_MASK_COMPUTED tells a header that reaches for them.
+            if ( !mask.Function.empty() )
+                return std::format( "#define DESERT_SURFACE_OPACITY_MASK_COMPUTED 1\n"
+                                    "float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n    return {}( i );\n}}\n",
+                                    mask.Function );
             std::string uv = std::format( "i.UV{}", mask.UVSet );
             std::string transform;
             if ( !mask.TilingParam.empty() )
@@ -2474,6 +2486,20 @@ namespace Desert::Core::Preprocess
                 }
                 surfaceSettingLine = surfaceSettingLine != 0 ? surfaceSettingLine : line;
             }
+            else if ( lower == "vertexfactory" )
+            {
+                // UE's vertex factory choice beyond the mesh's own: `VertexFactory Impostor` makes every cell place
+                // the camera-facing card of an octahedral impostor (Vertex_Instanced.glslh under
+                // kSurfaceImpostorDefine) and move its depth by the surface's PixelDepthOffset in every pass.
+                const std::string stated = ReadIdent( c );
+                if ( Lower( stated ) != "impostor" )
+                {
+                    err = { line, std::format( "unknown VertexFactory '{}' (Impostor)", stated ) };
+                    return fail();
+                }
+                result.Surface.Impostor = true;
+                surfaceSettingLine      = surfaceSettingLine != 0 ? surfaceSettingLine : line;
+            }
             else if ( lower == "responsiveaa" )
             {
                 result.Surface.ResponsiveAA = true;
@@ -2635,6 +2661,24 @@ namespace Desert::Core::Preprocess
                 mask.Texture    = ReadIdent( c );
                 mask.ClipParam  = std::string( kSurfaceMaskClipParam );
                 bool sawChannel = false;
+                if ( Lower( mask.Texture ) == "function" )
+                {
+                    // `OpacityMask Function( <Name> )`: the computed form (OpacityMaskFunction), nothing else.
+                    mask.Texture.clear();
+                    if ( !Expect( c, '(', err, "after Function" ) )
+                        return fail();
+                    mask.Function = ReadIdent( c );
+                    if ( mask.Function.empty() || !Expect( c, ')', err, "after the function name" ) )
+                    {
+                        if ( err.Message.empty() )
+                            err = { line, "OpacityMask Function names 'float <Name>( SurfaceInput i )' of the "
+                                          "Surface block" };
+                        return fail();
+                    }
+                    result.Meta.OpacityMask = std::move( mask );
+                    surfaceSettingLine      = surfaceSettingLine != 0 ? surfaceSettingLine : line;
+                    continue;
+                }
                 if ( mask.Texture.empty() )
                 {
                     err = { line, "OpacityMask needs the Texture2D parameter that holds the mask" };
@@ -3166,6 +3210,15 @@ namespace Desert::Core::Preprocess
 
             const std::string opacityMaskFunction =
                  result.Meta.OpacityMask ? OpacityMaskFunction( *result.Meta.OpacityMask ) : std::string();
+            // A `VertexFactory Impostor` template's cells see kSurfaceImpostorDefine ahead of every engine header, in
+            // both stages (the include block is assembled before them): the vertex header places the card,
+            // SurfaceTypes turns on the pixel depth offset. One line earlier, so the author's include keeps its lines.
+            RawBlock cellInclude = includeBlock;
+            if ( result.Surface.Impostor )
+            {
+                cellInclude.Content   = std::format( "#define {} 1\n{}", kSurfaceImpostorDefine, includeBlock.Content );
+                cellInclude.StartLine = includeBlock.StartLine > 0 ? includeBlock.StartLine - 1 : 0;
+            }
             const std::string heightFunctions =
                  result.Meta.Height ? HeightFunctions( *result.Meta.Height ) : std::string();
 
@@ -3192,7 +3245,7 @@ namespace Desert::Core::Preprocess
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace(
-                             stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
+                             stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, cellInclude,
                                                               autoDecls, result.Surface.Blend, shadingModelDefine,
                                                               result.Surface.ResponsiveAA, opacityMaskFunction,
                                                               false, heightFunctions, respondsToWeather ) );
@@ -3211,7 +3264,7 @@ namespace Desert::Core::Preprocess
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     cell.Stages.emplace(
                          stage, AssembleSurfaceCellStage( stage, kSurfaceFrontLayerPath, kSurfaceFrontLayerPass,
-                                                          *surfaceBlock, includeBlock, autoDecls,
+                                                          *surfaceBlock, cellInclude, autoDecls,
                                                           result.Surface.Blend, shadingModelDefine,
                                                           result.Surface.ResponsiveAA, opacityMaskFunction,
                                                           false, heightFunctions, false ) );
@@ -3231,7 +3284,11 @@ namespace Desert::Core::Preprocess
             // put in a shader record: no cell, and the reason is kept for the pipeline that asks for it.
             if ( meshCells && result.Surface.Blend != SurfaceBlendMode::Additive )
             {
-                if ( !result.Layout.Textures.empty() )
+                if ( result.Surface.Impostor )
+                    result.Surface.RayHitRefusal =
+                         "an impostor is a camera-facing card: a ray from any origin but the camera it faces meets a "
+                         "flat card, so ray tracing keeps the source mesh (UE: impostors are raster-only)";
+                else if ( !result.Layout.Textures.empty() )
                     result.Surface.RayHitRefusal = std::format(
                          "texture '{}' is bound outside the material row; a hit group reads its material from the "
                          "shader record, which carries the row alone",
@@ -3248,7 +3305,7 @@ namespace Desert::Core::Preprocess
                             continue;
                         cell.Stages.emplace(
                              stage, AssembleSurfaceCellStage( stage, kSurfaceRayHitPath, kSurfaceRayHitPass,
-                                                              *surfaceBlock, includeBlock, rayHitAutoDecls,
+                                                              *surfaceBlock, cellInclude, rayHitAutoDecls,
                                                               result.Surface.Blend, shadingModelDefine,
                                                               result.Surface.ResponsiveAA, opacityMaskFunction,
                                                               false, heightFunctions, false ) );
@@ -3286,7 +3343,7 @@ namespace Desert::Core::Preprocess
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                      stage, kSurfaceParticleSpritePath, kSurfaceParticleSpritePass,
-                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     *surfaceBlock, cellInclude, autoDecls, result.Surface.Blend,
                                                      shadingModelDefine, result.Surface.ResponsiveAA,
                                                      opacityMaskFunction, false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
@@ -3303,7 +3360,7 @@ namespace Desert::Core::Preprocess
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                      stage, kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass,
-                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     *surfaceBlock, cellInclude, autoDecls, result.Surface.Blend,
                                                      shadingModelDefine, result.Surface.ResponsiveAA,
                                                      opacityMaskFunction, false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
@@ -3327,7 +3384,7 @@ namespace Desert::Core::Preprocess
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                          stage, path, kSurfaceParticleGBufferPass, *surfaceBlock,
-                                                         includeBlock, autoDecls, result.Surface.Blend,
+                                                         cellInclude, autoDecls, result.Surface.Blend,
                                                          shadingModelDefine, result.Surface.ResponsiveAA,
                                                          opacityMaskFunction, false, heightFunctions, false ) );
                     result.Meta.PassNames.push_back( cell.Name );
@@ -3347,7 +3404,7 @@ namespace Desert::Core::Preprocess
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace(
                              stage, AssembleSurfaceCellStage( stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
-                                                              includeBlock, autoDecls, result.Surface.Blend,
+                                                              cellInclude, autoDecls, result.Surface.Blend,
                                                               shadingModelDefine, result.Surface.ResponsiveAA,
                                                               opacityMaskFunction, false, heightFunctions,
                                                               false ) );
@@ -3366,7 +3423,7 @@ namespace Desert::Core::Preprocess
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                          stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
-                                                         includeBlock, autoDecls, result.Surface.Blend,
+                                                         cellInclude, autoDecls, result.Surface.Blend,
                                                          shadingModelDefine, result.Surface.ResponsiveAA,
                                                          opacityMaskFunction, false, heightFunctions, false ) );
                     result.Meta.PassNames.push_back( cell.Name );
@@ -3387,7 +3444,7 @@ namespace Desert::Core::Preprocess
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace( stage, AssembleSurfaceCellStage(
-                                                         stage, kInstancedPath, pass, *surfaceBlock, includeBlock,
+                                                         stage, kInstancedPath, pass, *surfaceBlock, cellInclude,
                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
                                                          result.Surface.ResponsiveAA, opacityMaskFunction, false,
                                                          heightFunctions, respondsToWeather ) );
@@ -3405,7 +3462,7 @@ namespace Desert::Core::Preprocess
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                      stage, kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass,
-                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     *surfaceBlock, cellInclude, autoDecls, result.Surface.Blend,
                                                      shadingModelDefine, result.Surface.ResponsiveAA,
                                                      opacityMaskFunction, false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
@@ -3420,7 +3477,7 @@ namespace Desert::Core::Preprocess
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     front.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                       stage, kSurfaceWaterMeshPath, kSurfaceFrontLayerPass,
-                                                      *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                      *surfaceBlock, cellInclude, autoDecls, result.Surface.Blend,
                                                       shadingModelDefine, result.Surface.ResponsiveAA,
                                                       opacityMaskFunction, false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( front.Name );
@@ -3442,7 +3499,7 @@ namespace Desert::Core::Preprocess
                         cell.State = cellState;
                         for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                             cell.Stages.emplace(
-                                 stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, includeBlock,
+                                 stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, cellInclude,
                                                                   autoDecls, result.Surface.Blend,
                                                                   shadingModelDefine, result.Surface.ResponsiveAA,
                                                                   opacityMaskFunction, true, heightFunctions,
@@ -3471,7 +3528,7 @@ namespace Desert::Core::Preprocess
                             for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                                 cell.Stages.emplace( stage,
                                                      AssembleSurfaceCellStage(
-                                                          stage, path, pass, *surfaceBlock, includeBlock,
+                                                          stage, path, pass, *surfaceBlock, cellInclude,
                                                           autoDecls, result.Surface.Blend, shadingModelDefine,
                                                           result.Surface.ResponsiveAA, opacityMaskFunction,
                                                           parallax, heightFunctions, respondsToWeather, true ) );
@@ -3500,7 +3557,7 @@ namespace Desert::Core::Preprocess
                             cell.State = cellState;
                             for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                                 cell.Stages.emplace( stage, AssembleSurfaceCellStage(
-                                                                 stage, path, pass, *surfaceBlock, includeBlock,
+                                                                 stage, path, pass, *surfaceBlock, cellInclude,
                                                                  autoDecls, result.Surface.Blend,
                                                                  shadingModelDefine, result.Surface.ResponsiveAA,
                                                                  opacityMaskFunction, parallax, heightFunctions,

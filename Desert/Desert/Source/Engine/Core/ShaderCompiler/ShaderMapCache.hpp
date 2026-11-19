@@ -51,7 +51,8 @@ namespace Desert::Core
     // 15: ShaderProgramMeta::ShadingModel (GDT-2: the renderer names a section's shading model).
     // 16: ShaderProgramMeta::StampSource (DEFORM-FIELD: the DeformStamp domain names its stamp fragment).
     // 17: ShaderProgramMeta::DecalChannelMask (DECALS-DBUFFER: a DeferredDecal shader's DBuffer channels).
-    inline constexpr uint32_t kShaderMapFormatVersion = 17;
+    // 18: SurfaceOpacityMask::Function (IMPOSTORS-HLOD-2: the computed opacity mask of an impostor template).
+    inline constexpr uint32_t kShaderMapFormatVersion = 18;
 
     // The key hashes the shader's TEXT, not the code that turns text into a map, so a change to the parser,
     // the preprocessor or the metadata types would keep serving maps the old code produced. This is the

@@ -154,12 +154,41 @@ vec3 ImpostorFrameSurfacePoint( ivec2 frame, vec3 planeHit, float depthChannel, 
 // only ever pushes away, SurfaceParallax.glslh: PixelDepthOffset >= 0), spread over the frame basis of the view
 // direction by @p corner in [-1, 1]^2. A card of half-size radius at that distance covers the sphere's perspective
 // silhouette: (d - r) * r / sqrt(d^2 - r^2) < r for any viewer outside the sphere.
-vec3 ImpostorCardCornerWorld( vec3 centreWorld, float radiusWorld, vec3 viewerWorld, vec2 corner )
+vec3 ImpostorCardCornerFacing( vec3 centreWorld, float radiusWorld, vec3 toViewer, vec2 corner )
 {
-    const vec3 toViewer = normalize( viewerWorld - centreWorld );
-    vec3       right, up;
+    vec3 right, up;
     ImpostorFrameBasis( toViewer, right, up );
     return centreWorld + toViewer * radiusWorld + ( right * corner.x + up * corner.y ) * radiusWorld;
+}
+
+vec3 ImpostorCardCornerWorld( vec3 centreWorld, float radiusWorld, vec3 viewerWorld, vec2 corner )
+{
+    return ImpostorCardCornerFacing( centreWorld, radiusWorld, normalize( viewerWorld - centreWorld ), corner );
+}
+
+// The direction from a world point TO the viewer of the view a raster matrix draws, for every view the impostor is
+// drawn into: the camera (perspective, reverse-Z), a cascade's caster matrix and a virtual shadow page view
+// (orthographic, standard-Z: @p standardZ). Perspective: the eye is the matrix's null point, inverse * (0, 0, 1, 0)
+// (clip x = y = w = 0). Orthographic: that vector has w = 0 and is the depth axis itself; the viewer lies on the near
+// side, smaller depth in a standard-Z view, larger in a reverse-Z one. Both cells of a view (its depth prepass and its
+// base pass) evaluate this from the same matrix, so the card - and gl_Position - is the same in both.
+vec3 ImpostorViewerDirection( mat4 viewProjection, vec3 pointWorld, bool standardZ )
+{
+    const vec4 eye = inverse( viewProjection ) * vec4( 0.0, 0.0, 1.0, 0.0 );
+    if ( abs( eye.w ) > 1.0e-6 * length( eye.xyz ) )
+        return normalize( eye.xyz / eye.w - pointWorld );
+    const vec3 depthAxis = normalize( eye.xyz ); // depth grows along it
+    return standardZ ? -depthAxis : depthAxis;
+}
+
+// THE CARD MESH (Core::HLODImpostorCardMesh, the one writer): four vertices in impostor space, corner c in {-1, 1}^2,
+//   a_Position  = centre + radius * ( c.x, c.y, c.x * c.y )  - the sphere's bounding cube, so the mesh's bounds cull
+//                                                              the card wherever it turns
+//   a_TexCoord1 = c,   a_Tangent = ( radius, 0, 0 ),   a_Normal = ( 0, 0, 1 )
+// so the vertex stage reads the sphere back from any one vertex.
+vec3 ImpostorCardCentre( vec3 position, vec2 corner, float radius )
+{
+    return position - radius * vec3( corner, corner.x * corner.y );
 }
 
 #endif // IMPOSTOR_OCTAHEDRAL_GLSLH

@@ -402,6 +402,11 @@ namespace Desert::Core::Formats
         // TAA integrates) instead of cutting at ClipParam: a leaf smaller than a texel of the level it samples
         // keeps its share of the pixel, which no threshold on a mip can do. Empty = the template never dithers.
         std::string DitherParam;
+        // `OpacityMask Function( <Name> )`: the COMPUTED form - the mask is `float <Name>( SurfaceInput i )` of the
+        // template's surface block (an octahedral impostor's blended frame coverage), and every texture field above
+        // is empty. A reader outside the raster cells has no texel to evaluate: the template declares no ray
+        // tracing hit cell (DShaderParser, SurfaceTemplateInfo::RayHitRefusal), so ray tracing keeps the source mesh.
+        std::string Function;
 
         bool operator==( const SurfaceOpacityMask& ) const = default;
     };

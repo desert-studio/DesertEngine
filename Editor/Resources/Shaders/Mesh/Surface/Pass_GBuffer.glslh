@@ -32,7 +32,7 @@ layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
 #endif
 // The six G-buffer slots and their one writer (shared with the visibility resolve, Pass_VisibilityResolve.glslh).
 #include <Mesh/Surface/GBufferOutputs.glslh>
-#ifdef DESERT_SURFACE_PARALLAX
+#ifdef DESERT_SURFACE_PIXEL_DEPTH_OFFSET
 // The Pixel Depth Offset only moves the fragment away from the eye: in this reverse-Z view a smaller depth, which the
 // layout promises so the depth test can still reject against the rasterised depth before the fragment runs.
 layout( depth_less ) out float gl_FragDepth;
@@ -89,7 +89,7 @@ void main()
     vec4 clip     = v_Surface.Clip;
 #endif
     vec4 prevClip = v_Surface.PrevClip;
-#ifdef DESERT_SURFACE_PARALLAX
+#ifdef DESERT_SURFACE_PIXEL_DEPTH_OFFSET
     // The relief's depth and motion (SurfaceParallax.glslh); the composite reconstructs the moved position from it.
     gl_FragDepth = DesertPixelDepthOffsetDepth( i, s );
     DesertPixelDepthOffsetVelocity( i, s, clip, prevClip );
