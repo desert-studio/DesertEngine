@@ -47,6 +47,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeSpeedUB );
         DESERT_SHADER_PARAMETER( Texture, Velocity );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbePlacedArgsUB );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -741,6 +742,13 @@ namespace Desert::Graphic::GlobalIllumination
         graph.QueueBufferUpload( paramsBuffer, std::as_bytes( std::span( &params, 1 ) ) );
         const RDG::BufferRef index =
              graph.CreateBuffer( RDG::BufferDesc{ layout.IndexEntries * 4ull }, "ScreenProbes.Index" );
+        // THE PLACED PROBES' DISPATCH (UE ScreenProbeIndirectArgs, sized by NumAdaptiveScreenProbes): one group a
+        // placed probe - the uniform grid plus the adaptive probes the budget let through - written by the
+        // placement (ScreenProbePlace.shader), read as the indirect args of every one-group-a-probe pass (the
+        // screen trace, the spatial filter, the filter). Was layout.Probes() groups (uniform + the whole adaptive
+        // budget), the unplaced ones leaving on screenProbeIndex[0].
+        const RDG::BufferRef placedArgs =
+             graph.CreateBuffer( RDG::BufferDesc{ 4ull * sizeof( uint32_t ) }, "ScreenProbes.PlacedArgs" );
         const RDG::BufferRef probes = graph.CreateBuffer(
              RDG::BufferDesc{ layout.Probes() * static_cast<uint64_t>( sizeof( ScreenProbePayload ) ) },
              "ScreenProbes.Probes" );
@@ -802,6 +810,7 @@ namespace Desert::Graphic::GlobalIllumination
                           .Texture( ScreenProbeGatherPlaceShaderParameters::Velocity, inputs.Velocity, kS, all )
                           .Sampler( ScreenProbeGatherPlaceShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() )
+                          .Storage( ScreenProbeGatherPlaceShaderParameters::ScreenProbePlacedArgsUB, placedArgs, kW )
                           .PushConstants<ShaderPush::ScreenProbePlace>();
                      gbuf( block );
                  },
@@ -1044,12 +1053,13 @@ namespace Desert::Graphic::GlobalIllumination
                      bindOut( block, nearList );
                      bindOut2( block, farList );
                      bindOut3( block, cacheReadList );
+                     builder.Read( placedArgs, RDG::Access::IndirectArgs );
                  },
-                 [pipeline, probeGroups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, args = placedArgs, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( push );
-                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                  } );
         }
 
@@ -1346,11 +1356,12 @@ namespace Desert::Graphic::GlobalIllumination
                               .Storage(
                                    ScreenProbeGatherSpatialFilterShaderParameters::FilteredScreenProbeRadiance,
                                    output, kW );
+                         builder.Read( placedArgs, RDG::Access::IndirectArgs );
                      },
-                     [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     [pipeline, args = placedArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                         return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                         return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                      } );
                 radiance = output;
             }
@@ -1399,11 +1410,12 @@ namespace Desert::Graphic::GlobalIllumination
                                     inputs.RadianceCache.Depth, kS, all )
                           .Sampler( ScreenProbeGatherFilterShaderParameters::LinearClampSampler,
                                     RDG::SamplerDesc::LinearClamp() );
+                     builder.Read( placedArgs, RDG::Access::IndirectArgs );
                  },
-                 [pipeline, probeGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, args = placedArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                  } );
         }
         // One integrate permutation over its tiles: the simple-diffuse one binds no filtered radiance (it samples

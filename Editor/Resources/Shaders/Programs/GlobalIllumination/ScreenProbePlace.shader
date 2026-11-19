@@ -48,6 +48,14 @@ Shader "ScreenProbePlace"
         };
         Uniform(7) texture2D Velocity; // NDC.xyz current - previous (View/Velocity.hpp)
         #define Velocity sampler2D(Velocity, PointClampSampler)
+        // FPS-SP-CHAIN-2 (UE ScreenProbeIndirectArgs): the dispatch of every one-group-a-probe pass (the screen
+        // trace, the spatial filter, the filter; ScreenProbeGather.cpp ScreenProbes.PlacedArgs) - x = the uniform
+        // probes plus the adaptive ones placed within the budget. Level 0 resets it to the uniform grid, each
+        // adaptive probe raises it past its own id.
+        Buffer(8) ScreenProbePlacedArgsUB
+        {
+            uvec4 screenProbePlacedArgs;
+        };
 
         PushConstant ScreenProbePlacePush
         {
@@ -61,7 +69,10 @@ Shader "ScreenProbePlace"
             const uvec2 grid   = SPGridSize( level, extent );
             const ivec2 cell   = ivec2( gl_GlobalInvocationID.xy );
             if ( level == 0u && cell == ivec2( 0 ) )
-                screenProbeIndex[0] = 0u;
+            {
+                screenProbeIndex[0]   = 0u;
+                screenProbePlacedArgs = uvec4( screenProbeParams.grid.z, 1u, 1u, 0u );
+            }
             if ( any( greaterThanEqual( uvec2( cell ), grid ) ) )
                 return;
             if ( level > 0u && all( equal( cell & 1, ivec2( 0 ) ) ) )
@@ -112,6 +123,7 @@ Shader "ScreenProbePlace"
             if ( k >= screenProbeParams.grid.w )
                 return; // the budget is spent: the integrate reads the world radiance cache here
             const uint id    = screenProbeParams.grid.z + k;
+            atomicMax( screenProbePlacedArgs.x, id + 1u );
             screenProbes[id]     = probe;
             screenProbeSpeed[id] = speed;
             const uint tile  = SPUniformTileIndex( cell >> int( level ) );
