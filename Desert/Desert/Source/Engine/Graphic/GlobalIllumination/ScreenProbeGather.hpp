@@ -373,7 +373,6 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t Tiles          = 0; // the integrate's 8x8 tiles
         uint32_t SimpleTiles    = 0; // integrated by the simple-diffuse permutation (IntegrateArgs[3])
         uint32_t FullTiles      = 0; // by the full one (IntegrateArgs[7])
-        uint32_t UncoveredTiles = 0; // holding a pixel no probe holds (IntegrateUncoveredArgs[3])
         bool     Valid          = false; // a frame's words have come back
     };
 
@@ -389,7 +388,7 @@ namespace Desert::Graphic::GlobalIllumination
         };
         // Reads the slot of @p frameIndex, then hands it this frame's buffers (extracted for the host).
         void AddFrame( RDG::Builder& graph, uint64_t frameIndex, const Frame& frame, RDG::BufferRef placedArgs,
-                       RDG::BufferRef integrateArgs, RDG::BufferRef uncoveredArgs );
+                       RDG::BufferRef integrateArgs );
         [[nodiscard]] const ScreenProbeCensus& Last() const
         {
             return m_Last;
@@ -400,7 +399,6 @@ namespace Desert::Graphic::GlobalIllumination
         {
             RDG::ExternalBuffer PlacedArgs;
             RDG::ExternalBuffer IntegrateArgs;
-            RDG::ExternalBuffer UncoveredArgs;
             Frame               Host;
         };
         std::vector<Slot> m_Slots;
@@ -485,7 +483,6 @@ namespace Desert::Graphic::GlobalIllumination
             IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists
             IntegrateSimpleDiffuse, // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE: the simple tiles
             Integrate,              // the full permutation: the tiles that evaluate GGX samples
-            IntegrateUncovered,     // ScreenProbeIntegrate SP_INTEGRATE_UNCOVERED: the pixels no probe holds
             Temporal,
             ProgramCount
         };

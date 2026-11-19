@@ -4,8 +4,8 @@
 //   probes    the four uniform probes around the pixel, bilinear x how well each lies on the pixel's plane and
 //             faces its normal; a corner that misses takes the best adaptive probe of its tile (SPInterpolate, UE
 //             CalculateUpsampleInterpolationWeights). The placement put an adaptive probe wherever this test
-//             failed, so only a pixel past the adaptive budget finds none: it is listed, and the uncovered
-//             pass (SP_INTEGRATE_UNCOVERED, THE UNCOVERED PIXELS) reads the world radiance cache for it;
+//             failed, so only a pixel past the adaptive budget finds none: the same workgroup reads the world
+//             radiance cache for it after its covered pixels (THE UNCOVERED PIXELS);
 //   diffuse   the probes' irradiance SH at the pixel's bent normal times its short-range AO (already / pi; UE
 //             ScreenProbeIntegrateCS with SHORT_RANGE_AO, the ScreenProbeShortRangeAO pass of this frame): the
 //             occluders closer than the probes, which the scalar SSAO misses on thin leaf cards;
@@ -79,20 +79,14 @@ Shader "ScreenProbeIntegrate"
             return mix( 0.0, occlusion, clamp( ( unoccludedAngle - 0.1 ) / 0.2, 0.0, 1.0 ) );
         }
 
-        // THE UNCOVERED PIXELS (UE Lumen: the pixels no screen probe covers are shaded apart, not by every lane of the
-        // integrate): a pixel no probe holds (the placement wanted an adaptive probe there and the budget was spent)
-        // sets its bit in its tile's mask, and the first such pixel of a tile lists the tile; the
-        // SP_INTEGRATE_UNCOVERED permutation, one group a listed tile (indirect, the same 2D grid as the
-        // classification's lists), reads the world radiance cache for the masked pixels alone and writes their three
-        // outputs. The integrate kernels carry no radiance-cache read (its two 8-corner lookups, their registers),
-        // and no wave of them waits on one uncovered pixel. The uncovered pass loads the tile's short-range AO texels
-        // as the integrate does, so its bent normal and AO are the same values.
-        //   ScreenProbeIntegrateUncoveredArgsUB  x, y, z, count (uploaded 0, 0, 1, 0);
-        //   ScreenProbeIntegrateUncoveredUB      the listed tiles (x | y << 16);
-        //   ScreenProbeIntegrateUncoveredMaskUB  per tile (x + y * SP_INTEGRATE_TILES_X) 3 words: the 64 pixels'
-        //                                        bits (local index), then the listed flag; zeroed by the
-        //                                        classification, which runs before either integrate.
-        #define SP_UNCOVERED_MASK_WORDS 3u
+        // THE UNCOVERED PIXELS (UE Lumen: the pixels no screen probe covers are shaded apart, not by the lane that
+        // missed): a pixel no probe holds (the placement wanted an adaptive probe there and the budget was spent)
+        // appends its local index to the group's list (s_UncoveredPixels) and writes nothing; after the covered
+        // pixels the group's first lanes take the listed pixels, one each, and read the world radiance cache for
+        // them (SPIntegrateUncovered) - packed into the fewest waves, with the tile's short-range AO texels already
+        // in shared memory (the same bent normal and AO), in the same dispatch (FPS-SP-SEGMENT: this was a third
+        // async pass over the listed tiles, 0.186 ms on FIELD_Barn, that waited for both integrates, reloaded the
+        // tile's AO texels and G-buffer, and ran one wave a tile for its masked lanes).
 
         // INTEGRATION TILE CLASSIFICATION (UE r.Lumen.ScreenProbeGather.IntegrationTileClassification,
         // ScreenProbeTileClassificationMarkCS + BuildListsCS in one pass): an 8x8 tile
@@ -124,10 +118,6 @@ Shader "ScreenProbeIntegrate"
         {
             uint screenProbeIntegrateTiles[];
         };
-        Buffer(26) ScreenProbeIntegrateUncoveredMaskUB
-        {
-            uint screenProbeIntegrateUncoveredMask[]; // THE UNCOVERED PIXELS above: zeroed here, per tile
-        };
 
         shared uint s_EvaluatesRoughSpecular;
 
@@ -144,10 +134,6 @@ Shader "ScreenProbeIntegrate"
                     atomicOr( s_EvaluatesRoughSpecular, 1u );
             }
             barrier();
-            const uint maskBase =
-                 ( gl_WorkGroupID.y * SP_INTEGRATE_TILES_X + gl_WorkGroupID.x ) * SP_UNCOVERED_MASK_WORDS;
-            if ( gl_LocalInvocationIndex < SP_UNCOVERED_MASK_WORDS )
-                screenProbeIntegrateUncoveredMask[maskBase + gl_LocalInvocationIndex] = 0u;
             if ( gl_LocalInvocationIndex != 0u )
                 return;
             const uint full = s_EvaluatesRoughSpecular;
@@ -163,9 +149,8 @@ Shader "ScreenProbeIntegrate"
                 screenProbeIntegrateTiles[slot] = tile;
         }
 #else
-        // The integrate permutations (simple diffuse, full) and the uncovered-pixel pass (SP_INTEGRATE_UNCOVERED):
-        // the G-buffer, the short-range AO and the three outputs are common; the probes are the integrate's, the
-        // world radiance cache the uncovered pass's (THE UNCOVERED PIXELS above).
+        // The integrate permutations (simple diffuse, full): the G-buffer, the short-range AO, the probes, the
+        // three outputs, and the world radiance cache for the pixels no probe holds (THE UNCOVERED PIXELS above).
         ReadBuffer(0) ScreenProbeParamsUB
         {
             ScreenProbeParams screenProbeParams;
@@ -174,9 +159,7 @@ Shader "ScreenProbeIntegrate"
         {
             GIFrame giFrame;
         };
-#if defined( SP_INTEGRATE_UNCOVERED ) || !defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
-        Uniform sampler LinearClampSampler; // sampled by the cache (UNCOVERED) or the filtered probes only
-#endif
+        Uniform sampler LinearClampSampler; // the world radiance cache, and the full permutation's filtered probes
         Uniform sampler PointClampSampler;
         Uniform(6) texture2D GBufferDepthTexture;
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
@@ -187,7 +170,6 @@ Shader "ScreenProbeIntegrate"
         layout(binding = 19, rgba16f) restrict writeonly uniform image2D ScreenProbeBackfaceOutTexture;
         Uniform(20) texture2D ShortRangeAoTexture; // half-res, oct world bent normal + AO (ScreenProbes.glslh)
         #define ShortRangeAoTexture sampler2D(ShortRangeAoTexture, PointClampSampler)
-#if defined( SP_INTEGRATE_UNCOVERED )
         ReadBuffer(12) RadianceCacheParamsUB
         {
             RadianceCacheParams radianceCache;
@@ -204,26 +186,13 @@ Shader "ScreenProbeIntegrate"
         #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
         Uniform(16) texture2D RadianceCacheDepthTexture;
         #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
-        ReadBuffer(24) ScreenProbeIntegrateUncoveredArgsUB
-        {
-            uint screenProbeIntegrateUncoveredArgs[]; // x, y, z, count (THE UNCOVERED PIXELS above)
-        };
-        ReadBuffer(25) ScreenProbeIntegrateUncoveredUB
-        {
-            uint screenProbeIntegrateUncovered[]; // the listed tiles
-        };
-        ReadBuffer(26) ScreenProbeIntegrateUncoveredMaskUB
-        {
-            uint screenProbeIntegrateUncoveredMask[]; // per tile, SP_UNCOVERED_MASK_WORDS
-        };
         // FPS-SP-CHAIN-2: the pixel's shading model - only a model with UE's backface diffuse (two-sided foliage,
         // DesertHasBackfaceDiffuse) reads the backface output (ShadingModelContract.glslh BackIrradiance; the
-        // temporal filter's material test keeps a non-foliage history out of a foliage pixel), so only such a pixel
-        // pays the cache's second eight-cell read at -N.
+        // temporal filter's material test keeps a non-foliage history out of a foliage pixel), so only such an
+        // uncovered pixel pays the cache's second eight-cell read at -N.
         Uniform(27) utexture2D GBufferShadingWord;
         #define GBufferShadingWord usampler2D(GBufferShadingWord, PointClampSampler)
         #include <Generated/ShadingModels.glslh>
-#else
         ReadBuffer(1) ScreenProbeIndexUB
         {
             uint screenProbeIndex[];
@@ -256,19 +225,6 @@ Shader "ScreenProbeIntegrate"
         {
             uint screenProbeIntegrateTiles[]; // this permutation's tiles (the classification above)
         };
-        Buffer(24) ScreenProbeIntegrateUncoveredArgsUB
-        {
-            uint screenProbeIntegrateUncoveredArgs[]; // x, y, z, count (THE UNCOVERED PIXELS above)
-        };
-        Buffer(25) ScreenProbeIntegrateUncoveredUB
-        {
-            uint screenProbeIntegrateUncovered[]; // the listed tiles
-        };
-        Buffer(26) ScreenProbeIntegrateUncoveredMaskUB
-        {
-            uint screenProbeIntegrateUncoveredMask[]; // per tile, SP_UNCOVERED_MASK_WORDS
-        };
-#endif
 
         // THE TILE'S PROBE NEIGHBOURHOOD, LOADED ONCE (SPInterpolate's SP_INTERPOLATE_NEIGHBOURHOOD,
         // ScreenProbes.glslh): an 8x8 tile's pixels interpolate the uniform probes of at most 3x3 uniform tiles
@@ -279,7 +235,7 @@ Shader "ScreenProbeIntegrate"
         // loads the ids, counts and probes into groupshared memory here, so the scan reads no buffer. The same
         // values in the same order: the picture is unchanged. 9 x (1 + SP_ADAPTIVE_PER_TILE) x 36 bytes: 5.2 KB at 16 px,
         // 20.7 KB at 32; a 64-pixel layout (83 KB, past the 48 KB a group may hold) reads the buffers as before.
-#if SP_DOWNSAMPLE_LOG2 <= 5 && !defined( SP_INTEGRATE_UNCOVERED )
+#if SP_DOWNSAMPLE_LOG2 <= 5
         #define SP_INTERPOLATE_NEIGHBOURHOOD
         #define SP_NB_SIDE 3
         #define SP_NB_TILES ( SP_NB_SIDE * SP_NB_SIDE )
@@ -334,14 +290,11 @@ Shader "ScreenProbeIntegrate"
             return probe;
         }
 #endif
-#if defined( SP_INTEGRATE_UNCOVERED )
+        #define SCREEN_PROBES_DECLARED
+        #include <Common/ScreenProbes.glslh>
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
-#else
-        #define SCREEN_PROBES_DECLARED
-        #include <Common/ScreenProbes.glslh>
-#endif
 
         // The short-range AO at @p pixel (world position @p p, @p distance from the camera, shading normal @p n)
         // from its half-resolution target (UE ShortRangeAO.Downsample's upsample in the integrate): the four
@@ -541,7 +494,6 @@ Shader "ScreenProbeIntegrate"
             }
         }
 
-#if !defined( SP_INTEGRATE_UNCOVERED )
         // Per pixel, sample and frame (PCG, as ScreenProbeTrace's TexelNoise).
         vec2 SPPixelNoise( uvec2 pixel, uint index, uint frame )
         {
@@ -647,41 +599,68 @@ Shader "ScreenProbeIntegrate"
         }
 #endif
 
-        void main()
+        // NO SCREEN PROBE HOLDS THE PIXEL (UE would draw it dark, its weights over max(sum, Epsilon)): it reads the
+        // world radiance cache, as the ProbeVolume method does for every pixel (IrradianceFieldGather) - the same
+        // cache the probes' own rays end in - and is never black (FOLIAGE-LOOK-2 x1_uncovered: the black leaves).
+        // Run by the integrate's second phase, one lane a listed pixel, with the tile's AO texels in shared memory.
+        void SPIntegrateUncovered( ivec2 pixel, ivec2 tileOrigin, bool shortRangeAO )
         {
-            // One workgroup per tile of this permutation's list (the classification): the simple tiles from the
-            // front, the full ones from the back; the 2D grid's groups past the list's count do nothing.
-            const uint listIndex = gl_WorkGroupID.y * SP_INTEGRATE_GROUPS_X + gl_WorkGroupID.x;
-#if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
-            if ( listIndex >= screenProbeIntegrateArgs[3u] )
-                return;
-            const uint  tile   = screenProbeIntegrateTiles[listIndex];
-#else
-            if ( listIndex >= screenProbeIntegrateArgs[7u] )
-                return;
-            const uint  tile   = screenProbeIntegrateTiles[SP_INTEGRATE_TILE_COUNT - 1u - listIndex];
-#endif
-            const ivec2 tileOrigin = ivec2( tile & 0xFFFFu, tile >> 16u ) * 8;
-            const ivec2 pixel      = tileOrigin + ivec2( gl_LocalInvocationID.xy );
-            const vec2  extent     = giFrame.screen.xy;
-            // Off (Scalability GlobalIllumination.ShortRangeAO 0): the shading normal, unoccluded; SSAO occludes the
-            // gather in the composite instead. The tile's AO texels load before any pixel returns: the whole group
-            // reaches the barrier (the flag and the tile are uniform over it).
-            const bool shortRangeAO = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u;
-#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
-            // Published by the barrier in SPShortRangeAOLoadTile, which every thread reaches whatever the flag.
-            SPNeighbourhoodLoad( tileOrigin );
-#endif
-            SPShortRangeAOLoadTile( tileOrigin, shortRangeAO );
+            const vec4  gb       = texelFetch( GBufferBTexture, pixel, 0 );
+            const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
+                                                             giFrame.invViewProjection );
+            const vec3  n        = normalize( gb.xyz );
+            const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
+            const vec3  v        = ( giFrame.camera.xyz - p ) / distance;
+            const vec3  r        = reflect( -v, n );
+            vec3  bent = n;
+            float ao   = 1.0;
+            if ( shortRangeAO )
+                SPShortRangeAOAt( pixel, tileOrigin, p, distance, n, bent, ao );
+            const float roughness   = max( gb.a, 0.04 );
+            const float diffuseLerp = SPRoughSpecularDiffuseLerp( roughness );
+
+            vec3       diffuse  = vec3( 0.0 );
+            vec3       specular = vec3( 0.0 );
+            vec3       backface = vec3( 0.0 );
+            vec3       cacheSpecular;
+            // From roughness MaxRoughnessToEvaluateRoughSpecular up (diffuseLerp 1) the specular IS the irradiance
+            // (the mix below returns `diffuse` exactly): such a pixel skips the cache's eight reads about R.
+            const vec4 cache = RadianceCacheIrradianceAtImpl( p, n, v, r, 0.5, diffuseLerp < 1.0, cacheSpecular );
+            if ( cache.a > 0.0 )
+            {
+                // The cache answers the mirror direction only: UE's lerp toward the irradiance holds here too.
+                diffuse  = cache.rgb * ao;
+                specular = mix( cacheSpecular * SPSpecularOcclusion( bent, ao, roughness, r ), diffuse, diffuseLerp );
+            }
+            // The backface only where the composite reads it (GBufferShadingWord above); 0 elsewhere, as no model reads it.
+            if ( DesertHasBackfaceDiffuse( DesertShadingModelIndex( texelFetch( GBufferShadingWord, pixel, 0 ).rg ) ) )
+            {
+                const vec4 back = RadianceCacheIrradianceAt( p, -n, v, 0.5 );
+                if ( back.a > 0.0 )
+                    backface = back.rgb;
+            }
+            // The specular's alpha (lightIsMoving) 0: no probe holds the pixel (UE: lighting not valid).
+            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
+            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, 0.0 ) );
+            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
+        }
+
+        // One pixel of the tile at @p tileOrigin from the probes that hold it: writes its three outputs (zero off the
+        // G-buffer's surfaces) and returns false, or writes nothing and returns true when no probe holds it (THE
+        // UNCOVERED PIXELS).
+        bool SPIntegratePixel( ivec2 pixel, ivec2 tileOrigin, bool shortRangeAO )
+        {
+            const vec2 extent = giFrame.screen.xy;
             if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
-                return;
+                return false;
             const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
                 imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( 0.0 ) );
                 imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( 0.0 ) );
                 imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( 0.0 ) );
-                return;
+                return false;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
             const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
@@ -795,92 +774,60 @@ Shader "ScreenProbeIntegrate"
             }
             else
             {
-                // NO SCREEN PROBE HOLDS THE PIXEL: its bit in the tile's mask; the tile's first such pixel lists the
-                // tile for the uncovered pass (SP_INTEGRATE_UNCOVERED), which writes its three outputs from the
-                // world radiance cache. The list's dispatch grows to cover the slot: as wide as the list up to a
-                // row, as many rows as it fills.
-                const ivec2 tileXY   = tileOrigin / 8;
-                const uint  maskBase = ( uint( tileXY.y ) * SP_INTEGRATE_TILES_X + uint( tileXY.x ) ) *
-                                       SP_UNCOVERED_MASK_WORDS;
-                const uint  bit      = gl_LocalInvocationIndex;
-                atomicOr( screenProbeIntegrateUncoveredMask[maskBase + bit / 32u], 1u << ( bit & 31u ) );
-                if ( atomicExchange( screenProbeIntegrateUncoveredMask[maskBase + 2u], 1u ) == 0u )
-                {
-                    const uint slot = atomicAdd( screenProbeIntegrateUncoveredArgs[3u], 1u );
-                    screenProbeIntegrateUncovered[slot] = tile;
-                    atomicMax( screenProbeIntegrateUncoveredArgs[0u], min( slot + 1u, SP_INTEGRATE_GROUPS_X ) );
-                    atomicMax( screenProbeIntegrateUncoveredArgs[1u], slot / SP_INTEGRATE_GROUPS_X + 1u );
-                }
-                return;
+                // NO SCREEN PROBE HOLDS THE PIXEL: listed for the group's second phase (THE UNCOVERED PIXELS).
+                return true;
             }
 
             imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
             imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, lightIsMoving ) );
             imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
+            return false;
         }
-#else
-        // NO SCREEN PROBE HOLDS THE PIXEL (UE would draw it dark, its weights over max(sum, Epsilon)): it reads the
-        // world radiance cache, as the ProbeVolume method does for every pixel (IrradianceFieldGather) - the same
-        // cache the probes' own rays end in - and is never black (FOLIAGE-LOOK-2 x1_uncovered: the black leaves).
-        // One group a listed tile; its pixels outside the tile's mask do nothing.
+
+        // THE UNCOVERED PIXELS above: the group's pixels no probe holds, by local index (LocalSize 8x8).
+        shared uint s_UncoveredCount;
+        shared uint s_UncoveredPixels[SP_INTEGRATE_GROUP_THREADS];
+
         void main()
         {
+            // One workgroup per tile of this permutation's list (the classification): the simple tiles from the
+            // front, the full ones from the back; the 2D grid's groups past the list's count do nothing.
             const uint listIndex = gl_WorkGroupID.y * SP_INTEGRATE_GROUPS_X + gl_WorkGroupID.x;
-            if ( listIndex >= screenProbeIntegrateUncoveredArgs[3u] )
-                return; // uniform over the group: before the barrier
-            const uint  tile       = screenProbeIntegrateUncovered[listIndex];
-            const ivec2 tileXY     = ivec2( tile & 0xFFFFu, tile >> 16u );
-            const ivec2 tileOrigin = tileXY * 8;
-            const ivec2 pixel      = tileOrigin + ivec2( gl_LocalInvocationID.xy );
-            // The integrate's AO texels of this tile, the same values (every thread reaches the barrier).
-            const bool shortRangeAO = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u;
-            SPShortRangeAOLoadTile( tileOrigin, shortRangeAO );
-            const uint maskBase =
-                 ( uint( tileXY.y ) * SP_INTEGRATE_TILES_X + uint( tileXY.x ) ) * SP_UNCOVERED_MASK_WORDS;
-            const uint bit = gl_LocalInvocationIndex;
-            if ( ( screenProbeIntegrateUncoveredMask[maskBase + bit / 32u] & ( 1u << ( bit & 31u ) ) ) == 0u )
+#if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
+            if ( listIndex >= screenProbeIntegrateArgs[3u] )
                 return;
-            const vec4  gb       = texelFetch( GBufferBTexture, pixel, 0 );
-            const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
-                                                             giFrame.invViewProjection );
-            const vec3  n        = normalize( gb.xyz );
-            const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
-            const vec3  v        = ( giFrame.camera.xyz - p ) / distance;
-            const vec3  r        = reflect( -v, n );
-            vec3  bent = n;
-            float ao   = 1.0;
-            if ( shortRangeAO )
-                SPShortRangeAOAt( pixel, tileOrigin, p, distance, n, bent, ao );
-            const float roughness   = max( gb.a, 0.04 );
-            const float diffuseLerp = SPRoughSpecularDiffuseLerp( roughness );
-
-            vec3       diffuse  = vec3( 0.0 );
-            vec3       specular = vec3( 0.0 );
-            vec3       backface = vec3( 0.0 );
-            vec3       cacheSpecular;
-            // From roughness MaxRoughnessToEvaluateRoughSpecular up (diffuseLerp 1) the specular IS the irradiance
-            // (the mix below returns `diffuse` exactly): such a pixel skips the cache's eight reads about R.
-            const vec4 cache = RadianceCacheIrradianceAtImpl( p, n, v, r, 0.5, diffuseLerp < 1.0, cacheSpecular );
-            if ( cache.a > 0.0 )
+            const uint  tile   = screenProbeIntegrateTiles[listIndex];
+#else
+            if ( listIndex >= screenProbeIntegrateArgs[7u] )
+                return;
+            const uint  tile   = screenProbeIntegrateTiles[SP_INTEGRATE_TILE_COUNT - 1u - listIndex];
+#endif
+            const ivec2 tileOrigin = ivec2( tile & 0xFFFFu, tile >> 16u ) * 8;
+            const ivec2 pixel      = tileOrigin + ivec2( gl_LocalInvocationID.xy );
+            // Off (Scalability GlobalIllumination.ShortRangeAO 0): the shading normal, unoccluded; SSAO occludes the
+            // gather in the composite instead. The tile's AO texels load before any pixel's work: the whole group
+            // reaches both barriers (the flag and the tile are uniform over it; no lane returns before the second).
+            const bool shortRangeAO = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u;
+            if ( gl_LocalInvocationIndex == 0u )
+                s_UncoveredCount = 0u; // published by the barrier in SPShortRangeAOLoadTile
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+            // Published by the barrier in SPShortRangeAOLoadTile, which every thread reaches whatever the flag.
+            SPNeighbourhoodLoad( tileOrigin );
+#endif
+            SPShortRangeAOLoadTile( tileOrigin, shortRangeAO );
+            const bool uncovered = SPIntegratePixel( pixel, tileOrigin, shortRangeAO );
+            if ( uncovered )
+                s_UncoveredPixels[atomicAdd( s_UncoveredCount, 1u )] = gl_LocalInvocationIndex;
+            barrier();
+            // THE UNCOVERED PIXELS: the group's first lanes, one a listed pixel (a pixel's result is its own,
+            // whichever lane takes it).
+            if ( gl_LocalInvocationIndex < s_UncoveredCount )
             {
-                // The cache answers the mirror direction only: UE's lerp toward the irradiance holds here too.
-                diffuse  = cache.rgb * ao;
-                specular = mix( cacheSpecular * SPSpecularOcclusion( bent, ao, roughness, r ), diffuse, diffuseLerp );
+                const uint local = s_UncoveredPixels[gl_LocalInvocationIndex];
+                SPIntegrateUncovered( tileOrigin + ivec2( int( local % 8u ), int( local / 8u ) ), tileOrigin,
+                                      shortRangeAO );
             }
-            // The backface only where the composite reads it (GBufferShadingWord above); 0 elsewhere, as no model reads it.
-            if ( DesertHasBackfaceDiffuse( DesertShadingModelIndex( texelFetch( GBufferShadingWord, pixel, 0 ).rg ) ) )
-            {
-                const vec4 back = RadianceCacheIrradianceAt( p, -n, v, 0.5 );
-                if ( back.a > 0.0 )
-                    backface = back.rgb;
-            }
-            // The specular's alpha (lightIsMoving) 0: no probe holds the pixel (UE: lighting not valid).
-            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
-            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, 0.0 ) );
-            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
         }
-#endif // SP_INTEGRATE_UNCOVERED
 #endif // SP_INTEGRATE_CLASSIFY
     }
 }
