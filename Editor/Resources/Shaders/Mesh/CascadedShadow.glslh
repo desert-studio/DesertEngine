@@ -338,12 +338,18 @@ float TransmissionShadowFactorInCascade(int light, int c, vec3 worldPos, float d
 	return through;
 }
 
+// The cascade ShadowFactor(light, worldPos, ...) reports in its cascadeOut, without its filtering: -1 when the slot
+// casts no shadow, else chooseCascade. For a receiver that needs the cascade (its transmission, the Shadow Cascades
+// view) but not the opaque factor (FPS-LIGHT-COMPLEX: a texel turned from the light, whose surface term is 0).
+int ShadowCascade(int light, vec3 worldPos)
+{
+	return DirectionalShadow[light].y < 0.5 ? -1 : chooseCascade(light, worldPos);
+}
+
 // The cascades' TransmissionShadow at worldPos for a receiver that did not run ShadowFactor: the cascade chosen here.
 float TransmissionShadowFactor(int light, vec3 worldPos, float density)
 {
-	if (DirectionalShadow[light].y < 0.5)
-		return 1.0;
-	return TransmissionShadowFactorInCascade(light, chooseCascade(light, worldPos), worldPos, density);
+	return TransmissionShadowFactorInCascade(light, ShadowCascade(light, worldPos), worldPos, density);
 }
 
 // THE HAND-OVER TO THE DISTANCE FIELDS (UE DistanceFieldShadowing: the ray-traced distance-field shadow fades in
