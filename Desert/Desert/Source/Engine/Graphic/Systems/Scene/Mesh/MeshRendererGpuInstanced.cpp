@@ -1045,17 +1045,23 @@ namespace Desert::Graphic::System
                 }
             };
             // FPS-GRASS-VIS-2: the visibility raster's slice (GrassRasterSlice) - Near its first
-            // kGrassRasterNearBuckets buckets, Far the rest; a visibility section is never prepassed, so
-            // prepassBuckets is every bucket here.
+            // kGrassRasterNearBuckets buckets, Mid up to kGrassRasterMidBuckets (FPS-GRASS-RASTER-3), Far the
+            // rest; a visibility section is never prepassed, so prepassBuckets is every bucket here.
             uint32_t sliceFirst = 0u;
             uint32_t sliceEnd   = prepassBuckets;
             if ( pass == MeshPass::Visibility && slice != GrassRasterSlice::All )
             {
                 const uint32_t nearEnd = std::min( kGrassRasterNearBuckets, draw.Buckets );
+                const uint32_t midEnd  = std::min( kGrassRasterMidBuckets, draw.Buckets );
                 if ( slice == GrassRasterSlice::Near )
                     sliceEnd = std::min( sliceEnd, nearEnd );
-                else
+                else if ( slice == GrassRasterSlice::Mid )
+                {
                     sliceFirst = nearEnd;
+                    sliceEnd   = std::min( sliceEnd, midEnd );
+                }
+                else
+                    sliceFirst = midEnd;
             }
             addBuckets( draw, sliceFirst, sliceEnd );
             if ( !prepassed || prepassBuckets >= draw.Buckets )
