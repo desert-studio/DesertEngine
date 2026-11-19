@@ -206,6 +206,24 @@ Shader "SSR"
         	return place;
         }
 
+        // THE RADIANCE CACHE'S END of texel @p q's world ray (FPS-SSR-FAR; UE LumenReflections' radiance cache reuse,
+        // r.Lumen.Reflections.RadianceCache): valid when the texel is rough enough (Common/SSRGate.glslh
+        // TracedReflectionsRadianceCacheAlpha, dithered per texel and frame) and a clipmap covers its point - then the
+        // far field marches only to coverage.minTraceDistanceBeforeCache and the cache's radiance answers past it.
+        // Every input is the texel's, so the near field (which cuts the march) and the hit lighting (which reads the
+        // cache) take the same answer. The neutral cache (no GI) covers nothing: no ray is cut.
+        RadianceCacheCoverage SSRWorldCacheCoverage(ivec2 q, SSRTexel t)
+        {
+        	RadianceCacheCoverage coverage;
+        	coverage.clipmap                     = radianceCache.shape.x;
+        	coverage.minTraceDistanceBeforeCache = 1.0e7;
+        	coverage.valid                       = false;
+        	const float dither = hash12(vec2(q) * 0.73 + vec2(CameraPosition.w, 0.0) * 1.91);
+        	if (TracedReflectionsRadianceCacheAlpha(t.roughness) <= dither)
+        		return coverage;
+        	return RadianceCacheCoverageAt(radianceCache, t.worldPos, RadianceCachePixelDither(vec2(q)));
+        }
+
         // --- NEAR FIELD (SsrParams3.w = 2, "SSR: World trace"): one thread per world list entry - the mesh SDFs of
         // the origin's froxel; a hit lit (GIHitRadiance) and written, a miss with a far-field span listed. ---
         void TraceWorldNearField()
@@ -235,10 +253,22 @@ Shader "SSR"
         			float globalStart;
         			float marchLength;
         			toFar      = GIFarFieldSpan(ray, globalStart, marchLength);
+        			// A rough texel's march ends at the radiance cache (SSRWorldCacheCoverage): cut where the cache
+        			// answers, when that is before the span's end; a span that ends first marches whole.
+        			float atCache = 0.0;
+        			if (toFar)
+        			{
+        				const RadianceCacheCoverage coverage = SSRWorldCacheCoverage(q, t);
+        				if (coverage.valid && coverage.minTraceDistanceBeforeCache < globalStart + marchLength)
+        				{
+        					marchLength = max(coverage.minTraceDistanceBeforeCache - globalStart, 0.0);
+        					atCache     = 1.0;
+        				}
+        			}
         			far.Listed = uvec4(index, floatBitsToUint(bias.nearOffset), floatBitsToUint(globalStart),
         			                   GITraceSeed(ray));
         			far.Start  = vec4(ray.origin + ray.direction * globalStart, marchLength);
-        			far.Dir    = vec4(ray.direction, 0.0);
+        			far.Dir    = vec4(ray.direction, atCache);
         		}
         	}
         	const uint place = SSRLegPlace(toFar);
@@ -254,7 +284,8 @@ Shader "SSR"
 
         // --- FAR FIELD (SsrParams3.w = 3, "SSR: World far field"): one thread per far list entry - the global
         // field's march the near field listed (SSRWorldFarRay: its start, direction, length and dither seed), nothing
-        // rebuilt; a hit listed for the hit lighting. ---
+        // rebuilt; a hit listed for the hit lighting, and so is a march cut at the radiance cache that found nothing
+        // (kSSRWorldHitAtCache: the hit lighting reads the cache). ---
         void TraceWorldFarField()
         {
         	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
@@ -265,9 +296,11 @@ Shader "SSR"
         		const SSRWorldFarRay         far   = ssrWorldFar[index];
         		const GlobalDistanceFieldHit march = GITraceFarFieldMarchFrom(far.Start.xyz, far.Dir.xyz, far.Start.w,
         		                                                              far.Listed.w, 0u);
-        		toHit = march.Hit;
-        		hit   = uvec4(far.Listed.x | (uint(clamp(march.Level + 1, 0, 15)) << 28u), far.Listed.y, far.Listed.z,
-        		              floatBitsToUint(march.T));
+        		toHit = march.Hit || far.Dir.w > 0.5;
+        		const uint code = march.Hit ? uint(clamp(march.Level + 1, 0, int(kSSRWorldHitAtCache) - 1))
+        		                            : kSSRWorldHitAtCache;
+        		hit = uvec4(far.Listed.x | (code << 28u), far.Listed.y, far.Listed.z,
+        		            floatBitsToUint(march.Hit ? march.T : far.Start.w));
         	}
         	const uint place = SSRLegPlace(toHit);
         	if (gl_LocalInvocationIndex == 0u && s_LegCount > 0u)
@@ -282,7 +315,10 @@ Shader "SSR"
 
         // --- HIT LIGHTING (SsrParams3.w = 4, "SSR: World hit lighting"): one thread per hit list entry - the far
         // field hit's surface rebuilt (GITraceFarField's GIFarFieldSurface of the same position and clipmap), lit by
-        // GIHitRadiance and written. ---
+        // GIHitRadiance and written. A ray the far field left at the radiance cache (kSSRWorldHitAtCache) takes the
+        // cache's radiance in its direction (RadianceCacheRadianceAt over SSRWorldCacheCoverage's clipmap, as the
+        // screen probe gather's SP_TRACE_CACHE_READ); where no traced probe answers yet (cells a turn just brought),
+        // the rest of its span is marched here (SP_TRACE_CACHE_MISS's answer, folded in: those rays are few). ---
         void LightWorldHits()
         {
         	const uint index = gl_WorkGroupID.x * kSSRTraceListGroupSize + gl_LocalInvocationIndex;
@@ -297,9 +333,39 @@ Shader "SSR"
         	const float nearOffset  = uintBitsToFloat(hit.y);
         	const float globalStart = uintBitsToFloat(hit.z);
         	const float marchT      = uintBitsToFloat(hit.w);
-        	const int   level       = int(hit.x >> 28u) - 1;
+        	const uint  code        = hit.x >> 28u;
         	const vec3  origin      = t.worldPos + t.N * nearOffset;
         	const vec3  start       = origin + s.worldL * globalStart;
+        	if (code == kSSRWorldHitAtCache)
+        	{
+        		const RadianceCacheCoverage coverage = SSRWorldCacheCoverage(q, t);
+        		const vec3                  V        = normalize(CameraPosition.xyz - t.worldPos); // SSRTexelSetup's
+        		uint                        why      = RADIANCE_CACHE_READ_EMPTY;
+        		const vec4 cache = RadianceCacheRadianceAt(t.worldPos, t.N, V, s.worldL, coverage.clipmap, why);
+        		if (cache.a > 0.0)
+        		{
+        			SSRWorldWriteHit(q, t, s, cache.rgb, start + s.worldL * marchT);
+        			return;
+        		}
+        		// Unanswered: the span the near field took (GIFarFieldSpan of the same ray), marched on from the cut.
+        		const GITraceBias bias = GIRayBias(t.worldPos, t.N);
+        		GITraceInput      ray  = SSRWorldRayInput(t.worldPos, t.N, s.worldL, s.worldStart, bias.nearOffset,
+        		                                          GIFarFieldTMin(bias, t.N, s.worldL));
+        		ray.tMin = globalStart;
+        		float spanStart;
+        		float spanLength;
+        		if (!GIFarFieldSpan(ray, spanStart, spanLength) || spanLength <= marchT)
+        			return;
+        		const GlobalDistanceFieldHit rest = GITraceFarFieldMarchFrom(start + s.worldL * marchT, s.worldL,
+        		                                                             spanLength - marchT, GITraceSeed(ray), 0u);
+        		if (!rest.Hit)
+        			return;
+        		const float restT   = marchT + rest.T;
+        		const GIHit surface = GIFarFieldSurface(start + s.worldL * restT, s.worldL, globalStart + restT, rest.Level);
+        		SSRWorldWriteHit(q, t, s, GIHitRadiance(surface, s.worldL), surface.position);
+        		return;
+        	}
+        	const int   level   = int(code) - 1;
         	const GIHit surface =
         	     GIFarFieldSurface(start + s.worldL * marchT, s.worldL, globalStart + marchT, level);
         	SSRWorldWriteHit(q, t, s, GIHitRadiance(surface, s.worldL), surface.position);

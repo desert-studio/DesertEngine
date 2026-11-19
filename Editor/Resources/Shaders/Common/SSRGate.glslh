@@ -36,6 +36,21 @@ float TracedReflectionsAlpha(float roughness)
 	return clamp((kTracedMaxRoughness - roughness) / kTracedRoughnessFade, 0.0, 1.0);
 }
 
+// UE r.Lumen.Reflections.RadianceCache.MinRoughness (0.2) and its fade (RadianceCache.RoughnessFadeLength, 0.1)
+// (FPS-SSR-FAR): a traced texel at least this rough sends its world ray only as far as the world radiance cache's
+// minimum trace distance (RadianceCacheCoverage::minTraceDistanceBeforeCache); past it the cache's radiance in the
+// ray's direction answers (RadianceCacheRadianceAt), as the screen probe gather's rays do. The lobe that rough
+// spans many of the cache probe's octahedral texels, so the far field's march past that distance - most of a turn's
+// far-field cost - bought a radiance the probe already holds. Dithered per ray across the fade.
+const float kTracedRadianceCacheMinRoughness  = 0.2;
+const float kTracedRadianceCacheRoughnessFade = 0.1;
+
+// The share of a traced texel's world rays the radiance cache ends (0 below the min roughness, 1 past the fade).
+float TracedReflectionsRadianceCacheAlpha(float roughness)
+{
+	return clamp((roughness - kTracedRadianceCacheMinRoughness) / kTracedRadianceCacheRoughnessFade, 0.0, 1.0);
+}
+
 // UE Lumen reflections' tile classification (LumenReflections.cpp ReflectionTileClassification, MaxRoughnessToTrace):
 // a pixel rougher than the max is not traced - it takes the screen probe gather's rough specular, no ray. Under the
 // traced GI (roughFromGI: DeferredLighting's giMode >= 2, SceneRenderer TracedGatherAnswersRoughSpecular) the

@@ -93,6 +93,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheProbesUB );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheRadianceAtlasTexture );
         DESERT_SHADER_PARAMETER( Texture, EnvironmentSpecularTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
@@ -961,6 +962,8 @@ namespace Desert::Graphic::System
                  .Texture( SSRShaderParameters::RadianceCacheIrradianceTexture, traced.RadianceCache.Irradiance,
                            kS, all )
                  .Texture( SSRShaderParameters::RadianceCacheDepthTexture, traced.RadianceCache.Depth, kS, all )
+                 .Texture( SSRShaderParameters::RadianceCacheRadianceAtlasTexture, traced.RadianceCache.Radiance,
+                           kS, all )
                  .Texture( SSRShaderParameters::EnvironmentSpecularTexture, traced.EnvSpecular, kS, all )
                  .Sampler( SSRShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
                  .Texture( SSRShaderParameters::GBufferATexture, traced.GBufferA, kS, all )
