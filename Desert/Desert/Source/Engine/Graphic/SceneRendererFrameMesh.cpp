@@ -715,6 +715,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameGrassVisibilityResolve( RDG::Builder& graph, FrameTextures& textures,
                                                         System::MeshRenderer*                         meshRenderer,
+                                                        const ViewFrame&                              frame,
                                                         const VirtualGeometry::VisibilityBufferFrame& visibility )
     {
         // Two triangles per screen tile per blade section over the camera's list, the tiles that hold none of the
@@ -735,6 +736,19 @@ namespace Desert::Graphic
             const char*    Name;
             MeshVertexPath Path;
         };
+        // FPS-GRASS-RESOLVE-2 (Ghost of Tsushima, GDC 2021): every drawn blade evaluated once - its curve now and
+        // one wind step before, width, card and strip level - after both phases' lists are final; the blade
+        // resolve reads that record. A refused setup leaves the records' address 0 and the blade resolve discards
+        // its pixels: logged, never a silent stand-in.
+        RDG::BufferRef bladeSetup{};
+        if ( auto* grass = m_Systems.Grass.get(); grass != nullptr )
+        {
+            if ( const auto setup = grass->AddFrameBladeSetup( graph, frame, meshRenderer->GetFrameDeformationField() );
+                 !setup )
+                LOG_ERROR( "[Grass] Blade Setup: {}", setup.GetError() );
+            else
+                bladeSetup = grass->BladeSetupRef();
+        }
         m_GrassVisibility.AddClassify( graph, visibility );
         // FPS-GRASS-RESOLVE (UE 5 Nanite EmitMaterialDepth + the material pass's depth EQUAL): the material depth
         // of each won pixel's section, tested EQUAL by every resolve on its own depth target, so the hardware
@@ -768,8 +782,13 @@ namespace Desert::Graphic
                  [meshRenderer, path]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return meshRenderer->RenderGrassVisibilityResolveManual( context, path ); },
                  [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), words = visibility.Words,
-                  args = visibility.ResolveArgs, path]( RDG::PassBuilder& pass )
-                 { meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path ); } );
+                  args = visibility.ResolveArgs, path, bladeSetup]( RDG::PassBuilder& pass )
+                 {
+                     // The blade setup records, read by address (GrassBladeShapeData Lists.yz).
+                     if ( path == MeshVertexPath::GrassBlade && bladeSetup.IsValid() )
+                         pass.Read( bladeSetup, RDG::Access::StorageRead );
+                     meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path );
+                 } );
         }
     }
 

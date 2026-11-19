@@ -2740,7 +2740,7 @@ namespace Desert::Graphic
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Grass" );
             AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
             if ( grassVisibility.IsValid() )
-                AddFrameGrassVisibilityResolve( graph, textures, meshRenderer, grassVisibility );
+                AddFrameGrassVisibilityResolve( graph, textures, meshRenderer, frame, grassVisibility );
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Forward depth + normal" );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Depth resolve + sky" );
