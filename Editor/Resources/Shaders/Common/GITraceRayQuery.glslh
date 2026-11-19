@@ -198,6 +198,12 @@ GITraceBias GIRayBias( vec3 position, vec3 normal )
     return bias;
 }
 
+// GIRayBias(...).farOffset alone (one field: the normal bias).
+float GIFarFieldOffset( vec3 position )
+{
+    return kGIHardwareNormalBiasCm;
+}
+
 // Out of geometry by short ray queries along the six axes (UE Lumen's radiance-cache probe placement / DDGI probe
 // relocation with hardware rays): a BACK face within @p clearance means the point is inside a mesh, and it moves
 // through that face to @p clearance beyond it (the nearest such exit); otherwise every FRONT face closer than

@@ -56,6 +56,10 @@ Shader "ScreenProbeTrace"
         // (subgroupAdd).
         #extension GL_KHR_shader_subgroup_arithmetic : require
 #endif
+#if defined( SP_TRACE_HIT_LIGHTING ) || defined( SP_TRACE_NEAR_HIT_LIGHTING )
+        // The binned legs' bin scan (SPLegSortedSlot: subgroupInclusiveAdd).
+        #extension GL_KHR_shader_subgroup_arithmetic : require
+#endif
         // LocalSize: after Common/ScreenProbeTracing.glslh below (its group sizes).
 
         #include <Common/GIFrame.glslh>
@@ -471,7 +475,8 @@ Shader "ScreenProbeTrace"
         // keys are adjacent texels in both axes.
         #define SP_LEG_BINS 256u // == SP_TRACE_BINNED_LEG_GROUP_SIZE: one bin a lane to clear and to scan
         shared uint s_LegBinCount[SP_LEG_BINS];
-        shared uint s_LegBinScan[2u * SP_LEG_BINS]; // ping-pong halves of the inclusive prefix sum
+        shared uint s_LegBinScan[SP_LEG_BINS];       // the bins' inclusive prefix sum
+        shared uint s_LegSubgroupTotal[SP_LEG_BINS]; // each subgroup's bins' total (<= SP_LEG_BINS subgroups)
         shared uint s_LegSorted[SP_TRACE_BINNED_LEG_GROUP_SIZE];
 
         uint SPLegMortonNibble( uint v )
@@ -503,21 +508,23 @@ Shader "ScreenProbeTrace"
             if ( mine )
                 rank = atomicAdd( s_LegBinCount[key], 1u );
             barrier();
-            // The bins' inclusive prefix sum (Hillis-Steele, the screen leg's SPListOpenRays scan).
-            uint source = 0u;
-            s_LegBinScan[lane] = s_LegBinCount[lane];
+            // The bins' inclusive prefix sum in two barriers (FPS-SP-TRACE: was a Hillis-Steele scan, eight
+            // barriers of the whole group): each invocation scans the bin numbered by its place among the
+            // subgroups (subgroup s, invocation i: bin s * size + i - so a subgroup's bins are consecutive in
+            // whatever order the device lays invocations out), subgroupInclusiveAdd within the subgroup, then the
+            // totals of the subgroups before it. The same sums, so the same order, bit for bit.
+            const uint bin   = gl_SubgroupID * gl_SubgroupSize + gl_SubgroupInvocationID;
+            const uint total = subgroupInclusiveAdd( s_LegBinCount[bin] );
+            if ( gl_SubgroupInvocationID == gl_SubgroupSize - 1u )
+                s_LegSubgroupTotal[gl_SubgroupID] = total;
             barrier();
-            for ( uint offset = 1u; offset < SP_LEG_BINS; offset <<= 1u )
-            {
-                uint sum = s_LegBinScan[source * SP_LEG_BINS + lane];
-                if ( lane >= offset )
-                    sum += s_LegBinScan[source * SP_LEG_BINS + lane - offset];
-                source ^= 1u;
-                s_LegBinScan[source * SP_LEG_BINS + lane] = sum;
-                barrier();
-            }
+            uint before = 0u;
+            for ( uint s = 0u; s < gl_SubgroupID; ++s )
+                before += s_LegSubgroupTotal[s];
+            s_LegBinScan[bin] = before + total;
+            barrier();
             if ( mine )
-                s_LegSorted[s_LegBinScan[source * SP_LEG_BINS + key] - s_LegBinCount[key] + rank] = read;
+                s_LegSorted[s_LegBinScan[key] - s_LegBinCount[key] + rank] = read;
             barrier();
             slot = mine ? s_LegSorted[lane] : 0u;
             return mine;
