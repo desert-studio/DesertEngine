@@ -66,7 +66,7 @@ Buffer(5) RadianceCacheScheduleUB
 // WorldRadianceCache.hpp).
 #define RC_COUNT_STAMPED                 0u // entries a reader stamped this frame due a trace (the histogram's sum)
 #define RC_COUNT_NEVER_TRACED            1u // ... by a coverage reader, whose probe was never traced
-#define RC_COUNT_TRACED                  2u // probes traced this frame: min(stamped, budget)
+#define RC_COUNT_TRACED                  2u // probes Select listed this frame (the cut's total, RadianceCacheSelect)
 #define RC_COUNT_BUDGET                  3u // the Select pass's budget (radianceCache.atlas.z)
 #define RC_COUNT_EVENTS                  4u // RC_STAT_WORDS words: the counters above, in their order
 #define RC_COUNT_LIVE                    ( RC_COUNT_EVENTS + RC_STAT_WORDS ) // slots held after Allocate
@@ -74,7 +74,11 @@ Buffer(5) RadianceCacheScheduleUB
 #define RC_COUNT_NEVER_TRACED_BY_CLIPMAP ( RC_COUNT_MAX_PROBES + 1u ) // RADIANCE_CACHE_MAX_CLIPMAPS words: coverage
 // RADIANCE_CACHE_MAX_CLIPMAPS words: the entries only the fallback stamped, never traced, per clipmap
 #define RC_COUNT_FALLBACK_BY_CLIPMAP     ( RC_COUNT_NEVER_TRACED_BY_CLIPMAP + RADIANCE_CACHE_MAX_CLIPMAPS )
-#define RC_COUNT_WORDS                   ( RC_COUNT_FALLBACK_BY_CLIPMAP + RADIANCE_CACHE_MAX_CLIPMAPS ) // 24
+// FPS-RC-BUDGET: the census of what asks for a trace besides the new probes - LIGHTS CHANGED (incl. a probe last
+// traced before the last full update), and the event-less probes due by age (the refresh, capped at RefreshBudget).
+#define RC_COUNT_LIGHTS_CHANGED          ( RC_COUNT_FALLBACK_BY_CLIPMAP + RADIANCE_CACHE_MAX_CLIPMAPS )
+#define RC_COUNT_AGED                    ( RC_COUNT_LIGHTS_CHANGED + 1u )
+#define RC_COUNT_WORDS                   ( RC_COUNT_AGED + 1u ) // 26
 // THE BUDGET GOES TO THE COVERAGE FIRST (UE Lumen Radiance Cache: a probe is marked in the clipmap that covers the
 // read point, the frame's budget traces the new probes first, then the longest untraced; a coarser level is the
 // fallback for what the coverage does not answer). From the top bucket down:
@@ -86,7 +90,8 @@ Buffer(5) RadianceCacheScheduleUB
 //                 coarse end, RadianceCacheRadianceAt's answer while the coverage's own cells are untraced): traced
 //                 from what the new coverage probes leave of the budget, finest first, and before any re-trace, so
 //                 the edge of a clipmap keeps its fallback level.
-//   LIGHTS CHANGED, then the age of the last trace (oldest first), whoever stamped the probe.
+//   LIGHTS CHANGED (or last traced before the last full update), then the age of the last trace (oldest first),
+//                 whoever stamped the probe; the age buckets take at most RefreshBudget a frame (FPS-RC-BUDGET).
 #define RC_PRIORITY_NEW_COVERAGE   ( RC_PRIORITY_BUCKETS - RADIANCE_CACHE_MAX_CLIPMAPS )
 #define RC_PRIORITY_NEW_FALLBACK   ( RC_PRIORITY_NEW_COVERAGE - RADIANCE_CACHE_MAX_CLIPMAPS )
 #define RC_PRIORITY_LIGHTS_CHANGED ( RC_PRIORITY_NEW_FALLBACK - 1u )
@@ -114,6 +119,7 @@ PushConstant RadianceCachePush
     uint  LightingFrame;    // the frame of the last full update: a probe last traced before it has no history
     uint  MarkFallback;     // 1: Mark stamps the clipmap past the coarse end (the screen probes' fallback)
     uint  RefreshMinFrames; // RadianceCache::kProbeRefreshMinFrames: an event-less probe's frames between traces
+    uint  RefreshBudget;    // FPS-RC-BUDGET: the most event-less (age) probes Select lists a frame (the budget on a full update)
 };
 
 // THE ATLAS UNDER PRESSURE (PROBE-TURN-1; not in UE, which keeps an unread probe NumFramesToKeepCachedProbes frames

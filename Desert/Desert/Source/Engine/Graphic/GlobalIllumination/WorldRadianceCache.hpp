@@ -119,10 +119,10 @@ namespace Desert::Graphic::GlobalIllumination
     // the budget traced; the slots taken, refused (the atlas full) and freed, by why.
     struct RadianceCacheUpdateCounts
     {
-        static constexpr uint32_t kWords = 12u + 2u * RadianceCache::kMaxClipmaps; // RC_COUNT_WORDS
+        static constexpr uint32_t kWords = 14u + 2u * RadianceCache::kMaxClipmaps; // RC_COUNT_WORDS
         uint32_t Stamped       = 0; // entries a reader stamped this frame (RadianceCacheMark)
         uint32_t NeverTraced   = 0; // ... by a coverage reader, never traced (RC_PRIORITY_NEW_COVERAGE)
-        uint32_t Traced        = 0; // probes traced this frame: min(Stamped, Budget)
+        uint32_t Traced        = 0; // probes traced this frame: what Select listed (the refresh capped, FPS-RC-BUDGET)
         uint32_t Budget        = 0; // the Select pass's budget (ProbesPerFrame, MaxProbes on a full update)
         uint32_t Allocated     = 0; // empty stamped entries that took a slot
         uint32_t Failed        = 0; // ... that found none (the atlas is full)
@@ -136,9 +136,13 @@ namespace Desert::Graphic::GlobalIllumination
         // Never-traced probes only the fallback stamped (the clipmap past a pixel's coarse end), per clipmap; they
         // are traced from what the coverage's new probes leave of the budget (RC_PRIORITY_NEW_FALLBACK).
         std::array<uint32_t, RadianceCache::kMaxClipmaps> FallbackByClipmap{};
-        bool                                              Valid = false; // a frame's words have come back
+        // FPS-RC-BUDGET census: the stamped probes due a trace by an event other than new (lights changed, or last
+        // traced before the last full update), and those due only by age (the refresh, RadianceCache::kRefreshBudgetDivisor).
+        uint32_t LightsChanged = 0;
+        uint32_t Aged          = 0;
+        bool     Valid         = false; // a frame's words have come back
     };
-    static_assert( RadianceCacheUpdateCounts::kWords == 24 ); // RC_COUNT_WORDS with RADIANCE_CACHE_MAX_CLIPMAPS 6
+    static_assert( RadianceCacheUpdateCounts::kWords == 26 ); // RC_COUNT_WORDS with RADIANCE_CACHE_MAX_CLIPMAPS 6
 
     // RadianceCache.UpdateCounts read back through a frame-in-flight slot (ScreenProbeMissCounts' pattern): when the
     // slot comes round again its fence has passed. Last() is the newest frame read, slots-in-flight late.
@@ -241,7 +245,7 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         // std430 RadianceCachePush (WorldRadianceCache.cpp, Common/RadianceCacheState.glslh), carried as bytes.
-        static constexpr size_t kPushBytes = 44;
+        static constexpr size_t kPushBytes = 48;
         // One update's graph resources and dispatch shapes, from AddUpdatePasses to its AddFilterPass.
         struct UpdateDeclaration
         {

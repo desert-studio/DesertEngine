@@ -386,6 +386,8 @@ namespace Desert::Graphic::GlobalIllumination
         push.HistoryWeight    = RadianceCache::kHistoryWeight;
         push.DirtyHistory     = RadianceCache::kDirtyHistoryWeight;
         push.RefreshMinFrames = RadianceCache::kProbeRefreshMinFrames;
+        push.RefreshBudget    = fullUpdate ? traced
+                                           : std::max( 1u, shape.ProbesPerFrame / RadianceCache::kRefreshBudgetDivisor );
         m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;
@@ -418,6 +420,7 @@ namespace Desert::Graphic::GlobalIllumination
         update.DispatchArgs = dispatchArgs;
         update.MarkPoints   = markPointsBuffer;
         update.GIFrame      = frame;
+        static_assert( sizeof( push ) == kPushBytes, "RadianceCachePush (Common/RadianceCacheState.glslh) changed" );
         std::memcpy( update.Push.data(), &push, sizeof( push ) );
         update.FrameIndex = push.FrameIndex;
         update.FullUpdate = fullUpdate;
@@ -447,10 +450,16 @@ namespace Desert::Graphic::GlobalIllumination
         {
             const RadianceCacheUpdateCounts& counts   = m_UpdateCounts.Last();
             const char* const                readBack = counts.Valid ? "" : ", none read back yet";
+            uint32_t                         fallbackNew = 0;
+            for ( const uint32_t n : counts.FallbackByClipmap )
+                fallbackNew += n;
             LOG_INFO(
                  "[RadianceCache] traced {} of budget {}, full update {} (full updates of the last {} updates; "
-                 "traced / budget of the newest frame read back{})",
-                 counts.Traced, counts.Budget, m_FullUpdatesInWindow, kCountsLogFrames, readBack );
+                 "traced / budget of the newest frame read back{}); due: new {} + fallback {}, lights changed {}, "
+                 "aged {} (refresh cap {}), stamped {}",
+                 counts.Traced, counts.Budget, m_FullUpdatesInWindow, kCountsLogFrames, readBack, counts.NeverTraced,
+                 fallbackNew, counts.LightsChanged, counts.Aged,
+                 std::max( 1u, counts.Budget / RadianceCache::kRefreshBudgetDivisor ), counts.Stamped );
             m_FullUpdatesInWindow = 0;
         }
 
@@ -630,7 +639,9 @@ namespace Desert::Graphic::GlobalIllumination
                     m_Last.NeverTracedByClipmap[clipmap] = words[12u + clipmap];
                     m_Last.FallbackByClipmap[clipmap]    = words[12u + RadianceCache::kMaxClipmaps + clipmap];
                 }
-                m_Last.Valid = true;
+                m_Last.LightsChanged = words[12u + 2u * RadianceCache::kMaxClipmaps];
+                m_Last.Aged          = words[13u + 2u * RadianceCache::kMaxClipmaps];
+                m_Last.Valid         = true;
             }
         }
         slot = RDG::ExternalBuffer{};

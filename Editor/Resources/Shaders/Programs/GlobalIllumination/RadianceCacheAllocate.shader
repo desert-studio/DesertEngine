@@ -51,7 +51,10 @@ Shader "RadianceCacheAllocate"
         }
 
         // Everything that lights the probe's cell directly: the sun, atmosphere light 1, and each light the world grid lists there
-        // with what it emits and where.
+        // with what it emits and where. FPS-RC-BUDGET: the lights are summed as a SET - each light's own hash of what it
+        // is, added - so neither the order the grid build lists a cell's lights in nor the light's index in this
+        // frame's light buffers (both may change from frame to frame with nothing lit differently) re-ranks every
+        // probe near a light as LIGHTS CHANGED, which traced it every frame with the dirty history.
         uint LightHash( vec3 centre )
         {
             uint hash = 2166136261u;
@@ -60,25 +63,27 @@ Shader "RadianceCacheAllocate"
             hash      = HashVec3( hash, giFrame.light1Travel.xyz * giFrame.light1Travel.w );
             hash      = HashVec3( hash, giFrame.light1Radiance.rgb * ( 1.0 + giFrame.light1Radiance.w ) * giFrame.light1Travel.w );
             const LightGridWorldRange range = LightGridWorldLightsAt( lightGrid, centre );
+            uint                      lights = 0u;
             for ( uint k = 0u; k < range.count; ++k )
             {
                 const uint index = LightGridWorldLight( range, k );
-                hash             = HashMix( hash, index );
+                uint       own;
                 if ( index < lightGrid.counts.x )
                 {
                     const PointLight light = pointLights[index];
-                    hash = HashVec3( HashVec3( hash, light.position ), light.color * light.intensity );
-                    hash = HashMix( HashMix( hash, floatBitsToUint( light.radius ) ), uint( light.falloff ) );
+                    own = HashVec3( HashVec3( 2166136261u, light.position ), light.color * light.intensity );
+                    own = HashMix( HashMix( own, floatBitsToUint( light.radius ) ), uint( light.falloff ) );
                 }
                 else
                 {
                     const SpotLight light = spotLights[index - lightGrid.counts.x];
-                    hash = HashVec3( HashVec3( hash, light.position ), light.color * light.intensity );
-                    hash = HashVec3( hash, light.direction );
-                    hash = HashMix( HashMix( hash, floatBitsToUint( light.range ) ), floatBitsToUint( light.cosOuter ) );
+                    own = HashVec3( HashVec3( 0x811C9DC6u, light.position ), light.color * light.intensity ); // a spot's seed
+                    own = HashVec3( own, light.direction );
+                    own = HashMix( HashMix( own, floatBitsToUint( light.range ) ), floatBitsToUint( light.cosOuter ) );
                 }
+                lights += own; // commutative: the set, not the list
             }
-            return hash;
+            return HashMix( HashMix( hash, lights ), range.count );
         }
 
         // Pops a free slot for a reader's empty entry, or RADIANCE_CACHE_INVALID_PROBE when the list is empty. A
@@ -158,15 +163,15 @@ Shader "RadianceCacheAllocate"
             uint        bucket;
             if ( frames.y == 0u )
                 bucket = RadianceCacheNewProbeBucket( covered, clipmap ); // the coverage's first, then the fallback's
-            else if ( hash != frames.z )
-                bucket = RC_PRIORITY_LIGHTS_CHANGED;
+            else if ( hash != frames.z || frames.y < LightingFrame )
+                bucket = RC_PRIORITY_LIGHTS_CHANGED; // FPS-RC-BUDGET: the old sun is an event, not a refresh
             else
             {
                 // FPS-RC-COST: no event - the probe is re-traced only once it is RefreshMinFrames old (a probe traced
-                // before the last full update holds the old sun: due whatever its age). Otherwise it is read as it
-                // is and takes no share of the budget (RC_PRIORITY_NOT_DUE, skipped by Select).
+                // before the last full update holds the old sun: ranked LIGHTS CHANGED above). Otherwise it is read
+                // as it is and takes no share of the budget (RC_PRIORITY_NOT_DUE, skipped by Select).
                 const uint age = FrameIndex - frames.y;
-                if ( age < RefreshMinFrames && frames.y >= LightingFrame )
+                if ( age < RefreshMinFrames )
                     bucket = RC_PRIORITY_NOT_DUE;
                 else
                     bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( age, 1u ) ) ) * 3.0 ) );
