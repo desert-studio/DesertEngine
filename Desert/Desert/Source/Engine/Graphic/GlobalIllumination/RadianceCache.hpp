@@ -187,6 +187,13 @@ namespace Desert::Graphic::RadianceCache
     // converges to the same radiance; a slow change reaches an event-less probe at most this many frames later.
     // 1 = the old behaviour (every read probe competes for the budget every frame).
     inline constexpr uint32_t kProbeRefreshMinFrames = 16;
+    // FPS-RC-BUDGET: the share of a frame's budget the event-less re-traces (the age buckets) may take, as a divisor:
+    // at most ProbesPerFrame / this of them a frame, and only what the new and lights-changed probes leave
+    // (RadianceCacheSelect; UE's update budget is one count for all). A view whose read probes come due faster is
+    // refreshed over more frames (each re-trace blends at kHistoryWeight: the converged radiance is the same), so a
+    // still or turning view traces its new probes and a quarter budget of refreshes, not a full budget every frame.
+    // A full update is not capped (it re-traces every used probe).
+    inline constexpr uint32_t kRefreshBudgetDivisor = 4;
     // Priority buckets of the update (UE SelectMaxPriorityBucket's histogram; RC_PRIORITY_* of
     // Common/RadianceCacheState.glslh): never traced of the coverage and of the fallback, kMaxClipmaps each,
     // lights changed, and 25 for the age of the last trace.

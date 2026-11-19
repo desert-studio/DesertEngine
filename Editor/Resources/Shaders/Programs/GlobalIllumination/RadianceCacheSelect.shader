@@ -3,6 +3,7 @@
 // the histogram is cut at the budget (ProbesPerFrame, radianceCache.atlas.z) from the most urgent bucket down; every
 // probe read this frame in a bucket above the cut is traced, the cut bucket fills the rest first come. The new
 // probes of the coverage rank above the fallback's (RC_PRIORITY_*), so the fallback is traced from the remainder.
+// FPS-RC-BUDGET: the age buckets (an event-less refresh) take at most RefreshBudget of what the events leave.
 Shader "RadianceCacheSelect"
 {
     Compute
@@ -27,15 +28,23 @@ Shader "RadianceCacheSelect"
             {
                 const uint budget = radianceCache.atlas.z;
                 uint       taken  = 0u;
+                // FPS-RC-BUDGET: the cut's limit. The event buckets (new, lights changed) take the whole budget;
+                // the age buckets below them only what the events leave, and at most RefreshBudget of it - a
+                // converged probe's re-trace is a refresh nobody waits for, so a view whose read probes come due
+                // faster than that is refreshed over more frames instead of filling the budget every frame.
+                uint limit        = budget;
                 s_Threshold       = 0u;
                 s_Quota           = 0xFFFFFFFFu;
                 for ( int bucket = int( RC_PRIORITY_BUCKETS ) - 1; bucket >= 0; --bucket )
                 {
+                    if ( uint( bucket ) == RC_PRIORITY_LIGHTS_CHANGED - 1u )
+                        limit = min( budget, taken + RefreshBudget );
                     const uint count = radianceCacheSchedule[bucket];
-                    if ( taken + count >= budget )
+                    if ( taken + count >= limit )
                     {
                         s_Threshold = uint( bucket );
-                        s_Quota     = budget - taken;
+                        s_Quota     = limit - taken;
+                        taken       = limit;
                         break;
                     }
                     taken += count;
@@ -45,15 +54,21 @@ Shader "RadianceCacheSelect"
                 {
                     uint stamped     = 0u;
                     uint neverTraced = 0u;
+                    uint aged        = 0u;
                     for ( uint bucket = 0u; bucket < RC_PRIORITY_BUCKETS; ++bucket )
                     {
                         stamped += radianceCacheSchedule[bucket];
                         if ( bucket >= RC_PRIORITY_NEW_COVERAGE )
                             neverTraced += radianceCacheSchedule[bucket];
+                        if ( bucket < RC_PRIORITY_LIGHTS_CHANGED )
+                            aged += radianceCacheSchedule[bucket];
                     }
                     radianceCacheUpdateCounts[RC_COUNT_STAMPED]      = stamped;
                     radianceCacheUpdateCounts[RC_COUNT_NEVER_TRACED] = neverTraced;
-                    radianceCacheUpdateCounts[RC_COUNT_TRACED]       = min( stamped, budget );
+                    // The cut's total: every bucket above it, and the cut bucket's quota (or all, under the limit).
+                    radianceCacheUpdateCounts[RC_COUNT_TRACED]         = taken;
+                    radianceCacheUpdateCounts[RC_COUNT_LIGHTS_CHANGED] = radianceCacheSchedule[RC_PRIORITY_LIGHTS_CHANGED];
+                    radianceCacheUpdateCounts[RC_COUNT_AGED]           = aged;
                     radianceCacheUpdateCounts[RC_COUNT_BUDGET]       = budget;
                     for ( uint i = 0u; i < RC_STAT_WORDS; ++i )
                         radianceCacheUpdateCounts[RC_COUNT_EVENTS + i] = radianceCacheSchedule[RC_SCHEDULE_STATS + i];

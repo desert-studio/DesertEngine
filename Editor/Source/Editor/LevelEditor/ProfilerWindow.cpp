@@ -495,15 +495,17 @@ namespace Desert::Editor
             uint32_t fallbackNeverTraced = 0u;
             for ( const uint32_t count : fallback )
                 fallbackNeverTraced += count;
-            LOG_INFO( "[Profiler] RadianceCache update: stamped {} never traced {} (clipmaps {} {} {} {} {} {}) "
-                      "fallback never traced {} (clipmaps {} {} {} {} {} {}) traced {}/{} | slots live {}/{} "
-                      "allocated {} failed {} | freed stale {} unused {} pressure {}{} (a frame, frames in flight "
-                      "late; never traced = stamped by a coverage reader, ranked first; fallback = stamped only "
-                      "as the level past a pixel's coarse end, traced from the rest of the budget)",
-                      c.Stamped, c.NeverTraced, never[0], never[1], never[2], never[3], never[4], never[5],
-                      fallbackNeverTraced, fallback[0], fallback[1], fallback[2], fallback[3], fallback[4],
-                      fallback[5], c.Traced, c.Budget, c.Live, c.MaxProbes, c.Allocated, c.Failed, c.FreedStale,
-                      c.FreedUnused, c.FreedPressure, pressed );
+            LOG_INFO(
+                 "[Profiler] RadianceCache update: stamped {} never traced {} (clipmaps {} {} {} {} {} {}) "
+                 "fallback never traced {} (clipmaps {} {} {} {} {} {}) lights changed {} aged {} traced {}/{} "
+                 "| slots live {}/{} "
+                 "allocated {} failed {} | freed stale {} unused {} pressure {}{} (a frame, frames in flight "
+                 "late; never traced = stamped by a coverage reader, ranked first; fallback = stamped only "
+                 "as the level past a pixel's coarse end, traced from the rest of the budget)",
+                 c.Stamped, c.NeverTraced, never[0], never[1], never[2], never[3], never[4], never[5],
+                 fallbackNeverTraced, fallback[0], fallback[1], fallback[2], fallback[3], fallback[4], fallback[5],
+                 c.LightsChanged, c.Aged, c.Traced, c.Budget, c.Live, c.MaxProbes, c.Allocated, c.Failed,
+                 c.FreedStale, c.FreedUnused, c.FreedPressure, pressed );
         }
 #endif
         // GPU-CULL-2: per mesh pass how its draws were issued - the numbers of DesertCtl `state views.meshPasses`
