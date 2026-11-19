@@ -257,7 +257,6 @@ namespace
     constexpr const char* kSessionRecovery = "Editor/Source/Editor/LevelEditor/SessionRecovery.cpp";
     constexpr const char* kWindowTitles    = "Editor/Source/Editor/LevelEditor/WindowTitles.cpp";
     constexpr const char* kSequencerTimeline = "Editor/Source/Editor/Panels/Sequencer/LevelSequenceTimeline.cpp";
-    constexpr const char* kDockLayout     = "Editor/Source/Editor/LevelEditor/DockLayout.cpp";
     constexpr const char* kPrefsImpl      = "Editor/Source/Editor/Core/EditorPreferences.cpp";
     constexpr const char* kGizmoState     = "Editor/Source/Editor/Core/GizmoState.cpp";
     constexpr const char* kViewportPanel  = "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp";
@@ -296,7 +295,6 @@ namespace
          // Which generation of the default dock layout this user has been reset to. It looks like a
          // version and is not FileMeta: it does not describe editor.json's format, it records a one-time
          // action taken on THIS installation's imgui.ini.
-         { "DockLayoutVersion", Owner::Machine, kDockLayout },
 
          // `MSAASamples` USED TO BE A ROW HERE, and К6 left a note on it that К3 acted on: the KIND was
          // right (a fidelity ladder, per machine) and the FILE was right only for the editor. The value
