@@ -248,4 +248,25 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
     return result;
 }
 
+// FPS-SP-FARFIELD THE FIRST STEP'S PROOF: true when TraceGlobalDistanceField of the same @p origin, @p direction,
+// @p maxT and @p levels (any maxSteps >= 1, any dither) finds no hit already at its first step - the march's own step
+// 0, read the same way: no clipmap holds the origin (the loop breaks), or the origin is outside the band (at t = 0
+// the expansion is 0, so no dither is drawn) and the step it takes (the coarse skip included) reaches maxT. False
+// says nothing: the march must run. A caller that compacts its far-field rays (ScreenProbeTrace.shader's near field)
+// lists none whose span this clears, and the march would have missed them, so no ray's answer changes.
+bool GlobalDistanceFieldFirstStepClears(vec3 origin, vec3 direction, float maxT, vec4 levels[GDF_NUM_CLIPMAPS])
+{
+    if (!(0.0 < maxT))
+        return true; // the march's loop never runs
+    const int level = GlobalDistanceFieldLevelAt(origin, levels);
+    if (level < 0)
+        return true;
+    const float voxel = levels[level].w;
+    const vec2  field = SampleGlobalDistanceFieldLevelCoverage(level, origin, voxel);
+    if (field.x < GlobalDistanceFieldExpand(0.0, voxel, field.y))
+        return false;
+    const float fineStep = max(field.x, voxel * mix(1.0, 0.1, field.y));
+    return !(GlobalDistanceFieldSkipStep(origin, level, field.x, fineStep, levels) < maxT);
+}
+
 #endif

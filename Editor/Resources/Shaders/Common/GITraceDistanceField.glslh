@@ -402,6 +402,21 @@ bool GITraceFarFieldMarch( GITraceInput ray, out float globalStart, out GlobalDi
     return march.Hit;
 }
 
+// FPS-SP-FARFIELD THE FAR FIELD'S EMPTY SPAN: true when GITraceFarFieldMarch of @p ray provably misses - its span is
+// empty (GIFarFieldSpan: past ray.tMax, outside the occupied box, above every ceiling column) or the march's first
+// step already crosses it (GlobalDistanceFieldFirstStepClears, the march's own step 0). A leg that would list the ray
+// for the far field only to have it miss there (ScreenProbeTrace.shader's near field: a ray bound for the radiance
+// cache) hands it on itself. False says nothing.
+bool GIFarFieldSpanClear( GITraceInput ray )
+{
+    float globalStart;
+    float marchLength;
+    if ( !GIFarFieldSpan( ray, globalStart, marchLength ) )
+        return true;
+    return GlobalDistanceFieldFirstStepClears( ray.origin + ray.direction * globalStart, ray.direction, marchLength,
+                                               GI_TRACE_GDF_LEVELS );
+}
+
 // THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax, cut where the ray leaves the field's
 // occupied box (GIFarFieldOccupiedExit).
 GITraceResult GITraceFarField( GITraceInput ray )

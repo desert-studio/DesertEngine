@@ -449,6 +449,11 @@ namespace Desert::Editor
                  "one global-field shadow march per directional light; outside = marched to the full trace "
                  "distance)",
                  rays[6], rays[7], rays[8], rays[9], stepsPerRay, rays[10], rays[12], rays[11], stepsPerHit );
+            // FPS-SP-SKY: the near field's misses that never reach the far field ([13], [14]).
+            LOG_INFO( "[Profiler] ScreenProbes near field skipped the far field: sky {} cache {} (a frame, frames in "
+                      "flight late; misses whose far-field span is provably empty: sky = outside the cache's "
+                      "coverage, answered with the sky in the near field; cache = listed for the cache read)",
+                      rays[13], rays[14] );
         }
         // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
         // how many hold a never-traced probe (per clipmap), what the budget traced, and the slots taken, refused (the

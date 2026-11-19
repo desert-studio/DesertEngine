@@ -9,7 +9,9 @@
 //             tracer's mesh SDFs of the view's near-field froxel grid, UE LumenMeshSDFCulling; a hit reads its
 //             object's cards first) over the rays not past its end; a hit's radiance goes to ScreenProbes.Traced, a
 //             miss hands the far field where it goes on. With the software tracer the march keeps only the hit's
-//             distance and object (ScreenProbes.NearHit) and lists the ray for SP_TRACE_NEAR_HIT_LIGHTING.
+//             distance and object (ScreenProbes.NearHit) and lists the ray for SP_TRACE_NEAR_HIT_LIGHTING; a miss
+//             whose far-field span is provably empty goes to the cache read directly (covered) or takes the sky here
+//             (uncovered, FPS-SP-SKY), so the far field lists only rays with something to find.
 //   SP_TRACE_NEAR_HIT_LIGHTING over the software near field's hits (FPS-NEAR-FIELD; UE TraceMeshSDFs leaves its hits
 //             to the hit lighting pass, a compacted list of its own): the hit object's surface rebuilt at the same
 //             distance (GINearFieldSurface: its gradient normal, its motion) and lit - the cards first, else in
@@ -132,7 +134,7 @@ Shader "ScreenProbeTrace"
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
         // AssignSharedSamplerBindings).
-        // LinearClampSampler and what is read through it are declared below, under SP_TRACE_DEFERS_NEAR_HITS.
+        // LinearClampSampler and what is read through it are declared below (the sky on every leg).
         // GPU-FARFIELD-7 (UE shared samplers: a permutation declares the samplers its code samples through): the
         // legs that LIGHT a hit read the cards (Common/SurfaceCacheSampling.glslh), the G-buffer (GIHitMaterial)
         // and the software field's object grid (GIHitObjectGridRows), all through PointClampSampler. One switch
@@ -258,20 +260,14 @@ Shader "ScreenProbeTrace"
             RadianceCacheProbe radianceCacheProbes[];
         };
         #endif
-        // FPS-NEAR-FIELD-FIX (UE shared samplers: a permutation declares the samplers its code samples through):
-        // everything read through LinearClampSampler - the sky (GIHitLighting.glslh GIMissRadiance) and the radiance
-        // cache's three textures (Common/RadianceCache.glslh's read sections) - under one switch,
-        // SP_TRACE_DEFERS_NEAR_HITS. The software near field only marches and lists its hits: it declares neither the
-        // sampler nor those textures nor their readers (GI_MISS_RADIANCE_NONE; no RADIANCE_CACHE_INDIRECTION below),
-        // and the pass binds none of them under the same rule (ScreenProbeGather.cpp TraceLegDefersNearHits).
-        #if defined( SP_TRACE_DEFERS_NEAR_HITS )
-        #define GI_MISS_RADIANCE_NONE 1
-        #else
+        // Everything read through LinearClampSampler: the sky (GIHitLighting.glslh GIMissRadiance), on every leg -
+        // FPS-SP-SKY: the software near field answers its provably escaping uncovered misses with it - and the
+        // radiance cache's three textures (Common/RadianceCache.glslh's read sections) on the legs that read the
+        // cache (SP_TRACE_READS_CACHE). The pass binds the sky and the sampler on every leg (ScreenProbeGather.cpp).
         Uniform sampler LinearClampSampler;
         Uniform(16) textureCube EnvironmentSpecularTexture;
         #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
-        #endif
-        #if defined( SP_TRACE_READS_CACHE ) // never with SP_TRACE_DEFERS_NEAR_HITS: LinearClampSampler is declared
+        #if defined( SP_TRACE_READS_CACHE )
         Uniform(20) texture2D RadianceCacheIrradianceTexture;
         #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
         Uniform(21) texture2D RadianceCacheDepthTexture;
@@ -360,6 +356,11 @@ Shader "ScreenProbeTrace"
         // GPU-FARFIELD-5: every software far-field hit is handed over (DEFERRED = HIT); the hit-lighting leg's hits
         // a card holds (lit by the cards, no shadow march), the rest lit in place.
         #define SP_HIT_LIGHTING_CARD_HELD ( SP_CACHE_READ_REASONS + 6u )
+        // FPS-SP-SKY: the software near field's misses it hands on past the far field (ScreenProbeGather.hpp
+        // ScreenProbeMissReasons [13], [14]): the uncovered rays it answers with the sky itself, and the cache-bound
+        // rays it lists for the cache read directly (FPS-SP-FARFIELD) - both with a provably empty far-field span.
+        #define SP_NEAR_FIELD_RAYS_SKY           ( SP_CACHE_READ_REASONS + 7u )
+        #define SP_NEAR_FIELD_RAYS_CACHE_CLEARED ( SP_CACHE_READ_REASONS + 8u )
         void SPCountFarFieldRays( uint word )
         {
             const uint count = subgroupBallotBitCount( subgroupBallot( true ) );
@@ -617,17 +618,50 @@ Shader "ScreenProbeTrace"
             float      tHit;
             uint       hitObject;
             const bool hit     = GITraceNearFieldMarch( ray, farStart, tHit, hitObject );
-            const bool atCache = !hit && texel.coverage.valid && farStart >= texel.tMax;
+            bool       atCache = !hit && texel.coverage.valid && farStart >= texel.tMax;
+            // FPS-SP-FARFIELD (UE compacts the voxel trace to rays with something left to find): a miss bound for the
+            // cache whose far-field span is provably empty - nothing to march, or the march's first step crosses it
+            // (GIFarFieldSpanClear) - would only miss in the far field and be left at the cache there; it goes
+            // straight to the cache read in the state the far field would leave it in (reached, at tMax). The far
+            // field's ray exactly: tMin from the encoded distance the far field would read back.
+            // FPS-SP-SKY (UE Lumen: a ray that misses every tracing representation samples the sky where that miss
+            // is found, and no later pass re-traces it): an uncovered miss (outside the cache's coverage, marched to
+            // the full trace distance) whose far-field span is provably empty would only miss in the far field and
+            // take the sky there (GIMissRadiance at SP_TRACE_DISTANCE, its final state unhit and unreached); the near
+            // field stores that answer itself and lists the ray nowhere.
+            bool spanClear = false;
+            if ( !hit && !atCache )
+            {
+                GITraceInput farRay = ray;
+                farRay.tMin = min( SPTraceHitDistance( SPEncodeTraceHit( farStart, false, false, false ) ), texel.tMax );
+                spanClear   = GIFarFieldSpanClear( farRay );
+            }
+            const bool cacheCleared = spanClear && texel.coverage.valid;
+            const bool sky          = spanClear && !texel.coverage.valid;
             if ( hit )
             {
                 screenProbeNearHit[slot]  = uvec2( hitObject, floatBitsToUint( tHit ) );
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( tHit, true, false, false );
             }
+            else if ( sky )
+            {
+                SPStoreTraced( at, GIMissRadiance( dir ), SP_TRACE_DISTANCE );
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( SP_TRACE_DISTANCE, false, false, false );
+            }
+            else if ( cacheCleared )
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( texel.tMax, false, false, true );
             else
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( farStart, false, false, atCache );
+#if defined( SP_TRACE_MISS_REASONS )
+            if ( sky )
+                SPCountFarFieldRays( SP_NEAR_FIELD_RAYS_SKY );
+            if ( cacheCleared )
+                SPCountFarFieldRays( SP_NEAR_FIELD_RAYS_CACHE_CLEARED );
+#endif
+            atCache = atCache || cacheCleared;
             // FPS-SP-TRACE-4: a miss at the cache goes straight to the cache read, every other miss on to the far
             // field.
-            SPListRay( !hit && !atCache, slot );
+            SPListRay( !hit && !atCache && !sky, slot );
             SPListRay2( atCache, slot );
             SPListRay3( hit, slot );
 #elif defined( SP_TRACE_NEAR_HIT_LIGHTING )
