@@ -189,9 +189,9 @@ vec3 GIHitRadianceMeshField( GIHit hit, vec3 rayDirection )
 #endif
 
 // The response of the directional light of travel @p travel (w > 0.5: on) and radiance @p radiance (w > 0.5: casts
-// shadows) at a hit, the shadow from ONE visibility test through the global field (GITraceVisibilityGlobalField).
-vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 origin, GITraceBias bias, vec4 travel,
-                                  vec4 radiance )
+// shadows) at a hit, the shadow from ONE visibility test through the global field (GITraceVisibilityGlobalField),
+// from @p origin already the far field's offset off the hit (no farTMin left to walk).
+vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 origin, vec4 travel, vec4 radiance )
 {
     if ( travel.w <= 0.5 )
         return vec3( 0.0 );
@@ -200,7 +200,7 @@ vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 ori
         return vec3( 0.0 );
     float visibility = 1.0;
     if ( radiance.w > 0.5 )
-        visibility = GITraceVisibilityGlobalField( origin, L, GIFarFieldTMin( bias, N, L ), 1.0e6 );
+        visibility = GITraceVisibilityGlobalField( origin, L, 0.0, 1.0e6 );
     return GIHitLightResponse( surface, origin, N, V, L, radiance.rgb * visibility );
 }
 
@@ -212,14 +212,17 @@ vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 ori
 // through the radiance cache's bounce only.
 vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surface )
 {
-    const vec3        N      = hit.normal;
-    const vec3        V      = -rayDirection;
-    const GITraceBias bias   = GIRayBias( hit.position, N );
-    const vec3        origin = hit.position + N * bias.nearOffset;
-    vec3 direct =
-         GIHitDirectionalGlobalField( surface, N, V, origin, bias, giFrame.sunTravel, giFrame.sunRadiance );
-    direct +=
-         GIHitDirectionalGlobalField( surface, N, V, origin, bias, giFrame.light1Travel, giFrame.light1Radiance );
+    const vec3 N = hit.normal;
+    const vec3 V = -rayDirection;
+    // FPS-SP-TRACE: the shadow test runs in the global field alone, so it leaves the hit by the global field's
+    // offset straight along the normal (UE's global-SDF surface bias) - the near field's offset (GIRayBias: a
+    // walk of the hit froxel's object list per lane, divergent in foliage) no longer computed. Was: leave by the
+    // near offset, then walk GIFarFieldTMin along L to the far offset's plane - the same height off the surface,
+    // shifted along L (at a grazing L far along it, skipping the occluders beside the hit). The hardware tracer's
+    // two offsets are one, so its origin and start are the same as before.
+    const vec3 origin = hit.position + N * GIFarFieldOffset( hit.position );
+    vec3       direct = GIHitDirectionalGlobalField( surface, N, V, origin, giFrame.sunTravel, giFrame.sunRadiance );
+    direct += GIHitDirectionalGlobalField( surface, N, V, origin, giFrame.light1Travel, giFrame.light1Radiance );
     const vec3 diffuseAlbedo = surface.BaseColor * ( 1.0 - surface.Metallic );
     const vec4 bounce        = RadianceCacheIrradianceAt( hit.position, N, -rayDirection, 0.5 );
     return direct + diffuseAlbedo * max( bounce.rgb, vec3( 0.0 ) ) + surface.Emissive;

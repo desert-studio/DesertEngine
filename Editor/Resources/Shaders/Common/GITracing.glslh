@@ -123,6 +123,9 @@ GITraceResult GITraceFarField( GITraceInput ray );
 float         GITraceVisibility( vec3 origin, vec3 direction, float farTMin, float maxT );
 float         GITraceVisibilityGlobalField( vec3 origin, vec3 direction, float farTMin, float maxT );
 GITraceBias   GIRayBias( vec3 position, vec3 normal );
+// GIRayBias(...).farOffset alone: the far field's own offset at @p position (a ray tested in the global field only,
+// GITraceVisibilityGlobalField, leaves its surface by it and nothing else; the near field's offset is not computed).
+float         GIFarFieldOffset( vec3 position );
 vec3          GIMoveOutOfGeometry( vec3 position, float clearance, float maxOffset );
 uvec4         GIHitInstanceRows( GIHit hit );
 float         GIHitSurfaceCacheBias( GIHit hit );
