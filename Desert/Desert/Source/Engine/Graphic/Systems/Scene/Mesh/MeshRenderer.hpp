@@ -1728,10 +1728,28 @@ namespace Desert::Graphic::System
         // sections' (GrassBlade x Visibility) cells atomic-max (depth | row | triangle) into @p visibility.
         // @p postOcclusion (GRASS-VIS phase 2, "Grass: Visibility Raster Post-Occlusion"): only the sections' phase-2
         // records (GpuInstancedRenderData::PostRefs), into a list of their own.
+        // FPS-GRASS-VIS-2, THE OCCLUDERS FIRST (UE Nanite / HW raster: the near geometry's depth before the far
+        // geometry is tested): phase 1's raster in two slices - Near, every visibility section's first
+        // kGrassRasterNearBuckets buckets (a blade strip's finest level, a mesh's LOD 0: the instances within the
+        // first LOD distance), then "Grass: Visibility Depth Near" writes the words' depth, then Far, the other
+        // buckets, early-Z-tested CloserOrEqual against it. A Masked blade writes no depth itself (its clip runs
+        // after an early write), so without the split every far fragment behind a near blade ran its fragment
+        // stage; now the depth test drops it before. Exact: the depth written is the word's own, and a dropped
+        // fragment is strictly farther than its pixel's word, so its atomicMax would have changed nothing; an
+        // equal depth still passes. All: every bucket (phase 2, the post-occlusion raster).
+        enum class GrassRasterSlice : uint8_t
+        {
+            All,
+            Near,
+            Far
+        };
+        static constexpr uint32_t kGrassRasterNearBuckets = 1u;
         void DeclareGrassVisibilityRasterDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
-                                                RDG::BufferRef visibility, bool postOcclusion );
+                                                RDG::BufferRef visibility, bool postOcclusion,
+                                                GrassRasterSlice slice );
         [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityRasterManual( const RDG::PassContext& context,
-                                                                               bool postOcclusion ) const;
+                                                                               bool postOcclusion,
+                                                                               GrassRasterSlice slice ) const;
         // SETUP of "Grass: Visibility Resolve" (@p path GrassBlade) and "Grass: Mesh Visibility Resolve" (@p path
         // Instanced, GRASS-VIS-MESH-2: the mesh grass's own GPU line) - the G-buffer LOADed, depth CloserOrEqual and
         // written: one full-screen triangle per section of @p path through its (path x VisibilityResolve) cell, drawn
@@ -2545,6 +2563,7 @@ namespace Desert::Graphic::System
         bool                             m_GrassVisibilityActive = false;
         std::vector<uint32_t>            m_GrassVisibilitySections;
         size_t                           m_GrassVisibilityMeshSections = 0; // of them, the Instanced (mesh) ones
+        MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterNearDraws; // "Grass: Visibility Raster Near"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterDraws;  // "Grass: Visibility Raster"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolveDraws; // "Grass: Visibility Resolve"
         MeshRendererDetail::MeshDrawList m_GrassMeshVisibilityResolveDraws; // "Grass: Mesh Visibility Resolve"
@@ -4310,7 +4329,8 @@ namespace Desert::Graphic::System
         void BuildGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                      MeshPass pass, const SceneFrameBinding& frameState,
                                      const StaticPassCells* companion, bool postOcclusion,
-                                     std::optional<MeshVertexPath> onlyPath = std::nullopt );
+                                     std::optional<MeshVertexPath> onlyPath = std::nullopt,
+                                     GrassRasterSlice              slice    = GrassRasterSlice::All );
         // GRASS-VIS: @p gpu's (GrassBlade x Visibility) and (GrassBlade x VisibilityResolve) cells, and their pipelines
         // through the two carriers, all Ready - the section can leave the G-buffer this frame.
         [[nodiscard]] bool GrassVisibilityReady( const GpuInstancedRenderData& gpu );

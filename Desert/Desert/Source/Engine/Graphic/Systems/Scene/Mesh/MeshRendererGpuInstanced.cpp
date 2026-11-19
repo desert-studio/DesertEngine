@@ -513,7 +513,8 @@ namespace Desert::Graphic::System
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                                const MeshPass pass, const SceneFrameBinding& frameState,
                                                const StaticPassCells* companion, const bool postOcclusion,
-                                               const std::optional<MeshVertexPath> onlyPath )
+                                               const std::optional<MeshVertexPath> onlyPath,
+                                               const GrassRasterSlice              slice )
     {
         if ( m_GpuInstancedQueue.empty() || instancedPipeline == nullptr )
             return;
@@ -1043,7 +1044,20 @@ namespace Desert::Graphic::System
                     return;
                 }
             };
-            addBuckets( draw, 0u, prepassBuckets );
+            // FPS-GRASS-VIS-2: the visibility raster's slice (GrassRasterSlice) - Near its first
+            // kGrassRasterNearBuckets buckets, Far the rest; a visibility section is never prepassed, so
+            // prepassBuckets is every bucket here.
+            uint32_t sliceFirst = 0u;
+            uint32_t sliceEnd   = prepassBuckets;
+            if ( pass == MeshPass::Visibility && slice != GrassRasterSlice::All )
+            {
+                const uint32_t nearEnd = std::min( kGrassRasterNearBuckets, draw.Buckets );
+                if ( slice == GrassRasterSlice::Near )
+                    sliceEnd = std::min( sliceEnd, nearEnd );
+                else
+                    sliceFirst = nearEnd;
+            }
+            addBuckets( draw, sliceFirst, sliceEnd );
             if ( !prepassed || prepassBuckets >= draw.Buckets )
                 continue;
             // THE SMALL BUCKETS the prepass left this frame (it found this record Ready): the section's own

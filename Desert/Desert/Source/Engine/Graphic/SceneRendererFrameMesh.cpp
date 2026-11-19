@@ -673,15 +673,36 @@ namespace Desert::Graphic
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        using Slice = System::MeshRenderer::GrassRasterSlice;
+        // FPS-GRASS-VIS-2, THE OCCLUDERS FIRST (MeshRenderer::GrassRasterSlice): phase 1 rasters the sections'
+        // nearest buckets, writes the words' depth ("Grass: Visibility Depth Near", the pass below's twin), then
+        // rasters the rest against it - a far fragment behind a near blade dies in early-Z, not in its fragment
+        // stage; the words, and so the frame, are the ones one raster would have left.
+        if ( !postOcclusion )
+        {
+            AddRaster(
+                 graph, "Grass: Visibility Raster Near", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderGrassVisibilityRasterManual( context, false, Slice::Near ); },
+                 [meshRenderer, view, words = visibility.Words]( RDG::PassBuilder& pass )
+                 { meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, false, Slice::Near ); } );
+            AddRaster(
+                 graph, "Grass: Visibility Depth Near", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return m_GrassVisibility.RecordDepth( context ); },
+                 [this, words = visibility.Words]( RDG::PassBuilder& pass )
+                 { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
+        }
         // GRASS-VIS phase 2 (@p postOcclusion): the same two nodes over phase 2's records, after this frame's HZB;
         // the words still hold phase 1's winners, and the G-buffer depth they resolved rejects what lies behind.
+        const Slice slice = postOcclusion ? Slice::All : Slice::Far;
         AddRaster(
              graph, postOcclusion ? "Grass: Visibility Raster Post-Occlusion" : "Grass: Visibility Raster", depthOnly,
              {}, RDG::LoadOp::Load(), {},
-             [meshRenderer, postOcclusion]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return meshRenderer->RenderGrassVisibilityRasterManual( context, postOcclusion ); },
-             [meshRenderer, view, words = visibility.Words, postOcclusion]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, postOcclusion ); } );
+             [meshRenderer, postOcclusion, slice]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGrassVisibilityRasterManual( context, postOcclusion, slice ); },
+             [meshRenderer, view, words = visibility.Words, postOcclusion, slice]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, postOcclusion, slice ); } );
         if ( postOcclusion )
             return;
         AddRaster(

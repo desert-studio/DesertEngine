@@ -713,15 +713,19 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::DeclareGrassVisibilityRasterDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
-                                                          const RDG::BufferRef visibility, const bool postOcclusion )
+                                                          const RDG::BufferRef visibility, const bool postOcclusion,
+                                                          const GrassRasterSlice slice )
     {
         MeshRendererDetail::MeshDrawList& list =
-             postOcclusion ? m_GrassVisibilityRasterPostDraws : m_GrassVisibilityRasterDraws;
+             postOcclusion ? m_GrassVisibilityRasterPostDraws
+                           : ( slice == GrassRasterSlice::Near ? m_GrassVisibilityRasterNearDraws
+                                                               : m_GrassVisibilityRasterDraws );
         list.Clear();
         if ( m_GrassVisibilitySections.empty() || !visibility.IsValid() || !m_InstancedVisibilityPipeline )
             return;
         BuildGpuInstancedDraws( list, m_InstancedVisibilityPipeline.get(), MeshPass::Visibility,
-                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion );
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion,
+                                std::nullopt, postOcclusion ? GrassRasterSlice::All : slice );
         list.Declare( pass, view,
                       [visibility]( RDG::BindingBlockBuilder& block, const SlottedLayout& slotted )
                       {
@@ -732,9 +736,13 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr MeshRenderer::RenderGrassVisibilityRasterManual( const RDG::PassContext& context,
-                                                                           const bool postOcclusion ) const
+                                                                           const bool postOcclusion,
+                                                                           const GrassRasterSlice slice ) const
     {
-        return ( postOcclusion ? m_GrassVisibilityRasterPostDraws : m_GrassVisibilityRasterDraws ).Record( context );
+        if ( postOcclusion )
+            return m_GrassVisibilityRasterPostDraws.Record( context );
+        return ( slice == GrassRasterSlice::Near ? m_GrassVisibilityRasterNearDraws : m_GrassVisibilityRasterDraws )
+             .Record( context );
     }
 
     void MeshRenderer::DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
