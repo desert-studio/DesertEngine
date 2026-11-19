@@ -3,8 +3,9 @@
 // classification, r.Nanite.MaterialCulling): after the last raster into the view's visibility buffer (phase 2's,
 // which appends to phase 1's words), one group per kVisTileSize x kVisTileSize tile reads its pixels' words and
 // writes the tile's record (Common/VisibilityTiles.glslh: the smallest and largest row its pixels hold and the
-// 64-bucket row mask between them). Group 0 also writes record 0 of the resolve's argument table: 3 indices x two
-// instances per tile, the triangles each section's resolve draws (Vertex_GrassBlade.glslh /
+// 64-bucket row mask between them) and, when it holds a drawn word, appends itself to the held tiles' list. Group 0
+// writes record 0 of the resolve's argument table (3 indices) and the last group done its instance count: two per
+// held tile, the triangles each section's resolve draws (Vertex_GrassBlade.glslh /
 // Vertex_Instanced.glslh's resolve branch collapses the tiles that miss its rows). The buffer is read as 32-bit
 // words (the layout VisibilityClear.shader writes: header = words 0..3, pixel p = words 4 + 2p (payload),
 // 4 + 2p + 1 (depth)), so this program needs no 64-bit type.
@@ -74,17 +75,33 @@ Shader "VisibilityClassify"
 
             if (!leader)
                 return;
-            const uint tile = gl_WorkGroupID.y * Extent.z + gl_WorkGroupID.x;
-            const uint at   = DesertVisibilityTileWord(Extent.xy, tile);
-            Words[at]       = s_Smallest;
-            Words[at + 1u]  = s_Largest;
-            Words[at + 2u]  = s_Mask[0];
-            Words[at + 3u]  = s_Mask[1];
+            const uint tiles = Extent.z * Extent.w;
+            const uint tile  = gl_WorkGroupID.y * Extent.z + gl_WorkGroupID.x;
+            const uint at    = DesertVisibilityTileWord(Extent.xy, tile);
+            Words[at]        = s_Smallest;
+            Words[at + 1u]   = s_Largest;
+            Words[at + 2u]   = s_Mask[0];
+            Words[at + 3u]   = s_Mask[1];
+            // FPS-GRASS-RESOLVE-4: a tile holding any drawn word joins the held tiles' list (header word 2 counts
+            // it; Common/VisibilityTiles.glslh), the slot bounded so a second classify of one clear never writes
+            // past the list.
+            if (s_Smallest != kVisTileEmpty)
+            {
+                const uint slot = atomicAdd(Words[2], 1u);
+                if (slot < tiles)
+                    Words[DesertVisibilityTileListWord(Extent.xy, tiles, slot)] = tile;
+            }
+            // The last group done (header word 3) writes the draw's instance count from the final list length:
+            // every group added to word 2 before it added to word 3, and both are atomics of one buffer.
+            memoryBarrierBuffer();
+            const uint done = atomicAdd(Words[3], 1u);
+            if (done + 1u == tiles)
+                Args[5] = 2u * min(atomicAdd(Words[2], 0u), tiles);
             if (tile == 0u)
             {
-                // Record 0 (VkDrawIndexedIndirectCommand, after the 16-byte header: GpuInstanceArgsOffset( 0 )).
+                // Record 0 (VkDrawIndexedIndirectCommand, after the 16-byte header: GpuInstanceArgsOffset( 0 ));
+                // its instance count (Args[5]) is the last group's.
                 Args[4] = 3u;
-                Args[5] = 2u * Extent.z * Extent.w;
                 Args[6] = 0u;
                 Args[7] = 0u;
                 Args[8] = 0u;

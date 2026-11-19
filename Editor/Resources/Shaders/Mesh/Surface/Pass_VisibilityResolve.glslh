@@ -172,8 +172,10 @@ void main()
     const vec2 ndc   = DesertPixelToJitteredNdc( gl_FragCoord.xy );
     const vec2 pixel = cameraUB.PixelToNdc.xy;
     const vec3 b     = VisibilityInside( VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc ) );
-    const vec3 bx    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( pixel.x, 0.0 ) );
-    const vec3 by    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, pixel.y ) );
+    // The barycentrics' change across one pixel, taken AT the pixel (UE Nanite CalculateTriangleDerivatives): UV0's
+    // gradient and the TBN's turn both read it (FPS-GRASS-RESOLVE-4, as the Instanced path).
+    vec3 dbdx, dbdy;
+    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, pixel, dbdx, dbdy );
 
     const vec4 card = Blade.Cards[cardIndex];
     vec2       uv[3];
@@ -184,16 +186,14 @@ void main()
         normal[k] = BladeHullNormal( point[k], corner[k].x, hullSide[k] );
     }
     const vec2 uv0 = b.x * uv[0] + b.y * uv[1] + b.z * uv[2];
-    g_DesertVisibilityUVdx = ( bx.x * uv[0] + bx.y * uv[1] + bx.z * uv[2] ) - uv0;
-    g_DesertVisibilityUVdy = ( by.x * uv[0] + by.y * uv[1] + by.z * uv[2] ) - uv0;
+    g_DesertVisibilityUVdx = dbdx.x * uv[0] + dbdx.y * uv[1] + dbdx.z * uv[2];
+    g_DesertVisibilityUVdy = dbdy.x * uv[0] + dbdy.y * uv[1] + dbdy.z * uv[2];
 
     const vec3 position = b.x * point[0].Position + b.y * point[1].Position + b.z * point[2].Position;
     const vec3 n        = normalize( b.x * normal[0] + b.y * normal[1] + b.z * normal[2] );
     const vec3 right    = normalize( b.x * point[0].Right + b.y * point[1].Right + b.z * point[2].Right );
     const vec3 along    = normalize( b.x * point[0].Along + b.y * point[1].Along + b.z * point[2].Along );
     // The TBN's turn across one pixel (GBufferOutputs.glslh g_DesertVisibilityTBNdx, the specular AA's footprint).
-    vec3 dbdx, dbdy;
-    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, pixel, dbdx, dbdy );
     g_DesertVisibilityTBNdx =
          mat3( VisibilityUnitTurn( point[0].Right, point[1].Right, point[2].Right, b, dbdx ),
                VisibilityUnitTurn( point[0].Along, point[1].Along, point[2].Along, b, dbdx ),
@@ -341,19 +341,20 @@ void main()
     const vec2 ndc   = DesertPixelToJitteredNdc( gl_FragCoord.xy );
     const vec2 pixel = cameraUB.PixelToNdc.xy;
     const vec3 b     = VisibilityInside( VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc ) );
-    const vec3 bx    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( pixel.x, 0.0 ) );
-    const vec3 by    = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, pixel.y ) );
+    // The barycentrics' change across one pixel, taken AT the pixel (UE Nanite CalculateTriangleDerivatives): UV0's
+    // gradient and the TBN's turn both read it (FPS-GRASS-RESOLVE-4: no second and third VisibilityBarycentrics at
+    // the neighbours' centres, which on an edge-on triangle can lie past its plane's vanishing line).
+    vec3 dbdx, dbdy;
+    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, pixel, dbdx, dbdy );
     const vec2 uv0 = b.x * uv[0] + b.y * uv[1] + b.z * uv[2];
-    g_DesertVisibilityUVdx = ( bx.x * uv[0] + bx.y * uv[1] + bx.z * uv[2] ) - uv0;
-    g_DesertVisibilityUVdy = ( by.x * uv[0] + by.y * uv[1] + by.z * uv[2] ) - uv0;
+    g_DesertVisibilityUVdx = dbdx.x * uv[0] + dbdx.y * uv[1] + dbdx.z * uv[2];
+    g_DesertVisibilityUVdy = dbdy.x * uv[0] + dbdy.y * uv[1] + dbdy.z * uv[2];
 
     const vec3 position = b.x * world[0] + b.y * world[1] + b.z * world[2];
     const vec3 n        = normalize( b.x * normal[0] + b.y * normal[1] + b.z * normal[2] );
     const vec3 t        = normalize( b.x * tangent[0] + b.y * tangent[1] + b.z * tangent[2] );
     const vec3 bt       = normalize( b.x * bitangent[0] + b.y * bitangent[1] + b.z * bitangent[2] );
     // The TBN's turn across one pixel, as the blade's resolve (GBufferOutputs.glslh g_DesertVisibilityTBNdx).
-    vec3 dbdx, dbdy;
-    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, pixel, dbdx, dbdy );
     g_DesertVisibilityTBNdx = mat3( VisibilityUnitTurn( tangent[0], tangent[1], tangent[2], b, dbdx ),
                                     VisibilityUnitTurn( bitangent[0], bitangent[1], bitangent[2], b, dbdx ),
                                     VisibilityUnitTurn( normal[0], normal[1], normal[2], b, dbdx ) );
