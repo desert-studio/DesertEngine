@@ -262,12 +262,12 @@ void main()
     // FPS-GRASS-MESH-SETUP: the instance's setup record ("Grass: Mesh Setup", GrassBladeSetup.shader
     // SetUpMeshInstance), at the slot's first row: its wind sway now and one step before and its LOD level, written
     // this frame for every slot the raster drew (a row a word names was drawn). No records this frame (address 0):
-    // no mesh pixel to rebuild, as the blade's resolve.
+    // no mesh pixel to rebuild, as the blade's resolve. FPS-GRASS-BLADE-SETUP: one record an instance for all the
+    // variety's sections, Slots.zw the address of its slot 0 (GrassRenderer.cpp MeshSetupSection).
     const uvec2 setupAddress = MeshRows.Slots.zw;
     if ( setupAddress == uvec2( 0u ) )
         discard;
-    const GrassMeshSetupData setup =
-         GrassMeshSetupRef( setupAddress ).Records[MeshRows.Visibility.x + slot * perInstance];
+    const GrassMeshSetupData setup = GrassMeshSetupRef( setupAddress ).Records[slot];
 
     // The level the slot was drawn with, then this section's submesh whose rows hold `inside`.
     const uint level   = setup.Info.x;

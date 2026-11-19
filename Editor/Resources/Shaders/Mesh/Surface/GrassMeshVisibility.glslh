@@ -71,8 +71,8 @@ uvec2 GrassMeshAddressAdd( const uvec2 address, const uint bytes )
 }
 
 // FPS-GRASS-MESH-SETUP: a drawn instance's setup record ("Grass: Mesh Setup", Programs/Grass/GrassBladeSetup.shader
-// SetUpMeshInstance), 64 bytes in the view's setup records (GrassBladeSetupData's size and words), at the slot's
-// first row Visibility.x + slot x Visibility.y.
+// SetUpMeshInstance), 64 bytes in the view's setup records (GrassBladeSetupData's size and words), one an instance
+// for all the variety's sections (FPS-GRASS-BLADE-SETUP): record slot from Slots.zw, the setup section's first row.
 struct GrassMeshSetupData
 {
     vec4  Sway;     // Common/FoliageWind.glslh FoliageWindInstanceSway now (the raster's wind, gust, local wind)

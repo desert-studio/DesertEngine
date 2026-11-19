@@ -201,9 +201,11 @@ Shader "GrassBladeSetup"
         }
 
         // FPS-GRASS-MESH-SETUP ("Grass: Mesh Setup"; UE 5 Nanite's instance scene data, computed once per instance
-        // and only fetched by the material pass): a drawn mesh grass instance's record, at its slot's first
-        // raster-stream row Visibility.x + slot x Visibility.y (rows per instance) - the mesh section's own row, so
-        // no blade's record shares it. GrassMeshSetupData's layout (Mesh/Surface/GrassMeshVisibility.glslh) in
+        // and only fetched by the material pass): a drawn mesh grass instance's record, ONE a variety
+        // (FPS-GRASS-BLADE-SETUP: the record is the instance's, every section reads the same one - GrassRenderer.cpp
+        // MeshSetupSection), at row Visibility.x + slot of the variety's setup section (that section owns
+        // slots x Visibility.y >= slots rows from Visibility.x, so no blade's record shares one). GrassMeshSetupData's
+        // layout (Mesh/Surface/GrassMeshVisibility.glslh) in
         // GrassBladeSetupData's words: Root = the sway now (Common/FoliageWind.glslh FoliageWindInstanceSway at the
         // raster's wind, gust and local wind), Tip = the sway one wind step before (WindB.z, the previous gust and
         // local wind, at the previous row WindB.w further), Before = 0, Frame.x = the LOD level the slot was drawn
@@ -211,7 +213,7 @@ Shader "GrassBladeSetup"
         void SetUpMeshInstance( uint r, uint slot, uint id )
         {
             const GrassBladeShapeData shape = BladeSetupRows[r].Shape;
-            const uint                row   = shape.Visibility.x + slot * shape.Visibility.y;
+            const uint                row   = shape.Visibility.x + slot;
             if ( shape.Visibility.y == 0u || row >= uint( BladeSetupRecord.length() ) )
                 return;
             const vec4 windA  = BladeSetupRows[r].WindA;
