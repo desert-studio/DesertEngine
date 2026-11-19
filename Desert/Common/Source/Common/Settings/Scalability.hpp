@@ -409,6 +409,15 @@ namespace Common::Scalability
         // and the small buckets' screen bound (PrepareVariety: VarietyGpu::PrepassBuckets). 25..400; 100 = the
         // chain as cooked.
         FoliageGrassMeshLodDistanceScalePercent,
+        // Render pixels (FPS-GRASS-RASTER-COST; UE / Ghost of Tsushima grass: a blade's vertex count by its screen
+        // size, the LOD of the curve): the projected height of a blade's curve one strip segment stands for. A blade
+        // draws the coarsest strip level (each halves the segments) whose segments still stand at most this tall
+        // on screen - on top of the variety's LodDistance rings, never finer than they are - and a blade whose
+        // projected height falls below half a pixel is culled (it covers no sample). Read by SceneRenderer::
+        // BeginScene -> GrassRenderer::SetQuality -> PlanVariety (GrassParamsGpu::Lod.x / y of a blade) ->
+        // GrassCull.shader through GrassFieldShare.glslh GrassBladeCurveLevel, the one bucket the visibility
+        // raster, the masked depth prepass, the G-buffer and every cascade draw. 0 = the rings alone. 0..64.
+        FoliageGrassBladeSegmentPixels,
         // 0/1 (FPS-GRASS-HULL): a grass blade's raster strip spans only its card's cooked hull (the opaque part
         // of the card on the atlas, UE SubUV cutout) instead of the whole card. Read by SceneRenderer::BeginScene
         // -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (GrassBladeShapeGpu::HullTexels.z).

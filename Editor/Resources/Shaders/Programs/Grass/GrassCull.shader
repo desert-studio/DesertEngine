@@ -407,6 +407,18 @@ Shader "GrassCull"
                 // instances from p.Lod.w out, where every blade stands below kMinScreenRadiusForDepthPrepass of the
                 // screen, draw the same strip level as a bucket of their own, which the masked depth prepass leaves
                 // to the G-buffer (GrassRenderer VarietyGpu::PrepassBuckets). The level and the share are the LOD's.
+                // THE LOD OF THE CURVE (FPS-GRASS-RASTER-COST, GrassFieldShare.glslh GrassBladeCurveLevel): the
+                // blade's height on screen at the scale it is drawn with (the thinning's lowering, the fade and the
+                // clump's height in) picks the coarsest strip whose segments stay BladeSegmentPixels tall - never
+                // finer than its ring or far LOD - and a blade below half a pixel is culled (p.Lod.x / y,
+                // p.Buckets.w; 0: the rings alone).
+                if ( p.Buckets.w > 0u )
+                {
+                    float pixelsTall = p.Lod.x * scale.y / max( distance, 1.0 );
+                    if ( pixelsTall < kGrassBladeCullPixels )
+                        return false;
+                    lod.Level = GrassBladeCurveLevel( pixelsTall, p.Lod.y, p.Buckets.w, lod.Level, bladeLevels );
+                }
                 bucket = lod.Level;
                 if ( p.Lod.w > 0.0 && lod.Level + 1u == bladeLevels && distance >= p.Lod.w )
                     bucket = bladeLevels;

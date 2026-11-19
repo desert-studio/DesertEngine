@@ -143,15 +143,15 @@ void main()
     if ( Blade.Lists.y == 0u && Blade.Lists.z == 0u )
         discard;
     const GrassBladeSetupData setup = GrassBladeSetupRef( Blade.Lists.yz ).Records[row];
-    const uint                segments = max( setup.Strip.y, 1u );
+    const uint                segments = max( BladeSetupSegments( setup ), 1u );
     vec2                      corner[3];
     BladeTriangleCorners( segments, triangle, corner[0], corner[1], corner[2] );
     // FPS-GRASS-HULL: the raster's rows stood on the card's hull (Vertex_GrassBlade.glslh, mesh z = 1 / segments).
     const float      rowSpan   = 1.0 / float( segments );
     const BladeCurve curve     = BladeSetupCurve( setup, false );
     const BladeCurve prevCurve = BladeSetupCurve( setup, true );
-    const float      width     = setup.Right.w;
-    const uint       cardIndex = setup.Strip.x;
+    const float      width     = BladeSetupWidth( setup );
+    const uint       cardIndex = BladeSetupCard( setup );
     BladePoint       point[3];
     vec3             previous[3];
     vec4             jittered[3];
@@ -209,7 +209,7 @@ void main()
     const bool frontFacing = ( ( s1.x - s0.x ) * ( s2.y - s0.y ) - ( s2.x - s0.x ) * ( s1.y - s0.y ) ) > 0.0;
 
     // The vertex stage's interpolants (Vertex_GrassBlade.glslh), at this pixel.
-    SurfaceInput i = DesertSurfaceInput( position, n, uv0, mat3( right, along, n ), vec2( setup.PrevTip.w, t ), vec4( 1.0 ),
+    SurfaceInput i = DesertSurfaceInput( position, n, uv0, mat3( right, along, n ), vec2( BladeSetupClump( setup ), t ), vec4( 1.0 ),
                                          frontFacing );
 #ifdef DESERT_SURFACE_WEATHER
     i.ObjectScaleUp       = 1.0;

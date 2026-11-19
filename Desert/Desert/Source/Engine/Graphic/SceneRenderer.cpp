@@ -1336,6 +1336,8 @@ namespace Desert::Graphic
                       static_cast<float>( quality.As<int>( Parameter::FoliageGrassLodScreenPixels ) ),
                  .MeshLodDistanceScale = 0.01f * static_cast<float>( quality.As<int>(
                                                       Parameter::FoliageGrassMeshLodDistanceScalePercent ) ),
+                 .BladeSegmentPixels =
+                      static_cast<float>( quality.As<int>( Parameter::FoliageGrassBladeSegmentPixels ) ),
                  .BladeCardHull = quality.As<int>( Parameter::FoliageGrassBladeCardHull ) != 0 };
             if ( const auto& grass = m_Systems.Grass )
                 grass->SetQuality( grassQuality );
@@ -2702,10 +2704,6 @@ namespace Desert::Graphic
             if ( meshRenderer != nullptr )
             {
                 meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
-                // FPS-GRASS-RASTER-VS: phase 1's blades set up (after the camera cull CommitFrame added) before
-                // any phase-1 visibility raster - AddFrameGBuffer's or the one after the base pass - reads them.
-                if ( grassVisibility.IsValid() )
-                    AddFrameGrassBladeSetup( graph, meshRenderer, frame, false );
                 // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
                 meshRenderer->SetEarlyZPass( earlyZ );
                 // UE r.MinScreenRadiusForDepthPrepass: the large opaque occluders written before the masked

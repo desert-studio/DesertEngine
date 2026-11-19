@@ -191,13 +191,14 @@ void main()
     const GrassBladeSetupData setup = GrassBladeSetupRef( Blade.Lists.yz ).Records[row];
     const float               side  = a_Position.x;
     const float               t     = a_Position.y;
-    const float               width = setup.Right.w;
+    const float               width = BladeSetupWidth( setup );
+    const uint                card  = BladeSetupCard( setup );
     const BladePoint full = BladeCurvePoint( BladeSetupCurve( setup, false ), width, side, t );
     // FPS-GRASS-HULL: the row narrowed to its card's cooked hull, as the resolve rebuilds it (mesh z = the row span).
-    const float      hullSide = BladeHullSideOf( setup.Strip.x, width, full, side, t, a_Position.z );
+    const float      hullSide = BladeHullSideOf( card, width, full, side, t, a_Position.z );
     const BladePoint blade    = BladeHullPointOf( width, full, side, hullSide );
-#define GRASS_BLADE_CARD  Blade.Cards[setup.Strip.x]
-#define GRASS_BLADE_CLUMP setup.PrevTip.w
+#define GRASS_BLADE_CARD  Blade.Cards[card]
+#define GRASS_BLADE_CLUMP BladeSetupClump( setup )
 #define GRASS_BLADE_PREVIOUS()                                                                                     \
     BladeHullPointOf( width, BladeCurvePoint( BladeSetupCurve( setup, true ), width, side, t ), side, hullSide )
 #else

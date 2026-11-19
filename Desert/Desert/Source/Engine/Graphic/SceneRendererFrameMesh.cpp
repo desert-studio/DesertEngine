@@ -670,6 +670,10 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Raster" );
         if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
             return;
+        // FPS-GRASS-SETUP-TRIM: this phase's blades set up right before its raster reads them, once the sections
+        // were chosen (DrawsGrassVisibility above): only the varieties drawn here, only their drawn blades.
+        if ( const ViewFrame* const viewFrame = GetViewFrame(); viewFrame != nullptr )
+            AddFrameGrassBladeSetup( graph, meshRenderer, *viewFrame, postOcclusion );
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
@@ -845,24 +849,19 @@ namespace Desert::Graphic
                  { meshRenderer->DeclareGrassGBufferPostOcclusionDraws( pass, view ); } );
         }
         if ( visibility.IsValid() )
-        {
-            // FPS-GRASS-RASTER-VS: phase 2's blades set up before phase 2's raster reads them.
-            AddFrameGrassBladeSetup( graph, meshRenderer, frame, true );
             AddFrameGrassVisibility( graph, textures, meshRenderer, visibility, true );
-        }
     }
 
     void SceneRenderer::AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer,
                                                  const ViewFrame& frame, const bool postOcclusion )
     {
-        // Not gated on MeshRenderer::DrawsGrassVisibility: phase 1's sections are chosen later, in the masked
-        // prepass's setup (DeclareMaskedDepthDraws). The caller runs it only with a grass visibility frame; a variety
-        // that ends up on the G-buffer path costs its setup threads and nothing reads its rows.
+        // Called by AddFrameGrassVisibility once the sections are chosen: GrassRenderer sets up only the varieties
+        // MeshRenderer draws through the visibility buffer (DrawsGrassVisibilitySection).
         auto* grass = m_Systems.Grass.get();
         if ( grass == nullptr || meshRenderer == nullptr )
             return;
-        if ( const auto setup =
-                  grass->AddFrameBladeSetup( graph, frame, meshRenderer->GetFrameDeformationField(), postOcclusion );
+        if ( const auto setup = grass->AddFrameBladeSetup( graph, frame, meshRenderer->GetFrameDeformationField(),
+                                                           *meshRenderer, postOcclusion );
              !setup )
             LOG_ERROR( "[Grass] Blade Setup{}: {}", postOcclusion ? " Post-Occlusion" : "", setup.GetError() );
     }

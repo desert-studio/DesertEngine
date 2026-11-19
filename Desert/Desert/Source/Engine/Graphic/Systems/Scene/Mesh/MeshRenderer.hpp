@@ -1781,6 +1781,12 @@ namespace Desert::Graphic::System
         {
             return !m_GrassVisibilitySections.empty();
         }
+        // Whether the section keyed @p key (GpuInstancedRenderData::Key) is one of them this frame
+        // (FPS-GRASS-SETUP-TRIM: GrassRenderer::AddFrameBladeSetup sets up only those varieties' blades).
+        [[nodiscard]] bool DrawsGrassVisibilitySection( const uint64_t key ) const noexcept
+        {
+            return m_GpuInstancedViaVisibility.Contains( key );
+        }
         // Whether any of them is a section of @p path (GrassBlade: the blades; Instanced: the mesh grass).
         [[nodiscard]] bool DrawsGrassVisibility( const MeshVertexPath path ) const
         {

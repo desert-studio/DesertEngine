@@ -34,6 +34,11 @@ namespace Desert::Graphic::System
         // farther (GrassRenderer::PlanVariety, GrassParamsGpu::Lod.y; GrassCull GrassMeshLevel). 1 = the field
         // chain as cooked.
         float              MeshLodDistanceScale = 1.0f;
+        // Foliage.GrassBladeSegmentPixels, render pixels (FPS-GRASS-RASTER-COST; 0 = the LodDistance rings alone):
+        // the projected height one strip segment of a blade's curve stands for - a blade draws the coarsest strip
+        // level whose segments stay at most this tall, and one below half a pixel tall is culled
+        // (GrassRenderer::PlanVariety, GrassParamsGpu::Lod.x / y; GrassFieldShare.glslh GrassBladeCurveLevel).
+        float BladeSegmentPixels = 8.0f;
         // Foliage.GrassBladeCardHull (FPS-GRASS-HULL): a blade's raster strip spans only its card's cooked hull
         // (Assets::GrassCardHull; UE SubUV cutout), not the whole card rect - the transparent fragments the mask
         // would discard are never rasterised. false = the full card (the look is the same either way).
