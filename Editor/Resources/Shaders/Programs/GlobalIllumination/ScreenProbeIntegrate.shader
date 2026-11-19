@@ -216,6 +216,13 @@ Shader "ScreenProbeIntegrate"
         {
             uint screenProbeIntegrateUncoveredMask[]; // per tile, SP_UNCOVERED_MASK_WORDS
         };
+        // FPS-SP-CHAIN-2: the pixel's shading model - only a model with UE's backface diffuse (two-sided foliage,
+        // DesertHasBackfaceDiffuse) reads the backface output (ShadingModelContract.glslh BackIrradiance; the
+        // temporal filter's material test keeps a non-foliage history out of a foliage pixel), so only such a pixel
+        // pays the cache's second eight-cell read at -N.
+        Uniform(27) utexture2D GBufferShadingWord;
+        #define GBufferShadingWord usampler2D(GBufferShadingWord, PointClampSampler)
+        #include <Generated/ShadingModels.glslh>
 #else
         ReadBuffer(1) ScreenProbeIndexUB
         {
@@ -778,9 +785,13 @@ Shader "ScreenProbeIntegrate"
                 diffuse  = cache.rgb * ao;
                 specular = mix( cacheSpecular * SPSpecularOcclusion( bent, ao, roughness, r ), diffuse, diffuseLerp );
             }
-            const vec4 back = RadianceCacheIrradianceAt( p, -n, v, 0.5 );
-            if ( back.a > 0.0 )
-                backface = back.rgb;
+            // The backface only where the composite reads it (GBufferShadingWord above); 0 elsewhere, as no model reads it.
+            if ( DesertHasBackfaceDiffuse( DesertShadingModelIndex( texelFetch( GBufferShadingWord, pixel, 0 ).rg ) ) )
+            {
+                const vec4 back = RadianceCacheIrradianceAt( p, -n, v, 0.5 );
+                if ( back.a > 0.0 )
+                    backface = back.rgb;
+            }
             // The specular's alpha (lightIsMoving) 0: no probe holds the pixel (UE: lighting not valid).
             imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
             imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, 0.0 ) );

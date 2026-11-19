@@ -159,6 +159,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateUncoveredMaskUB );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWord ); // SP_INTEGRATE_UNCOVERED: the backface's foliage test
     };
     struct ScreenProbeGatherDisocclusionShaderParameters
     {
@@ -1497,6 +1498,7 @@ namespace Desert::Graphic::GlobalIllumination
                                     kS, all )
                           .Texture( IntegrateSlots::RadianceCacheDepthTexture, inputs.RadianceCache.Depth, kS, all )
                           .Texture( IntegrateSlots::ShortRangeAoTexture, shortRangeAO, kS, all )
+                          .Texture( IntegrateSlots::GBufferShadingWord, inputs.GBufferShadingWord, kS, all )
                           .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() );
                      gbuf( block );
                  },
