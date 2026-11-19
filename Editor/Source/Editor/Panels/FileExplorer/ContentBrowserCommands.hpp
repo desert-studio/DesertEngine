@@ -47,7 +47,7 @@ namespace Desert::Editor
     }
 
     // Indexed by ContentBrowserCommand; kContentBrowserCommandOrder is the same order, checked below.
-    inline constexpr std::array<UICommandInfo, 11> kContentBrowserCommandInfos{ {
+    inline constexpr std::array<UICommandInfo, 12> kContentBrowserCommandInfos{ {
          { kContentBrowserContext, "Open", "" },
          { kContentBrowserContext, "Show in Explorer", "" },
          { kContentBrowserContext, "Open Containing Folder", "" },
@@ -62,7 +62,7 @@ namespace Desert::Editor
          { kContentBrowserContext, "Size Map...", "" },
     } };
 
-    inline constexpr std::array<ContentBrowserCommand, 11> kContentBrowserCommandOrder{
+    inline constexpr std::array<ContentBrowserCommand, 12> kContentBrowserCommandOrder{
          ContentBrowserCommand::Open,
          ContentBrowserCommand::ShowInExplorer,
          ContentBrowserCommand::OpenContainingFolder,

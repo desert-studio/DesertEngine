@@ -41,6 +41,7 @@
 #include <Projects/WorldPartitionSettings.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Common/Json/Document.hpp>
 
