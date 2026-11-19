@@ -136,8 +136,14 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t SwDispatch[3]{ 0u, 1u, 1u }; // 0
         uint32_t SwCount = 0;                 // 12
         uint32_t HwDraw[4]{ 0u, 0u, 0u, 0u }; // 16 vertexCount, instanceCount, firstVertex, firstInstance
+        // 32 VkDispatchIndirectCommand of "VirtualGeometry: Raster Binning" Count / Scatter (UE: the raster
+        // binning dispatches are indirect, sized by the visible clusters): one workgroup per
+        // VG_RASTER_BIN_GROUP_SIZE HW clusters, counted by the cut as it emits (ClusterCut.shader EmitCluster),
+        // so an empty or small view bins nothing or little.
+        uint32_t BinDispatch[3]{ 0u, 1u, 1u };
+        uint32_t BinPad = 0; // 44
     };
-    static_assert( sizeof( GpuClusterRasterArgs ) == 32, "std430 twin in Common/VirtualGeometry.glslh" );
+    static_assert( sizeof( GpuClusterRasterArgs ) == 48, "std430 twin in Common/VirtualGeometry.glslh" );
 
     // THE VISIBILITY BUFFER WORD: one uint64 per pixel in a storage BUFFER (shaderBufferInt64Atomics, Vulkan 1.2;
     // a storage image of R64_UINT needs VK_EXT_shader_image_atomic_int64, which MoltenVK does not expose).

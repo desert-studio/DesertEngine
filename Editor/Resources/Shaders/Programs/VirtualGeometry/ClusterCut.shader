@@ -20,7 +20,8 @@ Shader "ClusterCut"
     //          groups' clusters one a lane, 32 lanes a group - UE's cluster batches, not one lane's loop). Both tests call VgProjectedError on bit-identical (sphere, error) pairs, so a group
     //          and the clusters generated from it never both draw nor both hide (no crack).
     //          Drawn clusters are HW clusters (no SW raster yet): VisibleClusters[capacity - 1 - i], counted in
-    //          RasterArgs.HwDraw[1] (GpuClusterRasterArgs, the UE layout: SW from the front, HW from the back).
+    //          RasterArgs.HwDraw[1] (GpuClusterRasterArgs, the UE layout: SW from the front, HW from the back);
+    //          RasterArgs.BinDispatch[0] counts their Raster Binning workgroups (one per VG_RASTER_BIN_GROUP_SIZE).
     //          A dispatch serves the cut views [Params3.x, Params3.x + Params3.y) of one mesh pass (the main view;
     //          one shadow cascade), workgroup Z = the view. LOD in the view's own pixels (ViewLods.z = 1: an
     //          orthographic shadow cascade, lodScale = its texels per cm).
@@ -279,6 +280,10 @@ Shader "ClusterCut"
                 atomicMin( VisibleOverflowDag, f.Dag );
                 return;
             }
+            // Raster Binning's indirect dispatch: every row below the capacity is taken exactly once (an overflow
+            // only repeats rows at or past it), so the row opening a workgroup counts it: ceil( rows / group ).
+            if ( i % VG_RASTER_BIN_GROUP_SIZE == 0u )
+                atomicAdd( RasterArgs.BinDispatch[0], 1u );
             Visible[Params.y - 1u - i] =
                  VgVisibleCluster( f.Instance, cluster, f.View, f.RestPose ? DESERT_GPU_VISIBLE_REST_POSE : 0u );
         }

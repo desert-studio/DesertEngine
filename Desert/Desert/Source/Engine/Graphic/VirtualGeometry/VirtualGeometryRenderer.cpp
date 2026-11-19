@@ -78,7 +78,9 @@ namespace Desert::Graphic::VirtualGeometry
         constexpr uint32_t kBinStepCount   = 0u;
         constexpr uint32_t kBinStepOffsets = 1u;
         constexpr uint32_t kBinStepScatter = 2u;
-        constexpr uint32_t kBinGroupSize   = 64u; // RasterBinning.shader LocalSize
+        // Raster Binning COUNT / SCATTER dispatch from GpuClusterRasterArgs::BinDispatch.
+        constexpr uint64_t kBinDispatchOffset = offsetof( GpuClusterRasterArgs, BinDispatch );
+        static_assert( kBinDispatchOffset == 32u, "Common/VirtualGeometry.glslh VgRasterArgs" );
         constexpr uint32_t kStepArgs       = 0u;
         constexpr uint32_t kStepCut        = 1u;
 
@@ -435,15 +437,17 @@ namespace Desert::Graphic::VirtualGeometry
         const auto               primitive = static_cast<uint32_t>( passTable.PrimitiveDraws.size() );
         const auto               slots     = static_cast<uint32_t>( passTable.DrawSlots.size() );
         const auto               binRows   = static_cast<uint32_t>( passTable.Bins.size() );
-        const uint32_t           threads   = ( culled.VisibleCapacity + kBinGroupSize - 1u ) / kBinGroupSize;
+        // COUNT and SCATTER run one thread per HW cluster the cut emitted: indirect over the workgroups the cut
+        // counted (GpuClusterRasterArgs::BinDispatch), not over the CPU-known capacity, so an empty or small view
+        // bins nothing or little (UE NaniteRasterBinning: indirect args from the visible clusters).
         for ( const uint32_t step : { kBinStepCount, kBinStepOffsets, kBinStepScatter } )
         {
+            const bool indirect = step != kBinStepOffsets;
             // Params: step, visible capacity, group count, primitive rows of the pass table.
             // Params2: draw slot rows, bin rows, vertices per cluster draw, cut views counted.
             const ShaderPush::RasterBinning push{
                  .Params  = glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
                  .Params2 = glm::uvec4( slots, binRows, Geometry::kClusterMaxTriangles * 3u, countViews ) };
-            const uint32_t groupsX = step == kBinStepOffsets ? 1u : threads;
             graph.AddPass(
                  step == kBinStepCount     ? "VirtualGeometry: Raster Binning Count"
                  : step == kBinStepOffsets ? "VirtualGeometry: Raster Binning Offsets"
@@ -468,12 +472,20 @@ namespace Desert::Graphic::VirtualGeometry
                           .Storage( P::RasterBinningRows, bins.Rows, W )
                           .Storage( P::RasterBinningGroupViewCounts, bins.GroupViewCounts, W )
                           .PushConstants<ShaderPush::RasterBinning>();
+                     // The same buffer as the storage read above: one read state (RDGCompile.cpp, the buffer
+                     // read merge).
+                     if ( indirect )
+                         builder.Read( culled.RasterArgs, RDG::Access::IndirectArgs );
                  },
-                 [pipeline = program.Pipeline, push, groupsX]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline   = program.Pipeline, push, indirect,
+                  rasterArgs = culled.RasterArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( push );
-                     return Renderer::DispatchCompute( bindings, *pipeline, groupsX, 1u, 1u );
+                     if ( indirect )
+                         return Renderer::DispatchComputeIndirect( bindings, *pipeline, rasterArgs,
+                                                                   kBinDispatchOffset );
+                     return Renderer::DispatchCompute( bindings, *pipeline, 1u, 1u, 1u );
                  } );
         }
         return Common::MakeSuccess( std::move( bins ) );
