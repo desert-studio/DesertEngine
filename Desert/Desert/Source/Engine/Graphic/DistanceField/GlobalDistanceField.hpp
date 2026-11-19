@@ -178,6 +178,28 @@ namespace Desert::Graphic::DistanceField
         static constexpr std::array kAll{ RDG::Erase( DistanceFieldBrickAtlasTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( ClipmapTexture ), RDG::Erase( ObjectGridTexture ) };
     };
 
+    // The VoxelLighting shader's parameters (THE VOXEL LIGHTING, GlobalDistanceField below): the one spelling the
+    // pass binds and Initialize checks; it samples the four clipmaps under kGlobalDistanceFieldClipmapTextures.
+    struct GlobalDistanceFieldVoxelLightingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GDFVoxelLightingBricks );
+        DESERT_SHADER_PARAMETER( StorageTexture, VoxelLightingTexture );
+        static constexpr std::array kAll{ RDG::Erase( kGlobalDistanceFieldClipmapTextures[0] ),
+                                          RDG::Erase( kGlobalDistanceFieldClipmapTextures[1] ),
+                                          RDG::Erase( kGlobalDistanceFieldClipmapTextures[2] ),
+                                          RDG::Erase( kGlobalDistanceFieldClipmapTextures[3] ),
+                                          RDG::Erase( LinearRepeatSampler ),
+                                          RDG::Erase( GDFVoxelLightingBricks ),
+                                          RDG::Erase( VoxelLightingTexture ) };
+    };
+
+    // What a global-field hit reads the voxel lighting under (Common/GIHitLighting.glslh
+    // GI_VOXEL_LIGHTING_BINDING): the one spelling every reader's pass binds
+    // (GlobalIllumination::DeclareVoxelLightingReads).
+    inline constexpr RDG::TextureParameter
+         kGlobalDistanceFieldVoxelLightingTexture( "GlobalDistanceFieldVoxelLightingTexture" );
+
     // The View shader's parameters: the one spelling the pass binds and Initialize checks.
     struct GlobalDistanceFieldViewShaderParameters
     {
@@ -226,7 +248,35 @@ namespace Desert::Graphic::DistanceField
             std::shared_ptr<const GlobalDistanceFieldCeiling>         Ceiling;
             RDG::TextureRef                                           ObjectGrid; // the object grid (above)
             MeshDistanceFieldReads                                    MeshFields;
+            // THE VOXEL LIGHTING (below): set by AddVoxelLightingPasses, invalid before it ran.
+            RDG::TextureRef VoxelLighting;
         };
+
+        // The directional lights the voxel lighting is lit by, as GIHitRadianceGlobalField tests them: xyz = the
+        // unit direction TOWARDS the light (minus GIFrame's travel), w = 1 when the light is on and casts shadows
+        // (GIFrame travel.w and radiance.w both set) - otherwise its texels hold 1, as the hit tests nothing.
+        struct VoxelLightingLights
+        {
+            glm::vec4          Sun{ 0.0f };
+            glm::vec4          Light1{ 0.0f };
+            [[nodiscard]] bool operator==( const VoxelLightingLights& ) const = default;
+        };
+
+        // THE VOXEL LIGHTING (FPS-GI-VOXEL-LIGHT; UE Lumen's voxel lighting): the directional lights' visibility
+        // per cell of two voxels of every clipmap (Common/GlobalDistanceFieldVoxelLighting.glslh), so a global-
+        // field hit no card holds samples its sun and moon shadow (GIHitLighting.glslh GIHitDirectionalVisibility)
+        // instead of marching the field to the light per hit, every frame. Persistent, toroidal as the clipmaps.
+        // Once per @p engineFrame (a later call of the frame imports it only), after AddUpdatePasses of the same
+        // frame: one pass over the bricks the composite rewrote this frame (new geometry, scrolled-in bricks: lit
+        // the frame they appear) plus, while a relight sweep is pending, the next kGdfLightingSweepBricks (256)
+        // bricks of every clipmap's window in order - a sweep starts when @p lights differ from the last frame's
+        // or the frame's update moved an object (its shadow falls on bricks the composite did not rewrite), and
+        // ends once it has covered every window (UE updates its voxel lighting incrementally the same way). Sets
+        // @p frame.VoxelLighting.
+        [[nodiscard]] Common::BoolResultStr AddVoxelLightingPasses( RDG::Builder& graph, const ImportImage& import,
+                                                                    FrameField&                frame,
+                                                                    const VoxelLightingLights& lights,
+                                                                    uint64_t                   engineFrame );
 
         // FPS-DEVLOST18: where the asking view keeps its graph's imports of the buffers the composite and a trace
         // read - the scene's asset records and indirection, the field's objects (GlobalDistanceFieldView's
@@ -333,6 +383,21 @@ namespace Desert::Graphic::DistanceField
         std::shared_ptr<Shader>          m_CompositeShader;
         std::shared_ptr<ComputePipeline> m_CompositePipeline;
         mutable ShaderBindingLayoutCache m_CompositeLayout;
+
+        // THE VOXEL LIGHTING (AddVoxelLightingPasses): the volume, its pass, the bricks the frame's composite
+        // rewrote (xyz world brick, w clipmap; written by AddUpdatePasses), whether the frame's update moved an
+        // object, the frame and the lights it was last lit for, and the relight sweep (the next brick of the
+        // windows, in order over every clipmap, and how many are left to cover).
+        std::shared_ptr<Image3D>           m_VoxelLighting;
+        std::shared_ptr<Shader>            m_VoxelLightingShader;
+        std::shared_ptr<ComputePipeline>   m_VoxelLightingPipeline;
+        mutable ShaderBindingLayoutCache   m_VoxelLightingLayout;
+        std::vector<glm::ivec4>            m_FrameBricks;
+        bool                               m_FrameMovedObjects = false;
+        std::optional<uint64_t>            m_VoxelLightingFrame;
+        std::optional<VoxelLightingLights> m_VoxelLightingLights;
+        uint32_t                           m_SweepNext      = 0;
+        uint32_t                           m_SweepRemaining = 0;
 
         // Per-frame copies (one per frame in flight), written by the frame's update only.
         std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBuffer;

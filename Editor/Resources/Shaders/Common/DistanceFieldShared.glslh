@@ -81,4 +81,13 @@ const int   GDF_OBJECT_GRID_RESOLUTION           = 64; // cells per side of a le
 const int   GDF_OBJECT_GRID_SLOTS                = 4;
 const float GDF_OBJECT_GRID_INTERPOLATION_VOXELS = 2.5f;
 
+// THE VOXEL LIGHTING (FPS-GI-VOXEL-LIGHT; UE Lumen's voxel lighting: the scene lit once into a clipmap volume that
+// a global-SDF hit samples instead of lighting itself): per cell of two voxels of every clipmap, the visibility of
+// the two directional lights (r = the sun, g = atmosphere light 1) from the field's surface nearest the cell, one
+// RG8 volume with the levels stacked in Z (GlobalDistanceField.hpp, THE VOXEL LIGHTING;
+// Common/GlobalDistanceFieldVoxelLighting.glslh). Written per update brick (one workgroup of 4^3 cells).
+const int   GDF_VOXEL_LIGHTING_CELL_VOXELS = 2;
+const int   GDF_VOXEL_LIGHTING_RESOLUTION  = 64; // cells per side of a level: GDF_RESOLUTION / CELL_VOXELS
+const int   GDF_VOXEL_LIGHTING_BRICK_CELLS = 4;  // cells per side of an update brick: GDF_UPDATE_BRICK / CELL_VOXELS
+
 #endif

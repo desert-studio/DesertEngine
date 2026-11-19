@@ -200,6 +200,33 @@ vec3 GIHitRadianceMeshField( GIHit hit, vec3 rayDirection )
 // composite and the cards cross over in), as UE's hit lighting reads the directional light's shadow map where it
 // covers the hit and traces only past it. A slot that publishes no cascade (casts none, or a screen-mask sun this
 // frame) chooses none: the march answers, as before.
+// FPS-GI-VOXEL-LIGHT: an includer that defines GI_VOXEL_LIGHTING_BINDING (a free descriptor binding) on a software
+// tracer with cards declares the global field's voxel lighting there (DistanceField::GlobalDistanceField, THE VOXEL
+// LIGHTING; its pass binds it with GlobalIllumination::DeclareVoxelLightingReads), texel-fetched through the
+// PointClampSampler the cards' reads already declare: the global-field march to the light below is then the volume's
+// trilinear read of the same test, lit once per brick instead of per hit and frame (UE: a global-SDF hit samples the
+// voxel lighting). Outside every clipmap's window the march answers.
+#if defined( GI_VOXEL_LIGHTING_BINDING ) && defined( DESERT_GI_TRACER_SOFTWARE ) && \
+     !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+#define GI_HIT_VOXEL_LIGHTING 1
+layout( binding = GI_VOXEL_LIGHTING_BINDING ) uniform texture3D GlobalDistanceFieldVoxelLightingTexture;
+#define GlobalDistanceFieldVoxelLightingTexture sampler3D(GlobalDistanceFieldVoxelLightingTexture, PointClampSampler)
+#define GDF_VOXEL_LIGHTING_READ 1
+#include <Common/GlobalDistanceFieldVoxelLighting.glslh>
+#endif
+
+// The global field's answer for slot @p slot from @p origin towards @p L: the voxel lighting where it holds the
+// point, else the march (GITraceVisibilityGlobalField, up to 1e6 cm).
+float GIHitDirectionalFieldVisibility( int slot, vec3 origin, vec3 L )
+{
+#if defined( GI_HIT_VOXEL_LIGHTING )
+    vec2 voxel;
+    if ( GDFVoxelLightingVisibility( origin, GI_TRACE_GDF_LEVELS, voxel ) )
+        return slot == 0 ? voxel.x : voxel.y;
+#endif
+    return GITraceVisibilityGlobalField( origin, L, 0.0, 1.0e6 );
+}
+
 float GIHitDirectionalVisibility( int slot, vec3 origin, vec3 N, vec3 L )
 {
 #if defined( GI_HIT_DIRECTIONAL_CASCADES )
@@ -210,10 +237,10 @@ float GIHitDirectionalVisibility( int slot, vec3 origin, vec3 N, vec3 L )
         const float band = DistanceFieldShadowHandOver( slot, cascade, origin );
         if ( band <= 0.0 )
             return cascades;
-        return mix( cascades, GITraceVisibilityGlobalField( origin, L, 0.0, 1.0e6 ), band );
+        return mix( cascades, GIHitDirectionalFieldVisibility( slot, origin, L ), band );
     }
 #endif
-    return GITraceVisibilityGlobalField( origin, L, 0.0, 1.0e6 );
+    return GIHitDirectionalFieldVisibility( slot, origin, L );
 }
 
 // The response of the directional light of slot @p slot, travel @p travel (w > 0.5: on) and radiance @p radiance

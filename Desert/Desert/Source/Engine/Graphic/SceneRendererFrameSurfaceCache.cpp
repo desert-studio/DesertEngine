@@ -123,7 +123,9 @@ namespace Desert::Graphic
         GlobalIllumination::TracerFrame tracer{ .Pipeline                      = pipeline,
                                                 .GlobalDistanceField           = t.GlobalDistanceField,
                                                 .GlobalDistanceFieldObjectGrid = t.GlobalDistanceFieldObjectGrid,
-                                                .MeshDistanceFields            = t.MeshDistanceFields };
+                                                .GlobalDistanceFieldVoxelLighting =
+                                                     t.GlobalDistanceFieldVoxelLighting,
+                                                .MeshDistanceFields = t.MeshDistanceFields };
         // The software walk's clipmap and near-field grid placement is its own record ("GITracerSoftwareUB").
         if ( GlobalIllumination::TracerReadsGlobalDistanceField( pipeline ) )
         {

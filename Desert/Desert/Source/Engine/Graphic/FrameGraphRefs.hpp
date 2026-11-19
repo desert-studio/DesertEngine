@@ -205,6 +205,8 @@ namespace Desert::Graphic
         // FrameField::Ceiling -> the GI tracer (null: nothing placed)
         std::shared_ptr<const DistanceField::GlobalDistanceFieldCeiling> GlobalDistanceFieldCeiling;
         RDG::TextureRef                GlobalDistanceFieldObjectGrid; // its object grid (GlobalDistanceField.hpp)
+        // its voxel lighting (GlobalDistanceField.hpp THE VOXEL LIGHTING) -> the GI tracer's global-field hits
+        RDG::TextureRef GlobalDistanceFieldVoxelLighting;
         // The mesh fields it is composited from and the near-field object grid (the same update) -> the GI
         // tracer's near field
         DistanceField::MeshDistanceFieldReads MeshDistanceFields;

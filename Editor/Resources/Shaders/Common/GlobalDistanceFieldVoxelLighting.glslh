@@ -1,0 +1,71 @@
+#ifndef GLOBAL_DISTANCE_FIELD_VOXEL_LIGHTING_GLSLH
+#define GLOBAL_DISTANCE_FIELD_VOXEL_LIGHTING_GLSLH
+
+// THE VOXEL LIGHTING'S ADDRESSING AND READ (FPS-GI-VOXEL-LIGHT; DistanceField::GlobalDistanceField, THE VOXEL
+// LIGHTING): the one statement of where a cell lives, for the writer (DistanceField/GlobalDistanceFieldVoxelLighting
+// .shader) and the readers (Common/GIHitLighting.glslh GIHitDirectionalFieldVisibility).
+//
+// Cells of GDF_VOXEL_LIGHTING_CELL_VOXELS voxels of a clipmap; world cell c of level l is texel (c mod R) of the
+// level's slab, R = GDF_VOXEL_LIGHTING_RESOLUTION, the slabs stacked in Z (texel z + l * R) - toroidal as the clipmap
+// itself, so a scrolled clipmap rewrites only its new bricks. Each texel holds the visibility (0..1) of the sun (r)
+// and atmosphere light 1 (g) from the field's surface nearest the cell's centre, lifted off it by the far field's
+// offset - the point a global-field hit there starts its shadow test from (GIHitRadianceGlobalField).
+
+#include <Common/DistanceFieldShared.glslh>
+
+// The cell size of clipmap @p level of voxel @p voxelSize, cm.
+float GDFVoxelLightingCellSize( float voxelSize )
+{
+    return voxelSize * float( GDF_VOXEL_LIGHTING_CELL_VOXELS );
+}
+
+// The texel of world cell @p cell of clipmap @p level (two's complement & is the toroidal wrap of a power of two).
+ivec3 GDFVoxelLightingTexel( int level, ivec3 cell )
+{
+    const ivec3 wrapped = cell & ivec3( GDF_VOXEL_LIGHTING_RESOLUTION - 1 );
+    return ivec3( wrapped.xy, wrapped.z + level * GDF_VOXEL_LIGHTING_RESOLUTION );
+}
+
+#if defined( GDF_VOXEL_LIGHTING_READ )
+// The includer declared GlobalDistanceFieldVoxelLightingTexture (a sampler3D expression, texel-fetched).
+
+// The finest clipmap whose window holds the trilinear footprint of @p position in its cells (one cell of margin, so
+// no corner wraps onto the far side of the window), or -1 outside all of them.
+int GDFVoxelLightingLevelAt( vec3 position, vec4 levels[GDF_NUM_CLIPMAPS] )
+{
+    for ( int level = 0; level < GDF_NUM_CLIPMAPS; ++level )
+    {
+        const float cell       = GDFVoxelLightingCellSize( levels[level].w );
+        const float halfExtent = levels[level].w * float( GDF_RESOLUTION ) * 0.5 - cell;
+        if ( all( lessThan( abs( position - levels[level].xyz ), vec3( halfExtent ) ) ) )
+            return level;
+    }
+    return -1;
+}
+
+// The directional lights' visibility at @p position (x = the sun, y = atmosphere light 1), trilinear over the eight
+// cells around it in the finest clipmap that holds them; false outside every clipmap (the caller marches instead).
+bool GDFVoxelLightingVisibility( vec3 position, vec4 levels[GDF_NUM_CLIPMAPS], out vec2 visibility )
+{
+    visibility      = vec2( 1.0 );
+    const int level = GDFVoxelLightingLevelAt( position, levels );
+    if ( level < 0 )
+        return false;
+    const vec3  grid = position / GDFVoxelLightingCellSize( levels[level].w ) - 0.5; // cell centres at integers
+    const vec3  base = floor( grid );
+    const vec3  f    = grid - base;
+    const ivec3 c0   = ivec3( base );
+    vec2        sum  = vec2( 0.0 );
+    for ( int corner = 0; corner < 8; ++corner )
+    {
+        const ivec3 o = ivec3( corner & 1, ( corner >> 1 ) & 1, ( corner >> 2 ) & 1 );
+        const vec3  w = mix( 1.0 - f, f, vec3( o ) );
+        sum += w.x * w.y * w.z *
+               texelFetch( GlobalDistanceFieldVoxelLightingTexture, GDFVoxelLightingTexel( level, c0 + o ), 0 ).xy;
+    }
+    visibility = sum;
+    return true;
+}
+#endif
+
+#endif // GLOBAL_DISTANCE_FIELD_VOXEL_LIGHTING_GLSLH

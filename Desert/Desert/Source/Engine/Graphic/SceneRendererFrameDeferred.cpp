@@ -1528,7 +1528,32 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
             return;
         }
-        const DistanceField::GlobalDistanceField::FrameField& fieldFrame = field.GetValue();
+        DistanceField::GlobalDistanceField::FrameField fieldFrame = field.GetValue();
+        // THE VOXEL LIGHTING (FPS-GI-VOXEL-LIGHT): the directional lights as the GI frame record carries them to
+        // GIHitRadianceGlobalField (MakeFrameGIPayload - the one place they are made), so the volume holds the
+        // shadow tests the hits would have made.
+        {
+            const FrameSun                           sun = GetFrameSun();
+            const GlobalIllumination::GIFramePayload gi =
+                 MakeFrameGIPayload( frame, sun.Direction, sun.ColorIntensity, glm::uvec2( 1u ) );
+            const auto towards = []( const glm::vec4& travel, const glm::vec4& radiance )
+            {
+                const bool tested = travel.w > 0.5f && radiance.w > 0.5f;
+                return glm::vec4( -glm::vec3( travel ), tested ? 1.0f : 0.0f );
+            };
+            const DistanceField::GlobalDistanceField::VoxelLightingLights lights{
+                 .Sun    = towards( gi.SunTravel, gi.SunRadiance ),
+                 .Light1 = towards( gi.Light1Travel, gi.Light1Radiance ) };
+            if ( const auto lit = globalField->AddVoxelLightingPasses(
+                      graph, import, fieldFrame, lights,
+                      Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+                 !lit )
+            {
+                LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", lit.GetError() );
+                return;
+            }
+        }
+        textures.Transients.GlobalDistanceFieldVoxelLighting             = fieldFrame.VoxelLighting;
         textures.Transients.GlobalDistanceField           = fieldFrame.Clipmaps;
         textures.Transients.GlobalDistanceFieldLevels     = fieldFrame.Levels;
         textures.Transients.GlobalDistanceFieldOccupiedBox               = fieldFrame.OccupiedBox;
