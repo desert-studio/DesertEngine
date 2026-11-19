@@ -136,6 +136,8 @@ int chooseCascade(int light, vec3 worldPos)
 
 // UE's r.Shadow.MaxSoftKernelSize: the widest the soft kernel may get, in texels of its cascade.
 const float kMaxSoftKernelTexels = 40.0;
+// The fewest filter taps a penumbra gets (sampleCascade's adaptive kernel): a one-texel disc's four bilinear taps.
+const int kMinFilterTaps = 4;
 
 // Bilinear percentage-closer comparison at uv: 1 lit, 0 shadowed. `depth` is the receiver's.
 float shadowCompare2x2(int light, int c, vec2 uv, vec2 size, float depth)
@@ -200,8 +202,17 @@ float sampleCascade(int light, int c, vec3 worldPos, vec3 N, float NdotL)
 		blockerSum   += dot(d, isBlocker);
 		blockerCount += dot(isBlocker, vec4(1.0));
 	}
+	// NO PENUMBRA UNDER THE SEARCH - the filter is skipped (NVIDIA PCSS / UE's directional PCSS early-outs). The
+	// filter's disc never reaches past the search's (penumbraTexels below is searchTexels scaled by
+	// (current - blocker) / current <= 1), and a texel the search counts as a blocker (d < depth - slack - 1e-6) is
+	// one the filter's comparison (d >= depth - slack: lit) counts as shadowed. So:
+	//   none of the 4 * blockerSearchTaps texels blocks -> fully lit (the filter could only return 1);
+	//   all of them block                              -> fully shadowed (the umbra: the filter's taps fall among the
+	//                                                     same occluders and return 0 but for a texel between taps).
 	if (blockerCount < 0.5)
 		return 1.0;
+	if (blockerCount > 4.0 * float(blockerSearchTaps) - 0.5)
+		return 0.0;
 	float blockerDepth = blockerSum / blockerCount;
 
 	// 2. THE PENUMBRA from the occluder-receiver distance, in texels of this cascade. At least one texel: the
@@ -209,14 +220,19 @@ float sampleCascade(int light, int c, vec3 worldPos, vec3 N, float NdotL)
 	float distanceWorld  = max(currentDepth - blockerDepth, 0.0) * depthRange;
 	float penumbraTexels = clamp(tanHalf * distanceWorld / texelWorld, 1.0, kMaxSoftKernelTexels);
 
+	// THE FILTER'S TAPS BY THE PENUMBRA'S AREA (NVIDIA PCSS's adaptive kernel): one bilinear 2x2 tap per texel of
+	// the disc (pi r^2), never fewer than kMinFilterTaps, never more than Shadows.FilterTaps. A contact-hard edge
+	// (r = 1 texel) is resolved by 4 bilinear taps; Shadows.FilterTaps taps on it read the same four texels again.
+	// The wide penumbra - where the taps buy the picture - keeps the full Scalability count.
+	int taps = clamp(int(ceil(3.14159265 * penumbraTexels * penumbraTexels)), min(kMinFilterTaps, filterTaps), filterTaps);
 	float lit = 0.0;
-	for (int i = 0; i < filterTaps; ++i)
+	for (int i = 0; i < taps; ++i)
 	{
-		vec2  offset = shadowVogelDisk(i, filterTaps, phi) * penumbraTexels;
+		vec2  offset = shadowVogelDisk(i, taps, phi) * penumbraTexels;
 		float slack  = length(offset) * texelWorld * tanTheta / depthRange;
 		lit += shadowCompare2x2(light, c, uv + offset * texel, size, currentDepth - slack);
 	}
-	return lit / float(filterTaps);
+	return lit / float(max(taps, 1));
 }
 
 // N = world-space surface normal, L = world-space direction TOWARD the sun (both normalized).
