@@ -94,15 +94,19 @@ namespace Desert::Core::WorldCells
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
     inline constexpr std::uint32_t kWorldFormatVersion =
-         11; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
-            // 6: a cell row states its streaming bounds (WP-FAR-6B 9g); 7: prefab instances expanded at cook
-            // (WP21); 8: a cell row states the height span of what it holds (WP-SRC-ALTITUDE); 9: a unit row states
-            // its runtime data layers, the cell's third coordinate, and a cell or always-loaded composite of runtime
-            // layers has a file of its own, `..._DL<hash>.dwcell` (WP-DATA-LAYERS-RUNTIME); 10: the HLOD cells of a
-            // spatially loaded layer are units of the index (HLODUnits, HLODNodes; WP-FAR-8); 11: the crossing
-            // references are every one Rules::ResolveEntityReferences finds - a script's Entity property ("Script",
-            // "<script key>:<property>") and a reference by name besides the register's - all of them observation,
-            // which residency rebinds (WP-ENTITY-REFS); an index of 10 lacks them, so a runtime would never rebind them
+         12; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
+             // 6: a cell row states its streaming bounds (WP-FAR-6B 9g); 7: prefab instances expanded at cook
+             // (WP21); 8: a cell row states the height span of what it holds (WP-SRC-ALTITUDE); 9: a unit row
+             // states its runtime data layers, the cell's third coordinate, and a cell or always-loaded composite
+             // of runtime layers has a file of its own, `..._DL<hash>.dwcell` (WP-DATA-LAYERS-RUNTIME); 10: the
+             // HLOD cells of a spatially loaded layer are units of the index (HLODUnits, HLODNodes; WP-FAR-8); 11:
+             // the crossing references are every one Rules::ResolveEntityReferences finds - a script's Entity
+             // property ("Script", "<script key>:<property>") and a reference by name besides the register's - all
+             // of them observation, which residency rebinds (WP-ENTITY-REFS); an index of 10 lacks them, so a
+             // runtime would never rebind them; 12: an HLOD record's built mesh is a static mesh asset beside the
+             // cells (`HLODMesh_<hash>.stmesh`, StaticMesh.MeshHandle) instead of an EditMesh inside the cell
+             // (WP-PERF: 80-85 MB landscape cells read ~70 s each at the start of Play); an older HLOD folder is
+             // derived data, so it is rebuilt, not migrated
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -219,7 +223,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexUnit>     HLODUnits;
         std::vector<IndexHLODNode> HLODNodes;
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 11 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 12 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -228,7 +232,7 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
-    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 11 )
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 12 )
     // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
     static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
                    Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );
@@ -471,13 +475,23 @@ namespace Desert::Core::WorldCells
         std::string                SceneName;
         std::vector<BuiltHLODCell> Cells; // cell unit order
     };
-    DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 11 )
+    DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 12 )
     static_assert( Common::Json::FormatOf<BuiltHLODIndex>.Version == kWorldFormatVersion );
 
     // Where BuildWorldHLODs hands each cell's record file (CellPayload, kind WorldCell) the moment the cell is
     // built; the build keeps none, so a world's HLODs never sit in memory all at once (UE builds and saves its
     // HLOD actors cell by cell). An error stops the build by name.
     using BuiltHLODSink = std::function<Common::BoolResultStr( CookedFile file )>;
+
+    // What a build hands its sink (WP-PERF): Encoded = each cell's file, wrapped (a build that saves); Probe = the
+    // file's NAME only, no bytes - a build run only for what its builders gather (the editor's Build HLODs plans
+    // the material bakes with one) encodes nothing it drops. Measured 11-18 on WP_Protocol (Debug): 466 of 499
+    // samples of the probe's worker were rfl::json::write of cell payloads the probe then threw away.
+    enum class HLODFileOutput : std::uint8_t
+    {
+        Encoded,
+        Probe,
+    };
 
     // THE SAVED CONTENT AN HLOD IS BUILT FROM BEYOND ITS RECORDS (UE: UHLODBuilder::ComputeHLODHash reaches the
     // static mesh, its materials and their textures, each by the hash of what was saved - the asset registry's
@@ -536,7 +550,7 @@ namespace Desert::Core::WorldCells
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
                      const Rules::HLODBuilderRegistry& builders, const StoredHLODs* previous,
-                     const BuiltHLODSink& sink );
+                     const BuiltHLODSink& sink, HLODFileOutput output = HLODFileOutput::Encoded );
 
     // `<dir>/<stem>_HLOD/` of the scene file @p scenePath (beside `<stem>_Landscape/`).
     [[nodiscard]] std::filesystem::path BuiltHLODDirectory( const std::filesystem::path& scenePath );

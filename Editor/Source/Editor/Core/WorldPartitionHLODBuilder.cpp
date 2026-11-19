@@ -9,20 +9,27 @@
 #include "WorldPartitionHLODBuilder.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Core/HLODApproximate.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <chrono>
 #include <format>
+#include <set>
 #include <span>
 #include <system_error>
 #include <utility>
@@ -56,6 +63,85 @@ namespace Desert::Editor
             SavedWorld world{ text.GetValue(), scene.ExtractValue(),
                               ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index ) };
             return Common::MakeSuccess( std::move( world ) );
+        }
+
+        // THE HLOD MESH IS A STATIC MESH ASSET BESIDE THE CELLS (WP-PERF; UE: an HLOD actor's component draws the
+        // UStaticMesh its builder saved, never geometry inlined in the actor). Until WP-PERF the built EditMesh
+        // rode inside the cell as JSON numbers: a landscape tile's cell was 80-85 MB and took ~70 s to read and
+        // rebuild at the start of Play (measured 11-18 on WP_Protocol). The record now names
+        // `HLODMesh_<hash>.stmesh`, the binary source asset an import writes, whose render form the loader derives
+        // through the DDC like any static mesh's. Named by the hash of what it stores, so a rebuilt cell whose
+        // mesh did not change writes nothing and keeps the file's GUID. Its slots are unassigned: the record's
+        // MaterialSlots bind the materials (UE OverrideMaterials), so the asset is pure geometry and Plan can
+        // store it before the bakes. One render LOD - the HLOD is itself the far level of what it stands for. A
+        // new file's render form is derived here, into the DDC, so a mesh the loader could not derive is refused
+        // by name instead of becoming a file that draws nothing, and the first Play reads it instead of building
+        // it.
+        Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+        StoreHLODMesh( ::Desert::Assets::StaticMeshComponentSer block, const std::filesystem::path& dir )
+        {
+            using Block = ::Desert::Assets::StaticMeshComponentSer;
+            if ( !block.EditMesh )
+                return Common::MakeSuccess( std::move( block ) );
+            ::Desert::Assets::MeshSourceAsset asset;
+            asset.Kind                      = Common::Content::ContentKind::StaticMesh;
+            asset.Import.Provenance         = ::Desert::Assets::MeshSourceProvenance::Recovered;
+            asset.Import.Settings.LodPolicy = ::Desert::Assets::MeshLodPolicy::None;
+            int slots                       = 1;
+            for ( const int id : block.EditMesh->MaterialIds )
+                slots = std::max( slots, id + 1 );
+            for ( int k = 0; k < slots; ++k )
+                asset.Source.MaterialSlots.push_back(
+                     ::Desert::Assets::MeshMaterialSlot{ std::format( "Slot{}", k ), {} } );
+            asset.Source.Models.push_back( ::Desert::Assets::MeshSourceModel{ std::move( *block.EditMesh ) } );
+            block.EditMesh.reset();
+            const std::filesystem::path file =
+                 dir / std::format( "HLODMesh_{:016x}.stmesh", ::Desert::Assets::MeshSourceHash( asset.Source ) );
+            asset.Name = file.stem().string();
+            std::error_code ec;
+            if ( std::filesystem::exists( file, ec ) )
+            {
+                auto header =
+                     Common::Content::ReadAssetHeader( file, ::Desert::Assets::MeshAssetHeaderReadContext() );
+                if ( !header )
+                    return Common::MakeError<Block>(
+                         std::format( "HLOD mesh '{}': {}", file.generic_string(), header.GetError() ) );
+                asset.Guid = header.GetValue().Guid;
+                ::Desert::Assets::ContentRegistry::NoteFile( file );
+            }
+            else
+            {
+                asset.Guid = Common::Content::AssetGuid::Generate();
+                std::filesystem::create_directories( dir, ec );
+                if ( auto written = ::Desert::Assets::WriteMeshSourceAssetFile( file, asset ); !written )
+                    return Common::MakeError<Block>( std::format( "HLOD mesh '{}' could not be written: {}",
+                                                                  file.generic_string(), written.GetError() ) );
+                ::Desert::Assets::ContentRegistry::NoteFile( file );
+                if ( auto render = ::Desert::Assets::LoadMeshPlatformData( file ); !render )
+                    return Common::MakeError<Block>( std::format( "HLOD mesh '{}' has no render form: {}",
+                                                                  file.generic_string(), render.GetError() ) );
+            }
+            const auto form = ::Desert::Core::Serialize::StoredFormFor( "StaticMeshAsset" );
+            if ( !form )
+                return Common::MakeError<Block>(
+                     "the static mesh reference has no stored form (StoredAssetForm.cpp)" );
+            block.MeshHandle =
+                 ::Desert::Assets::AssetGuidRef{ Common::Content::AssetGuidToText( asset.Guid ),
+                                                 ::Desert::Core::Serialize::RenderStoredForm(
+                                                      *form, Common::AssetHandle::StableKeyForPath( file ) ) };
+            return Common::MakeSuccess( std::move( block ) );
+        }
+
+        // A landscape HLOD's geometry is a function of its tile and of the distance it is first drawn from
+        // (BuildLandscapeHLODMesh sizes it by MinVisibleDistance): the key Plan stores it under and Finish asks
+        // by.
+        std::optional<std::pair<std::uint64_t, float>>
+        LandscapeShellKey( const ::Desert::Core::Rules::LandscapeHLODRequest& request )
+        {
+            if ( request.Tile >= request.Records.size() || !request.Records[request.Tile].id )
+                return std::nullopt;
+            return std::pair{ static_cast<std::uint64_t>( *request.Records[request.Tile].id ),
+                              request.MinVisibleDistance };
         }
 
         bool HasSavedIndex( const std::filesystem::path& scenePath )
@@ -164,9 +250,16 @@ namespace Desert::Editor
         // source.
         ::Desert::Core::Rules::HLODBuilderRegistry  builders = ::Desert::Core::HLODBuilders();
         std::vector<LandscapeHLODBakeTile>          areas;
+        const std::filesystem::path                 dir = WC::BuiltHLODDirectory( m_ScenePath );
+        m_LandscapeShells.clear();
+        // Each tile's mesh is stored the moment it is built (StoreHLODMesh) and kept by its key for Finish.
         ::Desert::Core::Rules::LandscapeHLODBuilder collect =
              [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
         {
+            const auto key = LandscapeShellKey( request );
+            if ( const auto shell = key ? m_LandscapeShells.find( *key ) : m_LandscapeShells.end();
+                 shell != m_LandscapeShells.end() )
+                return Common::MakeSuccess( shell->second );
             auto area = ::Desert::Core::LandscapeHLODTileAreaOf( request );
             if ( !area )
                 return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( area.GetError() );
@@ -178,15 +271,19 @@ namespace Desert::Editor
                                                 return static_cast<uint64_t>( seen.Area.Tile ) ==
                                                        static_cast<uint64_t>( area.GetValue().Tile );
                                             } );
-            if ( known )
-                return mesh;
-            // The bake states the normal map in the tangent frame of this very mesh.
-            if ( !mesh.GetValue().EditMesh )
-                return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>(
-                     std::format( "the landscape HLOD of tile {} carries no mesh",
-                                  static_cast<uint64_t>( area.GetValue().Tile ) ) );
-            areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
-            return mesh;
+            if ( !known )
+            {
+                // The bake states the normal map in the tangent frame of this very mesh.
+                if ( !mesh.GetValue().EditMesh )
+                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>(
+                         std::format( "the landscape HLOD of tile {} carries no mesh",
+                                      static_cast<uint64_t>( area.GetValue().Tile ) ) );
+                areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
+            }
+            auto stored = StoreHLODMesh( mesh.ExtractValue(), dir );
+            if ( stored && key )
+                m_LandscapeShells.emplace( *key, stored.GetValue() );
+            return stored;
         };
         builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( collect ) );
         // Every mesh HLOD whose builder merges materials, built once with its bake source (BuildHLODMeshForBake);
@@ -253,16 +350,17 @@ namespace Desert::Editor
         // meshes are not built for it (no spline builder: they stay named holes in the dropped files).
         ::Desert::Core::Rules::HLODBuilderRegistry probeBuilders = builders;
         probeBuilders.SetLandscapeSplineBuilder( nullptr );
-        if ( auto probe =
-                  WC::BuildWorldHLODs( world.Loadable.Scene, world.Descriptors, registries, WC::PrefabFileReader(),
-                                       probeBuilders, previous ? &*previous : nullptr,
-                                       [this]( WC::CookedFile ) -> Common::BoolResultStr
-                                       {
-                                           if ( m_Cancel )
-                                               return Common::MakeError( "the build was cancelled" );
-                                           ++m_CellsDone;
-                                           return BOOLSUCCESS;
-                                       } );
+        if ( auto probe = WC::BuildWorldHLODs(
+                  world.Loadable.Scene, world.Descriptors, registries, WC::PrefabFileReader(), probeBuilders,
+                  previous ? &*previous : nullptr,
+                  [this]( WC::CookedFile ) -> Common::BoolResultStr
+                  {
+                      if ( m_Cancel )
+                          return Common::MakeError( "the build was cancelled" );
+                      ++m_CellsDone;
+                      return BOOLSUCCESS;
+                  },
+                  WC::HLODFileOutput::Probe );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );
         auto plan = std::make_unique<Planned>();
@@ -400,32 +498,44 @@ namespace Desert::Editor
         const std::optional<WC::StoredHLODs>       previous   = PreviousBuild( m_ScenePath, m_Options );
         const auto                                 registries = Registries();
         ::Desert::Core::Rules::HLODBuilderRegistry builders   = ::Desert::Core::HLODBuilders();
+        const std::filesystem::path                dir        = WC::BuiltHLODDirectory( m_ScenePath );
         // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The slot
-        // does not enter HLODBuildChecksum (it hashes the member records), so binding changes no staleness.
+        // does not enter HLODBuildChecksum (it hashes the member records), so binding changes no staleness. The
+        // mesh is the one Plan built and stored (m_LandscapeShells), built here only for a tile Plan did not see.
         ::Desert::Core::Rules::LandscapeHLODBuilder landscape =
              [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
         {
-            auto mesh = ::Desert::Core::BuildLandscapeHLODMesh( request );
-            if ( !mesh )
-                return mesh;
+            ::Desert::Assets::StaticMeshComponentSer block;
+            const auto                               key = LandscapeShellKey( request );
+            if ( const auto shell = key ? m_LandscapeShells.find( *key ) : m_LandscapeShells.end();
+                 shell != m_LandscapeShells.end() )
+                block = shell->second;
+            else
+            {
+                auto mesh = ::Desert::Core::BuildLandscapeHLODMesh( request );
+                if ( !mesh )
+                    return mesh;
+                auto stored = StoreHLODMesh( mesh.ExtractValue(), dir );
+                if ( !stored )
+                    return stored;
+                block = stored.ExtractValue();
+            }
             const auto& id = request.Records[request.Tile].id;
             for ( const LandscapeHLODBaked& tile : baked )
                 if ( id && static_cast<uint64_t>( tile.Tile ) == static_cast<uint64_t>( *id ) )
                 {
-                    ::Desert::Assets::StaticMeshComponentSer block = mesh.GetValue();
-                    block.MaterialSlots                            = std::vector<::Desert::Assets::AssetGuidRef>{
+                    block.MaterialSlots = std::vector<::Desert::Assets::AssetGuidRef>{
                          ::Desert::Assets::AssetGuidRef{ tile.MaterialGuid, tile.MaterialPath } };
-                    return Common::MakeSuccess( std::move( block ) );
+                    break;
                 }
-            return mesh;
+            return Common::MakeSuccess( std::move( block ) );
         };
         builders.SetLandscapeBuilder( std::make_shared<::Desert::Core::Rules::HLODBuilderLandscape>( landscape ) );
         // Each merged-material mesh HLOD is the very mesh its bake was made for, bound to the material the bake
         // wrote (UE FMeshMergingSettings::bMergeMaterials). Each approximated cell's shell - Plan's, by its key
         // (wrapped again only if Start did not see it) - bound to the one material its capture wrote. One that was
         // not baked is refused by name: drawn without its material it would stand in grey.
-        const ::Desert::Core::Rules::HLODMeshBuilder mesh =
-             [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
+        const auto geometry = [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
              -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
         {
             using Block = ::Desert::Assets::StaticMeshComponentSer;
@@ -465,10 +575,36 @@ namespace Desert::Editor
                  "run Build HLODs again",
                  key ) );
         };
+        // Every built mesh - merged, simplified, approximated, a landscape spline's - is stored as its asset.
+        const ::Desert::Core::Rules::HLODMeshBuilder mesh =
+             [&]( const ::Desert::Core::Rules::HLODMeshRequest& request )
+             -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+        {
+            auto built = geometry( request );
+            if ( !built )
+                return built;
+            return StoreHLODMesh( built.ExtractValue(), dir );
+        };
         builders.SetMeshGeometry( mesh );
+        const ::Desert::Core::Rules::LandscapeSplineHLODGeometry splines =
+             [&]( const ::Desert::Core::Rules::LandscapeSplineHLODRequest& request,
+                  std::span<const Common::Utils::AssetRegistry>            from )
+             -> Common::ResultStr<std::optional<::Desert::Assets::StaticMeshComponentSer>>
+        {
+            using Built = std::optional<::Desert::Assets::StaticMeshComponentSer>;
+            auto built  = ::Desert::Core::BuildLandscapeSplineHLODMesh( request, from );
+            if ( !built || !built.GetValue().has_value() )
+                return built;
+            Built spline = built.ExtractValue();
+            auto  stored = StoreHLODMesh( std::move( *spline ), dir );
+            if ( !stored )
+                return Common::MakeError<Built>( stored.GetError() );
+            return Common::MakeSuccess( Built( stored.ExtractValue() ) );
+        };
+        builders.SetLandscapeSplineBuilder(
+             std::make_shared<::Desert::Core::Rules::HLODBuilderLandscapeSplines>( splines ) );
         // Each cell's file is written the moment it is built and freed with it (UE builds and saves its HLOD
         // actors cell by cell), so the world's HLODs are never in memory at once. A kept row's file stays.
-        const std::filesystem::path dir    = WC::BuiltHLODDirectory( m_ScenePath );
         const WC::BuiltHLODSink     writer = WC::BuiltHLODWriter( m_ScenePath );
         std::size_t                 bytes  = 0;
         std::size_t                 files  = 0;
@@ -494,13 +630,51 @@ namespace Desert::Editor
         auto stored = WC::ReadBuiltHLODs( m_ScenePath );
         if ( !stored )
             return Common::MakeError( "Build HLODs: " + stored.GetError() );
-        std::size_t records = 0;
+        std::size_t           records = 0;
+        std::set<std::string> meshes; // every HLOD mesh a saved cell names (MeshHandle.Path)
         for ( const WC::BuiltHLODCell& cell : stored.GetValue().Index.Cells )
         {
             auto cellRecords = WC::StoredCellRecords( stored.GetValue(), cell );
             if ( !cellRecords )
                 return Common::MakeError( "Build HLODs: read back: " + cellRecords.GetError() );
             records += cellRecords.GetValue().size();
+            for ( const ::Desert::Assets::EntityData& record : cellRecords.GetValue() )
+                for ( const auto& [component, value] : record.Components )
+                {
+                    if ( component != "StaticMesh" )
+                        continue;
+                    auto block = Common::Json::Read<::Desert::Assets::StaticMeshComponentSer>(
+                         Common::Json::Write( value ) );
+                    if ( !block )
+                        return Common::MakeError(
+                             std::format( "Build HLODs: read back {}: {}", cell.Unit, block.GetError() ) );
+                    if ( block.GetValue().MeshHandle )
+                        meshes.insert( block.GetValue().MeshHandle->Path );
+                }
+        }
+        // A mesh no saved cell names any more is the old geometry of a rebuilt cell: deleted with its registry row
+        // (UE deletes the HLOD packages a build no longer produces), so the folder holds what the index draws.
+        std::size_t removed = 0;
+        {
+            const auto form = ::Desert::Core::Serialize::StoredFormFor( "StaticMeshAsset" );
+            if ( !form )
+                return Common::MakeError( "the static mesh reference has no stored form (StoredAssetForm.cpp)" );
+            std::error_code ec;
+            for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
+            {
+                const std::filesystem::path& file = entry.path();
+                if ( file.extension() != ".stmesh" || !file.stem().string().starts_with( "HLODMesh_" ) ||
+                     meshes.contains( ::Desert::Core::Serialize::RenderStoredForm(
+                          *form, Common::AssetHandle::StableKeyForPath( file ) ) ) )
+                    continue;
+                std::error_code removeError;
+                if ( !std::filesystem::remove( file, removeError ) )
+                    return Common::MakeError(
+                         std::format( "Build HLODs: the unused HLOD mesh '{}' was not removed: {}",
+                                      file.generic_string(), removeError.message() ) );
+                ::Desert::Assets::ContentRegistry::Update( file );
+                ++removed;
+            }
         }
         // Against the world the build cut: prefab instances expanded as the cook expands them (WP21).
         auto cut = WC::ExpandWorldForCook( world.Loadable.Scene, world.Descriptors, WC::PrefabFileReader() );
@@ -514,6 +688,8 @@ namespace Desert::Editor
             LOG_ERROR( "[Build HLODs] {0}: the HLOD read back is stale", unit );
         for ( const std::string& unit : result.Built )
             LOG_INFO( "[Build HLODs] built {0}", unit );
+        LOG_INFO( "[Build HLODs] '{0}': {1} HLOD mesh asset(s) named by the cells, {2} unused one(s) removed",
+                  m_ScenePath.stem().string(), meshes.size(), removed );
         LOG_INFO(
              "[Build HLODs] '{0}': built {1} of {2} HLOD cells ({3}); {4} file(s), {5} bytes written, {6} HLOD "
              "record(s) in {7}; read back: {8} stale cell(s)",

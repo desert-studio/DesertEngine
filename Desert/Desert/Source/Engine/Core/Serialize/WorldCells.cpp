@@ -1719,13 +1719,13 @@ namespace Desert::Core::WorldCells
     BuildPlannedHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                        std::span<const Common::Utils::AssetRegistry> registries,
                        const Rules::HLODBuilderRegistry& builders, const StoredHLODs* previous,
-                       const BuiltHLODSink& sink );
+                       const BuiltHLODSink& sink, HLODFileOutput output );
 
     Common::ResultStr<HLODBuild>
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
                      const Rules::HLODBuilderRegistry& builders, const StoredHLODs* previous,
-                     const BuiltHLODSink& sink )
+                     const BuiltHLODSink& sink, const HLODFileOutput output )
     {
         // The HLODs are built from the world the cook cuts: every prefab instance expanded the same way, by the
         // same function, so a cook finds them fresh (StaleHLODCells over the expanded records).
@@ -1733,14 +1733,14 @@ namespace Desert::Core::WorldCells
         if ( !expanded )
             return Common::MakeError<HLODBuild>( expanded.GetError() );
         return BuildPlannedHLODs( expanded.GetValue().World.Scene, expanded.GetValue().Descriptors, registries,
-                                  builders, previous, sink );
+                                  builders, previous, sink, output );
     }
 
     static Common::ResultStr<HLODBuild>
     BuildPlannedHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                        std::span<const Common::Utils::AssetRegistry> registries,
                        const Rules::HLODBuilderRegistry& builders, const StoredHLODs* previous,
-                       const BuiltHLODSink& sink )
+                       const BuiltHLODSink& sink, const HLODFileOutput output )
     {
         using Result = HLODBuild;
         auto planned = PlanHLODs( scene, descriptors, registries );
@@ -1849,11 +1849,18 @@ namespace Desert::Core::WorldCells
             for ( const std::size_t member : members )
                 if ( sources.contains( static_cast<std::uint64_t>( *records[member].id ) ) )
                     row.Sources.push_back( static_cast<std::uint64_t>( *records[member].id ) );
-            auto wrapped =
-                 Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, Common::Json::Write( payload ) );
-            if ( !wrapped )
-                return Common::MakeError( wrapped.GetError() );
-            if ( auto sunk = sink( CookedFile{ name, wrapped.ExtractValue() } ); !sunk )
+            // A probe's sink gets the name alone: the payload is not encoded for a file nobody keeps
+            // (HLODFileOutput).
+            CookedFile file{ name, {} };
+            if ( output == HLODFileOutput::Encoded )
+            {
+                auto wrapped =
+                     Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, Common::Json::Write( payload ) );
+                if ( !wrapped )
+                    return Common::MakeError( wrapped.GetError() );
+                file = CookedFile{ name, wrapped.ExtractValue() };
+            }
+            if ( auto sunk = sink( std::move( file ) ); !sunk )
                 return Common::MakeError( "'" + scene.SceneName + "', " + row.Unit + ": " + sunk.GetError() );
             row.File = name;
             return BOOLSUCCESS;
