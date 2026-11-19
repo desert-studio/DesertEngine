@@ -769,7 +769,9 @@ Shader "ScreenProbeIntegrate"
             vec3       specular = vec3( 0.0 );
             vec3       backface = vec3( 0.0 );
             vec3       cacheSpecular;
-            const vec4 cache = RadianceCacheIrradianceAtImpl( p, n, v, r, 0.5, true, cacheSpecular );
+            // From roughness MaxRoughnessToEvaluateRoughSpecular up (diffuseLerp 1) the specular IS the irradiance
+            // (the mix below returns `diffuse` exactly): such a pixel skips the cache's eight reads about R.
+            const vec4 cache = RadianceCacheIrradianceAtImpl( p, n, v, r, 0.5, diffuseLerp < 1.0, cacheSpecular );
             if ( cache.a > 0.0 )
             {
                 // The cache answers the mirror direction only: UE's lerp toward the irradiance holds here too.

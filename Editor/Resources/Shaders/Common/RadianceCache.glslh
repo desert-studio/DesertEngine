@@ -300,8 +300,11 @@ vec4 RadianceCacheIrradianceAtImpl( vec3 p, vec3 N, vec3 V, vec3 R, float dither
         w *= RadianceCacheProbeVisibility( probe, probePos, biased, momentRange );
         w = max( w, 1e-6 );
         const vec3 irradiance = RadianceCacheSampleProbeIrradiance( probe, N );
-        // @p second is a constant at every call site: the branch folds away.
-        const vec3 irradianceAboutR = second ? RadianceCacheSampleProbeIrradiance( probe, R ) : vec3( 0.0 );
+        // @p second: a constant (the branch folds away), or the screen probes' uncovered pixel's own (a pixel whose
+        // rough specular is all irradiance skips the eight reads about R; FPS-SP-CHAIN).
+        vec3 irradianceAboutR = vec3( 0.0 );
+        if ( second )
+            irradianceAboutR = RadianceCacheSampleProbeIrradiance( probe, R );
         if ( used )
         {
             sum    += w * irradiance;
