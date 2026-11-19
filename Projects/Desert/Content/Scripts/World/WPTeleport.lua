@@ -6,7 +6,7 @@ local P = vector.create( 70000, 0, 0 )
 local query = { Location = P, Radius = 5000 }
 
 function OnStart()
-    World.find( "WPTeleportTarget" ):component( "StreamingSource" ).Data.Enabled = true
+    World.find( "WPTeleportTarget" ):component( "StreamingSource" ).Enabled = true
     print( "pending before the first tick: " .. WorldPartition.streamingPending( query, "Activated" ) )
     coroutine.wrap( function()
         -- The yielding wait: the coroutine sleeps until the destination streamed.
@@ -21,7 +21,7 @@ function OnStart()
             ground = hit.Location + vector.create( 0, 200, 0 )
         end
         gameMode.pawn():setPosition( ground )
-        World.find( "WPTeleportTarget" ):component( "StreamingSource" ).Data.Enabled = false
+        World.find( "WPTeleportTarget" ):component( "StreamingSource" ).Enabled = false
         for _, line in WorldPartition.cellStatesAt( P ) do
             print( line )
         end
