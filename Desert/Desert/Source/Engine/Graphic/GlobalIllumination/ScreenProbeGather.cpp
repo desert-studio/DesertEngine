@@ -19,6 +19,7 @@
 #include <Common/Core/Math/Rounding.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -536,6 +537,50 @@ namespace Desert::Graphic::GlobalIllumination
         }
         slot = RDG::ExternalBuffer{};
         graph.Extract( counts, slot, RDG::Access::HostRead );
+    }
+
+    void ScreenProbeCensusCounts::AddFrame( RDG::Builder& graph, const uint64_t frameIndex, const Frame& frame,
+                                            const RDG::BufferRef placedArgs, const RDG::BufferRef integrateArgs,
+                                            const RDG::BufferRef uncoveredArgs )
+    {
+        const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
+        if ( m_Slots.size() != slots )
+        {
+            m_Slots.clear();
+            m_Slots.resize( slots );
+        }
+        Slot& slot = m_Slots[static_cast<std::size_t>( frameIndex % slots )];
+        // The words this slot was handed slots-in-flight frames ago: its fence has passed.
+        if ( slot.PlacedArgs.Physical && slot.IntegrateArgs.Physical && slot.UncoveredArgs.Physical )
+        {
+            std::array<uint32_t, 4>          placed{};
+            std::array<uint32_t, 8>          integrate{};
+            std::array<uint32_t, 4>          uncovered{};
+            const std::span<const std::byte> placedBytes    = slot.PlacedArgs.Physical->ReadForHost();
+            const std::span<const std::byte> integrateBytes = slot.IntegrateArgs.Physical->ReadForHost();
+            const std::span<const std::byte> uncoveredBytes = slot.UncoveredArgs.Physical->ReadForHost();
+            if ( placedBytes.size() >= sizeof( placed ) && integrateBytes.size() >= sizeof( integrate ) &&
+                 uncoveredBytes.size() >= sizeof( uncovered ) )
+            {
+                std::memcpy( placed.data(), placedBytes.data(), sizeof( placed ) );
+                std::memcpy( integrate.data(), integrateBytes.data(), sizeof( integrate ) );
+                std::memcpy( uncovered.data(), uncoveredBytes.data(), sizeof( uncovered ) );
+                m_Last.UniformProbes  = slot.Host.UniformProbes;
+                m_Last.AdaptiveBudget = slot.Host.AdaptiveBudget;
+                m_Last.Tiles          = slot.Host.Tiles;
+                m_Last.AdaptiveWanted = placed[3];
+                m_Last.AdaptivePlaced =
+                     placed[0] > slot.Host.UniformProbes ? placed[0] - slot.Host.UniformProbes : 0u;
+                m_Last.SimpleTiles    = integrate[3];
+                m_Last.FullTiles      = integrate[7];
+                m_Last.UncoveredTiles = uncovered[3];
+                m_Last.Valid          = true;
+            }
+        }
+        slot = Slot{ .Host = frame };
+        graph.Extract( placedArgs, slot.PlacedArgs, RDG::Access::HostRead );
+        graph.Extract( integrateArgs, slot.IntegrateArgs, RDG::Access::HostRead );
+        graph.Extract( uncoveredArgs, slot.UncoveredArgs, RDG::Access::HostRead );
     }
 #endif
 
@@ -1520,6 +1565,14 @@ namespace Desert::Graphic::GlobalIllumination
                      return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
                  } );
         }
+#if DESERT_DEV_INSTRUMENTS
+        // FPS-SP-INTEGRATE: the placement's and the integrate's census, after the last pass that writes its words.
+        m_Census.AddFrame( graph, m_FrameIndex,
+                           ScreenProbeCensusCounts::Frame{ .UniformProbes  = layout.UniformProbes,
+                                                           .AdaptiveBudget = layout.AdaptiveProbes,
+                                                           .Tiles = static_cast<uint32_t>( integrateTileCount ) },
+                           placedArgs, integrateArgs, uncoveredArgs );
+#endif
 
         if ( !inputs.Denoise )
             return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse      = diffuse,

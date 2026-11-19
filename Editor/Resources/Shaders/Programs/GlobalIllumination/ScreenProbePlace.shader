@@ -51,7 +51,7 @@ Shader "ScreenProbePlace"
         // FPS-SP-CHAIN-2 (UE ScreenProbeIndirectArgs): the dispatch of every one-group-a-probe pass (the screen
         // trace, the spatial filter, the filter; ScreenProbeGather.cpp ScreenProbes.PlacedArgs) - x = the uniform
         // probes plus the adaptive ones placed within the budget. Level 0 resets it to the uniform grid, each
-        // adaptive probe raises it past its own id.
+        // adaptive probe raises it past its own id; w counts the adaptive probes wanted (the census).
         Buffer(8) ScreenProbePlacedArgsUB
         {
             uvec4 screenProbePlacedArgs;
@@ -120,6 +120,9 @@ Shader "ScreenProbePlace"
             if ( dot( weights, vec4( 1.0 ) ) >= SP_ADAPTIVE_EPSILON )
                 return;
             const uint k = atomicAdd( screenProbeIndex[0], 1u );
+            // w: the adaptive probes wanted, the budget's refusals included - the census of the dev counters
+            // (ScreenProbeGather.cpp ScreenProbeCensusCounts); no dispatch reads w.
+            atomicMax( screenProbePlacedArgs.w, k + 1u );
             if ( k >= screenProbeParams.grid.w )
                 return; // the budget is spent: the integrate reads the world radiance cache here
             const uint id    = screenProbeParams.grid.z + k;

@@ -361,6 +361,51 @@ namespace Desert::Graphic::GlobalIllumination
         std::vector<RDG::ExternalBuffer> m_Slots;
         ScreenProbeMissReasons           m_Last;
     };
+
+    // FPS-SP-INTEGRATE: one frame's census of the gather - the probes placed against the budget and the integrate's
+    // tiles by kind - read back through frame-in-flight slots as ScreenProbeMissCounts does (the profile dump's line).
+    struct ScreenProbeCensus
+    {
+        uint32_t UniformProbes  = 0; // the uniform grid (layout)
+        uint32_t AdaptiveBudget = 0; // the adaptive probes the layout holds
+        uint32_t AdaptiveWanted = 0; // the adaptive probes the placement wanted (ScreenProbes.PlacedArgs.w)
+        uint32_t AdaptivePlaced = 0; // of them placed within the budget (PlacedArgs.x - the uniform grid)
+        uint32_t Tiles          = 0; // the integrate's 8x8 tiles
+        uint32_t SimpleTiles    = 0; // integrated by the simple-diffuse permutation (IntegrateArgs[3])
+        uint32_t FullTiles      = 0; // by the full one (IntegrateArgs[7])
+        uint32_t UncoveredTiles = 0; // holding a pixel no probe holds (IntegrateUncoveredArgs[3])
+        bool     Valid          = false; // a frame's words have come back
+    };
+
+    class ScreenProbeCensusCounts
+    {
+    public:
+        // The host's side of this frame's census (the layout's counts, the tiles).
+        struct Frame
+        {
+            uint32_t UniformProbes  = 0;
+            uint32_t AdaptiveBudget = 0;
+            uint32_t Tiles          = 0;
+        };
+        // Reads the slot of @p frameIndex, then hands it this frame's buffers (extracted for the host).
+        void AddFrame( RDG::Builder& graph, uint64_t frameIndex, const Frame& frame, RDG::BufferRef placedArgs,
+                       RDG::BufferRef integrateArgs, RDG::BufferRef uncoveredArgs );
+        [[nodiscard]] const ScreenProbeCensus& Last() const
+        {
+            return m_Last;
+        }
+
+    private:
+        struct Slot
+        {
+            RDG::ExternalBuffer PlacedArgs;
+            RDG::ExternalBuffer IntegrateArgs;
+            RDG::ExternalBuffer UncoveredArgs;
+            Frame               Host;
+        };
+        std::vector<Slot> m_Slots;
+        ScreenProbeCensus m_Last;
+    };
 #endif
 
     class ScreenProbeGather
@@ -410,6 +455,11 @@ namespace Desert::Graphic::GlobalIllumination
         [[nodiscard]] const ScreenProbeMissReasons& LastMissReasons() const
         {
             return m_MissCounts.Last();
+        }
+        // The placement's and the integrate's census, frames in flight late (the profile dump's line).
+        [[nodiscard]] const ScreenProbeCensus& LastCensus() const
+        {
+            return m_Census.Last();
         }
 #endif
 
@@ -484,7 +534,8 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t                                m_ImageTracedTexels = 0;
         uint32_t                                m_FrameIndex = 0;
 #if DESERT_DEV_INSTRUMENTS
-        ScreenProbeMissCounts m_MissCounts;
+        ScreenProbeMissCounts   m_MissCounts;
+        ScreenProbeCensusCounts m_Census;
 #endif
     };
 } // namespace Desert::Graphic::GlobalIllumination

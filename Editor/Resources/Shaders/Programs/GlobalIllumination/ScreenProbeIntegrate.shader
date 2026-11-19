@@ -290,6 +290,17 @@ Shader "ScreenProbeIntegrate"
         shared vec4 s_NbPosition[SP_NB_ENTRIES];
         shared vec4 s_NbNormal[SP_NB_ENTRIES];
         shared uint s_NbCount[SP_NB_COUNTS];
+        // THE UNIFORM PROBES' PAYLOAD, LOADED ONCE (FPS-SP-INTEGRATE, UE ScreenProbeIntegrateCS's tile): every pixel
+        // of the tile read its held probes' seven packed SH vec4, backface and moving share from the buffers (36
+        // loads a pixel at four probes). The uniform probes - every corner a uniform probe answers, all of them off
+        // the foliage - are the neighbourhood's 3x3, loaded here by one thread a word (SP_NB_PAYLOAD_WORDS a tile:
+        // the SH, then backface, then moving) and read from shared memory; a corner an adaptive probe answers
+        // reads the buffers as before (its 135 slots' payload would be 19 KB a group, a quarter of the occupancy).
+        // The same values in the same sums: the picture is unchanged. 1.2 KB.
+        #define SP_NB_PAYLOAD_WORDS ( SP_SH_PACKED_VEC4 + 2u )
+        shared vec4  s_NbUniformSH[uint( SP_NB_TILES ) * SP_SH_PACKED_VEC4];
+        shared vec4  s_NbUniformBackface[SP_NB_TILES];
+        shared float s_NbUniformMoving[SP_NB_TILES];
         // The neighbourhood's first uniform tile (SPNeighbourhoodBase): the same for every thread of the group.
         ivec2 g_NbBase;
 
@@ -461,6 +472,23 @@ Shader "ScreenProbeIntegrate"
                 s_NbPosition[e] = position;
                 s_NbNormal[e]   = normal;
             }
+            for ( uint e = gl_LocalInvocationIndex; e < uint( SP_NB_TILES ) * SP_NB_PAYLOAD_WORDS;
+                  e += SP_INTEGRATE_GROUP_THREADS )
+            {
+                const uint  local = e / SP_NB_PAYLOAD_WORDS;
+                const uint  word  = e % SP_NB_PAYLOAD_WORDS;
+                const ivec2 tile  = g_NbBase + ivec2( int( local ) % SP_NB_SIDE, int( local ) / SP_NB_SIDE );
+                // The slot-0 id of the loop above (the same SPUniformProbeAt), read again: a word's thread is not
+                // its entry's, and the entries are published by the same barrier as these words.
+                const uint id = SPUniformProbeAt( tile );
+                if ( word < SP_SH_PACKED_VEC4 )
+                    s_NbUniformSH[local * SP_SH_PACKED_VEC4 + word] =
+                         id != SP_INVALID ? screenProbeSH[id * SP_SH_PACKED_VEC4 + word] : vec4( 0.0 );
+                else if ( word == SP_SH_PACKED_VEC4 )
+                    s_NbUniformBackface[local] = id != SP_INVALID ? screenProbeBackface[id] : vec4( 0.0 );
+                else
+                    s_NbUniformMoving[local] = id != SP_INVALID ? screenProbeMoving[id] : 0.0;
+            }
         }
 #endif
 
@@ -544,16 +572,52 @@ Shader "ScreenProbeIntegrate"
         // order as nine per-coefficient evaluations. Each probe's irradiance is clamped before the blend, as before:
         // UE blends the coefficients and clamps once, the same multiply-adds for 27 more live registers, and a
         // probe ringing below zero would then pull its neighbours down.
-        vec3 ProbeIrradiance( uint probe, float basis[9] )
+        // A HELD PROBE (SPInterpolateSlots): its id, and where the tile's neighbourhood holds it - the uniform
+        // probe's neighbourhood tile (SP_INVALID: an adaptive probe, its payload read from the buffers) and its
+        // entry (s_NbNormal; SP_INVALID without a neighbourhood).
+        struct SPHeld
         {
-            const uint base = probe * SP_SH_PACKED_VEC4;
-            const vec4 s0   = screenProbeSH[base];
-            const vec4 s1   = screenProbeSH[base + 1u];
-            const vec4 s2   = screenProbeSH[base + 2u];
-            const vec4 s3   = screenProbeSH[base + 3u];
-            const vec4 s4   = screenProbeSH[base + 4u];
-            const vec4 s5   = screenProbeSH[base + 5u];
-            const vec4 s6   = screenProbeSH[base + 6u];
+            uint id;
+            uint nbTile;
+            uint entry;
+        };
+
+        vec4 SPHeldSH( SPHeld held, uint word )
+        {
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+            if ( held.nbTile != SP_INVALID )
+                return s_NbUniformSH[held.nbTile * SP_SH_PACKED_VEC4 + word];
+#endif
+            return screenProbeSH[held.id * SP_SH_PACKED_VEC4 + word];
+        }
+
+        vec4 SPHeldBackface( SPHeld held )
+        {
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+            if ( held.nbTile != SP_INVALID )
+                return s_NbUniformBackface[held.nbTile];
+#endif
+            return screenProbeBackface[held.id];
+        }
+
+        float SPHeldMoving( SPHeld held )
+        {
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+            if ( held.nbTile != SP_INVALID )
+                return s_NbUniformMoving[held.nbTile];
+#endif
+            return screenProbeMoving[held.id];
+        }
+
+        vec3 ProbeIrradiance( SPHeld held, float basis[9] )
+        {
+            const vec4 s0 = SPHeldSH( held, 0u );
+            const vec4 s1 = SPHeldSH( held, 1u );
+            const vec4 s2 = SPHeldSH( held, 2u );
+            const vec4 s3 = SPHeldSH( held, 3u );
+            const vec4 s4 = SPHeldSH( held, 4u );
+            const vec4 s5 = SPHeldSH( held, 5u );
+            const vec4 s6 = SPHeldSH( held, 6u );
             vec3       e    = s0.xyz * basis[0];
             e += vec3( s0.w, s1.xy ) * basis[1];
             e += vec3( s1.zw, s2.x ) * basis[2];
@@ -567,10 +631,17 @@ Shader "ScreenProbeIntegrate"
         }
 
 #if !defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
-        vec3 ProbeRadiance( uint probe, vec3 direction )
+        // The probe's normal from the neighbourhood (every held probe has its entry there), not a 32-byte probe
+        // load a GGX sample.
+        vec3 ProbeRadiance( SPHeld held, vec3 direction )
         {
-            const ScreenProbe state = screenProbes[probe];
-            const vec2 o      = SPProbeOct( SPProbeFrame( state.normal.xyz ), direction );
+            const uint probe = held.id;
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+            const vec3 normal = s_NbNormal[held.entry].xyz;
+#else
+            const vec3 normal = screenProbes[probe].normal.xyz;
+#endif
+            const vec2 o      = SPProbeOct( SPProbeFrame( normal ), direction );
             const vec2 texel  = vec2( SPAtlasOrigin( probe, SP_TILE ) + 1 ) + ( o * 0.5 + 0.5 ) * float( SP_RES );
             return textureLod( ScreenProbeFilteredTexture, texel / vec2( textureSize( ScreenProbeFilteredTexture, 0 ) ), 0.0 ).rgb;
         }
@@ -637,28 +708,40 @@ Shader "ScreenProbeIntegrate"
             // pixel instead of four per probe (Bistro's backlit crown: 7.1 ms of integrate, then a GPU watchdog).
             uvec4 heldId;
             vec4  heldW;
-            SPInterpolate( pixel, p, n, distance, SP_LEVELS, heldId, heldW );
+            uvec4 heldSlot;
+            ivec2 heldCorner0;
+            SPInterpolateSlots( pixel, p, n, distance, SP_LEVELS, heldId, heldW, heldSlot, heldCorner0 );
+            SPHeld held[4];
+            for ( int i = 0; i < 4; ++i )
+            {
+                held[i].id     = heldId[i];
+                held[i].nbTile = SP_INVALID;
+                held[i].entry  = SP_INVALID;
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+                const uint nbTile = SPNeighbourTile( heldCorner0 + ivec2( i & 1, i >> 1 ) );
+                held[i].nbTile    = heldSlot[i] == 0u ? nbTile : SP_INVALID;
+                held[i].entry     = nbTile * SP_NB_SLOTS + heldSlot[i];
+#endif
+            }
             const float total = dot( heldW, vec4( 1.0 ) );
             if ( total >= SP_ADAPTIVE_EPSILON )
             {
                 float basis[9];
                 SPSHBasisAll( bent, basis );
-                for ( int i = 0; i < 4; ++i )
-                    if ( heldW[i] > 0.0 )
-                        diffuse += heldW[i] * ProbeIrradiance( heldId[i], basis );
-                diffuse *= ao / total;
-                for ( int i = 0; i < 4; ++i )
-                    if ( heldW[i] > 0.0 )
-                        lightIsMoving += heldW[i] * screenProbeMoving[heldId[i]];
-                lightIsMoving /= total;
+                // One pass over the held probes (was three): the diffuse, the moving share and the backface each
+                // in its own sum, each in the same order as before.
                 float backTotal = 0.0;
                 for ( int i = 0; i < 4; ++i )
                     if ( heldW[i] > 0.0 )
                     {
-                        const vec4 back = screenProbeBackface[heldId[i]];
+                        diffuse += heldW[i] * ProbeIrradiance( held[i], basis );
+                        lightIsMoving += heldW[i] * SPHeldMoving( held[i] );
+                        const vec4 back = SPHeldBackface( held[i] );
                         backface += heldW[i] * back.a * back.rgb;
                         backTotal += heldW[i] * back.a;
                     }
+                diffuse *= ao / total;
+                lightIsMoving /= total;
                 backface /= max( backTotal, 1e-6 );
 #if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
                 // A simple-diffuse tile: every pixel's rough specular IS its irradiance (diffuseLerp 1).
@@ -704,7 +787,7 @@ Shader "ScreenProbeIntegrate"
                                     break;
                                 pick -= heldW[i];
                             }
-                        specular += weight * ProbeRadiance( heldId[j], l );
+                        specular += weight * ProbeRadiance( held[j], l );
                     }
                 }
                 specular = mix( specular, diffuse, diffuseLerp );

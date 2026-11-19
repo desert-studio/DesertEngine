@@ -591,6 +591,13 @@ namespace Desert::Graphic
         {
             return m_ScreenProbeGather ? &m_ScreenProbeGather->LastMissReasons() : nullptr;
         }
+        /// FPS-SP-INTEGRATE: the screen probe gather's census (GlobalIllumination::ScreenProbeCensus: probes
+        /// placed against the budget, the integrate's tiles by kind), slots-in-flight late; nullptr without a
+        /// gather.
+        [[nodiscard]] const GlobalIllumination::ScreenProbeCensus* GetScreenProbeCensus() const
+        {
+            return m_ScreenProbeGather ? &m_ScreenProbeGather->LastCensus() : nullptr;
+        }
 #endif
         /// PROBE-TRACE-COST-3: the radiance cache update's counts (GlobalIllumination::RadianceCacheUpdateCounts,
         /// read back slots-in-flight late): stamped, never traced, traced, slots taken / refused / freed by why.
