@@ -1262,12 +1262,15 @@ namespace Desert::Graphic::System
         m_FrameInstances.clear();
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
-        // The view depth prepass discards only in a hole: a frame whose tiles have no visibility layer takes the
-        // early-tested TerrainDepth (ViewDepthPipeline). Conservative: any queued tile with one keeps the discard.
-        m_FrameHasHoles = false;
+        // The view depth prepass discards only in a hole: a tile without a visibility layer takes the early-tested
+        // TerrainDepth (ViewDepthSolidPipeline), a tile with one the discarding program (ViewDepthPipeline) - per
+        // tile, so one holed tile no longer moves the whole ground to the late depth test (FPS-TERRAIN-PREPASS).
+        // The record tests the row itself (RowHasHoles); this only says whether the frame needs the twin.
+        m_FrameHasSolidTiles = false;
         for ( const TerrainDrawData& t : m_Queue )
-            m_FrameHasHoles = m_FrameHasHoles || t.Weights.VisibilityLayer >= 0;
-        if ( !m_FrameHasHoles && !m_Queue.empty() )
+            m_FrameHasSolidTiles =
+                 m_FrameHasSolidTiles || t.Weights.VisibilityLayer < 0 || t.Weights.LayerCount == 0;
+        if ( m_FrameHasSolidTiles )
             EnsureDepthNoHolesPipelines();
         m_DicePoolVertices = 0;
         m_DicePoolCorners  = 0;
@@ -2618,6 +2621,12 @@ namespace Desert::Graphic::System
         thread_local std::vector<std::byte> t_TerrainRecordPush;
     } // namespace
 
+    bool TerrainRenderer::RowHasHoles( const TerrainInstance& row ) noexcept
+    {
+        // TerrainCasterIsHole's early-out, the same two fields (LandscapeInstance writes them).
+        return row.Params2.y > 0.5f && row.Params.z > 0.5f;
+    }
+
     const MaterialExecutor* TerrainRenderer::GroupExecutorRange::Iterator::operator*() const
     {
         return ( m_Group->Materials->*m_Program )->GetMaterialExecutor();
@@ -2643,8 +2652,34 @@ namespace Desert::Graphic::System
          const RDG::PassContext& context, const uint32_t firstBlock, const GraphicsPipeline& pipeline,
          std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
          const std::vector<FrameDraw>& draws, const std::optional<glm::vec2>& shadowSlope,
-         const std::optional<VirtualShadowIndirect>& indirect, const RDG::BufferRef diceCull )
+         const std::optional<VirtualShadowIndirect>& indirect, const RDG::BufferRef diceCull,
+         const GraphicsPipeline* const solidPipeline )
     {
+        // @p solidPipeline (the view depth prepass, ViewDepthSolidPipeline): the tiles without a hole through it
+        // FIRST, early-tested, then the holed ones through @p pipeline - their late-tested discard then also fails
+        // behind the opaque ground already written. The depth left is the nearest fragment in either order.
+        if ( solidPipeline != nullptr && !indirect )
+        {
+            // The two phases' draws in this thread's kept scratch (CPU-FRAME-ARENA 3, as the push block).
+            thread_local std::vector<FrameDraw> t_TerrainSolidDraws;
+            thread_local std::vector<FrameDraw> t_TerrainHoledDraws;
+            for ( const bool holedPhase : { false, true } )
+            {
+                std::vector<FrameDraw>& phase = holedPhase ? t_TerrainHoledDraws : t_TerrainSolidDraws;
+                phase.clear();
+                for ( const FrameDraw& draw : draws )
+                    if ( RowHasHoles( m_FrameGroups[draw.Group].Instances[draw.Row] ) == holedPhase )
+                        phase.push_back( draw );
+                if ( phase.empty() )
+                    continue;
+                if ( auto recorded =
+                          RecordDraws( context, firstBlock, holedPhase ? pipeline : *solidPipeline, program,
+                                       clipFromWorld, phase, shadowSlope, std::nullopt, diceCull, nullptr );
+                     !recorded.IsSuccess() )
+                    return recorded;
+            }
+            return BOOLSUCCESS;
+        }
         // CPU-FRAME-ARENA 3: the groups' blocks in this thread's kept slots (RDG::OpenBindingBlocks), the push
         // block in its kept scratch (rewritten whole per draw, read by that draw's call alone), and each cell
         // shader's layout placed once per shader code (DrawPushFields::ShaderPlacements, CPU-FRAME-ARENA 4), no
@@ -2928,15 +2963,12 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetMainCamera() == nullptr || m_ViewDraws.empty() )
             return nullptr;
         // Deferred: under the frame's early-Z pass, into the G-buffer depth ("TerrainGBuffer" then tests it).
-        // A frame whose tiles have no visibility layer discards nothing: the early-tested twin (UE: a landscape
-        // without holes is opaque in the depth pass). Same layout and declarations, so m_DepthLayout holds.
-        const bool noHoles = !m_FrameHasHoles && m_DepthNoHolesPipeline && m_GBufferDepthNoHolesPipeline;
+        // The discarding program: the holed tiles' (every tile's when the twin is not built). The tiles without a
+        // visibility layer take ViewDepthSolidPipeline - same layout and declarations, so m_DepthLayout holds.
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
         {
             if ( !m_SceneRenderer->GetGBuffer() || !PrepassesGBuffer() )
                 return nullptr;
-            if ( noHoles )
-                return m_GBufferDepthNoHolesPipeline.get();
             return m_GBufferDepthPipeline.get();
         }
         // Forward: the frames that draw the terrain at all ("TerrainPass" draws the same m_ViewDraws,
@@ -2944,9 +2976,19 @@ namespace Desert::Graphic::System
         // (BasePassPipeline): not prepassed, as the meshes'.
         if ( m_ForwardRefused || WireframeView() )
             return nullptr;
-        if ( noHoles )
-            return m_DepthNoHolesPipeline.get();
         return m_DepthPipeline.get();
+    }
+
+    const GraphicsPipeline* TerrainRenderer::ViewDepthSolidPipeline() const
+    {
+        // A tile without a visibility layer discards nothing: the early-tested twin (UE: a landscape component
+        // without a visibility mask is opaque in the depth pass), whatever the other tiles of the frame have.
+        if ( !m_FrameHasSolidTiles || !m_DepthNoHolesPipeline || !m_GBufferDepthNoHolesPipeline ||
+             ViewDepthPipeline() == nullptr )
+            return nullptr;
+        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
+            return m_GBufferDepthNoHolesPipeline.get();
+        return m_DepthNoHolesPipeline.get();
     }
 
     void TerrainRenderer::DeclareDepthDraws( RDG::PassBuilder& pass )
@@ -2967,10 +3009,11 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* const pipeline = ViewDepthPipeline();
         if ( pipeline == nullptr )
             return BOOLSUCCESS;
-        // The base pass's very matrix (GeometryPass / "TerrainGBuffer"), so both rasterise the same depth.
+        // The base pass's very matrix (GeometryPass / "TerrainGBuffer"), so both rasterise the same depth. The
+        // tiles without a hole through the early-tested twin, first (RecordDraws' solidPipeline).
         return RecordDraws( context, 0, *pipeline, &ProgramMaterials::Depth,
-                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws,
-                            std::nullopt, std::nullopt, CameraDiceCullArgs() );
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_ViewDraws, std::nullopt,
+                            std::nullopt, CameraDiceCullArgs(), ViewDepthSolidPipeline() );
     }
 
     const std::vector<TerrainRenderer::FrameDraw>& TerrainRenderer::ShadowViewDraws( const uint32_t view ) const
