@@ -319,6 +319,23 @@ namespace Desert::Core
         return std::format( "{:016x}", hash.Value );
     }
 
+    HLODCaptureView HLODCaptureViewFacing( const glm::vec3& forward, const glm::vec3& centre, float radius )
+    {
+        // The camera frame as LandscapeHLODBake builds it: right, up, backward (= -forward), right-handed.
+        const glm::vec3 backward = -forward;
+        const glm::vec3 upHint =
+             std::abs( forward.y ) > 0.99f ? glm::vec3( 0.0f, 0.0f, -1.0f ) : glm::vec3( 0.0f, 1.0f, 0.0f );
+        HLODCaptureView view;
+        view.Forward    = forward;
+        view.Right      = glm::normalize( glm::cross( upHint, backward ) );
+        view.Up         = glm::cross( backward, view.Right );
+        view.Eye        = centre - forward * ( radius + 1.0f );
+        view.HalfExtent = radius;
+        view.NearCm     = 0.5f;
+        view.FarCm      = 2.0f * radius + 2.0f;
+        return view;
+    }
+
     std::vector<HLODCaptureView> HLODCaptureViews( const glm::vec3& boundsMin, const glm::vec3& boundsMax )
     {
         const glm::vec3 centre = ( boundsMin + boundsMax ) * 0.5f;
@@ -333,21 +350,7 @@ namespace Desert::Core
         std::vector<HLODCaptureView> views;
         views.reserve( directions.size() );
         for ( const glm::vec3& forward : directions )
-        {
-            // The camera frame as LandscapeHLODBake builds it: right, up, backward (= -forward), right-handed.
-            const glm::vec3 backward = -forward;
-            const glm::vec3 upHint =
-                 std::abs( forward.y ) > 0.99f ? glm::vec3( 0.0f, 0.0f, -1.0f ) : glm::vec3( 0.0f, 1.0f, 0.0f );
-            HLODCaptureView view;
-            view.Forward    = forward;
-            view.Right      = glm::normalize( glm::cross( upHint, backward ) );
-            view.Up         = glm::cross( backward, view.Right );
-            view.Eye        = centre - forward * ( radius + 1.0f );
-            view.HalfExtent = radius;
-            view.NearCm     = 0.5f;
-            view.FarCm      = 2.0f * radius + 2.0f;
-            views.push_back( view );
-        }
+            views.push_back( HLODCaptureViewFacing( forward, centre, radius ) );
         return views;
     }
 

@@ -71,6 +71,14 @@ namespace Desert::Core
         float     FarCm      = 2.0f;
     };
 
+    // The ONE camera placement every HLOD capture uses (HLODCaptureViews, HLODImpostorViews): looking along
+    // @p forward (unit) at the sphere of @p radius cm around @p centre, framed square on it, eye one centimetre
+    // beyond it. The frame is right-handed (right, up, backward = -forward) with world +Y as the up hint, -Z when
+    // the camera looks within ~8 degrees of straight up or down. An impostor shader rebuilds this exact frame per
+    // atlas frame (Shaders/Common/ImpostorOctahedral.glslh, ImpostorFrameBasis) - change both or neither.
+    [[nodiscard]] HLODCaptureView HLODCaptureViewFacing( const glm::vec3& forward, const glm::vec3& centre,
+                                                         float radius );
+
     // UE FSceneCapturePhotoSet's directions: the six axes and the eight cube diagonals, each framing the sphere
     // around [@p boundsMin, @p boundsMax] (world cm), so every face of a convex block is seen square-on by one
     // photo and every corner region by a diagonal. The editor places its cameras from these; the bake projects
