@@ -214,11 +214,18 @@ Shader "DeferredLighting"
         // ClusteredDeferredShading's per-shading-model tile types): the classify listed the tile in model m's list
         // because EVERY geometry texel of it is model index m (Common/DeferredTiles.glslh), so the model is the
         // constant m and the dispatch folds to model m's own functions - no other model's code in the program.
+        // FPS-LIGHT-TILES: model m's list also holds the tiles of model m over DefaultLit (the classify does not
+        // count DefaultLit against the one model: a grass edge over the landscape), so the texel's model is m or
+        // DefaultLit - a select of two constants, the dispatch folds to those two models' functions. A texel the
+        // classify read as DefaultLit (a feature-less plain slab, Common/DeferredTiles.glslh) of another slab
+        // model shades as DefaultLit, exactly as the SIMPLE list shades it.
         #ifdef DESERT_DEFERRED_TILE_SIMPLE
         #define DESERT_DEFERRED_SHADING_MODEL(word) SHADING_MODEL_INDEX_DEFAULT_LIT
         #else
         #ifdef DESERT_DEFERRED_TILE_MODEL
-        #define DESERT_DEFERRED_SHADING_MODEL(word) (DESERT_DEFERRED_TILE_MODEL)
+        #define DESERT_DEFERRED_SHADING_MODEL(word)                                                                \
+        	(DesertShadingModelIndex(word) == (DESERT_DEFERRED_TILE_MODEL) ? (DESERT_DEFERRED_TILE_MODEL)          \
+        	                                                               : SHADING_MODEL_INDEX_DEFAULT_LIT)
         #else
         #define DESERT_DEFERRED_SHADING_MODEL(word) DesertShadingModelIndex(word)
         #endif

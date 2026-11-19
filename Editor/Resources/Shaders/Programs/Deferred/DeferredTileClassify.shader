@@ -9,8 +9,9 @@ Shader "DeferredTileClassify"
     // read at the same texel by texelFetch).
     // FPS-DIRECT-TILES (UE ClusteredDeferredShading's per-shading-model tile types): the tile's SET of models (a
     // bitmask of model indices) also sorts every COMPLEX tile for the direct lighting: into the list of its one
-    // model m (every geometry texel model m, and bit m in the header's kDeferredTileModelMask), drawn with the model
-    // folded, or else into the MIXED list, drawn with the dispatch.
+    // model m (every geometry texel model m or DefaultLit - FPS-LIGHT-TILES - and bit m in the header's
+    // kDeferredTileModelMask), drawn with the model folded to {m, DefaultLit}, or else into the MIXED list, drawn
+    // with the dispatch.
     // SUBSTRATE: the shading word's slab feature bits (ShadingModelContract.glslh SLAB_FEATURES) enter the same test:
     // a slab preset's texel with no feature counts as DefaultLit, so a tile of feature-less slabs is SIMPLE.
 
@@ -74,8 +75,13 @@ Shader "DeferredTileClassify"
         		                  kDeferredTileVertices;
         		deferredTiles[kDeferredTileHeaderWords + tileCount + slot] = word;
         		// The direct lighting's split of the same tile: the list of its one model, or the mixed list.
-        		const uint model = uint(findLSB(models));
-        		if (bitCount(models) == 1 && (deferredTiles[kDeferredTileModelMask] & models) != 0u)
+        		// FPS-LIGHT-TILES: DefaultLit does not count against the one model - a tile of model m over DefaultLit
+        		// (a grass blade's edge over the landscape, a foliage card over a wall) is model m's tile, and the
+        		// folded program shades a DefaultLit texel of it with DefaultLit (DeferredLighting.shader
+        		// DESERT_DEFERRED_SHADING_MODEL). Only two non-DefaultLit models in one tile take the dispatch.
+        		const uint lit   = models & ~(1u << uint(SHADING_MODEL_INDEX_DEFAULT_LIT));
+        		const uint model = uint(findLSB(lit));
+        		if (bitCount(lit) == 1 && (deferredTiles[kDeferredTileModelMask] & lit) != 0u)
         		{
         			const uint modelSlot =
         			     atomicAdd(deferredTiles[kDeferredTileModelArgs + 4u * model], kDeferredTileVertices) /
