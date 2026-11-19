@@ -190,32 +190,74 @@ BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, 
 }
 
 // THE BLADE'S SETUP RECORD (FPS-GRASS-RESOLVE-2; Ghost of Tsushima, GDC 2021: each visible blade is evaluated once
-// into a compact record, shading reads it). Programs/Grass/GrassBladeSetup.shader writes one per drawn blade of
-// the camera's list, at its raster-stream row, from the raster's own BladeCurveAt now and one wind step before;
+// into a compact record, the raster and the shading read it). Programs/Grass/GrassBladeSetup.shader writes one per
+// blade a visibility raster record drew, at its raster-stream row, from the raster's own BladeCurveAt now and one
+// wind step before; Mesh/Surface/Vertex_GrassBlade.glslh places the visibility strip from it and
 // Mesh/Surface/Pass_VisibilityResolve.glslh rebuilds the pixel's triangle from it. The two curves share the root,
 // the frame and the power (the press is the same field cell, the wind moves only the tip): only the tip and the
-// rise differ. Mirrors GrassRenderer kBladeSetupRecordBytes (96), std430.
+// rise differ. FPS-GRASS-SETUP-TRIM: 64 bytes (was 96) - the positions and the rises stay full floats (the motion
+// vector is their difference), the unit axes go octahedral (snorm 2x16, ~1e-4 rad), the width a half, the card
+// (< GRASS_BLADE_MAX_CARDS) and the strip level's segments (<= kGrassBladeMaxSegments, 15) a byte each. Mirrors
+// GrassRenderer kBladeSetupRecordBytes (64), std430.
 struct GrassBladeSetupData
 {
-    vec4  Root;    // xyz the root, w the rise now
-    vec4  Up;      // xyz unit up, w the curve's power (Bend)
-    vec4  Right;   // xyz unit across, w the strip's width (BladeWidth)
-    vec4  Tip;     // xyz the tip now, w the rise one wind step before
-    vec4  PrevTip; // xyz the tip one wind step before, w the clump draw (the instance's column 2 w, UV1.x)
-    uvec4 Strip;   // x the card (BladeCardIndex), y the strip level's segments (BladeLevelSegments), zw 0
+    vec4 Root;   // xyz the root, w the rise now
+    vec4 Tip;    // xyz the tip now, w the clump draw (the instance's column 2 w, UV1.x)
+    vec4 Before; // xyz the tip one wind step before, w the rise then
+    // x the unit up, y the unit across (BladeSetupOctPack), z the curve's power (Bend, float bits), w the strip's
+    // width (BladeWidth, half: bits 0-15) | the card (BladeCardIndex: 16-23) | the level's segments (24-31)
+    uvec4 Frame;
 };
+
+// A unit vector as one word: octahedral around +Y (a blade's axes lie near the upper hemisphere), snorm 2x16
+// (Cigolle et al. 2014, "A Survey of Efficient Representations for Independent Unit Vectors").
+uint BladeSetupOctPack( vec3 n )
+{
+    n /= max( abs( n.x ) + abs( n.y ) + abs( n.z ), 1e-6 );
+    vec2 e = n.xz;
+    if ( n.y < 0.0 )
+        e = ( 1.0 - abs( e.yx ) ) * vec2( e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0 );
+    return packSnorm2x16( e );
+}
+vec3 BladeSetupOctUnpack( uint word )
+{
+    const vec2  e    = unpackSnorm2x16( word );
+    vec3        n    = vec3( e.x, 1.0 - abs( e.x ) - abs( e.y ), e.y );
+    const float fold = max( -n.y, 0.0 );
+    n.x += n.x >= 0.0 ? -fold : fold;
+    n.z += n.z >= 0.0 ? -fold : fold;
+    return normalize( n );
+}
 
 GrassBladeSetupData BladeSetupOf( BladeCurve now, BladeCurve before, float width, uint card, uint segments,
                                   float clumpDraw )
 {
     GrassBladeSetupData s;
-    s.Root    = vec4( now.Root, now.Rise );
-    s.Up      = vec4( now.Up, now.Bend );
-    s.Right   = vec4( now.Right, width );
-    s.Tip     = vec4( now.Tip, before.Rise );
-    s.PrevTip = vec4( before.Tip, clumpDraw );
-    s.Strip   = uvec4( card, segments, 0u, 0u );
+    s.Root   = vec4( now.Root, now.Rise );
+    s.Tip    = vec4( now.Tip, clumpDraw );
+    s.Before = vec4( before.Tip, before.Rise );
+    s.Frame  = uvec4( BladeSetupOctPack( now.Up ), BladeSetupOctPack( now.Right ), floatBitsToUint( now.Bend ),
+                      ( packHalf2x16( vec2( width, 0.0 ) ) & 0xFFFFu ) | ( min( card, 0xFFu ) << 16u ) |
+                           ( min( segments, 0xFFu ) << 24u ) );
     return s;
+}
+
+// The record's strip width, card, strip-level segments and clump draw.
+float BladeSetupWidth( GrassBladeSetupData s )
+{
+    return unpackHalf2x16( s.Frame.w & 0xFFFFu ).x;
+}
+uint BladeSetupCard( GrassBladeSetupData s )
+{
+    return ( s.Frame.w >> 16u ) & 0xFFu;
+}
+uint BladeSetupSegments( GrassBladeSetupData s )
+{
+    return s.Frame.w >> 24u;
+}
+float BladeSetupClump( GrassBladeSetupData s )
+{
+    return s.Tip.w;
 }
 
 // The record's curve now (@p previous false) or one wind step before.
@@ -223,11 +265,11 @@ BladeCurve BladeSetupCurve( GrassBladeSetupData s, bool previous )
 {
     BladeCurve c;
     c.Root  = s.Root.xyz;
-    c.Up    = s.Up.xyz;
-    c.Right = s.Right.xyz;
-    c.Tip   = previous ? s.PrevTip.xyz : s.Tip.xyz;
-    c.Rise  = previous ? s.Tip.w : s.Root.w;
-    c.Bend  = s.Up.w;
+    c.Up    = BladeSetupOctUnpack( s.Frame.x );
+    c.Right = BladeSetupOctUnpack( s.Frame.y );
+    c.Tip   = previous ? s.Before.xyz : s.Tip.xyz;
+    c.Rise  = previous ? s.Before.w : s.Root.w;
+    c.Bend  = uintBitsToFloat( s.Frame.z );
     return c;
 }
 

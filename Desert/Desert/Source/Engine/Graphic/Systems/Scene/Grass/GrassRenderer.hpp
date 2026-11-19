@@ -256,18 +256,24 @@ namespace Desert::Graphic::System
         [[nodiscard]] bool AddFramePostOcclusion( RDG::Builder& graph, RDG::TextureRef hzb,
                                                   const glm::mat4& viewProjection, const glm::uvec3& extent );
 
-        // FPS-GRASS-RESOLVE-2, THE BLADE SETUP (Ghost of Tsushima, GDC 2021: each visible blade evaluated once into a
-        // compact record; Programs/Grass/GrassBladeSetup.shader): one pass writes the GrassBladeSetupData of every
-        // blade a phase's records draw, at its raster-stream row - the curve now and one wind step before from the
-        // raster's wind, @p frame's camera block (gust, local wind) and @p field. FPS-GRASS-RASTER-VS: the
-        // visibility raster (Vertex_GrassBlade.glslh) and "Grass: Visibility Resolve" both read them by address
-        // (GrassBladeShapeData Lists.yz), so it runs per phase BEFORE that phase's raster: @p postOcclusion false
-        // after the camera cull ("Grass: Blade Setup", the camera records), true after AddFramePostOcclusion
+        // FPS-GRASS-RESOLVE-2, THE BLADE SETUP (Ghost of Tsushima, GDC 2021: each visible blade evaluated once
+        // into a compact record; Programs/Grass/GrassBladeSetup.shader): one pass writes the GrassBladeSetupData
+        // of every blade a phase's records draw, at its raster-stream row - the curve now and one wind step before
+        // from the raster's wind, @p frame's camera block (gust, local wind) and @p field. FPS-GRASS-RASTER-VS:
+        // the visibility raster (Vertex_GrassBlade.glslh) and "Grass: Visibility Resolve" both read them by
+        // address (GrassBladeShapeData Lists.yz), so it runs per phase BEFORE that phase's raster: @p
+        // postOcclusion false after the camera cull ("Grass: Blade Setup", the camera records), true after
+        // AddFramePostOcclusion
         // ("Grass: Blade Setup Post-Occlusion", phase 2's records - their slots follow phase 1's in the same list,
         // so the two passes write disjoint rows; nothing when phase 2 was not added).
+        // FPS-GRASS-SETUP-TRIM (GoT: the per-blade compute runs only for the blades the cull kept): only the
+        // varieties @p meshes draws through the visibility buffer this frame (MeshRenderer::
+        // DrawsGrassVisibilitySection - the caller runs it after the sections were chosen), and only their DRAWN
+        // blades: "Grass: Blade Setup Work" prefix-sums the records' instance counts into the indirect dispatch of
+        // the setup, one thread per drawn blade.
         [[nodiscard]] Common::BoolResultStr AddFrameBladeSetup( RDG::Builder& graph, const ViewFrame& frame,
                                                                 const DeformationFieldReads& field,
-                                                                bool                         postOcclusion );
+                                                                const MeshRenderer& meshes, bool postOcclusion );
         // This frame's setup records (CommitFrame imports them): the resolve declares its read of them.
         [[nodiscard]] RDG::BufferRef BladeSetupRef() const noexcept
         {
@@ -921,6 +927,9 @@ namespace Desert::Graphic::System
         {
             VarietyGpu*      Gpu = nullptr;
             InstanceWindPush Wind{};
+            // Its sections handed to MeshRenderer this frame (keys VarietyGpu::Index * 64 + s, s below this):
+            // AddFrameBladeSetup asks which of them the visibility raster draws.
+            uint32_t Sections = 0u;
         };
         std::shared_ptr<ComputePipeline>                m_BladeSetupProgram;
         mutable ShaderBindingLayoutCache                m_BladeSetupLayout;
