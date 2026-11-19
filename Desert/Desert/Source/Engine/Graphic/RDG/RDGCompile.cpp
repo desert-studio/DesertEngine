@@ -1057,6 +1057,12 @@ namespace Desert::Graphic::RDG
     // while recording) and an ExternalQueue pass are never moved, nothing moves across them, and a consumer
     // that is one of them takes nothing in front of it. The insertion point steps back over a raster chain the
     // consumer continues (a raster predecessor right before a raster consumer), so a render-pass merge stays.
+    // "The next run" is the next run the graphics queue WAITS for (FPS-SP-ASYNC-TAIL): an async pass no graphics
+    // pass depends on (the radiance cache's update declared after its last reader, joined at the graph end -
+    // FPS-ASYNC-WAIT) opens no window of its own, so it does not close the window before it. The graphics passes
+    // past such a run (the post chain's velocity / guide / LUT passes after the cache's tail update) are scanned
+    // for the window too; a pass that depends on that run's passes is never free (an async predecessor after
+    // the window's run), so the run keeps every edge, and the async passes themselves never move.
     void Builder::Compiler::ScheduleIntoAsyncWindows()
     {
         if ( std::find( m_PipeAt.begin(), m_PipeAt.end(), Pipe::AsyncCompute ) == m_PipeAt.end() )
@@ -1103,6 +1109,12 @@ namespace Desert::Graphic::RDG
             if ( m_PipeAt[from] == Pipe::AsyncCompute && m_PipeAt[to] != Pipe::AsyncCompute )
                 doneBy[from] = std::min( doneBy[from], to );
         }
+        // FPS-SP-ASYNC-TAIL: whether any graphics pass depends on an async position directly (before the FIFO
+        // spread below) - a run the graphics queue waits for bounds the window before it, one it never waits for
+        // does not.
+        ScratchVector<bool> waitedFor( m_ExecutedCount, false );
+        for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
+            waitedFor[position] = m_PipeAt[position] == Pipe::AsyncCompute && doneBy[position] != kNeverDone;
         {
             uint32_t later = kNeverDone; // the earliest graphics wait on an async position after this one
             for ( uint32_t position = m_ExecutedCount; position-- > 0; )
@@ -1148,11 +1160,23 @@ namespace Desert::Graphic::RDG
             while ( insertAt - 1 > last && !keepsOrder( insertAt - 1 ) && isRaster( insertAt ) &&
                     isRaster( insertAt - 1 ) && dependsOn( insertAt, insertAt - 1 ) )
                 --insertAt;
+            // Positions an earlier window emitted are settled (never the case today: an earlier window's scan
+            // ends at the first waited-for async position, before this run's join).
+            if ( insertAt < emitted )
+                continue;
+            // The window's scan ends at the next async position the graphics queue waits for (FPS-SP-ASYNC-TAIL):
+            // a run no graphics pass depends on is scanned across, its async passes staying in their order.
+            uint32_t scanEnd = nextFirst;
+            while ( scanEnd < m_ExecutedCount &&
+                    ( m_PipeAt[scanEnd] != Pipe::AsyncCompute || !waitedFor[scanEnd] ) )
+                ++scanEnd;
             bool any = false;
-            for ( uint32_t q = join + 1; q < nextFirst; ++q )
+            for ( uint32_t q = join + 1; q < scanEnd; ++q )
             {
                 if ( keepsOrder( q ) )
                     break;
+                if ( m_PipeAt[q] == Pipe::AsyncCompute )
+                    continue;
                 bool free = true;
                 for ( uint32_t k = predBegin[q]; k < predBegin[q + 1] && free; ++k )
                 {
@@ -1173,17 +1197,17 @@ namespace Desert::Graphic::RDG
             order.reserve( m_ExecutedCount );
             for ( ; emitted < insertAt; ++emitted )
                 order.push_back( emitted );
-            for ( uint32_t q = insertAt; q < nextFirst; ++q )
+            for ( uint32_t q = insertAt; q < scanEnd; ++q )
             {
                 if ( moved[q] )
                     order.push_back( q );
             }
-            for ( uint32_t q = insertAt; q < nextFirst; ++q )
+            for ( uint32_t q = insertAt; q < scanEnd; ++q )
             {
                 if ( !moved[q] )
                     order.push_back( q );
             }
-            emitted = nextFirst;
+            emitted = scanEnd;
         }
         if ( order.empty() )
             return;
