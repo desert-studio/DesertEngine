@@ -14,6 +14,16 @@ Shader "LandscapeDiceCull"
         // Tile.w + level: vertexCount, instanceCount, firstVertex, firstInstance), which the camera's rasters draw
         // (LandscapeDisplacement.glslh LandscapeDecodeCulledVertex). Conservative: a box only grows, so no
         // visible sub-triangle is dropped; the casters keep the procedural decode of every cell.
+        //
+        // THE CELL'S OWN DICE (FPS-TERRAIN-LOD-2; UE Nanite: a cluster's triangles span DicingRate pixels where IT
+        // is): the rings dice a cell by the area a flat cell has at the worst height of the landscape's slab near
+        // the eye; a kept cell is diced by its own corners' projected area instead - the largest power of two whose
+        // sub-cell side keeps Bounds.w pixels, at most its ring's dice (the pool holds no finer vertex), and at
+        // least each of its edge factors. An edge factor is min of the two cells' own dice inside the tile (each
+        // lane computes its four neighbours' dice from the same corner nodes, so both cells of an edge agree bit
+        // for bit), and across the tile's border min of the two ring dice (the neighbour tile's lane, or its
+        // procedural decode, sees only the shared ring integers there; a border cell keeps at least that). The
+        // list entry's second word carries the four factors (LandscapeDisplacement.glslh LandscapeEdgeDice).
         LocalSize(64, 1, 1);
 
         #include <Common/TerrainInstance.glslh>
@@ -50,13 +60,85 @@ Shader "LandscapeDiceCull"
             // x = the row, y = the fade square's cells (the lanes; each level's list stride), z = the row's first
             // corner node, w = its first indirect record
             uvec4 Tile;
-            vec4  Bounds; // x = the displacement's reach (cm): magnitude x max(|Center|, |1 - Center|)
+            // x = the displacement's reach (cm): magnitude x max(|Center|, |1 - Center|); yz = half the camera
+            // rasters' extent (pixels: clip xy / w to pixels); w = the dicing rate (pixels a sub-cell side)
+            vec4  Bounds;
         };
 
         #define CurrentTerrain Terrains[Tile.x]
 
         #include <Common/GpuCullTests.glslh>
         #include <Programs/Terrain/LandscapeDiceRings.glslh>
+
+        // The pool's corner nodes around the lane's cell (x, z): the 4 x 4 nodes x - 1 .. x + 2, z - 1 .. z + 2 in
+        // pixels; Valid false where a node is outside the pool's square or at / behind the eye.
+        vec2 WindowPixel[16];
+        bool WindowValid[16];
+
+        void LoadWindow( int x, int z, ivec4 n )
+        {
+            int nPitch = n.z - n.x + 1;
+            for ( int k = 0; k < 16; ++k )
+            {
+                int nx         = x - 1 + ( k & 3 );
+                int nz         = z - 1 + ( k >> 2 );
+                WindowValid[k] = false;
+                WindowPixel[k] = vec2( 0.0 );
+                if ( nx < n.x || nx > n.z || nz < n.y || nz > n.w )
+                    continue;
+                vec3 p = PoolCorners[( Tile.z + uint( ( nz - n.y ) * nPitch + nx - n.x ) ) * 2u].xyz;
+                vec4 c = ClipFromWorld * vec4( p, 1.0 );
+                if ( c.w <= 1.0 )
+                    continue;
+                WindowValid[k] = true;
+                WindowPixel[k] = c.xy / c.w * Bounds.yz;
+            }
+        }
+
+        // Cell (@p cx, @p cz) of the tile's @p cells a side, at window offset (@p ox, @p oz) from the lane's cell
+        // (-1..1): its own dice. Its ring dice where it is undiced or 1, where a corner is unknown, or past it.
+        int CellOwnDice( int cx, int cz, int ox, int oz, int cells )
+        {
+            int ring = LandscapeCellDice( cx, cz );
+            if ( ring <= 1 )
+                return ring;
+            int k00 = ( oz + 1 ) * 4 + ox + 1;
+            int k10 = k00 + 1;
+            int k01 = k00 + 4;
+            int k11 = k00 + 5;
+            if ( !( WindowValid[k00] && WindowValid[k10] && WindowValid[k01] && WindowValid[k11] ) )
+                return ring;
+            // The cell's two triangles (00, 10, 11) and (00, 11, 01), each by its own area: a quad folded at the
+            // silhouette is not credited with the difference.
+            vec2  a    = WindowPixel[k00];
+            vec2  b    = WindowPixel[k10] - a;
+            vec2  c    = WindowPixel[k11] - a;
+            vec2  d    = WindowPixel[k01] - a;
+            float area = 0.5 * ( abs( b.x * c.y - b.y * c.x ) + abs( c.x * d.y - c.y * d.x ) );
+            float side = min( sqrt( area ) / max( Bounds.w, 1.0e-3 ), 16.0 );
+            int   own  = side >= 1.0 ? 1 << findMSB( int( side ) ) : 1;
+            // A side on the tile's border stitches to min of the two ring dice: the cell keeps at least that.
+            if ( cz == 0 )
+                own = max( own, min( ring, max( LandscapeCellDice( cx, cz - 1 ), 1 ) ) );
+            if ( cz == cells - 1 )
+                own = max( own, min( ring, max( LandscapeCellDice( cx, cz + 1 ), 1 ) ) );
+            if ( cx == 0 )
+                own = max( own, min( ring, max( LandscapeCellDice( cx - 1, cz ), 1 ) ) );
+            if ( cx == cells - 1 )
+                own = max( own, min( ring, max( LandscapeCellDice( cx + 1, cz ), 1 ) ) );
+            return min( own, ring );
+        }
+
+        // The edge factor of the lane's cell (@p x, @p z), own dice @p dice, with neighbour (@p x + @p ox,
+        // @p z + @p oz).
+        int EdgeFactor( int x, int z, int dice, int ox, int oz, int cells )
+        {
+            int nx = x + ox;
+            int nz = z + oz;
+            if ( nx < 0 || nz < 0 || nx >= cells || nz >= cells )
+                return min( LandscapeCellDice( x, z ), max( LandscapeCellDice( nx, nz ), 1 ) );
+            return min( dice, max( CellOwnDice( nx, nz, ox, oz, cells ), 1 ) );
+        }
 
         void main()
         {
@@ -71,8 +153,8 @@ Shader "LandscapeDiceCull"
                 return;
             int z    = r.y + int( i ) / pitch;
             int x    = r.x + int( i ) - ( z - r.y ) * pitch;
-            int dice = LandscapeCellDice( x, z );
-            if ( dice <= 0 )
+            int ring = LandscapeCellDice( x, z );
+            if ( ring <= 0 )
                 return;
 
             // The cell's four corner nodes of the pool's square (row-major, LandscapeDicePool.shader Tile.w = 0).
@@ -122,6 +204,18 @@ Shader "LandscapeDiceCull"
                     return;
             }
 
+            // The cell's own dice and its edge factors (z-1, z+1, x-1, x+1), log2 three bits each.
+            int  dice  = ring;
+            uint edges = 0u;
+            if ( ring > 1 )
+            {
+                LoadWindow( x, z, n );
+                dice  = CellOwnDice( x, z, 0, 0, cells );
+                edges = uint( findLSB( EdgeFactor( x, z, dice, 0, -1, cells ) ) ) |
+                        ( uint( findLSB( EdgeFactor( x, z, dice, 0, 1, cells ) ) ) << 3u ) |
+                        ( uint( findLSB( EdgeFactor( x, z, dice, -1, 0, cells ) ) ) << 6u ) |
+                        ( uint( findLSB( EdgeFactor( x, z, dice, 1, 0, cells ) ) ) << 9u );
+            }
             int  level = findLSB( dice );
             uint per   = uint( dice * dice * 6 );
             uint at    = ( Tile.w + uint( level ) ) * 4u;
@@ -135,7 +229,9 @@ Shader "LandscapeDiceCull"
                 return;
             }
             uint first = uint( CurrentTerrain.DicePool.z + 0.5 );
-            DiceCells[first + uint( level ) * Tile.y + slot] = uint( x ) | ( uint( z ) << 16u );
+            uint entry = ( first + uint( level ) * Tile.y + slot ) * 2u;
+            DiceCells[entry]      = uint( x ) | ( uint( z ) << 16u );
+            DiceCells[entry + 1u] = edges;
         }
     }
 }

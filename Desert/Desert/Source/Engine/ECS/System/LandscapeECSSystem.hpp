@@ -84,6 +84,11 @@ namespace Desert::ECS
             // since an in-place rewrite keeps the address. The view's ray-tracing BLAS rebuilds on a change.
             uint64_t HeightRevision = 0u;
             uint64_t WeightRevision = 0u;
+            // FPS-TERRAIN-LOD-2: the grid's height error per section and LOD (Graphic::System::
+            // LandscapeSectionGridErrors, LandscapeTileDraw::GridError) of the heights at GridErrorRevision
+            // (a HeightRevision; 0 = never computed).
+            std::vector<float> GridError;
+            uint64_t           GridErrorRevision = 0u;
             // THE TILE'S LAYER ALLOCATION (UE: a component holds only the weightmap layers painted on it), the
             // complement: bit i when weightmap channel i (tile weight layer i, or none) is zero at every sample
             // of the tile. Taken with WeightRevision; the surface skips such a channel whole

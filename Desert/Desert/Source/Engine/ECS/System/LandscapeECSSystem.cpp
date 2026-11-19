@@ -300,6 +300,24 @@ namespace Desert::ECS
             draw.QuadsPerTile  = root.QuadsPerTile;
             draw.MinY = root.Origin.y + Landscape::LandscapeHeightCm( heights.LowestSample(), root.ZScale );
             draw.MaxY = root.Origin.y + Landscape::LandscapeHeightCm( heights.HighestSample(), root.ZScale );
+            // FPS-TERRAIN-LOD-2: the grid's height error, once per height revision (a sculpt stroke recomputes the
+            // tiles it touched; the camera's section LOD reads it every frame).
+            if ( gpu.GridErrorRevision != gpu.HeightRevision || gpu.GridError.empty() )
+            {
+                const uint32_t                                    lastX = heights.SamplesX() - 1u;
+                const uint32_t                                    lastZ = heights.SamplesZ() - 1u;
+                const Graphic::System::LandscapeSectionErrorArray errors =
+                     Graphic::System::LandscapeSectionGridErrors(
+                          root.QuadsPerTile,
+                          [&]( uint32_t x, uint32_t z )
+                          {
+                              return Landscape::LandscapeHeightCm(
+                                   heights.Sample( std::min( x, lastX ), std::min( z, lastZ ) ), root.ZScale );
+                          } );
+                gpu.GridError.assign( errors.begin(), errors.end() );
+                gpu.GridErrorRevision = gpu.HeightRevision;
+            }
+            std::copy( gpu.GridError.begin(), gpu.GridError.end(), draw.GridError.begin() );
             draw.NeighbourMask = mask;
             draw.Entity        = static_cast<uint32_t>( tile.Entity );
             draw.HeightRevision    = gpu.HeightRevision;

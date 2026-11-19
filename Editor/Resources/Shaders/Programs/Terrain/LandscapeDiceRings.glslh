@@ -7,7 +7,10 @@
 #define LANDSCAPE_DICE_RINGS_GLSLH
 
 // A decoded vertex of the tile's draw: the cell (on the tile's LOD grid), the sub-vertex in it (0..Dice) and
-// whether the cell is drawn by the displaced path (inside the fade's square; Dice may be 1 there).
+// whether the cell is drawn by the displaced path (inside the fade's square; Dice may be 1 there). Edges: the
+// cell's four edge factors from the dice cull (FPS-TERRAIN-LOD-2, LandscapeDiceCull.shader: log2 of each, three
+// bits a side - z-1, z+1, x-1, x+1), or -1 where the edges stitch to the neighbours' ring dice (the procedural
+// decode and the pool).
 struct LandscapeDrawVertex
 {
     int  CellX;
@@ -16,6 +19,7 @@ struct LandscapeDrawVertex
     int  SubZ;
     int  Dice;
     bool Diced;
+    int  Edges;
 };
 
 // Dice ring @p level's half-extent as the MAIN CAMERA dices it (cells; < 0 = no such ring): level 0 is the fade's
