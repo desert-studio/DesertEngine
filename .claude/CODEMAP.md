@@ -282,7 +282,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/EmissiveLights` — 1 files, 273 lines
 - `Programs/FXAA` — 1 files, 80 lines
 - `Programs/Fog` — 4 files, 493 lines
-- `Programs/GlobalIllumination` — 18 files, 4,054 lines
+- `Programs/GlobalIllumination` — 18 files, 4,065 lines
 - `Programs/GpuDriven` — 2 files, 709 lines
 - `Programs/Graph` — 4 files, 146 lines
 - `Programs/Grass` — 4 files, 2,350 lines
