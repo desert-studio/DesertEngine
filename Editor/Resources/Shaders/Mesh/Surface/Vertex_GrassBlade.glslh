@@ -73,7 +73,9 @@ GpuInstanceDrawRow g_GrassDrawRow; // set first thing in main()
 // The blade's shape and placement: one statement for this stage and the ray tracer's blade BLAS.
 #include <Mesh/Surface/GrassBlade.glslh>
 #include <Common/LocalWind.glslh>
-#ifndef DESERT_SURFACE_PASS_VisibilityResolve // the resolve's vertex stage places no blade (its fragment stage does)
+// The resolve's vertex stage places no blade (its fragment stage does); the visibility raster reads the blade's
+// setup record, the field already applied (FPS-GRASS-RASTER-VS) - neither declares the field's sampler.
+#if !defined( DESERT_SURFACE_PASS_VisibilityResolve ) && !defined( DESERT_SURFACE_PASS_Visibility )
 // The view's deformation field: a pressed blade lies flat (DEFORM-GRASS), in every pass that places one.
 #include <Deformation/DeformationFieldRead.glslh>
 #endif
