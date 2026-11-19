@@ -84,6 +84,11 @@ Uniform(8) texture2D AtlasNormalTexture;
 layout(binding = 23) uniform texture2D SurfaceCacheEmissiveTexture;
 #define SurfaceCacheEmissiveTexture sampler2D(SurfaceCacheEmissiveTexture, PointClampSampler)
 #include <Common/SurfaceCacheSampling.glslh>
+// FPS-GI-VOXEL-LIGHT-3: a software radiosity ray's global-field hit takes its directional shadow from the global
+// field's voxel lighting at 43 (Common/GIHitLighting.glslh declares it on software tracers that do not light in
+// place; SurfaceCacheRenderer.cpp binds it under the same rule in both trace paths) - one lighting model for every
+// software hit. 43: past the tracer's 32..42; the unnumbered tile buffers are numbered after it.
+#define GI_VOXEL_LIGHTING_BINDING 43
 #include <Common/GIHitLighting.glslh>
 
 #define RADIOSITY_OPACITY SurfaceCacheOpacityTexture

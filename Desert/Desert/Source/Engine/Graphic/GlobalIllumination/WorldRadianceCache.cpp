@@ -307,6 +307,11 @@ namespace Desert::Graphic::GlobalIllumination
         if ( const std::string_view missing = SurfaceCacheFrameMissing( inputs.SurfaceCache );
              readsCards && !missing.empty() )
             return Common::MakeFormattedError<RadianceCacheFrame>( "radiance cache: {}", missing );
+        // FPS-GI-VOXEL-LIGHT-3: a software hit that reads the cards shadows its directional lights from the voxel
+        // lighting (GIHitLighting.glslh GI_HIT_VOXEL_LIGHTING); the Trace pass binds it under the same rule.
+        if ( const std::string_view missing = VoxelLightingMissing( inputs.Tracer );
+             readsCards && inputs.Tracer.Pipeline.Tracer == Tracer::SoftwareDistanceField && !missing.empty() )
+            return Common::MakeFormattedError<RadianceCacheFrame>( "radiance cache: {}", missing );
         if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
             return Common::MakeError<RadianceCacheFrame>( traced.GetError() );
 
@@ -484,6 +489,10 @@ namespace Desert::Graphic::GlobalIllumination
         const auto            all = RDG::SubresourceRange::All();
         // A hit reads the cards first (GIHitRadiance) unless the hardware tracer lights every hit in place.
         const bool readsCards = inputs != nullptr && inputs->Tracer.Pipeline.Hits == HitLighting::SurfaceCache;
+        // FPS-GI-VOXEL-LIGHT-3: a software tracer's hits take their directional shadow from the global field's voxel
+        // lighting (RadianceCacheTrace.shader GI_VOXEL_LIGHTING_BINDING; GIHitLighting.glslh declares it only there).
+        const bool readsVoxelLighting =
+             readsCards && inputs->Tracer.Pipeline.Tracer == Tracer::SoftwareDistanceField;
         const RDG::BufferRef  params       = update.Frame.Params;
         const RDG::BufferRef  indirection  = update.Frame.Indirection;
         const RDG::BufferRef  probes       = update.Frame.Probes;
@@ -557,6 +566,8 @@ namespace Desert::Graphic::GlobalIllumination
                          DeclareTracerReads( block, inputs->Tracer );
                          if ( readsCards )
                              DeclareSurfaceCacheReads( block, inputs->SurfaceCache );
+                         if ( readsVoxelLighting )
+                             DeclareVoxelLightingReads( block, inputs->Tracer, kS );
                          block.Texture( WorldRadianceCacheShaderParameters::EnvironmentSpecularTexture,
                                         inputs->EnvSpecular, kS, all )
                               .Sampler( WorldRadianceCacheShaderParameters::LinearClampSampler,

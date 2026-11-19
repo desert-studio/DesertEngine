@@ -76,6 +76,10 @@ Shader "RadianceCacheTrace"
         #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
         #define GI_SURFACE_CACHE_BINDING 24
+        // FPS-GI-VOXEL-LIGHT-3: a software probe ray's global-field hit takes its directional shadow from the global
+        // field's voxel lighting at 43 (Common/GIHitLighting.glslh declares it on software tracers only;
+        // WorldRadianceCache.cpp binds it under the same rule) - one lighting model for every software hit.
+        #define GI_VOXEL_LIGHTING_BINDING 43
         #include <Common/GIHitLighting.glslh>
 
         // How far a probe ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance).
