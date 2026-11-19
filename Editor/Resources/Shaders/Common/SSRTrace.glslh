@@ -152,8 +152,14 @@ layout(binding = 22) uniform texture2D GBufferEmissiveTexture;
 // program's own set, beside the front layer's slots (Core::kSsrShadingWordBinding).
 layout(set = kSsrFrontLayerSet, binding = kSsrShadingWordBinding) uniform utexture2D GBufferShadingWordTexture;
 #define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
+// The traced radiance probes (the radiance read, RadianceCacheRadianceAt): the software tracer's world legs end a
+// rough texel's ray at the cache's minimum trace distance and read the cache past it (SSR.shader THE SOFTWARE
+// TRACER'S WORLD LEGS, FPS-SSR-FAR). Slot 41: after the surface cache's 34..40, before the lists' 42..47.
+layout(binding = 41) uniform texture2D RadianceCacheRadianceAtlasTexture;
+#define RadianceCacheRadianceAtlasTexture sampler2D(RadianceCacheRadianceAtlasTexture, LinearClampSampler)
 #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
 #define RADIANCE_CACHE_PROBES radianceCacheProbes
+#define RADIANCE_CACHE_RADIANCE_ATLAS RadianceCacheRadianceAtlasTexture
 #include <Common/RadianceCache.glslh>
 #define GI_TRACER_BINDING 23
 #include <Common/GITracer.glslh>
@@ -383,8 +389,13 @@ struct SSRWorldFarRay
 	uvec4 Listed; // x = the world list index, y = nearOffset, z = globalStart (float bits), w = the dither seed
 	              // (GITraceSeed of the ray)
 	vec4  Start;  // xyz = where the march begins (the ray's origin + direction x globalStart), w = its length
-	vec4  Dir;    // xyz = the ray's unit direction, w unused (SSRRenderer::kWorldFarRayBytes = 48)
+	vec4  Dir;    // xyz = the ray's unit direction, w = 1 when the march ends at the radiance cache's minimum trace
+	              // distance (Start.w cut there; a miss is read from the cache), 0 when it runs its whole span
+	              // (SSRRenderer::kWorldFarRayBytes = 48)
 };
+// The hit list's march clipmap code (ssrWorldHit x >> 28) of a ray the far field left at the radiance cache: no
+// surface, the cache answers (its w = where the march stopped). Clipmap codes 0..14 are the global field's levels.
+const uint kSSRWorldHitAtCache = 15u;
 layout(std430, binding = 46) buffer SsrWorldFarListUB
 {
 	uvec4          ssrWorldFarArgs;
@@ -394,7 +405,7 @@ layout(std430, binding = 47) buffer SsrWorldHitListUB
 {
 	uvec4 ssrWorldHitArgs;
 	uvec4 ssrWorldHit[]; // x = the world list index | (march clipmap + 1) << 28, y = nearOffset, z = globalStart,
-	                     // w = the march's T (float bits)
+	                     // w = the march's T (float bits); at kSSRWorldHitAtCache the cut's T
 };
 #endif
 #endif
