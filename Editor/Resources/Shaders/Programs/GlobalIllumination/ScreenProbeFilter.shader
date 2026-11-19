@@ -145,7 +145,8 @@ Shader "ScreenProbeFilter"
             const vec3  dir    = TexelDirection( frame, vec2( t ) + 0.5 );
 
 #if defined( SP_FILTER_SPATIAL )
-            const vec3  spatial  = SPSpatialFilterTexel( probe, state, t ).rgb;
+            SPSpatialFilterLoadNeighbourhood( probe, state, texel ); // the group's returns above are uniform
+            const vec3  spatial  = SPSpatialFilterTexel( probe, state, t, dir ).rgb;
             const vec3  radiance = vec3( unpackHalf2x16( packHalf2x16( spatial.rg ) ),
                                          unpackHalf2x16( packHalf2x16( vec2( spatial.b, 0.0 ) ) ).x );
 #else
