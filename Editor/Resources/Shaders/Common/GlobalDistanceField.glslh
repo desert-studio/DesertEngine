@@ -177,21 +177,50 @@ float GlobalDistanceFieldSkipStep(vec3 p, int level, float distance, float fineS
     return max(fineStep, coarseStep);
 }
 
+// THE MARCH'S STATE between steps (FPS-SSR-FAR-2): everything a step reads of the steps before it - so a march
+// stopped after a number of steps and resumed from its state takes exactly the steps, the dither draws and the hit
+// refinement one uninterrupted march takes. A caller that compacts its unfinished marches between dispatches
+// (SSR.shader's world far field and its rest: a wave runs only marches still going, never idles on one long march)
+// keeps this per ray. step = the next step's index (the dither draw's), t = cm from the march's origin.
+struct GlobalDistanceFieldMarchState
+{
+    float t;
+    float previousT;
+    bool  previousInBand;
+    int   step;
+};
+
+GlobalDistanceFieldMarchState GlobalDistanceFieldMarchBegin()
+{
+    GlobalDistanceFieldMarchState state;
+    state.t              = 0.0;
+    state.previousT      = 0.0;
+    state.previousInBand = false;
+    state.step           = 0;
+    return state;
+}
+
+// TraceGlobalDistanceField's walk from @p state up to step @p endStep (exclusive): the march's steps state.step ..
+// endStep - 1 of the same @p origin, @p direction, @p maxT, @p levels, dither and @p seed. On return @p state is the
+// march's after its last step: a result with no hit, state.step == endStep and state.t < maxT is UNFINISHED (more
+// steps would run); every other result is the uninterrupted march's own.
 // @p anyHit (a shadow ray: visibility only) ends at the first sample in the band, unrefined - its T and Level are
 // not read; a gather ray's hit is refined to the band's entry.
-GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, float maxT, int maxSteps,
-                                                vec4 levels[GDF_NUM_CLIPMAPS], bool ditheredTransparency,
-                                                uint seed, bool anyHit)
+GlobalDistanceFieldHit TraceGlobalDistanceFieldSteps(vec3 origin, vec3 direction, float maxT,
+                                                     inout GlobalDistanceFieldMarchState state, int endStep,
+                                                     vec4 levels[GDF_NUM_CLIPMAPS], bool ditheredTransparency,
+                                                     uint seed, bool anyHit)
 {
     GlobalDistanceFieldHit result;
     result.Hit   = false;
     result.T     = 0.0;
     result.Level = -1;
-    result.Steps = 0;
-    float t             = 0.0;
-    float previousT     = 0.0;
-    bool  previousInBand = false;
-    for (int step = 0; step < maxSteps && t < maxT; ++step)
+    result.Steps = state.step;
+    float t              = state.t;
+    float previousT      = state.previousT;
+    bool  previousInBand = state.previousInBand;
+    int   step           = state.step;
+    for (; step < endStep && t < maxT; ++step)
     {
         const vec3 p     = origin + direction * t;
         const int  level = GlobalDistanceFieldLevelAt(p, levels);
@@ -244,8 +273,30 @@ GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, flo
         const float fineStep = max(distance, voxel * mix(1.0, 0.1, coverage));
         t += GlobalDistanceFieldSkipStep(p, level, distance, fineStep, levels);
     }
+    state.t              = t;
+    state.previousT      = previousT;
+    state.previousInBand = previousInBand;
+    state.step           = step;
     result.T = t;
     return result;
+}
+
+// True when the march that returned @p result from @p state (TraceGlobalDistanceFieldSteps up to @p endStep) stopped
+// only because it reached endStep: no hit, no clipmap left behind (that breaks before endStep), maxT not reached.
+bool GlobalDistanceFieldMarchUnfinished(GlobalDistanceFieldHit result, GlobalDistanceFieldMarchState state,
+                                        int endStep, float maxT)
+{
+    return !result.Hit && state.step >= endStep && state.t < maxT;
+}
+
+// The whole march from @p origin: TraceGlobalDistanceFieldSteps from the first step to @p maxSteps.
+GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, float maxT, int maxSteps,
+                                                vec4 levels[GDF_NUM_CLIPMAPS], bool ditheredTransparency,
+                                                uint seed, bool anyHit)
+{
+    GlobalDistanceFieldMarchState state = GlobalDistanceFieldMarchBegin();
+    return TraceGlobalDistanceFieldSteps(origin, direction, maxT, state, maxSteps, levels, ditheredTransparency, seed,
+                                         anyHit);
 }
 
 // FPS-SP-FARFIELD THE FIRST STEP'S PROOF: true when TraceGlobalDistanceField of the same @p origin, @p direction,

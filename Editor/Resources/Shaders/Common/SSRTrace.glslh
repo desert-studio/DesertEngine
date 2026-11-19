@@ -374,8 +374,11 @@ layout(std430, binding = 45) buffer SsrWorldListUB
 // not on the gradient, card search and shadow marches of the few that hit.
 //   near field (SsrParams3.w = 2) over the world list: the mesh SDFs (GITraceNearField); a hit is lit and written
 //       there, a miss whose far field has a span (GIFarFieldSpan) is listed in the far list;
-//   far field (SsrParams3.w = 3) over the far list: the global field's march (GITraceFarFieldMarchFrom); a hit is
-//       listed in the hit list, a miss leaves the texel as the screen leg wrote it;
+//   far field (SsrParams3.w = 3) over the far list: the global field's march (GITraceFarFieldMarchSteps), its first
+//       kSSRWorldFarFirstSteps steps; a hit is listed in the hit list, a march still going is listed in the far rest
+//       list, a miss leaves the texel as the screen leg wrote it;
+//   far field rest (SsrParams3.w = 5) over the far rest list: the same marches resumed to their end, a hit listed
+//       in the hit list - so a far-field wave never runs one long march while its other lanes idle;
 //   hit lighting (SsrParams3.w = 4) over the hit list: the hit's surface (GIFarFieldSurface of the march's position
 //       and clipmap) lit by GIHitRadiance, the texel written.
 // The same ray, the same sums in the same order: the texels of the one-kernel world trace. The far list carries the
@@ -406,6 +409,18 @@ layout(std430, binding = 47) buffer SsrWorldHitListUB
 	uvec4 ssrWorldHitArgs;
 	uvec4 ssrWorldHit[]; // x = the world list index | (march clipmap + 1) << 28, y = nearOffset, z = globalStart,
 	                     // w = the march's T (float bits); at kSSRWorldHitAtCache the cut's T
+};
+// THE FAR FIELD'S REST (FPS-SSR-FAR-2; the march compaction of a GPU ray tracer's wavefront: a wave's time is its
+// longest lane's): the far field marches every listed ray kSSRWorldFarFirstSteps steps and lists the marches still
+// going here with their state (GlobalDistanceFieldMarchState), the rest dispatch resumes them - the first dispatch's
+// waves end with their short marches (the radiance cache's cut rays, clear spans), the rest's hold long marches only.
+// The parts take the uninterrupted march's steps and dither (GITraceFarFieldMarchSteps): the same hits.
+const int kSSRWorldFarFirstSteps = 24;
+layout(std430, binding = 48) buffer SsrWorldFarRestListUB
+{
+	uvec4 ssrWorldFarRestArgs;
+	uvec4 ssrWorldFarRest[]; // x = the far list index | previousInBand << 31, y = the march's t, z = its previousT
+	                         // (float bits), w = its next step (SSRRenderer::kWorldLegEntryBytes)
 };
 #endif
 #endif
