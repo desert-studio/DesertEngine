@@ -8,7 +8,13 @@
 #include <Engine/Assets/ContentGate.hpp>
 #include <Engine/Core/BootTimeline.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Application.hpp>
+#include <Engine/Core/Input.hpp>
+#include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/RenderPass.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Input/InputKey.hpp>
 #include <UI/UICanvasContext.hpp>
@@ -20,6 +26,11 @@
 #include <optional>
 #include <string>
 #include <utility>
+
+namespace Desert::Graphic
+{
+    class SceneRenderer;
+} // namespace Desert::Graphic
 
 namespace Desert::Graphic
 {

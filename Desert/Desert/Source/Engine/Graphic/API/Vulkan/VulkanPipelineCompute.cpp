@@ -24,6 +24,21 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    namespace
+    {
+        // THE OLD RECORD OUTLIVES EVERY FRAME THAT MAY STILL READ IT (UE: deferred deletion of a released PSO): it
+        // goes through the frame ring's deletion queue, and only at once with no renderer.
+        template <class Record> void RetirePastFramesInFlight( std::shared_ptr<Record> record ) noexcept
+        {
+            if ( !record )
+                return;
+            const auto ctx       = EngineContext::GetInstance().GetRendererContext();
+            auto*      allocator = ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
+            if ( allocator != nullptr )
+                allocator->RT_DestroyLater( [held = std::move( record )]() mutable { held.reset(); } );
+        }
+    } // namespace
+
     VulkanPipelineCompute::VulkanPipelineCompute( const ComputePipelineSpecification& spec ) 
         : m_Specification( spec )
     {
@@ -35,16 +50,28 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanPipelineCompute::~VulkanPipelineCompute()
     {
-        // At once: the last owner of a pipeline has no frame recording with it (m_Owned dies with this object).
+        // GPUSCENE-UAF-MAC: NOT AT ONCE. The last owner of a pipeline has no frame RECORDING with it, but the frames
+        // it was recorded into may still be waiting for the submit thread (VK-SUBMIT-THREAD) or running on the GPU:
+        // their command buffers bind this record's VkPipeline and the ring sets of its batch pool. Destroyed here,
+        // MoltenVK (which encodes a command buffer at vkQueueSubmit) made the pool's freed argument buffer resident
+        // (SIGSEGV in useResources of a compute dispatch, [AGXG13XFamilyBuffer retain] sent to a deallocated
+        // instance: WP-DATA-LAYERS, WP-FAR-2, WP22-REST "Build HLODs"). The record retires past the frames in
+        // flight, as a rebuild's replaced record does (Publish).
         m_Current.store( nullptr, std::memory_order_release );
+        RetirePastFramesInFlight( std::move( m_Owned ) );
+    }
+
+    VulkanPipelineCompute::BuiltCompute::BuiltCompute()
+    {
+        if ( const auto device = EngineContext::GetInstance().GetDevice() )
+            Device = SP_CAST( VulkanLogicalDevice, device )->GetVulkanLogicalDevice();
     }
 
     VulkanPipelineCompute::BuiltCompute::~BuiltCompute()
     {
         if ( Pipeline == VK_NULL_HANDLE && Layout == VK_NULL_HANDLE && m_BatchPool == VK_NULL_HANDLE )
             return;
-        VkDevice device =
-             SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetVulkanLogicalDevice();
+        VkDevice device = Device;
         if ( Pipeline != VK_NULL_HANDLE )
             vkDestroyPipeline( device, Pipeline, nullptr );
         if ( Layout != VK_NULL_HANDLE )
@@ -63,13 +90,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( !replaced || !deferred )
             return; // nothing to retire, or no frame records with it: `replaced` dies here
 
-        // THE OLD RECORD OUTLIVES EVERY FRAME THAT MAY STILL READ IT: a render worker of frame N-1 may be
-        // binding its pipeline, layout or a ring set while this rebuild runs on the game thread of frame N
-        // (UE: deferred deletion of the replaced PSO). At once only with no renderer.
-        const auto ctx       = EngineContext::GetInstance().GetRendererContext();
-        auto*      allocator = ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator().get() : nullptr;
-        if ( allocator != nullptr )
-            allocator->RT_DestroyLater( [held = std::move( replaced )]() mutable { held.reset(); } );
+        // A render worker of frame N-1 may be binding its pipeline, layout or a ring set while this rebuild runs on
+        // the game thread of frame N.
+        RetirePastFramesInFlight( std::move( replaced ) );
     }
 
     void VulkanPipelineCompute::AddBoundKey( const uint32_t binding )
@@ -444,8 +467,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( layout0 == VK_NULL_HANDLE )
                 return VK_NULL_HANDLE;
 
-            VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                   ->GetVulkanLogicalDevice();
+            VkDevice device = Device;
 
             // Pool sized from the record's own layouts — the same contract the sets below are allocated
             // from. The bindless table's layout is left out: its set is the table's own

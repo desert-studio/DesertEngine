@@ -42,7 +42,8 @@
 // hierarchy's plan (Serialize/WorldPartitionHLODHierarchy.hpp) - read on workers, activated under the budget,
 // destroyed the frame they leave range - and only the top of each chain (an always-loaded layer) is made before
 // the first frame, one HLOD at a time. A city then holds the HLODs around its sources and one coarse top, not
-// every HLOD it has. Begin (Play) only: a cooked world refuses such a layer (WorldCells::CookWorld).
+// every HLOD it has. Both beginnings: Play reads the saved HLODs, a game the cooked HLOD cells (WorldCells.hpp,
+// THE HLOD CELLS OF A SPATIALLY LOADED LAYER) through the same region chunks as its world cells.
 
 #include <set>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -55,12 +56,14 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
@@ -121,6 +124,16 @@ namespace Desert::Core
         [[nodiscard]] Common::BoolResultStr Tick( double                                  nowSeconds,
                                                   std::span<const Rules::StreamingSource> instruments = {} );
 
+        // RUNTIME DATA LAYERS (WP-DATA-LAYERS-RUNTIME; UE UDataLayerManager). Every Runtime layer of the world starts
+        // Play and a packaged game in its InitialRuntimeState; Set moves it (UE SetDataLayerInstanceRuntimeState) and
+        // the next Tick loads, activates, deactivates or releases its cells (Rules::StepResidency). Refused, by name,
+        // for a layer the world does not state or an Editor layer. Luau reaches these through WP-SCRIPT-API.
+        [[nodiscard]] Common::BoolResultStr SetDataLayerRuntimeState( std::string_view layer, DataLayerRuntimeState state );
+        // UE GetDataLayerInstanceRuntimeState: nullopt for a name the world does not state or an Editor layer.
+        [[nodiscard]] std::optional<DataLayerRuntimeState> GetDataLayerRuntimeState( std::string_view layer ) const;
+        // UE GetCellEffectiveWantedState: how far its runtime layers want unit @p unit (Activated for none).
+        [[nodiscard]] DataLayerRuntimeState GetUnitEffectiveRuntimeState( std::size_t unit ) const;
+
         // WHAT THE LAST Tick DID, for an instrument that attributes a frame's cost (the editor's --flight).
         // Reset at the start of every Tick, so it never carries an earlier frame's activations.
         struct TickReport
@@ -150,6 +163,21 @@ namespace Desert::Core
         {
             return m_LastTick;
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // DEV ONLY - what one unit's last read and activation took (the gameplay debugger's World Partition
+        // category; UE wp.Runtime.ToggleDrawRuntimeCellsDetails). Wall milliseconds; negative = not measured yet.
+        struct UnitTiming
+        {
+            double LoadMs       = -1.0; // StartLoad to the Tick that collected the read: queue and worker
+            double ActivationMs = -1.0; // its last InstantiateRecords on the main thread
+        };
+        // nullptr for a unit never read by this streamer.
+        [[nodiscard]] const UnitTiming* TimingOf( std::size_t unit ) const
+        {
+            return unit < m_UnitTimings.size() ? &m_UnitTimings[unit] : nullptr;
+        }
+#endif
 
         // Whether @p scene is the one this streams: the editor updates several scenes a frame.
         [[nodiscard]] bool Streams( const Scene& scene ) const
@@ -200,19 +228,32 @@ namespace Desert::Core
         // viewport of width over height @p aspect: 2 atan(tan(v / 2) * aspect), capped at the full circle.
         [[nodiscard]] static float CameraViewAngle( float verticalFovDegrees, float aspect );
 
-        // Says what streaming cost, once: the activation measurement MsPerRecord comes from.
+        // Says what streaming cost, once: the activations, their slices, and what each record kind measured.
         ~WorldStreamer() override;
         WorldStreamer( const WorldStreamer& )            = delete;
         WorldStreamer& operator=( const WorldStreamer& ) = delete;
 
-        [[nodiscard]] Common::BoolResultStr Activate( std::size_t                  unit,
-                                                      std::span<const std::size_t> records ) override;
+        [[nodiscard]] Common::BoolResultStr           Activate( std::size_t unit, std::size_t firstMember,
+                                                                std::span<const std::size_t> records ) override;
+        [[nodiscard]] Common::ResultStr<bool>         FinishActivation( std::size_t                  unit,
+                                                                        std::span<const std::size_t> records ) override;
+        [[nodiscard]] Rules::ActivationRecordKind     ActivationKindOf( std::size_t unit,
+                                                                        std::size_t member ) const override;
         void                                Destroy( std::span<const std::size_t> records ) override;
         void                                StartLoad( std::size_t unit, std::uint64_t ticket ) override;
         void                                CancelLoad( std::size_t unit, std::uint64_t ticket ) override;
         void                                Unload( std::size_t unit ) override;
         [[nodiscard]] std::vector<Rules::LoadOutcome> TakeLoadOutcomes() override;
         void                                          SetHLODVisible( std::size_t hlod, bool visible ) override;
+        // THE HLOD WARMUP (Serialize/WorldPartitionHLODSwitch.hpp, THE WARMUP): what a cell's read records or an
+        // HLOD's own records name, as their dependency closure - read on workers, pinned against the eviction
+        // sweep, its textures asked for at the size every view measures the cell's bounds at - until resident.
+        [[nodiscard]] bool WarmCell( std::size_t unit ) override;
+        [[nodiscard]] bool WarmHLOD( std::size_t hlod ) override;
+        [[nodiscard]] bool WarmHLODCell( std::size_t unit ) override;
+        void               EndCellWarmup( std::size_t unit ) override;
+        void               EndHLODWarmup( std::size_t hlod ) override;
+        void               EndHLODCellWarmup( std::size_t unit ) override;
 
         // What stands in for the cells that are not drawn: nullopt only on a streamer that failed to begin.
         [[nodiscard]] const std::optional<Rules::HLODRuntime>& HLODs() const
@@ -224,6 +265,8 @@ namespace Desert::Core
         WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName );
         // Takes @p sources as this frame's; the first frame with none logs the one named error (THE SOURCES).
         void UseSources( std::vector<Rules::StreamingSource> sources );
+        // Compares each unit's residency with what the last call saw and sets WorldPartitionStreamingEvents.
+        void PublishStreamingEvents();
         // Gives each of the first @p entities.size() sources the velocity its entity moved at since the last Tick.
         void StampVelocities( std::vector<Rules::StreamingSource>& sources,
                               std::span<const std::uint32_t> entities, double nowSeconds );
@@ -244,13 +287,15 @@ namespace Desert::Core
         // once, by reason.
         [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                         std::span<const Rules::HLODExclusion> holes );
-        // THE HLOD CELLS (see the top): @p rows per node of @p hierarchy, its saved row (null when missing or
-        // stale - already said - or when it has no file), read from @p held. Makes the always-loaded nodes
-        // entities one at a time, starts the HLOD residency and shows what stands in now.
-        [[nodiscard]] Common::BoolResultStr BeginHLODCells( Rules::HLODHierarchy hierarchy,
-                                                            std::shared_ptr<const WorldCells::StoredHLODs> held,
-                                                            std::vector<const WorldCells::BuiltHLODCell*>  rows,
-                                                            std::span<const Rules::HLODExclusion>          holes );
+        // THE HLOD CELLS (see the top): @p residency is MakeHLODResidency's of @p hierarchy, @p nodeIds per node
+        // the ids of its records (empty for one with none) and @p source reads one HLOD residency unit's records -
+        // the saved HLODs (Begin) or the cooked HLOD cells (BeginCooked). Makes the always-loaded nodes entities
+        // one at a time, starts the HLOD residency and shows what stands in now.
+        [[nodiscard]] Common::BoolResultStr BeginHLODCells( Rules::HLODHierarchy                   hierarchy,
+                                                            Rules::HLODResidency                   residency,
+                                                            std::vector<std::vector<Common::UUID>> nodeIds,
+                                                            std::shared_ptr<const Rules::WorldCellSource> source,
+                                                            std::span<const Rules::HLODExclusion>         holes );
 
         // The ResidencyWorld of the HLOD cells: their reads, activations and destructions (WorldStreamer.cpp).
         class HLODCellWorld;
@@ -273,15 +318,26 @@ namespace Desert::Core
         std::shared_ptr<const WorldCells::WorldIndex> m_Index;
         std::unique_ptr<WorldCellLoader>              m_Loader;
 
-        // What activation actually cost, measured around InstantiateRecords.
-        std::size_t m_Activations      = 0;
+        // What activation actually cost, measured around each slice's InstantiateRecords and its bodies.
+        std::size_t m_Activations      = 0; // units completed
+        std::size_t m_Slices           = 0;
         std::size_t m_RecordsActivated = 0;
         double      m_ActivationMs     = 0.0;
-        double      m_WorstUnitMs      = 0.0;
+        double      m_WorstSliceMs     = 0.0;
+        double      m_WorstUnitMs      = 0.0; // a unit's slices and finish, summed over its frames
+        // Per Activating unit: the entities its slices made, hidden until it is whole (THE SLICES).
+        std::unordered_map<std::size_t, std::vector<std::uint32_t>> m_Made;
         std::size_t m_MostResident     = 0;
 
         TickReport m_LastTick;
+#if DESERT_DEV_INSTRUMENTS
+        // Per unit (index = unit, grown as units are read): TimingOf's answers, and when each read started.
+        std::vector<UnitTiming>                            m_UnitTimings;
+        std::vector<std::chrono::steady_clock::time_point> m_LoadStarted;
+#endif
         std::uint32_t m_FramesWaiting = 0;
+        // True while the last Tick was Critical with blocking disabled (logged once per such stretch).
+        bool m_SaidCriticalUnblocked = false;
 
         // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.
         std::vector<std::vector<Common::UUID>> m_HLODIds;
@@ -294,16 +350,49 @@ namespace Desert::Core
         std::unique_ptr<HLODCellWorld>          m_HLODCells;
         // False through BeginHLODs' first Sync (which sets every HLOD); after it each switch is logged.
         bool m_HLODSwitchesSaid = false;
+        // THE WARMUPS IN FLIGHT (WorldStreamer.cpp): by world unit (a cell to be shown) and by HLOD (an HLOD to be
+        // shown in its cell's place). What each HLOD's records name is gathered when they are read: per HLOD made
+        // by BeginHLODs, per HLOD residency unit made at the start of BeginHLODCells (a streamed HLOD cell's come
+        // with its read, HLODCellWorld).
+        struct Warming;
+        [[nodiscard]] bool WarmUp( std::map<std::size_t, std::unique_ptr<Warming>>& warming, std::size_t key,
+                                   const Rules::CellBounds& bounds, const std::string& what,
+                                   const std::vector<std::string>* guids );
+        void               PublishWarmups();
+        // Whether world unit @p unit's square holds a streaming source: Play waits for that cell, so it is never
+        // held for a warmup (WorldPartitionStreamingPerformance.hpp, CRITICAL).
+        [[nodiscard]] bool                                        UnderSource( std::size_t unit );
+        std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmCells;
+        std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmHLODs;
+        std::map<std::size_t, std::unique_ptr<Warming>>           m_WarmHLODCells; // by HLOD residency unit
+        std::vector<std::vector<std::string>>                     m_HLODDependencies;
+        std::unordered_map<std::size_t, std::vector<std::string>> m_HLODUnitDependencies;
 
         // The one settings value both beginnings hand the executor, kept so the panel reads the same margin.
         Rules::ResidencySettings              m_Settings;
         WorldPartitionSerialized              m_Partition;
         std::vector<Rules::StreamingSource>   m_LastSources;
         bool                                  m_SaidNoSource = false;
+        // Per unit of runtime data layers: the effective state and residency last said in the log (SayDataLayerUnits).
+        std::vector<std::uint8_t> m_SaidLayerUnit;
+        void                      SayDataLayerUnits();
         // Entities whose Angle From Camera found no camera, already named in the log.
         std::unordered_set<std::uint32_t> m_SaidWithoutCamera;
         // Where each entity source stood on the last Tick, and when: what its velocity is measured from.
         std::unordered_map<std::uint32_t, glm::vec3> m_SourcePositions;
         double                                       m_SourcesAt = 0.0;
+        // What each unit's residency was when PublishStreamingEvents last looked, and its publication count.
+        std::vector<Rules::Residency> m_StatesSeen;
+        std::uint64_t                 m_EventPublication = 0;
+    };
+
+    // THE STREAMER OF A SCENE, ON THE SCENE'S REGISTRY CONTEXT (UE: a world's UWorldPartitionSubsystem): set while
+    // a WorldStreamer streams the scene - by Begin / BeginCooked as soon as its executor exists, so a script asks
+    // before the first tick and is told the truth (nothing has arrived) - and removed by its destructor. What the
+    // WorldPartition script library (Libraries/WorldPartitionLibrary.hpp) reads the plan and the residency
+    // through; a host draws from WorldStreamingWait instead.
+    struct WorldStreamerOfScene
+    {
+        WorldStreamer* Streamer = nullptr;
     };
 } // namespace Desert::Core

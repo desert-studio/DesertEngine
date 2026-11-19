@@ -147,17 +147,7 @@ namespace Desert::Editor
             m_Selection.SetCurrent( entry );
             static_cast<void>( Rename() );
         }
-        if ( ImGui::MenuItem( count > 1 ? "Duplicate selection" : "Duplicate" ) )
-        {
-            for ( const auto& p : sel )
-            {
-                std::string np;
-                std::string err;
-                if ( !AssetFileOps::Duplicate( p, np, err ) )
-                    m_On.OnStatus( FailedStatus( "Duplicate", err ) );
-            }
-            m_On.OnRefresh();
-        }
+        CommandMenuItem( ContentBrowserCommand::Duplicate, folder );
         if ( ImGui::MenuItem( "Cut", "Ctrl+X" ) )
             m_Selection.Copy( true );
         if ( ImGui::MenuItem( "Copy", "Ctrl+C" ) )
@@ -515,6 +505,23 @@ namespace Desert::Editor
                 if ( !created )
                     return Common::MakeFormattedError<bool>( "'{}': {}", label, created.GetError() );
                 return Common::MakeSuccess( true );
+            }
+            case ContentBrowserCommand::Duplicate:
+            {
+                // UE's Duplicate: each selected asset copied beside itself under a unique name; a scene with its
+                // companion folders - entity files, descriptor index, built HLODs (AssetFileOps::Duplicate).
+                const Common::BoolResultStr outcome = overEntries(
+                     []( DirectoryInformation& entry ) -> Common::BoolResultStr
+                     {
+                         std::string copy;
+                         std::string error;
+                         if ( !AssetFileOps::Duplicate( entry.AssetPath, copy, error ) )
+                             return Common::MakeError<bool>( error );
+                         LOG_INFO( "[Content Browser] Duplicate: '{}' -> '{}'", entry.AssetPath, copy );
+                         return Common::MakeSuccess( true );
+                     } );
+                m_On.OnRefresh();
+                return outcome;
             }
             case ContentBrowserCommand::DeleteToTrash:
             {

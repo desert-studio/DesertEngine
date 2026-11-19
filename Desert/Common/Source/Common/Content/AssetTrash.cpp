@@ -107,14 +107,15 @@ namespace Common::Content
         AssetTrashRecord record;
         record.From = fs::absolute( path ).lexically_normal();
 
-        // What goes: the path, its import record, a scene's entity folder.
+        // What goes: the path, its import record, a scene's companion folders (its entity files with their
+        // descriptor index, its built HLODs - SceneCompanionDirectoriesOf).
         std::vector<fs::path> originals = { record.From };
         if ( const fs::path importRecord = ImportRecordPathFor( record.From ); fs::exists( importRecord, ec ) )
             originals.push_back( importRecord );
         if ( record.From.extension() == Constants::Extensions::SCENE_EXTENSION )
-            if ( const fs::path entities = ExternalEntitiesDirectoryOf( record.From );
-                 fs::is_directory( entities, ec ) )
-                originals.push_back( entities );
+            for ( const fs::path& companion : SceneCompanionDirectoriesOf( record.From ) )
+                if ( fs::is_directory( companion, ec ) )
+                    originals.push_back( companion );
 
         // The rows those files hold, found BEFORE anything moves (a key is a function of the path).
         std::set<std::string> keys;

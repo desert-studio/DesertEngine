@@ -1,0 +1,11 @@
+# BUILD-FAST-2: a header edit rebuilds tens of objects, not hundreds; IWYU is an agent's tool. Measured outside the editor
+# (DesertEngine-scratch/BUILD-FAST-2/timings.txt):
+#   [1_fanout]     scripts/Dev/header_fanout.sh [N] -> table "header -> objects", top N, <= 30 s
+#   [2_iwyu]       scripts/Dev/iwyu.sh <file.cpp> -> IWYU's proposals for the file <= 1 min, no false ones about
+#                  Common / ThirdParty / std (scripts/Dev/iwyu.imp, prefix headers kept)
+#   [3_one_header] one split header edited (outside the WP files) -> `ninja -n` <= 60 objects, Editor <= 3 min
+# Regression (here): the Editor built after the cuts (services declared in ResourceRegistry.hpp, no Engine/Desert.hpp
+# umbrella) opens the saved World Partition world and draws it as the dev Editor does.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт 2 км, город, кусты, небо; без падения и диалога ошибки; в editor.log нет отказа загрузки

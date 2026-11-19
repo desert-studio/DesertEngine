@@ -1,0 +1,1400 @@
+{
+    "Header": {
+        "Kind": "Prefab",
+        "Guid": "9285ac0d81ab1067b75c6fac2265c95f",
+        "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 76,
+            "UNIT": 1,
+            "WPAR": 13
+        },
+        "Dependencies": [
+            "04f3bb576e64e248daad7640edbe91c5",
+            "f6f923426f71eb4a270b1db46ebceeff"
+        ]
+    },
+    "Name": "Fence_Run",
+    "Entities": [
+        {
+            "id": 9600,
+            "Tag": "Fence_Run",
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ]
+        },
+        {
+            "id": 9601,
+            "parent": 9600,
+            "siblingIndex": 0,
+            "Tag": "Post_01",
+            "Translation": [
+                0.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9602,
+            "parent": 9600,
+            "siblingIndex": 1,
+            "Tag": "Post_02",
+            "Translation": [
+                100.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9603,
+            "parent": 9600,
+            "siblingIndex": 2,
+            "Tag": "Post_03",
+            "Translation": [
+                200.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9604,
+            "parent": 9600,
+            "siblingIndex": 3,
+            "Tag": "Post_04",
+            "Translation": [
+                300.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9605,
+            "parent": 9600,
+            "siblingIndex": 4,
+            "Tag": "Post_05",
+            "Translation": [
+                400.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9606,
+            "parent": 9600,
+            "siblingIndex": 5,
+            "Tag": "Post_06",
+            "Translation": [
+                500.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9607,
+            "parent": 9600,
+            "siblingIndex": 6,
+            "Tag": "Post_07",
+            "Translation": [
+                600.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9608,
+            "parent": 9600,
+            "siblingIndex": 7,
+            "Tag": "Post_08",
+            "Translation": [
+                700.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9609,
+            "parent": 9600,
+            "siblingIndex": 8,
+            "Tag": "Post_09",
+            "Translation": [
+                800.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9610,
+            "parent": 9600,
+            "siblingIndex": 9,
+            "Tag": "Post_10",
+            "Translation": [
+                900.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9611,
+            "parent": 9600,
+            "siblingIndex": 10,
+            "Tag": "Post_11",
+            "Translation": [
+                1000.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9612,
+            "parent": 9600,
+            "siblingIndex": 11,
+            "Tag": "Post_12",
+            "Translation": [
+                1100.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9613,
+            "parent": 9600,
+            "siblingIndex": 12,
+            "Tag": "Post_13",
+            "Translation": [
+                1200.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9614,
+            "parent": 9600,
+            "siblingIndex": 13,
+            "Tag": "Post_14",
+            "Translation": [
+                1300.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9615,
+            "parent": 9600,
+            "siblingIndex": 14,
+            "Tag": "Post_15",
+            "Translation": [
+                1400.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9616,
+            "parent": 9600,
+            "siblingIndex": 15,
+            "Tag": "Post_16",
+            "Translation": [
+                1500.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9617,
+            "parent": 9600,
+            "siblingIndex": 16,
+            "Tag": "Post_17",
+            "Translation": [
+                1600.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9618,
+            "parent": 9600,
+            "siblingIndex": 17,
+            "Tag": "Post_18",
+            "Translation": [
+                1700.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9619,
+            "parent": 9600,
+            "siblingIndex": 18,
+            "Tag": "Post_19",
+            "Translation": [
+                1800.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9620,
+            "parent": 9600,
+            "siblingIndex": 19,
+            "Tag": "Post_20",
+            "Translation": [
+                1900.0,
+                65.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.12,
+                1.3,
+                0.12
+            ],
+            "StaticMesh": {
+                "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9621,
+            "parent": 9600,
+            "siblingIndex": 20,
+            "Tag": "Board_01",
+            "Translation": [
+                50.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9622,
+            "parent": 9600,
+            "siblingIndex": 21,
+            "Tag": "Board_02",
+            "Translation": [
+                150.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9623,
+            "parent": 9600,
+            "siblingIndex": 22,
+            "Tag": "Board_03",
+            "Translation": [
+                250.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9624,
+            "parent": 9600,
+            "siblingIndex": 23,
+            "Tag": "Board_04",
+            "Translation": [
+                350.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9625,
+            "parent": 9600,
+            "siblingIndex": 24,
+            "Tag": "Board_05",
+            "Translation": [
+                450.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9626,
+            "parent": 9600,
+            "siblingIndex": 25,
+            "Tag": "Board_06",
+            "Translation": [
+                550.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9627,
+            "parent": 9600,
+            "siblingIndex": 26,
+            "Tag": "Board_07",
+            "Translation": [
+                650.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9628,
+            "parent": 9600,
+            "siblingIndex": 27,
+            "Tag": "Board_08",
+            "Translation": [
+                750.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9629,
+            "parent": 9600,
+            "siblingIndex": 28,
+            "Tag": "Board_09",
+            "Translation": [
+                850.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9630,
+            "parent": 9600,
+            "siblingIndex": 29,
+            "Tag": "Board_10",
+            "Translation": [
+                950.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9631,
+            "parent": 9600,
+            "siblingIndex": 30,
+            "Tag": "Board_11",
+            "Translation": [
+                1050.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9632,
+            "parent": 9600,
+            "siblingIndex": 31,
+            "Tag": "Board_12",
+            "Translation": [
+                1150.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9633,
+            "parent": 9600,
+            "siblingIndex": 32,
+            "Tag": "Board_13",
+            "Translation": [
+                1250.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9634,
+            "parent": 9600,
+            "siblingIndex": 33,
+            "Tag": "Board_14",
+            "Translation": [
+                1350.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9635,
+            "parent": 9600,
+            "siblingIndex": 34,
+            "Tag": "Board_15",
+            "Translation": [
+                1450.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9636,
+            "parent": 9600,
+            "siblingIndex": 35,
+            "Tag": "Board_16",
+            "Translation": [
+                1550.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9637,
+            "parent": 9600,
+            "siblingIndex": 36,
+            "Tag": "Board_17",
+            "Translation": [
+                1650.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9638,
+            "parent": 9600,
+            "siblingIndex": 37,
+            "Tag": "Board_18",
+            "Translation": [
+                1750.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9639,
+            "parent": 9600,
+            "siblingIndex": 38,
+            "Tag": "Board_19",
+            "Translation": [
+                1850.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9640,
+            "parent": 9600,
+            "siblingIndex": 39,
+            "Tag": "Board_20",
+            "Translation": [
+                1950.0,
+                55.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                0.2,
+                1.0,
+                0.03
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        }
+    ],
+    "Root": 9600
+}

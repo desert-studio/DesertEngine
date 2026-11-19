@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #endif
 
 namespace

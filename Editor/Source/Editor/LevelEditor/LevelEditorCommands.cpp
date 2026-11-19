@@ -24,6 +24,7 @@
 #include "Editor/Panels/Clouds/CloudCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
 #include "Editor/Panels/Fracture/FractureCommands.hpp"
+#include "Editor/Panels/WorldPartition/DataLayerCommands.hpp"
 #include "Editor/Panels/Landscape/LandscapeCommands.hpp"
 #include "Editor/Panels/Localization/LanguageCommands.hpp"
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
@@ -33,6 +34,7 @@
 #include "Editor/Panels/Scalability/NeuralPaletteCommands.hpp"
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include "Editor/Panels/UI/UICommands.hpp"
+#include "Editor/Panels/Validation/SceneValidationPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Widgets/WindowChrome.hpp"
 #include <Common/Settings/Scalability.hpp>
@@ -125,7 +127,7 @@ namespace Desert::Editor
                              { AppendMeshToCollisionCommands( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Modeling (Bake)", [this, &workspace]( Out& out )
                              { AppendBakeCommands( out, workspace.ActiveScene(), m_Modules.AssetsSlot ); } );
-        m_Commands.Register( "Entity (collapse)", []( Out& out ) { EntityCommands::AppendCollapse( out ); } );
+        m_Commands.Register( "Entity (collapse)", [this]( Out& out ) { m_EntityCommands.AppendCollapse( out ); } );
         m_Commands.Register( "Menu", [this]( Out& out ) { m_Modules.Menu.AppendMenuCommands( out ); } );
         m_Commands.Register( "Level viewport", []( Out& out ) { AppendViewportCommands( out ); } );
         m_Commands.Register( "Modeling (Select Elements)",
@@ -134,6 +136,8 @@ namespace Desert::Editor
                              { AppendLandscapeCommands( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Fracture", [&workspace]( Out& out )
                              { AppendFractureCommands( out, workspace.ActiveScene() ); } );
+        m_Commands.Register( "DataLayers", [&workspace]( Out& out )
+                             { AppendDataLayerCommands( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Modeling (Create Shape)", []( Out& out ) { AppendCreateShapeCommands( out ); } );
         m_Commands.Register( "Humanoid", [&workspace]( Out& out )
                              { AppendHumanoidCommands( out, workspace.ActiveScene() ); } );
@@ -156,6 +160,23 @@ namespace Desert::Editor
         m_Commands.Register( "Assets (folders)",
                              [this]( Out& out ) { m_AssetCommands.AppendFolderCommands( out ); } );
         m_Commands.Register( "Scene", []( Out& out ) { AppendSceneCommands( out ); } );
+        // Tools > Check World Partition (WP-MAP-CHECK; UE Map Check): the Scene Validation window's button,
+        // offered unconditionally so a refusal names why (no window, not a partitioned world) instead of the entry
+        // vanishing.
+        m_Commands.Register( "Tools (World Partition check)",
+                             [this]( Out& out )
+                             {
+                                 out.push_back(
+                                      { "Tools", "Check World Partition", [this]
+                                        {
+                                            for ( const auto& panel : m_Modules.Panels )
+                                                if ( auto* validation =
+                                                          dynamic_cast<SceneValidationPanel*>( panel.get() ) )
+                                                    return validation->CheckWorldPartition();
+                                            return Common::MakeError( "Check World Partition: the Scene "
+                                                                      "Validation window does not exist" );
+                                        } } );
+                             } );
         m_Commands.Register( "Scene (new views)",
                              [&workspace]( Out& out ) { workspace.AppendNewViewCommands( out ); } );
         m_Commands.Register( "Debug (GPU allocations)", []( Out& out ) { AppendGpuAllocationCommand( out ); } );

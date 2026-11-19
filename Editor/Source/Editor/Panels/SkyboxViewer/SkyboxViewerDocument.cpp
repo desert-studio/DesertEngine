@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 namespace Desert::Editor
 {

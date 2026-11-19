@@ -581,22 +581,26 @@ namespace Desert::Graphic::API::Vulkan
         // process ended. Release() runs on both of those paths; TakeCapturedFrameRGBA8 runs on neither.
         // Found by the pointer-ownership census (Desert/Tests/Engine/PointerOwnership) asking who was
         // obliged to destroy it. A8.
-        if ( m_CaptureStaging != VK_NULL_HANDLE )
-        {
-            // Late-teardown hazard (as VulkanFramebuffer::Release): with no renderer context there is
-            // no allocator to reach, and the device's own destruction takes the buffer with it.
-            const auto ctx = EngineContext::GetInstance().GetRendererContext();
-            if ( ctx )
-                SP_CAST( VulkanContext, ctx )
-                     ->GetVulkanAllocator()
-                     ->RT_DestroyBuffer( m_CaptureStaging, static_cast<VmaAllocation>( m_CaptureAllocation ) );
-            m_CaptureStaging    = VK_NULL_HANDLE;
-            m_CaptureAllocation = nullptr;
-            m_CaptureWidth      = 0;
-            m_CaptureHeight     = 0;
-        }
+        DiscardFrameCapture();
 
         m_CompositeFramebuffer = nullptr;
+    }
+
+    void VulkanSwapChain::DiscardFrameCapture()
+    {
+        if ( m_CaptureStaging == VK_NULL_HANDLE )
+            return;
+        // Late-teardown hazard (as VulkanFramebuffer::Release): with no renderer context there is
+        // no allocator to reach, and the device's own destruction takes the buffer with it.
+        const auto ctx = EngineContext::GetInstance().GetRendererContext();
+        if ( ctx )
+            SP_CAST( VulkanContext, ctx )
+                 ->GetVulkanAllocator()
+                 ->RT_DestroyBuffer( m_CaptureStaging, static_cast<VmaAllocation>( m_CaptureAllocation ) );
+        m_CaptureStaging    = VK_NULL_HANDLE;
+        m_CaptureAllocation = nullptr;
+        m_CaptureWidth      = 0;
+        m_CaptureHeight     = 0;
     }
 
     Common::BoolResultStr VulkanSwapChain::ImportBackBuffer( ::Desert::Graphic::RDG::ExternalTexture& into )

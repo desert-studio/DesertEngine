@@ -51,6 +51,11 @@ namespace Desert::Core
 
         // The records of @p unit's finished load, or null when there is none.
         [[nodiscard]] const std::vector<Assets::EntityData>* Records( std::size_t unit ) const;
+        // WHAT THOSE RECORDS NAME (WP-HLOD-WARMUP): the asset GUIDs of @p unit's finished load, by the one rule
+        // a scene's Header.Dependencies is written by (GatherSceneDependencies), gathered on the worker that
+        // read them - so the HLOD warmup can request a cell's assets before the cell is made, without reading
+        // a header on the main thread. Null when there is no finished load.
+        [[nodiscard]] const std::vector<std::string>* Dependencies( std::size_t unit ) const;
 
 #if DESERT_DEV_INSTRUMENTS
         // DEV ONLY: a read started from now on is reported no sooner than @p ticks TakeFinished calls after its
@@ -77,6 +82,7 @@ namespace Desert::Core
         struct Read
         {
             std::optional<std::vector<Assets::EntityData>> Records;
+            std::vector<std::string>                       Dependencies;
             std::string                                    Error;
             double                                         Ms = 0.0;
         };
@@ -92,6 +98,7 @@ namespace Desert::Core
         std::shared_ptr<const Rules::WorldCellSource>                    m_Source;
         std::vector<Flight>                                              m_Flights;
         std::unordered_map<std::size_t, std::vector<Assets::EntityData>> m_Ready;
+        std::unordered_map<std::size_t, std::vector<std::string>>        m_ReadyDependencies;
         double                                                           m_WorkerMs = 0.0;
         std::uint32_t                                                    m_DebugDelayTicks = 0;
     };

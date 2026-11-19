@@ -48,6 +48,7 @@
 #include <optional>
 #include <system_error>
 #include <utility>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 namespace Desert::Editor
 {

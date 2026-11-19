@@ -7,6 +7,7 @@
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryPhysics.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryRendering.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryScript.hpp>
+#include <Engine/GameplayDebugger/GameplayDebuggerCategoryWorldPartition.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 
 #include <Common/Core/KeyCodes.hpp>
@@ -70,6 +71,8 @@ namespace Desert::Debug
             if ( !shape.Description.empty() )
                 Core::DebugDraw::String( scene, shape.A, shape.Description, 1.0f, style );
         }
+        for ( const Core::DebugDrawCanvas& canvas : data.Canvases )
+            Core::DebugDraw::ScreenCanvas( scene, canvas );
     }
 
     GameplayDebugger::GameplayDebugger()
@@ -77,7 +80,16 @@ namespace Desert::Debug
         AddCategory( std::make_unique<GameplayDebuggerCategoryBasic>() );
         AddCategory( std::make_unique<GameplayDebuggerCategoryPhysics>() );
         AddCategory( std::make_unique<GameplayDebuggerCategoryScript>() );
-        AddCategory( std::make_unique<GameplayDebuggerCategoryRendering>() ); // key 4
+        AddCategory( std::make_unique<GameplayDebuggerCategoryRendering>() );      // key 4
+        AddCategory( std::make_unique<GameplayDebuggerCategoryWorldPartition>() ); // key 5
+    }
+
+    IGameplayDebuggerCategory* GameplayDebugger::FindCategory( const std::string_view name )
+    {
+        for ( CategorySlot& slot : m_Categories )
+            if ( slot.Category->GetName() == name )
+                return slot.Category.get();
+        return nullptr;
     }
 
     void GameplayDebugger::AddCategory( std::unique_ptr<IGameplayDebuggerCategory> category )
@@ -131,6 +143,9 @@ namespace Desert::Debug
             if ( input.WasKeyPressed( Input::InputKey::Of( digit ) ) )
                 (void)ToggleCategory( i );
         }
+        for ( CategorySlot& slot : m_Categories )
+            if ( slot.Enabled )
+                slot.Category->ReadInput( input );
     }
 
     void GameplayDebugger::PickTarget( const Core::Scene& scene )

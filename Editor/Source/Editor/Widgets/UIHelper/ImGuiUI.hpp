@@ -4,7 +4,7 @@
 
 #include <Editor/Widgets/UIHelper/UICacheTextureImGui.hpp>
 
-#include <Engine/Desert.hpp>
+#include <Engine/Graphic/Image.hpp>
 
 namespace Desert::Editor::UI
 {

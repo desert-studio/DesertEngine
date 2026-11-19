@@ -31,12 +31,14 @@
 #include <Common/Core/LocalSocket.hpp>
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -88,6 +90,11 @@ namespace
              "                                minus the panel's corner\n"
              "  advance <seconds>             during Play: answered once the simulated clock has\n"
              "                                moved on that far (0 < seconds <= 2)\n"
+             "  wait-idle <seconds>           poll 'state' once a second until the editor is idle: nothing\n"
+             "                                outstanding and no background run (Build HLODs, New Landscape:\n"
+             "                                their command answers at once). Prints each new progress\n"
+             "                                line, then the last state (its \"finished\": how each\n"
+             "                                background run ended); refused when still busy after <seconds>\n"
              "  frames <N>                    answered once N more frames have been presented, in or\n"
              "                                out of Play, nothing sent to the editor (1 <= N <= 3600)\n"
              "  profile-dump                  write the profiler's per-pass table (cpu/gpu ms per scope,\n"
@@ -100,11 +107,16 @@ namespace
              "                                when the forced path is one the device lacks (expected\n"
              "                                refusal); a refusal of a path the device claims (compile,\n"
              "                                pipeline, readback) or an auto check that ran nothing is 1\n"
+             "  spawn <asset> <x,y,z> [--id <uuid>]\n"
+             "                                place a mesh asset at a world point (cm) as a new entity,\n"
+             "                                through the viewport's drop body (selected, one undo step);\n"
+             "                                --id: the UUID it takes (refused when one exists)\n"
              "  add-component <uuid|selected> <Type>\n"
              "                                add a component as Details' Add Component does (one\n"
              "                                undo step); Type = its Details or reflected name\n"
-             "  set world WorldPartition <json> | set world WorldPartition.Grids.<Name>.<Field> <text>\n"
-             "                                edit the world's runtime grids (one undo step)\n"
+             "  set world WorldPartition <json> | set world WorldPartition.RuntimePartitions.<Name>.<Field> "
+             "<text>\n"
+             "                                edit the world's runtime partitions (one undo step)\n"
              "  set world WorldPartition.ChunkRegionSize <cm>\n"
              "                                World Settings > World Partition's region size (0 =\n"
              "                                the base archive; one undo step)\n"
@@ -366,6 +378,94 @@ namespace
     }
 } // namespace
 
+namespace
+{
+    /// One `state quiescence` round trip: the reply's quiescence object, or nothing (said on stderr).
+    std::optional<Common::Json::Object> AskQuiescence( const std::string& socketPath, double waitSeconds )
+    {
+        const Socket::Handle fd = Connect( socketPath, waitSeconds );
+        if ( fd < 0 )
+            return std::nullopt;
+        std::string reply;
+        const bool  got =
+             SendAll( fd, std::string( R"({"id":1,"op":"state","sections":["quiescence"]})" ) + "\n" ) &&
+             ReadLine( fd, reply );
+        Socket::Close( fd );
+        if ( !got )
+        {
+            std::fprintf( stderr, "desertctl: wait-idle: the editor closed the connection without answering.\n" );
+            return std::nullopt;
+        }
+        const auto parsed = Common::Json::Read<Common::Json::Object>( reply );
+        if ( !parsed )
+        {
+            std::fprintf( stderr, "desertctl: wait-idle: the reply is not a JSON object: %s\n", reply.c_str() );
+            return std::nullopt;
+        }
+        const auto quiescence = parsed.GetValue().get( "quiescence" );
+        if ( !quiescence || !quiescence.value().to_object() )
+        {
+            std::fprintf( stderr, "desertctl: wait-idle: the state carries no quiescence: %s\n", reply.c_str() );
+            return std::nullopt;
+        }
+        return quiescence.value().to_object().value();
+    }
+
+    std::string StringField( const Common::Json::Object& object, const char* key )
+    {
+        const auto field = object.get( key );
+        if ( !field )
+            return {};
+        const auto text = field.value().to_string();
+        return text ? text.value() : std::string();
+    }
+
+    /// `wait-idle <seconds>`: THE CLIENT POLLS (UE's Remote Control client polling an editor job it started). A
+    /// background run answers its command at once ("started") so the editor stays responsive; this is the wait a
+    /// script puts after it. Idle = the reply's quiescence.idle; each new background line is printed as progress.
+    int WaitIdle( const std::string& socketPath, double waitSeconds, const std::vector<std::string>& rest )
+    {
+        const double budget = rest.size() == 2 ? std::strtod( rest[1].c_str(), nullptr ) : 0.0;
+        if ( rest.size() != 2 || !( budget > 0.0 ) )
+        {
+            std::fprintf( stderr, "desertctl: wait-idle needs the most seconds to wait (> 0).\n" );
+            return kNoEditor;
+        }
+        const auto  start = std::chrono::steady_clock::now();
+        std::string lastProgress;
+        for ( ;; )
+        {
+            const auto quiescence = AskQuiescence( socketPath, waitSeconds );
+            if ( !quiescence )
+                return kNoEditor;
+            const double elapsed =
+                 std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+            const std::string background = StringField( *quiescence, "background" );
+            if ( !background.empty() && background != lastProgress )
+                std::printf( "%s\n", std::format( "desertctl: {:.0f} s: {}", elapsed, background ).c_str() );
+            std::fflush( stdout );
+            lastProgress    = background;
+            const auto idle = quiescence->get( "idle" );
+            if ( idle && idle.value().to_bool() && idle.value().to_bool().value() )
+            {
+                std::printf( "%s\n", Common::Json::Write( Common::Json::Value( *quiescence ) ).c_str() );
+                std::printf( "%s\n", std::format( "desertctl: idle after {:.0f} s", elapsed ).c_str() );
+                return kOk;
+            }
+            if ( elapsed >= budget )
+            {
+                std::fprintf( stderr, "%s\n",
+                              std::format( "desertctl: wait-idle: still busy after {:.0f} s: {}{}{}", elapsed,
+                                           StringField( *quiescence, "outstanding" ),
+                                           background.empty() ? "" : "; ", background )
+                                   .c_str() );
+                return kRefused;
+            }
+            std::this_thread::sleep_for( std::chrono::seconds( 1 ) );
+        }
+    }
+} // namespace
+
 static int RunTool( int argc, char** argv )
 {
     std::string              socketPath;
@@ -419,6 +519,9 @@ static int RunTool( int argc, char** argv )
     const std::string& operation = rest[0];
     std::string        request;
 
+    if ( operation == "wait-idle" )
+        return WaitIdle( socketPath, waitSeconds, rest );
+
     if ( operation == "commands" )
     {
         request = R"({"id":1,"op":"commands"})";
@@ -455,6 +558,33 @@ static int RunTool( int argc, char** argv )
         }
         request = R"({"id":1,"op":"add-component","entity":")" + Escape( rest[1] ) + R"(","component":")" +
                   Escape( rest[2] ) + R"("})";
+    }
+    else if ( operation == "spawn" )
+    {
+        // spawn <asset> <x,y,z> [--id <uuid>] -- UE Remote Control's SpawnActor: the asset lands at the world
+        // point (cm) as a new entity, through the viewport's own drop body (one undo step). The id is the
+        // caller's, so a scenario can address the entity (set/select/add-component) without asking for it.
+        std::string id;
+        for ( auto it = rest.begin(); it != rest.end(); )
+        {
+            if ( *it == "--id" && std::next( it ) != rest.end() )
+            {
+                id = *std::next( it );
+                it = rest.erase( it, std::next( it, 2 ) );
+            }
+            else
+                ++it;
+        }
+        std::string point;
+        if ( rest.size() != 3 || std::count( rest[2].begin(), rest[2].end(), ',' ) != 2 )
+        {
+            std::fprintf( stderr, "desertctl: spawn needs <asset> <x,y,z> [--id <uuid>] (a world point in cm).\n" );
+            return kNoEditor;
+        }
+        if ( !NumberArray( rest[2], point ) )
+            return kNoEditor;
+        request = R"({"id":1,"op":"spawn","path":")" + Escape( rest[1] ) + R"(","value":)" + point +
+                  ( id.empty() ? std::string() : R"(,"entity":")" + Escape( id ) + R"(")" ) + "}";
     }
     else if ( operation == "properties" && rest.size() == 2 )
     {

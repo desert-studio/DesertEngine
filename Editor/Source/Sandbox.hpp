@@ -1,9 +1,10 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Application.hpp>
 #include <Engine/EntryPoint.hpp>
 
 #include <Editor/Core/CommandLine.hpp>
+#include <Editor/Builders/WorldPartitionBuilder.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
@@ -88,7 +89,14 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // comments were all about unattended runs and none about capture — so a control-channel run, which is
     // the unattended path that no longer needs `--shot` at all, escaped every one of them and filed a
     // throwaway worktree in the developer's registries. See CommandLine.hpp::IsUnattendedSession.
-    const bool unattended = Desert::Editor::IsUnattendedSession( options.Shot, !options.ControlSocket.empty() );
+    const bool unattended = Desert::Editor::IsUnattendedSession( options.Shot, !options.ControlSocket.empty(),
+                                                                 options.Builder.Active() );
+
+    // A BUILDER RUN NAMES A BUILDER THE TABLE HAS, before a window or a device exists: a typo would otherwise open
+    // the world, build nothing and exit, and the script that started it would read a status for work not done.
+    if ( options.Builder.Active() )
+        if ( const auto valid = Desert::Editor::ValidateBuilderRequest( options.Builder ); !valid )
+            Desert::Editor::RefuseToStart( 2, valid.GetError() );
 
     // A FLIGHT'S TWO PATHS ARE THE CALLER'S, resolved against where the caller stood: the working directory
     // moves below, and a route file or a CSV named relative to the shell would otherwise be looked for, or
@@ -267,6 +275,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // Published before the renderer exists: the flags have to be in force for the very first frame, or a
     // measurement would include a few frames of the other configuration.
     Desert::Editor::ShotOptions::Get()                               = options.Shot;
+    Desert::Editor::BuilderRunOptions::Get()                         = options.Builder;
     Desert::Editor::Control::ControlChannelOptions::Get().SocketPath = options.ControlSocket;
     Desert::Graphic::SetViewBudgetOverrideMiB( options.ViewBudgetMiB );
     Desert::Graphic::RenderConfig::CloudVisualize = options.CloudVisualize;
@@ -308,12 +317,18 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // picture's path both exist only once the project is open, three blocks up, and a refusal above this
     // line must not flash a window on its way to exiting. Not later: everything below — the window, the
     // Vulkan instance and device, the renderer, the shader preload in OnAttach — is the wait it covers.
-    auto splash = Desert::Editor::Splash::SplashScreen::Show( { Desert::Editor::ProjectContext::Current().Name,
-                                                                Common::Version::Base(),
-                                                                Desert::Editor::Splash::SplashTextureFile() } );
-    // The plan is not made yet — the editor layer that owns it does not exist — so the bar is empty; the
-    // renderer's start is not weighed, and the first weighed stage is the shader preload.
-    splash->SetProgress( { "Starting the renderer...", "", 0.0 } );
+    // A BUILDER RUN HAS NO SPLASH, and so no window is ever shown: the editor reveals its hidden main window only
+    // over a splash (Splash::MayReveal), and a builder run is a process nobody is looking at.
+    std::unique_ptr<Desert::Editor::Splash::SplashScreen> splash;
+    if ( !options.Builder.Active() )
+    {
+        splash = Desert::Editor::Splash::SplashScreen::Show( { Desert::Editor::ProjectContext::Current().Name,
+                                                               Common::Version::Base(),
+                                                               Desert::Editor::Splash::SplashTextureFile() } );
+        // The plan is not made yet — the editor layer that owns it does not exist — so the bar is empty; the
+        // renderer's start is not weighed, and the first weighed stage is the shader preload.
+        splash->SetProgress( { "Starting the renderer...", "", 0.0 } );
+    }
 
     ApplicationInfo appInfo;
     // The editor's driver pipeline cache lives in ~/.desertengine, one folder per project (PKG1). Before the

@@ -1,5 +1,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Runtime/Factory/PrefabFactory.hpp>
+#include <Engine/ECS/EditorHLODComponent.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
@@ -57,6 +59,9 @@
 #include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
 
 namespace Desert::Core
 {
@@ -250,6 +255,11 @@ namespace Desert::Core
 
         for ( const auto& entity : GetAllEntities() )
         {
+            // AN EDITOR HLOD IS NOT THE WORLD'S (ECS/EditorHLODComponent.hpp; UE's editor HLODs are neither
+            // selectable nor traced): no trace meets one, drawn or hidden - a hidden one stands exactly where the
+            // held cell's own entities stand, and would take their clicks and the foliage brush's hits.
+            if ( entity.HasComponent<ECS::EditorHLODComponent>() )
+                continue;
             ::Desert::Mesh* mesh    = nullptr;
             bool            skinned = false;
             if ( entity.HasComponent<ECS::StaticMeshComponent>() )
@@ -733,6 +743,14 @@ namespace Desert::Core
             m_RenderStateDirty.Clear();
         }
         m_RenderStateDelta.FrameBoundary();
+
+        // PACKED PREFAB INSTANCES follow their root's world and their prefab's packed form (UE: a packed level
+        // actor's ISMs move with the actor and are rebuilt with the source level). Before anything reads the
+        // instances, after the boundary, so the re-placed ISMs are this frame's render-state changes.
+        {
+            DESERT_PROFILE_SCOPE( "Scene: Packed prefab instances" );
+            ::Desert::Runtime::Factory::PrefabFactory::RefreshPackedInstances( *this );
+        }
 
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
@@ -1234,6 +1252,8 @@ namespace Desert::Core
         r.prepare<ECS::TagComponent>();
         r.prepare<ECS::UUIDComponent>();
         r.prepare<ECS::VisibilityComponent>();
+        r.prepare<ECS::HiddenByDataLayersComponent>();
+        r.prepare<ECS::StreamingPendingComponent>(); // ECS::IsHidden reads it from every collector
 
         // Renderables.
         r.prepare<ECS::StaticMeshComponent>();
@@ -1664,6 +1684,8 @@ namespace Desert::Core
         connect.template operator()<ECS::InstancedStaticMeshComponent>();
         connect.template operator()<ECS::MaterialComponent>();
         connect.template operator()<ECS::VisibilityComponent>();
+        // The editor's data-layer hiding (UE bHiddenEdLayer): ECS::IsHidden reads it beside VisibilityComponent.
+        connect.template operator()<ECS::HiddenByDataLayersComponent>();
         // A field's foliage type: the ISM record's fade and wind source (MeshECSSystem's Ism channel).
         connect.template operator()<ECS::FoliageComponent>();
         // Every component that holds render caches parks them as it dies (UE: the proxy's RHI objects are

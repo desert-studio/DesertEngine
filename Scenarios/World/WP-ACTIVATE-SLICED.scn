@@ -1,0 +1,187 @@
+# WP-ACTIVATE-SLICED (owner 11-17, "World Partition to the end"; AUDIT-WP-1104): a cell becomes entities a SLICE at a
+# time - runs of whole composites, timed on the clock, sized by the measured cost of each record kind
+# (Core/Serialize/WorldPartitionActivationCost.hpp) - until the frame's ActivationBudgetMs is spent; its entities stay
+# hidden (ECS::StreamingPendingComponent) until every record is made AND every Jolt body of the cell exists, so
+# "Activated" = drawn and collidable at once (UE UWorld::AddToWorld / ULevel::IncrementalRegisterComponents +
+# CreatePhysicsState at registration). The CRITICAL block (loading overlay) lifts only on that frame.
+# World: Scenes/WP_Protocol (WP-PROTOCOL.scn): Main 25 m cells / 200 m range. The heavy cell: the Main cell beside the
+# route of the Player 9000001 that holds ~2000 records - the lead picks it from the WP map (Load All, the cell's record
+# count in its tooltip) and puts its centre in HEAVY below; if WP_Protocol has none that dense, the scene gets one from
+# assets (a prefab block copied in the editor), not from code.
+# Expected (editor.log "[WorldPartition] 'WP_Protocol': ..."):
+#   walk-up: "<cell> activated in N frames: ~2000 record(s) in K slice(s), X ms on the main thread, collision ready"
+#            with N > 1; the frame-time HUD shows no frame above ActivationBudgetMs (2 ms) + the ordinary frame;
+#            the cell pops in whole (never half a block), its HLOD drawn until that frame;
+#   teleport: "play waits for it" then "play resumes" - and on the first resumed frame the player stands on the floor of
+#            the cell (no fall, Y unchanged across the next frames); at the end of Play the per-kind line
+#            "... per kind: static mesh 0.0xxx ms, physics 0.0xxx ms, ..." replaces the old flat 0.02 ms.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Build HLODs"
+Дано wait-idle 2400
+Дано run Panel "Open World Partition"
+# Walk-up: the Plane 9000002 (Scripts/World/WPFly.lua, +X 125 m/s at 50 m, Main+Foliage - WP-SRC-ALTITUDE.scn) is the
+# source that reaches the heavy cell; its route must cross HEAVY (the lead places the Plane 250 m before it on -X).
+# Frame time: the editor's frame-time HUD (Stat/Profiler overlay) on during this phase - the lead switches it on.
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000002 StreamingSourceData.Enabled true
+Дано set 9000002 StreamingSourceData.ShapeOffset 0,0,0
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 2
+Когда advance 1
+Когда --subject viewport set Camera.Position HEAVY_X,40000,HEAVY_Z-40000
+Когда --subject viewport set Camera.Direction 0,-1,1
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+# Тогда [кадр]: slice_no_spike - the frame-time graph over the walk-up: no spike above ActivationBudgetMs + the ordinary frame
+# while the heavy cell comes in; log "activated in N frames" for it, N > 1; the cell drawn whole, its HLOD gone the same frame.
+Тогда slice_no_spike график времени кадра на подходе: нет пика выше ActivationBudgetMs (2 мс) + обычный кадр, пока тяжёлая ячейка входит; в логе «<ячейка> activated in N frames» с N > 1; ячейка появилась целиком, её HLOD исчез в тот же кадр
+Когда run Action "Stop"
+Дано set 9000001 StreamingSourceData.Enabled true
+Дано set 9000002 StreamingSourceData.Enabled false
+Когда run Action "Play"
+Когда advance 2
+Когда advance 1
+# Teleport into the middle of the heavy cell: the cell under the source is not resident, play waits behind the overlay.
+Когда set 9000001 Transform.Translation HEAVY_X,HEAVY_Y,HEAVY_Z
+Когда advance 1
+Когда advance 1
+# Тогда [кадр]: slice_physics_ready - the first frame after the block lifts: the player stands on the floor of the cell, does
+# not fall through it; log "play waits for it" -> "<cell> activated in N frames ... collision ready" -> "play resumes".
+Тогда slice_physics_ready первый кадр после снятия блока: игрок стоит на полу ячейки и не проваливается (Y игрока не падает в следующих кадрах); в логе «play waits for it» → «activated in N frames … collision ready» → «play resumes»
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Тогда slice_physics_ready_30 через 30 кадров игрок там же на полу, Y не изменился
+Когда run Action "Stop"

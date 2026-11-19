@@ -52,6 +52,8 @@
 #include <string_view>
 #include <unordered_set>
 #include <vector>
+#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor::Tools
 {
@@ -914,17 +916,21 @@ namespace Desert::Editor::Tools
         Common::ResultStr<FoliageGrid> FoliageGridOf( ::Desert::Core::Scene& scene, const ECS::Entity& holder )
         {
             const auto& partition = scene.GetWorldPartition();
-            if ( !partition.has_value() || partition->Grids.empty() )
+            if ( !partition.has_value() || partition->RuntimePartitions.empty() )
                 return Common::MakeSuccess( FoliageGrid{} );
             const std::optional<std::string> wanted = RuntimeGridOf( holder );
             const auto                       grid   = ::Desert::Core::Rules::GridIndexOf( *partition, wanted );
             if ( !grid.has_value() )
                 return Common::MakeFormattedError<FoliageGrid>(
-                     "foliage: '{}' streams on grid '{}', which this world does not state (World Partition panel, "
-                     "HLOD per grid lists the grids)",
+                     "foliage: '{}' streams on runtime partition '{}', which this world does not state (World "
+                     "Partition panel, Runtime partitions lists them)",
                      holder.GetComponent<ECS::TagComponent>().Tag, wanted.value_or( std::string() ) );
-            return Common::MakeSuccess(
-                 FoliageGrid{ grid, static_cast<double>( partition->Grids[*grid].CellSize ) } );
+            // A partition that makes no cells (Persistent) keeps the holder's instances in no cell: always loaded.
+            const ::Desert::Core::RuntimePartitionLHGridSerialized* cells =
+                 ::Desert::Core::Rules::CellGridOf( *partition, *grid );
+            return Common::MakeSuccess( FoliageGrid{
+                 grid, cells != nullptr ? std::optional<double>( static_cast<double>( cells->CellSize ) )
+                                        : std::optional<double>() } );
         }
 
         // Whether @p field is filed on @p grid (FoliageGridOf of the palette row): every field when the world

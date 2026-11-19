@@ -5,11 +5,11 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 75,
+            "SCNE": 76,
             "UNIT": 1,
-            "WPAR": 2
+            "WPAR": 13
         },
-        "Dependencies": ["40e8fc4221d33289cca9e025f87dab0a", "f615149db8e94941b31f4825fd5ff50c", "02a74d5bec4236c300fc86c6c13a97a8"]
+        "Dependencies": ["02a74d5bec4236c300fc86c6c13a97a8", "40e8fc4221d33289cca9e025f87dab0a", "f615149db8e94941b31f4825fd5ff50c"]
     },
     "SceneName": "Normal Map Witness (glass)",
     "Entities": [

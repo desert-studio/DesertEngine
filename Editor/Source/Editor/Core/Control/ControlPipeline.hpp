@@ -66,10 +66,15 @@ namespace Desert::Editor::Control
                             ///< computing)
         Displacement, ///< the frame drew a displaced primitive's base mesh while its twin was still tessellating
         SubsurfaceHistory, ///< a view's subsurface scatter has not yet averaged its full history window
-        HLODBuild, ///< a Build HLODs is still baking its landscape tiles; its cell files are not written yet
-        MeshDrops, ///< a dropped mesh is still being imported on a worker, or is cooked but not yet spawned
+        MiniMapBuild, ///< a Build Minimap is still capturing the world tile by tile; its texture is not written
+                      ///< yet
+        MeshDrops,    ///< a dropped mesh is still being imported on a worker, or is cooked but not yet spawned
         MaterialPipelines, ///< the frame drew a material's default surface while its own pipeline compiled
         GrassInstances, ///< the frame drew grass whose instance buffers were sized for another view (a camera cut)
+        MaterialBake,   ///< a Bake Material to Textures is still rendering its slot; its textures are not written
+                        ///< yet
+        EditorHLODs, ///< a saved HLOD the editor wants drawn is still being read or made (its cell is drawn empty)
+        WindowCapture,  ///< a `shot.window` waits and the frame holds no copy of the window to answer it with
         Count
     };
 
@@ -94,10 +99,14 @@ namespace Desert::Editor::Control
          "a modeling tool's preview is still being computed (the frame shows the input or the last preview)",
          "displaced geometry is still being tessellated (the frame drew the base mesh)",
          "the subsurface scatter's history is still converging (a Scale change, a camera cut or the first frames)",
-         "Build HLODs is still baking its landscape tiles (its HLOD files are not written yet)",
+         "Build Minimap is still capturing the world tile by tile (its texture is not written yet)",
          "a dropped mesh is still being imported (the viewport shows 'Loading meshes' and an empty entity)",
          "a material's pipeline is still compiling (the frame drew the default surface in its place)",
          "the grass is still being counted after a camera cut (the field drew truncated)",
+         "Bake Material to Textures is still rendering its slot (its texture assets are not written yet)",
+         "a saved HLOD the editor shows is still being read (the viewport draws its cell without it)",
+         "the frame holds no copy of the window to answer 'shot.window' with (the copy is recorded on a frame "
+         "expected to settle, one at a time)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),
@@ -106,18 +115,32 @@ namespace Desert::Editor::Control
                    "and the gate would open on a frame that had not caught up." );
 
     /// WORK A COMMAND STARTS AND DOES NOT WAIT FOR. A background run answers its command at once ("started")
-    /// and is reported beside the census above, never in it: a New Landscape run is a separate user-facing
-    /// job with its own progress, not the effect of the command, so the reply does not stand behind it. A
-    /// client that needs the result polls `state` until Idle(). Closed at compile time the same way as
-    /// PendingWork.
+    /// and is reported beside the census above, never in it: a New Landscape run or a Build HLODs is a separate
+    /// user-facing job with its own progress, not the effect of the command, so the reply does not stand behind
+    /// it (UE runs Build HLODs as the builder commandlet's job behind a progress notification; a Remote Control
+    /// client polls). A client that needs the result polls `state` until Idle() - DesertCtl `wait-idle` - and
+    /// reads its progress and its outcome there. Closed at compile time the same way as PendingWork.
     enum class BackgroundWork : std::size_t
     {
         LandscapeGenerate, ///< a New Landscape run is on the JobSystem and not yet applied to the scene
+        HLODBuild, ///< a Build HLODs is running (its worker phases or its bakes); its HLOD files are not all
+                   ///< written
         Count
     };
 
     inline constexpr const char* kBackgroundWorkNames[] = {
          "a new landscape is being generated",
+         "Build HLODs is running",
+    };
+
+    /// One background run as its owner reports it each frame: whether it runs, where it is (the words after its
+    /// name in `state`), and how the last run of that kind ENDED - kept by the owner until the next one starts, so
+    /// a client that polled until idle reads the outcome in the same `state` that said idle.
+    struct BackgroundReport
+    {
+        bool        Running = false;
+        std::string Progress; // "" when it runs without a stage to name, or does not run
+        std::string Outcome;  // "" when none has finished since the editor started
     };
 
     static_assert( std::size( kBackgroundWorkNames ) == static_cast<std::size_t>( BackgroundWork::Count ),
@@ -164,6 +187,14 @@ namespace Desert::Editor::Control
             m_Background[static_cast<std::size_t>( kind )] = running;
         }
 
+        void Set( BackgroundWork kind, const BackgroundReport& report )
+        {
+            const auto i    = static_cast<std::size_t>( kind );
+            m_Background[i] = report.Running;
+            m_Progress[i]   = report.Running ? report.Progress : std::string();
+            m_Outcome[i]    = report.Outcome;
+        }
+
         [[nodiscard]] bool Get( BackgroundWork kind ) const noexcept
         {
             return m_Background[static_cast<std::size_t>( kind )];
@@ -178,19 +209,36 @@ namespace Desert::Editor::Control
             return Settled();
         }
 
-        /// The background runs, in words. Empty when none runs. Never part of Describe(): no reply waits on them.
+        /// The background runs, in words, each with its progress. Empty when none runs. Never part of Describe():
+        /// no reply waits on them.
         [[nodiscard]] std::string DescribeBackground() const
         {
-            std::vector<const char*> outstanding;
+            std::vector<std::string> outstanding;
             for ( std::size_t i = 0; i < m_Background.size(); ++i )
                 if ( m_Background[i] )
-                    outstanding.push_back( kBackgroundWorkNames[i] );
+                    outstanding.push_back( m_Progress[i].empty() ? std::string( kBackgroundWorkNames[i] )
+                                                                 : std::format( "{} ({})", kBackgroundWorkNames[i],
+                                                                                m_Progress[i] ) );
             return TextTemplates::JoinList( outstanding, "; " );
         }
 
+        /// How the last background run of each kind ended, in words ("" when none has). Read beside idle.
+        [[nodiscard]] std::string DescribeOutcomes() const
+        {
+            std::vector<std::string> outcomes;
+            for ( const std::string& outcome : m_Outcome )
+                if ( !outcome.empty() )
+                    outcomes.push_back( outcome );
+            return TextTemplates::JoinList( outcomes, "; " );
+        }
+
     private:
-        std::array<bool, static_cast<std::size_t>( PendingWork::Count )>    m_Pending{};
-        std::array<bool, static_cast<std::size_t>( BackgroundWork::Count )> m_Background{};
+        static constexpr std::size_t kBackgroundCount = static_cast<std::size_t>( BackgroundWork::Count );
+
+        std::array<bool, static_cast<std::size_t>( PendingWork::Count )> m_Pending{};
+        std::array<bool, kBackgroundCount>                               m_Background{};
+        std::array<std::string, kBackgroundCount>                        m_Progress{};
+        std::array<std::string, kBackgroundCount>                        m_Outcome{};
     };
 
     /// What a presented frame did to the gate.
@@ -362,9 +410,11 @@ namespace Desert::Editor::Control
          * transition on presentable VkImage, but the image has not been acquired"). The editor therefore
          * has to know, before it submits, whether this is the frame the reply is waiting for.
          *
-         * Same inputs, same answer as ObserveFramePresented: a frame this returns true for is a frame that
-         * discharges. That equality is the point — if the two could disagree, the editor would record a
-         * capture for a frame that then did not count, or skip one for a frame that did.
+         * Same rule as ObserveFramePresented, but NOT the same inputs: the census entries only the frame
+         * itself decides are known at its announcement, after the copy had to be recorded. The caller asks
+         * with those left out (ControlService::RecordWindowCaptureIfDue), so every frame that can discharge
+         * records its copy; the judgement holds a frame without one as unsettled
+         * (PendingWork::WindowCapture), and a copy whose frame did not discharge is released.
          */
         [[nodiscard]] bool WouldDischarge( uint64_t frame, const EditorQuiescence& quiescence ) const noexcept
         {

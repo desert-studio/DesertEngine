@@ -26,6 +26,7 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
+#include <Editor/Core/BuilderRunOptions.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -41,7 +42,6 @@
 #include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Editor/Import/ImportOptionsDialog.hpp>
-#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Common/Core/JobSystem.hpp>
 
@@ -96,6 +96,7 @@
 #include <format>
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
+#include "Editor/Baking/MaterialBaking.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
 #include "Editor/Widgets/WindowButtonStyle.hpp"
@@ -162,6 +163,9 @@
 #include "Editor/LevelEditor/AssetEditorRegistrations.hpp"
 #include "Editor/Core/AssetOpen.hpp"
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/Video/VideoService.hpp>
 
 namespace Desert::Editor
 {
@@ -236,7 +240,8 @@ namespace Desert::Editor
         const std::filesystem::path machineJson =
              std::filesystem::path( ProjectContext::ConfigDirectory() ) / "machine.json";
         const bool unattended = Editor::IsUnattendedSession( Editor::ShotOptions::Get(),
-                                                             Control::ControlChannelOptions::Get().Requested() );
+                                                             Control::ControlChannelOptions::Get().Requested(),
+                                                             Editor::BuilderRunOptions::Get().Active() );
         if ( unattended )
         {
             m_UnattendedMachineJson  = machineJson;
@@ -374,6 +379,10 @@ namespace Desert::Editor
                                        m_AnimationLibrary, *m_ThumbnailPool );
             m_FileExplorerPanel              = handles.FileExplorer;
             m_WorldPartitionPanel            = handles.WorldPartition;
+            if ( m_WorldPartitionPanel )
+                // The one save path (Ctrl+S, File -> Save, the palette): Save and build HLODs, and the Save of
+                // the unsaved-entities prompt a region change raises.
+                m_WorldPartitionPanel->SetSceneSaver( [this] { return m_SceneFiles.SaveOpenScene(); } );
         }
 
         // ── WHICH EDITOR OPENS WHICH KIND OF SUBJECT, AND HOW A PATH BECOMES ONE OF THEM ──────────────────
@@ -618,8 +627,25 @@ namespace Desert::Editor
         DESERT_PROFILE_PHASE( phases, "Editor: Thumbnails + WP build + contextual panels" );
         m_Startup.TickThumbnails();
         // A running Build HLODs advances its landscape bake here, whether its panel is open or not.
+        // ...and a running Build Minimap its capture.
         if ( m_WorldPartitionPanel )
+        {
             m_WorldPartitionPanel->TickBuild();
+            m_WorldPartitionPanel->TickMiniMap();
+            // The saved HLODs of the cells the editor does not hold (WP-EDITOR-HLOD), before the scene is drawn.
+            m_WorldPartitionPanel->TickEditorHLODs();
+        }
+        // A running "Bake Material to Textures" records its offscreen frames here (Editor/Baking/MaterialBaking).
+        if ( m_AssetManager )
+            ::Desert::Editor::Baking::TickBakeOfSelection( *m_AssetManager );
+        // A builder run: one step per frame once the named scene has opened and settled; its last step closes the
+        // editor with the builder's status (the window was never shown).
+        if ( const std::optional<int> finished =
+                  m_BuilderRun.Tick( !m_Startup.ContentSettling() && !m_SceneFiles.HasPendingRequests() ) )
+        {
+            m_Application->Close( *finished );
+            return BOOLSUCCESS;
+        }
 
         m_Dock.UpdateContextualPanels();
 
@@ -701,8 +727,14 @@ namespace Desert::Editor
         m_Control.SampleFrameQuiescence(
              m_Startup.StartupLoading() || m_Startup.ContentSettling(), m_Startup.ReflectionCapturesFilling(),
              Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
-             m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
-             ViewportPanel::AnyMeshDropLoading(), ViewportPanel::ModelingPreviewOutstanding() );
+             m_WorldPartitionPanel ? Control::BackgroundReport{ m_WorldPartitionPanel->IsBuildingHLODs(),
+                                                                m_WorldPartitionPanel->HLODBuildProgress(),
+                                                                m_WorldPartitionPanel->HLODBuildOutcome() }
+                                   : Control::BackgroundReport{},
+             m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
+             ViewportPanel::AnyMeshDropLoading(),
+             m_WorldPartitionPanel && m_WorldPartitionPanel->IsReadingEditorHLODs(),
+             ViewportPanel::ModelingPreviewOutstanding() );
     }
 
     bool EditorLayer::AdmitShotFrame()
@@ -877,6 +909,10 @@ namespace Desert::Editor
         m_Documents.DrawOpenRefusedPopup();
         ImportOptions::DrawWindow(); // a dropped file never imported asks for its options first (THM1l)
         m_Documents.DrawCloseQuestionPopup();
+        // The Save / Discard / Cancel prompt of a region change that would unload unsaved entities, whichever
+        // window asked (the World Partition window, the outliner's Pin column, the palette).
+        if ( m_WorldPartitionPanel )
+            m_WorldPartitionPanel->DrawUnloadPrompt();
 
         // Transient bottom-right notifications (save/import/validation). Drawn last so they float on top.
         Editor::ToastManager::Get().Draw();
@@ -930,7 +966,8 @@ namespace Desert::Editor
         // A failure is logged and nothing else. Refusing to shut down because a picture could not
         // be written would be the tail wagging the dog.
         if ( !Editor::IsUnattendedSession( Editor::ShotOptions::Get(),
-                                           Control::ControlChannelOptions::Get().Requested() ) )
+                                           Control::ControlChannelOptions::Get().Requested(),
+                                           Editor::BuilderRunOptions::Get().Active() ) )
             if ( const auto thumbnail = m_Capture.WriteProjectThumbnail(); !thumbnail.IsSuccess() )
                 LOG_WARN( "[Project] the tile thumbnail was not written on exit: {}", thumbnail.GetError() );
 

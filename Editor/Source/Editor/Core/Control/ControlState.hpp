@@ -897,6 +897,8 @@ namespace Desert::Editor::Control
             // Background runs a command started and did not wait for; poll until "idle" before using their result.
             quiescence["background"]  = Str( snapshot.Quiescence.DescribeBackground() );
             quiescence["idle"]        = Common::Json::Value( snapshot.Quiescence.Idle() );
+            // How the last background run of each kind ended (Build HLODs: what it built, or why it was refused).
+            quiescence["finished"]    = Str( snapshot.Quiescence.DescribeOutcomes() );
             root["quiescence"]        = Common::Json::Value( quiescence );
         }
 

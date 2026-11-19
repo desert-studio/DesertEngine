@@ -37,6 +37,8 @@
         "ShapeYaw": 0.0,
         "UseVelocityForSorting": false,
         "TargetGrids": ["Main", "Foliage"],
+        "TargetHLODLayers": [],
+        "TargetBehavior": 0,
         "LookAheadTime": 2.0,
         "MaxLookAhead": 50000.0
     }

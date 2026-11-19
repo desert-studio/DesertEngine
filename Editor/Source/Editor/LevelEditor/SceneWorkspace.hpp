@@ -11,7 +11,12 @@
 // between frames, because opening and closing a view allocates or destroys GPU resources, which is not legal
 // inside the ImGui pass that noticed the click.
 
-#include <Engine/Desert.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Core/Camera.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Core/Scene.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"

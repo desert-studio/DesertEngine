@@ -1,0 +1,13 @@
+# WP23-AUTHOR: makes the committed asset Content/Scenes/WP23_Regions.desce (+ __ExternalEntities__/WP23_Regions) that
+# WP23.scn opens - a copy of WP_Protocol whose streaming follows the plane 9000002 (Scripts/World/WPFly.lua) with
+# the Player's source 9000001 off, as WP-SRC-VELOCITY. Run once when WP_Protocol changes; commit the two paths it
+# writes. HLODs are build output (Build HLODs in WP23.scn), not part of the asset.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+# A partitioned world saves as a copy only whole (594 of 601 entities live in unloaded cells otherwise).
+Дано run Scene "World Partition: Load All"
+Когда save-as WP23_Regions
+Когда set 9000001 StreamingSourceData.Enabled false
+Когда set 9000002 StreamingSourceData.Enabled true
+Когда set world WorldPartition.ChunkRegionSize 100000
+Когда run Action "Save Scene"
+Тогда wp23_author окно редактора: открыт WP23_Regions (заголовок), мир разбит, все ячейки загружены

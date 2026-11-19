@@ -19,6 +19,8 @@
 #include <limits>
 #include <optional>
 #include <unordered_set>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

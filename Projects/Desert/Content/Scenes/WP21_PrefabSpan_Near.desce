@@ -5,11 +5,11 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 75,
+            "SCNE": 76,
             "UNIT": 1,
-            "WPAR": 2
+            "WPAR": 13
         },
-        "Dependencies": []
+        "Dependencies": ["2b21aa0000000000000000000000e021"]
     },
     "SceneName": "WP21_PrefabSpan_Near",
     "ExternalEntities": [9001, 9002, 636758187238421050, 8227077724870736328],
@@ -34,13 +34,22 @@
         "SplashFade": 0.4000000059604645
     },
     "WorldPartition": {
-        "Grids": [
+        "RuntimePartitions": [
             {
                 "Name": "Main",
-                "CellSize": 1000.0,
-                "LoadingRange": 8000.0,
-                "Priority": 0,
-                "HLODLayer": "HLOD0"
+                "Type": "LHGrid",
+                "LHGrid": {
+                    "CellSize": 1000.0,
+                    "LoadingRange": 8000.0,
+                    "Priority": 0
+                },
+                "HLODSetups": [
+                    {
+                        "Name": "HLOD0",
+                        "HLODLayer": "HLOD0"
+                    }
+                ],
+                "DebugColor": [0.5500000715255737, 0.25, 1.0]
             }
         ],
         "HLODLayers": [

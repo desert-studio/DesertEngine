@@ -4,7 +4,8 @@
 #include <UI/Retained/WidgetGallery.hpp>
 #include <UI/Retained/WidgetTree.hpp>
 #include <Engine/UI/Ecs/RegistryUICanvasResources.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <UI/UICanvasContext.hpp>

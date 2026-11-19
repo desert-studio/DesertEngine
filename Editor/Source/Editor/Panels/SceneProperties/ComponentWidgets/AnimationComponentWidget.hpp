@@ -6,6 +6,11 @@
 
 #include <vector>
 
+namespace Desert::Animation
+{
+    class AnimationLibrary;
+} // namespace Desert::Animation
+
 namespace Desert::Editor
 {
     class AnimationComponentWidget final : public IComponentWidget

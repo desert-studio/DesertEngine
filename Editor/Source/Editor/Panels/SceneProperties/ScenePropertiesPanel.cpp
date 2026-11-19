@@ -201,14 +201,16 @@ namespace Desert::Editor
                                                        : ImGui::GetStyleColorVec4( ImGuiCol_TextDisabled ) );
             ImGui::TextUnformatted( alwaysLoaded ? ICON_MDI_PIN : ICON_MDI_PIN_OUTLINE );
             ImGui::PopStyleColor();
+            // One undo step, the same edit as Details > World Partition > Is Spatially Loaded.
             if ( ImGui::IsItemClicked() )
-            {
-                if ( alwaysLoaded )
-                    entity.RemoveComponent<ECS::AlwaysLoadedComponent>();
-                else
-                    entity.AddComponent<ECS::AlwaysLoadedComponent>();
-                m_Scene->MarkModified( selectedOpt.value() );
-            }
+                Commands::MutateEntityUndoable( selectedOpt.value(),
+                                                [&entity, alwaysLoaded]
+                                                {
+                                                    if ( alwaysLoaded )
+                                                        entity.RemoveComponent<ECS::AlwaysLoadedComponent>();
+                                                    else
+                                                        entity.AddComponent<ECS::AlwaysLoadedComponent>();
+                                                } );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip(
                      alwaysLoaded ? "Always loaded: in a partitioned world this entity and everything it "
@@ -413,8 +415,17 @@ namespace Desert::Editor
              selectedEntity.HasComponent<ECS::TagComponent>()
                   ? selectedEntity.GetComponent<ECS::TagComponent>().Tag
                   : std::string() );
+        // Outside an open prefab edit the world is inactive (UE FLevelInstanceEditorMode): its fields are shown,
+        // not edited - the third door, beside the picker and the gizmo, that Commands::BeginPrefabEdit closes.
+        const bool outsidePrefabEdit =
+             Commands::IsOutsidePrefabEdit( *selectedEntity.GetRegistry(), selectedEntity.GetHandle() );
+        ImGui::BeginDisabled( outsidePrefabEdit );
+        // UE's actor Details "World Partition" category, above the components it is a view over.
+        if ( m_FieldSearch.empty() )
+            m_WorldPartitionDetails.Draw( const_cast<ECS::Entity&>( selectedEntity ), *m_Scene, m_AssetManager );
         m_ComponentEditor->Render( const_cast<ECS::Entity&>( selectedEntity ), m_Scene.get(),
                                    m_FieldSearch.c_str() );
+        ImGui::EndDisabled();
         navigation.EndFrame();
         ImGui::EndChild();
     }

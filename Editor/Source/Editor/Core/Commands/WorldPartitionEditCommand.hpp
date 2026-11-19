@@ -7,14 +7,18 @@
 #include <Editor/Core/CommandHistory.hpp>
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODBuilders.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -86,6 +90,23 @@ namespace Desert::Editor
             return Common::MakeError<bool>( Common::Json::Describe( grids.Issues.front() ) );
         if ( auto layers = ::Desert::Core::Rules::ValidateHLODLayers( after ); !layers )
             return layers;
+        // The registered builders' say on the Settings the edit states (UE: a UHLODBuilderSettings property is
+        // checked as it is edited): a refusal the edit INTRODUCES refuses it. One the world already had stays the
+        // panel's red line, so an unrelated edit of that world still applies; a builder this process has not
+        // registered is never judged here (Rules::HLODLayerBuilderIssues names it in red).
+        {
+            using ::Desert::Core::Rules::HLODBuilderScope;
+            using ::Desert::Core::Rules::HLODLayerBuilderIssues;
+            const ::Desert::Core::Rules::HLODBuilderRegistry& builders = ::Desert::Core::HLODBuilders();
+            std::vector<std::string>                          had;
+            if ( before.has_value() )
+                had = HLODLayerBuilderIssues( *before, builders, HLODBuilderScope::RegisteredOnly );
+            const std::vector<std::string> now =
+                 HLODLayerBuilderIssues( after, builders, HLODBuilderScope::RegisteredOnly );
+            for ( const std::string& refusal : now )
+                if ( std::find( had.begin(), had.end(), refusal ) == had.end() )
+                    return Common::MakeError<bool>( refusal );
+        }
         // Refused by the planner's own rule (Rules::CheckDataLayers): a layer unnamed, or named twice.
         if ( const Common::Json::Issues dataLayers = ::Desert::Core::Rules::CheckDataLayers( after );
              !dataLayers.empty() )

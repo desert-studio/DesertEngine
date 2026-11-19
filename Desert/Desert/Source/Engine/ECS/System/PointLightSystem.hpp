@@ -7,6 +7,7 @@
 
 #include <Engine/Graphic/Render/Commands/PointLightCommand.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
 
 namespace Desert::ECS
 {

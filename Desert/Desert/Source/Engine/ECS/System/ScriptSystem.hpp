@@ -2,8 +2,10 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
+#include <Engine/ECS/EntityReferenceEvents.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Reflection/Value.hpp>
@@ -21,6 +23,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <utility>
 
 namespace Desert::ECS
 {
@@ -73,6 +76,7 @@ namespace Desert::ECS
             // mouse that pressed it must stay free.
             const bool playing   = m_Scene != nullptr && m_Scene->TicksGameplay();
             const bool possessed = m_Scene != nullptr && m_Scene->GetState() == SceneState::Play;
+            DeliverReferenceBindings( registry, playing );
 
             if ( !playing )
             {
@@ -124,11 +128,17 @@ namespace Desert::ECS
             // The GameMode's deaths and restarts reach the player's input and the scripts' hooks before any
             // script runs this frame (GameModeSystem raised them last frame, after the scripts).
             m_Engine.DeliverGameModeEvents( registry );
+            // The World Partition's last streaming tick (cells activated / unloaded, the completed waits).
+            m_Engine.DeliverWorldPartitionEvents( registry );
 
             // ---- Run the scripts (each entity may run several script SLOTS, like UE ActorComponents) ----
             auto view = registry.view<ScriptComponent>();
             for ( auto entity : view )
             {
+                // A world partition cell still being made (WP-ACTIVATE-SLICED): its scripts start when the cell
+                // is revealed whole, as UE's actors BeginPlay only once AddToWorld has made their level visible.
+                if ( registry.has<StreamingPendingComponent>( entity ) )
+                    continue;
                 auto&          sc = view.get<ScriptComponent>( entity );
                 const uint32_t id = static_cast<uint32_t>( entity );
 
@@ -373,6 +383,38 @@ namespace Desert::ECS
 
         std::uint64_t m_DeliveredPhysics = 0; // PhysicsEventQueue::Publication last delivered
         std::uint64_t m_DeliveredDestruction = 0; // DestructionEventQueue::Publication last delivered
+
+        // WP-ENTITY-REFS: an entity a running slot's Entity property names arrived in the world or left it (World
+        // Partition streaming: ECS::EntityReferenceBindings), so the property is written into the script again -
+        // the entity now, nil once it is gone. In Edit no script runs, so the queue is dropped (a slot reads its
+        // properties at its start); a PAUSED session keeps it for the frame its world ticks again - streaming goes
+        // on while paused, and a binding dropped then would leave the running script holding a stale entity.
+        void DeliverReferenceBindings( entt::registry& registry, const bool playing )
+        {
+            auto* queue = registry.try_ctx<EntityReferenceBindings>();
+            if ( queue == nullptr || queue->Pending.empty() )
+                return;
+            if ( !playing && m_Scene != nullptr && m_Scene->GetState() == Core::Scene::SceneState::Paused )
+                return;
+            const std::vector<EntityReferenceBinding> pending = std::exchange( queue->Pending, {} );
+            if ( !playing || m_Scene == nullptr )
+                return;
+            for ( const EntityReferenceBinding& binding : pending )
+            {
+                const auto holder = m_Scene->FindEntityByID( binding.Holder );
+                if ( !holder.has_value() )
+                    continue; // left before the queue was drained
+                const auto entity = static_cast<entt::entity>( holder->get().GetHandle() );
+                if ( !registry.valid( entity ) || !registry.has<ScriptComponent>( entity ) )
+                    continue;
+                const auto& scripts = registry.get<ScriptComponent>( entity ).Scripts;
+                for ( uint32_t slot = 0; slot < scripts.size(); ++slot )
+                    if ( scripts[slot].Started )
+                        m_Engine.RebindEntityProperties( static_cast<uint32_t>( entity ), slot,
+                                                         scripts[slot].Properties,
+                                                         static_cast<std::uint64_t>( binding.Target ) );
+            }
+        }
 
         // Polls the mtimes of every script file referenced by a running slot; on change, flags
         // the slot for re-load (Started=false -> next frame: fresh env + OnStart + properties).

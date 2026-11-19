@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Common/Core/Math/Ray.hpp>
 
@@ -69,6 +69,7 @@ namespace Desert::Editor::Tools
         struct SplineDrag
         {
             Common::UUID Landscape;
+            Common::UUID Spline;
             uint32_t     Point = 0u;
             glm::vec3    From  = glm::vec3( 0.0f );
         };

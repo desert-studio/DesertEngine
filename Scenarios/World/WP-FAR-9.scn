@@ -1,0 +1,39 @@
+# WP-FAR-9 (owner 10-29; 11-17 "finish World Partition"): streaming sources of any shape, a Luau provider among them.
+# UE 5.5 FWorldPartitionStreamingSource (Shapes, TargetBehavior, TargetGrids, TargetHLODLayers, Priority) and
+# IWorldPartitionStreamingSourceProvider (UWorldPartitionSubsystem::RegisterStreamingSourceProvider): a provider with
+# no entity. World: Scenes/WP_Protocol (WP-PROTOCOL.scn): Main 25 m cells / 200 m range; HLOD_Main 512 m / 1024 m.
+# The brief's "MainGrid" is this world's grid "Main".
+# The binoculars are a GAME script, Projects/Desert/Content/Scripts/World/WPBinoculars.lua on the Player 9000001: in
+# OnStart it registers WorldStreaming.registerSourceProvider("Binoculars", fn); fn provides, every streaming tick,
+# the view's point and ONE shape - IsSector, SectorAngle 10, Radius 200000 cm (2 km), Rotation pitch -20 from the
+# view - Priority 1, TargetGrids {"Main"}, TargetBehavior Include; after Properties.HoldSeconds (6 s) it unregisters.
+# Phase 3 uses the Plane 9000002, whose file states TargetGrids Main+Foliage: Exclude streams all grids but those.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Build HLODs"
+Дано wait-idle 2400
+Дано run Panel "Open World Partition"
+Дано set 9000002 StreamingSourceData.Enabled false
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.Position 0,3000,-150000
+Когда --subject viewport set Camera.Direction 0,-0.36,1
+Когда advance 2
+Когда advance 1
+Тогда far9_sector_loaded на холме в ~1.5 км настоящие ячейки Main (не блоки HLOD_Main); на карте WP узкий клин сектора 10° от игрока до холма; лог: ячейки Main у холма loaded
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Тогда far9_sector_released провайдер снят (6 с): через несколько секунд на холме снова HLOD_Main; клина на карте нет; лог: ячейки Main у холма unloaded
+Когда run Action "Stop"
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000002 StreamingSourceData.Enabled true
+Дано set 9000002 StreamingSourceData.TargetBehavior Exclude
+Когда run Action "Play from Here"
+Когда advance 2
+Когда advance 1
+Когда --subject viewport set Camera.Position 0,40000,-40000
+Когда --subject viewport set Camera.Direction 0,-1,1
+Когда advance 2
+Тогда far9_exclude у самолёта грузятся только ячейки LandscapeTiles; Main и Foliage вблизи в HLOD (HLOD_Main, HLOD_Foliage), без дыр; на карте WP загруженных ячеек Main/Foliage у самолёта нет
+Когда run Action "Stop"

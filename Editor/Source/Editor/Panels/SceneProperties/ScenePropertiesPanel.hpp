@@ -1,6 +1,9 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include "WorldPartitionDetails.hpp"
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Core/Scene.hpp>
 
 #include <Editor/Core/IPanel.hpp>
 
@@ -49,6 +52,8 @@ namespace Desert::Editor
         // The component list renderer. A member, not a function-static: several Details panels can exist
         // (one per scene view) and they must not share one editor's state.
         std::unique_ptr<ComponentEditor> m_ComponentEditor;
+        // Details > World Partition: the entity's partition settings above its components (partitioned worlds).
+        WorldPartitionDetails m_WorldPartitionDetails;
 
         // --- Asset pictures ---------------------------------------------------------------------------
         // NO LIVE VIEW IN DETAILS (THM-FIXF). UE's Details slots show thumbnails from the shared pool — the

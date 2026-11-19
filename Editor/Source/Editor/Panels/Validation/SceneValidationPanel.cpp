@@ -10,9 +10,13 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+#include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
 
 #include <ImGui/imgui.h>
 #include <format>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor
 {
@@ -75,6 +79,44 @@ namespace Desert::Editor
                             m_Issues.empty() ? ToastLevel::Success : ToastLevel::Warning );
     }
 
+    Common::BoolResultStr SceneValidationPanel::CheckWorldPartition()
+    {
+        m_Issues.clear();
+        m_Ran = true;
+        if ( !m_Scene )
+            return Common::MakeError( "Check World Partition: no active scene" );
+        auto held = ::Desert::Core::EditorRegions::HeldWorld( *m_Scene, m_Assets );
+        if ( !held )
+            return Common::MakeError( "Check World Partition: " + held.GetError() );
+        const ::Desert::Core::SceneSerialized& world = held.GetValue();
+        if ( !world.WorldPartition.has_value() )
+        {
+            ToastManager::Push( "Check World Partition: the scene is not a partitioned world", ToastLevel::Warning );
+            return Common::MakeSuccess( true );
+        }
+        const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
+        auto       check      = ::Desert::Core::WorldCells::CheckWorldPartition(
+             world, ::Desert::Core::Rules::DescribeEntities( world.Entities ), registries,
+             m_Scene->Packages()->BaselinePath().value_or( std::filesystem::path() ) );
+        if ( !check )
+            return Common::MakeError( "Check World Partition: " + check.GetError() );
+        const ::Desert::Core::WorldCells::WorldPartitionCheck& checked = check.GetValue();
+        (void)::Desert::Core::WorldCells::ReportWorldPartitionCheck( checked );
+        for ( const ::Desert::Core::Rules::GenerationIssue& issue : checked.Issues )
+        {
+            Common::UUID entity = Common::UUID::Null();
+            if ( issue.Record < checked.Descriptors.size() && checked.Descriptors[issue.Record].Id.has_value() )
+                entity = Common::UUID( *checked.Descriptors[issue.Record].Id );
+            m_Issues.push_back(
+                 { entity, std::format( "{}: {}", ::Desert::Core::Rules::GenerationIssueKindName( issue.Kind ), issue.Text ) } );
+        }
+        GetVisibility() = true;
+        ToastManager::Push( std::format( "Check World Partition: {} World Partition issue{}", m_Issues.size(),
+                                         m_Issues.size() == 1 ? "" : "s" ),
+                            m_Issues.empty() ? ToastLevel::Success : ToastLevel::Warning );
+        return Common::MakeSuccess( true );
+    }
+
     void SceneValidationPanel::OnUIRender()
     {
         if ( !m_Scene )
@@ -85,6 +127,10 @@ namespace Desert::Editor
 
         if ( ImGui::Button( "Validate Scene" ) )
             Validate();
+        ImGui::SameLine();
+        if ( ImGui::Button( "Check World Partition" ) )
+            if ( const auto checked = CheckWorldPartition(); !checked )
+                ToastManager::Push( checked.GetError(), ToastLevel::Error );
         ImGui::SameLine();
         if ( !m_Ran )
             ImGui::TextDisabled( "Not run yet." );

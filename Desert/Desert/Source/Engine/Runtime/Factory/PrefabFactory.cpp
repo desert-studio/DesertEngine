@@ -5,8 +5,18 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
+#include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Common/Json/Json.hpp>
+
+#include <glm/gtc/type_ptr.hpp>
+
+#include <algorithm>
+#include <memory>
+#include <utility>
+#include <vector>
 
 namespace Desert::Runtime::Factory
 {
@@ -162,6 +172,24 @@ namespace Desert::Runtime::Factory
                 scene.Attach( created[plannedPrefab.Parent], nestedRoot );
             }
 
+            // The nesting record's override of how the nested instance streams (WP21-WHOLE), kept on the nested
+            // root's link so capturing this prefab again (PrefabAsset::CreateFromEntity) states it again.
+            if ( nestedRoot && nestedRoot.HasComponent<ECS::PrefabComponent>() )
+                nestedRoot.GetComponent<ECS::PrefabComponent>().RuntimeBehavior = data.RuntimeBehavior;
+
+            // WHERE THE LINK STANDS IS ITS RECORD'S TRANSFORM (PrefabAsset::AppendSubtree writes it there, as UE's
+            // nested level instance carries its own actor transform in the outer level). A record that states none
+            // - one written before the link kept its placement - leaves the nested root where its own file and the
+            // root override below put it. Field by field, before the overrides, which IndexBaseRecords mirrors.
+            if ( nestedRoot && nestedRoot.HasComponent<ECS::TransformComponent>() &&
+                 ( data.Translation.has_value() || data.Rotation.has_value() || data.Scale.has_value() ) )
+            {
+                const auto& placed = nestedRoot.GetComponent<ECS::TransformComponent>();
+                nestedRoot.SetLocalTransform( ECS::LocalTransform{
+                     data.Translation.value_or( placed.GetTranslation() ),
+                     data.Rotation.value_or( placed.GetRotation() ), data.Scale.value_or( placed.GetScale() ) } );
+            }
+
             // A nested instance may itself have been edited when this prefab was captured. Those edits
             // live on the NESTING RECORD (not in the nested file, which is shared by every other instance
             // of it), so they are applied here, against the body that was just built.
@@ -181,10 +209,40 @@ namespace Desert::Runtime::Factory
         }
 
         // 3. Apply components and set up hierarchy.
+        //
+        // AN ENTITY REFERENCE INSIDE THE BODY NAMES A RECORD OF THIS FILE (a SocketAttachment's Target, a
+        // Projectile's Owner), and the entity that record became was minted a fresh uuid in step 1. So each such
+        // field is rewritten to the created entity's uuid before the record is read - through
+        // Rules::RemapEntityReferences, the remap the cook applies to the same body (PrefabExpansion), so the
+        // editor, Play and the cooked world hang an attachment on the same socket. A reference to a record of a
+        // NESTED file is left as written: ids are per file, and the nested body remaps its own in its own call.
+        std::unordered_map<Common::UUID, Common::UUID> recordToEntity;
+        recordToEntity.reserve( plan.Created.size() );
+        for ( std::size_t slot = 0; slot < plan.Created.size(); ++slot )
+            recordToEntity.emplace( plan.Created[slot].Id,
+                                    created[slot].GetComponent<ECS::UUIDComponent>().UUID );
+        const Core::Rules::EntityIdRemap toCreated =
+             [&recordToEntity]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+        {
+            const auto hit = recordToEntity.find( stated );
+            if ( hit == recordToEntity.end() )
+                return std::nullopt;
+            return hit->second;
+        };
+
         for ( const auto& load : plan.Loads )
         {
             const ECS::Entity entity = created[load.Target];
-            Core::Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, assetManager );
+            if ( Core::Rules::HasEntityReferenceBlock( records[load.Record] ) )
+            {
+                Assets::EntityData remapped = records[load.Record];
+                Core::Rules::RemapEntityReferences( remapped, toCreated );
+                Core::Serialize::EntitySerializer::DeserializeEntity( remapped, entity, assetManager );
+            }
+            else
+            {
+                Core::Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, assetManager );
+            }
 
             if ( load.Parent != Core::Rules::kNoSlot )
                 scene.Attach( created[load.Parent], entity );
@@ -297,7 +355,30 @@ namespace Desert::Runtime::Factory
             // the base record a few lines ago and nothing has touched it since. So the value to merge
             // onto is the component itself, read back through the same serializer that wrote it, and no
             // caller has to carry the base records down here to find it.
-            for ( const auto& [key, fields] : over.Components )
+            // AN OVERRIDE STATES ITS INSTANCE'S ENTITIES BY RECORD ID (CapturePrefabInstance measures them so), and
+            // the body was just pointed at the uuids minted for it (Instantiate, step 3) - so the override's own
+            // references are pointed the same way, through the same remap, or it would undo that.
+            const Common::Json::KeyedValues* components = &over.Components;
+            Common::Json::KeyedValues        remapped;
+            if ( Core::Rules::HasEntityReferenceBlock( over.Components ) )
+            {
+                remapped = over.Components;
+                Core::Rules::RemapEntityReferences(
+                     remapped,
+                     [&indexed, &full]( const Common::UUID& stated ) -> std::optional<Common::UUID>
+                     {
+                         if ( full.empty() )
+                             return std::nullopt;
+                         std::vector<Common::UUID> target( full.begin(), full.end() - 1 );
+                         target.push_back( stated );
+                         const auto hit = indexed.find( Assets::PrefabPathKey( target ) );
+                         if ( hit == indexed.end() || !hit->second.HasComponent<ECS::UUIDComponent>() )
+                             return std::nullopt;
+                         return hit->second.GetComponent<ECS::UUIDComponent>().UUID;
+                     } );
+                components = &remapped;
+            }
+            for ( const auto& [key, fields] : *components )
             {
                 const Core::Serialize::ComponentSerializer* serializer = FindComponentSerializer( key );
                 if ( serializer == nullptr )
@@ -332,6 +413,152 @@ namespace Desert::Runtime::Factory
             }
         }
         return missed;
+    }
+
+    namespace
+    {
+        // The ISM children of the packed instance @p root, built from @p form: each group becomes a record with
+        // one InstancedStaticMesh block, read by the same ComponentRegistry code as any authored ISM, so its mesh
+        // and materials resolve and load exactly as they would there. The children it had are destroyed first. The
+        // instances arrive in the root's frame; the next refresh composes them with the root's world.
+        void BuildPackedGroups( Core::Scene& scene, const ECS::Entity root,
+                                std::shared_ptr<const Assets::PackedPrefabSer> form )
+        {
+            auto& registry = scene.GetRegistry();
+            {
+                const auto&                    packed   = registry.get<PackedPrefabComponent>( root.GetHandle() );
+                const std::vector<ECS::Entity> previous = packed.Groups;
+                for ( const ECS::Entity& group : previous )
+                    if ( group && registry.valid( group.GetHandle() ) )
+                        scene.DestroyEntity( group );
+            }
+            const Assets::AssetManager* manager = registry.get<PackedPrefabComponent>( root.GetHandle() ).Manager;
+
+            std::vector<ECS::Entity> groups;
+            groups.reserve( form->Groups.size() );
+            for ( const Assets::PackedPrefabGroupSer& group : form->Groups )
+            {
+                // The block as a component payload, the way the HLOD builder hands its batches to the same
+                // registry (WorldPartitionHLODRules.hpp, Common::Json::FromStruct).
+                Assets::EntityData record;
+                record.Tag = group.Name;
+                record.Components[std::string( Core::Rules::kInstancePointsComponent )] =
+                     Common::Json::FromStruct( group.Block );
+
+                const ECS::Entity entity = scene.CreateEntityWithUUID( Common::UUID::Generate(), group.Name );
+                Core::Serialize::EntitySerializer::DeserializeEntity( record, entity, *manager );
+                scene.Attach( root, entity );
+                groups.push_back( entity );
+            }
+
+            auto& stored    = registry.get<PackedPrefabComponent>( root.GetHandle() );
+            stored.Groups   = std::move( groups );
+            stored.Form     = std::move( form );
+            stored.PlacedAt = glm::mat4( 0.0f ); // composed by the next refresh
+        }
+
+        // Every group's instances composed with @p rootWorld: world = root * (the instance in the root's frame).
+        void PlacePackedGroups( entt::registry& registry, PackedPrefabComponent& packed,
+                                const glm::mat4& rootWorld )
+        {
+            const std::size_t count = std::min( packed.Groups.size(), packed.Form->Groups.size() );
+            for ( std::size_t index = 0; index < count; ++index )
+            {
+                const ECS::Entity group = packed.Groups[index];
+                if ( !group || !registry.valid( group.GetHandle() ) )
+                    continue;
+                const auto* ism      = registry.try_get<ECS::InstancedStaticMeshComponent>( group.GetHandle() );
+                const auto& relative = packed.Form->Groups[index].Block.InstanceTransforms;
+                if ( ism == nullptr || !relative.has_value() )
+                    continue;
+                ECS::InstancedStaticMeshDesc desc = ism->GetDesc();
+                desc.InstanceTransforms.clear();
+                desc.InstanceTransforms.reserve( relative->size() );
+                for ( const std::array<float, 16>& flat : *relative )
+                    desc.InstanceTransforms.push_back( rootWorld * glm::make_mat4( flat.data() ) );
+                ECS::SetInstancedStaticMesh( registry, group.GetHandle(), desc );
+            }
+            packed.PlacedAt = rootWorld;
+        }
+    } // namespace
+
+    Common::ResultStr<ECS::Entity>
+    PrefabFactory::InstantiatePacked( const Assets::Asset<Assets::PrefabAsset>& prefab, Core::Scene& scene,
+                                      const Assets::AssetManager& assetManager,
+                                      std::optional<Common::UUID> rootId )
+    {
+        if ( !prefab || !prefab->IsReadyForUse() || prefab->GetEntities().empty() )
+            return Common::MakeError<ECS::Entity>( "the prefab is not loaded, or holds no entity" );
+        std::shared_ptr<const Assets::PackedPrefabSer> form = prefab->GetPacked();
+        if ( !form )
+            return Common::MakeError<ECS::Entity>( "the prefab holds no packed form" );
+        if ( form->Refused.has_value() )
+            return Common::MakeFormattedError<ECS::Entity>(
+                 "'{}' cannot be packed: {}", prefab->GetMetadata().Filepath.string(), *form->Refused );
+
+        // The root as the unpacked instance's root stands before the scene places it: the first record's tag and
+        // transform (PrefabFactory::Instantiate's rule), so the loader's PlaceInstanceRoot treats both alike.
+        const Assets::EntityData& rootRecord = prefab->GetEntities().front();
+        const Common::UUID        id         = rootId.has_value() ? *rootId : Common::UUID::Generate();
+        const ECS::Entity         root       = scene.CreateEntityWithUUID(
+             id, rootRecord.Tag.value_or( prefab->GetMetadata().Filepath.stem().string() ) );
+
+        ECS::LocalTransform local;
+        local.Translation = rootRecord.Translation.value_or( glm::vec3( 0.0f ) );
+        local.Rotation    = rootRecord.Rotation.value_or( glm::vec3( 0.0f ) );
+        local.Scale       = rootRecord.Scale.value_or( glm::vec3( 1.0f ) );
+        ECS::SetLocalTransform( *root.GetRegistry(), root.GetHandle(), local );
+
+        root.AddComponent<ECS::PrefabComponent>().Prefab = prefab->GetMetadata().Handle;
+        auto& packed                                     = root.AddComponent<PackedPrefabComponent>();
+        packed.Prefab                                    = prefab;
+        packed.Manager                                   = &assetManager;
+
+        BuildPackedGroups( scene, root, std::move( form ) );
+        return Common::MakeSuccess( ECS::Entity( root ) );
+    }
+
+    void PrefabFactory::RefreshPackedInstances( Core::Scene& scene )
+    {
+        auto& registry = scene.GetRegistry();
+        // Collected first: a rebuild creates and destroys entities, which a live view must not see.
+        std::vector<entt::entity> roots;
+        for ( const entt::entity handle : registry.view<PackedPrefabComponent>() )
+            roots.push_back( handle );
+
+        for ( const entt::entity handle : roots )
+        {
+            const ECS::Entity root( handle, registry );
+            {
+                auto&      packed = registry.get<PackedPrefabComponent>( handle );
+                const auto current =
+                     packed.Prefab ? packed.Prefab->GetPacked() : std::shared_ptr<const Assets::PackedPrefabSer>();
+                if ( current && packed.Form && current->SourceHash != packed.Form->SourceHash )
+                {
+                    if ( !current->Refused.has_value() )
+                    {
+                        LOG_INFO( "[PrefabFactory] '{0}' changed (source {1}): a packed instance is rebuilt from "
+                                  "{2} group(s).",
+                                  packed.Prefab->GetMetadata().Filepath.string(), current->SourceHash,
+                                  current->Groups.size() );
+                        BuildPackedGroups( scene, root, current );
+                    }
+                    else if ( packed.ReportedRefusal != current->SourceHash )
+                    {
+                        LOG_ERROR( "[PrefabFactory] '{0}' changed and can no longer be packed: {1}. Its packed "
+                                   "instances keep the form they were built from until they are unpacked (Unpack "
+                                   "Prefab Instances to Edit).",
+                                   packed.Prefab->GetMetadata().Filepath.string(), *current->Refused );
+                        packed.ReportedRefusal = current->SourceHash;
+                    }
+                }
+            }
+
+            auto&           packed = registry.get<PackedPrefabComponent>( handle );
+            const glm::mat4 world  = root.GetWorldTransform();
+            if ( packed.Form && world != packed.PlacedAt )
+                PlacePackedGroups( registry, packed, world );
+        }
     }
 
 } // namespace Desert::Runtime::Factory

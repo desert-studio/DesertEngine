@@ -13,6 +13,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Editor::WorldPartitionMap
@@ -209,6 +210,8 @@ namespace Desert::Editor::WorldPartitionMap
                 return CellState::Loading;
             case ::Desert::Core::Rules::Residency::Loaded:
                 return CellState::Loaded;
+            case ::Desert::Core::Rules::Residency::Activating:
+                return CellState::MakingVisible;
             case ::Desert::Core::Rules::Residency::Activated:
                 return CellState::Resident;
             case ::Desert::Core::Rules::Residency::Failed:
@@ -233,6 +236,8 @@ namespace Desert::Editor::WorldPartitionMap
                 return { 1.0f, 1.0f, 0.0f, kTile };
             case CellState::Loaded:
                 return { 0.0f, 1.0f, 1.0f, kTile };
+            case CellState::MakingVisible: // UE LEVEL_MakingVisible: FColor::Blue
+                return { 0.0f, 0.0f, 1.0f, kTile };
             case CellState::Resident:
                 return { 0.0f, 1.0f, 0.0f, kTile };
             case CellState::Failed:
@@ -260,6 +265,8 @@ namespace Desert::Editor::WorldPartitionMap
                 return "Loading";
             case CellState::Loaded:
                 return "Loaded, waiting to activate";
+            case CellState::MakingVisible:
+                return "Activating, hidden until whole";
             case CellState::Resident:
                 return "Resident";
             case CellState::Failed:
@@ -279,7 +286,8 @@ namespace Desert::Editor::WorldPartitionMap
         static constexpr std::array kEdit      = { CellState::Unstreamed };
         static constexpr std::array kEditor    = { CellState::EditorUnloaded, CellState::EditorPartial,
                                                    CellState::EditorLoaded };
-        static constexpr std::array kStreaming = { CellState::Unloaded, CellState::Loading, CellState::Loaded,
+        static constexpr std::array kStreaming = { CellState::Unloaded, CellState::Loading,
+                                                   CellState::Loaded,   CellState::MakingVisible,
                                                    CellState::Resident, CellState::Failed };
         if ( streaming )
             return kStreaming;
@@ -322,5 +330,90 @@ namespace Desert::Editor::WorldPartitionMap
         region.MaxX = static_cast<float>( std::max( from.x, to.x ) );
         region.MaxZ = static_cast<float>( std::max( from.y, to.y ) );
         return region;
+    }
+    std::vector<FootprintOnScreen> VisibleFootprints( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                                      const View& view, glm::dvec2 screenSize,
+                                                      const std::function<bool( std::size_t )>& held )
+    {
+        std::vector<FootprintOnScreen> shown;
+        for ( std::size_t c = 0; c < plan.Composites.size(); ++c )
+        {
+            const ::Desert::Core::Rules::PlannedComposite& composite = plan.Composites[c];
+            if ( !composite.Footprint || composite.Anchor == ::Desert::Core::Rules::kNoRecord ||
+                 !held( composite.Anchor ) )
+                continue;
+            const ::Desert::Core::Rules::CellBounds& box = *composite.Footprint;
+            const glm::dvec2 a  = WorldToScreen( view, screenSize, { box.MinX, box.MinZ } );
+            const glm::dvec2 b  = WorldToScreen( view, screenSize, { box.MaxX, box.MaxZ } );
+            const glm::dvec2 lo = glm::min( a, b );
+            const glm::dvec2 hi = glm::max( a, b );
+            if ( hi.x < 0.0 || hi.y < 0.0 || lo.x > screenSize.x || lo.y > screenSize.y )
+                continue;
+            // UE culls by the box's on-screen extent and fades it in above the cull.
+            const double extent = std::max( hi.x - lo.x, hi.y - lo.y );
+            if ( extent < kMinFootprintPixels )
+                continue;
+            const double fade = std::clamp( ( extent - kMinFootprintPixels ) / kFootprintFadePixels, 0.0, 1.0 );
+            shown.push_back( FootprintOnScreen{ c, lo, hi, static_cast<float>( fade ) } );
+        }
+        return shown;
+    }
+
+    bool LabelFits( const FootprintOnScreen& footprint, glm::dvec2 labelSize )
+    {
+        const glm::dvec2 room = footprint.Max - footprint.Min - glm::dvec2( 2.0 * kLabelPaddingPixels );
+        return labelSize.x <= room.x && labelSize.y <= room.y;
+    }
+
+    std::vector<HLODState> HLODCellStates( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                           std::span<const std::string>                     builtUnits,
+                                           std::span<const std::string>                     staleUnits )
+    {
+        const std::unordered_set<std::string> stale( staleUnits.begin(), staleUnits.end() );
+        const std::unordered_set<std::string> built( builtUnits.begin(), builtUnits.end() );
+        std::vector<HLODState>                states;
+        states.reserve( plan.Cells.size() );
+        for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
+        {
+            // A cell's unit follows the always-loaded composites (WorldPartitionResidencyRules.hpp, UNITS).
+            const std::string unit =
+                 ::Desert::Core::Rules::DescribeResidencyUnit( plan, plan.AlwaysLoaded.size() + cell );
+            if ( stale.contains( unit ) )
+                states.push_back( HLODState::Stale );
+            else if ( built.contains( unit ) )
+                states.push_back( HLODState::Built );
+            else
+                states.push_back( HLODState::None );
+        }
+        return states;
+    }
+
+    glm::vec4 ColorOf( HLODState state )
+    {
+        switch ( state )
+        {
+            case HLODState::None:
+                return { 0.0f, 0.0f, 0.0f, 0.0f };
+            case HLODState::Built:
+                return { 0.35f, 0.65f, 1.0f, 0.9f };
+            // Apart from every residency colour (red, yellow, cyan, green, maroon): a stale cell reads at a glance.
+            case HLODState::Stale:
+                return { 1.0f, 0.3f, 0.85f, 1.0f };
+        }
+        return { 0.0f, 0.0f, 0.0f, 0.0f };
+    }
+
+    const char* NameOf( HLODState state )
+    {
+        switch ( state )
+        {
+            case HLODState::None:
+                return "No HLOD";
+            case HLODState::Built:
+                return "HLOD built";
+            case HLODState::Stale:
+                return "HLOD stale (Build HLODs again)";
+        }
+        return "No HLOD";
     }
 } // namespace Desert::Editor::WorldPartitionMap

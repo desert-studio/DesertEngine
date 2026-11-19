@@ -17,6 +17,7 @@
 
 #include <string>
 #include <vector>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 
 namespace Desert::Tests::PointerCensus
 {

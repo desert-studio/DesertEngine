@@ -11,6 +11,7 @@
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
+#include <Common/Core/Math/Ray.hpp>
 #include <Common/Core/Units.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
@@ -336,6 +337,19 @@ namespace Desert::Editor
         // Placement by ray: the one door to it that does not need a mouse drag, so the control channel can
         // put an object on a hill and shoot the result. The ray is the active viewport's line of sight, and
         // the surface is whatever Scene::Raycast meets first — the landscape included.
+        // PREFAB EDIT IN PLACE (UE's Level Instance Edit / Commit / Cancel): the subject is the selected instance
+        // root; Commit and Discard answer the open session, and each returns the session's own refusal.
+        commands.push_back( { "Entity", "Edit the selected prefab instance in place", []() -> Common::BoolResultStr
+                              {
+                                  const auto& primary = Core::SelectionManager::GetSelected();
+                                  if ( !primary.has_value() )
+                                      return Common::MakeError<bool>(
+                                           "Edit prefab in place: select the root of a prefab instance" );
+                                  return Commands::BeginPrefabEdit( *primary );
+                              } } );
+        commands.push_back( { "Entity", "Commit the prefab edit", [] { return Commands::CommitPrefabEdit(); } } );
+        commands.push_back( { "Entity", "Discard the prefab edit", [] { return Commands::DiscardPrefabEdit(); } } );
+
         commands.push_back( { "Entity", "Place a cube on the surface at the viewport centre", [this]
                               {
                                   ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
@@ -410,6 +424,92 @@ namespace Desert::Editor
                                       return Common::MakeError<bool>( folded.GetError() );
                                   return Common::MakeSuccess( true );
                               } } );
+        // UE's Create Level Instance from the selection: one entry per pivot, because the pivot is the one choice
+        // the operation asks and a palette entry asks nothing. The file is a new one named after the primary (last
+        // selected) entity, which is also the Selected Entity pivot - UE's pivot actor defaults to the
+        // selection's.
+        for ( const Commands::PrefabPivot pivot :
+              { Commands::PrefabPivot::Center, Commands::PrefabPivot::CenterMin, Commands::PrefabPivot::Entity,
+                Commands::PrefabPivot::WorldOrigin } )
+        {
+            commands.push_back(
+                 { "Entity",
+                   std::format( "Create Prefab from Selection (pivot: {})", Commands::PrefabPivotLabel( pivot ) ),
+                   [this, pivot]
+                   {
+                       const std::vector<Common::UUID> selection = Core::SelectionManager::GetSelection();
+                       if ( selection.empty() || !MainScene() )
+                           return Common::MakeError<bool>( "nothing is selected to make a prefab from" );
+                       const Common::UUID primary = selection.back();
+                       const auto         found   = MainScene()->FindEntityByID( primary );
+                       const std::string  stem    = found && found->get().HasComponent<ECS::TagComponent>()
+                                                         ? found->get().GetComponent<ECS::TagComponent>().Tag
+                                                         : std::string( "Prefab" );
+                       const auto         created = Commands::CreatePrefabFromSelection(
+                            selection, Commands::UniquePrefabPath( stem ), pivot, primary );
+                       if ( !created.IsSuccess() )
+                           return Common::MakeError<bool>( created.GetError() );
+                       return Common::MakeSuccess( true );
+                   } } );
+        }
+        for ( const Commands::BreakDepth depth :
+              { Commands::BreakDepth::OneLevel, Commands::BreakDepth::AllLevels } )
+        {
+            commands.push_back(
+                 { "Entity",
+                   depth == Commands::BreakDepth::OneLevel ? "Break selected prefab (one level)"
+                                                           : "Break selected prefab (all levels)",
+                   [depth]
+                   {
+                       const std::vector<Common::UUID> selection = Core::SelectionManager::GetSelection();
+                       if ( selection.size() != 1 )
+                           return Common::MakeFormattedError<bool>(
+                                "select exactly one prefab instance to break ({} selected)", selection.size() );
+                       const auto broken = Commands::BreakPrefabInstance( selection.front(), depth );
+                       if ( !broken.IsSuccess() )
+                           return Common::MakeError<bool>( broken.GetError() );
+                       return Common::MakeSuccess( true );
+                   } } );
+        }
+        // UE: Level Instance > Create Packed Level Actor, and Edit on one (WP-PACKED-PREFAB).
+        commands.push_back( { "Entity", "Pack Prefab Instances", []
+                              {
+                                  const auto switched = Commands::SetPrefabInstancesPacked(
+                                       Core::SelectionManager::GetSelection(), true );
+                                  if ( !switched.IsSuccess() )
+                                      return Common::MakeError<bool>( switched.GetError() );
+                                  return Common::MakeSuccess( true );
+                              } } );
+        commands.push_back( { "Entity", "Unpack Prefab Instances to Edit", []
+                              {
+                                  const auto switched = Commands::SetPrefabInstancesPacked(
+                                       Core::SelectionManager::GetSelection(), false );
+                                  if ( !switched.IsSuccess() )
+                                      return Common::MakeError<bool>( switched.GetError() );
+                                  return Common::MakeSuccess( true );
+                              } } );
+        // Seeded by the primary selection, like "Select all with the same static mesh" above.
+        if ( MainScene() )
+        {
+            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
+            {
+                const Common::UUID seed = *primary;
+                commands.push_back( { "Entity", "Select all instances of the same prefab", [seed]
+                                      {
+                                          const auto selected = Commands::SelectPrefabInstancesLike( seed );
+                                          if ( !selected.IsSuccess() )
+                                              return Common::MakeError<bool>( selected.GetError() );
+                                          return Common::MakeSuccess( true );
+                                      } } );
+                commands.push_back( { "Entity", "Apply to Prefab", [seed]
+                                      {
+                                          const auto applied = Commands::ApplyEnclosingPrefabInstance( seed );
+                                          if ( !applied.IsSuccess() )
+                                              return Common::MakeError<bool>( applied.GetError() );
+                                          return Common::MakeSuccess( true );
+                                      } } );
+            }
+        }
     }
 
     Common::BoolResultStr EntityCommands::RotateSelectedControl( int axis, float degrees )

@@ -1,0 +1,27 @@
+# WP-BUILDER-CMDLET (UE 5.5 UWorldPartitionBuilderCommandlet + UWorldPartitionHLODsBuilder): the editor without a
+# window - `--run WorldPartitionBuilder --builder <Name> --scene <file>` (`--name=value` is the same flag) - runs one
+# builder on the named world once its content settled and exits: 0 built, 1 refused/failed, 2 command line refused.
+# Builders: HLODs, DeleteHLODs, Convert, ResaveEntities (--only-dirty, --builder-cell-size <cm>), FoliageRepartition.
+#
+# LEAD, BEFORE THE EDITOR STARTS (a shell step - play_scenario has no line for a second process):
+#   1. Make WP_Protocol's HLODs stale: in the editor move the bench entity of the world (or re-import its mesh with
+#      the new shape) and save; the WP panel then shows "N stale" (N > 0). Quit the editor.
+#   2. From Editor/:  ../bin/<cfg>/Editor/DesertEditor --project ../Projects/Desert/Desert.deproj \
+#        --run=WorldPartitionBuilder --builder=HLODs --scene Content/Scenes/WP_Protocol.desce ; echo "exit=$?"
+#      Expect: NO window or splash appears; exit=0; editor.log has "[WorldPartitionBuilder] HLODs on '...WP_Protocol
+#      .desce': custom loading, 1 cell(s)", "[Build HLODs] 'WP_Protocol': ... read back: 0 stale cell(s)" and
+#      "[WorldPartitionBuilder] HLODs: succeeded in ... s (1 cell(s))".
+#   3. Refusals (each exit=2, nothing opens): `--builder HLOD` (lists the builders), `--builder HLODs` without
+#      --scene, `--builder HLODs --builder-cell-size 51200` (HLODs loads its own way), `--run Foo`.
+#   4. `--builder ResaveEntities --builder-cell-size 51200` -> exit=0, "cell i/n ... loaded, ... unloaded" lines.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Тогда-вид cmdlet_panel панель World Partition: «0 stale» (HLOD построены коммандлетом, не кнопкой)
+Когда run Mode "Select mode"
+Когда run Action "Play"
+Когда advance 2
+Когда --subject viewport set Camera.Position 0,3000,-100000
+Когда --subject viewport set Camera.Direction 0,-0.2,1
+Когда advance 2
+Тогда cmdlet_hlods дальние HLOD актуальны: скамейка вдали в НОВОЙ форме/месте (как после шага 1), не старая; панель WP «0 stale»

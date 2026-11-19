@@ -129,9 +129,13 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanPipeline::~VulkanPipeline()
     {
-        // At once, not deferred: whoever drops the last owner of a pipeline has no frame recording with it
-        // (every recorder holds its pipeline strongly), the same rule as a shader's last record.
-        Unbuild( false );
+        // GPUSCENE-UAF-MAC: DEFERRED, as a rebuild's replaced record is. Whoever drops the last owner of a
+        // pipeline has no frame RECORDING with it (every recorder holds its pipeline strongly while it records),
+        // but the frames it was recorded into may still wait for the submit thread (VK-SUBMIT-THREAD) or run on
+        // the GPU, and their command buffers bind its VkPipeline (MoltenVK encodes them at vkQueueSubmit: a
+        // destroyed one is a use-after-free there). The record retires past the frames in flight; at once only
+        // with no renderer.
+        Unbuild( true );
     }
 
     const std::shared_ptr<const VulkanPipeline::BuiltPipeline>& VulkanPipeline::NeverBuilt() noexcept
@@ -147,8 +151,14 @@ namespace Desert::Graphic::API::Vulkan
              CompatibleRenderPass == VK_NULL_HANDLE && PassVariants.empty() )
             return;
 
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                              ->GetVulkanLogicalDevice();
+        // THROUGH THE ALLOCATOR'S DEVICE, not EngineContext::GetDevice(): a replaced pipeline is retired into the
+        // allocator's deletion queue (Publish), and ~VulkanLogicalDevice drains that queue
+        // (VulkanContext::Shutdown) after the engine's weak handle to the device has expired - a null dereference
+        // on every editor quit (crash 20261118-154102, WP-INT-1117). The allocator holds the device it was created
+        // for.
+        VkDevice device = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                               ->GetVulkanAllocator()
+                               ->GetDevice();
         for ( const auto& [pass, variant] : PassVariants )
             if ( variant != VK_NULL_HANDLE )
                 vkDestroyPipeline( device, variant, nullptr );

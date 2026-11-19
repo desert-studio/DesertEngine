@@ -6,6 +6,7 @@
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <rflcpp/rfl/to_generic.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 #include <regex>
@@ -531,6 +532,146 @@ namespace Desert::Migration
         source.Components["WindSource"] = rfl::Generic( std::move( block ) );
         entities.push_back( std::move( source ) );
         report.Created = true;
+        return report;
+    }
+
+    LandscapeSplineEntitiesReport
+    MigrateLandscapeSplineEntitiesV75ToV76( std::vector<Assets::EntityData>& entities, bool createEntities )
+    {
+        LandscapeSplineEntitiesReport   report;
+        std::vector<Assets::EntityData> created;
+        // A non-negative integer field of an object, or nullopt.
+        const auto indexOf = []( const rfl::Generic::Object& object,
+                                 const char*                 key ) -> std::optional<std::size_t>
+        {
+            const auto value = object.get( key );
+            if ( !value.has_value() )
+                return std::nullopt;
+            const auto number = value.value().to_int();
+            if ( !number.has_value() || number.value() < 0 )
+                return std::nullopt;
+            return static_cast<std::size_t>( number.value() );
+        };
+        // Takes the Splines key out of one Landscape block; @p root is the record's id (0: an override).
+        const auto take = [&]( rfl::Generic::Object& block, const std::string& name, uint64_t root ) -> bool
+        {
+            const auto stated = block.get( "Splines" );
+            if ( !stated.has_value() )
+                return false;
+            const rfl::Generic value = stated.value();
+            DropKey( block, "Splines" );
+            ++report.RootsCleared;
+            const auto splines = value.to_object();
+            if ( !splines.has_value() )
+            {
+                report.Refused.push_back( std::format( "'{}': Landscape.Splines is not an object", name ) );
+                return true;
+            }
+            rfl::Generic::Array points;
+            rfl::Generic::Array segments;
+            if ( const auto listed = splines.value().get( "ControlPoints" ); listed.has_value() )
+                if ( auto array = listed.value().to_array(); array.has_value() )
+                    points = std::move( array.value() );
+            if ( const auto listed = splines.value().get( "Segments" ); listed.has_value() )
+                if ( auto array = listed.value().to_array(); array.has_value() )
+                    segments = std::move( array.value() );
+            if ( points.empty() )
+                return true; // an empty set: nothing becomes an entity
+            if ( !createEntities || root == 0 )
+            {
+                report.Refused.push_back( std::format(
+                     "'{}': a prefab's Landscape states {} spline control point(s); a spline is its own entity "
+                     "since scene v{} and cannot be part of a prefab",
+                     name, points.size(), kSceneVersionLandscapeSplineEntities ) );
+                return true;
+            }
+            // Connected groups (union-find over the segments' ends), numbered by their first point.
+            std::vector<std::size_t> parent( points.size() );
+            for ( std::size_t i = 0; i < parent.size(); ++i )
+                parent[i] = i;
+            const auto find = [&parent]( std::size_t i )
+            {
+                while ( parent[i] != i )
+                    i = parent[i] = parent[parent[i]];
+                return i;
+            };
+            std::vector<std::pair<std::size_t, std::size_t>> ends;
+            for ( std::size_t s = 0; s < segments.size(); ++s )
+            {
+                const auto fields = segments[s].to_object();
+                const auto start  = fields.has_value() ? indexOf( fields.value(), "Start" ) : std::nullopt;
+                const auto end    = fields.has_value() ? indexOf( fields.value(), "End" ) : std::nullopt;
+                if ( !start || !end || *start >= points.size() || *end >= points.size() )
+                {
+                    report.Refused.push_back(
+                         std::format( "'{}': Landscape.Splines.Segments[{}] names no control point", name, s ) );
+                    return true;
+                }
+                ends.emplace_back( *start, *end );
+                parent[find( *start )] = find( *end );
+            }
+            std::vector<std::size_t> groupOf( points.size() );
+            std::vector<std::size_t> rootGroup( points.size(), points.size() );
+            std::size_t              groups = 0;
+            for ( std::size_t i = 0; i < points.size(); ++i )
+            {
+                const std::size_t top = find( i );
+                if ( rootGroup[top] == points.size() )
+                    rootGroup[top] = groups++;
+                groupOf[i] = rootGroup[top];
+            }
+            for ( std::size_t g = 0; g < groups; ++g )
+            {
+                rfl::Generic::Array      groupPoints;
+                std::vector<std::size_t> newIndex( points.size(), 0 );
+                for ( std::size_t i = 0; i < points.size(); ++i )
+                    if ( groupOf[i] == g )
+                    {
+                        newIndex[i] = groupPoints.size();
+                        groupPoints.push_back( points[i] );
+                    }
+                rfl::Generic::Array groupSegments;
+                for ( std::size_t s = 0; s < segments.size(); ++s )
+                {
+                    if ( groupOf[ends[s].first] != g )
+                        continue;
+                    rfl::Generic::Object segment = segments[s].to_object().value();
+                    segment["Start"]             = rfl::Generic( static_cast<int>( newIndex[ends[s].first] ) );
+                    segment["End"]               = rfl::Generic( static_cast<int>( newIndex[ends[s].second] ) );
+                    groupSegments.push_back( rfl::Generic( std::move( segment ) ) );
+                }
+                // FNV-1a over the root and the group: the same scene migrated twice names the same records.
+                uint64_t id = 14695981039346656037ull;
+                for ( const char c : std::format( "LandscapeSpline:{}:{}", root, g ) )
+                    id = ( id ^ static_cast<uint8_t>( c ) ) * 1099511628211ull;
+                rfl::Generic::Object splinesBlock;
+                splinesBlock["ControlPoints"] = rfl::Generic( std::move( groupPoints ) );
+                splinesBlock["Segments"]      = rfl::Generic( std::move( groupSegments ) );
+                rfl::Generic::Object component;
+                component["Landscape"] = rfl::Generic( std::to_string( root ) ); // a UUID is a decimal string
+                component["Splines"]   = rfl::Generic( std::move( splinesBlock ) );
+                Assets::EntityData spline;
+                spline.id                            = Common::UUID( id == 0 ? 1 : id );
+                spline.Tag                           = std::string( "Landscape Spline" );
+                spline.Components["LandscapeSpline"] = rfl::Generic( std::move( component ) );
+                created.push_back( std::move( spline ) );
+                ++report.SplinesCreated;
+            }
+            return true;
+        };
+        for ( Assets::EntityData& entity : entities )
+        {
+            const std::string name = entity.Tag.value_or( std::string() );
+            const uint64_t    root = entity.id.has_value() ? static_cast<uint64_t>( *entity.id ) : 0u;
+            EditBlock( entity.Components, "Landscape",
+                       [&]( rfl::Generic::Object& block ) { return take( block, name, root ); } );
+            if ( entity.PrefabOverrides.has_value() )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    EditBlock( override_.Components, "Landscape",
+                               [&]( rfl::Generic::Object& block ) { return take( block, name, 0u ); } );
+        }
+        for ( Assets::EntityData& spline : created )
+            entities.push_back( std::move( spline ) );
         return report;
     }
 
@@ -5268,7 +5409,9 @@ namespace Desert::Migration
             const std::ifstream in( located.GetValue().File, std::ios::binary );
             std::ostringstream  text;
             text << in.rdbuf();
-            const auto prefab = rfl::json::read<Assets::PrefabData>( text.str() );
+            // The tool's own mirror: a prefab not yet at WP v4 states no RuntimeBehavior, which the engine's
+            // struct requires under a strict read.
+            const auto prefab = rfl::json::read<Migration::PrefabData>( text.str() );
             if ( !prefab )
             {
                 report.UnknownNames.push_back( site +
@@ -5310,20 +5453,20 @@ namespace Desert::Migration
              scene.WorldPartition->DefaultHLODLayer.has_value() )
             return false;
         // The v50 shape, frozen: the Instancing layer stated as the WORLD's default (v67 moves it onto the grids).
-        Core::HLODLayerSerialized layer;
+        HLODLayerSerialized layer;
         layer.Name                           = std::string( Core::Rules::kInstancingHLODLayerName );
         layer.Type                           = Core::HLODLayerType::Instancing;
-        scene.WorldPartition->HLODLayers     = std::vector<Core::HLODLayerSerialized>{ std::move( layer ) };
+        scene.WorldPartition->HLODLayers       = std::vector<HLODLayerSerialized>{ std::move( layer ) };
         scene.WorldPartition->DefaultHLODLayer = std::string( Core::Rules::kInstancingHLODLayerName );
         return true;
     }
 
     std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene )
     {
-        if ( !scene.WorldPartition.has_value() )
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->Grids.has_value() )
             return 0;
         std::size_t named = 0;
-        auto&       grids = scene.WorldPartition->Grids;
+        auto&       grids = *scene.WorldPartition->Grids;
         for ( std::size_t index = 0; index < grids.size(); ++index )
         {
             if ( !grids[index].Name.empty() )
@@ -5339,7 +5482,9 @@ namespace Desert::Migration
         if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->DefaultHLODLayer.has_value() )
             return 0;
         std::size_t given = 0;
-        for ( Core::WorldPartitionGridSerialized& grid : scene.WorldPartition->Grids )
+        if ( !scene.WorldPartition->Grids.has_value() )
+            scene.WorldPartition->Grids.emplace(); // a v67 world states its grids; none is no grid to give it to
+        for ( WorldPartitionGridSerialized& grid : *scene.WorldPartition->Grids )
         {
             if ( grid.HLODLayer.has_value() )
                 continue;
@@ -5348,6 +5493,129 @@ namespace Desert::Migration
         }
         scene.WorldPartition->DefaultHLODLayer = std::nullopt;
         return given;
+    }
+
+    std::size_t MigrateRuntimePartitionsV4ToV5( SceneSerialized& scene, std::vector<std::string>& refused )
+    {
+        if ( !scene.WorldPartition.has_value() )
+            return 0;
+        WorldPartitionSerialized&                       block = *scene.WorldPartition;
+        const std::vector<WorldPartitionGridSerialized> grids =
+             block.Grids.value_or( std::vector<WorldPartitionGridSerialized>{} );
+        const std::vector<HLODLayerSerialized> layers =
+             block.HLODLayers.value_or( std::vector<HLODLayerSerialized>{} );
+        const auto layerNamed = [&]( const std::string& name ) -> const HLODLayerSerialized*
+        {
+            for ( const HLODLayerSerialized& layer : layers )
+                if ( layer.Name == name )
+                    return &layer;
+            return nullptr;
+        };
+        std::vector<Core::RuntimePartitionSerialized> partitions;
+        for ( const WorldPartitionGridSerialized& grid : grids )
+        {
+            Core::RuntimePartitionSerialized partition;
+            partition.Name = grid.Name;
+            partition.Type = Core::RuntimePartitionType::LHGrid;
+            partition.LHGrid =
+                 Core::RuntimePartitionLHGridSerialized{ grid.CellSize, grid.LoadingRange, grid.Priority };
+            if ( grid.HLODLayer.has_value() )
+            {
+                // The chain, in order: the grid's layer, its ParentLayer, that layer's ParentLayer, ...
+                std::vector<Core::RuntimePartitionHLODSetupSerialized> setups;
+                for ( const HLODLayerSerialized* at = layerNamed( *grid.HLODLayer );; )
+                {
+                    if ( at == nullptr )
+                    {
+                        refused.push_back(
+                             std::format( "grid '{}': its HLOD chain names a layer this world does not "
+                                          "state",
+                                          grid.Name ) );
+                        break;
+                    }
+                    if ( setups.size() > layers.size() )
+                    {
+                        refused.push_back(
+                             std::format( "grid '{}': its HLOD layers' ParentLayer chain loops", grid.Name ) );
+                        break;
+                    }
+                    setups.push_back( Core::RuntimePartitionHLODSetupSerialized{ at->Name, at->Name } );
+                    if ( !at->ParentLayer.has_value() )
+                        break;
+                    at = layerNamed( *at->ParentLayer );
+                }
+                partition.HLODSetups = std::move( setups );
+            }
+            partitions.push_back( std::move( partition ) );
+        }
+        if ( block.HLODLayers.has_value() )
+            for ( HLODLayerSerialized& layer : *block.HLODLayers )
+                layer.ParentLayer.reset();
+        block.RuntimePartitions = std::move( partitions );
+        block.Grids.reset();
+        return grids.size();
+    }
+
+    Common::ResultStr<std::size_t> MigrateHLODBuilderSettingsV7ToV8( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->HLODLayers.has_value() )
+            return Common::MakeSuccess( std::size_t{ 0 } );
+        std::size_t moved = 0;
+        for ( HLODLayerSerialized& layer : *scene.WorldPartition->HLODLayers )
+        {
+            if ( !layer.SimplifyTrianglePercent.has_value() )
+                continue;
+            if ( layer.Settings.has_value() )
+                return Common::MakeError<std::size_t>(
+                     std::format( "HLOD layer '{}' states both SimplifyTrianglePercent and Settings; a v7 world "
+                                  "states only the first",
+                                  layer.Name ) );
+            // The float's shortest text read back as the double the file states, so 0.1 stays "0.1".
+            rfl::Generic::Object settings;
+            settings["TrianglePercent"] =
+                 rfl::Generic( std::stod( std::format( "{}", *layer.SimplifyTrianglePercent ) ) );
+            layer.Settings                = rfl::Generic( std::move( settings ) );
+            layer.SimplifyTrianglePercent = std::nullopt;
+            ++moved;
+        }
+        return Common::MakeSuccess( moved );
+    }
+
+    Common::ResultStr<std::size_t> MigrateHLODMergeMaterialsV11ToV12( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->HLODLayers.has_value() )
+            return Common::MakeSuccess( std::size_t{ 0 } );
+        std::size_t moved = 0;
+        for ( HLODLayerSerialized& layer : *scene.WorldPartition->HLODLayers )
+        {
+            if ( !layer.MergeMaterials.has_value() )
+                continue;
+            if ( layer.Type != Core::HLODLayerType::MeshMerge && layer.Type != Core::HLODLayerType::MeshSimplify )
+                return Common::MakeError<std::size_t>(
+                     std::format( "HLOD layer '{}' states MergeMaterials, which a v9..v11 world states only on a "
+                                  "MeshMerge or MeshSimplify layer",
+                                  layer.Name ) );
+            // MeshMerge stated no Settings before v12; MeshSimplify's are {"TrianglePercent": ...} (v8).
+            rfl::Generic::Object settings;
+            if ( layer.Settings.has_value() )
+            {
+                const auto object = layer.Settings->to_object();
+                if ( !object )
+                    return Common::MakeError<std::size_t>(
+                         std::format( "HLOD layer '{}': its Settings is not an object", layer.Name ) );
+                settings = object.value();
+                if ( settings.get( "MergeMaterials" ).has_value() )
+                    return Common::MakeError<std::size_t>(
+                         std::format( "HLOD layer '{}' states both MergeMaterials and Settings.MergeMaterials; a "
+                                      "v11 world states only the first",
+                                      layer.Name ) );
+            }
+            settings["MergeMaterials"] = rfl::to_generic( *layer.MergeMaterials );
+            layer.Settings             = rfl::Generic( std::move( settings ) );
+            layer.MergeMaterials       = std::nullopt;
+            ++moved;
+        }
+        return Common::MakeSuccess( moved );
     }
 
     LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
@@ -5614,8 +5882,12 @@ namespace Desert::Migration
     {
         // World Partition's chain, by the number the file states under its own tag (kWorldPartitionVersion*).
         // One `if` per step, in order, as the scene chain; a step that refuses names the file and stops it.
+        // @p scene holds the WorldPartition block the v5 step restates; a prefab passes an empty scene (it states
+        // no block). @p prefabRecords: a prefab's records (its nested instances are restated by v7), null for a
+        // scene. @p file names the file in a refusal.
         void RunWorldPartitionSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
-                                     FileMigrationReport&                                             report )
+                                     SceneSerialized& scene, std::vector<Assets::EntityData>* prefabRecords,
+                                     const std::string& file, FileMigrationReport& report )
         {
             report.StatedWorldPartitionVersion = Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag );
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionTagged )
@@ -5624,6 +5896,73 @@ namespace Desert::Migration
             // unchanged and the tool would print "already at v2" over it.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDataLayers )
                 report.DataLayersRaised = true;
+            // v2 -> v3 is additive the same way: the rewrite states each layer's Type and the operator.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimeDataLayers )
+                report.RuntimeDataLayersRaised = true;
+            // v3 -> v4 is additive the same way: the rewrite states each layer's DebugColor and InitiallyVisible.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDataLayerOutliner )
+                report.DataLayerOutlinerRaised = true;
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionRuntimePartitions )
+            {
+                report.RuntimePartitionsRaised = true;
+                std::vector<std::string> refused;
+                report.GridsRestated = MigrateRuntimePartitionsV4ToV5( scene, refused );
+                if ( !refused.empty() )
+                    report.Refused = RefusedWhole( file, refused );
+            }
+            // v5 -> v6 is additive the same way: a Location Volume is a component a v5 file never states.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionLocationVolumes )
+                report.LocationVolumesRaised = true;
+            // v6 -> v7: the prefab's own RuntimeBehavior is read as Partitioned and the rewrite states it; a
+            // nested instance keeps the whole body it always had (Standalone), unless it already states its own.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionPrefabRuntimeBehavior )
+            {
+                report.PrefabRuntimeBehaviorRaised = true;
+                if ( prefabRecords != nullptr )
+                    for ( Assets::EntityData& record : *prefabRecords )
+                        if ( record.PrefabPath.has_value() && !record.RuntimeBehavior.has_value() )
+                        {
+                            record.RuntimeBehavior = Assets::PrefabRuntimeBehavior::Standalone;
+                            ++report.NestedInstancesKeptWhole;
+                        }
+            }
+            // v7 -> v8 restates MeshSimplify's SimplifyTrianglePercent as Settings; the transform is
+            // MigrateScene's (a prefab states no World Partition block), the flag is every file's.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODBuilders )
+                report.HLODBuildersRaised = true;
+            // v8 -> v9 is additive the same way: a layer that states no MergeMaterials builds as it did.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODMergeMaterials )
+                report.HLODMergeMaterialsRaised = true;
+            // v9 -> v10 restates nothing but each partition's colour (StateRuntimePartitionDebugColorsV9ToV10, on a
+            // scene's block).
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionDebugColors )
+                report.DebugColorsRaised = true;
+            // v10 -> v11 is additive the same way: a v10 world has no minimap, and the rewrite states none.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionMiniMap )
+                report.MiniMapRaised = true;
+            // v11 -> v12 restates a mesh layer's MergeMaterials as its builder's Settings.MergeMaterials; the
+            // transform is MigrateScene's (a prefab states no World Partition block), the flag is every file's.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionHLODBuilderSettings )
+                report.HLODBuilderSettingsRaised = true;
+            // v12 -> v13 is additive with no restatement at all: a record that states no HLODLayer component is
+            // built by its partition's layer, as it was.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionEntityHLODLayer )
+                report.EntityHLODLayerRaised = true;
+        }
+
+        // v9 -> v10 (WP-DEBUG-DRAW): every runtime partition states Core::SeededDebugColor of its name - what the
+        // panel's Add partition gives a new one (a data layer's DebugColor is v4's). Returns how many were stated.
+        std::size_t StateRuntimePartitionDebugColorsV9ToV10( WorldPartitionSerialized& partition )
+        {
+            std::size_t stated = 0;
+            if ( !partition.RuntimePartitions )
+                return stated;
+            for ( Core::RuntimePartitionSerialized& runtime : *partition.RuntimePartitions )
+            {
+                runtime.DebugColor = Core::SeededDebugColor( runtime.Name );
+                ++stated;
+            }
+            return stated;
         }
 
         // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
@@ -5849,6 +6188,18 @@ namespace Desert::Migration
             report.WindSourceRaised = true;
             report.WindSource       = MigrateWindSourceV42ToV43( scene.Entities, scene.SceneName, true );
         }
+        // Every landscape spline becomes its own entity (WP-LANDSCAPE-SPLINES). Scene-side so the records are
+        // added to a scene and never to a prefab; MigratePrefab refuses a prefab whose landscape states splines.
+        if ( statedSceneVersion < kSceneVersionLandscapeSplineEntities )
+        {
+            report.LandscapeSplineEntitiesRaised = true;
+            report.LandscapeSplineEntities       = MigrateLandscapeSplineEntitiesV75ToV76( scene.Entities, true );
+            if ( !report.LandscapeSplineEntities.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( scene.SceneName, report.LandscapeSplineEntities.Refused );
+                return report; // unstamped, as a refusal of RunSteps
+            }
+        }
         if ( report.ExternalEntitiesRaised && scene.WorldPartition.has_value() )
             report.EntitiesMovedOut = scene.Entities.size();
 
@@ -5967,7 +6318,25 @@ namespace Desert::Migration
             report.VolumetricFogRaised = true;
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
-        RunWorldPartitionSteps( scene.Header, report );
+        RunWorldPartitionSteps( scene.Header, scene, nullptr, scene.SceneName, report );
+        if ( report.Refused.empty() && report.HLODBuildersRaised )
+        {
+            auto moved = MigrateHLODBuilderSettingsV7ToV8( scene );
+            if ( moved )
+                report.HLODSimplifySettingsMoved = moved.GetValue();
+            else
+                report.Refused = std::format( "{}: {}", scene.SceneName, moved.GetError() );
+        }
+        if ( report.Refused.empty() && report.DebugColorsRaised && scene.WorldPartition.has_value() )
+            report.DebugColorsStated = StateRuntimePartitionDebugColorsV9ToV10( *scene.WorldPartition );
+        if ( report.Refused.empty() && report.HLODBuilderSettingsRaised )
+        {
+            auto moved = MigrateHLODMergeMaterialsV11ToV12( scene );
+            if ( moved )
+                report.HLODMergeMaterialsMoved = moved.GetValue();
+            else
+                report.Refused = std::format( "{}: {}", scene.SceneName, moved.GetError() );
+        }
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
         if ( report.Refused.empty() )
@@ -6049,6 +6418,14 @@ namespace Desert::Migration
             outcome.Steps.WindSourceRaised = true;
             outcome.Steps.WindSource       = MigrateWindSourceV42ToV43( prefab.Entities, prefab.Name, false );
         }
+        if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionLandscapeSplineEntities )
+        {
+            outcome.Steps.LandscapeSplineEntitiesRaised = true;
+            outcome.Steps.LandscapeSplineEntities =
+                 MigrateLandscapeSplineEntitiesV75ToV76( prefab.Entities, false );
+            if ( !outcome.Steps.LandscapeSplineEntities.Refused.empty() )
+                outcome.Steps.Refused = RefusedWhole( prefab.Name, outcome.Steps.LandscapeSplineEntities.Refused );
+        }
         if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionAssetKeys )
         {
             outcome.Steps.AssetKeysRaised = true;
@@ -6057,7 +6434,10 @@ namespace Desert::Migration
                 outcome.Steps.Refused = RefusedWhole( prefab.Name, outcome.Steps.AssetKeys.Refused );
         }
         if ( outcome.Steps.Refused.empty() )
-            RunWorldPartitionSteps( prefab.Header, outcome.Steps );
+        {
+            SceneSerialized noWorld; // a prefab states no WorldPartition block: the v5 step is its stamp
+            RunWorldPartitionSteps( prefab.Header, noWorld, &prefab.Entities, prefab.Name, outcome.Steps );
+        }
         if ( outcome.Steps.Refused.empty() )
             RunAssetRefSteps( prefab.Header, prefab.Entities, assetsRoot, prefab.Name, outcome.Steps );
         if ( outcome.Steps.Refused.empty() )

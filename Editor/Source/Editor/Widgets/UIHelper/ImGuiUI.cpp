@@ -1,6 +1,6 @@
 #include "ImGuiUI.hpp"
 
-#include <Engine/Desert.hpp>
+#include <Engine/Graphic/Image.hpp>
 
 namespace Desert::Editor::UI
 {

@@ -1,15 +1,21 @@
 #include <Engine/Core/HLODMeshBuilder.hpp>
 
+#include <Engine/Core/HLODApproximate.hpp>
+
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
+#include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/MeshAssetArrays.hpp>
+#include <Engine/Geometry/MeshCore/Parameterization/UVPacking.hpp>
 #include <Engine/Geometry/MeshSimplifyOperation.hpp>
 #include <Engine/Geometry/MikkTangents.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Engine/World/Landscape/LandscapeSplineMeshes.hpp>
+#include <Engine/World/Landscape/LandscapeSplinesJson.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -17,10 +23,15 @@
 #include <Common/Core/AssetHandle.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <cstring>
 #include <format>
 #include <map>
+#include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -123,131 +134,495 @@ namespace Desert::Core
         }
     } // namespace
 
-    Common::ResultStr<Assets::StaticMeshComponentSer>
-    BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
-                   std::span<const Common::Utils::AssetRegistry> registries )
+    namespace
     {
-        using Result = Assets::StaticMeshComponentSer;
-
-        // Every material the merged mesh binds, first-seen order: the {GUID, path} text pair a slot states.
-        std::vector<std::pair<std::string, std::string>> slots;
-        const auto slotOf = [&slots]( const std::pair<std::string, std::string>& key ) -> std::size_t
+        // The parts merged in WORLD space: every distinct material a slot (the {GUID, path} text pair it states,
+        // first-seen order), per slot its vertices and its section-local triangles.
+        struct MergedParts
         {
-            const auto found = std::find( slots.begin(), slots.end(), key );
-            if ( found != slots.end() )
-                return static_cast<std::size_t>( found - slots.begin() );
-            slots.push_back( key );
-            return slots.size() - 1;
+            std::vector<std::pair<std::string, std::string>> Slots;
+            std::vector<std::vector<Desert::Vertex>>         SectionVertices;
+            std::vector<std::vector<Desert::Index>>          SectionTriangles;
         };
-        // Per output section (= slot): its vertices and its section-local triangles.
-        std::vector<std::vector<Desert::Vertex>> sectionVertices;
-        std::vector<std::vector<Desert::Index>>  sectionTriangles;
 
-        for ( const Assets::InstancedStaticMeshComponentSer& part : request.Parts )
+        Common::ResultStr<MergedParts> MergeParts( const Rules::HLODMeshRequest&                 request,
+                                                   std::span<const Common::Utils::AssetRegistry> registries )
         {
-            auto source = ReadSource( part, registries );
-            if ( !source )
-                return Common::MakeError<Result>( source.GetError() );
-            const SourceMesh& mesh = source.GetValue();
-            for ( std::size_t section = 0; section < mesh.Sections.size(); ++section )
+            using Result = MergedParts;
+            MergedParts                                       merged;
+            std::vector<std::pair<std::string, std::string>>& slots            = merged.Slots;
+            std::vector<std::vector<Desert::Vertex>>&         sectionVertices  = merged.SectionVertices;
+            std::vector<std::vector<Desert::Index>>&          sectionTriangles = merged.SectionTriangles;
+            const auto slotOf = [&slots]( const std::pair<std::string, std::string>& key ) -> std::size_t
             {
-                std::pair<std::string, std::string> key;
-                if ( part.MaterialGuids.has_value() && section < part.MaterialGuids->size() )
-                    key.first = ( *part.MaterialGuids )[section];
-                if ( part.MaterialPaths.has_value() && section < part.MaterialPaths->size() )
-                    key.second = ( *part.MaterialPaths )[section];
-                const std::size_t slot = slotOf( key );
-                if ( sectionVertices.size() <= slot )
+                const auto found = std::find( slots.begin(), slots.end(), key );
+                if ( found != slots.end() )
+                    return static_cast<std::size_t>( found - slots.begin() );
+                slots.push_back( key );
+                return slots.size() - 1;
+            };
+
+            for ( const Assets::InstancedStaticMeshComponentSer& part : request.Parts )
+            {
+                auto source = ReadSource( part, registries );
+                if ( !source )
+                    return Common::MakeError<Result>( source.GetError() );
+                const SourceMesh& mesh = source.GetValue();
+                for ( std::size_t section = 0; section < mesh.Sections.size(); ++section )
                 {
-                    sectionVertices.resize( slot + 1 );
-                    sectionTriangles.resize( slot + 1 );
-                }
-                for ( const std::array<float, 16>& flat :
-                      part.InstanceTransforms.value_or( std::vector<std::array<float, 16>>{} ) )
-                {
-                    glm::mat4 world;
-                    std::memcpy( &world[0][0], flat.data(), sizeof( float ) * 16 );
-                    const glm::mat3 linear       = glm::mat3( world );
-                    const Geometry::SurfaceFrameTransform frame( linear );
-                    // A mirroring instance flips the winding; swap two corners so the face keeps facing out.
-                    const bool                   mirrored = glm::determinant( linear ) < 0.0f;
-                    std::vector<Desert::Vertex>& vertices = sectionVertices[slot];
-                    std::map<uint32_t, uint32_t> local;
-                    for ( const Desert::Index& triangle : mesh.Sections[section] )
+                    std::pair<std::string, std::string> key;
+                    if ( part.MaterialGuids.has_value() && section < part.MaterialGuids->size() )
+                        key.first = ( *part.MaterialGuids )[section];
+                    if ( part.MaterialPaths.has_value() && section < part.MaterialPaths->size() )
+                        key.second = ( *part.MaterialPaths )[section];
+                    const std::size_t slot = slotOf( key );
+                    if ( sectionVertices.size() <= slot )
                     {
-                        std::array<uint32_t, 3> corners{ triangle.V1, triangle.V2, triangle.V3 };
-                        for ( uint32_t& corner : corners )
+                        sectionVertices.resize( slot + 1 );
+                        sectionTriangles.resize( slot + 1 );
+                    }
+                    for ( const std::array<float, 16>& flat :
+                          part.InstanceTransforms.value_or( std::vector<std::array<float, 16>>{} ) )
+                    {
+                        glm::mat4 world;
+                        std::memcpy( &world[0][0], flat.data(), sizeof( float ) * 16 );
+                        const glm::mat3                       linear = glm::mat3( world );
+                        const Geometry::SurfaceFrameTransform frame( linear );
+                        // A mirroring instance flips the winding; swap two corners so the face keeps facing out.
+                        const bool                   mirrored = glm::determinant( linear ) < 0.0f;
+                        std::vector<Desert::Vertex>& vertices = sectionVertices[slot];
+                        std::map<uint32_t, uint32_t> local;
+                        for ( const Desert::Index& triangle : mesh.Sections[section] )
                         {
-                            const auto [where, fresh] =
-                                 local.emplace( corner, static_cast<uint32_t>( vertices.size() ) );
-                            if ( fresh )
+                            std::array<uint32_t, 3> corners{ triangle.V1, triangle.V2, triangle.V3 };
+                            for ( uint32_t& corner : corners )
                             {
-                                Desert::Vertex vertex = mesh.Vertices.at( corner );
-                                vertex.Position       = glm::vec3( world * glm::vec4( vertex.Position, 1.0f ) );
-                                vertex.Normal         = frame.Normal( vertex.Normal );
-                                vertex.Tangent        = frame.UnitDirection( vertex.Tangent );
-                                vertex.Bitangent      = frame.UnitDirection( vertex.Bitangent );
-                                vertices.push_back( vertex );
+                                const auto [where, fresh] =
+                                     local.emplace( corner, static_cast<uint32_t>( vertices.size() ) );
+                                if ( fresh )
+                                {
+                                    Desert::Vertex vertex = mesh.Vertices.at( corner );
+                                    vertex.Position  = glm::vec3( world * glm::vec4( vertex.Position, 1.0f ) );
+                                    vertex.Normal    = frame.Normal( vertex.Normal );
+                                    vertex.Tangent   = frame.UnitDirection( vertex.Tangent );
+                                    vertex.Bitangent = frame.UnitDirection( vertex.Bitangent );
+                                    vertices.push_back( vertex );
+                                }
+                                corner = where->second;
                             }
-                            corner = where->second;
+                            if ( mirrored )
+                                std::swap( corners[1], corners[2] );
+                            sectionTriangles[slot].push_back( { corners[0], corners[1], corners[2] } );
                         }
-                        if ( mirrored )
-                            std::swap( corners[1], corners[2] );
-                        sectionTriangles[slot].push_back( { corners[0], corners[1], corners[2] } );
                     }
                 }
             }
+
+            return Common::MakeSuccess( std::move( merged ) );
         }
 
-        // The merged render mesh: one submesh per slot, each with its own contiguous vertex range.
-        Geometry::RenderMeshData render;
-        for ( std::size_t slot = 0; slot < sectionVertices.size(); ++slot )
+        // The merged parts welded into one mesh: one section per slot (MaterialID = slot index), each with its own
+        // contiguous vertex range. Refused when the parts hold no triangles or do not weld.
+        Common::ResultStr<MergedHLODParts> WeldMergedParts( const MergedParts& merged )
         {
-            if ( sectionTriangles[slot].empty() )
-                continue;
-            Desert::Submesh submesh{};
-            submesh.Name         = std::format( "Section{}", slot );
-            submesh.VertexOffset = static_cast<uint32_t>( render.Vertices.size() );
-            submesh.VertexCount  = static_cast<uint32_t>( sectionVertices[slot].size() );
-            submesh.IndexOffset  = static_cast<uint32_t>( render.Indices.size() * 3 );
-            submesh.IndexCount   = static_cast<uint32_t>( sectionTriangles[slot].size() * 3 );
-            submesh.Transform    = glm::mat4( 1.0f );
-            render.Vertices.insert( render.Vertices.end(), sectionVertices[slot].begin(),
-                                    sectionVertices[slot].end() );
-            render.Indices.insert( render.Indices.end(), sectionTriangles[slot].begin(),
-                                   sectionTriangles[slot].end() );
-            render.Submeshes.push_back( std::move( submesh ) );
-            render.SubmeshMaterialIds.push_back( static_cast<int>( slot ) );
-        }
-        if ( render.Indices.empty() )
-            return Common::MakeError<Result>( "the parts hold no triangles to merge" );
+            using Result = MergedHLODParts;
+            // The merged render mesh: one submesh per slot, each with its own contiguous vertex range.
+            Geometry::RenderMeshData render;
+            for ( std::size_t slot = 0; slot < merged.SectionVertices.size(); ++slot )
+            {
+                if ( merged.SectionTriangles[slot].empty() )
+                    continue;
+                Desert::Submesh submesh{};
+                submesh.Name         = std::format( "Section{}", slot );
+                submesh.VertexOffset = static_cast<uint32_t>( render.Vertices.size() );
+                submesh.VertexCount  = static_cast<uint32_t>( merged.SectionVertices[slot].size() );
+                submesh.IndexOffset  = static_cast<uint32_t>( render.Indices.size() * 3 );
+                submesh.IndexCount   = static_cast<uint32_t>( merged.SectionTriangles[slot].size() * 3 );
+                submesh.Transform    = glm::mat4( 1.0f );
+                render.Vertices.insert( render.Vertices.end(), merged.SectionVertices[slot].begin(),
+                                        merged.SectionVertices[slot].end() );
+                render.Indices.insert( render.Indices.end(), merged.SectionTriangles[slot].begin(),
+                                       merged.SectionTriangles[slot].end() );
+                render.Submeshes.push_back( std::move( submesh ) );
+                render.SubmeshMaterialIds.push_back( static_cast<int>( slot ) );
+            }
+            if ( render.Indices.empty() )
+                return Common::MakeError<Result>( "the parts hold no triangles to merge" );
 
+            auto imported = Geometry::DynamicMeshFromRenderMesh( render );
+            if ( !imported )
+                return Common::MakeFormattedError<Result>( "the merged mesh does not weld: {}",
+                                                           imported.GetError() );
+            return Common::MakeSuccess(
+                 MergedHLODParts{ std::move( imported.ExtractValue().Mesh ), merged.Slots } );
+        }
+
+        // The slot list a built block states: written only when some slot names a material.
+        std::optional<std::vector<Assets::AssetGuidRef>>
+        SlotRefs( const std::vector<std::pair<std::string, std::string>>& slots )
+        {
+            const bool named = std::any_of( slots.begin(), slots.end(), []( const auto& slot )
+                                            { return !slot.first.empty() || !slot.second.empty(); } );
+            if ( !named )
+                return std::nullopt;
+            std::vector<Assets::AssetGuidRef> refs;
+            for ( const auto& [guid, path] : slots )
+                refs.push_back( Assets::AssetGuidRef{ guid, path } );
+            return refs;
+        }
+
+        int SimplifyTarget( const Geometry::DynamicMesh3& mesh, float trianglePercent )
+        {
+            return std::max( 1, static_cast<int>( std::ceil( static_cast<double>( mesh.TriangleCount() ) *
+                                                             trianglePercent ) ) );
+        }
+
+        // The merged triangles' UV layout as UVPacker reads and writes it: one UV element per render vertex
+        // (a render vertex is already split wherever its UV differs), so an island is a set of triangles joined
+        // through shared render vertices.
+        class RenderUVView final : public Geometry::UVPacker::IUVMeshView
+        {
+        public:
+            RenderUVView( const std::vector<Desert::Vertex>& vertices, const std::vector<Desert::Index>& triangles,
+                          std::vector<glm::vec2>& uvs )
+                 : m_Vertices( vertices ), m_Triangles( triangles ), m_UVs( uvs )
+            {
+            }
+            [[nodiscard]] Geometry::Index3i GetTriangle( int32_t TID ) const override
+            {
+                const Desert::Index& t = m_Triangles[static_cast<std::size_t>( TID )];
+                return Geometry::Index3i( static_cast<int>( t.V1 ), static_cast<int>( t.V2 ),
+                                          static_cast<int>( t.V3 ) );
+            }
+            [[nodiscard]] Geometry::Index3i GetUVTriangle( int32_t TID ) const override
+            {
+                return GetTriangle( TID );
+            }
+            [[nodiscard]] glm::dvec3 GetVertex( int32_t VID ) const override
+            {
+                return glm::dvec3( m_Vertices[static_cast<std::size_t>( VID )].Position );
+            }
+            [[nodiscard]] glm::vec2 GetUV( int32_t EID ) const override
+            {
+                return m_UVs[static_cast<std::size_t>( EID )];
+            }
+            void SetUV( int32_t EID, glm::vec2 UV ) override
+            {
+                m_UVs[static_cast<std::size_t>( EID )] = UV;
+            }
+
+        private:
+            const std::vector<Desert::Vertex>& m_Vertices;
+            const std::vector<Desert::Index>&  m_Triangles;
+            std::vector<glm::vec2>&            m_UVs;
+        };
+
+        // THE ATLAS OF THE MERGED SOURCE (UE MergeComponentsToStaticMesh with bMergeMaterials: the source UV
+        // charts packed into one layout): every source UV island - its own UVs, tiling kept - packed into the
+        // unit square by UVPacker::StandardPack at the bake's resolution, scaled so a texel covers about the same
+        // world length on every island (a far building is sharp evenly, whatever its source tiling). Answers the
+        // atlas UV of every render vertex.
+        Common::ResultStr<std::vector<glm::vec2>> PackSourceIslands( const std::vector<Desert::Vertex>& vertices,
+                                                                     const std::vector<Desert::Index>&  triangles,
+                                                                     int textureSize )
+        {
+            using Result = std::vector<glm::vec2>;
+            // Islands: union-find over the render vertices each triangle joins.
+            std::vector<uint32_t> parent( vertices.size() );
+            for ( std::size_t v = 0; v < parent.size(); ++v )
+                parent[v] = static_cast<uint32_t>( v );
+            const auto root = [&parent]( uint32_t v )
+            {
+                while ( parent[v] != v )
+                {
+                    parent[v] = parent[parent[v]];
+                    v         = parent[v];
+                }
+                return v;
+            };
+            const auto join = [&]( uint32_t a, uint32_t b )
+            {
+                const uint32_t ra = root( a );
+                const uint32_t rb = root( b );
+                if ( ra != rb )
+                    parent[rb] = ra;
+            };
+            for ( const Desert::Index& t : triangles )
+            {
+                join( t.V1, t.V2 );
+                join( t.V2, t.V3 );
+            }
+            std::map<uint32_t, std::size_t>   islandOfRoot;
+            std::vector<std::vector<int32_t>> islands;
+            for ( std::size_t t = 0; t < triangles.size(); ++t )
+            {
+                const uint32_t r          = root( triangles[t].V1 );
+                const auto [where, fresh] = islandOfRoot.emplace( r, islands.size() );
+                if ( fresh )
+                    islands.emplace_back();
+                islands[where->second].push_back( static_cast<int32_t>( t ) );
+            }
+
+            std::vector<glm::vec2> uvs( vertices.size() );
+            for ( std::size_t v = 0; v < vertices.size(); ++v )
+                uvs[v] = vertices[v].TexCoord;
+            RenderUVView       view( vertices, triangles, uvs );
+            Geometry::UVPacker packer;
+            packer.TextureResolution                   = textureSize;
+            packer.bScaleIslandsByWorldSpaceTexelRatio = true;
+            packer.bAllowFlips                         = false;
+            packer.bPreserveRotation                   = false;
+            const bool packed = packer.StandardPack( &view, static_cast<int32_t>( islands.size() ),
+                                                     [&islands]( int32_t island, std::vector<int32_t>& out )
+                                                     { out = islands[static_cast<std::size_t>( island )]; } );
+            if ( !packed )
+                return Common::MakeError<Result>( std::format(
+                     "the merged mesh's {} source UV islands do not pack into a {}x{} atlas (no UV area, or more "
+                     "islands than texels)",
+                     islands.size(), textureSize, textureSize ) );
+            return Common::MakeSuccess( std::move( uvs ) );
+        }
+
+        // The source surface laid flat on its atlas (HLODMaterialBakeSource::Proxy): every merged triangle with
+        // its corners at (u, 0, v) * kHLODBakeProxySideCm of their atlas UV, keeping their source UV and world
+        // frame, turned to face +Y (the camera above sees every one front-on), one section per source slot.
+        Common::ResultStr<Assets::StaticMeshComponentSer>
+        BuildBakeProxy( const MergedParts& merged, const std::vector<std::vector<glm::vec2>>& atlasBySlot )
+        {
+            using Result = Assets::StaticMeshComponentSer;
+            Geometry::RenderMeshData proxy;
+            for ( std::size_t slot = 0; slot < merged.SectionVertices.size(); ++slot )
+            {
+                const std::vector<Desert::Vertex>& vertices = merged.SectionVertices[slot];
+                const std::vector<Desert::Index>&  section  = merged.SectionTriangles[slot];
+                if ( section.empty() )
+                    continue;
+                Desert::Submesh submesh{};
+                submesh.Name         = std::format( "Source{}", slot );
+                submesh.VertexOffset = static_cast<uint32_t>( proxy.Vertices.size() );
+                submesh.IndexOffset  = static_cast<uint32_t>( proxy.Indices.size() * 3 );
+                submesh.Transform    = glm::mat4( 1.0f );
+                uint32_t local       = 0;
+                for ( const Desert::Index& triangle : section )
+                {
+                    std::array<uint32_t, 3>       corners{ triangle.V1, triangle.V2, triangle.V3 };
+                    std::array<Desert::Vertex, 3> laid;
+                    for ( int c = 0; c < 3; ++c )
+                    {
+                        laid[c]             = vertices.at( corners[c] );
+                        const glm::vec2& uv = atlasBySlot[slot].at( corners[c] );
+                        laid[c].Position =
+                             glm::vec3( uv.x * kHLODBakeProxySideCm, 0.0f, uv.y * kHLODBakeProxySideCm );
+                    }
+                    // A render triangle's front is counter-clockwise: (p1 - p0) x (p2 - p0) points at the viewer.
+                    const glm::vec3 facing =
+                         glm::cross( laid[1].Position - laid[0].Position, laid[2].Position - laid[0].Position );
+                    if ( facing.y < 0.0f )
+                        std::swap( laid[1], laid[2] );
+                    for ( const Desert::Vertex& vertex : laid )
+                        proxy.Vertices.push_back( vertex );
+                    proxy.Indices.push_back( { local, local + 1, local + 2 } );
+                    local += 3;
+                }
+                submesh.VertexCount = local;
+                submesh.IndexCount  = static_cast<uint32_t>( section.size() * 3 );
+                proxy.Submeshes.push_back( std::move( submesh ) );
+                proxy.SubmeshMaterialIds.push_back( static_cast<int>( slot ) );
+            }
+            auto imported = Geometry::DynamicMeshFromRenderMesh( proxy );
+            if ( !imported )
+                return Common::MakeFormattedError<Result>( "the bake proxy does not weld: {}",
+                                                           imported.GetError() );
+            Assets::StaticMeshComponentSer block;
+            block.EditMesh      = Geometry::ToSerialized( imported.GetValue().Mesh );
+            block.MaterialSlots = SlotRefs( merged.Slots );
+            block.CastShadows   = false;
+            return Common::MakeSuccess( std::move( block ) );
+        }
+    } // namespace
+
+    std::string HLODMeshKey( const Rules::HLODMeshRequest& request )
+    {
+        // MeshMerge states no TrianglePercent, MeshSimplify its own: the two never share a key.
+        std::string identity = request.TrianglePercent.has_value()
+                                    ? std::format( "HLODMesh\nSimplify {}\n", *request.TrianglePercent )
+                                    : std::string( "HLODMesh\nMerge\n" );
+        if ( request.MergeMaterials.has_value() )
+            identity += std::format( "Merge {} {} {} {}\n", request.MergeMaterials->TextureSize,
+                                     request.MergeMaterials->NormalMap, request.MergeMaterials->ORMMap,
+                                     request.MergeMaterials->EmissiveMap );
+        for ( const Assets::InstancedStaticMeshComponentSer& part : request.Parts )
+        {
+            identity += std::format( "Part {}|{}|{}\n", part.MeshGuid.value_or( std::string() ),
+                                     part.MeshPath.value_or( std::string() ),
+                                     part.Primitive.has_value() ? static_cast<int>( *part.Primitive ) : -1 );
+            for ( const std::string& guid : part.MaterialGuids.value_or( std::vector<std::string>{} ) )
+                identity += std::format( "G {}\n", guid );
+            for ( const std::string& path : part.MaterialPaths.value_or( std::vector<std::string>{} ) )
+                identity += std::format( "P {}\n", path );
+            for ( const std::array<float, 16>& flat :
+                  part.InstanceTransforms.value_or( std::vector<std::array<float, 16>>{} ) )
+                for ( const float value : flat )
+                    identity += std::format( "{} ", value );
+            identity += '\n';
+        }
+        return std::format( "{:016x}", static_cast<std::uint64_t>(
+                                            Common::Utils::PakContentHash( identity.data(), identity.size() ) ) );
+    }
+
+    Common::ResultStr<MergedHLODParts>
+    MergeHLODParts( const Rules::HLODMeshRequest& request, std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        auto merged = MergeParts( request, registries );
+        if ( !merged )
+            return Common::MakeError<MergedHLODParts>( merged.GetError() );
+        return WeldMergedParts( merged.GetValue() );
+    }
+
+    Common::ResultStr<HLODMeshBuild>
+    BuildHLODMeshForBake( const Rules::HLODMeshRequest&                 request,
+                          std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        using Result     = HLODMeshBuild;
+        auto mergedParts = MergeParts( request, registries );
+        if ( !mergedParts )
+            return Common::MakeError<Result>( mergedParts.GetError() );
+        const MergedParts merged = mergedParts.ExtractValue();
+
+        // APPROXIMATED (UE UHLODBuilderMeshApproximate): the parts merged, then wrapped into ONE closed shell. No
+        // slot and no bake source: the editor's capture bake (HLODApproximateBake) photographs the source parts and
+        // binds the one material it writes.
+        if ( request.Approximation.has_value() )
+        {
+            auto parts = WeldMergedParts( merged );
+            if ( !parts )
+                return Common::MakeError<Result>( parts.GetError() );
+            auto shell = BuildApproximateShell( parts.GetValue().Mesh, *request.Approximation );
+            if ( !shell )
+                return Common::MakeError<Result>( "the approximation was refused: " + shell.GetError() );
+            HLODMeshBuild built;
+            built.Mesh.EditMesh = Geometry::ToSerialized( shell.GetValue().Mesh );
+            return Common::MakeSuccess( std::move( built ) );
+        }
+
+        if ( !request.MergeMaterials.has_value() )
+        {
+            auto parts = WeldMergedParts( merged );
+            if ( !parts )
+                return Common::MakeError<Result>( parts.GetError() );
+            Geometry::DynamicMesh3 mesh = std::move( parts.ExtractValue().Mesh );
+            if ( request.TrianglePercent.has_value() )
+                // Recomputes the normals too: the collapses moved vertices.
+                Geometry::SimplifyToTriangleCount( mesh, SimplifyTarget( mesh, *request.TrianglePercent ) );
+
+            HLODMeshBuild built;
+            built.Mesh.EditMesh = Geometry::ToSerialized( mesh );
+            // Slots by MaterialID, which is the slot index.
+            built.Mesh.MaterialSlots = SlotRefs( merged.Slots );
+            return Common::MakeSuccess( std::move( built ) );
+        }
+
+        // MERGED MATERIALS: one atlas, one section; the material is baked by Build HLODs.
+        const HLODMaterialMergeSerialized& settings = *request.MergeMaterials;
+        // Every slot's vertices and triangles in one array (global indices), the atlas over all of them.
+        std::vector<Desert::Vertex> vertices;
+        std::vector<Desert::Index>  triangles;
+        std::vector<std::size_t>    slotBase;
+        for ( std::size_t slot = 0; slot < merged.SectionVertices.size(); ++slot )
+        {
+            const auto base = static_cast<uint32_t>( vertices.size() );
+            slotBase.push_back( base );
+            vertices.insert( vertices.end(), merged.SectionVertices[slot].begin(),
+                             merged.SectionVertices[slot].end() );
+            for ( const Desert::Index& t : merged.SectionTriangles[slot] )
+                triangles.push_back( { base + t.V1, base + t.V2, base + t.V3 } );
+        }
+        if ( triangles.empty() )
+            return Common::MakeError<Result>( "the parts hold no triangles to merge" );
+        auto packed = PackSourceIslands( vertices, triangles, settings.TextureSize );
+        if ( !packed )
+            return Common::MakeError<Result>( packed.GetError() );
+        const std::vector<glm::vec2>& atlas = packed.GetValue();
+
+        std::vector<std::vector<glm::vec2>> atlasBySlot( merged.SectionVertices.size() );
+        for ( std::size_t slot = 0; slot < merged.SectionVertices.size(); ++slot )
+            atlasBySlot[slot].assign(
+                 atlas.begin() + static_cast<std::ptrdiff_t>( slotBase[slot] ),
+                 atlas.begin() +
+                      static_cast<std::ptrdiff_t>( slotBase[slot] + merged.SectionVertices[slot].size() ) );
+        auto proxy = BuildBakeProxy( merged, atlasBySlot );
+        if ( !proxy )
+            return Common::MakeError<Result>( proxy.GetError() );
+
+        // The built mesh: the merged triangles in ONE section over the atlas (UV layer 0), their world frames
+        // carried (the bake states the normal map in whatever frame the runtime draws, LandscapeHLODBake's rule).
+        Geometry::RenderMeshData render;
+        render.Vertices = vertices;
+        for ( std::size_t v = 0; v < render.Vertices.size(); ++v )
+            render.Vertices[v].TexCoord = atlas[v];
+        render.Indices = triangles;
+        Desert::Submesh submesh{};
+        submesh.Name         = "Merged";
+        submesh.VertexOffset = 0;
+        submesh.VertexCount  = static_cast<uint32_t>( render.Vertices.size() );
+        submesh.IndexOffset  = 0;
+        submesh.IndexCount   = static_cast<uint32_t>( render.Indices.size() * 3 );
+        submesh.Transform    = glm::mat4( 1.0f );
+        render.Submeshes.push_back( std::move( submesh ) );
+        render.SubmeshMaterialIds.push_back( 0 );
         auto imported = Geometry::DynamicMeshFromRenderMesh( render );
         if ( !imported )
             return Common::MakeFormattedError<Result>( "the merged mesh does not weld: {}", imported.GetError() );
         Geometry::DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
 
-        if ( request.Type == HLODLayerType::MeshSimplify )
+        HLODMaterialBakeSource bake;
+        bake.Key      = HLODMeshKey( request );
+        bake.Settings = settings;
+        bake.Proxy    = proxy.ExtractValue();
+        if ( request.TrianglePercent.has_value() )
         {
-            const int target =
-                 std::max( 1, static_cast<int>( std::ceil( static_cast<double>( mesh.TriangleCount() ) *
-                                                           request.TrianglePercent ) ) );
-            // Recomputes the normals too: the collapses moved vertices.
-            Geometry::SimplifyToTriangleCount( mesh, target );
+            // UE CreateProxyMesh: the simplified mesh gets its own UVs and the source's flattened material is
+            // projected onto them; the source surface it is projected from is the merged mesh on its atlas.
+            bake.Source.Positions.reserve( vertices.size() );
+            bake.Source.Normals.reserve( vertices.size() );
+            bake.Source.UVs.reserve( vertices.size() );
+            for ( std::size_t v = 0; v < vertices.size(); ++v )
+            {
+                bake.Source.Positions.push_back( glm::dvec3( vertices[v].Position ) );
+                bake.Source.Normals.push_back( glm::dvec3( vertices[v].Normal ) );
+                bake.Source.UVs.push_back( glm::dvec2( atlas[v] ) );
+            }
+            for ( const Desert::Index& t : triangles )
+                bake.Source.Triangles.push_back( glm::uvec3( t.V1, t.V2, t.V3 ) );
+
+            Geometry::SimplifyToTriangleCount( mesh, SimplifyTarget( mesh, *request.TrianglePercent ) );
+            // UE FMeshProxySettings' own UV generation: patches flattened and packed at the atlas's resolution;
+            // the tangents are rebuilt from the new UVs.
+            Geometry::AutoUVSettings uvSettings;
+            uvSettings.PackingResolution = settings.TextureSize;
+            auto unwrapped               = Geometry::AutoUV( mesh, uvSettings );
+            if ( !unwrapped )
+                return Common::MakeFormattedError<Result>( "the simplified mesh does not unwrap: {}",
+                                                           unwrapped.GetError() );
+            mesh = std::move( unwrapped.ExtractValue().Mesh );
         }
 
-        Assets::StaticMeshComponentSer block;
-        block.EditMesh = Geometry::ToSerialized( mesh );
-        // Slots by MaterialID, which is the slot index; written only when some slot names a material.
-        const bool named = std::any_of( slots.begin(), slots.end(), []( const auto& slot )
-                                        { return !slot.first.empty() || !slot.second.empty(); } );
-        if ( named )
-        {
-            block.MaterialSlots = std::vector<Assets::AssetGuidRef>{};
-            for ( const auto& [guid, path] : slots )
-                block.MaterialSlots->push_back( Assets::AssetGuidRef{ guid, path } );
-        }
-        return Common::MakeSuccess( std::move( block ) );
+        HLODMeshBuild built;
+        // No slot yet: Build HLODs binds M_HLOD_<Key> once the bake wrote it (WorldPartitionPanel).
+        built.Mesh.EditMesh = Geometry::ToSerialized( mesh );
+        built.Bake          = std::move( bake );
+        return Common::MakeSuccess( std::move( built ) );
+    }
+
+    Common::ResultStr<Assets::StaticMeshComponentSer>
+    BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
+                   std::span<const Common::Utils::AssetRegistry> registries )
+    {
+        using Result = Assets::StaticMeshComponentSer;
+        auto built   = BuildHLODMeshForBake( request, registries );
+        if ( !built )
+            return Common::MakeError<Result>( built.GetError() );
+        return Common::MakeSuccess( std::move( built.ExtractValue().Mesh ) );
     }
 
     namespace
@@ -498,13 +873,286 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( block ) );
     }
 
-    HLODBuilders MakeHLODBuilders( std::span<const Common::Utils::AssetRegistry> registries )
+    Common::ResultStr<std::optional<Assets::StaticMeshComponentSer>>
+    BuildLandscapeSplineHLODMesh( const Rules::LandscapeSplineHLODRequest&      request,
+                                  std::span<const Common::Utils::AssetRegistry> registries )
     {
-        return HLODBuilders{
-             .Mesh = [registries]( const Rules::HLODMeshRequest& request )
-             { return BuildHLODMesh( request, registries ); },
-             .Landscape = []( const Rules::LandscapeHLODRequest& request )
-             { return BuildLandscapeHLODMesh( request ); },
+        using Result = std::optional<Assets::StaticMeshComponentSer>;
+        if ( request.Spline >= request.Records.size() )
+            return Common::MakeFormattedError<Result>( "record {} is not in the cell", request.Spline );
+        Common::Json::Issues issues;
+        const auto           block =
+             Rules::Detail::BlockOf( request.Records[request.Spline], Rules::kLandscapeSplineComponent, issues );
+        if ( !block.has_value() )
+            return Common::MakeError<Result>( "the record has no LandscapeSpline block" );
+        World::Landscape::LandscapeSplines splines;
+        World::Landscape::ReadLandscapeSplinesJson( *block, splines, issues );
+        if ( !issues.empty() )
+            return Common::MakeFormattedError<Result>( "its LandscapeSpline block does not read ({} issue(s))",
+                                                       issues.size() );
+
+        // One source per distinct entry, kept alive while the segments read it (the sources are spans).
+        struct Backing
+        {
+            std::vector<Desert::Vertex>  Vertices;
+            std::vector<Desert::Index>   Indices;
+            std::vector<Desert::Submesh> Submeshes;
         };
+        std::map<std::string, std::unique_ptr<Backing>> backings;
+        const auto                                      sourceOf =
+             [&]( const World::Landscape::LandscapeSplineMeshEntry& entry ) -> Common::ResultStr<const Backing*>
+        {
+            const std::string key = entry.Primitive
+                                         ? std::format( "primitive {}", static_cast<int>( *entry.Primitive ) )
+                                         : std::format( "mesh {}", static_cast<uint64_t>( entry.Mesh ) );
+            if ( const auto found = backings.find( key ); found != backings.end() )
+                return Common::MakeSuccess( static_cast<const Backing*>( found->second.get() ) );
+            auto backing = std::make_unique<Backing>();
+            if ( entry.Primitive )
+            {
+                auto shape = Geometry::MakePrimitive( *entry.Primitive );
+                if ( !shape.has_value() )
+                    return Common::MakeFormattedError<const Backing*>( "{} has no geometry", key );
+                Desert::Submesh whole{};
+                whole.Name        = key;
+                whole.VertexCount = static_cast<uint32_t>( shape->Vertices.size() );
+                whole.IndexCount  = static_cast<uint32_t>( shape->Indices.size() * 3 );
+                whole.Transform   = glm::mat4( 1.0f );
+                backing->Vertices = std::move( shape->Vertices );
+                backing->Indices  = std::move( shape->Indices );
+                backing->Submeshes.push_back( std::move( whole ) );
+            }
+            else
+            {
+                const Common::Utils::AssetRegistryEntry* row = nullptr;
+                for ( const auto& registry : registries )
+                    if ( ( row = registry.FindByHandle( static_cast<uint64_t>( entry.Mesh ) ) ) != nullptr )
+                        break;
+                if ( row == nullptr )
+                    return Common::MakeFormattedError<const Backing*>( "{} is in no asset registry", key );
+                const auto file  = Common::AssetHandle::PathForStableKey( row->Key );
+                auto       bytes = Assets::LoadMeshPlatformData( file );
+                if ( !bytes )
+                    return Common::MakeFormattedError<const Backing*>( "mesh '{}': {}", file.string(),
+                                                                       bytes.GetError() );
+                auto data = Assets::Serialization::ReadMeshAssetData( bytes.GetValue(), file.string() );
+                if ( !data )
+                    return Common::MakeError<const Backing*>( data.GetError() );
+                auto render = Geometry::RenderFromMeshAssetData( data.GetValue() );
+                if ( !render )
+                    return Common::MakeFormattedError<const Backing*>( "mesh '{}': {}", file.string(),
+                                                                       render.GetError() );
+                Geometry::RenderMeshData mesh = render.ExtractValue();
+                backing->Vertices             = std::move( mesh.Vertices );
+                backing->Indices              = std::move( mesh.Indices );
+                backing->Submeshes            = std::move( mesh.Submeshes );
+            }
+            const Backing* kept = backing.get();
+            backings.emplace( key, std::move( backing ) );
+            return Common::MakeSuccess( static_cast<const Backing*>( kept ) );
+        };
+
+        // Every segment's bent meshes appended into one render mesh, world cm (the HLOD record's transform is the
+        // identity). One section: the spline meshes draw with the default surface in the HLOD.
+        Geometry::RenderMeshData render;
+        for ( std::size_t s = 0; s < splines.Segments.size(); ++s )
+        {
+            std::vector<World::Landscape::LandscapeSplineMeshSource> sources;
+            for ( const World::Landscape::LandscapeSplineMeshEntry& entry : splines.Segments[s].SplineMeshes )
+            {
+                auto source = sourceOf( entry );
+                if ( !source )
+                    return Common::MakeFormattedError<Result>( "segment {}: {}", s, source.GetError() );
+                const Backing* backing = source.GetValue();
+                sources.push_back( { backing->Vertices, backing->Indices, backing->Submeshes } );
+            }
+            if ( sources.empty() )
+                continue;
+            for ( const World::Landscape::LandscapeSplineDeformedMesh& bent :
+                  World::Landscape::BuildLandscapeSplineSegmentMeshes( splines, s, sources ) )
+            {
+                const auto vertexBase = static_cast<uint32_t>( render.Vertices.size() );
+                const auto indexBase  = static_cast<uint32_t>( render.Indices.size() * 3 );
+                for ( Desert::Submesh part : bent.Submeshes )
+                {
+                    part.VertexOffset += vertexBase;
+                    part.IndexOffset += indexBase;
+                    render.Submeshes.push_back( std::move( part ) );
+                    render.SubmeshMaterialIds.push_back( 0 );
+                }
+                render.Vertices.insert( render.Vertices.end(), bent.Vertices.begin(), bent.Vertices.end() );
+                render.Indices.insert( render.Indices.end(), bent.Indices.begin(), bent.Indices.end() );
+            }
+        }
+        if ( render.Indices.empty() )
+            return Common::MakeSuccess( Result() );
+        auto imported = Geometry::DynamicMeshFromRenderMesh( render );
+        if ( !imported )
+            return Common::MakeFormattedError<Result>( "the spline meshes do not weld: {}", imported.GetError() );
+        Assets::StaticMeshComponentSer out;
+        out.EditMesh = Geometry::ToSerialized( imported.ExtractValue().Mesh );
+        return Common::MakeSuccess( Result( std::move( out ) ) );
+    }
+
+    namespace
+    {
+        // The geometry a mesh builder builds through: the build's own (HLODBuildContext::Geometry - the editor's
+        // Build HLODs, which bakes merged materials) or BuildHLODMesh over the cook's registries.
+        [[nodiscard]] Rules::HLODMeshBuilder GeometryOf( const Rules::HLODBuildContext& context )
+        {
+            if ( context.Geometry )
+                return context.Geometry;
+            return [&context]( const Rules::HLODMeshRequest& request )
+            { return BuildHLODMesh( request, context.Registries ); };
+        }
+
+        // A merged material's own check (UE FMaterialProxySettings: TextureSize a power of two), named as its
+        // builder's Settings state it.
+        [[nodiscard]] Common::BoolResultStr ValidateMergeMaterials( const HLODMaterialMergeSerialized& merge )
+        {
+            const int side = merge.TextureSize;
+            if ( side < 64 || side > 8192 || ( side & ( side - 1 ) ) != 0 )
+                return Common::MakeError<bool>(
+                     std::format( "MergeMaterials.TextureSize {} is not a power of two in [64, 8192]", side ) );
+            return Common::MakeSuccess( true );
+        }
+
+        // UE UHLODBuilderMeshMerge: the gathered batches merged (Rules::MergeHLODBatches over BuildHLODMesh), one
+        // section per source material - or, with its Settings' MergeMaterials (HLODMeshMergeSettings), one baked
+        // material. Settings are optional.
+        class HLODBuilderMeshMerge final : public Rules::IHLODBuilder
+        {
+        public:
+            [[nodiscard]] Common::BoolResultStr
+            ValidateSettings( const Common::Json::Value* settings ) const override
+            {
+                if ( settings == nullptr )
+                    return Common::MakeSuccess( true );
+                auto read = Rules::ReadHLODBuilderSettings<HLODMeshMergeSettings>( settings );
+                if ( !read )
+                    return Common::MakeError<bool>( read.GetError() );
+                if ( read.GetValue().MergeMaterials.has_value() )
+                    return ValidateMergeMaterials( *read.GetValue().MergeMaterials );
+                return Common::MakeSuccess( true );
+            }
+
+            [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
+            Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
+            {
+                if ( auto valid = ValidateSettings( context.Settings ); !valid )
+                    return Common::MakeError<Rules::InstancingHLOD>( valid.GetError() );
+                Rules::HLODMeshRequest shape;
+                if ( context.Settings != nullptr )
+                {
+                    auto read = Rules::ReadHLODBuilderSettings<HLODMeshMergeSettings>( context.Settings );
+                    if ( !read )
+                        return Common::MakeError<Rules::InstancingHLOD>( read.GetError() );
+                    shape.MergeMaterials = read.GetValue().MergeMaterials;
+                }
+                return Rules::MergeHLODBatches( context, std::move( gathered ), shape, GeometryOf( context ) );
+            }
+        };
+
+        // UE UHLODBuilderMeshSimplify: merged, then simplified to its Settings' TrianglePercent, with their
+        // MergeMaterials as MeshMerge's (HLODMeshSimplifySettings).
+        class HLODBuilderMeshSimplify final : public Rules::IHLODBuilder
+        {
+        public:
+            [[nodiscard]] Common::BoolResultStr
+            ValidateSettings( const Common::Json::Value* settings ) const override
+            {
+                auto read = Rules::ReadHLODBuilderSettings<HLODMeshSimplifySettings>( settings );
+                if ( !read )
+                    return Common::MakeError<bool>( read.GetError() );
+                const std::optional<float> percent = read.GetValue().TrianglePercent;
+                if ( !percent.has_value() )
+                    return Common::MakeError<bool>( "MeshSimplify's Settings state no TrianglePercent" );
+                if ( !( *percent > 0.0f && *percent <= 1.0f ) )
+                    return Common::MakeError<bool>(
+                         std::format( "MeshSimplify's TrianglePercent {:f} is outside (0, 1]", *percent ) );
+                if ( read.GetValue().MergeMaterials.has_value() )
+                    return ValidateMergeMaterials( *read.GetValue().MergeMaterials );
+                return Common::MakeSuccess( true );
+            }
+
+            [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
+            Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
+            {
+                if ( auto valid = ValidateSettings( context.Settings ); !valid )
+                    return Common::MakeError<Rules::InstancingHLOD>( valid.GetError() );
+                auto read = Rules::ReadHLODBuilderSettings<HLODMeshSimplifySettings>( context.Settings );
+                if ( !read )
+                    return Common::MakeError<Rules::InstancingHLOD>( read.GetError() );
+                Rules::HLODMeshRequest shape;
+                shape.TrianglePercent = read.GetValue().TrianglePercent;
+                shape.MergeMaterials  = read.GetValue().MergeMaterials;
+                return Rules::MergeHLODBatches( context, std::move( gathered ), shape, GeometryOf( context ) );
+            }
+        };
+
+        // UE UHLODBuilderMeshApproximate (WP-HLOD-APPROX): the cell's parts wrapped into ONE closed shell by its
+        // Settings, HLODApproximationSettings (UE UHLODBuilderMeshApproximateSettings::MeshApproximationSettings;
+        // REQUIRED, ranges by Rules::ValidateHLODApproximation). The cook's geometry builds the bare shell; the
+        // editor's Build HLODs states the geometry that also captures its BaseColor / Normal / ORM and binds them.
+        class HLODBuilderMeshApproximate final : public Rules::IHLODBuilder
+        {
+        public:
+            [[nodiscard]] Common::BoolResultStr
+            ValidateSettings( const Common::Json::Value* settings ) const override
+            {
+                auto read = Rules::ReadHLODBuilderSettings<HLODApproximationSettings>( settings );
+                if ( !read )
+                    return Common::MakeError<bool>( read.GetError() );
+                return Rules::ValidateHLODApproximation( read.GetValue() );
+            }
+
+            [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
+            Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
+            {
+                if ( auto valid = ValidateSettings( context.Settings ); !valid )
+                    return Common::MakeError<Rules::InstancingHLOD>( valid.GetError() );
+                auto read = Rules::ReadHLODBuilderSettings<HLODApproximationSettings>( context.Settings );
+                if ( !read )
+                    return Common::MakeError<Rules::InstancingHLOD>( read.GetError() );
+                Rules::HLODMeshRequest shape;
+                shape.Approximation = read.GetValue();
+                return Rules::MergeHLODBatches( context, std::move( gathered ), shape, GeometryOf( context ) );
+            }
+        };
+
+        // The name the engine registers a built-in type's builder under (Rules::kBuiltInHLODBuilders).
+        [[nodiscard]] std::string BuiltInHLODBuilderName( HLODLayerType type )
+        {
+            HLODLayerSerialized layer;
+            layer.Type = type;
+            return std::string( Rules::HLODBuilderNameOf( layer ) );
+        }
+    } // namespace
+
+    Rules::HLODBuilderRegistry& HLODBuilders()
+    {
+        static Rules::HLODBuilderRegistry registry = []
+        {
+            Rules::HLODBuilderRegistry builtIn;
+            // Four distinct names into an empty registry, none refusable (Register refuses only an empty name, no
+            // builder, or a name taken).
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::Instancing ),
+                                                 std::make_shared<Rules::HLODBuilderInstancing>() ) );
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::MeshMerge ),
+                                                 std::make_shared<HLODBuilderMeshMerge>() ) );
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::MeshSimplify ),
+                                                 std::make_shared<HLODBuilderMeshSimplify>() ) );
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::MeshApproximate ),
+                                                 std::make_shared<HLODBuilderMeshApproximate>() ) );
+            builtIn.SetLandscapeBuilder(
+                 std::make_shared<Rules::HLODBuilderLandscape>( []( const Rules::LandscapeHLODRequest& request )
+                                                                { return BuildLandscapeHLODMesh( request ); } ) );
+            builtIn.SetLandscapeSplineBuilder( std::make_shared<Rules::HLODBuilderLandscapeSplines>(
+                 []( const Rules::LandscapeSplineHLODRequest&      request,
+                     std::span<const Common::Utils::AssetRegistry> registries )
+                 { return BuildLandscapeSplineHLODMesh( request, registries ); } ) );
+            return builtIn;
+        }();
+        return registry;
     }
 } // namespace Desert::Core

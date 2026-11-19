@@ -59,6 +59,7 @@
 #include <vector>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Common/Content/ContentKinds.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace
 {

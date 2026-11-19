@@ -7,6 +7,8 @@
 
 #include <glm/glm.hpp>
 
+#include <entt/entt.hpp>
+
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -166,6 +168,38 @@ namespace Desert::Editor::Commands
     // same parent). ONE undo step (undo brings the modified instance back). Returns the new root UUID.
     Common::UUID RevertPrefabInstance( const Common::UUID& uuid );
 
+    // ---- Prefab edit in place (UE 5.5 ULevelInstanceSubsystem::EditLevelInstance / CommitLevelInstance /
+    //      CancelLevelInstanceEdit, with FLevelInstanceEditorMode's "the rest of the world is inactive") ----
+    //
+    // THE BODY IS EDITED, NOT THE OVERRIDES. Begin turns the chosen instance into the prefab's bare body (its own
+    // overrides are set aside, so they are not baked into the file) standing where the instance stands; every
+    // entity outside it is locked for authoring (IsAuthoringLocked) and dimmed in the Outliner. A nested instance
+    // is edited at the level chosen: Begin on a nested root edits THAT prefab's file.
+    //
+    // Commit writes the edited body to the .deprefab and rebuilds every instance of that prefab in the scene - top
+    // level or nested inside another prefab's instance - with the overrides each held when the edit began, so an
+    // instance that had its own colour keeps it. ONE undo step: Undo puts back the file and every instance as they
+    // were before Begin; the steps made inside the session are folded into it (CommandHistory::CloseSession).
+    // Discard puts the edited instance back as it was before Begin and records nothing.
+    //
+    // Refused, naming why: no scene, a session already open, an entity that is not a prefab instance root, a
+    // prefab that does not load, an instance holding entities its prefab does not have (a rebuild would drop
+    // them), a file that is not written (the session stays open, nothing changed).
+    [[nodiscard]] Common::BoolResultStr BeginPrefabEdit( const Common::UUID& instanceRoot );
+    [[nodiscard]] Common::BoolResultStr CommitPrefabEdit();
+    [[nodiscard]] Common::BoolResultStr DiscardPrefabEdit();
+
+    // The root of the instance being edited; nullopt when no prefab edit is open.
+    [[nodiscard]] std::optional<Common::UUID> PrefabEditRoot();
+
+    // True while a prefab edit is open and @p entity of the edited scene's registry is not inside the edited
+    // instance - the Outliner dims it.
+    [[nodiscard]] bool IsOutsidePrefabEdit( const entt::registry& registry, entt::entity entity );
+
+    // "May this entity be picked, moved or edited?" - the authoring lock (ECS::IsLocked) OR outside an open prefab
+    // edit. The picker and the gizmo ask THIS; the Details panel disables its fields outside the edit (IsOutsidePrefabEdit).
+    [[nodiscard]] bool IsAuthoringLocked( const entt::registry& registry, entt::entity entity );
+
     // Where a replacing instance's geometry comes from (see ReplaceWithPrefab).
     enum class ReplaceMeshSource
     {
@@ -194,6 +228,63 @@ namespace Desert::Editor::Commands
     [[nodiscard]] Common::ResultStr<std::vector<Common::UUID>>
     ReplaceWithPrefab( const std::vector<Common::UUID>& uuids, const std::filesystem::path& prefabFile,
                        ReplaceMeshSource mesh );
+
+    // UE's FNewLevelInstanceParams::PivotType: where a prefab cut from a selection has its origin, which is where
+    // its instance stands and its gizmo sits.
+    enum class PrefabPivot
+    {
+        Center,      // the centre of the selection's box
+        CenterMin,   // the centre of the box's base (Y is up)
+        Entity,      // a chosen entity of the selection (UE's pivot actor)
+        WorldOrigin, // the world's zero
+    };
+
+    // The pivot's name as the Outliner and the palette spell it.
+    [[nodiscard]] std::string_view PrefabPivotLabel( PrefabPivot pivot );
+
+    // A file in the project's Prefabs directory that no file holds yet, named after @p stem (UE's
+    // IAssetTools::CreateUniqueAssetName: "<stem>", then "<stem>_1", "<stem>_2", ...).
+    [[nodiscard]] std::filesystem::path UniquePrefabPath( std::string_view stem );
+
+    /**
+     * @brief UE's ULevelInstanceSubsystem::CreateLevelInstanceFrom: the selection becomes ONE new prefab and is
+     * replaced by one instance of it, as ONE undo step.
+     *
+     * The prefab's root is a new entity named after the file, standing at the pivot; the selected entities
+     * (top-level ones - a listed descendant is covered by its ancestor) hang under it with their subtrees, each
+     * where it stood. A selected prefab instance stays a link (a nested prefab). The instance hangs under the
+     * selection's shared parent, or at the scene root when the selection has none in common. No group entity is
+     * made on the way: the new root exists only in the file (PrefabAsset::CreateFromEntities).
+     *
+     * The box behind Center / CenterMin is the one the new file states (PrefabAsset::BodyBounds). Entity takes
+     * @p pivotEntity, which must be in the selection. Refused before anything changes when the file exists
+     * already, when a selected entity sits inside a prefab instance (only an instance's root can leave it) or is a
+     * UI element (a UI prefab is cut from its layout root with Save as Prefab), or when a box pivot has no box to
+     * take. THE FILE STAYS after an undo, as UE leaves the level package the creation wrote (ConvertToStaticMesh's
+     * rule).
+     * @return the instance root, which becomes the selection.
+     */
+    [[nodiscard]] Common::ResultStr<Common::UUID>
+    CreatePrefabFromSelection( const std::vector<Common::UUID>& uuids, const std::filesystem::path& prefabFile,
+                               PrefabPivot pivot, const Common::UUID& pivotEntity );
+
+    // How far a Break reaches (UE's BreakLevelInstance Levels: one, or all of them).
+    enum class BreakDepth
+    {
+        OneLevel,  // the instance's own entities become plain; a prefab nested in it stays an instance, of the
+                   // scene now
+        AllLevels, // every instance nested under it is broken as well
+    };
+
+    /**
+     * @brief UE's ULevelInstanceSubsystem::BreakLevelInstance: the instance at @p uuid stops being one - its root
+     * loses the prefab link and its entities their record addresses, so the scene saves them as its own entities.
+     * THE ONE ROUTE of every Break control (Outliner, Details, palette). One undo step puts every link back.
+     * Refused when @p uuid is no prefab instance's root, or is the root of one nested inside another (break the
+     * outer one first).
+     * @return how many entities changed.
+     */
+    [[nodiscard]] Common::ResultStr<size_t> BreakPrefabInstance( const Common::UUID& uuid, BreakDepth depth );
 
     /**
      * @brief Select every entity in the scene whose static mesh matches @p like's, @p like included.
@@ -231,6 +322,33 @@ namespace Desert::Editor::Commands
      */
     [[nodiscard]] Common::ResultStr<Common::UUID>
     CollapseIntoInstancedMesh( const std::vector<Common::UUID>& uuids );
+
+    /**
+     * @brief PACK / UNPACK PREFAB INSTANCES (UE: a Packed Level Actor, and "Edit" on it).
+     *
+     * Every prefab instance root among @p uuids that is not already in the asked mode is rebuilt in it under the
+     * same UUID, parent and placement: packed, it draws its prefab's packed form (one ISM per mesh group,
+     * Assets::PackPrefab); unpacked, every record is an entity again, ready to be edited in place and committed,
+     * after which every packed instance of the prefab is rebuilt from the new form. Packing refuses an instance
+     * whose prefab cannot pack (the packer's reason, naming the entity and what it carries) and one that holds
+     * overrides (a packed instance draws its source as it is) - before anything is destroyed. An instance
+     * nested inside another instance is refused (switch the outer one).
+     *
+     * One undo step, its own record: a packed instance is always rebuilt from its prefab (its component is
+     * runtime-only, so no snapshot can bring one back), and the unpacked subtree it replaced is restored with its
+     * ids. The switched instances are selected. @return how many instances changed mode, or why none did.
+     */
+    [[nodiscard]] Common::ResultStr<std::size_t> SetPrefabInstancesPacked( const std::vector<Common::UUID>& uuids,
+                                                                           bool packed );
+
+    // Select every instance root of the prefab @p like is an instance root of (UE: Select > All of the same
+    // Level Instance). @return how many were selected, or why none could be.
+    [[nodiscard]] Common::ResultStr<std::size_t> SelectPrefabInstancesLike( const Common::UUID& like );
+
+    // Apply to Prefab from anywhere inside an unpacked instance: the nearest prefab root at or above @p inside is
+    // written to its prefab (ApplyPrefabInstance), after which every packed instance of that prefab is rebuilt
+    // from the new form (PrefabFactory::RefreshPackedInstances). @return the instance root applied.
+    [[nodiscard]] Common::ResultStr<Common::UUID> ApplyEnclosingPrefabInstance( const Common::UUID& inside );
 
     // A tool that turns an entity into a DIFFERENT one (UE's Mesh To Volume: the static mesh actor becomes a
     // volume actor): @p source is removed with its subtree and a new root entity named @p name is created and
@@ -271,4 +389,26 @@ namespace Desert::Editor::Commands
     // snapshotted before and after, and undo/redo swap between the two serialized states (delete +
     // recreate with preserved UUIDs — so selection and later history entries stay valid).
     void MutateEntityUndoable( const Common::UUID& uuid, const std::function<void()>& mutate );
+
+    // MutateEntityUndoable over several entities as ONE history entry named @p label: each top-level root's
+    // subtree before and after @p mutate (UE FScopedTransaction around AddActorsToDataLayers).
+    void MutateEntitiesUndoable( const std::vector<Common::UUID>& roots, const std::string& label,
+                                 const std::function<void()>& mutate );
+
+    // ONE MEMBER OF A COMPONENT THAT HAS NO REFLECTED BLOCK (Script: its slots are a list of variant values the
+    // reflection cannot spell), set from the JSON its scene block holds for that member - UE Remote Control's
+    // property set from JSON under one FScopedTransaction. The entity's block is written by its own
+    // ComponentSerializer, @p member is replaced by @p json, and the block is read back by the same serializer
+    // the scene load uses, so `set` accepts exactly what a scene file holds. One undo step (the Details panel's
+    // MutateEntityUndoable); a value the loader refuses changes nothing and records nothing.
+    [[nodiscard]] Common::BoolResultStr SetComponentBlockMember( const Common::UUID& uuid, std::string_view block,
+                                                                 std::string_view member, std::string_view json );
+
+    // UE's actor editor context (FActorEditorContext / IActorEditorContextClient): what the editor stamps on every
+    // entity it creates for the user - added, placed, pasted or duplicated - BEFORE the creation is recorded, so
+    // the one undo step holds it. The Data Layers outliner installs the current data layers
+    // (DataLayerEditor::ApplyCurrentLayers); an empty function stamps nothing.
+    using CreatedEntitiesContext =
+         std::function<void( ::Desert::Core::Scene& scene, const std::vector<Common::UUID>& roots )>;
+    void SetCreatedEntitiesContext( CreatedEntitiesContext context );
 } // namespace Desert::Editor::Commands

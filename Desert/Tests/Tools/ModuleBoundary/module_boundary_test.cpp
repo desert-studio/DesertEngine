@@ -249,8 +249,6 @@ TEST( ModuleBoundary, CrossingsReport )
                                                "Desert/Desert/Source/Engine/Core/EngineContext.hpp";
     constexpr const char* kPinnedCrossings[] = {
          kMemoryReadoutPin,
-         // C4: ISceneRenderer = FSceneInterface
-         "Desert/Desert/Source/Engine/Desert.hpp -> Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp",
          // C8 via C3c: Skeleton reaches the GPU mesh
          "Desert/Desert/Source/Engine/Animation/Skeleton.hpp -> Desert/Desert/Source/Engine/Geometry/Mesh.hpp",
     };

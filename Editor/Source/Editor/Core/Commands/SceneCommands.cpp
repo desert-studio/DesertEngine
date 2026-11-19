@@ -4,6 +4,13 @@
 
 #include "InstanceFold.hpp"
 
+#include <Engine/Assets/Prefab/PackedPrefab.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
+#include <Engine/Runtime/Factory/PrefabFactory.hpp>
+
+#include <unordered_set>
+
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Editor/Core/StaticMeshOutput.hpp>
 
@@ -19,6 +26,9 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
+#include <Engine/Runtime/Factory/PrefabFactory.hpp>
+#include <Engine/Assets/Prefab/PrefabPlacement.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
@@ -29,11 +39,22 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <glm/gtc/epsilon.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <filesystem>
+#include <string_view>
 
 #include <format>
 #include <functional>
 #include <optional>
+#include <cstdint>
+#include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Desert::Editor::Commands
 {
@@ -42,6 +63,14 @@ namespace Desert::Editor::Commands
         // NOTE: fully qualified — inside Desert::Editor, an unqualified `Core::` means Editor::Core.
         ::Desert::Core::Scene*                s_Scene        = nullptr;
         ::Desert::Assets::AssetManager*       s_AssetManager = nullptr;
+        // UE's actor editor context: stamped on every entity the user creates (SetCreatedEntitiesContext).
+        CreatedEntitiesContext s_CreatedContext;
+
+        void ApplyCreatedContext( const std::vector<Common::UUID>& roots )
+        {
+            if ( s_CreatedContext && s_Scene != nullptr && !roots.empty() )
+                s_CreatedContext( *s_Scene, roots );
+        }
 
         // A captured subtree: one record per entity, pre-order, root first — and, per record, the prefab
         // record path the entity was instantiated from (ECS::PrefabInstanceComponent).
@@ -55,12 +84,20 @@ namespace Desert::Editor::Commands
             std::vector<Assets::EntityData> Records;
             std::vector<std::vector<Common::UUID>>
                  SourcePaths; // index-matched to Records; empty = not from a prefab
+            // Index-matched to Records: 1 = a PACKED prefab instance root (WP-PACKED-PREFAB). Its
+            // PackedPrefabComponent is runtime-only and its ISM children are derived from the prefab, so neither
+            // is captured: the root is rebuilt from its prefab on restore (PrefabFactory::InstantiatePacked).
+            // Restoring the record and its ISMs as plain entities gave a prefab root with loose ISM children that
+            // the saver then wrote as entities added inside an unpacked instance - every undone delete, duplicate
+            // or paste drew it twice.
+            std::vector<char> Packed;
 
             // The root alone (its children stay where they are).
             void KeepRootOnly()
             {
                 Records.resize( 1 );
                 SourcePaths.resize( 1 );
+                Packed.resize( 1 );
             }
         };
 
@@ -113,6 +150,11 @@ namespace Desert::Editor::Commands
                 data.SourcePaths.push_back( e.HasComponent<ECS::PrefabInstanceComponent>()
                                                  ? e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath
                                                  : std::vector<Common::UUID>{} );
+                const bool packed = e.HasComponent<::Desert::Runtime::Factory::PackedPrefabComponent>();
+                data.Packed.push_back( packed ? 1 : 0 );
+                if ( packed )
+                    return; // its ISM children are the packed form, rebuilt from the prefab
+                            // (SubtreeSnapshot::Packed)
                 if ( e.HasComponent<ECS::RelationshipComponent>() )
                 {
                     for ( auto childHandle : e.GetComponent<ECS::RelationshipComponent>().Children )
@@ -166,6 +208,7 @@ namespace Desert::Editor::Commands
             // again, which is what `restored` marks.
             std::vector<ECS::Entity> created( plan.Created.size() );
             std::vector<char>        restored( plan.Created.size(), 0 );
+            std::vector<char> fromPrefab( plan.Created.size(), 0 ); // a packed root, rebuilt from its prefab
 
             for ( size_t slot = 0; slot < plan.Created.size(); ++slot )
             {
@@ -180,9 +223,43 @@ namespace Desert::Editor::Commands
                 }
 
                 const Common::UUID newId = preserveIds ? original : Common::UUID::Generate();
-                created[slot]            = s_Scene->CreateEntityWithUUID(
-                     newId, data[plan.Created[slot].Record].Tag.value_or( "Entity" ) );
-                restored[slot] = 1;
+                restored[slot]           = 1;
+
+                const std::size_t         at     = plan.Created[slot].Record;
+                const Assets::EntityData& record = data[at];
+                if ( at < snapshot.Packed.size() && snapshot.Packed[at] != 0 && record.PrefabPath.has_value() )
+                {
+                    using ::Desert::Runtime::Factory::PrefabFactory;
+                    const auto prefab = PrefabFactory::ResolveNested( *s_AssetManager, *record.PrefabPath );
+                    if ( prefab )
+                    {
+                        if ( auto made = PrefabFactory::InstantiatePacked( prefab.GetValue(), *s_Scene,
+                                                                           *s_AssetManager, newId ) )
+                        {
+                            created[slot]    = made.GetValue();
+                            fromPrefab[slot] = 1;
+                            continue;
+                        }
+                        else
+                        {
+                            // The prefab no longer packs: the instance comes back unpacked rather than not at all.
+                            LOG_WARN( "[SceneCommands] the packed instance of '{0}' is restored unpacked: {1}",
+                                      *record.PrefabPath, made.GetError() );
+                            std::unordered_set<Common::UUID> stack;
+                            if ( const ECS::Entity unpacked = PrefabFactory::Instantiate(
+                                      *prefab.GetValue(), *s_Scene, *s_AssetManager, stack, {}, newId ) )
+                            {
+                                created[slot]    = unpacked;
+                                fromPrefab[slot] = 1;
+                                continue;
+                            }
+                        }
+                    }
+                    else
+                        LOG_ERROR( "[SceneCommands] the packed instance of '{0}' cannot be restored: {1}",
+                                   *record.PrefabPath, prefab.GetError() );
+                }
+                created[slot] = s_Scene->CreateEntityWithUUID( newId, record.Tag.value_or( "Entity" ) );
             }
 
             ECS::Entity root;
@@ -193,8 +270,19 @@ namespace Desert::Editor::Commands
 
                 const Assets::EntityData& ed = data[load.Record];
                 ECS::Entity               e  = created[load.Target];
-                ::Desert::Core::Serialize::EntitySerializer::DeserializeEntity( ed, e, *s_AssetManager );
-                if ( load.Record < snapshot.SourcePaths.size() && !snapshot.SourcePaths[load.Record].empty() )
+                if ( fromPrefab[load.Target] != 0 )
+                {
+                    // Built whole by the factory; the record gives it only where it stands.
+                    ECS::LocalTransform local;
+                    local.Translation = ed.Translation.value_or( glm::vec3( 0.0f ) );
+                    local.Rotation    = ed.Rotation.value_or( glm::vec3( 0.0f ) );
+                    local.Scale       = ed.Scale.value_or( glm::vec3( 1.0f ) );
+                    ECS::SetLocalTransform( *e.GetRegistry(), e.GetHandle(), local );
+                }
+                else
+                    ::Desert::Core::Serialize::EntitySerializer::DeserializeEntity( ed, e, *s_AssetManager );
+                if ( fromPrefab[load.Target] == 0 && load.Record < snapshot.SourcePaths.size() &&
+                     !snapshot.SourcePaths[load.Record].empty() )
                 {
                     if ( e.HasComponent<ECS::PrefabInstanceComponent>() )
                         e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath =
@@ -1066,6 +1154,7 @@ namespace Desert::Editor::Commands
         if ( alive.empty() )
             return;
 
+        ApplyCreatedContext( alive );
         CommandHistory::Get().PushCommand( std::make_unique<CreateCommand>( std::move( alive ) ) );
         OnStructuralChange();
     }
@@ -1129,6 +1218,7 @@ namespace Desert::Editor::Commands
         }
 
         const Common::UUID duplicateId = UUIDOf( duplicate );
+        ApplyCreatedContext( { duplicateId } );
         CommandHistory::Get().PushCommand( std::make_unique<CreateCommand>(
              std::vector<Common::UUID>{ duplicateId } ) );
         OnStructuralChange();
@@ -1160,6 +1250,7 @@ namespace Desert::Editor::Commands
         if ( duplicates.empty() )
             return duplicates;
 
+        ApplyCreatedContext( duplicates );
         CommandHistory::Get().PushCommand( std::make_unique<CreateCommand>( duplicates ) );
         OnStructuralChange();
         return duplicates;
@@ -1483,6 +1574,7 @@ namespace Desert::Editor::Commands
         if ( pasted.empty() )
             return pasted;
 
+        ApplyCreatedContext( pasted );
         CommandHistory::Get().PushCommand( std::make_unique<CreateCommand>( pasted ) );
         OnStructuralChange();
         return pasted;
@@ -1495,6 +1587,15 @@ namespace Desert::Editor::Commands
         auto root = FindEntity( uuid );
         if ( !root || !root->HasComponent<ECS::PrefabComponent>() )
             return false;
+        // A PACKED instance's children are the ISMs derived from the prefab, not the prefab: capturing them would
+        // overwrite the source with its own packed form (WP-PACKED-PREFAB). Unpack to edit, then apply.
+        if ( root->HasComponent<::Desert::Runtime::Factory::PackedPrefabComponent>() )
+        {
+            LOG_ERROR( "[Prefab] Apply refused: '{}' is a packed instance; Unpack Prefab Instances to Edit first",
+                       root->HasComponent<ECS::TagComponent>() ? root->GetComponent<ECS::TagComponent>().Tag
+                                                               : std::string( "Entity" ) );
+            return false;
+        }
 
         auto asset = s_AssetManager->FindByHandle<Assets::PrefabAsset>(
              root->GetComponent<ECS::PrefabComponent>().Prefab );
@@ -1519,6 +1620,14 @@ namespace Desert::Editor::Commands
             LOG_ERROR( "[Prefab] Apply failed: {} was not written: {}", asset->GetMetadata().Filepath.string(),
                        written.GetError() );
             return false;
+        }
+
+        // The instance's streaming override went into the prefab with the rest (CreateFromEntity, WP21-WHOLE); the
+        // instance follows the prefab again - as the Details "Apply to Prefab" button does.
+        if ( auto& link = root->GetComponent<ECS::PrefabComponent>(); link.RuntimeBehavior.has_value() )
+        {
+            link.RuntimeBehavior.reset();
+            s_Scene->MarkModifiedSubtree( *root );
         }
 
         LOG_INFO( "[Prefab] Applied instance changes -> {}", asset->GetMetadata().Filepath.string() );
@@ -1590,6 +1699,381 @@ namespace Desert::Editor::Commands
         OnStructuralChange();
         Core::SelectionManager::SetSelected( freshId );
         return freshId;
+    }
+
+    // ---------------------------------------------------------------- prefab edit in place
+
+    namespace
+    {
+        // One instance a Commit rebuilds: a TOP-LEVEL instance (a scene record naming a prefab) holding the
+        // edited prefab, itself or nested. Everything it needs to be built again as the scene loader builds it
+        // (SceneSerializer::InstantiateRecords: Instantiate under the stated id, overrides, then the root's own
+        // placement), taken when the session began - the world outside the edit is locked, so nothing moves it.
+        struct PrefabEditInstance
+        {
+            Common::UUID                            Root;
+            Assets::AssetHandle                     Prefab;
+            std::vector<Assets::PrefabOverrideData> Overrides;
+            ECS::LocalTransform                     Local;
+            Common::UUID                            Parent;
+            SubtreeSnapshot                         Before; // the instance as it was before Begin (Undo, Discard)
+        };
+
+        struct PrefabEditSession
+        {
+            Common::UUID                     Edited; // the root of the instance whose body is being edited
+            Assets::Asset<Assets::PrefabAsset> Asset;
+            std::vector<PrefabEditInstance>  Instances;
+            std::size_t                      Home = 0; // the entry holding Edited
+        };
+
+        std::optional<PrefabEditSession> s_PrefabEdit;
+
+        // The top-level instance @p entity (a prefab instance root) belongs to: up the hierarchy to the first
+        // instance root that is no record of another prefab (its SourcePath is its own record alone).
+        ECS::Entity TopLevelInstance( ECS::Entity entity )
+        {
+            ECS::Entity top  = entity;
+            ECS::Entity walk = entity;
+            while ( walk )
+            {
+                if ( walk.HasComponent<ECS::PrefabComponent>() )
+                {
+                    top = walk;
+                    if ( !walk.HasComponent<ECS::PrefabInstanceComponent>() ||
+                         walk.GetComponent<ECS::PrefabInstanceComponent>().SourcePath.size() <= 1 )
+                        break;
+                }
+                if ( !walk.HasComponent<ECS::RelationshipComponent>() )
+                    break;
+                const entt::entity parent = walk.GetComponent<ECS::RelationshipComponent>().Parent;
+                if ( parent == entt::null )
+                    break;
+                walk = ECS::Entity( parent, *walk.GetRegistry() );
+            }
+            return top;
+        }
+
+        // A top-level instance built again from its prefab as it stands now, as the scene loader builds one.
+        Common::ResultStr<ECS::Entity> RebuildInstance( const PrefabEditInstance& instance )
+        {
+            auto prefab = s_AssetManager->FindByHandle<Assets::PrefabAsset>( instance.Prefab );
+            if ( !prefab )
+                return Common::MakeFormattedError<ECS::Entity>( "its prefab ({}) is no longer registered",
+                                                                static_cast<std::uint64_t>( instance.Prefab ) );
+            std::unordered_set<Common::UUID> stack;
+            ECS::Entity                      root = ::Desert::Runtime::Factory::PrefabFactory::Instantiate(
+                 *prefab, *s_Scene, *s_AssetManager, stack, {}, instance.Root );
+            if ( !root )
+                return Common::MakeFormattedError<ECS::Entity>( "'{}' built no entity",
+                                                                prefab->GetMetadata().Filepath.string() );
+            if ( !instance.Overrides.empty() )
+            {
+                const auto        indexed = ::Desert::Runtime::Factory::PrefabFactory::IndexInstance( root );
+                const std::size_t missed =
+                     ::Desert::Runtime::Factory::PrefabFactory::ApplyOverrides( instance.Overrides, indexed, {}, *s_AssetManager );
+                if ( missed > 0 )
+                    LOG_WARN( "[Prefab] {0} of {1} override(s) of instance {2} name an entity the committed body no "
+                              "longer contains. They were NOT applied.",
+                              missed, instance.Overrides.size(), static_cast<std::uint64_t>( instance.Root ) );
+            }
+            ECS::SetLocalTransform( s_Scene->GetRegistry(), root.GetHandle(), instance.Local );
+            if ( !instance.Parent.IsNull() )
+            {
+                if ( auto parent = FindEntity( instance.Parent ) )
+                    s_Scene->Attach( *parent, root );
+            }
+            return Common::MakeSuccess( root );
+        }
+
+        // Puts @p snapshots back in place of the live instances with the same roots.
+        void RestoreInstances( const std::vector<SubtreeSnapshot>& snapshots )
+        {
+            for ( const SubtreeSnapshot& snapshot : snapshots )
+            {
+                if ( snapshot.Records.empty() )
+                    continue;
+                DestroyByUUID( snapshot.Records.front().id.value_or( Common::UUID::Null() ) );
+                RestoreSnapshot( snapshot, /*preserveIds=*/true );
+            }
+            OnStructuralChange();
+        }
+
+        // THE COMMIT AS ONE STEP: the prefab's body and every instance built from it, before and after. Undo
+        // writes the old body back to the file (so the next load agrees with the scene) and restores the
+        // instances as they were before the edit began; Redo writes the committed body and the rebuilt instances.
+        class PrefabCommitCommand final : public ICommand
+        {
+        public:
+            PrefabCommitCommand( Assets::Asset<Assets::PrefabAsset> asset, std::vector<Assets::EntityData> bodyBefore,
+                                 std::vector<Assets::EntityData> bodyAfter, std::vector<SubtreeSnapshot> before,
+                                 std::vector<SubtreeSnapshot> after )
+                 : m_Asset( std::move( asset ) ), m_BodyBefore( std::move( bodyBefore ) ),
+                   m_BodyAfter( std::move( bodyAfter ) ), m_Before( std::move( before ) ), m_After( std::move( after ) )
+            {
+            }
+
+            std::string GetLabel() const override
+            {
+                return std::format( "Commit prefab {}", m_Asset->GetMetadata().Filepath.filename().string() );
+            }
+
+            bool Undo() override
+            {
+                return Apply( m_BodyBefore, m_Before );
+            }
+            bool Redo() override
+            {
+                return Apply( m_BodyAfter, m_After );
+            }
+
+        private:
+            bool Apply( const std::vector<Assets::EntityData>& body, const std::vector<SubtreeSnapshot>& instances )
+            {
+                if ( !Ready() )
+                    return false;
+                m_Asset->ReplaceBody( body );
+                if ( const auto written = m_Asset->SaveTo( m_Asset->GetMetadata().Filepath ); !written )
+                    LOG_ERROR( "[Prefab] {}: the file was NOT rewritten ({}); the scene is restored, the file on "
+                               "disk still holds the other body.",
+                               GetLabel(), written.GetError() );
+                RestoreInstances( instances );
+                return true;
+            }
+
+            Assets::Asset<Assets::PrefabAsset> m_Asset;
+            std::vector<Assets::EntityData>    m_BodyBefore, m_BodyAfter;
+            std::vector<SubtreeSnapshot>       m_Before, m_After;
+        };
+    } // namespace
+
+    Common::BoolResultStr BeginPrefabEdit( const Common::UUID& instanceRoot )
+    {
+        if ( !Ready() )
+            return Common::MakeError<bool>( "Edit prefab in place: no scene" );
+        if ( s_PrefabEdit.has_value() )
+            return Common::MakeFormattedError<bool>(
+                 "Edit prefab in place: an edit of '{}' is open - commit or discard it first",
+                 s_PrefabEdit->Asset->GetMetadata().Filepath.filename().string() );
+        if ( CommandHistory::Get().SessionOpen() )
+            return Common::MakeError<bool>( "Edit prefab in place: another edit session is open" );
+
+        auto edited = FindEntity( instanceRoot );
+        if ( !edited || !edited->HasComponent<ECS::PrefabComponent>() )
+            return Common::MakeError<bool>( "Edit prefab in place: select the ROOT of a prefab instance" );
+        const Assets::AssetHandle prefabHandle = edited->GetComponent<ECS::PrefabComponent>().Prefab;
+        auto                      asset        = s_AssetManager->FindByHandle<Assets::PrefabAsset>( prefabHandle );
+        if ( !asset )
+            return Common::MakeError<bool>( "Edit prefab in place: the instance's prefab is not registered" );
+        if ( !asset->IsReadyForUse() )
+        {
+            if ( const auto loaded = asset->Load(); !loaded )
+                return Common::MakeFormattedError<bool>( "Edit prefab in place: '{}' did not load: {}",
+                                                         asset->GetMetadata().Filepath.string(), loaded.GetError() );
+        }
+
+        PrefabEditSession session;
+        session.Edited = instanceRoot;
+        session.Asset  = asset;
+
+        // EVERY INSTANCE THE COMMIT WILL REBUILD - each top-level instance that holds this prefab, as itself or
+        // nested - with what it holds of its own, measured now against the body it was built from.
+        auto&                            registry = s_Scene->GetRegistry();
+        std::unordered_set<Common::UUID> seen;
+        const ECS::Entity                home = TopLevelInstance( *edited );
+        for ( const entt::entity handle : registry.view<ECS::PrefabComponent>() )
+        {
+            if ( registry.get<ECS::PrefabComponent>( handle ).Prefab != prefabHandle )
+                continue;
+            const ECS::Entity  top = TopLevelInstance( ECS::Entity( handle, registry ) );
+            const Common::UUID id  = UUIDOf( top );
+            if ( id.IsNull() || !seen.insert( id ).second )
+                continue;
+
+            const auto capture = ::Desert::Core::Serialize::CapturePrefabInstance( top, *s_AssetManager );
+            if ( capture.AddedEntities > 0 )
+                return Common::MakeFormattedError<bool>(
+                     "Edit prefab in place: instance '{}' holds {} entit(ies) its prefab does not have; a commit "
+                     "rebuilds every instance from the prefab and would drop them - apply or move them out first",
+                     top.HasComponent<ECS::TagComponent>() ? top.GetComponent<ECS::TagComponent>().Tag : "?",
+                     capture.AddedEntities );
+
+            PrefabEditInstance instance;
+            instance.Root      = id;
+            instance.Prefab    = top.GetComponent<ECS::PrefabComponent>().Prefab;
+            instance.Overrides = capture.Overrides;
+            instance.Local     = top.GetComponent<ECS::TransformComponent>().GetLocal();
+            instance.Parent    = ParentUUIDOf( top );
+            instance.Before    = CaptureSubtree( top );
+            if ( top.GetHandle() == home.GetHandle() )
+                session.Home = session.Instances.size();
+            session.Instances.push_back( std::move( instance ) );
+        }
+
+        // THE EDITED INSTANCE BECOMES THE BARE BODY, standing where it stands: its overrides are set aside (the
+        // commit puts them back), so what is edited - and what the file receives - is the prefab itself.
+        ECS::Entity               editedEntity = *edited;
+        const ECS::LocalTransform editedLocal  = editedEntity.GetComponent<ECS::TransformComponent>().GetLocal();
+        const Common::UUID        editedParent = ParentUUIDOf( editedEntity );
+        std::vector<Common::UUID> prefix;
+        if ( editedEntity.HasComponent<ECS::PrefabInstanceComponent>() )
+        {
+            prefix = editedEntity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
+            if ( !prefix.empty() )
+                prefix.pop_back();
+        }
+        s_Scene->DestroyEntity( editedEntity );
+
+        std::unordered_set<Common::UUID> stack;
+        ECS::Entity                      body = ::Desert::Runtime::Factory::PrefabFactory::Instantiate(
+             *asset, *s_Scene, *s_AssetManager, stack, prefix, instanceRoot );
+        if ( !body )
+        {
+            RestoreInstances( { session.Instances[session.Home].Before } );
+            return Common::MakeFormattedError<bool>( "Edit prefab in place: '{}' built no entity; nothing changed",
+                                                     asset->GetMetadata().Filepath.string() );
+        }
+        ECS::SetLocalTransform( registry, body.GetHandle(), editedLocal );
+        if ( !editedParent.IsNull() )
+        {
+            if ( auto parent = FindEntity( editedParent ) )
+                s_Scene->Attach( *parent, body );
+        }
+
+        CommandHistory::Get().OpenSession();
+        OnStructuralChange();
+        LOG_INFO( "[Prefab] editing '{0}' in place ({1} instance(s) will be rebuilt on Commit)",
+                  asset->GetMetadata().Filepath.filename().string(), session.Instances.size() );
+        s_PrefabEdit = std::move( session );
+        Core::SelectionManager::SetSelected( instanceRoot );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr CommitPrefabEdit()
+    {
+        if ( !Ready() || !s_PrefabEdit.has_value() )
+            return Common::MakeError<bool>( "Commit prefab: no prefab edit is open" );
+        PrefabEditSession& session = *s_PrefabEdit;
+        auto               edited  = FindEntity( session.Edited );
+        if ( !edited )
+            return Common::MakeError<bool>( "Commit prefab: the instance being edited is gone - Discard the edit" );
+
+        auto&                           asset      = session.Asset;
+        std::vector<Assets::EntityData> bodyBefore = asset->GetEntities();
+        asset->CreateFromEntity( *edited, *s_AssetManager );
+        std::vector<Assets::EntityData> bodyAfter = asset->GetEntities();
+
+        // The root record keeps where the BODY's root stands, and the parent it names: the edited instance
+        // stands at ITS placement in the world, which belongs to the instance and not to the prefab.
+        if ( !bodyBefore.empty() && !bodyAfter.empty() )
+        {
+            bodyAfter.front().Translation = bodyBefore.front().Translation;
+            bodyAfter.front().Rotation    = bodyBefore.front().Rotation;
+            bodyAfter.front().Scale       = bodyBefore.front().Scale;
+            bodyAfter.front().parent      = bodyBefore.front().parent;
+        }
+        asset->ReplaceBody( bodyAfter );
+
+        const std::filesystem::path file = asset->GetMetadata().Filepath;
+        std::error_code             directoryError;
+        std::filesystem::create_directories( file.parent_path(), directoryError );
+        if ( const auto written = asset->SaveTo( file ); !written )
+        {
+            asset->ReplaceBody( bodyBefore );
+            return Common::MakeFormattedError<bool>( "Commit prefab: {} was not written ({}); the edit stays open",
+                                                     file.string(), written.GetError() );
+        }
+
+        // The steps made inside the session edited a body that is now the file: they fold into this one step.
+        CommandHistory::Get().CloseSession();
+
+        std::vector<SubtreeSnapshot> before;
+        std::vector<SubtreeSnapshot> after;
+        std::vector<Common::UUID>    roots;
+        std::string                  failed;
+        for ( const PrefabEditInstance& instance : session.Instances )
+        {
+            DestroyByUUID( instance.Root );
+            const auto rebuilt = RebuildInstance( instance );
+            if ( !rebuilt )
+            {
+                // Named, and the instance keeps the shape it had: a missing instance is worse than an old one.
+                RestoreSnapshot( instance.Before, /*preserveIds=*/true );
+                failed += std::format( "{}{} ({})", failed.empty() ? "" : ", ",
+                                       static_cast<std::uint64_t>( instance.Root ), rebuilt.GetError() );
+                continue;
+            }
+            before.push_back( instance.Before );
+            after.push_back( CaptureSubtree( rebuilt.GetValue() ) );
+            roots.push_back( instance.Root );
+        }
+        OnStructuralChange();
+
+        CommandHistory::Get().PushEntityEdit( std::make_unique<PrefabCommitCommand>( asset, std::move( bodyBefore ),
+                                                                                     std::move( bodyAfter ),
+                                                                                     std::move( before ),
+                                                                                     std::move( after ) ),
+                                              roots );
+        const Common::UUID editedRoot = session.Edited;
+        LOG_INFO( "[Prefab] committed '{0}': {1} instance(s) rebuilt", file.string(), roots.size() );
+        s_PrefabEdit.reset();
+        Core::SelectionManager::SetSelected( editedRoot );
+        if ( !failed.empty() )
+            return Common::MakeFormattedError<bool>(
+                 "Commit prefab: {} is written, but these instances kept their previous shape: {}", file.string(),
+                 failed );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr DiscardPrefabEdit()
+    {
+        if ( !s_PrefabEdit.has_value() )
+            return Common::MakeError<bool>( "Discard prefab edit: no prefab edit is open" );
+        PrefabEditSession session = std::move( *s_PrefabEdit );
+        s_PrefabEdit.reset();
+        CommandHistory::Get().CloseSession();
+
+        // The instance goes back as it was before Begin - unless it is gone with the scene it lived in, and then
+        // nothing is put back into whatever scene is open now.
+        if ( !Ready() || !FindEntity( session.Edited ) )
+            return Common::MakeError<bool>(
+                 "Discard prefab edit: the instance being edited is gone; the edit is closed, nothing was restored" );
+        RestoreInstances( { session.Instances[session.Home].Before } );
+        Core::SelectionManager::SetSelected( session.Edited );
+        LOG_INFO( "[Prefab] discarded the edit of '{0}'", session.Asset->GetMetadata().Filepath.filename().string() );
+        return Common::MakeSuccess( true );
+    }
+
+    std::optional<Common::UUID> PrefabEditRoot()
+    {
+        if ( !s_PrefabEdit.has_value() )
+            return std::nullopt;
+        return s_PrefabEdit->Edited;
+    }
+
+    bool IsOutsidePrefabEdit( const entt::registry& registry, entt::entity entity )
+    {
+        if ( !s_PrefabEdit.has_value() || s_Scene == nullptr || entity == entt::null ||
+             &registry != &s_Scene->GetRegistry() )
+            return false;
+        const auto root = FindEntity( s_PrefabEdit->Edited );
+        if ( !root )
+            return false;
+        const entt::entity rootHandle = root->GetHandle();
+        for ( entt::entity walk = entity; walk != entt::null; )
+        {
+            if ( walk == rootHandle )
+                return false;
+            if ( !registry.has<ECS::RelationshipComponent>( walk ) )
+                break;
+            walk = registry.get<ECS::RelationshipComponent>( walk ).Parent;
+        }
+        return true;
+    }
+
+    bool IsAuthoringLocked( const entt::registry& registry, entt::entity entity )
+    {
+        return ECS::IsLocked( registry, entity ) || IsOutsidePrefabEdit( registry, entity );
     }
 
     Common::ResultStr<std::vector<Common::UUID>> ReplaceWithPrefab( const std::vector<Common::UUID>& uuids,
@@ -1722,6 +2206,365 @@ namespace Desert::Editor::Commands
 
     namespace
     {
+        // An entity that is PART of a prefab instance and not a scene-level instance's root: its record address
+        // names a record of an enclosing instance, so it cannot leave that instance without the instance losing
+        // it.
+        bool SitsInsideInstance( ECS::Entity entity )
+        {
+            if ( !entity.HasComponent<ECS::PrefabInstanceComponent>() )
+                return false;
+            return !entity.HasComponent<ECS::PrefabComponent>() ||
+                   entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath.size() > 1;
+        }
+
+        std::string PrefabTagOf( ECS::Entity entity )
+        {
+            return entity.HasComponent<ECS::TagComponent>() ? entity.GetComponent<ECS::TagComponent>().Tag
+                                                            : std::string();
+        }
+
+        // Whether @p entity is one of @p roots or hangs under one of them.
+        bool UnderAnyOf( ECS::Entity entity, const std::vector<Common::UUID>& roots )
+        {
+            for ( std::optional<ECS::Entity> at = entity; at.has_value(); at = FindEntity( ParentUUIDOf( *at ) ) )
+                if ( std::find( roots.begin(), roots.end(), UUIDOf( *at ) ) != roots.end() )
+                    return true;
+            return false;
+        }
+
+        // @p entity's transform in the frame @p frameId (Null = the scene root): its own local values when it
+        // already hangs there (exact - nothing is decomposed), else its world matrix brought into the frame by @p
+        // toFrame.
+        ECS::LocalTransform MemberTransformInFrame( ECS::Entity entity, const Common::UUID& frameId,
+                                                    const glm::mat4& toFrame )
+        {
+            if ( ParentUUIDOf( entity ) == frameId && entity.HasComponent<ECS::TransformComponent>() )
+            {
+                const auto& tc = entity.GetComponent<ECS::TransformComponent>();
+                return ECS::LocalTransform{ tc.GetTranslation(), tc.GetRotation(), tc.GetScale() };
+            }
+            glm::vec3 translation( 0.0f );
+            glm::vec3 scale( 1.0f );
+            glm::vec3 skew( 0.0f );
+            glm::vec4 perspective( 0.0f );
+            glm::quat rotation( 1.0f, 0.0f, 0.0f, 0.0f );
+            glm::decompose( toFrame * entity.GetWorldTransform(), scale, rotation, translation, skew,
+                            perspective );
+            return ECS::LocalTransform{ translation, glm::eulerAngles( rotation ), scale };
+        }
+
+        // What Break took off one entity, addressed by UUID like every other history entry: the broken level's
+        // prefab link (PrefabComponent, on its roots) and the entity's record address - removed, or, for an entity
+        // of a nested instance that stays one under OneLevel, shortened by the broken level's element.
+        struct BrokenLink
+        {
+            Common::UUID                                            Entity;
+            std::optional<decltype( ECS::PrefabComponent::Prefab )> Prefab;
+            std::optional<std::vector<Common::UUID>>                PathBefore;
+            std::optional<std::vector<Common::UUID>>                PathAfter;
+        };
+
+        class BreakPrefabCommand final : public ICommand
+        {
+        public:
+            BreakPrefabCommand( const Common::UUID& root, std::vector<BrokenLink> links, BreakDepth depth )
+                 : m_Root( root ), m_Links( std::move( links ) ), m_Depth( depth )
+            {
+            }
+
+            std::string GetLabel() const override
+            {
+                return m_Depth == BreakDepth::OneLevel ? "Break Prefab" : "Break Prefab (all levels)";
+            }
+
+            bool Undo() override
+            {
+                return Apply( false );
+            }
+            bool Redo() override
+            {
+                return Apply( true );
+            }
+
+            size_t Count() const
+            {
+                return m_Links.size();
+            }
+
+        private:
+            bool Apply( bool broken ) const
+            {
+                bool any = false;
+                for ( const BrokenLink& link : m_Links )
+                {
+                    auto entity = FindEntity( link.Entity );
+                    if ( !entity )
+                        continue;
+                    if ( link.Prefab.has_value() )
+                    {
+                        if ( broken )
+                        {
+                            entity->RemoveComponent<ECS::PrefabComponent>();
+                        }
+                        else
+                        {
+                            if ( !entity->HasComponent<ECS::PrefabComponent>() )
+                                entity->AddComponent<ECS::PrefabComponent>();
+                            entity->GetComponent<ECS::PrefabComponent>().Prefab = *link.Prefab;
+                        }
+                    }
+                    const auto& path = broken ? link.PathAfter : link.PathBefore;
+                    if ( path.has_value() )
+                    {
+                        if ( !entity->HasComponent<ECS::PrefabInstanceComponent>() )
+                            entity->AddComponent<ECS::PrefabInstanceComponent>();
+                        entity->GetComponent<ECS::PrefabInstanceComponent>().SourcePath = *path;
+                    }
+                    else
+                    {
+                        entity->RemoveComponent<ECS::PrefabInstanceComponent>();
+                    }
+                    any = true;
+                }
+                // The saver writes a broken instance's entities as the scene's own from now on (and an undone
+                // break as a link again), so the whole subtree is dirty: a partitioned save rewrites its files.
+                if ( auto root = FindEntity( m_Root ) )
+                    s_Scene->MarkModifiedSubtree( *root );
+                return any;
+            }
+
+            Common::UUID            m_Root;
+            std::vector<BrokenLink> m_Links;
+            BreakDepth              m_Depth;
+        };
+    } // namespace
+
+    std::string_view PrefabPivotLabel( PrefabPivot pivot )
+    {
+        static constexpr std::array<std::string_view, 4> kLabels = { "Center", "Center Min", "Selected Entity",
+                                                                     "World Origin" };
+        return kLabels.at( static_cast<size_t>( pivot ) );
+    }
+
+    std::filesystem::path UniquePrefabPath( std::string_view stem )
+    {
+        std::string base( stem );
+        // A tag may hold anything; a file name on either platform may not (Windows refuses <>:"/\\|?* and control
+        // characters), so everything but a letter, a digit, '-' and '_' becomes '_'.
+        for ( char& ch : base )
+            if ( !std::isalnum( static_cast<unsigned char>( ch ) ) && ch != '-' && ch != '_' )
+                ch = '_';
+        if ( base.empty() )
+            base = "Prefab";
+        const std::string     extension( Common::Constants::Extensions::PREFAB_EXTENSION );
+        std::filesystem::path candidate = Common::Constants::Path::PREFAB_PATH / ( base + extension );
+        for ( int n = 1; std::filesystem::exists( candidate ); ++n )
+            candidate = Common::Constants::Path::PREFAB_PATH / std::format( "{}_{}{}", base, n, extension );
+        return candidate;
+    }
+
+    Common::ResultStr<Common::UUID> CreatePrefabFromSelection( const std::vector<Common::UUID>& uuids,
+                                                               const std::filesystem::path&     prefabFile,
+                                                               PrefabPivot pivot, const Common::UUID& pivotEntity )
+    {
+        using Result = Common::UUID;
+        if ( !Ready() )
+            return Common::MakeError<Result>( "Create Prefab from Selection: there is no open scene" );
+        const std::vector<Common::UUID> roots = FilterTopLevel( uuids );
+        if ( roots.empty() )
+            return Common::MakeError<Result>( "Create Prefab from Selection: nothing is selected" );
+        if ( prefabFile.extension() != Common::Constants::Extensions::PREFAB_EXTENSION )
+            return Common::MakeFormattedError<Result>( "Create Prefab from Selection: '{}' is not a {} file",
+                                                       prefabFile.generic_string(),
+                                                       Common::Constants::Extensions::PREFAB_EXTENSION );
+        if ( std::filesystem::exists( prefabFile ) )
+            return Common::MakeFormattedError<Result>(
+                 "Create Prefab from Selection: '{}' exists already; a new prefab never overwrites one (Apply "
+                 "Instance Changes to Prefab is that)",
+                 prefabFile.generic_string() );
+
+        // EVERY REFUSAL IS ASKED BEFORE THE FILE IS WRITTEN OR AN ENTITY GOES.
+        std::vector<ECS::Entity> entities;
+        entities.reserve( roots.size() );
+        bool sharedParent = true;
+        for ( const Common::UUID& uuid : roots )
+        {
+            const auto entity = FindEntity( uuid );
+            if ( !entity )
+                return Common::MakeFormattedError<Result>(
+                     "Create Prefab from Selection: entity {} is not in the scene",
+                     static_cast<uint64_t>( uuid ) );
+            if ( SitsInsideInstance( *entity ) )
+                return Common::MakeFormattedError<Result>( "Create Prefab from Selection: '{}' is part of a "
+                                                           "prefab instance; select the instance's root, or "
+                                                           "break the instance first",
+                                                           PrefabTagOf( *entity ) );
+            if ( Assets::ClassifyPrefabRoot( ::Desert::Core::Serialize::EntitySerializer::SerializeEntity(
+                      *entity, *s_AssetManager ) ) != Assets::PrefabRootKind::World )
+                return Common::MakeFormattedError<Result>( "Create Prefab from Selection: '{}' is a UI element, "
+                                                           "which a new root could not lay out; cut a UI "
+                                                           "prefab from its layout root with Save as Prefab",
+                                                           PrefabTagOf( *entity ) );
+            if ( !entities.empty() && ParentUUIDOf( *entity ) != ParentUUIDOf( entities.front() ) )
+                sharedParent = false;
+            entities.push_back( *entity );
+        }
+
+        // THE FRAME THE INSTANCE HANGS IN: the selection's shared parent, or the scene root.
+        const Common::UUID frameId = sharedParent ? ParentUUIDOf( entities.front() ) : Common::UUID::Null();
+        glm::mat4          frameWorld( 1.0f );
+        if ( const auto frame = FindEntity( frameId ) )
+            frameWorld = frame->GetWorldTransform();
+        const glm::mat4 toFrame = glm::inverse( frameWorld );
+
+        std::vector<Assets::PrefabAsset::Member> members;
+        members.reserve( entities.size() );
+        for ( const ECS::Entity& entity : entities )
+            members.push_back( { entity, MemberTransformInFrame( entity, frameId, toFrame ) } );
+
+        // THE PIVOT, in the frame. The box is measured on the body captured with the frame's origin as its own, by
+        // the rule the file and the partitioner state it with, so Center Min is the base of the box the registry
+        // carries.
+        const std::string   rootTag = prefabFile.stem().string();
+        Assets::PrefabAsset draft( prefabFile );
+        if ( const auto captured = draft.CreateFromEntities( rootTag, members, *s_AssetManager ); !captured )
+            return Common::MakeFormattedError<Result>( "Create Prefab from Selection: {}", captured.GetError() );
+        glm::vec3 origin( 0.0f );
+        switch ( pivot )
+        {
+            case PrefabPivot::Center:
+            case PrefabPivot::CenterMin:
+            {
+                const auto box = draft.BodyBounds();
+                if ( !box.has_value() )
+                    return Common::MakeFormattedError<Result>( "Create Prefab from Selection: nothing selected "
+                                                               "has an extent to take a '{}' pivot from; pick "
+                                                               "the Selected Entity or World Origin pivot",
+                                                               PrefabPivotLabel( pivot ) );
+                origin = ( box->Min + box->Max ) * 0.5f;
+                if ( pivot == PrefabPivot::CenterMin )
+                    origin.y = box->Min.y;
+                break;
+            }
+            case PrefabPivot::Entity:
+            {
+                const auto chosen = FindEntity( pivotEntity );
+                if ( !chosen || !UnderAnyOf( *chosen, roots ) )
+                    return Common::MakeError<Result>(
+                         "Create Prefab from Selection: the pivot entity is not part of the selection" );
+                origin = glm::vec3( toFrame * chosen->GetWorldTransform()[3] );
+                break;
+            }
+            case PrefabPivot::WorldOrigin:
+                origin = glm::vec3( toFrame * glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) );
+                break;
+        }
+        for ( Assets::PrefabAsset::Member& member : members )
+            member.InRoot.Translation -= origin;
+        if ( const auto captured = draft.CreateFromEntities( rootTag, members, *s_AssetManager ); !captured )
+            return Common::MakeFormattedError<Result>( "Create Prefab from Selection: {}", captured.GetError() );
+
+        // The file first, then the asset registered FROM it (SaveNewFromEntity's order), so it carries its header
+        // GUID.
+        std::error_code directoryError;
+        std::filesystem::create_directories( prefabFile.parent_path(), directoryError );
+        if ( const auto written = draft.SaveTo( prefabFile ); !written )
+            return Common::MakeFormattedError<Result>( "Create Prefab from Selection: {}", written.GetError() );
+        auto prefab = s_AssetManager->CreateAsset<Assets::PrefabAsset>( prefabFile.generic_string() );
+        if ( !prefab || ( !prefab->IsReadyForUse() && !prefab->Load() ) )
+            return Common::MakeFormattedError<Result>(
+                 "Create Prefab from Selection: '{}' was written but does not load back; see the load error above",
+                 prefabFile.generic_string() );
+
+        auto composite = std::make_unique<CompositeCommand>( "Create Prefab from Selection" );
+        for ( const Common::UUID& uuid : roots )
+        {
+            auto snapshot = CaptureSubtree( *FindEntity( uuid ) );
+            DestroyByUUID( uuid );
+            composite->Add( std::make_unique<DeleteCommand>( std::move( snapshot ) ) );
+        }
+
+        ECS::Entity parentEntity;
+        if ( const auto parent = FindEntity( frameId ) )
+            parentEntity = *parent;
+        const auto placed = prefab->Instantiate( s_Scene, *s_AssetManager, parentEntity, &origin );
+        if ( !placed )
+        {
+            // All of the selection or none of it: the entities come back, the written file is named.
+            composite->Undo();
+            OnStructuralChange();
+            return Common::MakeFormattedError<Result>( "Create Prefab from Selection: '{}' was written, but its "
+                                                       "instance was refused and the selection is "
+                                                       "back as it was: {}",
+                                                       prefabFile.generic_string(), placed.GetError() );
+        }
+        const Common::UUID instanceId = UUIDOf( placed.GetValue() );
+        composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ instanceId } ) );
+
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+        Core::SelectionManager::SetSelected( instanceId );
+        LOG_INFO( "[Prefab] {} entit{} -> '{}' (pivot {}); one instance stands in their place", roots.size(),
+                  roots.size() == 1 ? "y" : "ies", prefabFile.generic_string(), PrefabPivotLabel( pivot ) );
+        return Common::MakeSuccess( instanceId );
+    }
+
+    Common::ResultStr<size_t> BreakPrefabInstance( const Common::UUID& uuid, BreakDepth depth )
+    {
+        if ( !Ready() )
+            return Common::MakeError<size_t>( "Break Prefab: there is no open scene" );
+        auto root = FindEntity( uuid );
+        if ( !root || !root->HasComponent<ECS::PrefabComponent>() )
+            return Common::MakeFormattedError<size_t>( "Break Prefab: entity {} is not a prefab instance's root",
+                                                       static_cast<uint64_t>( uuid ) );
+        if ( SitsInsideInstance( *root ) )
+            return Common::MakeFormattedError<size_t>(
+                 "Break Prefab: '{}' is nested inside another prefab instance; break that instance first",
+                 PrefabTagOf( *root ) );
+
+        std::vector<BrokenLink>   links;
+        entt::registry&           registry = *root->GetRegistry();
+        std::vector<entt::entity> pending{ root->GetHandle() };
+        while ( !pending.empty() )
+        {
+            ECS::Entity entity{ pending.back(), registry };
+            pending.pop_back();
+            if ( entity.HasComponent<ECS::RelationshipComponent>() )
+                for ( const entt::entity child : entity.GetComponent<ECS::RelationshipComponent>().Children )
+                    pending.push_back( child );
+
+            BrokenLink link;
+            link.Entity           = UUIDOf( entity );
+            const bool brokenRoot = entity.GetHandle() == root->GetHandle() || depth == BreakDepth::AllLevels;
+            if ( brokenRoot && entity.HasComponent<ECS::PrefabComponent>() )
+                link.Prefab = entity.GetComponent<ECS::PrefabComponent>().Prefab;
+            if ( entity.HasComponent<ECS::PrefabInstanceComponent>() )
+            {
+                // One element per level, outermost first: under OneLevel an entity of a nested instance keeps its
+                // address inside that instance - which is now a scene-level one - and loses the broken level's.
+                const std::vector<Common::UUID>& path =
+                     entity.GetComponent<ECS::PrefabInstanceComponent>().SourcePath;
+                link.PathBefore = path;
+                if ( depth == BreakDepth::OneLevel && path.size() > 1 )
+                    link.PathAfter = std::vector<Common::UUID>( path.begin() + 1, path.end() );
+            }
+            if ( link.Prefab.has_value() || link.PathBefore.has_value() )
+                links.push_back( std::move( link ) );
+        }
+
+        auto command = std::make_unique<BreakPrefabCommand>( uuid, std::move( links ), depth );
+        command->Redo();
+        const size_t changed = command->Count();
+        CommandHistory::Get().PushCommand( std::move( command ) );
+        OnStructuralChange();
+        LOG_INFO( "[Prefab] broke '{}' ({}): {} entit{} changed", PrefabTagOf( *root ),
+                  depth == BreakDepth::OneLevel ? "one level" : "all levels", changed,
+                  changed == 1 ? "y" : "ies" );
+        return Common::MakeSuccess( changed );
+    }
+
+    namespace
+    {
         // The fold's identity, read off a live entity. One reader, two callers — the selector below and
         // the fold itself — so "what matches" and "what folds" are one answer.
         std::optional<FoldMeshIdentity> StaticMeshIdentityOf( ECS::Entity entity )
@@ -1806,25 +2649,18 @@ namespace Desert::Editor::Commands
             candidate.World    = entity.GetWorldTransform();
             candidate.Identity = *identity;
 
-            // The static component's own fields that an ISM has no room for. Each one is a knob somebody
-            // deliberately moved, so losing it silently is losing an authoring decision.
-            if ( mesh.GetOutlineDraw() )
-                candidate.Blockers.emplace_back( "a persistent outline" );
-            if ( mesh.GetForcedLOD() >= 0 )
-                candidate.Blockers.emplace_back( "a forced LOD" );
-            if ( mesh.GetLODBias() != 0 )
-                candidate.Blockers.emplace_back( "a LOD bias" );
-            if ( !mesh.GetReceiveShadows() )
-                candidate.Blockers.emplace_back( "receive-shadows off" );
-            if ( mesh.GetTranslucencySortPriority() != 0 )
-                candidate.Blockers.emplace_back( "a translucency sort priority" );
-            if ( mesh.GetHiddenSubmeshes() != 0 )
-                candidate.Blockers.emplace_back( "hidden submeshes" );
-            if ( mesh.GetMaxDrawDistance() > 0.0f )
-                candidate.Blockers.emplace_back( "a max draw distance" );
-            if ( mesh.GetEditableMesh() )
-                candidate.Blockers.emplace_back( "a mesh built in the editor (an instanced mesh names an asset or "
-                                                 "a primitive)" );
+            // The static component's own fields that an ISM has no room for - THE ONE LIST the prefab packer asks
+            // too (Assets::StaticMeshPackBlockers), so what Collapse refuses and what does not pack agree.
+            ::Desert::Assets::StaticMeshPackFacts facts;
+            facts.OutlineDraw              = mesh.GetOutlineDraw();
+            facts.ForcedLOD                = mesh.GetForcedLOD();
+            facts.LODBias                  = mesh.GetLODBias();
+            facts.ReceiveShadows           = mesh.GetReceiveShadows();
+            facts.TranslucencySortPriority = mesh.GetTranslucencySortPriority();
+            facts.HiddenSubmeshes          = mesh.GetHiddenSubmeshes();
+            facts.MaxDrawDistance          = mesh.GetMaxDrawDistance();
+            facts.EditMesh                 = static_cast<bool>( mesh.GetEditableMesh() );
+            candidate.Blockers             = ::Desert::Assets::StaticMeshPackBlockers( facts );
 
             if ( entity.HasComponent<ECS::RelationshipComponent>() &&
                  !entity.GetComponent<ECS::RelationshipComponent>().Children.empty() )
@@ -1903,6 +2739,267 @@ namespace Desert::Editor::Commands
         LOG_INFO( "[Collapse] {0} entities -> 1 instanced mesh with {1} instances.", plan.Sources.size(),
                   ism.GetInstanceTransforms().size() );
         return Common::MakeSuccess( Common::UUID( folded ) );
+    }
+
+    namespace
+    {
+        // ONE PREFAB INSTANCE CHANGING MODE (WP-PACKED-PREFAB), done, undone and redone by one function.
+        //
+        // The step used to be a DeleteCommand of the old form plus a CreateCommand of the new one, and the
+        // snapshot those restore from cannot carry a packed instance: PackedPrefabComponent is runtime-only, so
+        // a redone Pack (or an undone Unpack) came back as a prefab root with loose ISM children - neither packed
+        // (it no longer followed its root or its source) nor unpacked (the saver counted the ISMs as entities
+        // added inside the instance and wrote them as overrides on top of the full prefab: everything drawn
+        // twice after a reload). A packed instance is rebuilt from its prefab, never from a snapshot; the
+        // unpacked subtree it replaced is kept, ids and all, so the way back is exactly what was there.
+        struct PrefabPackSwitch
+        {
+            Common::UUID                   Id;
+            std::optional<SubtreeSnapshot> Unpacked; // the unpacked instance as it last stood
+        };
+
+        // Why @p instance cannot change mode now, or empty. Packing also refuses what a packed instance cannot
+        // hold: a prefab that does not pack, and an instance that differs from its prefab.
+        std::string PackModeRefusal( const ECS::Entity instance, const bool packed )
+        {
+            for ( Common::UUID above = ParentUUIDOf( instance ); !above.IsNull(); )
+            {
+                const auto entity = FindEntity( above );
+                if ( !entity )
+                    break;
+                if ( entity->HasComponent<ECS::PrefabComponent>() )
+                    return "it is part of another prefab instance; switch that one";
+                above = ParentUUIDOf( *entity );
+            }
+            const auto asset = s_AssetManager->FindByHandle<::Desert::Assets::PrefabAsset>(
+                 instance.GetComponent<ECS::PrefabComponent>().Prefab );
+            if ( !asset || !asset->IsReadyForUse() )
+                return "its prefab is not loaded";
+            if ( !packed )
+                return {};
+
+            const auto form = asset->GetPacked();
+            if ( !form )
+                return "its prefab holds no packed form";
+            if ( form->Refused.has_value() )
+                return *form->Refused;
+            // Where the instance stands is its own (scene v37), not a difference from the prefab: taken out of
+            // the root's override exactly as the saver takes it (Assets::ReduceInstanceRecord).
+            auto capture = ::Desert::Core::Serialize::CapturePrefabInstance( instance, *s_AssetManager );
+            if ( capture.RootPath.has_value() )
+                (void)::Desert::Assets::TakeRootTransformOverride( capture.Overrides, *capture.RootPath );
+            if ( !capture.Overrides.empty() || capture.AddedEntities > 0 || capture.RemovedComponents > 0 )
+                return std::format( "it differs from its prefab ({} override(s), {} added entit(ies), {} removed "
+                                    "component(s)); apply them to the prefab or revert them, then pack",
+                                    capture.Overrides.size(), capture.AddedEntities, capture.RemovedComponents );
+            return {};
+        }
+
+        // Rebuilds the instance root @p id in the asked mode under the same id, parent and placement. Going
+        // packed keeps the unpacked subtree in @p unpacked; going unpacked restores it when there is one, and
+        // otherwise instantiates the prefab as it is now. Refuses (and leaves the instance alone) BEFORE
+        // anything is destroyed.
+        Common::BoolResultStr SwitchPrefabPackMode( const Common::UUID& id, const bool packed,
+                                                    std::optional<SubtreeSnapshot>& unpacked )
+        {
+            const auto found = FindEntity( id );
+            if ( !found || !found->HasComponent<ECS::PrefabComponent>() )
+                return Common::MakeError<bool>( "the instance is no longer in the scene" );
+            const ECS::Entity instance = *found;
+            if ( instance.HasComponent<::Desert::Runtime::Factory::PackedPrefabComponent>() == packed )
+                return Common::MakeSuccess( true );
+            if ( const std::string refusal = PackModeRefusal( instance, packed ); !refusal.empty() )
+                return Common::MakeError<bool>( refusal );
+
+            const auto asset = s_AssetManager->FindByHandle<::Desert::Assets::PrefabAsset>(
+                 instance.GetComponent<ECS::PrefabComponent>().Prefab );
+            const ECS::LocalTransform local  = instance.GetComponent<ECS::TransformComponent>().GetLocal();
+            const Common::UUID        parent = ParentUUIDOf( instance );
+            if ( packed )
+                unpacked = CaptureSubtree( instance );
+            DestroyByUUID( id );
+
+            ECS::Entity rebuilt;
+            if ( packed )
+            {
+                auto made = ::Desert::Runtime::Factory::PrefabFactory::InstantiatePacked( asset, *s_Scene,
+                                                                                          *s_AssetManager, id );
+                if ( made )
+                    rebuilt = made.GetValue();
+                else if ( unpacked.has_value() )
+                {
+                    // Every refusal was asked above, so this is the factory disagreeing with them: the instance
+                    // goes back as it was rather than vanish.
+                    (void)RestoreSnapshot( *unpacked, /*preserveIds=*/true );
+                    return Common::MakeError<bool>( made.GetError() );
+                }
+            }
+            else if ( unpacked.has_value() )
+                rebuilt = RestoreSnapshot( *unpacked, /*preserveIds=*/true ); // its own parent and transform
+            else
+            {
+                std::unordered_set<Common::UUID> stack;
+                rebuilt = ::Desert::Runtime::Factory::PrefabFactory::Instantiate( *asset, *s_Scene,
+                                                                                  *s_AssetManager, stack, {}, id );
+            }
+            if ( !rebuilt )
+                return Common::MakeError<bool>( "the instance could not be rebuilt" );
+
+            ECS::SetLocalTransform( *rebuilt.GetRegistry(), rebuilt.GetHandle(), local );
+            if ( !parent.IsNull() && ParentUUIDOf( rebuilt ) != parent )
+                if ( const auto above = FindEntity( parent ) )
+                    s_Scene->Attach( *above, rebuilt );
+            return Common::MakeSuccess( true );
+        }
+
+        class PrefabPackModeCommand final : public ICommand
+        {
+        public:
+            PrefabPackModeCommand( std::vector<PrefabPackSwitch> switches, const bool packed )
+                 : m_Switches( std::move( switches ) ), m_Packed( packed )
+            {
+            }
+
+            std::string GetLabel() const override
+            {
+                return m_Packed ? "Pack Prefab Instances" : "Unpack Prefab Instances";
+            }
+
+            bool Undo() override
+            {
+                return Switch( !m_Packed );
+            }
+
+            bool Redo() override
+            {
+                return Switch( m_Packed );
+            }
+
+        private:
+            bool Switch( const bool packed )
+            {
+                std::vector<Common::UUID> switched;
+                for ( PrefabPackSwitch& entry : m_Switches )
+                {
+                    if ( const auto done = SwitchPrefabPackMode( entry.Id, packed, entry.Unpacked ); done )
+                        switched.push_back( entry.Id );
+                    else
+                        LOG_ERROR( "[Prefab] {} of instance {} failed: {}", packed ? "Packing" : "Unpacking",
+                                   entry.Id.ToString(), done.GetError() );
+                }
+                if ( switched.empty() )
+                    return false;
+                Core::SelectionManager::SetSelection( switched );
+                OnStructuralChange();
+                return true;
+            }
+
+            std::vector<PrefabPackSwitch> m_Switches;
+            bool                          m_Packed = true;
+        };
+    } // namespace
+
+    Common::ResultStr<std::size_t> SetPrefabInstancesPacked( const std::vector<Common::UUID>& uuids,
+                                                             const bool                       packed )
+    {
+        if ( !Ready() )
+            return Common::MakeError<std::size_t>( "No scene is open." );
+
+        std::vector<PrefabPackSwitch> switches;
+        std::vector<Common::UUID>     switched;
+        std::vector<std::string>      refusals;
+        for ( const Common::UUID& uuid : uuids )
+        {
+            const auto found = FindEntity( uuid );
+            if ( !found || !found->HasComponent<ECS::PrefabComponent>() )
+                continue;
+            if ( found->HasComponent<::Desert::Runtime::Factory::PackedPrefabComponent>() == packed )
+                continue;
+            const std::string name = found->HasComponent<ECS::TagComponent>()
+                                          ? found->GetComponent<ECS::TagComponent>().Tag
+                                          : std::string( "Entity" );
+
+            PrefabPackSwitch entry{ uuid, std::nullopt };
+            if ( const auto done = SwitchPrefabPackMode( uuid, packed, entry.Unpacked ); !done )
+            {
+                refusals.push_back( std::format( "{}: {}", name, done.GetError() ) );
+                continue;
+            }
+            switched.push_back( uuid );
+            switches.push_back( std::move( entry ) );
+        }
+
+        std::string refused;
+        for ( std::size_t i = 0; i < refusals.size(); ++i )
+            refused += std::format( "{}{}", i > 0 ? "; " : "", refusals[i] );
+        if ( switches.empty() )
+            return Common::MakeError<std::size_t>(
+                 refusals.empty() ? std::format( "the selection holds no prefab instance that is not already {}",
+                                                 packed ? "packed" : "unpacked" )
+                                  : refused );
+
+        Core::SelectionManager::SetSelection( switched );
+        CommandHistory::Get().PushCommand(
+             std::make_unique<PrefabPackModeCommand>( std::move( switches ), packed ) );
+        OnStructuralChange();
+        if ( !refusals.empty() )
+        {
+            LOG_WARN( "[Prefab] {} instance(s) {}; not changed: {}", switched.size(),
+                      packed ? "packed" : "unpacked", refused );
+        }
+        else
+        {
+            LOG_INFO( "[Prefab] {} instance(s) {}.", switched.size(), packed ? "packed" : "unpacked" );
+        }
+        return Common::MakeSuccess( switched.size() );
+    }
+
+    Common::ResultStr<std::size_t> SelectPrefabInstancesLike( const Common::UUID& like )
+    {
+        if ( !Ready() )
+            return Common::MakeError<std::size_t>( "No scene is open." );
+        const auto seed = FindEntity( like );
+        if ( !seed || !seed->HasComponent<ECS::PrefabComponent>() )
+            return Common::MakeError<std::size_t>( "the selected entity is not a prefab instance root" );
+        const auto prefab = seed->GetComponent<ECS::PrefabComponent>().Prefab;
+
+        std::vector<Common::UUID> matching;
+        for ( const auto& entity : s_Scene->GetAllEntities() )
+        {
+            const ECS::Entity candidate = entity;
+            if ( !candidate.HasComponent<ECS::PrefabComponent>() ||
+                 candidate.GetComponent<ECS::PrefabComponent>().Prefab != prefab )
+                continue;
+            if ( const Common::UUID uuid = UUIDOf( candidate ); !uuid.IsNull() )
+                matching.push_back( uuid );
+        }
+        Core::SelectionManager::SetSelection( matching );
+        return Common::MakeSuccess( matching.size() );
+    }
+
+    Common::ResultStr<Common::UUID> ApplyEnclosingPrefabInstance( const Common::UUID& inside )
+    {
+        if ( !Ready() )
+            return Common::MakeError<Common::UUID>( "No scene is open." );
+        // The nearest prefab root at or above @p inside: the instance being edited (UE: commit the level
+        // instance being edited from any actor inside it).
+        for ( Common::UUID at = inside; !at.IsNull(); )
+        {
+            const auto entity = FindEntity( at );
+            if ( !entity )
+                break;
+            if ( entity->HasComponent<ECS::PrefabComponent>() )
+            {
+                if ( entity->HasComponent<::Desert::Runtime::Factory::PackedPrefabComponent>() )
+                    return Common::MakeError<Common::UUID>(
+                         "the instance is packed; Unpack Prefab Instances to Edit first" );
+                if ( !ApplyPrefabInstance( at ) )
+                    return Common::MakeError<Common::UUID>( "the prefab was not written (the log says why)" );
+                return Common::MakeSuccess( Common::UUID( at ) );
+            }
+            at = ParentUUIDOf( *entity );
+        }
+        return Common::MakeError<Common::UUID>( "the selection is not inside a prefab instance" );
     }
 
     Common::ResultStr<Common::UUID> ReplaceWithNewEntity( const Common::UUID& source, const std::string& name,
@@ -1987,6 +3084,91 @@ namespace Desert::Editor::Commands
         CommandHistory::Get().PushCommand(
              std::make_unique<EntityStateCommand>( std::move( before ), std::move( after ) ) );
         OnStructuralChange(); // the mutation itself may have relocated component pools
+    }
+
+    Common::BoolResultStr SetComponentBlockMember( const Common::UUID& uuid, std::string_view block,
+                                                   std::string_view member, std::string_view json )
+    {
+        if ( !Ready() )
+            return Common::MakeError<bool>( "no scene is open" );
+        auto e = FindEntity( uuid );
+        if ( !e )
+            return Common::MakeError<bool>( std::format( "no entity {}", static_cast<std::uint64_t>( Common::UUID( uuid ) ) ) );
+        ECS::Entity entity = *e;
+
+        const ::Desert::Core::Serialize::ComponentSerializer* serializer = nullptr;
+        for ( const auto& s : ::Desert::Core::Serialize::ComponentRegistry::Get().All() )
+            if ( s.Key == block && s.Has && s.Has( entity ) )
+                serializer = &s;
+        if ( serializer == nullptr || !serializer->Serialize || !serializer->Deserialize )
+            return Common::MakeError<bool>( std::format( "entity {} has no '{}' block; ask 'properties'",
+                                                         static_cast<std::uint64_t>( Common::UUID( uuid ) ), block ) );
+
+        auto parsed = Common::Json::Parse( json );
+        if ( !parsed )
+            return Common::MakeError<bool>( std::format( "'{}.{}' takes the JSON of its scene block: {}", block,
+                                                         member, parsed.GetError() ) );
+
+        // The block as the entity holds it now, with this one member replaced: every other member keeps its value
+        // (a reader fills a missing member with its default, which would be a second, silent edit).
+        const Common::Json::Value current = serializer->Serialize( entity, *s_AssetManager );
+        Common::Json::Object      merged;
+        bool known = std::find( serializer->DeclaredMembers.begin(), serializer->DeclaredMembers.end(), member ) !=
+                     serializer->DeclaredMembers.end();
+        Common::Json::Root( current ).ForEachMember(
+             [&]( std::string_view name, const Common::Json::Node& value )
+             {
+                 if ( name == member )
+                     known = true;
+                 else
+                     merged[std::string( name )] = value.Raw();
+             } );
+        if ( !known )
+            return Common::MakeError<bool>( std::format( "the '{}' block has no member '{}'", block, member ) );
+        merged[std::string( member )] = std::move( parsed.GetValue() );
+        const Common::Json::Value document( std::move( merged ) );
+
+        auto                 before = CaptureSubtree( entity );
+        Common::Json::Issues issues;
+        serializer->Deserialize( entity, Common::Json::Root( document, Common::Json::Path{}.Key( block ) ),
+                                 *s_AssetManager, issues );
+        if ( !issues.empty() )
+            // A block is read whole or not at all (ReadBlock), so a refusal left the component as it was.
+            return Common::MakeError<bool>( std::format( "'{}.{}' refused the JSON value: {}", block, member,
+                                                         Common::Json::Describe( issues.front() ) ) );
+        CommandHistory::Get().PushCommand(
+             std::make_unique<EntityStateCommand>( std::move( before ), CaptureSubtree( entity ) ) );
+        OnStructuralChange();
+        return Common::MakeSuccess( true );
+    }
+
+    void MutateEntitiesUndoable( const std::vector<Common::UUID>& roots, const std::string& label,
+                                 const std::function<void()>& mutate )
+    {
+        if ( !Ready() || !mutate )
+            return;
+        std::vector<std::pair<Common::UUID, SubtreeSnapshot>> before;
+        for ( const auto& uuid : FilterTopLevel( roots ) )
+            if ( auto e = FindEntity( uuid ) )
+                before.emplace_back( uuid, CaptureSubtree( *e ) );
+        mutate();
+        auto composite = std::make_unique<CompositeCommand>( label );
+        for ( auto& [uuid, snapshot] : before )
+            if ( auto e = FindEntity( uuid ) )
+            {
+                auto after = CaptureSubtree( *e );
+                composite->Add(
+                     std::make_unique<EntityStateCommand>( std::move( snapshot ), std::move( after ) ) );
+            }
+        if ( composite->Empty() )
+            return;
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+    }
+
+    void SetCreatedEntitiesContext( CreatedEntitiesContext context )
+    {
+        s_CreatedContext = std::move( context );
     }
 
     Common::ResultStr<std::filesystem::path> OutputStaticMesh( const Common::UUID& uuid, std::string_view folder,

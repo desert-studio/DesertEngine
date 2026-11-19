@@ -89,6 +89,14 @@ namespace Desert::Runtime
      * file, creates or frees a GPU image, asks the AssetManager, or reaches RenderTask (an AfterJoin may run at
      * once or Join, and a join waits for workers that wait for this lock) or the material service.
      */
+    /// WHETHER A TEXTURE IS DRAWN AS IT IS ABOUT TO BE ASKED FOR (WP-HLOD-WARMUP): TextureService::WarmthFor.
+    enum class TextureWarmth : uint8_t
+    {
+        Arriving, ///< not built, a read or a mip raise in flight, or short of the mips the size needs
+        Resident, ///< built, at the mips the size needs, or at what the pool fit grants an ask that large
+        Absent,   ///< nothing will arrive: failed, or not in the project (the draw binds the slot default)
+    };
+
     class TextureService
     {
     public:
@@ -160,6 +168,13 @@ namespace Desert::Runtime
         /// takes no exclusive lock.
         void UpdateStreaming();
 
+        /// THE WARMUP'S QUESTION (WP-HLOD-WARMUP; UE's HLOD warmup asks the streamer before a swap): is @p handle
+        /// drawn right now at the mips a draw @p screenPixels across needs - or, when the last streaming step's
+        /// pool fit granted an ask that large less, at what it granted (waiting would bring no more)? Starts
+        /// nothing: the caller asks `Require` and notes its demand (TextureStreamingDemand::SetWarmups). Main
+        /// thread: it reads the frame loop's streaming fields, as UpdateStreaming does.
+        [[nodiscard]] TextureWarmth WarmthFor( const Assets::AssetHandle& handle, float screenPixels ) const;
+
         /// Cooked results still waiting for their upload (tests, diagnostics).
         std::size_t PendingUploads() const;
 
@@ -205,7 +220,18 @@ namespace Desert::Runtime
             uint64_t              LastAskedFrame    = 0;
             uint64_t              HeldFrame         = 0;    // the frame AskedPixels was last raised or refreshed
             float                 AskedPixels       = 0.0f; // the largest ask held over HoldFrames
+            /// The last streaming step's decision: the first level the held ask wants, and the first level the
+            /// pool fit left it (larger = the pool took levels back). The frame loop's, as the two above.
+            uint32_t WantedFirstMip = Graphic::Texture2D::kStreamingTail;
+            uint32_t FitFirstMip    = Graphic::Texture2D::kStreamingTail;
         };
+
+        /// The first level a draw @p asked pixels across needs (UE FStreamingRenderAsset::GetWantedMips): the
+        /// smallest that still gives the screen the texels it covers; the tail for 0. The one rule UpdateStreaming
+        /// and WarmthFor both apply.
+        static uint32_t FirstMipFor( const Entry& entry, float asked, const TextureStreamingSettings& settings );
+        /// The tail: the first level no larger than TailSize on its longer side.
+        static uint32_t TailMipOf( const Entry& entry, const TextureStreamingSettings& settings );
 
         /// What `Require` answers without starting anything: Ready, Null (failed, or no shell) or Pending (a read
         /// or a cook in flight). Empty for a row never asked for, whose read the caller starts. Lock held.

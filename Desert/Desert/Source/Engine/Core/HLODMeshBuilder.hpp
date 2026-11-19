@@ -16,30 +16,127 @@
 // found through @p registries by {MeshGuid, MeshPath}. A part whose mesh is in no registry or does not read is
 // an ERROR naming it: a merged HLOD with a silently missing piece is a hole nobody listed.
 
-#include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODBuilders.hpp>
+
+#include <Engine/Geometry/MeshNormalMapBake.hpp>
+
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <Common/Utilities/AssetRegistry.hpp>
 
+#include <optional>
+#include <string>
+
 #include <span>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace Desert::Core
 {
-    // THE HLOD BUILDERS OF A COOK, in one place: every world cook - editor Play (WorldStreamer), the packager
-    // (GamePackager) and the WorldCook tool - takes its builders from here, so the three cannot build different
-    // stand-ins for one world. Mesh binds @p registries (the caller keeps them alive for the cook); Landscape
-    // reads the tile's height file itself.
-    struct HLODBuilders
+    // UE UHLODBuilderMeshMergeSettings (FMeshMergingSettings' bMergeMaterials + MaterialSettings): what a
+    // MeshMerge layer's Settings state (HLODLayerSerialized::Settings, WP v12), read by its builder alone. A layer
+    // may state none: MergeMaterials absent = one section per distinct source material.
+    struct HLODMeshMergeSettings
     {
-        Rules::HLODMeshBuilder      Mesh;
-        Rules::LandscapeHLODBuilder Landscape;
+        std::optional<HLODMaterialMergeSerialized> MergeMaterials;
     };
 
-    [[nodiscard]] HLODBuilders MakeHLODBuilders( std::span<const Common::Utils::AssetRegistry> registries );
+    // UE UHLODBuilderMeshSimplifySettings (FMeshProxySettings' triangle target, as a fraction, and its
+    // MaterialSettings): what a MeshSimplify layer's Settings state, read by its builder alone. TrianglePercent is
+    // the share of the merged mesh's triangles kept, in (0, 1]; REQUIRED - the builder refuses Settings without it
+    // rather than pick a share nobody chose. MergeMaterials as HLODMeshMergeSettings'.
+    struct HLODMeshSimplifySettings
+    {
+        std::optional<float>                       TrianglePercent;
+        std::optional<HLODMaterialMergeSerialized> MergeMaterials;
+    };
 
-    // The build itself, for one request; MakeHLODBuilders binds @p registries into it.
+    // THE PROCESS'S HLOD BUILDERS (UE: every UHLODBuilder subclass of the loaded modules), registered on first
+    // use: Instancing, MeshMerge, MeshSimplify and MeshApproximate (HLODApproximate.hpp; its Settings are
+    // HLODApproximationSettings) under their type's name (Rules::kBuiltInHLODBuilders), the landscape builder
+    // (BuildLandscapeHLODMesh) and the landscape spline builder (BuildLandscapeSplineHLODMesh). A project or game
+    // module registers its own here, at startup, for a Custom layer to name
+    // (Rules::HLODBuilderRegistry::Register). The editor's Build HLODs builds with a copy of it.
+    [[nodiscard]] Rules::HLODBuilderRegistry& HLODBuilders();
+
+    // THE SPLINE MESHES OF ONE LANDSCAPE SPLINE (Rules::LandscapeSplineHLODRequest; UE: the spline's
+    // USplineMeshComponents in its cell's HLOD): its LandscapeSpline block read as the loader reads it, every
+    // segment's SplineMeshes bent by World::Landscape::BuildLandscapeSplineSegmentMeshes - the same function the
+    // editor and the game draw them with (LandscapeSplineMeshDraw) - from the built-in shape or the mesh asset
+    // (resolved by its handle in @p registries, read as BuildHLODMesh reads a part), one world-space EditMesh.
+    // Nullopt when the spline lays no mesh.
+    [[nodiscard]] Common::ResultStr<std::optional<Assets::StaticMeshComponentSer>>
+    BuildLandscapeSplineHLODMesh( const Rules::LandscapeSplineHLODRequest&      request,
+                                  std::span<const Common::Utils::AssetRegistry> registries );
+
+    // The geometry of a MeshMerge / MeshSimplify HLOD, for one request; the builders pass the cook's @p
+    // registries. A request with MergeMaterials answers BuildHLODMeshForBake's mesh: one section over the atlas and
+    // NO material slot - only the editor's Build HLODs, which bakes that material, may build such a layer
+    // (WorldPartitionPanel states its own mesh geometry on its builders, binds M_HLOD_<key> and refuses a merged
+    // mesh whose material was not baked).
     [[nodiscard]] Common::ResultStr<Assets::StaticMeshComponentSer>
     BuildHLODMesh( const Rules::HLODMeshRequest&                 request,
                    std::span<const Common::Utils::AssetRegistry> registries );
+
+    // The side of the square a bake proxy is laid out on (HLODMaterialBakeSource::Proxy), in cm: atlas UV (u, v)
+    // sits at world (u, 0, v) * this.
+    inline constexpr float kHLODBakeProxySideCm = 1000.0f;
+
+    // THE BAKE INPUT OF A MESH HLOD WITH MERGED MATERIALS (WP-HLOD-MATBAKE; UE IMeshMergeUtilities::
+    // MergeComponentsToStaticMesh / CreateProxyMesh with bMergeMaterials, whose FMaterialBakingModule renders each
+    // source material over the mesh's UV layout):
+    struct HLODMaterialBakeSource
+    {
+        // Names the baked files (M_HLOD_<Key>.demat, T_HLOD_<Key>_*.detex): HLODMeshKey of the request, so the
+        // Build HLODs probe and its final build - two passes over one saved world - name one mesh the same way.
+        std::string                 Key;
+        HLODMaterialMergeSerialized Settings;
+        // THE SOURCE SURFACE LAID FLAT ON ITS ATLAS: every merged source triangle with its corners at
+        // (u, 0, v) * kHLODBakeProxySideCm of their atlas UV (u, v), carrying their WORLD normal, tangent and
+        // bitangent and their SOURCE UV, one section per source material (the slots in first-seen order), turned
+        // to face +Y. Seen from straight above through the G-buffer it gives, per atlas texel, the source
+        // material's BaseColor, Metallic, world Normal, Roughness, AO and Emissive at that surface point - any
+        // material, as the renderer evaluates it.
+        Assets::StaticMeshComponentSer Proxy;
+        // MeshSimplify only: the merged source in world space (positions, vertex normals, triangles) with its
+        // ATLAS UVs - the layout the proxy is laid out on - what the simplified mesh's texels are projected onto
+        // along their normals (UE's proxy transfer; BakeMeshMaps' correspondence). Empty for MeshMerge, whose
+        // built mesh is that atlas itself.
+        Geometry::BakeSurface Source;
+    };
+
+    // BuildHLODMesh's mesh and, for a request with MergeMaterials, its bake input (BuildHLODMesh is this with the
+    // input dropped, so the bake and the build cannot differ). MeshMerge: the merged triangles in one section,
+    // UV layer 0 the source UV islands packed by UVPacker (texel density even in world space), world frames kept.
+    // MeshSimplify: the merged mesh simplified, then AutoUV (patches, packed at TextureSize) and tangents rebuilt.
+    // Refused by name as BuildHLODMesh is, and when the islands do not pack or the simplified mesh does not
+    // unwrap.
+    struct HLODMeshBuild
+    {
+        Assets::StaticMeshComponentSer        Mesh;
+        std::optional<HLODMaterialBakeSource> Bake;
+    };
+    [[nodiscard]] Common::ResultStr<HLODMeshBuild>
+    BuildHLODMeshForBake( const Rules::HLODMeshRequest&                 request,
+                          std::span<const Common::Utils::AssetRegistry> registries );
+
+    // 16 hex digits hashing everything the request builds from (type, triangle share, MergeMaterials, every part's
+    // mesh, materials and instance matrices).
+    [[nodiscard]] std::string HLODMeshKey( const Rules::HLODMeshRequest& request );
+
+    // THE CELL'S PARTS, MERGED - the first half of BuildHLODMesh: every instance of every part in WORLD space, one
+    // section per distinct material, welded into one DynamicMesh3; Slots are the {GUID, path} each MaterialID
+    // names, first-seen order (empty pair = the part stated no material). MeshApproximate's capture bake reads it
+    // as the surface its photos see (Editor HLODApproximateBake). Refused as BuildHLODMesh refuses a part.
+    struct MergedHLODParts
+    {
+        Geometry::DynamicMesh3                           Mesh;
+        std::vector<std::pair<std::string, std::string>> Slots;
+    };
+    [[nodiscard]] Common::ResultStr<MergedHLODParts>
+    MergeHLODParts( const Rules::HLODMeshRequest&                 request,
+                    std::span<const Common::Utils::AssetRegistry> registries );
 
     // THE LANDSCAPE HLOD OF ONE TILE (WP-FAR-6, Rules::LandscapeHLODRequest): the tile's heights, read from its
     // HeightFile (DLHT, resolved by Constants::Path::FullPath and read by ReadLandscapeTileFile, exactly as the

@@ -75,6 +75,10 @@
 
 #include <cstring>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
+#include <Engine/Runtime/Services/Lights/RectLightLtcService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Graphic
 {
@@ -1039,6 +1043,12 @@ namespace Desert::Graphic
         // The world's parameters, snapshotted once for every pass of this view's frame (per-frame state).
         if ( const auto uploaded = UploadWorldParameters( scene ); !uploaded )
             return uploaded;
+        // THE HLOD WARMUP'S ASKS (WP-HLOD-WARMUP; UE UWorldPartitionHLODRuntimeSubsystem::OnBeginRenderViews):
+        // what the world is about to show, measured at this view's lens as a draw is, so its mips stream first.
+        if ( camera != nullptr && GetViewExtent().Height > 0 )
+            TextureStreamingDemand::Get().NoteWarmups(
+                 &scene, Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                 GetViewExtent().Height );
 
         const auto& skyboxSystem = m_Systems.Skybox.get();
 

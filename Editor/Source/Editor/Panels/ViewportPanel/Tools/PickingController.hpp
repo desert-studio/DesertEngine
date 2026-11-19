@@ -1,6 +1,7 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Camera.hpp>
+#include <Engine/Core/Scene.hpp>
 
 #include <glm/glm.hpp>
 

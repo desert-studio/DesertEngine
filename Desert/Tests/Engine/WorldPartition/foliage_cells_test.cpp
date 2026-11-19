@@ -326,7 +326,8 @@ namespace
             for ( std::size_t record = 0; record < records; ++record )
                 Live.insert( record );
         }
-        Common::BoolResultStr Activate( std::size_t, std::span<const std::size_t> records ) override
+        Common::BoolResultStr Activate( std::size_t, std::size_t /*firstMember*/,
+                                        std::span<const std::size_t> records ) override
         {
             Live.insert( records.begin(), records.end() );
             return Common::MakeSuccess( true );
@@ -366,7 +367,6 @@ TEST( FoliageCells, AnUnloadedCellTakesItsFoliageAndTheLastCellTakesTheTypesHold
     const auto           plan = R::PlanWorldPartition( records, Grid() );
     R::ResidencySettings settings;
     settings.ActivationBudgetMs = 1.0;
-    settings.MsPerRecord        = 0.1;
     R::StreamingSource source{ F::FoliageCellAnchor( { 0, 0 }, kCell ) };
     source.RangeScale = 0.0f; // only the cell the source stands in
     LiveSet world( records.size() );

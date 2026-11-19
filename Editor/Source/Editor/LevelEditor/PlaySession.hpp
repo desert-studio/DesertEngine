@@ -6,7 +6,8 @@
 // snapshot Stop restores; the world streamer of a partitioned world in Play; the toolbar's playback group and
 // the palette's Play entries. A member of EditorLayer BY VALUE, declared after the SceneWorkspace it plays.
 
-#include <Engine/Desert.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"

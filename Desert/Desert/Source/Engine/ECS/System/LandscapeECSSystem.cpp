@@ -32,6 +32,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <Engine/Runtime/Services/Landscape/LandscapeGrassTypeService.hpp>
+#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
 
 namespace Desert::ECS
 {

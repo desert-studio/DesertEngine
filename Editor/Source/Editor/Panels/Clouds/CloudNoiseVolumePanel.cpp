@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <Engine/Runtime/Services/CloudNoise/CloudNoiseService.hpp>
 
 namespace Desert::Editor
 {

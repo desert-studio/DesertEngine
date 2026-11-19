@@ -83,12 +83,21 @@ namespace Desert::Core
                                                   .Persistent       = style.Persistent } );
     }
 
+    void DebugDrawWorld::AddScreenCanvas( DebugDrawCanvas canvas, const DebugDrawStyle& style )
+    {
+        m_Canvases.push_back( DebugDrawScreenCanvas{ .Canvas           = std::move( canvas ),
+                                                     .RemainingSeconds = style.Duration,
+                                                     .OneFrame         = IsOneFrame( style ),
+                                                     .Persistent       = style.Persistent } );
+    }
+
     void DebugDrawWorld::Tick( const float deltaSeconds, const bool advancesFrame )
     {
         AgeItems( m_Lines, deltaSeconds, advancesFrame );
         AgeItems( m_Points, deltaSeconds, advancesFrame );
         AgeItems( m_Strings, deltaSeconds, advancesFrame );
         AgeItems( m_Panels, deltaSeconds, advancesFrame );
+        AgeItems( m_Canvases, deltaSeconds, advancesFrame );
     }
 
     void DebugDrawWorld::FlushPersistentLines()
@@ -101,6 +110,7 @@ namespace Desert::Core
     {
         m_Strings.clear();
         m_Panels.clear();
+        m_Canvases.clear();
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -250,6 +260,11 @@ namespace Desert::Core
                           const DebugDrawPanelStyle& style )
         {
             scene.GetDebugDraw().AddScreenPanel( origin, std::move( lines ), style );
+        }
+
+        void ScreenCanvas( Scene& scene, DebugDrawCanvas canvas, const DebugDrawStyle& style )
+        {
+            scene.GetDebugDraw().AddScreenCanvas( std::move( canvas ), style );
         }
 
         void FlushPersistent( Scene& scene )

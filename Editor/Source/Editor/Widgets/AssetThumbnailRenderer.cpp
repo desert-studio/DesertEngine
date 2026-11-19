@@ -30,6 +30,7 @@
 #include <chrono>
 #include <filesystem>
 #include <cmath>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); just declare here.
 

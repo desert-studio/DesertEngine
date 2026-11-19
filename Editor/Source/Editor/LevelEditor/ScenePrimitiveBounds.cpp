@@ -12,6 +12,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
 
 namespace Desert::Editor
 {
