@@ -4,7 +4,9 @@ Shader "MotionBlurTileMax"
     Compute
     {
         // MR2 (View/MotionBlur.hpp). Pass 2 of 4, one invocation per 16x16 render tile (kMotionBlurTileSize): the
-        // longest flattened velocity of the tile (UE's velocity tile max). CPU twin: Graphic::LongestVelocity.
+        // longest flattened velocity of the tile (UE's velocity tile max; CPU twin: Graphic::LongestVelocity) in xy,
+        // and the SHORTEST velocity length of the tile in z (Jimenez, CoD:AW: a tile whose min is close to its max
+        // moves as one, and Gather takes the fast path there).
         LocalSize(8, 8, 1);
 
         const int kTileSize = 16; // Graphic::kMotionBlurTileSize
@@ -14,7 +16,7 @@ Shader "MotionBlurTileMax"
         Uniform(3) sampler PointClampSampler;
         Uniform(0) texture2D FlattenedVelocityTexture; // RenderExtent
         #define FlattenedVelocityTexture sampler2D(FlattenedVelocityTexture, PointClampSampler)
-        layout(binding = 1, rg16f) restrict writeonly uniform image2D TileMaxTexture;
+        layout(binding = 1, rgba16f) restrict writeonly uniform image2D TileMaxTexture;
 
         // The C++ side is Graphic::MotionBlurParams (View/MotionBlur.hpp), offsets pinned by static_asserts.
         layout(std430, binding = 2) readonly buffer MotionBlurBuffer
@@ -40,6 +42,7 @@ Shader "MotionBlurTileMax"
             const ivec2 origin  = tile * kTileSize;
             vec2        longest = vec2(0.0);
             float       best    = 0.0;
+            float       least   = 3.0e38;
             for (int y = 0; y < kTileSize; ++y)
                 for (int x = 0; x < kTileSize; ++x)
                 {
@@ -48,13 +51,14 @@ Shader "MotionBlurTileMax"
                         continue;
                     const vec2  v        = texelFetch(FlattenedVelocityTexture, pixel, 0).xy;
                     const float lengthSq = dot(v, v);
+                    least                = min(least, lengthSq);
                     if (lengthSq > best)
                     {
                         best    = lengthSq;
                         longest = v;
                     }
                 }
-            imageStore(TileMaxTexture, tile, vec4(longest, 0.0, 0.0));
+            imageStore(TileMaxTexture, tile, vec4(longest, sqrt(least), 0.0));
         }
     }
 }

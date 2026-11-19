@@ -8,6 +8,14 @@ Shader "MotionBlurGather"
         // MotionBlurGather): a tap in front of the centre counts where its own velocity reaches the centre, a tap
         // behind it where the centre's velocity reaches it, and both when they move together. A pixel whose
         // neighbourhood does not move returns its colour unmodified (a still frame is bit-equal).
+        //
+        // Tile classification (Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare", 2014;
+        // UE's MotionBlurGather fast / slow tiles). The tap count comes from the neighbourhood's own blur length,
+        // one tap per kPixelsPerTap pixels, between kMinSamples and the quality's Samples (the cap): a short blur
+        // does not pay for 16 taps it cannot resolve. A neighbourhood whose slowest pixel moves at least
+        // kFastRatio of its fastest moves as one (a camera turn over most of the screen): every tap's velocity is
+        // the dominant one, so the slow path's weight collapses to the depth-free form below and the per-tap
+        // velocity fetch is skipped. NeighborMax is per 16x16 render tile, so an 8x8 group reads one class.
         LocalSize(8, 8, 1);
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
@@ -37,7 +45,10 @@ Shader "MotionBlurGather"
             mat4  ClipToPrevClip; // ViewFrame::ClipToPrevClip (unjittered); Flatten's sky branch
         };
 
-        const float kSoftDepth = 50.0; // relative depth difference over which front / back fades
+        const float kSoftDepth    = 50.0; // relative depth difference over which front / back fades
+        const float kPixelsPerTap = 1.0;  // blur length (output pixels) one tap covers
+        const int   kMinSamples   = 4;    // fewest taps on a moving neighbourhood
+        const float kFastRatio    = 0.9;  // neighbourhood min / max velocity length at or above which it moves as one
 
         // 1 when a is in front of (or level with) b, fading to 0 as it falls behind. Reversed-Z device depth is
         // ~ 1 / view dist, so the ratio a / b is scale-free.
@@ -63,7 +74,8 @@ Shader "MotionBlurGather"
                 return;
             const vec4  centreColor    = texelFetch(SceneColorTexture, pixel, 0);
             const vec2  uv             = (vec2(pixel) + 0.5) / OutputSize;
-            const vec2  dominant       = textureLod(NeighborMaxTexture, uv, 0.0).xy;
+            const vec3  neighborMax    = textureLod(NeighborMaxTexture, uv, 0.0).xyz; // xy longest, z slowest
+            const vec2  dominant       = neighborMax.xy;
             const float dominantLength = length(dominant);
             if (dominantLength < 0.5)
             {
@@ -71,29 +83,52 @@ Shader "MotionBlurGather"
                 return;
             }
 
-            const vec3  centreFlat   = textureLod(FlattenedVelocityTexture, uv, 0.0).xyz;
-            const float centreLength = max(length(centreFlat.xy), 0.5);
             // Interleaved gradient noise: the taps' offset along the velocity varies per pixel (no banding).
-            const float jitter = fract(52.9829189 * fract(dot(vec2(pixel), vec2(0.06711056, 0.00583715)))) - 0.5;
+            const float jitter  = fract(52.9829189 * fract(dot(vec2(pixel), vec2(0.06711056, 0.00583715)))) - 0.5;
+            const int   cap     = max(Samples, 1);
+            const int   samples = clamp(int(ceil(dominantLength / kPixelsPerTap)), min(kMinSamples, cap), cap);
 
-            vec3      sum     = centreColor.rgb / centreLength;
-            float     weight  = 1.0 / centreLength;
-            const int samples = max(Samples, 1);
-            for (int i = 0; i < samples; ++i)
+            vec3  sum;
+            float weight;
+            if (neighborMax.z >= kFastRatio * dominantLength)
             {
-                // Taps over the open shutter, -0.5 .. 0.5 of the dominant velocity.
-                const float t         = mix(-0.5, 0.5, (float(i) + 0.5 + jitter * 0.5) / float(samples));
-                const vec2  offset    = dominant * t;
-                const vec2  tapUv     = uv + offset / OutputSize;
-                const float dist  = length(offset);
-                const vec3  tapFlat   = textureLod(FlattenedVelocityTexture, tapUv, 0.0).xyz;
-                const float tapLength = length(tapFlat.xy);
-                const float front     = InFront(tapFlat.z, centreFlat.z);
-                const float back      = InFront(centreFlat.z, tapFlat.z);
-                const float w = front * Cone(dist, tapLength) + back * Cone(dist, centreLength) +
-                                Cylinder(dist, tapLength) * Cylinder(dist, centreLength) * 2.0;
-                sum += textureLod(SceneColorTexture, tapUv, 0.0).rgb * w;
-                weight += w;
+                // Fast path: centre and taps move with the dominant velocity at one depth (front = back = 1), the
+                // slow path's weight with tapLength = centreLength = dominantLength.
+                sum    = centreColor.rgb / dominantLength;
+                weight = 1.0 / dominantLength;
+                for (int i = 0; i < samples; ++i)
+                {
+                    const float t      = mix(-0.5, 0.5, (float(i) + 0.5 + jitter * 0.5) / float(samples));
+                    const vec2  offset = dominant * t;
+                    const float dist   = length(offset);
+                    const float cyl    = Cylinder(dist, dominantLength);
+                    const float w      = 2.0 * Cone(dist, dominantLength) + cyl * cyl * 2.0;
+                    sum += textureLod(SceneColorTexture, uv + offset / OutputSize, 0.0).rgb * w;
+                    weight += w;
+                }
+            }
+            else
+            {
+                const vec3  centreFlat   = textureLod(FlattenedVelocityTexture, uv, 0.0).xyz;
+                const float centreLength = max(length(centreFlat.xy), 0.5);
+                sum                      = centreColor.rgb / centreLength;
+                weight                   = 1.0 / centreLength;
+                for (int i = 0; i < samples; ++i)
+                {
+                    // Taps over the open shutter, -0.5 .. 0.5 of the dominant velocity.
+                    const float t         = mix(-0.5, 0.5, (float(i) + 0.5 + jitter * 0.5) / float(samples));
+                    const vec2  offset    = dominant * t;
+                    const vec2  tapUv     = uv + offset / OutputSize;
+                    const float dist      = length(offset);
+                    const vec3  tapFlat   = textureLod(FlattenedVelocityTexture, tapUv, 0.0).xyz;
+                    const float tapLength = length(tapFlat.xy);
+                    const float front     = InFront(tapFlat.z, centreFlat.z);
+                    const float back      = InFront(centreFlat.z, tapFlat.z);
+                    const float w = front * Cone(dist, tapLength) + back * Cone(dist, centreLength) +
+                                    Cylinder(dist, tapLength) * Cylinder(dist, centreLength) * 2.0;
+                    sum += textureLod(SceneColorTexture, tapUv, 0.0).rgb * w;
+                    weight += w;
+                }
             }
             imageStore(BlurredSceneColorTexture, pixel, vec4(sum / weight, centreColor.a));
         }
