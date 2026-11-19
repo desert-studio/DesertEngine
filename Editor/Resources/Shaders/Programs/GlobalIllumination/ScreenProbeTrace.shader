@@ -222,6 +222,15 @@ Shader "ScreenProbeTrace"
         {
             uvec2 screenProbeNearHit[];
         };
+        #elif defined( SP_TRACE_FAR_FIELD ) && defined( DESERT_GI_TRACER_SOFTWARE )
+        // FPS-SP-TRACE-FIELD: the software far field reads the span and near offset the near field handed a ray it
+        // listed (Common/ScreenProbeTracing.glslh SP_TRACE_FAR_SPAN_BIT: x = the near offset's bits, y = the march
+        // length's) - the same buffer, slots of rays that missed in the near field (its hits' slots hold their hit).
+        #define SP_TRACE_TAKES_FAR_SPAN 1
+        ReadBuffer(53) ScreenProbeNearHitUB
+        {
+            uvec2 screenProbeNearHit[];
+        };
         #endif
         #if defined( SP_TRACE_NEAR_FIELD ) && !defined( DESERT_GI_TRACER_SOFTWARE )
         #define SP_TRACE_LIGHTS_HITS 1 // the hardware near field's hits are triangles: lit where they are found
@@ -614,7 +623,23 @@ Shader "ScreenProbeTrace"
             const vec3       dir   = texel.direction;
             const ivec2       at     = SPAtlasOrigin( probe, SP_RES ) + texel.texel;
 #if !defined( SP_TRACE_CACHE_READ )
-#if !defined( SP_TRACE_LEG_BINS_RAYS )
+#if defined( SP_TRACE_TAKES_FAR_SPAN )
+            // FPS-SP-TRACE-FIELD: a ray the near field listed comes with its near offset and far-field span
+            // (SP_TRACE_FAR_SPAN_BIT): GIRayBias's far offset and screen tolerance are the voxel alone
+            // (GIFarFieldOffset), its near offset the walk of the froxel's object list the near field already took -
+            // the same bias, so the same ray. A ray the screen listed takes both here.
+            const bool  spanHanded = ( state & SP_TRACE_FAR_SPAN_BIT ) != 0u;
+            const uvec2 handoff    = spanHanded ? screenProbeNearHit[slot] : uvec2( 0u );
+            GITraceBias bias;
+            if ( spanHanded )
+            {
+                bias.farOffset       = GIFarFieldOffset( texel.position );
+                bias.screenTolerance = bias.farOffset;
+                bias.nearOffset      = uintBitsToFloat( handoff.x );
+            }
+            else
+                bias = GIRayBias( texel.position, N );
+#elif !defined( SP_TRACE_LEG_BINS_RAYS )
             // A function of the probe's point and normal (GIRayBias): its lanes share the probe, so they share it.
             const GITraceBias bias   = GIRayBias( texel.position, N );
 #endif
@@ -649,12 +674,13 @@ Shader "ScreenProbeTrace"
             // the full trace distance) whose far-field span is provably empty would only miss in the far field and
             // take the sky there (GIMissRadiance at SP_TRACE_DISTANCE, its final state unhit and unreached); the near
             // field stores that answer itself and lists the ray nowhere.
-            bool spanClear = false;
+            bool  spanClear = false;
+            float farSpan   = 0.0; // the far-field span's march length (GIFarFieldSpanClear): handed on below
             if ( !hit && !atCache )
             {
                 GITraceInput farRay = ray;
                 farRay.tMin = min( SPTraceHitDistance( SPEncodeTraceHit( farStart, false, false, false ) ), texel.tMax );
-                spanClear   = GIFarFieldSpanClear( farRay );
+                spanClear   = GIFarFieldSpanClear( farRay, farSpan );
             }
             const bool cacheCleared = spanClear && texel.coverage.valid;
             const bool sky          = spanClear && !texel.coverage.valid;
@@ -670,8 +696,21 @@ Shader "ScreenProbeTrace"
             }
             else if ( cacheCleared )
                 screenProbeTraceHit[slot] = SPEncodeTraceHit( texel.tMax, false, false, true );
+            else if ( atCache )
+                screenProbeTraceHit[slot] = SPEncodeTraceHit( farStart, false, false, true );
             else
-                screenProbeTraceHit[slot] = SPEncodeTraceHit( farStart, false, false, atCache );
+            {
+                // FPS-SP-TRACE-FIELD (UE: the voxel trace continues the mesh SDF trace's compacted rays): listed for
+                // the far field with what this leg already took for it - its near offset and the far-field span -
+                // so the far field walks neither the froxel's object list nor the occupied box and ceiling again
+                // (Common/ScreenProbeTracing.glslh SP_TRACE_FAR_SPAN_BIT). A zero distance keeps the plain state
+                // (that state with the bit is SP_TRACE_SKIPPED_STATE): the far field takes the span itself.
+                const uint farState = SPEncodeTraceHit( farStart, false, false, false );
+                const bool hand     = farState != 0u;
+                if ( hand )
+                    screenProbeNearHit[slot] = uvec2( floatBitsToUint( bias.nearOffset ), floatBitsToUint( farSpan ) );
+                screenProbeTraceHit[slot] = farState | ( hand ? SP_TRACE_FAR_SPAN_BIT : 0u );
+            }
 #if defined( SP_TRACE_MISS_REASONS )
             if ( sky )
                 SPCountFarFieldRays( SP_NEAR_FIELD_RAYS_SKY );
@@ -820,7 +859,20 @@ Shader "ScreenProbeTrace"
             // leg rebuilds the surface where it lights it).
             ray.flags |= GI_TRACE_DISTANCE_ONLY;
 #endif
+#if defined( SP_TRACE_TAKES_FAR_SPAN )
+            // The span the near field handed over, else the ray's own (GIFarFieldSpan, as GITraceFarField takes it):
+            // one march call for both kinds of lanes.
+            float marchLength = uintBitsToFloat( handoff.y );
+            if ( !spanHanded )
+            {
+                float globalStart;
+                if ( !GIFarFieldSpan( ray, globalStart, marchLength ) )
+                    marchLength = 0.0;
+            }
+            const GITraceResult far = GITraceFarFieldOverSpan( ray, marchLength );
+#else
             const GITraceResult far    = GITraceFarField( ray );
+#endif
 #if defined( SP_TRACE_MISS_REASONS )
             SPCountSteps( SP_FAR_FIELD_STEPS );
 #endif

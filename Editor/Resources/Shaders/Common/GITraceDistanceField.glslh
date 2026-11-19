@@ -418,26 +418,33 @@ bool GITraceFarFieldMarch( GITraceInput ray, out float globalStart, out GlobalDi
 // empty (GIFarFieldSpan: past ray.tMax, outside the occupied box, above every ceiling column) or the march's first
 // step already crosses it (GlobalDistanceFieldFirstStepClears, the march's own step 0). A leg that would list the ray
 // for the far field only to have it miss there (ScreenProbeTrace.shader's near field: a ray bound for the radiance
-// cache) hands it on itself. False says nothing.
-bool GIFarFieldSpanClear( GITraceInput ray )
+// cache) hands it on itself. False says nothing. @p marchLength: the span's (GIFarFieldSpan), so a leg that lists the
+// ray for the far field anyway hands it over and the far field marches it without taking it again
+// (GITraceFarFieldOverSpan; ScreenProbeTrace.shader SP_TRACE_FAR_SPAN_BIT).
+bool GIFarFieldSpanClear( GITraceInput ray, out float marchLength )
 {
     float globalStart;
-    float marchLength;
     if ( !GIFarFieldSpan( ray, globalStart, marchLength ) )
         return true;
     return GlobalDistanceFieldFirstStepClears( ray.origin + ray.direction * globalStart, ray.direction, marchLength,
                                                GI_TRACE_GDF_LEVELS );
 }
 
-// THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax, cut where the ray leaves the field's
-// occupied box (GIFarFieldOccupiedExit).
-GITraceResult GITraceFarField( GITraceInput ray )
+// THE FAR FIELD OVER A SPAN ALREADY TAKEN: GITraceFarField of @p ray whose GIFarFieldSpan gave @p marchLength (<= 0:
+// none, a miss) - the march from the same start (max( ray.tMin, ray.farTMin ), GIFarFieldSpan's globalStart) over the
+// same length, so the same answer. For a caller handed the span by the leg before it (ScreenProbeTrace.shader's far
+// field: SP_TRACE_FAR_SPAN_BIT), which walks neither the occupied box nor the ceiling again.
+GITraceResult GITraceFarFieldOverSpan( GITraceInput ray, float marchLength )
 {
-    GITraceResult          result;
+    GITraceResult result;
     result.hit = false;
-    float                  globalStart;
-    GlobalDistanceFieldHit march;
-    if ( !GITraceFarFieldMarch( ray, globalStart, march ) )
+    if ( !( marchLength > 0.0 ) )
+        return result;
+    const float                  globalStart = max( ray.tMin, ray.farTMin );
+    const GlobalDistanceFieldHit march =
+         GITraceFarFieldMarchFrom( ray.origin + ray.direction * globalStart, ray.direction, marchLength,
+                                   GITraceSeed( ray ), ray.flags );
+    if ( !march.Hit )
         return result;
 
     result.hit              = true;
@@ -454,6 +461,18 @@ GITraceResult GITraceFarField( GITraceInput ray )
     result.surface   = GIFarFieldSurface( start + ray.direction * march.T, ray.direction, result.surface.distance,
                                           march.Level );
     return result;
+}
+
+// THE FAR FIELD (UE TraceVoxels: the global SDF) from ray.tMin to ray.tMax, cut where the ray leaves the field's
+// occupied box (GIFarFieldOccupiedExit) and past the last ceiling column it is not above: its span
+// (GIFarFieldSpan), then the march over it (GITraceFarFieldOverSpan).
+GITraceResult GITraceFarField( GITraceInput ray )
+{
+    float globalStart;
+    float marchLength;
+    if ( !GIFarFieldSpan( ray, globalStart, marchLength ) )
+        marchLength = 0.0;
+    return GITraceFarFieldOverSpan( ray, marchLength );
 }
 
 // The surface of a far-field hit at @p position, @p distance along a ray of @p direction: no object, no material,
