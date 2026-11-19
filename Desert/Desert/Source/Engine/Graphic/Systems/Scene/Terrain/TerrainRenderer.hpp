@@ -617,11 +617,16 @@ namespace Desert::Graphic::System
         [[nodiscard]] GroupExecutorRange
         GroupExecutors( std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program ) const;
 
-        [[nodiscard]] Common::BoolResultStr RecordDraws(
-             const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
-             std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
-             const std::vector<FrameDraw>& draws, const std::optional<glm::vec2>& shadowSlope = std::nullopt,
-             const std::optional<VirtualShadowIndirect>& indirect = std::nullopt, RDG::BufferRef diceCull = {} );
+        [[nodiscard]] Common::BoolResultStr
+        RecordDraws( const RDG::PassContext& context, uint32_t firstBlock, const GraphicsPipeline& pipeline,
+                     std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
+                     const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws,
+                     const std::optional<glm::vec2>&             shadowSlope = std::nullopt,
+                     const std::optional<VirtualShadowIndirect>& indirect    = std::nullopt,
+                     RDG::BufferRef diceCull = {}, const GraphicsPipeline* solidPipeline = nullptr );
+        // Whether row @p row's tile can discard in a hole: it has layers (its weightmap is bound) and a visibility
+        // layer - TerrainCasterHole.glslh's test, on the CPU. A row without one never discards.
+        [[nodiscard]] static bool RowHasHoles( const TerrainInstance& row ) noexcept;
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
         // The forward program's DESERT_LOCAL_SHADOW_VSM permutation, built on the first frame whose local shadows
@@ -664,13 +669,21 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_DepthNoHolesPipeline;
         std::shared_ptr<GraphicsPipeline> m_GBufferDepthNoHolesPipeline;
         bool                              m_DepthNoHolesRefused = false;
-        // Whether a tile of this frame's m_Queue has a visibility layer (PrepareFrame): the discarding prepass.
-        bool                                  m_FrameHasHoles = true;
+        // Whether a tile of this frame's m_Queue has no visibility layer (PrepareFrame), so the early-tested twin
+        // is needed. FPS-TERRAIN-PREPASS (UE: the depth pass picks the depth-only shader per landscape component -
+        // a component without a visibility mask is opaque, early-Z, whatever its neighbours have): the holed tiles
+        // keep the discarding program in the same frame (RecordDraws' solidPipeline).
+        bool                                  m_FrameHasSolidTiles = false;
         void                                  EnsureDepthNoHolesPipelines();
         bool                                  m_DepthPrepass = false; // SetDepthPrepass
-        // The pipeline the view's depth prepass records with this frame: the forward one, the deferred one under
-        // PrepassesGBuffer, or nullptr when the frame's path does not prepass the ground.
+        // The pipeline the view's depth prepass declares its blocks with and records its holed tiles with this
+        // frame: the forward one, the deferred one under PrepassesGBuffer, or nullptr when the frame's path does
+        // not prepass the ground. Every tile when ViewDepthSolidPipeline is nullptr.
         [[nodiscard]] const GraphicsPipeline* ViewDepthPipeline() const;
+        // The early-tested twin of ViewDepthPipeline (DESERT_TERRAIN_NO_HOLES, same layout) the prepass records
+        // its tiles WITHOUT a visibility layer with (RowHasHoles), first; nullptr when it is not built (refused,
+        // or no such tile queued) or ViewDepthPipeline is nullptr.
+        [[nodiscard]] const GraphicsPipeline* ViewDepthSolidPipeline() const;
         // The pipeline "TerrainGBuffer" records with this frame: the prepassed twin under PrepassesGBuffer.
         [[nodiscard]] const GraphicsPipeline* GBufferPassPipeline() const;
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
