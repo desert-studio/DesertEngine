@@ -310,6 +310,11 @@ Shader "ScreenProbeTrace"
         // The cache-read leg traces nothing and lights no hit: the tracer's types only, so it declares no
         // tracer resource and no shared sampler it would not sample (ScreenProbeGather binds none).
         #include <Common/GITracing.glslh>
+        // THE PROBE'S CELLS (main): each lane's read key (probe * 8 + clipmap; ~0u past the list's end) and the one
+        // corner (lane & 7) of that read it computed - its indirection entry and probe position.
+        shared uint spCellKey[SP_TRACE_LEG_THREADS];
+        shared uint spCellEntry[SP_TRACE_LEG_THREADS];
+        shared vec3 spCellPosition[SP_TRACE_LEG_THREADS];
 #else
         #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
@@ -582,6 +587,10 @@ Shader "ScreenProbeTrace"
             const GITraceBias bias   = SPLegProbeBias( listed, slot / ( SP_RES * SP_RES ) );
             if ( !listed )
                 return; // past the list's end: after the sort's and the bias's barriers
+#elif defined( SP_TRACE_CACHE_READ )
+            // Every lane reaches THE PROBE'S CELLS' barrier: a lane past the list's end leaves after it.
+            const bool listed = gl_GlobalInvocationID.x < screenProbeCompactAllocator;
+            const uint slot   = listed ? screenProbeCompactTexels[gl_GlobalInvocationID.x] : 0u; // list order: by probe
 #else
             if ( gl_GlobalInvocationID.x >= screenProbeCompactAllocator )
                 return;
@@ -728,9 +737,48 @@ Shader "ScreenProbeTrace"
             // point and clipmap (UE SampleRadianceCacheInterpolated with FRadianceCacheCoverage): the probe's own
             // pixel, seen from the camera, so the eight cells read are the ones RadianceCacheMark stamped for that
             // pixel (RadianceCacheReadPoint), in the clipmap tMax was cut for.
-            const vec3 V     = normalize( giFrame.camera.xyz - texel.position );
+            const vec3 V       = normalize( giFrame.camera.xyz - texel.position );
+            const uint clipmap = texel.coverage.clipmap;
+            // THE PROBE'S CELLS (FPS-SP-CHAIN-2): the eight corners of the coverage clipmap's read are a function
+            // of the probe's point, normal and clipmap alone (RadianceCacheCellCoord), and the list holds a probe's
+            // rays in a row. Each lane computes the one corner (lane & 7) of its own read and shares it; a lane takes
+            // corner i from the lane (lane & ~7) | i of its block of eight when that lane reads the same probe and
+            // clipmap, and computes it itself only where the block straddles two reads. Was: every ray its own eight
+            // indirection loads, eight probe-offset loads and their addressing. The same values, the same sums.
+            const uint lane = gl_LocalInvocationIndex;
+            const uint key  = listed ? probe * 8u + clipmap : 0xFFFFFFFFu; // clipmap < RADIANCE_CACHE_MAX_CLIPMAPS
+            vec3       coord = vec3( 0.0 );
+            spCellKey[lane]  = key;
+            if ( listed )
+            {
+                coord                = RadianceCacheCellCoord( texel.position, N, V, clipmap );
+                const ivec3 world    = RadianceCacheCornerWorldCell( coord, clipmap, lane & 7u );
+                const uint  entry    = RadianceCacheCornerEntry( world, clipmap );
+                spCellEntry[lane]    = entry;
+                spCellPosition[lane] = RadianceCacheCornerProbePosition( world, clipmap, entry );
+            }
+            barrier();
+            if ( !listed )
+                return;
+            uint entries[8];
+            vec3 positions[8];
+            for ( uint i = 0u; i < 8u; ++i )
+            {
+                const uint owner = ( lane & ~7u ) | i;
+                if ( spCellKey[owner] == key )
+                {
+                    entries[i]   = spCellEntry[owner];
+                    positions[i] = spCellPosition[owner];
+                }
+                else
+                {
+                    const ivec3 world = RadianceCacheCornerWorldCell( coord, clipmap, i );
+                    entries[i]        = RadianceCacheCornerEntry( world, clipmap );
+                    positions[i]      = RadianceCacheCornerProbePosition( world, clipmap, entries[i] );
+                }
+            }
             uint       why   = RADIANCE_CACHE_READ_EMPTY;
-            const vec4 cache = RadianceCacheRadianceAt( texel.position, N, V, dir, texel.coverage.clipmap, why );
+            const vec4 cache = RadianceCacheRadianceAt( texel.position, N, V, dir, clipmap, entries, positions, why );
 #if defined( SP_TRACE_MISS_REASONS )
             SPCountCacheRead( why );
 #endif
