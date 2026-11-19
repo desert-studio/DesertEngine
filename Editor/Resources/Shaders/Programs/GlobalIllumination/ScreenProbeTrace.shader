@@ -24,7 +24,8 @@
 //             distance and the sky here (tMax is that distance).
 //   SP_TRACE_CACHE_READ  over the rays the far field left at the cache (GPU-FARFIELD-6; their own compacted list,
 //             UE's trace / shading split): each reads the cache's RADIANCE in its direction at the probe, from the
-//             probes that see it (RadianceCacheRadianceAt, UE SampleRadianceCacheInterpolated). The far field's
+//             probes that see it (RadianceCacheRadianceAt, UE SampleRadianceCacheInterpolated; stochastic: eight
+//             visibility weights, one picked probe's radiance a ray - FPS-SP-CACHE-READ). The far field's
 //             waves no longer hold the cache read's eight-cell latency on their march lanes, and this leg's waves
 //             are all cache reads (no march registers). Where no traced probe answers (cells the view just
 //             reached), nothing is stored: the ray stays at the cache, reached and unanswered.
@@ -784,8 +785,13 @@ Shader "ScreenProbeTrace"
                     positions[i]      = RadianceCacheCornerProbePosition( world, clipmap, entries[i] );
                 }
             }
+            // FPS-SP-CACHE-READ: the stochastic corner pick's random, per ray and frame, independent of the texel's
+            // jitter and coverage dither (texel.noise: same hash, another stream - the frame salted).
+            const float pick =
+                SPTexelNoise( probe, slot % ( SP_RES * SP_RES ), screenProbeParams.atlas.y ^ 0x9E3779B9u ).x;
             uint       why   = RADIANCE_CACHE_READ_EMPTY;
-            const vec4 cache = RadianceCacheRadianceAt( texel.position, N, V, dir, clipmap, entries, positions, why );
+            const vec4 cache =
+                RadianceCacheRadianceAt( texel.position, N, V, dir, clipmap, entries, positions, pick, why );
 #if defined( SP_TRACE_MISS_REASONS )
             SPCountCacheRead( why );
 #endif

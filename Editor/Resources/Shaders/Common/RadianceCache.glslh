@@ -464,11 +464,20 @@ void RadianceCacheCorners( vec3 coord, uint clipmap, out uint entries[8], out ve
                                                          entries[i] );
 }
 
-// One clipmap's interpolated radiance from its eight corners (RadianceCacheCorners about @p coord): each corner's
-// distance moments and radiance read unconditionally, an unused corner's at the safe probe 0, dropped by a select.
-// Same sums in the same order as before the corners were split out. @p why says why it answered or not.
+// One clipmap's radiance from its eight corners (RadianceCacheCorners about @p coord), STOCHASTIC (FPS-SP-CACHE-READ;
+// UE r.Lumen.RadianceCache.SpatialInterpolation stochastic, SampleRadianceCacheInterpolated with one probe a ray):
+// each corner's weight - trilinear x the Chebyshev visibility of the read point - from its distance moments, read
+// unconditionally (an unused corner's at the safe probe 0, dropped by a select); then ONE corner picked with
+// probability weight / summed weight by @p pick (uniform [0, 1), per ray and frame) and only its radiance read. Was:
+// all eight radiances blended, 8 + 8 fetches a ray, now 8 + 1. The expectation is the blend exactly; the screen
+// probes' spatial and temporal filters resolve the noise, as UE's do.
+// In UE the pick comes before anything is read (its probes carry no visibility: one indirection + one radiance
+// fetch). Here the visibility weight decides which probes may speak for the point at all, so it is part of the pick's
+// distribution: picking by trilinear weight alone and then testing the one probe's visibility would darken every
+// read near a wall (E = sum t v r / sum t, not sum t v r / sum t v). The eight moments stay, the eight radiances go.
+// .a and @p why are the blend's: the summed weight (a NaN anywhere poisons it, as before) and why it answered or not.
 vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 direction, vec3 coord, uint clipmap, uint entries[8],
-                                     vec3 positions[8], out uint why )
+                                     vec3 positions[8], float pick, out uint why )
 {
     // The irradiance read's surface bias, toward the ray instead of the viewer: the point tested is where the
     // ray's light comes in, just off the surface.
@@ -476,7 +485,7 @@ vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 direction, vec3 coord,
     const float momentRange = RadianceCacheDistanceMomentRange( radianceCache, clipmap );
     const vec3  alpha       = coord - floor( coord );
 
-    vec3  sum       = vec3( 0.0 );
+    float weights[8];
     float weight    = 0.0;
     uint  allocated = 0u;
     uint  traced    = 0u;
@@ -491,15 +500,23 @@ vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 direction, vec3 coord,
         const vec3  trilinear   = mix( 1.0 - alpha, alpha, vec3( offset ) );
         const float w = max( trilinear.x * trilinear.y * trilinear.z, 1e-6 ) *
                         RadianceCacheProbeVisibility( probe, positions[i], biased, momentRange );
-        const vec3  radiance = RadianceCacheSampleProbeRadiance( probe, direction );
         allocated += isAllocated ? 1u : 0u;
         traced    += isTraced ? 1u : 0u;
-        if ( isTraced )
-        {
-            nanWeight = nanWeight || isnan( w );
-            sum    += w * radiance;
-            weight += w;
-        }
+        nanWeight  = nanWeight || ( isTraced && isnan( w ) );
+        weights[i] = isTraced ? w : 0.0;
+        weight    += weights[i];
+    }
+    // The pick: the corner whose span [below, below + w) of the summed weight holds pick * weight - the last
+    // weighted corner whose span starts at or before it (the first weighted corner starts at 0, so one always is).
+    // A NaN or zero summed weight picks nothing (every comparison false): the fetch below reads the safe probe 0,
+    // unconditionally, and the select drops it - the read's one radiance load.
+    const float target    = pick * weight;
+    float       below     = 0.0;
+    uint        pickProbe = 0u;
+    for ( uint i = 0u; i < 8u; ++i )
+    {
+        pickProbe = ( weights[i] > 0.0 && below <= target ) ? entries[i] : pickProbe;
+        below += weights[i];
     }
     if ( weight > 0.0 )
         why = RADIANCE_CACHE_READ_ANSWERED;
@@ -511,14 +528,16 @@ vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 direction, vec3 coord,
         why = RADIANCE_CACHE_READ_UNTRACED;
     else
         why = RADIANCE_CACHE_READ_EMPTY;
-    return weight > 0.0 ? vec4( sum / weight, weight ) : vec4( 0.0 );
+    const vec3 radiance = RadianceCacheSampleProbeRadiance( pickProbe, direction );
+    return weight > 0.0 ? vec4( radiance, weight ) : vec4( 0.0 );
 }
 
 // The read of a ray that reached the coverage's distance (FRadianceCacheCoverage): @p clipmap is the COVERAGE'S
 // clipmap (UE SampleRadianceCacheInterpolated reads Coverage.ClipmapIndex), so a covered ray reads the clipmap its
 // trace distance was cut for and is never "past the coarsest" here. @p coverageEntries / @p coveragePositions: that
 // clipmap's eight corners about p seen from @p V (RadianceCacheCellCoord + RadianceCacheCorners), which the caller
-// may share between the rays of one point (FPS-SP-CHAIN-2).
+// may share between the rays of one point (FPS-SP-CHAIN-2). @p pick: the ray's uniform [0, 1) for the stochastic
+// corner pick (RadianceCacheRadianceInClipmap), per ray and frame.
 // THE COARSER FALLBACK (not in UE, whose new probe over the budget answers with whatever its atlas slot held): a
 // coverage clipmap whose eight cells hold no traced probe yet - cells a turning camera brings faster than the
 // budget traces them - is answered by the next coarser clipmap that has one. RadianceCacheMark stamps the clipmap
@@ -532,7 +551,7 @@ vec4 RadianceCacheRadianceInClipmap( vec3 p, vec3 N, vec3 direction, vec3 coord,
 // One loop, one call site: the eight-cell read is inlined once into the cache read, not once for the coverage
 // clipmap and again for the fallback; a coarser level computes its own corners.
 vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 V, vec3 direction, uint clipmap, uint coverageEntries[8],
-                              vec3 coveragePositions[8], out uint why )
+                              vec3 coveragePositions[8], float pick, out uint why )
 {
     why = RADIANCE_CACHE_READ_EMPTY;
     for ( uint level = clipmap; level < radianceCache.shape.x; ++level )
@@ -548,7 +567,8 @@ vec4 RadianceCacheRadianceAt( vec3 p, vec3 N, vec3 V, vec3 direction, uint clipm
         else
             RadianceCacheCorners( coord, level, entries, positions );
         uint       levelWhy;
-        const vec4 read = RadianceCacheRadianceInClipmap( p, N, direction, coord, level, entries, positions, levelWhy );
+        const vec4 read = RadianceCacheRadianceInClipmap( p, N, direction, coord, level, entries, positions, pick,
+                                                          levelWhy );
         if ( level == clipmap )
             why = levelWhy; // the coverage clipmap's own reason, kept when no coarser one answers
         if ( levelWhy == RADIANCE_CACHE_READ_ANSWERED )
