@@ -332,7 +332,11 @@ namespace Desert::Graphic::GlobalIllumination
         // handed to the hit-lighting leg (GPU-FARFIELD-5: every software hit, = [7]), [11] that leg's steps (its
         // shadow marches: a hit = [11] / [10]), [12] that leg's hits a card holds (lit by the cards).
         static constexpr uint32_t kFarFieldClasses = 7;
-        static constexpr uint32_t kWords           = kReasons + kFarFieldClasses;
+        // FPS-SP-SKY: then the software near field's misses it hands on past the far field, each with a provably
+        // empty far-field span (ScreenProbeTrace.shader SP_NEAR_FIELD_RAYS_*): [13] the uncovered rays it answers
+        // with the sky itself, [14] the cache-bound rays it lists for the cache read directly.
+        static constexpr uint32_t kNearFieldClasses = 2;
+        static constexpr uint32_t kWords            = kReasons + kFarFieldClasses + kNearFieldClasses;
         // [why]: answered, empty (no probe in the eight cells: the atlas had no free slot), untraced, rejected
         // (every traced probe's visibility 0), nan (a NaN weight), coarser (the coverage's clipmap had no traced
         // probe, a coarser clipmap answered: not a miss). Empty and untraced count the reads no clipmap answered.

@@ -312,15 +312,6 @@ namespace Desert::Graphic::GlobalIllumination
                             TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ),
                        "the legs the cache's writers join at (ScreenProbeTrace.shader SP_TRACE_READS_CACHE)" );
 
-        // Whether the leg defers its near-field hits (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS - the same
-        // rule): the software near field only marches and lists its hits, so it declares no LinearClampSampler, no
-        // sky and no radiance cache texture, and the pass binds none of them (UE: a pass binds what its
-        // permutation declares).
-        [[nodiscard]] constexpr bool TraceLegDefersNearHits( const Tracer tracer, const std::string_view leg )
-        {
-            return leg == kTraceNearFieldDefine && tracer == Tracer::SoftwareDistanceField;
-        }
-
         // A trace leg's list (THE LEGS' LISTS, Common/ScreenProbeTracing.glslh): its dispatch x = groups, y = z =
         // 1 (a dispatch's three counts; w unused), counted up by the pass that lists the rays; the allocator: 0.
         constexpr std::array<uint32_t, 4> kCompactArgsReset{ 0u, 1u, 1u, 0u };
@@ -420,16 +411,23 @@ namespace Desert::Graphic::GlobalIllumination
 
 #if DESERT_DEV_INSTRUMENTS
         // PROBE-TURN-1: the cache-read leg - the one that decides a cache miss (GPU-FARFIELD-6; the far field's
-        // before) - counts every radiance cache read by why it answered or not, the far-field and hit-lighting
-        // legs their ray classes (ScreenProbeTrace.shader SP_TRACE_MISS_REASONS, ScreenProbes.MissReasons). Dev
-        // builds compile them in that permutation; the cook ships both.
+        // before) - counts every radiance cache read by why it answered or not, the near-field (FPS-SP-SKY),
+        // far-field and hit-lighting legs their ray classes (ScreenProbeTrace.shader SP_TRACE_MISS_REASONS,
+        // ScreenProbes.MissReasons). Dev builds compile them in that permutation; the cook ships both.
         constexpr std::string_view kTraceMissReasonsDefine = "SP_TRACE_MISS_REASONS";
+
+        // The legs that count (the permutation above and the pass's ScreenProbes.MissReasons binding: one rule).
+        [[nodiscard]] constexpr bool TraceLegCountsRays( const std::string_view leg )
+        {
+            return leg == kTraceNearFieldDefine || leg == kTraceFarFieldDefine || leg == kTraceHitLightingDefine ||
+                   leg == kTraceCacheReadDefine;
+        }
 
         Core::ShaderVariant CountedTraceVariant( const Pipeline& pipeline, const std::string_view leg,
                                                  const uint32_t downsample, const uint32_t tracedTexels )
         {
             Core::ShaderVariant variant = TraceVariant( pipeline, leg, downsample, tracedTexels );
-            if ( leg == kTraceFarFieldDefine || leg == kTraceHitLightingDefine || leg == kTraceCacheReadDefine )
+            if ( TraceLegCountsRays( leg ) )
                 variant.Defines.emplace_back( kTraceMissReasonsDefine );
             return variant;
         }
@@ -1110,9 +1108,6 @@ namespace Desert::Graphic::GlobalIllumination
             ComputePipeline* const pipeline = m_Pipelines[program].get();
             // the declaration's own rule (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
             const bool lightsHits = TraceLegLightsHits( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
-            // (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS)
-            const bool samplesLinear =
-                 !TraceLegDefersNearHits( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
             // (ScreenProbeTrace.shader SP_TRACE_READS_CACHE)
             const bool readsCache = TraceLegReadsCache( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
             graph.AddPass(
@@ -1163,17 +1158,16 @@ namespace Desert::Graphic::GlobalIllumination
                      if ( readsCards && lightsHits )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
 #if DESERT_DEV_INSTRUMENTS
-                     if ( program == TraceFarField || program == TraceHitLighting || program == TraceCacheRead )
+                     if ( TraceLegCountsRays( TraceLegDefine( program ) ) )
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,
                                         kW );
 #endif
-                     // The software near field defers its hits and samples nothing linear-clamped: no sky
-                     // (ScreenProbeTrace.shader SP_TRACE_DEFERS_NEAR_HITS).
-                     if ( samplesLinear )
-                         block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
-                                        inputs.EnvSpecular, kS, all )
-                              .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
-                                        RDG::SamplerDesc::LinearClamp() );
+                     // The sky, on every leg (ScreenProbeTrace.shader: FPS-SP-SKY, the software near field answers
+                     // its provably escaping uncovered misses with it).
+                     block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
+                                    inputs.EnvSpecular, kS, all )
+                          .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() );
                      // The radiance cache's probes, only where the leg reads them (ScreenProbeTrace.shader
                      // SP_TRACE_READS_CACHE): the graph joins the cache's writers at that leg, so the software
                      // near field's march and far field overlap the cache (FPS-QUEUE-WAIT).
@@ -1208,7 +1202,7 @@ namespace Desert::Graphic::GlobalIllumination
                      builder.SkipBarrier( traced );
                      builder.SkipBarrier( traceHit );
 #if DESERT_DEV_INSTRUMENTS
-                     if ( program == TraceFarField || program == TraceHitLighting || program == TraceCacheRead )
+                     if ( TraceLegCountsRays( TraceLegDefine( program ) ) )
                          builder.SkipBarrier( missReasons );
 #endif
                  },
