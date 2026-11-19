@@ -152,7 +152,14 @@ struct VgRasterArgs
     uint SwDispatch[3]; // 0
     uint SwCount;       // 12
     uint HwDraw[4];     // 16 VkDrawIndirectCommand: vertexCount, instanceCount (= HW clusters), firstVertex, firstInstance
+    // 32 VkDispatchIndirectCommand of "VirtualGeometry: Raster Binning" Count / Scatter: ceil( HW clusters /
+    // VG_RASTER_BIN_GROUP_SIZE ) workgroups, counted by the cut as it emits (ClusterCut.shader EmitCluster).
+    uint BinDispatch[3];
+    uint BinPad;        // 44
 };
+
+// RasterBinning.shader LocalSize: the workgroup the cut counts into VgRasterArgs.BinDispatch.
+#define VG_RASTER_BIN_GROUP_SIZE 64u
 
 // The largest axis scale of a world matrix: a submesh-space length (sphere radius, LOD error) in world cm.
 float VgMaxScale( mat4 world )

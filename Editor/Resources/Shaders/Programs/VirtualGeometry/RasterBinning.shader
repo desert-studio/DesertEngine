@@ -9,7 +9,9 @@ Shader "RasterBinning"
     // its DAG's submesh (FirstDrawSlot + Dag.Submesh, the slot the cut took its transform from) -> the slot's bin
     // -> the bin's IndirectGroup. A slot with no bin in this pass (the submesh does not draw there) bins nothing.
     //
-    // One program, three steps (Params.x), each its own dispatch (the RDG orders them):
+    // One program, three steps (Params.x), each its own dispatch (the RDG orders them). COUNT and SCATTER are
+    // indirect over RasterArgs.BinDispatch (the cut's own count of workgroups, UE's indirect binning), so an empty
+    // view dispatches no workgroup; LocalSize is VG_RASTER_BIN_GROUP_SIZE.
     //  0 COUNT    one thread per HW cluster: GroupArgs[group].instanceCount += 1 (and, when Params2.w names the
     //             cut views, GroupViewCounts[group x views + its view] += 1: what each view of the cut drew).
     //  1 OFFSETS  one thread: the groups' exclusive prefix -> GroupArgs[g] = { kClusterMaxTriangles x 3, 0, 0,
