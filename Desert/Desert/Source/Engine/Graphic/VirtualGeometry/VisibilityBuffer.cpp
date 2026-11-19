@@ -54,6 +54,8 @@ namespace Desert::Graphic::VirtualGeometry
         // and the bytes of one tile's record (four 32-bit words).
         inline constexpr uint32_t kTileSize        = 16u;
         inline constexpr uint64_t kTileRecordBytes = 16u;
+        // ... and of one slot of the held tiles' list (FPS-GRASS-RESOLVE-4, VisibilityClassify.shader).
+        inline constexpr uint64_t kTileListBytes = 4u;
 
         // VisibilityClear.shader's LocalSize and the row of groups one dispatch row covers: a 4K view is ~130k
         // groups of 64, past the 65535 a dispatch dimension guarantees, so the groups are laid out 2D and the
@@ -163,10 +165,12 @@ namespace Desert::Graphic::VirtualGeometry
             return Common::MakeError<VisibilityBufferFrame>( "VisibilityBuffer: not initialised" );
         if ( width == 0u || height == 0u )
             return Common::MakeError<VisibilityBufferFrame>( "VisibilityBuffer: the view has no extent" );
-        // The header, a 64-bit word per pixel, then a record per tile (Common/VisibilityTiles.glslh).
+        // The header, a 64-bit word per pixel, a record per tile, then the held tiles' list (one 32-bit word per
+        // tile, Common/VisibilityTiles.glslh), rounded up to whole 64-bit words (the resolve reads it as uint64_t).
         const uint64_t tiles =
              uint64_t{ ( width + kTileSize - 1u ) / kTileSize } * ( ( height + kTileSize - 1u ) / kTileSize );
-        const uint64_t bytes = 16u + 8ull * width * height + kTileRecordBytes * tiles;
+        const uint64_t bytes =
+             16u + 8ull * width * height + kTileRecordBytes * tiles + kTileListBytes * ( ( tiles + 1u ) & ~1ull );
         if ( bytes > UINT32_MAX )
             return Common::MakeError<VisibilityBufferFrame>( std::format(
                  "VisibilityBuffer: {}x{} needs {} bytes, past one storage buffer", width, height, bytes ) );

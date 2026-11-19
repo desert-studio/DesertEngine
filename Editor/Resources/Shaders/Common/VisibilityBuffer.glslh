@@ -30,13 +30,14 @@ layout( std430, binding = kVgRasterVisibilityBinding ) restrict readonly buffer 
 layout( std430, binding = kVgRasterVisibilityBinding ) restrict buffer VisibilityBuffer
 #endif
 {
-    uvec4    VisibilityHeader; // x = width, y = height (pixels), z, w = 0
+    uvec4    VisibilityHeader; // x = width, y = height (pixels), z, w = the classify's held tiles / groups done
+                               // (Common/VisibilityTiles.glslh; zeroed by VisibilityClear.shader)
     uint64_t VisibilityWords[]; // the pixels' words, then the tiles' records (Common/VisibilityTiles.glslh)
 };
 
 // THE RESOLVE'S TILE TRIANGLE (FPS-GRASS-RESOLVE; UE 5 Nanite material tile culling): vertex @p vertex (0..2) of
-// instance @p instance of a resolve draw - two triangles per tile, tile instance / 2 (VisibilityClassify.shader
-// counts them into the draw) - placed over its tile when the tile holds a row of the section's [@p first,
+// instance @p instance of a resolve draw - two triangles per held tile, the tile at slot instance / 2 of the held
+// tiles' list (VisibilityClassify.shader counts them into the draw) - placed over its tile when the tile holds a row of the section's [@p first,
 // @p first + @p count), else collapsed to one point outside the view (no fragment). Pixel coordinates map to NDC
 // through the renderer's Y-up viewport (VulkanRendererAPI::SetViewportAndScissor: negative height, so framebuffer
 // row y is NDC 1 - 2 y / H), the mapping gl_FragCoord of the fragment stage reads back.
@@ -45,8 +46,16 @@ vec4 DesertVisibilityTilePosition( const uint instance, const uint vertex, const
     const vec4  outside = vec4( -2.0, -2.0, 0.0, 1.0 );
     const uvec2 extent  = VisibilityHeader.xy;
     const uvec2 grid    = DesertVisibilityTileGrid( extent );
-    const uint  tile    = instance >> 1u;
-    if ( extent.x == 0u || extent.y == 0u || tile >= grid.x * grid.y )
+    const uint  tiles   = grid.x * grid.y;
+    // FPS-GRASS-RESOLVE-4: instance / 2 is a slot of the held tiles' list (VisibilityClassify.shader counts only
+    // the tiles holding a drawn word into the draw), the 32-bit list word read as its half of a 64-bit word.
+    const uint  slot    = instance >> 1u;
+    if ( extent.x == 0u || extent.y == 0u || slot >= tiles )
+        return outside;
+    const uint     listWord = DesertVisibilityTileListWord( extent, tiles, slot ) - 4u; // past the 16-byte header
+    const uint64_t pair     = VisibilityWords[listWord >> 1u];
+    const uint     tile     = ( listWord & 1u ) != 0u ? uint( pair >> 32 ) : uint( pair & uint64_t( 0xFFFFFFFFu ) );
+    if ( tile >= tiles )
         return outside;
     const uint64_t bounds = VisibilityWords[extent.x * extent.y + 2u * tile];
     const uint64_t mask   = VisibilityWords[extent.x * extent.y + 2u * tile + 1u];
