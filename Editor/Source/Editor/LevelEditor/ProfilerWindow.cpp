@@ -471,11 +471,10 @@ namespace Desert::Editor
         {
             LOG_INFO(
                  "[Profiler] ScreenProbes census: uniform {} | adaptive wanted {} placed {} budget {} | "
-                 "integrate tiles {} simple {} full {} uncovered {} (a frame, frames in flight late; wanted "
-                 "past the budget = uncovered positions the radiance cache answers; uncovered = tiles holding "
-                 "a pixel no probe holds, \"ScreenProbes: Integrate Uncovered\")",
+                 "integrate tiles {} simple {} full {} (a frame, frames in flight late; wanted past the budget "
+                 "= uncovered positions the radiance cache answers inside the integrate)",
                  census->UniformProbes, census->AdaptiveWanted, census->AdaptivePlaced, census->AdaptiveBudget,
-                 census->Tiles, census->SimpleTiles, census->FullTiles, census->UncoveredTiles );
+                 census->Tiles, census->SimpleTiles, census->FullTiles );
         }
         // PROBE-TRACE-COST-3: where the radiance cache's probes went this frame - the entries the readers stamped and
         // how many hold a never-traced probe (per clipmap), what the budget traced, and the slots taken, refused (the
