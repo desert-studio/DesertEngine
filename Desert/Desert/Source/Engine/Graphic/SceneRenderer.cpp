@@ -2536,6 +2536,7 @@ namespace Desert::Graphic
         // frame's graph is not a handle in this one.
         DESERT_PROFILE_PHASE( addPhases, "Add passes: Draw bins" );
         m_TracedFrameShared = {};
+        m_FrameRadianceCacheUpdate.reset(); // its resource handles are the last graph's (FPS-ASYNC-WAIT)
         // The virtual shadow map's cluster path is this frame's only if its VSM cut sets it again: a frame whose
         // method is not VirtualMaps (or whose cut is refused) holds no last frame's issue or refused groups.
         m_Systems.Mesh->ResetVirtualShadowGeometry();
@@ -2825,10 +2826,16 @@ namespace Desert::Graphic
                                            ? m_Systems.SSR.get()
                                            : nullptr;
                 const bool             probesTrace = RadianceCacheRuns() && m_GIPipeline.ScreenProbes;
-                // The radiance cache's update (Mark .. Trace) ahead of the screen trace's HZB (FPS-PROBE-WAIT-2): it
-                // reads the depth and the normals, no HZB, so its async run forks at the depth's last writer.
+                // The radiance cache's update (Mark .. Trace) ahead of the screen trace's HZB (FPS-PROBE-WAIT-2):
+                // it reads the depth and the normals, no HZB, so its async run forks at the depth's last writer.
+                // Only on a frame whose cache holds no filtered update yet: otherwise the readers read the last
+                // update and this frame's is declared after the last reader (FPS-ASYNC-WAIT,
+                // AddFrameTracedGIUpdate).
                 const std::optional<TracedGIUpdate> tracedGI =
                      AddFrameTracedGIUpdate( graph, textures, gbuffer, lightDir, lightColor, frame );
+                // Its update after the last reader of the cache, at the graph's tail (FPS-ASYNC-WAIT).
+                if ( tracedGI && tracedGI->UpdateAfterReaders )
+                    m_FrameRadianceCacheUpdate = tracedGI;
                 const FrameScreenTrace screenTrace =
                      ( ssr != nullptr || ( probesTrace && EnsureScreenTraceResources() ) ||
                        ( m_RenderMethods.GlobalIllumination.Effective ==
@@ -3074,6 +3081,12 @@ namespace Desert::Graphic
         if ( m_DebugView.VirtualGeometry == VirtualGeometryView::Clusters )
             AddFrameVirtualGeometryClusters( graph, textures );
 #endif // DESERT_DEV_INSTRUMENTS
+
+        // THE RADIANCE CACHE'S UPDATE AFTER ITS LAST READER (FPS-ASYNC-WAIT): the translucency above is the last
+        // node that reads the cache (the forward meshes' and the glass's lighting, the front layer); nothing
+        // below does (the resolves, the temporal upscale, the post chain, the overlays). Its async run forks
+        // after that reader and overlaps the frame's tail; the next frame's readers read what it filtered.
+        AddFrameRadianceCacheDeferredUpdate( graph, textures );
 
         // After the last node that draws the scene geometry's velocity into the scene target (the translucency),
         // before its one reader, the temporal node. The overlays and post nodes below never write velocity (their

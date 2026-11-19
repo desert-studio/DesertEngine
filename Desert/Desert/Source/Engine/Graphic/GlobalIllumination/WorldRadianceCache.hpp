@@ -189,14 +189,38 @@ namespace Desert::Graphic::GlobalIllumination
         // FPS-PROBE-WAIT-2 (UE Lumen: the far-field trace overlaps the cache): the two declarations let the view
         // declare async work that reads nothing of the cache (the screen probes' far field) between Trace and
         // Filter, so the async queue runs it beside the cache's filter instead of after it.
+        // The cache's persistent resources registered in one graph, once (RDG::Builder::RegisterExternal makes a
+        // new record per call: two registrations of one buffer in a graph would hide each other's hazards).
+        struct GraphResources
+        {
+            RadianceCacheFrame Frame; // Params: the last filtered update's clipmaps (AddReadFrame), or invalid
+            RDG::BufferRef     LastUsed;
+            RDG::BufferRef     FreeList;
+        };
+        // @p registered: the resources AddReadFrame registered in this same graph (the update after its readers,
+        // FPS-ASYNC-WAIT), or null to register them here.
         [[nodiscard]] Common::ResultStr<RadianceCacheFrame>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
-                         const RadianceCache::RadianceCacheInputs& shape,
-                         const RadianceCacheUpdateInputs&          inputs );
+                         const RadianceCache::RadianceCacheInputs& shape, const RadianceCacheUpdateInputs& inputs,
+                         const GraphResources* registered );
         // The update's Filter pass (the probes' irradiance and depth from the traced radiance) and the update's
         // counts read-back, after the AddUpdatePasses of the same graph; an error when none is pending (no update
         // declared, or its filter declared already).
         [[nodiscard]] Common::BoolResultStr AddFilterPass( RDG::Builder& graph );
+
+        // FPS-ASYNC-WAIT (the cache's update off the GI's critical path): true when the cache holds a FILTERED
+        // update of @p shape - a frame may then read it as that update left it (AddReadFrame) and declare its
+        // own update after every reader, where its async run overlaps the frame's tail (the temporal upscale,
+        // the post chain) instead of heading the chain the composite waits for. False after a (re)build, before
+        // the first filter, or while an update waits for its filter: that frame updates before its readers.
+        [[nodiscard]] bool HoldsFilteredUpdate( const RadianceCache::RadianceCacheInputs& shape ) const;
+        // The cache as the last filtered update left it, registered in @p graph: its Params re-uploaded from
+        // that update's clipmaps (the indirection is laid out by them, not by this frame's camera). Pass the
+        // result to this graph's AddUpdatePasses, declared after the last reader. Refused unless
+        // HoldsFilteredUpdate( @p shape ).
+        [[nodiscard]] Common::ResultStr<GraphResources>
+        AddReadFrame( RDG::Builder& graph, const ImportImage& import,
+                      const RadianceCache::RadianceCacheInputs& shape );
         // The newest update read back in counts (RadianceCacheUpdateCounts), frames in flight late.
         [[nodiscard]] const RadianceCacheUpdateCounts& LastUpdateCounts() const
         {
@@ -233,7 +257,11 @@ namespace Desert::Graphic::GlobalIllumination
             std::array<std::byte, kPushBytes>  Push{};
             uint32_t                           FrameIndex = 0;
             bool                               FullUpdate = false;
+            RadianceCache::RadianceCacheParamsPayload ParamsPayload{}; // what Frame.Params was uploaded with
         };
+        // The persistent buffers and atlases registered in @p graph (Params left invalid).
+        [[nodiscard]] Common::ResultStr<GraphResources> RegisterResources( RDG::Builder&      graph,
+                                                                           const ImportImage& import );
         // One pass of the update; @p inputs is null for Filter (it reads only the cache's own resources).
         void DeclarePass( RDG::Builder& graph, Pass pass, const UpdateDeclaration& update,
                           const RadianceCacheUpdateInputs* inputs );
@@ -269,5 +297,8 @@ namespace Desert::Graphic::GlobalIllumination
         RadianceCacheUpdateCountsReadback  m_UpdateCounts;
         // The update declared by AddUpdatePasses whose Filter AddFilterPass has not declared yet.
         std::optional<UpdateDeclaration> m_PendingFilter;
+        // The clipmaps of the newest update whose Filter was declared (AddFilterPass); dropped by a rebuild
+        // (EnsureResources). What AddReadFrame's Params carries.
+        std::optional<RadianceCache::RadianceCacheParamsPayload> m_FilteredParams;
     };
 } // namespace Desert::Graphic::GlobalIllumination
