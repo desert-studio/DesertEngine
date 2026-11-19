@@ -1726,24 +1726,37 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RenderOccluderDepthManual( const RDG::PassContext& context ) const;
         // SETUP of "Grass: Visibility Raster" (the G-buffer's depth LOADed, tested, not written; no colour): the
         // sections' (GrassBlade x Visibility) cells atomic-max (depth | row | triangle) into @p visibility.
-        // @p postOcclusion (GRASS-VIS phase 2, "Grass: Visibility Raster Post-Occlusion"): only the sections' phase-2
-        // records (GpuInstancedRenderData::PostRefs), into a list of their own.
-        // FPS-GRASS-VIS-2, THE OCCLUDERS FIRST (UE Nanite / HW raster: the near geometry's depth before the far
-        // geometry is tested): phase 1's raster in two slices - Near, every visibility section's first
-        // kGrassRasterNearBuckets buckets (a blade strip's finest level, a mesh's LOD 0: the instances within the
-        // first LOD distance), then "Grass: Visibility Depth Near" writes the words' depth, then Far, the other
-        // buckets, early-Z-tested CloserOrEqual against it. A Masked blade writes no depth itself (its clip runs
-        // after an early write), so without the split every far fragment behind a near blade ran its fragment
-        // stage; now the depth test drops it before. Exact: the depth written is the word's own, and a dropped
-        // fragment is strictly farther than its pixel's word, so its atomicMax would have changed nothing; an
-        // equal depth still passes. All: every bucket (phase 2, the post-occlusion raster).
+        // @p postOcclusion (GRASS-VIS phase 2, "Grass: Visibility Raster Post-Occlusion"): only the sections'
+        // phase-2 records (GpuInstancedRenderData::PostRefs), into a list of their own. FPS-GRASS-VIS-2, THE
+        // OCCLUDERS FIRST (UE Nanite / HW raster: the near geometry's depth before the far geometry is tested):
+        // phase 1's raster in two slices - Near, every visibility section's first kGrassRasterNearBuckets buckets
+        // (a blade strip's finest level, a mesh's LOD 0: the instances within the first LOD distance), then
+        // "Grass: Visibility Depth Near" writes the words' depth, then Far, the other buckets, early-Z-tested
+        // CloserOrEqual against it. A Masked blade writes no depth itself (its clip runs after an early write), so
+        // without the split every far fragment behind a near blade ran its fragment stage; now the depth test
+        // drops it before. Exact: the depth written is the word's own, and a dropped fragment is strictly farther
+        // than its pixel's word, so its atomicMax would have changed nothing; an equal depth still passes. All:
+        // every bucket (phase 2, the post-occlusion raster). FPS-GRASS-RASTER-3, THE OCCLUDERS IN TWO STEPS: the
+        // Far slice of VIS-2 held every bucket past the first - the mid strip level (a blade 8..24 px tall since
+        // the LOD of the curve, a mesh's LOD 1) together with the one-segment far blades that are most of the
+        // field - so a far blade behind a mid one still ran its fragment stage (no grass-on-grass early-Z inside
+        // one slice: a Masked cell writes no depth). Mid now rasters the buckets [kGrassRasterNearBuckets,
+        // kGrassRasterMidBuckets) against Near's depth, "Grass: Visibility Depth Mid" writes the words' depth
+        // again (near and mid), and Far rasters the rest against it. Exact by the same argument; costs one more
+        // depth pass over the words.
         enum class GrassRasterSlice : uint8_t
         {
             All,
             Near,
+            Mid,
             Far
         };
         static constexpr uint32_t kGrassRasterNearBuckets = 1u;
+        static constexpr uint32_t kGrassRasterMidBuckets  = 2u; // the end of the Mid slice's buckets
+        // The phase-1 list of @p slice (Near, Mid, else Far).
+        [[nodiscard]] MeshRendererDetail::MeshDrawList& GrassVisibilityRasterList( GrassRasterSlice slice );
+        [[nodiscard]] const MeshRendererDetail::MeshDrawList&
+             GrassVisibilityRasterList( GrassRasterSlice slice ) const;
         void DeclareGrassVisibilityRasterDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
                                                 RDG::BufferRef visibility, bool postOcclusion,
                                                 GrassRasterSlice slice );
@@ -2570,6 +2583,7 @@ namespace Desert::Graphic::System
         std::vector<uint32_t>            m_GrassVisibilitySections;
         size_t                           m_GrassVisibilityMeshSections = 0; // of them, the Instanced (mesh) ones
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterNearDraws; // "Grass: Visibility Raster Near"
+        MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterMidDraws;  // "Grass: Visibility Raster Mid"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterDraws;  // "Grass: Visibility Raster"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolveDraws; // "Grass: Visibility Resolve"
         MeshRendererDetail::MeshDrawList m_GrassMeshVisibilityResolveDraws; // "Grass: Mesh Visibility Resolve"

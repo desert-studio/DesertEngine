@@ -704,6 +704,24 @@ namespace Desert::Graphic
                  { return m_GrassVisibility.RecordDepth( context ); },
                  [this, words = visibility.Words]( RDG::PassBuilder& pass )
                  { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
+            // FPS-GRASS-RASTER-3: the mid buckets against the near depth, then their depth too - the one-segment
+            // far blades (most of the field) rasterize behind both (MeshRenderer::GrassRasterSlice).
+            AddRaster(
+                 graph, "Grass: Visibility Raster Mid", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderGrassVisibilityRasterManual( context, false, Slice::Mid ); },
+                 [meshRenderer, view, words = visibility.Words, bladeSetup]( RDG::PassBuilder& pass )
+                 {
+                     if ( bladeSetup.IsValid() )
+                         pass.Read( bladeSetup, RDG::Access::StorageRead );
+                     meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, false, Slice::Mid );
+                 } );
+            AddRaster(
+                 graph, "Grass: Visibility Depth Mid", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return m_GrassVisibility.RecordDepth( context ); },
+                 [this, words = visibility.Words]( RDG::PassBuilder& pass )
+                 { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
         }
         // GRASS-VIS phase 2 (@p postOcclusion): the same two nodes over phase 2's records, after this frame's HZB;
         // the words still hold phase 1's winners, and the G-buffer depth they resolved rejects what lies behind.

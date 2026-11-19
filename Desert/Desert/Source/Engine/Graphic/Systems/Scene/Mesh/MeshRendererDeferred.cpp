@@ -719,9 +719,7 @@ namespace Desert::Graphic::System
                                                           const GrassRasterSlice slice )
     {
         MeshRendererDetail::MeshDrawList& list =
-             postOcclusion ? m_GrassVisibilityRasterPostDraws
-                           : ( slice == GrassRasterSlice::Near ? m_GrassVisibilityRasterNearDraws
-                                                               : m_GrassVisibilityRasterDraws );
+             postOcclusion ? m_GrassVisibilityRasterPostDraws : GrassVisibilityRasterList( slice );
         list.Clear();
         if ( m_GrassVisibilitySections.empty() || !visibility.IsValid() || !m_InstancedVisibilityPipeline )
             return;
@@ -743,8 +741,26 @@ namespace Desert::Graphic::System
     {
         if ( postOcclusion )
             return m_GrassVisibilityRasterPostDraws.Record( context );
-        return ( slice == GrassRasterSlice::Near ? m_GrassVisibilityRasterNearDraws : m_GrassVisibilityRasterDraws )
-             .Record( context );
+        return GrassVisibilityRasterList( slice ).Record( context );
+    }
+
+    MeshRendererDetail::MeshDrawList& MeshRenderer::GrassVisibilityRasterList( const GrassRasterSlice slice )
+    {
+        if ( slice == GrassRasterSlice::Near )
+            return m_GrassVisibilityRasterNearDraws;
+        if ( slice == GrassRasterSlice::Mid )
+            return m_GrassVisibilityRasterMidDraws;
+        return m_GrassVisibilityRasterDraws;
+    }
+
+    const MeshRendererDetail::MeshDrawList&
+    MeshRenderer::GrassVisibilityRasterList( const GrassRasterSlice slice ) const
+    {
+        if ( slice == GrassRasterSlice::Near )
+            return m_GrassVisibilityRasterNearDraws;
+        if ( slice == GrassRasterSlice::Mid )
+            return m_GrassVisibilityRasterMidDraws;
+        return m_GrassVisibilityRasterDraws;
     }
 
     void MeshRenderer::DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
