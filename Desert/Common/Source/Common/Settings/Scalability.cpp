@@ -466,6 +466,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (the "
                "distance a mesh grass instance's LOD level is selected at, GrassCull GrassMeshLevel)",
                100, Vis::Advanced },
+             { P::FoliageGrassBladeSegmentPixels, G::Foliage, "Foliage.GrassBladeSegmentPixels", 0, 64, CL::None,
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PlanVariety (a blade's "
+               "strip level by its projected height and its sub-pixel cull, GrassCull GrassBladeCurveLevel)",
+               8, Vis::Advanced },
              { P::FoliageGrassBladeCardHull, G::Foliage, "Foliage.GrassBladeCardHull", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (a blade's "
                "raster strip spans its card's cooked hull, Vertex_GrassBlade BladeHullSide)",

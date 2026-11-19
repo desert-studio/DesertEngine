@@ -1336,6 +1336,8 @@ namespace Desert::Graphic
                       static_cast<float>( quality.As<int>( Parameter::FoliageGrassLodScreenPixels ) ),
                  .MeshLodDistanceScale = 0.01f * static_cast<float>( quality.As<int>(
                                                       Parameter::FoliageGrassMeshLodDistanceScalePercent ) ),
+                 .BladeSegmentPixels =
+                      static_cast<float>( quality.As<int>( Parameter::FoliageGrassBladeSegmentPixels ) ),
                  .BladeCardHull = quality.As<int>( Parameter::FoliageGrassBladeCardHull ) != 0 };
             if ( const auto& grass = m_Systems.Grass )
                 grass->SetQuality( grassQuality );

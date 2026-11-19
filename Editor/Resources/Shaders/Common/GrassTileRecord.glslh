@@ -20,13 +20,16 @@ struct GrassParams
     vec4  ScaleY;    // x/y = ScaleY range, z = bounds centre height (local)
     vec4  ScaleZ;    // x/y = ScaleZ range (up), w = the floor of the lens share (1 / DrawDistanceScale, at most 1; LensShare)
     uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
-    uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args, z = a blade's card count
+    uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args, z = a blade's card count,
+                     // w = a blade's finest strip segment count, the LOD of the curve on (0: off; Lod.x / y)
     vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
     vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm,
                      // w = the screen-width floor's distance D (cm; 0: none), the mean blade MinScreenWidth px
     vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm),
                      // w = the screen-width floor's width per unit of distance (MinScreenWidth px; 0: none)
     vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|;
+                     // a blade's LOD of the curve (FPS-GRASS-RASTER-COST): x = Height x PixelsPerUnit, y = the
+                     // Foliage quality's BladeSegmentPixels (GrassFieldShare.glslh GrassBladeCurveLevel);
                      // the far LOD of a blade or a mesh: z = the distance at which its bounding radius at scale 1
                      // stands at the Foliage quality's LodScreenPixels (0: no far LOD; GrassFieldShare.glslh
                      // GrassBladeLodAt, GrassMeshFarLod)

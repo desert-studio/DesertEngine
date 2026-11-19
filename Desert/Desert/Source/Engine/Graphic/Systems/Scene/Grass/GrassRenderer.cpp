@@ -375,7 +375,9 @@ namespace Desert::Graphic::System
             glm::vec4  ScaleY;
             glm::vec4  ScaleZ;
             glm::uvec4 Info;
-            glm::uvec4 Buckets; // x = bucket count, y = the bucket table's first word in Args
+            // x = bucket count, y = the bucket table's first word in Args, z = a blade's card count, w = a blade's
+            // finest strip segment count when the LOD of the curve is on (Lod.x / y; 0: off)
+            glm::uvec4 Buckets;
             glm::vec4  Blade;   // x = LodDistance (0: one bucket), y = ClumpSize, z = Clumping, w = ClumpPull
             // x = Scatter (cells), y = Patchiness, z = PatchSize, w = the screen-width floor's distance (cm, 0: none)
             glm::vec4  Spread;
@@ -385,6 +387,8 @@ namespace Desert::Graphic::System
             // A mesh's per-instance level by screen size (Geometry::BoundsScreenRadiusSquared): x = the lens's
             // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic) x the
             // Foliage quality's MeshLodDistanceScale squared (FPS-GRASS-MESH-RASTER, UE foliage.LODDistanceScale).
+            // A blade's LOD of the curve (FPS-GRASS-RASTER-COST): x = Height x PixelsPerUnit, y = the Foliage
+            // quality's BladeSegmentPixels (0, 0: off; GrassFieldShare.glslh GrassBladeCurveLevel).
             // The far LOD of a blade (GPU-FRAME-4) or a mesh (GPU-FRAME-6): z = the distance at which its bounding
             // radius at scale 1 stands at the Foliage quality's LodScreenPixels (0: none; GrassFieldShare.glslh
             // GrassBladeLodAt, GrassMeshFarLod). w, a blade: the distance its coarsest level's instances draw
@@ -1743,7 +1747,20 @@ namespace Desert::Graphic::System
                                               farLodDistance, 0.0f );
         }
         else
-            params.Lod = glm::vec4( 0.0f, 0.0f, farLodDistance, plan.SmallDistance ); // w: the small bucket
+        {
+            // FPS-GRASS-RASTER-COST, THE LOD OF THE CURVE (UE / Ghost of Tsushima grass: a blade's vertex count by
+            // its screen size): x = the blade's projected height at scale 1 times its distance (Height x
+            // PixelsPerUnit, render pixels x cm), y = the Foliage quality's BladeSegmentPixels; Buckets.w = the
+            // strip's finest segment count. GrassCull (GrassFieldShare.glslh GrassBladeCurveLevel) draws the
+            // coarsest level whose segments stand at most y pixels tall and culls a blade below half a pixel.
+            // 0 (no quality value, an orthographic lens, no render extent): the LodDistance rings alone.
+            const bool curveLod =
+                 variety.Blade && m_Quality.BladeSegmentPixels > 0.0f && fieldLens.PixelsPerUnit > 0.0f;
+            params.Lod = glm::vec4( curveLod ? variety.Blade->Height * fieldLens.PixelsPerUnit : 0.0f,
+                                    curveLod ? m_Quality.BladeSegmentPixels : 0.0f, farLodDistance,
+                                    plan.SmallDistance ); // w: the small bucket
+            params.Buckets.w = curveLod ? std::max( static_cast<uint32_t>( variety.Blade->Segments ), 1u ) : 0u;
+        }
         // LOD-DITHER-GRASS-SIDE, THE LAW'S TWO LOD EYES (UE FTemporalLODState over the grass HISM's instances:
         // every instance selects its level at the view's two temporal samples and cross-fades where they differ):
         // the samples snapped to the field eye's grid, so the law (GrassCull.shader GrassViewLaw, LawChunk's fade

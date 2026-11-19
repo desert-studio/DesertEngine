@@ -143,6 +143,32 @@ GrassBladeLod GrassBladeLodAt( float size, uint ring, uint levels )
     return lod;
 }
 
+// THE LOD OF THE CURVE (FPS-GRASS-RASTER-COST; Ghost of Tsushima, GDC 2021: a blade's vertex count by its screen
+// size; UE grass HISM: an instance's LOD by its screen size) - the strip level a blade's projected height asks for.
+// @p pixelsTall: the blade's height on screen (render pixels) at the scale it is drawn with; @p segmentPixels: the
+// Foliage quality's BladeSegmentPixels, the screen height one segment of the curve stands for; @p segments: the
+// strip's finest segment count (GrassRenderer::BladeStrip: each farther level halves it, down to one); @p level:
+// the level already chosen (the LodDistance ring, the far LOD). The result is the coarsest level whose segments
+// still stand at most segmentPixels tall, never finer than @p level: a near blade keeps the curve the rings give
+// it, a small one stops spending vertices on bends no pixel shows. 0 segments or segmentPixels: @p level.
+uint GrassBladeCurveLevel( float pixelsTall, float segmentPixels, uint segments, uint level, uint levels )
+{
+    if ( segmentPixels <= 0.0 || segments == 0u )
+        return level;
+    const float needed = pixelsTall / segmentPixels;
+    uint        curve  = 0u;
+    uint        drawn  = segments;
+    while ( curve + 1u < levels && float( max( 1u, drawn / 2u ) ) >= needed )
+    {
+        drawn = max( 1u, drawn / 2u );
+        ++curve;
+    }
+    return max( curve, level );
+}
+// A blade below half a pixel tall on screen covers no sample whatever its strip: the cull drops it (the LOD of the
+// curve's own measure, so it is on exactly where GrassBladeCurveLevel is).
+const float kGrassBladeCullPixels = 0.5;
+
 // THE MESH'S FAR LOD (GPU-FRAME-6; UE grass HISM: foliage.MinimumScreenSize culls an instance by its screen size,
 // PerInstanceFadeAmount scales it to nothing first) - the blade's far LOD (GrassFarLodShare, the same Foliage
 // quality's LodScreenPixels through the same p.Lod.z) on a mesh variety's instances: below the far LOD's screen size
