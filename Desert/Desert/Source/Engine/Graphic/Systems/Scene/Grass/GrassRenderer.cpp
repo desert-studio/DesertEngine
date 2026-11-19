@@ -266,9 +266,9 @@ namespace Desert::Graphic::System
         constexpr uint32_t kCullDispatchHeader = 2u;
         constexpr uint64_t kPostDispatchOffset = sizeof( glm::uvec4 );
         // GrassCull.shader's modes (Hzb.w).
-        constexpr uint32_t kCullModeDispatch       = 0u;
+        // 0, the dispatch, has no pass of its own (FPS-GRASS-CULL-COST): CommitFrame uploads it.
         constexpr uint32_t kCullModeCameraCull     = 1u;
-        constexpr uint32_t kCullModeCameraFinalize = 2u;
+        // 2, the camera cull's finalize, has no pass of its own (FPS-GRASS-CULL-COST): mode 5's last group runs it.
         constexpr uint32_t kCullModePostOcclusion  = 3u;
         constexpr uint32_t kCullModePostFinalize   = 4u;
         constexpr uint32_t kCullModeCameraInstances = 5u;
@@ -596,8 +596,8 @@ namespace Desert::Graphic::System
         inline constexpr uint32_t kBladeSetupArgsHeaderWords = 4u;     // GpuInstances.hpp: the records' header
         inline constexpr uint32_t kBladeSetupRecordWords     = 5u;     // VkDrawIndexedIndirectCommand
 
-        // A pass over the variety table that runs ONE group (GrassCull's dispatch and finalize
-        // modes): its one binding block, @p push, one dispatch.
+        // A pass over the variety table that runs ONE group (GrassCull's post finalize mode): its one binding
+        // block, @p push, one dispatch.
         Common::BoolResultStr DispatchOneGroup( RDG::PassContext& context, const ComputePipeline& pipeline,
                                                 const ShaderPush::GrassCull& push )
         {
@@ -3370,58 +3370,77 @@ namespace Desert::Graphic::System
             ShaderPush::GrassCull         layOut;
             layOut.HzbViewProjection = occlusion.PrevViewProjection;
             // Hzb.z = 0: the camera cull tests the camera's planes alone.
-            layOut.Hzb  = testsHzb ? glm::uvec4( occlusion.Extent, kCullModeDispatch )
-                                   : glm::uvec4( 0u, 0u, 0u, kCullModeDispatch );
+            layOut.Hzb  = testsHzb ? glm::uvec4( occlusion.Extent, kCullModeCameraTiles )
+                                   : glm::uvec4( 0u, 0u, 0u, kCullModeCameraTiles );
             // Rows.y / z: MetChunks' room for met chunks and for work items (FPS-GRASS-CULL-GPU); w: CullTiles'
             // room for tiles (FPS-GRASS-CULL-GPU2).
             layOut.Rows = glm::uvec4( cullRows, static_cast<uint32_t>( chunkRoom ),
                                       static_cast<uint32_t>( workRoom ), static_cast<uint32_t>( tileRoom ) );
             ShaderPush::GrassCull tiles = layOut;
-            tiles.Hzb.w         = kCullModeCameraTiles;
             ShaderPush::GrassCull cull     = layOut;
             cull.Hzb.w             = kCullModeCameraCull;
             ShaderPush::GrassCull instances = layOut;
             instances.Hzb.w         = kCullModeCameraInstances;
-            ShaderPush::GrassCull finalize = layOut;
-            finalize.Hzb.w         = kCullModeCameraFinalize;
-            // GPU-HZB-SPD (UE InstanceCulling on the async pipe): the dispatch, the cull, the finalize and the
-            // gathers below request async compute; the graph forks after the tile builds' last write and joins
-            // before the first pass that reads the lists (CullPassFlags).
+            // GPU-HZB-SPD (UE InstanceCulling on the async pipe): the tiles, the cull, the instances (whose last group
+            // finalizes) and the gathers below request async compute; the graph forks after the tile builds' last write
+            // and joins before the first pass that reads the lists (CullPassFlags).
             const RDG::PassFlags cullFlags = CullPassFlags();
-            graph.AddPass(
-                 "Grass: Cull Dispatch", cullFlags,
-                 [this, hzb]( RDG::PassBuilder& pass )
-                 {
-                     // The met chunks' and the tiles' lists emptied (their counts and dispatches).
-                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageWrite,
-                               RDG::Access::StorageWrite );
-                     for ( const VarietyGpu* gpu : m_FrameCull )
-                     {
-                         // The law's slots restarted (Chunks' header).
-                         pass.Write( m_ChunksPool.Ref(), RDG::Access::StorageWrite );
-                         pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite ); // the full list's counts reset
-                     }
-                 },
-                 [this, layOut]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return DispatchOneGroup( context, *m_Cull, layOut ); } );
+            // FPS-GRASS-CULL-COST, NO DISPATCH PASS (UE InstanceCulling: the node pass's dispatch and the lists'
+            // counters come from the CPU's per-frame upload, not a one-group GPU pass): the tile pass's layout - each
+            // row's tile slots (its chunk room over kGrassTileClusters chunks a slot, the rows' TileCount bound; the
+            // pass's lanes past a row's own count, or of a row whose camera holds, meet nothing), kTileSlotsPerGroup
+            // a group, laid end to end in row order - its indirect command (one group at least: the first restarts
+            // the rows, GrassCull RestartRows) and phase 2's command zeroed (mode 5's groups count themselves done
+            // on its w), and the met chunks' and tiles' headers emptied: uploads of the graph's head batch, before
+            // the async fork, instead of a serial pass of the async chain.
+            {
+                constexpr uint32_t kTileSlotsPerGroup = 64u; // GrassCull.shader kTileSlotsPerGroup (its LocalSize)
+                constexpr uint32_t kCullGroupsX       = 65535u; // GrassCull.shader kCullGroupsX
+                std::vector<glm::uvec4> dispatchWords( kCullDispatchHeader + cullRows, glm::uvec4( 0u ) );
+                uint64_t groups = 0u;
+                for ( uint32_t r = 0; r < cullRows; ++r )
+                {
+                    dispatchWords[kCullDispatchHeader + r].x = static_cast<uint32_t>( groups );
+                    const uint64_t slots = ( uint64_t( m_FrameCull[r]->ChunkRoom ) + kGrassTileClusters - 1u ) /
+                                           kGrassTileClusters;
+                    groups += ( slots + kTileSlotsPerGroup - 1u ) / kTileSlotsPerGroup;
+                }
+                // GrassCull CullGroups: one row of up to kCullGroupsX groups, past it as few rows as fit (a row's
+                // chunk room is 32-bit, so its groups are below 2^22 and their sum stays far below 65535 squared).
+                const uint64_t rowsY = std::max<uint64_t>( 1u, ( groups + kCullGroupsX - 1u ) / kCullGroupsX );
+                const uint64_t x     = std::max<uint64_t>( 1u, ( groups + rowsY - 1u ) / rowsY );
+                dispatchWords[0] = glm::uvec4( static_cast<uint32_t>( x ), static_cast<uint32_t>( rowsY ), 1u,
+                                               static_cast<uint32_t>( groups ) );
+                graph.QueueBufferUpload( m_FrameDispatch, std::as_bytes( std::span( dispatchWords ) ) );
+                // GrassCull MetCommand: mode 5's dispatch from one group (its last group finalizes), no met chunk,
+                // no work item; CullTiles' TileCommand: mode 1's from none, no tile.
+                static constexpr std::array<uint32_t, 8> kMetHeader{ 1u, 1u, 1u, 0u, 0u, 0u, 0u, 0u };
+                static constexpr std::array<uint32_t, 4> kTileHeader{ 0u, 0u, 1u, 0u };
+                static_assert( sizeof( kMetHeader ) == kMetHeaderBytes && sizeof( kTileHeader ) == kTileHeaderBytes );
+                graph.QueueStaticBufferUpload( m_FrameMet, std::as_bytes( std::span( kMetHeader ) ) );
+                graph.QueueStaticBufferUpload( m_FrameTiles, std::as_bytes( std::span( kTileHeader ) ) );
+            }
 
             graph.AddPass(
                  "Grass: Camera Cull Tiles", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
                      // FPS-GRASS-CULL-GPU2, the tile pass (UE InstanceCulling's node pass): every culled row's
-                     // tile slots' nodes against the views; it appends the slots that may meet one.
+                     // tile slots' nodes against the views; it appends the slots that may meet one. Its first group
+                     // restarts the rows (FPS-GRASS-CULL-COST, GrassCull RestartRows): the law's slots (Chunks'
+                     // header) and the full list's counts.
                      BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageRead,
                                RDG::Access::StorageWrite );
                      pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
-                     pass.Read( m_ChunksPool.Ref(), RDG::Access::StorageRead ); // the tiles' nodes
+                     pass.Write( m_ChunksPool.Ref(), RDG::Access::StorageWrite ); // the tiles' nodes, the law's slots
                      pass.Read( m_ParamsPool.Ref(), RDG::Access::StorageRead );
+                     for ( const VarietyGpu* gpu : m_FrameCull )
+                         pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite ); // the full list's counts reset
                  },
                  [this, tiles,
                   dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     // GrassCull kTileSlotsPerGroup tile slots of a row per group: the groups the Cull Dispatch
-                     // laid out.
+                     // GrassCull kTileSlotsPerGroup tile slots of a row per group: the groups uploaded above.
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( tiles );
                      return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, 0u );
@@ -3461,8 +3480,12 @@ namespace Desert::Graphic::System
                  "Grass: Camera Cull Instances", cullFlags,
                  [this, hzb]( RDG::PassBuilder& pass )
                  {
-                     // The instance pass: a group per met chunk, its kept records into the lists.
-                     BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageRead,
+                     // The instance pass: a group per kCullGroupThreads work items, their records into the lists;
+                     // FPS-GRASS-CULL-COST: its last group to finish runs the camera cull's finalize (GrassCull
+                     // CameraInstancesGroup) - the camera's and the full list's records, the cascades' lists,
+                     // Feedback and phase 2's dispatch (CullDispatch [1] and the rows' y, its done count before) -
+                     // so no finalize pass follows it on the async chain.
+                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageRead,
                                RDG::Access::StorageRead );
                      pass.Read( m_FrameMet, RDG::Access::IndirectArgs );
                      // FPS-ARCH-GRASSROWS: the law's rows, read by id (no pool record or params is read here).
@@ -3477,6 +3500,7 @@ namespace Desert::Graphic::System
                          pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
                          pass.Write( gpu->CascadeRefs.Ids, RDG::Access::StorageWrite );
                          pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
+                         pass.Write( m_FeedbackPool.Ref(), RDG::Access::StorageWrite ); // the finalize's counts
                      }
                  },
                  [this, instances, metBuffer = m_FrameMet]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -3487,23 +3511,6 @@ namespace Desert::Graphic::System
                      return Renderer::DispatchComputeIndirect( bindings, *m_Cull, metBuffer, 0u );
                  } );
 
-            graph.AddPass(
-                 "Grass: Camera Cull Finalize", cullFlags,
-                 [this, hzb]( RDG::PassBuilder& pass )
-                 {
-                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageRead,
-                               RDG::Access::StorageRead );
-                     for ( const VarietyGpu* gpu : m_FrameCull )
-                     {
-                         pass.Write( gpu->CameraRefs.Args, RDG::Access::StorageWrite );
-                         pass.Write( gpu->Refs.Args, RDG::Access::StorageWrite ); // the full list's records
-                         pass.Write( m_FeedbackPool.Ref(), RDG::Access::StorageWrite );
-                         pass.Write( gpu->CascadeRefs.Args, RDG::Access::StorageWrite );
-                         pass.Read( m_ChunksPool.Ref(), RDG::Access::StorageRead ); // the law's slots handed out
-                     }
-                 },
-                 [this, finalize]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return DispatchOneGroup( context, *m_Cull, finalize ); } );
             // RENDER-JOB-CPU-4: the first phase's compacted bins, gathered from the records just finalized.
             if ( const Common::BoolResultStr gathered = AddDrawGather( graph, kGpuDrawBinCameraPhase ); !gathered )
                 LOG_ERROR( "[Grass] the grass draws per variety this frame: {}", gathered.GetError() );
@@ -3907,7 +3914,8 @@ namespace Desert::Graphic::System
              },
              [this, post, dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 // One thread per candidate of every row: the groups the Camera Cull Finalize laid out.
+                 // One thread per candidate of every row: the groups the camera cull's finalize (Camera Cull
+                 // Instances' last group) laid out.
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  bindings.PushConstants( post );
                  return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer, kPostDispatchOffset );
