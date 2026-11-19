@@ -247,6 +247,15 @@ namespace Desert::Graphic::System
         std::array<float, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverFarLodRadius{};
     };
 
+    // THE GRID'S HEIGHT ERROR (FPS-TERRAIN-LOD-2; CDLOD / Frostbite terrain, UE Nanite's ~1 px error): per section
+    // of a tile and per grid LOD L = 1..kLandscapeGridErrorLods, the largest vertical distance (cm) between a
+    // sample of the section and the stride-2^L grid's triangles over it - a running max, so it never falls with L.
+    // Row (sz * kLandscapeMaxSections + sx) x kLandscapeGridErrorLods + L - 1 (LandscapeSectionGridErrors). A
+    // section's coarsest grid LOD (LandscapeSectionMaxLod) is at most 7 (a 1024-quad tile's 256-quad section).
+    inline constexpr uint32_t kLandscapeGridErrorSections = 16u; // kLandscapeMaxSections^2 (static_assert below)
+    inline constexpr uint32_t kLandscapeGridErrorLods     = 8u;
+    using LandscapeSectionErrorArray = std::array<float, kLandscapeGridErrorSections * kLandscapeGridErrorLods>;
+
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first
     // GLOBAL sample, not the tile's own origin: a vertex on a shared edge is then the same integer sample
     // index seen from both tiles, turned into a position by the same operations on the same numbers, so
@@ -265,6 +274,10 @@ namespace Desert::Graphic::System
         // HighestSample), undisplaced: the vertical slab the view's footprint on the dice is cut from.
         float MinY = 0.0f;
         float MaxY = 0.0f;
+        // The grid's height error per section and LOD (cm; LandscapeSectionGridErrors, recomputed by
+        // LandscapeECSSystem when the heights change): the main camera's section LOD is the coarsest whose error
+        // projects under kLandscapeGridErrorPixels (TerrainRenderer CameraSectionLods). All zero = flat.
+        LandscapeSectionErrorArray GridError{};
         // World::Landscape::LandscapeNeighbourMask of the neighbours whose ring row the heightmap carries.
         uint32_t NeighbourMask = 0u;
         // The tile's entity (its GPU-scene motion row and ray-tracing state are keyed by it), and the revision
@@ -428,6 +441,92 @@ namespace Desert::Graphic::System
 
     // A tile's sections' continuous LODs, row-major (sz * kLandscapeMaxSections + sx).
     using LandscapeSectionLodArray = std::array<float, kLandscapeMaxSections * kLandscapeMaxSections>;
+    static_assert( kLandscapeGridErrorSections == kLandscapeMaxSections * kLandscapeMaxSections,
+                   "LandscapeSectionErrorArray holds a row per section" );
+
+    // The grid's screen error the main camera's section LOD keeps (pixels; UE Nanite's 1 px target, Lindstrom's
+    // screen-space error): a section's grid is the coarsest whose largest height error projects under it.
+    inline constexpr float kLandscapeGridErrorPixels = 1.0f;
+
+    // THE GRID'S HEIGHT ERROR of a tile (LandscapeTileDraw::GridError): @p heightCm(x, z) is the world height of
+    // tile-local sample (x, z), x, z in [0, quadsPerTile]. For each section and grid LOD L (stride 2^L in tile
+    // coordinates; a corner past the tile clamps to its last sample, LandscapeLod.glslh's narrower last cell)
+    // every sample of the section is compared with the grid cell's triangle over it - the diagonal (00)-(11):
+    // (00, 10, 11) where fx >= fz, else (00, 01, 11), the decode's split - and the largest gap is kept, a running
+    // max over L. Grid L = 0 is the samples themselves (no error).
+    template <class HeightCm>
+    LandscapeSectionErrorArray LandscapeSectionGridErrors( uint32_t quadsPerTile, HeightCm&& heightCm )
+    {
+        LandscapeSectionErrorArray errors{};
+        const uint32_t             quads    = std::max( quadsPerTile, 1u );
+        const uint32_t             sq       = LandscapeSectionQuads( quads );
+        const uint32_t             sections = LandscapeSectionCount( quads );
+        const uint32_t             maxLod   = std::min( LandscapeSectionMaxLod( quads ), kLandscapeGridErrorLods );
+        for ( uint32_t sz = 0; sz < sections; ++sz )
+        {
+            for ( uint32_t sx = 0; sx < sections; ++sx )
+            {
+                float* const   row = errors.data() + ( sz * kLandscapeMaxSections + sx ) * kLandscapeGridErrorLods;
+                const uint32_t x0  = sx * sq;
+                const uint32_t z0  = sz * sq;
+                const uint32_t x1  = std::min( x0 + sq, quads );
+                const uint32_t z1  = std::min( z0 + sq, quads );
+                float          running = 0.0f;
+                for ( uint32_t lod = 1u; lod <= maxLod; ++lod )
+                {
+                    const uint32_t stride = 1u << lod;
+                    float          worst  = 0.0f;
+                    for ( uint32_t z = z0; z <= z1; ++z )
+                    {
+                        const uint32_t cz  = z / stride * stride;
+                        const uint32_t cz1 = std::min( cz + stride, quads );
+                        const float    fz =
+                             cz1 > cz ? static_cast<float>( z - cz ) / static_cast<float>( cz1 - cz ) : 0.0f;
+                        const uint32_t cz0 = std::min( cz, quads );
+                        for ( uint32_t x = x0; x <= x1; ++x )
+                        {
+                            const uint32_t cx  = x / stride * stride;
+                            const uint32_t cx1 = std::min( cx + stride, quads );
+                            const uint32_t cx0 = std::min( cx, quads );
+                            const float    fx =
+                                 cx1 > cx ? static_cast<float>( x - cx ) / static_cast<float>( cx1 - cx ) : 0.0f;
+                            const float h00 = heightCm( cx0, cz0 );
+                            const float h11 = heightCm( cx1, cz1 );
+                            const float h   = fx >= fz ? h00 + fx * ( heightCm( cx1, cz0 ) - h00 ) +
+                                                            fz * ( h11 - heightCm( cx1, cz0 ) )
+                                                       : h00 + fz * ( heightCm( cx0, cz1 ) - h00 ) +
+                                                            fx * ( h11 - heightCm( cx0, cz1 ) );
+                            worst           = std::max( worst, std::abs( heightCm( x, z ) - h ) );
+                        }
+                    }
+                    running       = std::max( running, worst );
+                    row[lod - 1u] = running;
+                }
+                for ( uint32_t lod = maxLod + 1u; lod <= kLandscapeGridErrorLods; ++lod )
+                    row[lod - 1u] = running;
+            }
+        }
+        return errors;
+    }
+
+    // THE SECTION'S LOD BY ITS SCREEN ERROR (FPS-TERRAIN-LOD-2): @p errors = its row of GridError (grid L at
+    // L - 1), @p pixelsPerCm the camera's pixels per cm at the section's nearest point. At continuous LOD L + f
+    // the grid morphs from grid L to grid L + 1, so its error grows from e(L) to e(L + 1) (linear in f): the LOD
+    // is the largest whose projected error stays at @p tolerancePx, at most @p maxLod (UE's LastLODIndex).
+    inline float LandscapeLodFromScreenError( const float* errors, uint32_t maxLod, float pixelsPerCm,
+                                              float tolerancePx )
+    {
+        const uint32_t last = std::min( maxLod, kLandscapeGridErrorLods );
+        float          prev = 0.0f;
+        for ( uint32_t lod = 0u; lod < last; ++lod )
+        {
+            const float next = errors[lod] * pixelsPerCm; // grid lod + 1
+            if ( next > tolerancePx )
+                return static_cast<float>( lod ) + ( tolerancePx - prev ) / std::max( next - prev, 1.0e-6f );
+            prev = next;
+        }
+        return static_cast<float>( last );
+    }
 
     // A tile's SectionLods table and its finest section's LOD. `sectionsAt(dx, dz)` is the section LODs of the
     // tile at that offset from this one (dx = dz = 0: this tile), or nullptr where there is none. Every tile of a

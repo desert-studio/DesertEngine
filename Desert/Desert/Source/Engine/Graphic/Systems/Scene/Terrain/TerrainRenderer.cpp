@@ -859,6 +859,56 @@ namespace Desert::Graphic::System
             return lods;
         }
 
+        // THE MAIN CAMERA'S SECTION LODS (FPS-TERRAIN-LOD-2; CDLOD / Frostbite terrain, UE Nanite's ~1 px error):
+        // UE's screen size (TileSectionLods) picks a section's grid from its bounding sphere's share of the
+        // screen, blind to its heights and to the internal resolution - a flat field at 0.53 MP drew 392 k grid
+        // triangles. Here a section's grid is the coarsest whose height error (LandscapeTileDraw::GridError)
+        // projects under kLandscapeGridErrorPixels at the section's nearest point: a flat section goes coarse at
+        // once, a ridge keeps its silhouette. Near the eye (@p keepCm: the displacement's fade end; the dice
+        // rings need the LOD-0 grid there and the relief vanishes at LOD 1, LandscapeDisplacementLodScale) a
+        // section keeps UE's screen-size LOD, the picture there unchanged. @p pixelsPerCm = projection[1][1] x
+        // half the view height.
+        LandscapeSectionLodArray CameraSectionLods( const LandscapeTileDraw& l, const Geometry::LODView& view,
+                                                    const float pixelsPerCm, const float keepCm )
+        {
+            LandscapeSectionLodArray lods = TileSectionLods( l, view );
+            if ( pixelsPerCm <= 0.0f || l.SpacingCm <= 0.0f )
+                return lods;
+            const uint32_t   quads    = std::max( l.QuadsPerTile, 1u );
+            const uint32_t   sq       = LandscapeSectionQuads( quads );
+            const uint32_t   sections = LandscapeSectionCount( quads );
+            const uint32_t   maxLod   = LandscapeSectionMaxLod( quads );
+            const float      tileX    = l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm;
+            const float      tileZ    = l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm;
+            const glm::vec3& eye      = view.Origin;
+            // A vertex's LOD blends its section's with its neighbours' (edges and corners, max across a line), so
+            // a section is kept while it or any neighbour reaches into the fade: its nearest point within the fade's
+            // end plus one section's diagonal (every vertex the fade moves then sees screen-size LODs alone).
+            const float      sideCm   = static_cast<float>( sq ) * l.SpacingCm;
+            const float      reachCm  = keepCm > 0.0f
+                                            ? keepCm + glm::length( glm::vec3( sideCm, l.MaxY - l.MinY, sideCm ) )
+                                            : 0.0f;
+            for ( uint32_t sz = 0; sz < sections; ++sz )
+            {
+                for ( uint32_t sx = 0; sx < sections; ++sx )
+                {
+                    const glm::vec3 lo( tileX + static_cast<float>( sx * sq ) * l.SpacingCm, l.MinY,
+                                        tileZ + static_cast<float>( sz * sq ) * l.SpacingCm );
+                    const glm::vec3 hi(
+                         tileX + static_cast<float>( std::min( sx * sq + sq, quads ) ) * l.SpacingCm, l.MaxY,
+                         tileZ + static_cast<float>( std::min( sz * sq + sq, quads ) ) * l.SpacingCm );
+                    const float nearest = glm::length( glm::clamp( eye, lo, hi ) - eye );
+                    if ( nearest < reachCm )
+                        continue;
+                    const uint32_t section = sz * kLandscapeMaxSections + sx;
+                    lods[section]          = LandscapeLodFromScreenError(
+                         l.GridError.data() + section * kLandscapeGridErrorLods, maxLod,
+                         pixelsPerCm / std::max( nearest, 1.0f ), kLandscapeGridErrorPixels );
+                }
+            }
+            return lods;
+        }
+
         // Does the tile's ground (XZ) footprint meet the disc of @p radius around @p centre? Its heights are not
         // bounded here, so a tile above or below a light's reach is kept: a wasted draw, never a missing caster.
         bool TileMeetsDisc( const LandscapeTileDraw& l, const glm::vec3& centre, const float radius )
@@ -1548,11 +1598,22 @@ namespace Desert::Graphic::System
         const Core::Frustum cameraFrustum( frame.JitteredViewProjection, glm::mat4( 1.0f ) );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
+        // FPS-TERRAIN-LOD-2: by the grid's screen error past the displacement's fade (CameraSectionLods).
         m_TileLods.clear();
-        for ( const auto& t : m_Queue )
-            SetTileLods(
-                 m_TileLods, KeyOf( t.Landscape, 0, 0 ),
-                 TileSectionLods( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } ) );
+        const float cameraPixelsPerCm = frame.Projection[1][1] * 0.5f * static_cast<float>( viewHeight );
+        for ( size_t tile = 0; tile < m_Queue.size(); ++tile )
+        {
+            const LandscapeTileDraw& l    = m_Queue[tile].Landscape;
+            const glm::vec4&         disp = m_TileSetups[tile].Values.Displacement;
+            // The fade's end where the tile is displaced (ApplyLandscapeDisplacement's fadeEnd), else nothing
+            // kept.
+            const float keepCm = dicingRate > 0 && disp.x > 0.0f
+                                      ? std::max( disp.w, std::max( disp.z, 1.0f ) + 1.0f ) + l.SpacingCm
+                                      : 0.0f;
+            SetTileLods( m_TileLods, KeyOf( l, 0, 0 ),
+                         CameraSectionLods( l, Geometry::LODView{ frame.CameraPosition, frame.Projection },
+                                            cameraPixelsPerCm, keepCm ) );
+        }
         SealTileLods( m_TileLods );
 
         // Each landscape's height slab for the view's footprint on its dice (ApplyLandscapeDisplacement): the
@@ -2140,9 +2201,10 @@ namespace Desert::Graphic::System
         m_DicePool            = {};
         m_DicePoolCornerNodes = {};
         // The camera's kept ring cells (AddDiceCullPass writes them), bound by every terrain draw as the pool is:
-        // one zero word when no row is culled.
+        // one zero word when no row is culled. Two words an entry (FPS-TERRAIN-LOD-2): the cell and its edge
+        // factors (LandscapeDiceCull.shader).
         m_DiceCells = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t{ std::max<uint32_t>( m_DiceCullCells, 1u ) } * sizeof( uint32_t ) },
+             RDG::BufferDesc{ uint64_t{ std::max<uint32_t>( m_DiceCullCells * 2u, 1u ) } * sizeof( uint32_t ) },
              "Landscape.DiceCull.Cells" );
         if ( m_DiceCullJobs.empty() )
         {
@@ -2437,7 +2499,7 @@ namespace Desert::Graphic::System
         // Refused, the rings stay the procedural decode; the list still gets its content (every draw binds it).
         const auto zeroCells = [&]()
         {
-            const std::vector<std::byte> zero( std::size_t{ m_DiceCullCells } * sizeof( uint32_t ),
+            const std::vector<std::byte> zero( std::size_t{ m_DiceCullCells } * 2u * sizeof( uint32_t ),
                                                std::byte{ 0 } );
             graph.QueueBufferUpload( m_DiceCells, zero );
         };
@@ -2513,6 +2575,10 @@ namespace Desert::Graphic::System
         }
 
         const auto&               layout = m_DiceCullLayout.Get( m_DiceCullPipeline->GetSpecification().Shader );
+        const auto                extent = m_SceneRenderer->GetViewExtent();
+        const glm::vec2           halfExtent( 0.5f * static_cast<float>( extent.Width ),
+                                              0.5f * static_cast<float>( extent.Height ) );
+        const int                 dicingRate = std::max( m_PrepareDicingRate, 1 );
         ComputeNodeDeclaration    node( graph.GetFrameArena() );
         std::vector<ShaderPush::LandscapeDiceCull> pushes;
         std::vector<uint32_t>     groups;
@@ -2541,7 +2607,8 @@ namespace Desert::Graphic::System
             ShaderPush::LandscapeDiceCull push = base;
             push.Tile   = glm::uvec4( static_cast<uint32_t>( i ), job.Cells, job.FirstCorner,
                                       static_cast<uint32_t>( i ) * kDiceLevels );
-            push.Bounds = glm::vec4( job.Reach, 0.0f, 0.0f, 0.0f );
+            // FPS-TERRAIN-LOD-2: the cell's own dice measures its corners in the rasters' pixels.
+            push.Bounds = glm::vec4( job.Reach, halfExtent.x, halfExtent.y, static_cast<float>( dicingRate ) );
             pushes.push_back( push );
             groups.push_back( ( job.Cells + kDiceCullLocalSize - 1u ) / kDiceCullLocalSize );
         }
