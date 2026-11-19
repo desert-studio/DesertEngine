@@ -7,6 +7,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <filesystem>
+#include <Engine/Runtime/Services/Font/FontService.hpp>
 
 namespace Desert::Runtime
 {

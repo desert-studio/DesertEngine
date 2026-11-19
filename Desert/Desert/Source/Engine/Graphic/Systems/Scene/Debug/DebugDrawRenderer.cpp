@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <format>
 #include <vector>
+#include <Engine/Runtime/Services/Font/FontService.hpp>
 
 namespace Desert::Graphic
 {

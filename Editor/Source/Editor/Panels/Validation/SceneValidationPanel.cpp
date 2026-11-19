@@ -16,6 +16,7 @@
 
 #include <ImGui/imgui.h>
 #include <format>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor
 {

@@ -8,7 +8,8 @@
 #include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/ECS/Components.hpp>
 
 namespace Desert::Editor

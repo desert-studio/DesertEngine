@@ -3,7 +3,9 @@
 #include <Common/Core/Subsystems/SubsystemCollection.hpp>
 
 #include <Engine/Core/WorldStreamer.hpp>
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Application.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <ImGui/imgui.h>
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"

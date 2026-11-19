@@ -15,6 +15,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

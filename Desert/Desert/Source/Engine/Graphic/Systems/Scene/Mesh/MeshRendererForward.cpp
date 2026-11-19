@@ -17,6 +17,10 @@
 #include <iterator>
 #include <unordered_map>
 #include <set>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace
 {

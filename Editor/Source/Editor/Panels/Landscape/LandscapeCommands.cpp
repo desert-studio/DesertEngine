@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <initializer_list>
 #include <utility>
+#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
 
 namespace Desert::Editor
 {

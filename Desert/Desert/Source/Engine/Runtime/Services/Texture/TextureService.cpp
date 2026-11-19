@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <chrono>
 #include <utility>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 namespace Desert::Runtime
 {

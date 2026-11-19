@@ -15,6 +15,7 @@
 #include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
 #include <Engine/Animation/Animator.hpp>
 
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
@@ -34,6 +35,8 @@
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::ECS
 {

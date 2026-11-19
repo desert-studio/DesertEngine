@@ -1,6 +1,9 @@
 #pragma once
 
-#include <Engine/Desert.hpp>
+#include <Engine/Core/Camera.hpp>
+#include <Engine/ECS/Entity.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Common/Core/Math/Ray.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>

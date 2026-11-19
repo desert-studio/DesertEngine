@@ -11,6 +11,7 @@
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
+#include <Common/Core/Math/Ray.hpp>
 #include <Common/Core/Units.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>

@@ -45,6 +45,7 @@
 #include <system_error>
 #include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Widgets/MeshLODRows.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 
 namespace Desert::Editor
 {

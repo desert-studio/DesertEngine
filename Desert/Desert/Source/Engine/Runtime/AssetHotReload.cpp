@@ -35,6 +35,10 @@
 #include <format>
 #include <unordered_map>
 #include <unordered_set>
+#include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
+#include <Engine/Runtime/Services/CloudNoise/CloudNoiseService.hpp>
+#include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 
 namespace Desert::Runtime
 {

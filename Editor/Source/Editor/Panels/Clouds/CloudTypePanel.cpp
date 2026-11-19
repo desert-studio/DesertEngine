@@ -26,6 +26,7 @@
 #include <filesystem>
 #include <format>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
 
 namespace Desert::Editor
 {

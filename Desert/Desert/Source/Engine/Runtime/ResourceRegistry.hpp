@@ -1,35 +1,55 @@
 
 #pragma once
 
-#include <Engine/Assets/AssetManager.hpp>
+#include <memory>
 
-#include "Services/Mesh/MeshService.hpp"
-#include "Services/Material/MaterialService.hpp"
-#include "Services/Skybox/SkyboxService.hpp"
-#include "Services/Texture/TextureService.hpp"
-#include "Services/Shader/ShaderService.hpp"
-#include "Services/Image/ImageService.hpp"
-#include "Services/Font/FontService.hpp"
-#include "Services/Icon/IconService.hpp"
-#include "Services/AnimatedImage/AnimatedImageService.hpp"
-#include "Services/Video/VideoService.hpp"
-#include "Services/CloudNoise/CloudNoiseService.hpp"
-#include "Services/CloudType/CloudTypeService.hpp"
-#include "Services/CloudModelling/CloudModellingService.hpp"
-#include "Services/CloudLayout/CloudLayoutService.hpp"
-#include "Services/UITheme/UIThemeService.hpp"
-#include "Services/Landscape/LandscapeGrassTypeService.hpp"
-#include "Services/Landscape/LandscapeLayerInfoService.hpp"
-#include "Services/Foliage/FoliageTypeService.hpp"
+// Still included, not declared: their callers are files other branches have open right now (inline render passes
+// calling GetShaderService(), PhysicsECSSystem.hpp of the World Partition work) -- BUILD-FAST-2 p2 moves these four
+// includes into those callers once the branches land, and this header includes no service at all.
 #include "Services/Destruction/FractureService.hpp"
-#include "Services/Water/WaterWavesService.hpp"
-#include "Services/WorldParameters/WorldParametersService.hpp"
-#include "Services/Weather/WeatherPresetService.hpp"
-#include "Services/Subsurface/SubsurfaceProfileService.hpp"
-#include "Services/Lights/IesProfileService.hpp"
-#include "Services/Lights/RectLightLtcService.hpp"
 #include "Services/Physics/PhysicsAssetService.hpp"
-#include "Services/VFX/VFXSystemService.hpp"
+#include "Services/Shader/ShaderService.hpp"
+#include "Services/Water/WaterWavesService.hpp"
+
+// Every service is declared, not included (BUILD-FAST-2): this header sits under ECS/System/System.hpp and therefore
+// under Core/Scene.hpp, so the 27 service headers it used to include -- and the materials, view frames, RDG and
+// asset serialisation behind them -- were compiled into ~450 objects, and an edit to any of them rebuilt all of them.
+// A caller that uses a service includes that service's header: Engine/Runtime/Services/<Kind>/<Name>Service.hpp.
+namespace Desert::Assets
+{
+    class AssetManager;
+}
+
+namespace Desert::Runtime
+{
+    class MeshService;
+    class MaterialService;
+    class SkyboxService;
+    class TextureService;
+    class ShaderService;
+    class ImageService;
+    class FontService;
+    class IconService;
+    class AnimatedImageService;
+    class VideoService;
+    class CloudNoiseService;
+    class CloudTypeService;
+    class CloudModellingService;
+    class CloudLayoutService;
+    class UIThemeService;
+    class LandscapeGrassTypeService;
+    class LandscapeLayerInfoService;
+    class FoliageTypeService;
+    class FractureService;
+    class WaterWavesService;
+    class WorldParametersService;
+    class WeatherPresetService;
+    class SubsurfaceProfileService;
+    class IesProfileService;
+    class RectLightLtcService;
+    class PhysicsAssetService;
+    class VFXSystemService;
+} // namespace Desert::Runtime
 
 namespace Desert::Runtime
 {

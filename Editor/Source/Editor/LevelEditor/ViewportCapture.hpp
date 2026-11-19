@@ -8,7 +8,7 @@
 // and `<project>/.thumbnail.png` for the launcher tile. A member of EditorLayer BY VALUE, declared after the
 // SceneWorkspace whose active scene it reads.
 
-#include <Engine/Desert.hpp>
+
 
 #include <cstdint>
 #include <mutex>

@@ -27,6 +27,7 @@
 #include <chrono>
 #include <format>
 #include <fstream>
+#include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
 
 namespace Desert::Editor
 {

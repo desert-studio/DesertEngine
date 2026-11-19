@@ -5,6 +5,11 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/Icon/IconService.hpp>
+#include <Engine/Runtime/Services/AnimatedImage/AnimatedImageService.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
+#include <Engine/Runtime/Services/Video/VideoService.hpp>
 
 namespace Desert::UI
 {
