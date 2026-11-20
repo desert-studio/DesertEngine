@@ -3726,7 +3726,6 @@ namespace Desert::Graphic::System
             row.WindB       = entry.Wind.B;
             if ( postOcclusion && gpu.PostArgs.Bytes == 0u )
                 continue; // phase 2 drew nothing of this variety
-            const uint64_t records = postOcclusion ? gpu.PostArgs.Offset : gpu.CameraArgs.Offset;
             const uint32_t records = ( gpu.TableWord - kBladeSetupArgsHeaderWords ) / kBladeSetupRecordWords;
             const uint64_t first   = postOcclusion ? gpu.PostArgs.Offset : gpu.CameraArgs.Offset;
             row.Args               = glm::uvec4( static_cast<uint32_t>( first / 4u ), 0u, records, entries );
