@@ -2,9 +2,9 @@
 # Config/Engine.json section "WorldPartition" (Config/Mac|Windows/Engine.json over it), read as Play begins;
 # BlockOnSlowStreaming decides whether a missing cell under the player stops the game behind the loading overlay.
 # World: Scenes/WP_Protocol (WP-PROTOCOL.scn). Source: the Player 9000001, moved 2 km at once by its shape offset.
-# PRECONDITION (no DesertCtl verb writes Project Settings yet - REMAINDER): before the run
-#   Projects/Desert/Config/Engine.json = {"WorldPartition":{"BlockOnSlowStreaming":false,"MaxConcurrentLoads":1}}
-# and between the two Plays Project Settings > World Partition > Block On Slow Streaming ticked (file value true).
+# The project layer is written by the Project Settings palette entries: Block On Slow Streaming off and Max
+# Concurrent Loads 1 for Play 1, Block On Slow Streaming on for Play 2, the defaults (on, 4) back at the end.
+# The source jumps 250 m (to x -25000, where cells hold content) (WP_Protocol is 1 km across; 2 km would be off the world, with no cell to wait for).
 # Expected (editor.log): Play 1 - "[WorldPartition] 'WP_Protocol': slow streaming (blocking disabled)" once, no
 # "play waits"; Play 2 - "play waits for it", then "play resumes".
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
@@ -15,23 +15,24 @@
 Дано set 9000001 StreamingSourceData.Enabled true
 Дано set 9000002 StreamingSourceData.Enabled false
 Дано set 9000001 StreamingSourceData.ShapeOffset 0,0,0
+Дано run "Project Settings" "World Partition: Block On Slow Streaming off"
+Дано run "Project Settings" "World Partition: Max Concurrent Loads 1"
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
 Когда advance 2
 Когда advance 1
-Когда set 9000001 StreamingSourceData.ShapeOffset 200000,0,0
-Когда --subject viewport set Camera.Position 200000,4000,-4000
-Когда --subject viewport set Camera.Direction 0,-0.7,1
+Когда select 9000001
+Когда --subject selection set Translation -25000,200,5000
 Когда advance 1
-Тогда wpset_noblock BlockOnSlowStreaming=false: оверлея загрузки нет, под игроком в 2 км HLOD или пустая земля; лог «slow streaming (blocking disabled)», нет «play waits»
+Тогда wpset_noblock BlockOnSlowStreaming=false: оверлея загрузки нет, под игроком в 400 м HLOD или пустая земля; лог «slow streaming (blocking disabled)», нет «play waits»
 Когда run Action "Stop"
+Дано run "Project Settings" "World Partition: Block On Slow Streaming on"
 Дано set 9000001 StreamingSourceData.ShapeOffset 0,0,0
 Когда run Action "Play from Here"
 Когда advance 2
 Когда advance 1
-Когда set 9000001 StreamingSourceData.ShapeOffset 200000,0,0
-Когда --subject viewport set Camera.Position 200000,4000,-4000
-Когда --subject viewport set Camera.Direction 0,-0.7,1
+Когда select 9000001
+Когда --subject selection set Translation -25000,200,5000
 Когда advance 1
 Тогда wpset_block BlockOnSlowStreaming=true: оверлей загрузки поверх кадра; лог «play waits for it»
 Когда advance 2
@@ -66,3 +67,4 @@
 Когда advance 2
 Тогда wpset_block_loaded ячейка под игроком загружена (настоящая, не HLOD), оверлей снят; лог «play resumes»
 Когда run Action "Stop"
+Когда run "Project Settings" "World Partition: Max Concurrent Loads 4"

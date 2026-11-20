@@ -22,7 +22,7 @@
 Дано wait-idle 2400
 Дано set 9000001 StreamingSourceData.Enabled true
 Дано set 9000002 StreamingSourceData.Enabled false
-Дано --subject world set SceneSettings.DefaultPawn assets:Prefabs/Pawn_Player.deprefab
+Дано set world SceneSettings.DefaultPawn assets:Prefabs/Pawn_Player.deprefab
 Дано spawn Content/Meshes/Modeling/Box.stmesh 70000,0,0 --id 9000103
 Дано set 9000103 Tag.Tag "WPTeleportTarget"
 Дано set 9000103 WorldPartition.IsSpatiallyLoaded false
