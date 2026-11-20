@@ -317,6 +317,10 @@
 Когда run Action "Stop"
 Дано set 9000001 StreamingSourceData.Enabled true
 Дано set 9000002 StreamingSourceData.Enabled false
+# The Player starts 350 m before the heavy cell on -X (beyond the 200 m range): from its authored spot (0,0) the cell is
+# 64 m away and resident when Play begins, so the teleport would land on a loaded floor and nothing would wait.
+Дано select 9000001
+Дано --subject selection set Translation -30000,-204,0
 Когда run Action "Play"
 Когда advance 2
 Когда advance 1
