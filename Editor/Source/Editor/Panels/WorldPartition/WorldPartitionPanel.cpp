@@ -822,6 +822,9 @@ namespace Desert::Editor
             }
             if ( type == Core::HLODLayerType::MeshApproximate )
                 return Common::Json::FromStruct( Core::HLODApproximationSettings{} );
+            if ( type ==
+                 Core::HLODLayerType::Impostor ) // REQUIRED by HLODBuilderImpostor: UE ImpostorBaker defaults
+                return Common::Json::FromStruct( Core::HLODImpostorSettings{} );
             return std::nullopt;
         }
 
@@ -965,6 +968,30 @@ namespace Desert::Editor
                     }
                     if ( settings.NormalMode == Core::HLODApproximationNormals::HardEdges )
                         changed |= CommitFloat( "Hard normal angle (deg)", settings.HardNormalAngle, "%.0f" );
+                    if ( changed )
+                        return Common::Json::FromStruct( settings );
+                    return std::nullopt;
+                }
+                case Core::HLODLayerType::Impostor:
+                {
+                    // UE ImpostorBaker's FramesXY / bHemiOctahedron / Resolution. Edits the builder would refuse
+                    // (ValidateHLODImpostor) are not committed: the refusal is shown and the stated value stays.
+                    auto read = Rules::ReadHLODBuilderSettings<Core::HLODImpostorSettings>( stated );
+                    if ( !read )
+                    {
+                        refuse( "Impostor: " + read.GetError() );
+                        return std::nullopt;
+                    }
+                    Core::HLODImpostorSettings settings = read.ExtractValue();
+                    bool                       changed  = false;
+                    changed |= CommitInt( "Frames per side", settings.FramesPerSide );
+                    changed |= ImGui::Checkbox( "Hemisphere", &settings.Hemisphere );
+                    changed |= CommitInt( "Frame resolution", settings.FrameResolution );
+                    if ( Common::BoolResultStr valid = Core::ValidateHLODImpostor( settings ); !valid )
+                    {
+                        ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.3f, 1.0f ), "%s", valid.GetError().c_str() );
+                        return std::nullopt;
+                    }
                     if ( changed )
                         return Common::Json::FromStruct( settings );
                     return std::nullopt;

@@ -634,6 +634,13 @@ namespace Desert::Migration
     //       alike.
     inline constexpr int kWorldPartitionVersionEntityHLODLayer = 13;
 
+    //  14 - IMPOSTOR HLOD LAYERS (IMPOSTORS-HLOD; UE ImpostorBaker + HLOD layers). HLODLayerType gains Impostor,
+    //       whose builder's Settings are Core::HLODImpostorSettings (FramesPerSide, Hemisphere, FrameResolution).
+    //       ADDITIVE: a v13 world states no Impostor layer and builds as before - the step has no transform of its
+    //       own, the stamp states WPAR 14. The number moves because the enum is read by name and strictly: a v13
+    //       build would refuse an "Impostor" layer without naming the migrator. Scenes and prefabs alike.
+    inline constexpr int kWorldPartitionVersionImpostorLayers = 14;
+
     // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
     // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
     //
@@ -681,7 +688,7 @@ namespace Desert::Migration
                                                               const std::filesystem::path&     assetsRoot );
 
     static_assert(
-         kWorldPartitionVersionEntityHLODLayer == Core::kWorldPartitionVersion,
+         kWorldPartitionVersionImpostorLayers == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
          "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1510,6 +1517,7 @@ namespace Desert::Migration
         bool        HLODBuilderSettingsRaised   = false; // below kWorldPartitionVersionHLODBuilderSettings
         std::size_t HLODMergeMaterialsMoved     = 0; // layers whose MergeMaterials became Settings.MergeMaterials
         bool        EntityHLODLayerRaised       = false; // below kWorldPartitionVersionEntityHLODLayer (additive)
+        bool        ImpostorLayersRaised        = false; // below kWorldPartitionVersionImpostorLayers (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
@@ -1583,7 +1591,8 @@ namespace Desert::Migration
                    ReflectedAssetRefsRaised || SunRotationRaised || VolumetricFogRaised || TracedRequestRaised ||
                    ComposedGIRaised || FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
                    DebugColorsRaised || MiniMapRaised || LandscapeSplineEntitiesRaised ||
-                   HLODBuilderSettingsRaised || EntityHLODLayerRaised;
+                   HLODBuilderSettingsRaised || EntityHLODLayerRaised ||
+                   ImpostorLayersRaised;
         }
     };
 

@@ -208,8 +208,12 @@ namespace Desert::Core
     // of its cell's HLOD is built by that layer instead of its grid's (Rules::CompositeHLODLayer). Additive - a
     // v12 record states none and is built as before - so the step (Tools/SceneMigrator,
     // kWorldPartitionVersionEntityHLODLayer) states the tag and changes nothing else; the number moves so a v12
-    // build refuses a world whose per-entity layers it would silently build by the grid's.
-    inline constexpr int kWorldPartitionVersion = 13;
+    // build refuses a world whose per-entity layers it would silently build by the grid's. v14 (IMPOSTORS-HLOD;
+    // UE ImpostorBaker): HLODLayerType gains Impostor (octahedral impostor cards, HLODImpostorSettings). Additive -
+    // a v13 world states none - so the step (Tools/SceneMigrator, kWorldPartitionVersionImpostorLayers) states the
+    // tag and changes nothing else; the number moves because the enum read is strict and a v13 build would refuse
+    // an Impostor layer without naming the migrator.
+    inline constexpr int kWorldPartitionVersion = 14;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are

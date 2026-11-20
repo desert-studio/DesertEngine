@@ -632,6 +632,12 @@ namespace
                              Desert::Migration::kWorldPartitionVersionHLODBuilderSettings )
                 << "->v" << Desert::Migration::kWorldPartitionVersionEntityHLODLayer
                 << " (HLOD layer per entity: additive, nothing restated)";
+        if ( report.ImpostorLayersRaised )
+            out << " world partition v"
+                << std::max( report.StatedWorldPartitionVersion,
+                             Desert::Migration::kWorldPartitionVersionEntityHLODLayer )
+                << "->v" << Desert::Migration::kWorldPartitionVersionImpostorLayers
+                << " (impostor HLOD layers: additive, nothing restated)";
         if ( report.ReflectedAssetRefsRaised )
             out << " asset references v" << report.StatedAssetRefVersion << "->v"
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
