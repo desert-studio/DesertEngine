@@ -22,6 +22,9 @@
 Дано --subject selection set Translation 0,0,6000
 Дано run Entity "Replace selected entities with the selected prefab"
 Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Glass.demat
+# The row seen from the side, 40 m off, so the three spans fill the frame.
+Дано --subject viewport set Camera.Position 4000,1500,3000
+Дано --subject viewport set Camera.Direction -1,-0.35,0
 Тогда pie_given три пролёта WP21_Span рядом (z = 0, 30 м, 60 м), у третьего первый куб стеклянный, у двух других — материал префаба
 Когда run Entity "Cube"
 Когда run Entity "Edit the selected prefab instance in place"
@@ -40,5 +43,9 @@
 Когда set selected SocketAttachment.Target '"9103"'
 Когда run Entity "Commit the prefab edit"
 Когда run Action "Play"
+# The play camera follows the Player and looks down -Z: the Player stands 15 m beside the row, past its far end.
+Когда run Entity "Player"
+Когда --subject selection set Translation 1500,300,9000
+Когда advance 1
 Тогда pie_factory_refs в Play четвёртый куб каждого пролёта висит на третьем кубе СВОЕГО пролёта (не в начале координат и не на кубе первого экземпляра) - так же, как в собранном мире (WorldCook + Runtime, PrefabExpansion)
 Когда run Action "Stop"

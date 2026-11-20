@@ -166,12 +166,24 @@ namespace Desert::Core::Rules
         // THE ORDER RECORDS ARE VISITED IN IS THE SIBLING ORDER. Since scene v25 the file is sorted by id,
         // so a record's position says nothing; `siblingIndex` does. Visiting in that order makes every
         // later step - creation, the attach in pass 2, the prefab pass - put siblings where the file
-        // says, because each of them appends. A record without one sorts last, in file order.
+        // says, because each of them appends. A record without one sorts last among its siblings, in file order.
+        //
+        // `siblingIndex` orders SIBLINGS, so it is compared only within one parent: the records are grouped by
+        // parent in the order each parent first appears in the file. Comparing it across parents put a prefab's
+        // root (the first record, which has no siblings in the file and so no index) behind its own children,
+        // and the factory and the cook, which take the first created entity as the instance root, rooted the
+        // instance at the first child (WP-PACKED-PREFAB: an unpacked Fence_Run became "Post_01").
+        std::unordered_map<std::optional<Common::UUID>, size_t> groupOf;
+        std::vector<size_t>                                     group( records.size() );
+        for ( size_t record = 0; record < records.size(); ++record )
+            group[record] = groupOf.try_emplace( records[record].parent, groupOf.size() ).first->second;
         std::vector<size_t> visit( records.size() );
         std::iota( visit.begin(), visit.end(), size_t{ 0 } );
         std::stable_sort( visit.begin(), visit.end(),
                           [&]( size_t a, size_t b )
                           {
+                              if ( group[a] != group[b] )
+                                  return group[a] < group[b];
                               return records[a].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() ) <
                                      records[b].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
                           } );
