@@ -268,6 +268,13 @@ void main()
     if ( setupAddress == uvec2( 0u ) )
         discard;
     const GrassMeshSetupData setup = GrassMeshSetupRef( setupAddress ).Records[slot];
+    // GRASS-MESH-RESOLVE-LOST: only a record written for THIS slot (Info.y = slot + 1, SetUpMeshInstance) and a
+    // level the section has. A row holding another record (a blade's Frame words, another variety's, never
+    // written) gave an unbounded level whose level x w + s wrapped onto another submesh's range: its indices plus
+    // this submesh's VertexOffset fetched past the mesh's vertex buffer by address (VK_ERROR_DEVICE_LOST in
+    // "Grass: Mesh Visibility Resolve", FIELD_Barn TURN).
+    if ( setup.Info.y != slot + 1u || setup.Info.x >= min( MeshRows.Visibility.z, 8u ) )
+        discard;
 
     // The level the slot was drawn with, then this section's submesh whose rows hold `inside`.
     const uint level   = setup.Info.x;

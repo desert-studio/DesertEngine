@@ -78,7 +78,8 @@ struct GrassMeshSetupData
     vec4  Sway;     // Common/FoliageWind.glslh FoliageWindInstanceSway now (the raster's wind, gust, local wind)
     vec4  PrevSway; // the same one wind step before (WindB.z, the previous gust and local wind, the previous row)
     vec4  Unused;   // 0 (GrassBladeSetupData.Before's words)
-    uvec4 Info;     // x = the LOD level the slot was drawn with (GrassMeshVisibilityLevel), y, z, w = 0
+    uvec4 Info;     // x = the LOD level the slot was drawn with (GrassMeshVisibilityLevel), y = the slot + 1 it was
+                    // written for (GRASS-MESH-RESOLVE-LOST: the resolve refuses any other row), z, w = 0
 };
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassMeshSetupRef
 {

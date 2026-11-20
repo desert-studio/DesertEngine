@@ -236,7 +236,9 @@ Shader "GrassBladeSetup"
             record.Tip    = FoliageWindInstanceSway( prevOrigin, windA, vec4( windB.x, windB.z, 0.0, 0.0 ),
                                                      cameraUB.PrevWindGust, LocalWindXZ( prevOrigin, true ) );
             record.Before = vec4( 0.0 );
-            record.Frame  = uvec4( level, 0u, 0u, 0u );
+            // GRASS-MESH-RESOLVE-LOST: Frame.y names the slot the record was written for (slot + 1, never 0), so the
+            // resolve refuses a row holding anything else (a blade's record, another variety's, never written).
+            record.Frame  = uvec4( level, slot + 1u, 0u, 0u );
             BladeSetupRecord[row] = record;
         }
 
