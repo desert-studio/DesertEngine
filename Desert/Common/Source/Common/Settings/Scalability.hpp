@@ -391,12 +391,10 @@ namespace Common::Scalability
         FoliageGrassCullDistanceScalePercent,
         // The blade LOD's screen size (GPU-FRAME-4; UE grass HISM: the instance's LOD by its screen size, GoT: far
         // blades fewer and wider), render pixels: a blade instance whose bounding radius projects below it is in
-        // the far LOD - its coarsest strip, and size^2 of the field's blades down to a quarter at half of it
-        // (FPS-GRASS-RASTER-4, GrassFieldShare.glslh kGrassBladeFarLodMinShare), each survivor 1 / share as wide,
-        // so the field covers what it did; a mesh variety's instance (GPU-FRAME-6, UE foliage.MinimumScreenSize)
-        // the same law down to half (kGrassMeshFarLodMinShare) by its own screen size, the dropped ones shrinking
-        // out (a mesh survivor does not widen). Read by GrassRenderer::SetQuality -> PrepareVariety
-        // (GrassParamsGpu::Lod.z) ->
+        // the far LOD - its coarsest strip, and half the field's blades over the band down to 1/sqrt(2) of it,
+        // each twice as wide, so the field covers what it did; a mesh variety's instance (GPU-FRAME-6, UE
+        // foliage.MinimumScreenSize) the same share by its own screen size, the dropped ones shrinking out (a mesh
+        // survivor does not widen). Read by GrassRenderer::SetQuality -> PrepareVariety (GrassParamsGpu::Lod.z) ->
         // GrassFieldShare.glslh GrassFarLodShare (GrassBladeLodAt, GrassMeshFarLod), the one choice the GBuffer,
         // the masked depth prepass and every shadow cascade draw. 0 = no far LOD (the variety's own LOD levels
         // only).
