@@ -7,19 +7,22 @@
 # the tag); the third, still selected after its replace, gets its own material (an override on its root).
 # Names repeat across instances: `run Entity "<name>"` takes the palette's first match.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+# The scene opens looking at the sky: the camera looks down at the ground by the origin before the cubes are placed.
+Дано --subject viewport set Camera.Position 0,9000,3000
+Дано --subject viewport set Camera.Direction 0.001,-1,0.001
 Дано run Assets "Open folder: Prefabs"
 Дано run "Content Browser" "Sync to Asset Prefabs/WP21_Span.deprefab"
 Дано run Entity "Place a cube on the surface at the viewport centre"
 Дано --subject selection set Translation 0,0,0
 Дано run Entity "Replace selected entities with the selected prefab"
 Дано run Entity "Place a cube on the surface at the viewport centre"
-Дано --subject selection set Translation 0,3000,0
+Дано --subject selection set Translation 0,0,3000
 Дано run Entity "Replace selected entities with the selected prefab"
 Дано run Entity "Place a cube on the surface at the viewport centre"
-Дано --subject selection set Translation 0,6000,0
+Дано --subject selection set Translation 0,0,6000
 Дано run Entity "Replace selected entities with the selected prefab"
-Дано --subject selection set StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Glass.demat
-Тогда pie_given три пролёта WP21_Span рядом (y = 0, 30 м, 60 м), у третьего первый куб стеклянный, у двух других — материал префаба
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Glass.demat
+Тогда pie_given три пролёта WP21_Span рядом (z = 0, 30 м, 60 м), у третьего первый куб стеклянный, у двух других — материал префаба
 Когда run Entity "Cube"
 Когда run Entity "Edit the selected prefab instance in place"
 Тогда pie_editing выбранный пролёт показан голым телом префаба; в Outliner всё остальное серое, клик по другим пролётам во вьюпорте не выделяет (Locked), гизмо на них не появляется
@@ -33,8 +36,8 @@
 Когда run Entity "Cube"
 Когда run Entity "Edit the selected prefab instance in place"
 Когда run Entity "SpanD"
-Когда add-component selected SocketAttachment
-Когда --subject selection set SocketAttachment.Target SpanC
+Когда add-component selected Socket
+Когда set selected SocketAttachment.Target '"9103"'
 Когда run Entity "Commit the prefab edit"
 Когда run Action "Play"
 Тогда pie_factory_refs в Play четвёртый куб каждого пролёта висит на третьем кубе СВОЕГО пролёта (не в начале координат и не на кубе первого экземпляра) - так же, как в собранном мире (WorldCook + Runtime, PrefabExpansion)

@@ -130,4 +130,32 @@ namespace Desert::ECS
         m_World->RemoveCharacter( cc.RuntimeCharacter );
         cc.RuntimeCharacter = Physics::kInvalidCharacter;
     }
+
+    bool HasLivePhysics( const entt::registry& registry, entt::entity entity )
+    {
+        const auto* rigid     = registry.try_get<RigidBodyComponent>( entity );
+        const auto* character = registry.try_get<CharacterControllerComponent>( entity );
+        return ( rigid != nullptr && rigid->RuntimeBody != Physics::kInvalidBody ) ||
+               ( character != nullptr && character->RuntimeCharacter != Physics::kInvalidCharacter );
+    }
+
+    void TeleportPhysics( Physics::PhysicsWorld& world, entt::registry& registry, entt::entity entity,
+                          const glm::mat4& pose )
+    {
+        const glm::vec3 position( pose[3] );
+        glm::mat3       basis( pose );
+        for ( int axis = 0; axis < 3; ++axis )
+            if ( glm::length( basis[axis] ) > 1e-6f )
+                basis[axis] = glm::normalize( basis[axis] );
+        if ( const auto* rigid = registry.try_get<RigidBodyComponent>( entity );
+             rigid != nullptr && rigid->RuntimeBody != Physics::kInvalidBody )
+            world.TeleportBody( rigid->RuntimeBody, position, glm::quat_cast( basis ) );
+        if ( auto* cc = registry.try_get<CharacterControllerComponent>( entity );
+             cc != nullptr && cc->RuntimeCharacter != Physics::kInvalidCharacter )
+        {
+            world.TeleportCharacter( cc->RuntimeCharacter, position );
+            cc->Velocity     = glm::vec3( 0.0f ); // stopped where it lands, like the capsule
+            cc->CurrentSpeed = 0.0f;
+        }
+    }
 } // namespace Desert::ECS

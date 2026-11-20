@@ -76,6 +76,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <format>
 
 namespace Desert::Editor
@@ -1278,6 +1279,14 @@ namespace Desert::Editor
                     const ECS::Entity entity = ref->get();
                     entity.SetLocalTransform( ECS::LocalTransform{
                          after.GetValue().Translation, after.GetValue().Rotation, after.GetValue().Scale } );
+                    // In Play the live body / character moves with it (UE SetActorLocation, TeleportPhysics);
+                    // otherwise the next step puts the entity back where physics has it.
+                    entt::registry* registry = entity.GetRegistry();
+                    auto*           physics  = m_Workspace.ActiveScene()->FindSystem<ECS::PhysicsECSSystem>();
+                    if ( m_Play.InPlayMode() && registry != nullptr && physics != nullptr &&
+                         physics->GetPhysicsWorld() != nullptr && ECS::HasLivePhysics( *registry, entity.GetHandle() ) )
+                        ECS::TeleportPhysics( *physics->GetPhysicsWorld(), *registry, entity.GetHandle(),
+                                              entity.GetWorldTransform() );
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }

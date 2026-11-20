@@ -9,6 +9,10 @@
 # "WPTeleportTarget" at P = (70000, 0, 0) (700 m +X, inside the landscape, beyond the Main grid's 200 m loading
 # range) with a disabled Streaming Source, and entity 9000104 running Content/Scripts/World/WPTeleport.lua; both are
 # not spatially loaded (UE bIsSpatiallyLoaded = false), so the script and its target exist before P streams in.
+# Entity 9000105 is an ordinary spatially loaded box beside P, so a Main cell holds P (unloaded at the start: the
+# world itself has no record within 50 m of P) and cellStatesAt(P) has a cell to report.
+# WP_Protocol names no Default Pawn, so the scenario sets the one of GameplayProof (Prefabs/Pawn_Player): "Play from
+# Here" spawns it at the camera (UE), as a streaming source of its own, and the teleport moves THAT pawn to P.
 # Expected (editor.log): "pending before the first tick: N" with N > 0 (never -1); "activated G..." lines for the
 # cells around P; "[WorldPartition] streaming completed for query in N ms (Activated)", "teleport after N ms" (the coroutine resumed); then cellStatesAt prints
 # "...: Activated" for every cell holding P; "unloaded G..." for the start area afterwards.
@@ -18,6 +22,7 @@
 Дано wait-idle 2400
 Дано set 9000001 StreamingSourceData.Enabled true
 Дано set 9000002 StreamingSourceData.Enabled false
+Дано set world SceneSettings.DefaultPawn assets:Prefabs/Pawn_Player.deprefab
 Дано spawn Content/Meshes/Modeling/Box.stmesh 70000,0,0 --id 9000103
 Дано set 9000103 Tag.Tag "WPTeleportTarget"
 Дано set 9000103 WorldPartition.IsSpatiallyLoaded false
@@ -27,6 +32,7 @@
 Дано set 9000104 WorldPartition.IsSpatiallyLoaded false
 Дано add-component 9000104 Script
 Дано set 9000104 Script.Scripts '[{"ScriptKey":"assets:Scripts/World/WPTeleport.lua","Props":[]}]'
+Дано spawn Content/Meshes/Modeling/Box.stmesh 71000,0,1000 --id 9000105
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
 Когда advance 2

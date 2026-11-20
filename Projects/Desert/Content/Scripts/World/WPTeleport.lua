@@ -3,7 +3,8 @@
 -- (entity tagged WPTeleportTarget) is enabled first, then the script waits on the query and moves the pawn.
 
 local P = vector.create( 70000, 0, 0 )
-local query = { Location = P, Radius = 5000 }
+-- No Radius: the grids' own loading ranges around P (UE bUseGridLoadingRange), the cells the player needs there.
+local query = { Location = P }
 
 function OnStart()
     World.find( "WPTeleportTarget" ):component( "StreamingSource" ).Enabled = true
@@ -11,7 +12,13 @@ function OnStart()
     coroutine.wrap( function()
         -- The yielding wait: the coroutine sleeps until the destination streamed.
         local co = coroutine.running()
-        WorldPartition.waitUntilStreamed( query, "Activated", function( ms ) coroutine.resume( co, ms ) end )
+        -- resume returns an error instead of raising it: raised here, the wait's callback error reaches the log.
+        WorldPartition.waitUntilStreamed( query, "Activated", function( ms )
+            local ok, err = coroutine.resume( co, ms )
+            if not ok then
+                error( err )
+            end
+        end )
         local ms = coroutine.yield()
         print( "teleport after " .. ms .. " ms" )
         -- The landscape at P is resident now: stand the pawn on it.
@@ -22,7 +29,9 @@ function OnStart()
         end
         gameMode.pawn():setPosition( ground )
         World.find( "WPTeleportTarget" ):component( "StreamingSource" ).Enabled = false
-        for _, line in WorldPartition.cellStatesAt( P ) do
+        local states = WorldPartition.cellStatesAt( P )
+        print( "cellStatesAt(P): " .. #states .. " cell(s)" )
+        for _, line in states do
             print( line )
         end
     end )()
