@@ -16,6 +16,7 @@
 // found through @p registries by {MeshGuid, MeshPath}. A part whose mesh is in no registry or does not read is
 // an ERROR naming it: a merged HLOD with a silently missing piece is a hole nobody listed.
 
+#include <Engine/Core/HLODImpostor.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODBuilders.hpp>
 
 #include <Engine/Geometry/MeshNormalMapBake.hpp>
@@ -59,6 +60,31 @@ namespace Desert::Core
     // module registers its own here, at startup, for a Custom layer to name
     // (Rules::HLODBuilderRegistry::Register). The editor's Build HLODs builds with a copy of it.
     [[nodiscard]] Rules::HLODBuilderRegistry& HLODBuilders();
+
+    // THE IMPOSTOR HLOD BUILDER (HLODLayerType::Impostor; UE ImpostorBaker + the HLOD "Instancing" batches): the
+    // gathered batches ARE the HLOD, as Instancing's, but each batch naming a mesh asset draws that mesh's
+    // octahedral impostor instead - the card mesh and the M_I material @p baker answers (HLODImpostorBaker) - with
+    // the batch's own instances and flags, so a far cell is one quad per instance. A batch of a built-in primitive
+    // keeps its primitive (a few triangles: its impostor would cost more). Its Settings are HLODImpostorSettings,
+    // REQUIRED (ValidateHLODImpostor). The process's registry (HLODBuilders) states no baker: a cook asked to build
+    // an Impostor layer refuses by name, the atlases are photographed by the editor's Build HLODs, which overrides
+    // this builder in its copy of the registry with the baking one (Rules::HLODBuilderRegistry::Override). The
+    // batches stay ISM: the card is placed by the Instanced vertex factory only (`VertexFactory Impostor`).
+    class HLODBuilderImpostor final : public Rules::IHLODBuilder
+    {
+    public:
+        explicit HLODBuilderImpostor( HLODImpostorBaker baker ) : m_Baker( std::move( baker ) )
+        {
+        }
+
+        [[nodiscard]] Common::BoolResultStr ValidateSettings( const Common::Json::Value* settings ) const override;
+
+        [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD> Build( const Rules::HLODBuildContext& context,
+                                                                      Rules::InstancingHLOD gathered ) const override;
+
+    private:
+        HLODImpostorBaker m_Baker; // empty = this process cannot bake (the cook)
+    };
 
     // THE SPLINE MESHES OF ONE LANDSCAPE SPLINE (Rules::LandscapeSplineHLODRequest; UE: the spline's
     // USplineMeshComponents in its cell's HLOD): its LandscapeSpline block read as the loader reads it, every

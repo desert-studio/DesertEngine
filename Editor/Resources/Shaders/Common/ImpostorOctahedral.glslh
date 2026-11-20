@@ -184,7 +184,8 @@ vec3 ImpostorViewerDirection( mat4 viewProjection, vec3 pointWorld, bool standar
 // THE CARD MESH (Core::HLODImpostorCardMesh, the one writer): four vertices in impostor space, corner c in {-1, 1}^2,
 //   a_Position  = centre + radius * ( c.x, c.y, c.x * c.y )  - the sphere's bounding cube, so the mesh's bounds cull
 //                                                              the card wherever it turns
-//   a_TexCoord1 = c,   a_Tangent = ( radius, 0, 0 ),   a_Normal = ( 0, 0, 1 )
+//   a_TexCoord1 = c,   a_TextureCoord (UV 0) = ( radius, radius ),   a_Normal = ( 0, 0, 1 )
+//   (UV 0, not the tangent: the mesh build recomputes and renormalises tangents, it keeps UVs as written)
 // so the vertex stage reads the sphere back from any one vertex.
 vec3 ImpostorCardCentre( vec3 position, vec2 corner, float radius )
 {

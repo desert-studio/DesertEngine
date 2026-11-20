@@ -392,11 +392,12 @@ namespace Desert::Core::Rules
     // The built-in layer types and the names their builders are registered under (Rules::HLODBuilderRegistry; UE
     // UHLODLayer::GetHLODBuilderClass maps a type to UHLODBuilderInstancing / MeshMerge / MeshSimplify the same
     // way). Custom is not here: its builder is the one its layer names.
-    inline constexpr std::array<std::pair<HLODLayerType, std::string_view>, 4> kBuiltInHLODBuilders = { {
+    inline constexpr std::array<std::pair<HLODLayerType, std::string_view>, 5> kBuiltInHLODBuilders = { {
          { HLODLayerType::Instancing, "Instancing" },
          { HLODLayerType::MeshMerge, "MeshMerge" },
          { HLODLayerType::MeshSimplify, "MeshSimplify" },
          { HLODLayerType::MeshApproximate, "MeshApproximate" },
+         { HLODLayerType::Impostor, "Impostor" },
     } };
 
     // The name of the builder @p layer is built by: its type's (kBuiltInHLODBuilders), or a Custom layer's

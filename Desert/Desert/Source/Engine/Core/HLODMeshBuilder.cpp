@@ -1129,12 +1129,54 @@ namespace Desert::Core
         }
     } // namespace
 
+    Common::BoolResultStr HLODBuilderImpostor::ValidateSettings( const Common::Json::Value* settings ) const
+    {
+        auto read = Rules::ReadHLODBuilderSettings<HLODImpostorSettings>( settings );
+        if ( !read )
+            return Common::MakeError<bool>( read.GetError() );
+        return ValidateHLODImpostor( read.GetValue() );
+    }
+
+    Common::ResultStr<Rules::InstancingHLOD> HLODBuilderImpostor::Build( const Rules::HLODBuildContext& context,
+                                                                         Rules::InstancingHLOD gathered ) const
+    {
+        if ( auto valid = ValidateSettings( context.Settings ); !valid )
+            return Common::MakeError<Rules::InstancingHLOD>( valid.GetError() );
+        auto read = Rules::ReadHLODBuilderSettings<HLODImpostorSettings>( context.Settings );
+        if ( !read )
+            return Common::MakeError<Rules::InstancingHLOD>( read.GetError() );
+        if ( !m_Baker )
+            return Common::MakeError<Rules::InstancingHLOD>(
+                 "impostor atlases are photographed by the editor's Build HLODs; this process has no impostor bake" );
+        for ( Rules::HLODBatch& batch : gathered.Batches )
+        {
+            if ( batch.Mesh.has_value() || batch.Block.Primitive.has_value() )
+                continue;
+            HLODImpostorRequest request;
+            request.Part                    = batch.Block;
+            request.Part.InstanceTransforms = std::nullopt; // the bake's identity is the mesh, not its instances
+            request.Settings                = read.GetValue();
+            auto baked                      = m_Baker( request );
+            if ( !baked )
+                return Common::MakeError<Rules::InstancingHLOD>(
+                     std::format( "the impostor of '{}': {}", batch.Block.MeshPath.value_or( "(no path)" ),
+                                  baked.GetError() ) );
+            Assets::InstancedStaticMeshComponentSer card = baked.ExtractValue();
+            card.InstanceTransforms                     = std::move( batch.Block.InstanceTransforms );
+            card.CastShadows                            = batch.Block.CastShadows;
+            card.CastContactShadow                      = batch.Block.CastContactShadow;
+            card.MaxDrawDistance                        = batch.Block.MaxDrawDistance;
+            batch.Block                                 = std::move( card );
+        }
+        return Common::MakeSuccess( std::move( gathered ) );
+    }
+
     Rules::HLODBuilderRegistry& HLODBuilders()
     {
         static Rules::HLODBuilderRegistry registry = []
         {
             Rules::HLODBuilderRegistry builtIn;
-            // Four distinct names into an empty registry, none refusable (Register refuses only an empty name, no
+            // Five distinct names into an empty registry, none refusable (Register refuses only an empty name, no
             // builder, or a name taken).
             static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::Instancing ),
                                                  std::make_shared<Rules::HLODBuilderInstancing>() ) );
@@ -1144,6 +1186,8 @@ namespace Desert::Core
                                                  std::make_shared<HLODBuilderMeshSimplify>() ) );
             static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::MeshApproximate ),
                                                  std::make_shared<HLODBuilderMeshApproximate>() ) );
+            static_cast<void>( builtIn.Register( BuiltInHLODBuilderName( HLODLayerType::Impostor ),
+                                                 std::make_shared<HLODBuilderImpostor>( HLODImpostorBaker() ) ) );
             builtIn.SetLandscapeBuilder(
                  std::make_shared<Rules::HLODBuilderLandscape>( []( const Rules::LandscapeHLODRequest& request )
                                                                 { return BuildLandscapeHLODMesh( request ); } ) );

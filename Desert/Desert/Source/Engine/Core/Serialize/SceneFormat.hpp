@@ -384,6 +384,12 @@ namespace Desert::Core
         MeshSimplify,
         MeshApproximate,
         Custom,
+        // Impostor - UE ImpostorBaker's octahedral impostors as an HLOD builder (Fortnite's far trees): every
+        //            gathered batch keeps its instances, its mesh becomes ONE camera-facing card per instance
+        //            shaded from an atlas of FramesPerSide^2 photos of the mesh (Core::HLODImpostorSettings,
+        //            REQUIRED Settings; Core::HLODBuilderImpostor, Programs/Surface/ImpostorSurface.shader). Last,
+        //            so no stored number of the older types moves.
+        Impostor,
     };
 
     // A MESH LAYER'S MERGED MATERIAL - UE FMeshMergingSettings::bMergeMaterials with its FMaterialProxySettings

@@ -6,9 +6,12 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <optional>
+#include <string>
 
 namespace Desert::Core
 {
@@ -301,5 +304,71 @@ namespace Desert::Core
             filled = next;
         }
         return Common::MakeSuccess( std::move( out ) );
+    }
+    Geometry::MeshSavedForm HLODImpostorCardMesh( const ImpostorSphere& sphere )
+    {
+        constexpr std::array<glm::vec2, 4> kCorners = { glm::vec2( -1.0f, -1.0f ), glm::vec2( 1.0f, -1.0f ),
+                                                        glm::vec2( 1.0f, 1.0f ), glm::vec2( -1.0f, 1.0f ) };
+        Geometry::MeshSavedForm card;
+        Geometry::MeshOverlaySavedForm corners;
+        for ( const glm::vec2& c : kCorners )
+        {
+            const glm::vec3 p = sphere.Centre + sphere.Radius * glm::vec3( c.x, c.y, c.x * c.y );
+            card.Positions.insert( card.Positions.end(), { p.x, p.y, p.z } );
+            corners.Values.insert( corners.Values.end(), { c.x, c.y } );
+        }
+        card.Triangles   = { 0, 1, 2, 0, 2, 3 };
+        card.PolyGroups  = { 0, 0 };
+        card.MaterialIds = { 0, 0 };
+        corners.Triangles = card.Triangles;
+        Geometry::MeshOverlaySavedForm normal;
+        normal.Values    = { 0.0f, 0.0f, 1.0f };
+        normal.Triangles = { 0, 0, 0, 0, 0, 0 };
+        card.Normals     = std::move( normal );
+        Geometry::MeshOverlaySavedForm radius;
+        radius.Values    = { sphere.Radius, sphere.Radius };
+        radius.Triangles = { 0, 0, 0, 0, 0, 0 };
+        card.UVs.push_back( std::move( radius ) );
+        card.UVs.push_back( std::move( corners ) );
+        return card;
+    }
+
+    std::string HLODImpostorKey( const Assets::InstancedStaticMeshComponentSer& part,
+                                 const HLODImpostorSettings&                    settings )
+    {
+        // FNV-1a 64 over the stated inputs, each text followed by a 0 so ("ab","c") and ("a","bc") differ.
+        uint64_t   hash  = 1469598103934665603ull;
+        const auto bytes = [&]( const void* data, std::size_t size )
+        {
+            const auto* p = static_cast<const unsigned char*>( data );
+            for ( std::size_t k = 0; k < size; ++k )
+            {
+                hash ^= p[k];
+                hash *= 1099511628211ull;
+            }
+        };
+        const auto text = [&]( const std::string& value )
+        {
+            bytes( value.data(), value.size() );
+            const unsigned char zero = 0;
+            bytes( &zero, 1 );
+        };
+        const auto texts = [&]( const std::optional<std::vector<std::string>>& values )
+        {
+            const int32_t count = values ? static_cast<int32_t>( values->size() ) : -1;
+            bytes( &count, sizeof( count ) );
+            if ( values )
+                for ( const std::string& value : *values )
+                    text( value );
+        };
+        text( part.MeshGuid.value_or( std::string() ) );
+        text( part.MeshPath.value_or( std::string() ) );
+        texts( part.MaterialGuids );
+        texts( part.MaterialPaths );
+        const uint8_t hemi = settings.Hemisphere ? 1 : 0;
+        bytes( &settings.FramesPerSide, sizeof( settings.FramesPerSide ) );
+        bytes( &hemi, 1 );
+        bytes( &settings.FrameResolution, sizeof( settings.FrameResolution ) );
+        return std::format( "{:016x}", hash );
     }
 } // namespace Desert::Core

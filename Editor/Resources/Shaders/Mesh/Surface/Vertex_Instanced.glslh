@@ -297,7 +297,8 @@ void main()
     // one raster matrix below, so the depth prepass and the base pass place the same card (gl_Position invariance).
     // No wind: an impostor is the far, still copy of its mesh.
     const vec2  impostorCorner = a_TexCoord1;
-    const float impostorRadius = a_Tangent.x;
+    // The radius rides in UV 0 (the card mesh contract): a tangent is renormalised by the mesh build, a UV is not.
+    const float impostorRadius = a_TextureCoord.x;
     const float impostorScale =
          max( length( model[0].xyz ), max( length( model[1].xyz ), length( model[2].xyz ) ) );
     const vec3 impostorCentre =

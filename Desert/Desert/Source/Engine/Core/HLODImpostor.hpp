@@ -26,7 +26,9 @@
 //   - atlas texel (x, y) of frame (col, row) is photo pixel (x - col * R, y - row * R): row 0 of a photo (its +Up
 //     edge) is the frame's top row, as the readback's row 0 is.
 
+#include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/HLODApproximate.hpp>
+#include <Engine/Geometry/SavedMeshForm.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -36,7 +38,9 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace Desert::Core
@@ -134,4 +138,28 @@ namespace Desert::Core
                                                                           const glm::vec3&              boundsMax,
                                                                           std::span<const HLODCapturePhoto> photos,
                                                                           const HLODImpostorSettings& settings );
+    // THE CARD MESH (the one writer of the contract Common/ImpostorOctahedral.glslh states): four vertices in
+    // impostor (mesh-local) space, corner c in {-1, 1}^2 at centre + radius * (c.x, c.y, c.x * c.y) - the sphere's
+    // bounding cube, so the mesh's bounds cull the card wherever the vertex factory turns it - two triangles, UV 0
+    // = (radius, radius) on every vertex, UV 1 = c, normal (0, 0, 1), one material slot. The radius rides in UV 0
+    // because the mesh build recomputes and renormalises tangents but keeps UVs as written.
+    [[nodiscard]] Geometry::MeshSavedForm HLODImpostorCardMesh( const ImpostorSphere& sphere );
+
+    // The identity of one impostor bake (the T_I<key> / M_I<key> / card file names): the part's mesh and materials
+    // (GUID and path) and every setting, hex. Instances do not enter it: one bake serves every instance of the mesh.
+    [[nodiscard]] std::string HLODImpostorKey( const Assets::InstancedStaticMeshComponentSer& part,
+                                               const HLODImpostorSettings&                    settings );
+
+    // WHAT THE IMPOSTOR BUILDER ASKS THE BAKE FOR (HLODBuilderImpostor, HLODMeshBuilder.hpp): one gathered batch's
+    // mesh and materials (its instances are the builder's, not the bake's) and the layer's settings.
+    struct HLODImpostorRequest
+    {
+        Assets::InstancedStaticMeshComponentSer Part;
+        HLODImpostorSettings                    Settings;
+    };
+    // The bake answers the ISM block that draws the impostor: MeshGuid / MeshPath naming the stored card mesh
+    // (HLODImpostorCardMesh), MaterialGuids / MaterialPaths naming its one M_I<key> material (ImpostorSurface).
+    // The builder copies the batch's instances and flags onto it. An error refuses the HLOD build by name.
+    using HLODImpostorBaker =
+         std::function<Common::ResultStr<Assets::InstancedStaticMeshComponentSer>( const HLODImpostorRequest& )>;
 } // namespace Desert::Core
