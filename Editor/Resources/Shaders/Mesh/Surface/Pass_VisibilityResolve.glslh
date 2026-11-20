@@ -55,9 +55,7 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 #include <Common/FoliageWind.glslh>
 #include <Mesh/MeshVertexAccess.glslh>
 #endif
-// The view's camera block (Common/LocalWind.glslh includes Common/CameraUB.glslh). Neither path evaluates the local
-// wind any more: the blade's and the mesh instance's setup records hold it (FPS-GRASS-RESOLVE-2,
-// FPS-GRASS-MESH-SETUP).
+// The local wind at the root: both the GrassBlade and the Instanced paths read it.
 #include <Common/LocalWind.glslh>
 
 #ifdef DESERT_SURFACE_WEATHER
@@ -259,25 +257,9 @@ void main()
         discard;
     const mat4 model     = transforms[instance];
     const mat4 prevModel = transforms[prevInstance];
-    // FPS-GRASS-MESH-SETUP: the instance's setup record ("Grass: Mesh Setup", GrassBladeSetup.shader
-    // SetUpMeshInstance), at the slot's first row: its wind sway now and one step before and its LOD level, written
-    // this frame for every slot the raster drew (a row a word names was drawn). No records this frame (address 0):
-    // no mesh pixel to rebuild, as the blade's resolve. FPS-GRASS-BLADE-SETUP: one record an instance for all the
-    // variety's sections, Slots.zw the address of its slot 0 (GrassRenderer.cpp MeshSetupSection).
-    const uvec2 setupAddress = MeshRows.Slots.zw;
-    if ( setupAddress == uvec2( 0u ) )
-        discard;
-    const GrassMeshSetupData setup = GrassMeshSetupRef( setupAddress ).Records[slot];
-    // GRASS-MESH-RESOLVE-LOST: only a record written for THIS slot (Info.y = slot + 1, SetUpMeshInstance) and a
-    // level the section has. A row holding another record (a blade's Frame words, another variety's, never
-    // written) gave an unbounded level whose level x w + s wrapped onto another submesh's range: its indices plus
-    // this submesh's VertexOffset fetched past the mesh's vertex buffer by address (VK_ERROR_DEVICE_LOST in
-    // "Grass: Mesh Visibility Resolve", FIELD_Barn TURN).
-    if ( setup.Info.y != slot + 1u || setup.Info.x >= min( MeshRows.Visibility.z, 8u ) )
-        discard;
 
     // The level the slot was drawn with, then this section's submesh whose rows hold `inside`.
-    const uint level   = setup.Info.x;
+    const uint level   = GrassMeshVisibilityLevel( slot );
     const uint count   = min( MeshRows.Visibility.w, GRASS_MESH_VISIBILITY_MAX_SUBMESHES );
     uint       submesh = count;
     uvec4      range   = uvec4( 0u );
@@ -308,6 +290,10 @@ void main()
     const uvec2 indexAddress  = MeshRows.Geometry[1].xy;
     const uint  vertexStride  = MeshRows.Geometry[1].z;
     const uint  streamStride  = MeshRows.Geometry[1].w;
+    const vec4  windPrev      = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
+    // The local wind at the instance, now and one step before (the raster's, Vertex_Instanced.glslh).
+    const vec2  localAir      = LocalWindXZ( vec3( model[3] ), false );
+    const vec2  prevLocalAir  = LocalWindXZ( vec3( prevModel[3] ), true );
     // The normal matrix as the cofactor matrix of the model's 3x3 (transpose( inverse ) x det: three cross
     // products, no inverse or division per pixel - FPS-GRASS-RESOLVE), signed by det so a mirrored instance's
     // normals face as the inverse's would; every use is normalized, so the dropped 1 / |det| changes nothing.
@@ -332,10 +318,10 @@ void main()
         const uvec2 at     = GrassMeshAddressAdd( vertexAddress, index * vertexStride );
         const uvec2 stream = GrassMeshAddressAdd( streamAddress, index * streamStride );
         const vec3  local3 = GrassMeshVec3( at, 0u );
-        // The raster's InstancedWorldPosition, its per-instance factors read from the setup record
-        // (Common/FoliageWind.glslh FoliageWindInstanceSway: the same product, the same bits).
-        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, setup.Sway );
-        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, setup.PrevSway );
+        world[k]     = InstancedWorldPosition( model, local3, m_PushConstants.WindA, m_PushConstants.WindB,
+                                               cameraUB.WindGust, localAir );
+        previous[k]  = InstancedWorldPosition( prevModel, local3, m_PushConstants.WindA, windPrev,
+                                               cameraUB.PrevWindGust, prevLocalAir );
         jittered[k]  = cameraUB.JitteredViewProjection * vec4( world[k], 1.0 );
         normal[k]    = normalize( normalMatrix * GrassMeshVec3( at, 12u ) );
         tangent[k]   = normalize( normalMatrix * GrassMeshVec3( at, 24u ) );

@@ -928,9 +928,6 @@ namespace Desert::Graphic::System
             // Its sections handed to MeshRenderer this frame (keys VarietyGpu::Index * 64 + s, s below this):
             // AddFrameBladeSetup asks which of them the visibility raster draws.
             uint32_t Sections = 0u;
-            // FPS-GRASS-MESH-SETUP: a mesh variety, whose tabled sections (VarietyGpu::MeshVisibilityRows) get one
-            // setup row each ("Grass: Mesh Setup", GrassBladeSetup.shader SetUpMeshInstance).
-            bool Mesh = false;
         };
         std::shared_ptr<ComputePipeline>                m_BladeSetupProgram;
         mutable ShaderBindingLayoutCache                m_BladeSetupLayout;

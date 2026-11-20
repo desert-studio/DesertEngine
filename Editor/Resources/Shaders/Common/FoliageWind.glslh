@@ -40,39 +40,17 @@ vec2 FoliageWindAir(vec2 directionXZ, vec2 localXZ)
     return lengthSquare > 1.0 ? air / sqrt(lengthSquare) : air;
 }
 
-// THE INSTANCE'S SWAY (FPS-GRASS-MESH-SETUP; UE 5 Nanite's instance scene data: what does not change across an
-// instance's vertices is computed once per instance): every factor of FoliageWindOffset but the vertex's height
-// mask - xy the air (FoliageWindAir), z the sway term (0.5 + 0.5 sway), w the gust scale (WindGustScale). Strength
-// <= 0: vec4(0) (FoliageWindOffsetOf answers vec3(0) for it before reading it). "Grass: Mesh Setup"
-// (Programs/Grass/GrassBladeSetup.shader) stores it per drawn mesh grass instance, now and one step before, and the
-// mesh resolve (Mesh/Surface/Pass_VisibilityResolve.glslh) places each vertex from it.
-vec4 FoliageWindInstanceSway(vec3 instanceOrigin, vec4 windA, vec4 windB, vec4 gust, vec2 localAir)
-{
-    if (windA.z <= 0.0)
-        return vec4(0.0);
-    float phase = instanceOrigin.x * 0.0123 + instanceOrigin.z * 0.0171;
-    float t     = 6.2831853 * windB.x * windB.y;
-    float sway  = 0.65 * sin(t + phase) + 0.35 * sin(2.3 * t + 1.7 * phase);
-    vec2  air   = FoliageWindAir(vec2(windA.x, windA.y), localAir);
-    return vec4(air, 0.5 + 0.5 * sway, WindGustScale(instanceOrigin.x, instanceOrigin.z, gust));
-}
-
-// The offset of the vertex at @p localPosition from its instance's FoliageWindInstanceSway: the height mask, then
-// the very product FoliageWindOffset always formed (Strength x mask x sway term x gust scale, in that order), so a
-// vertex placed from a stored sway lands on the bit the raster placed it on.
-vec3 FoliageWindOffsetOf(vec3 localPosition, vec4 windA, vec4 instanceSway)
+vec3 FoliageWindOffset(vec3 localPosition, vec3 instanceOrigin, vec4 windA, vec4 windB, vec4 gust, vec2 localAir)
 {
     if (windA.z <= 0.0)
         return vec3(0.0);
-    float mask   = FoliageWindHeightMask(localPosition.y, windA.w);
-    float amount = windA.z * mask * instanceSway.z * instanceSway.w;
-    return vec3(instanceSway.x, 0.0, instanceSway.y) * amount;
-}
-
-vec3 FoliageWindOffset(vec3 localPosition, vec3 instanceOrigin, vec4 windA, vec4 windB, vec4 gust, vec2 localAir)
-{
-    return FoliageWindOffsetOf(localPosition, windA,
-                               FoliageWindInstanceSway(instanceOrigin, windA, windB, gust, localAir));
+    float mask = FoliageWindHeightMask(localPosition.y, windA.w);
+    float phase  = instanceOrigin.x * 0.0123 + instanceOrigin.z * 0.0171;
+    float t      = 6.2831853 * windB.x * windB.y;
+    float sway   = 0.65 * sin(t + phase) + 0.35 * sin(2.3 * t + 1.7 * phase);
+    float amount = windA.z * mask * (0.5 + 0.5 * sway) * WindGustScale(instanceOrigin.x, instanceOrigin.z, gust);
+    vec2  air    = FoliageWindAir(vec2(windA.x, windA.y), localAir);
+    return vec3(air.x, 0.0, air.y) * amount;
 }
 
 // The world position of an instanced vertex: the instance's model matrix, then the wind.
@@ -80,13 +58,6 @@ vec3 InstancedWorldPosition(mat4 model, vec3 localPosition, vec4 windA, vec4 win
 {
     return vec3(model * vec4(localPosition, 1.0)) +
            FoliageWindOffset(localPosition, vec3(model[3]), windA, windB, gust, localAir);
-}
-
-// The same position from the instance's stored sway (FoliageWindInstanceSway at vec3(model[3]) with the same
-// windA / windB / gust / localAir): what the mesh resolve rebuilds a drawn vertex with.
-vec3 InstancedWorldPosition(mat4 model, vec3 localPosition, vec4 windA, vec4 instanceSway)
-{
-    return vec3(model * vec4(localPosition, 1.0)) + FoliageWindOffsetOf(localPosition, windA, instanceSway);
 }
 
 // THE WIND'S REACH over a mesh-local box whose top is at @p localTop (cm): the largest horizontal distance

@@ -15,9 +15,7 @@ struct GrassMeshVisibilityData
 {
     uvec4 Visibility;     // x = first row, y = rows per instance, z = level (bucket) count, w = submesh count
     uvec4 Slots;          // x = the slots the section's list holds (its capacity), y = the camera list's first
-                          // slot in the shared ids pool (CPU-GRASS-POOL-5); z, w = the view's setup records'
-                          // device address lo, hi (FPS-GRASS-MESH-SETUP, GrassRenderer m_BladeSetupAddress; 0:
-                          // none this frame)
+                          // slot in the shared ids pool (CPU-GRASS-POOL-5); z, w = 0
     uvec4 BucketFirst[2]; // the first slot of bucket (= LOD level) b < 8, [b / 4][b % 4]
     // [0] = vertex address lo, hi, stream address lo, hi; [1] = index address lo, hi (uint32 indices), vertex
     // stride, stream stride (bytes). The mesh's own spans (MeshGeometry byte offsets added).
@@ -69,22 +67,6 @@ uvec2 GrassMeshAddressAdd( const uvec2 address, const uint bytes )
     const uint low = uaddCarry( address.x, bytes, carry );
     return uvec2( low, address.y + carry );
 }
-
-// FPS-GRASS-MESH-SETUP: a drawn instance's setup record ("Grass: Mesh Setup", Programs/Grass/GrassBladeSetup.shader
-// SetUpMeshInstance), 64 bytes in the view's setup records (GrassBladeSetupData's size and words), one an instance
-// for all the variety's sections (FPS-GRASS-BLADE-SETUP): record slot from Slots.zw, the setup section's first row.
-struct GrassMeshSetupData
-{
-    vec4  Sway;     // Common/FoliageWind.glslh FoliageWindInstanceSway now (the raster's wind, gust, local wind)
-    vec4  PrevSway; // the same one wind step before (WindB.z, the previous gust and local wind, the previous row)
-    vec4  Unused;   // 0 (GrassBladeSetupData.Before's words)
-    uvec4 Info;     // x = the LOD level the slot was drawn with (GrassMeshVisibilityLevel), y = the slot + 1 it was
-                    // written for (GRASS-MESH-RESOLVE-LOST: the resolve refuses any other row), z, w = 0
-};
-layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassMeshSetupRef
-{
-    GrassMeshSetupData Records[];
-};
 
 uint GrassMeshUint( const uvec2 address )
 {
