@@ -2,8 +2,6 @@
 
 #include <Engine/ECS/HeterogeneousVolumeComponent.hpp>
 
-#include <Common/Content/AssetGuid.hpp>
-
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -37,12 +35,12 @@ namespace Desert::Graphic
     static_assert( sizeof( HeterogeneousVolumeGpu ) == 256 );
 
     // One gathered volume as the ECS hands it to the renderer: the packed GPU block plus the baked asset it
-    // samples (null guid = procedural). The renderer resolves the guid against its brick residency per frame
-    // and writes Sparse / SparseScale; the GPU never sees the guid.
+    // samples (the `.dsvol`'s AssetHandle value, 0 = procedural). The renderer resolves the handle against its
+    // brick residency per view frame and writes Sparse / SparseScale; the GPU never sees the handle.
     struct HeterogeneousVolumeInstance
     {
-        HeterogeneousVolumeGpu     Gpu;
-        Common::Content::AssetGuid SparseVolume;
+        HeterogeneousVolumeGpu Gpu;
+        uint64_t               SparseVolume = 0;
     };
 
     // Volumes per view (UE draws every heterogeneous volume of the view; here the lighting-cache atlas is sized

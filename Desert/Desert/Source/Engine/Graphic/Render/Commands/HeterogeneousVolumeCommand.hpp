@@ -15,9 +15,9 @@ namespace Desert::Graphic::Render
     // volume is on THIS view's screen is the renderer's question (HeterogeneousVolumeRenderer culls per view).
     struct HeterogeneousVolumeCommand : RenderCommand
     {
-        HeterogeneousVolumeGpu Volume;
+        HeterogeneousVolumeInstance Volume;
 
-        explicit HeterogeneousVolumeCommand( const HeterogeneousVolumeGpu& volume ) : Volume( volume )
+        explicit HeterogeneousVolumeCommand( const HeterogeneousVolumeInstance& volume ) : Volume( volume )
         {
         }
 

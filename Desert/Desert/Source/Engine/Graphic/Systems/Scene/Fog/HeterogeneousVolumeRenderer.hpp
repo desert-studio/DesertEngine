@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
+#include <Engine/Assets/SparseVolume.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/Fog/HeterogeneousVolumePayload.hpp>
 #include <Engine/Graphic/Fog/VolumetricFogPayload.hpp>
@@ -20,9 +21,11 @@
 
 #include <array>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Graphic
@@ -53,6 +56,9 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, LightGridCellsUB );
         DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
         DESERT_SHADER_PARAMETER( Texture, RainOcclusionMapTexture );
+        // The resident baked volumes' brick atlas (RG16F; the black 3D fallback while none is resident). Its page
+        // tables are the pipeline's own buffer (kSparseVolumePagesBinding).
+        DESERT_SHADER_PARAMETER( Texture, SparseVolumeAtlasTexture );
         static constexpr std::array kAll{ RDG::Erase( LightingCacheTexture ),
                                           RDG::Erase( ShadowCascadesTexture ),
                                           RDG::Erase( LocalShadowAtlasTexture ),
@@ -66,7 +72,8 @@ namespace Desert::Graphic::System
                                           RDG::Erase( LightGridParamsUB ),
                                           RDG::Erase( LightGridCellsUB ),
                                           RDG::Erase( CloudShadowMapTexture ),
-                                          RDG::Erase( RainOcclusionMapTexture ) };
+                                          RDG::Erase( RainOcclusionMapTexture ),
+                                          RDG::Erase( SparseVolumeAtlasTexture ) };
         static constexpr std::array kVirtualLocal{
              RDG::Erase( LightingCacheTexture ),   RDG::Erase( ShadowCascadesTexture ),
              RDG::Erase( DistantSkyLightTexture ), RDG::Erase( LinearClampSampler ),
@@ -75,7 +82,7 @@ namespace Desert::Graphic::System
              RDG::Erase( LightGridCellsUB ),       RDG::Erase( kVsmFrameDataBlock ),
              RDG::Erase( kVsmPageTableBlock ),     RDG::Erase( kVsmPhysicalPool ),
              RDG::Erase( kVsmLocalLightsBlock ),   RDG::Erase( CloudShadowMapTexture ),
-             RDG::Erase( RainOcclusionMapTexture ) };
+             RDG::Erase( RainOcclusionMapTexture ), RDG::Erase( SparseVolumeAtlasTexture ) };
     };
 
     // The march program's parameters (HeterogeneousVolumeMarch.shader).
@@ -88,10 +95,11 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, SparseVolumeAtlasTexture );
         static constexpr std::array kAll{ RDG::Erase( MarchTexture ),        RDG::Erase( MarchGuideTexture ),
                                           RDG::Erase( MarchHistoryTexture ), RDG::Erase( LightingCacheTexture ),
                                           RDG::Erase( SceneDepthTexture ),   RDG::Erase( LinearClampSampler ),
-                                          RDG::Erase( PointClampSampler ) };
+                                          RDG::Erase( PointClampSampler ),   RDG::Erase( SparseVolumeAtlasTexture ) };
     };
 
     // The upsample program's parameters (HeterogeneousVolumeUpsample.shader).
@@ -140,6 +148,11 @@ namespace Desert::Graphic::System
         void OnSceneReplaced() override
         {
             m_History.Invalidate();
+            // The next scene's baked volumes are read afresh; a read still in flight finishes into nothing.
+            m_Sparse.clear();
+            m_SparseAtlas = nullptr;
+            m_SparsePageTable.clear();
+            m_SparseDirty = false;
         }
         void OnTemporalHistoryReset() override
         {
@@ -152,8 +165,8 @@ namespace Desert::Graphic::System
          */
         ComputeNodeList DeclareLightingNodes( Common::Memory::FrameArena& arena, const FrameGraphRefs& refs,
                                               const ViewFrame& frame, const VolumetricFogSunInput& sun,
-                                              bool                                    virtualLocalShadows,
-                                              std::span<const HeterogeneousVolumeGpu> volumes );
+                                              bool                                         virtualLocalShadows,
+                                              std::span<const HeterogeneousVolumeInstance> volumes );
 
         // Valid after DeclareLightingNodes of this frame (Count 0 otherwise).
         [[nodiscard]] const HeterogeneousVolumeShadowInput& GetShadowInput() const
@@ -174,6 +187,39 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr EnsureLightingCacheVsmPipeline();
         bool                                EnsureCache();
         bool                                EnsureViewImages( uint32_t width, uint32_t height );
+
+        // THE BAKED SOURCES' RESIDENCY (UE SparseVolumeTexture streaming, at whole-asset granularity): a `.dsvol`
+        // a visible volume names is read on a Background job the first frame it is seen (the volume is not drawn
+        // until it lands), packed with every other resident one into ONE RG16F brick atlas + one page-table list,
+        // and dropped kSparseEvictFrames after it was last on screen. Nothing of this runs without a baked volume
+        // on screen.
+        struct SparseResident
+        {
+            std::future<Common::ResultStr<Assets::SparseVolumeData>> Pending;
+            Assets::SparseVolumeData Data; // the bricks, kept for the atlas re-packs
+            bool                     Loading    = true;
+            bool                     Failed     = false;
+            bool                     Placed     = false; // in the current atlas
+            uint32_t                 FirstPage  = 0;     // in m_SparsePageTable
+            uint32_t                 FirstBrick = 0;     // in m_SparseAtlas
+            uint64_t                 LastSeen   = 0;
+        };
+        // Marks @p handle seen, starts its read or collects it; true once its bricks may be placed.
+        bool TouchSparse( uint64_t handle, uint64_t frameIndex );
+        // Re-packs the atlas and the page tables from every loaded volume (most recently seen first, to the cap).
+        void RepackSparse();
+
+        std::unordered_map<uint64_t, SparseResident>    m_Sparse;
+        std::shared_ptr<Image3D>                        m_SparseAtlas;
+        std::shared_ptr<ShaderResources::StorageBuffer> m_SparsePages;         // per frame copies, at the capacity
+        std::shared_ptr<ShaderResources::StorageBuffer> m_SparsePagesFallback; // bound while no baked volume is drawn
+        std::vector<uint32_t>                           m_SparsePageTable;
+        uint32_t                                        m_SparsePageCapacity = 0;
+        bool                                            m_SparseDirty        = false;
+        bool                                            m_SparseDrawn        = false; // this frame
+        // The atlas (or its 3D fallback) the cache bound this frame; the march binds the same one.
+        std::shared_ptr<Image> m_SparseAtlasBinding;
+        std::string            m_SparseAtlasBindingName;
 
         std::shared_ptr<ComputePipeline>  m_CachePipeline;
         std::shared_ptr<ComputePipeline>  m_CacheVsmPipeline;

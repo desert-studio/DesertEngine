@@ -1069,7 +1069,7 @@ namespace Desert::Graphic
         void AddLocalFogVolume( const LocalFogVolumeGpu& volume );
         // One heterogeneous volume of this frame (HeterogeneousVolumeCommand, replayed per view). Reserved once at
         // kHeterogeneousVolumeMaxVolumes, emptied with the lights at frame end; culled per view by the renderer.
-        void AddHeterogeneousVolume( const HeterogeneousVolumeGpu& volume );
+        void AddHeterogeneousVolume( const HeterogeneousVolumeInstance& volume );
 
         const auto& GetSpotLights() const
         {
@@ -2184,7 +2184,7 @@ namespace Desert::Graphic
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
         std::vector<LocalLightShadowSettings> m_PointLightShadows;
         std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume
-        std::vector<HeterogeneousVolumeGpu> m_HeterogeneousVolumes; // this frame's, AddHeterogeneousVolume
+        std::vector<HeterogeneousVolumeInstance> m_HeterogeneousVolumes; // this frame's, AddHeterogeneousVolume
         std::vector<LocalLightShadowSettings> m_SpotLightShadows;
         std::vector<GlobalIllumination::LocalLighting> m_FrameLocalLighting; // GatherFrameLocalLighting
 

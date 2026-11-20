@@ -146,8 +146,18 @@ namespace Desert::ECS
                     m_HeterogeneousCapLogged = true;
                     break;
                 }
-                commands.Emplace<Graphic::Render::HeterogeneousVolumeCommand>( Graphic::PackHeterogeneousVolume(
-                     volume.Data, WorldTransform( registry, entity ), m_HeterogeneousClock ) );
+                Graphic::HeterogeneousVolumeInstance instance;
+                if ( volume.Data.DensitySource == ECS::HeterogeneousVolumeDensitySource::BakedSparse )
+                {
+                    // A baked source with no asset has no medium: not drawn (and not packed as procedural noise,
+                    // which would show smoke nobody authored).
+                    instance.SparseVolume = static_cast<uint64_t>( volume.Data.SparseVolume );
+                    if ( instance.SparseVolume == 0 )
+                        continue;
+                }
+                instance.Gpu =
+                     Graphic::PackHeterogeneousVolume( volume.Data, WorldTransform( registry, entity ), m_HeterogeneousClock );
+                commands.Emplace<Graphic::Render::HeterogeneousVolumeCommand>( instance );
                 ++gathered;
             }
         }
