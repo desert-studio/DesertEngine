@@ -825,8 +825,9 @@ namespace Desert::Graphic
                  [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), words = visibility.Words,
                   args = visibility.ResolveArgs, path, bladeSetup]( RDG::PassBuilder& pass )
                  {
-                     // The blade setup records, read by address (GrassBladeShapeData Lists.yz).
-                     if ( path == MeshVertexPath::GrassBlade && bladeSetup.IsValid() )
+                     // The setup records, read by address: a blade's (GrassBladeShapeData Lists.yz) and a mesh
+                     // instance's (FPS-GRASS-MESH-SETUP, GrassMeshVisibilityData Slots.zw).
+                     if ( bladeSetup.IsValid() )
                          pass.Read( bladeSetup, RDG::Access::StorageRead );
                      meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path );
                  } );
