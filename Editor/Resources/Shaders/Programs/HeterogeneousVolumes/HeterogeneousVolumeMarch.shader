@@ -16,7 +16,6 @@ Shader "HeterogeneousVolumeMarch"
         // R32F guide: the scene distance the ray was cut at (the upsample's depth weight).
 
         #include <Common/VolumetricFog.glslh>
-        #include <Common/HeterogeneousVolume.glslh>
 
         layout(binding = 0, rgba16f) restrict writeonly uniform image2D MarchTexture;
         layout(binding = 5, r32f) restrict writeonly uniform image2D MarchGuideTexture;
@@ -33,6 +32,15 @@ Shader "HeterogeneousVolumeMarch"
         // The single-sample scene depth (reverse Z: 0 = sky), texelFetched.
         Uniform(4) texture2D SceneDepthTexture;
         #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
+
+        // The baked sources' page tables (Graphic::kSparseVolumePagesBinding, the pipeline's own buffer) and the
+        // shared brick atlas they index (HeterogeneousVolumeRenderer's residency; a 1-brick fallback while no baked
+        // volume is resident). Declared before the medium text, which samples them (HETEROGENEOUS_VOLUME_MEDIUM).
+        ReadBuffer(18) SparseVolumePagesBuffer { uint hvPages[]; };
+        Uniform(19) texture3D SparseVolumeAtlasTexture;
+        #define SparseVolumeAtlasTexture sampler3D(SparseVolumeAtlasTexture, LinearClampSampler)
+        #define HETEROGENEOUS_VOLUME_MEDIUM
+        #include <Common/HeterogeneousVolume.glslh>
 
         ReadBuffer(15) HeterogeneousVolumesBuffer { HeterogeneousVolumeGpu heterogeneousVolumes[]; };
         // Graphic::HeterogeneousVolumeMarchGpu, the pipeline's own buffer (kHeterogeneousVolumeParamsBinding).
@@ -131,14 +139,15 @@ Shader "HeterogeneousVolumeMarch"
                 {
                     float t     = t0 + (float(s) + jitter) * dt;
                     vec3  local = lo + ld * t;
-                    float d01   = HvDensity01(volume, local);
+                    vec2  medium = HvMedium(volume, local);
+                    float d01    = medium.x;
                     if (d01 <= 0.0)
                         continue;
                     if (front < 0.0)
                         front = t;
                     float ext       = d01 * volume.Medium.x;
                     vec3  light     = texture(LightingCacheTexture, HvCacheUVW(local, float(v))).rgb;
-                    vec3  source    = volume.Albedo.rgb * ext * light + HvEmission(volume, local, d01) * ext;
+                    vec3  source    = volume.Albedo.rgb * ext * light + HvEmission(volume, medium.y) * ext;
                     float stepT     = exp(-ext * dt);
                     // Integrated over the step (Hillaire 2015): S (1 - e^{-sigma dt}) / sigma.
                     radiance      += transmittance * source * (1.0 - stepT) / max(ext, 1e-7);
