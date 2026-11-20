@@ -18,7 +18,6 @@
 Дано run Scene "World Partition: Load All"
 Дано run Landscape "Sculpt mode"
 Дано run Landscape "Tool: Splines"
-Дано run Landscape "Spline mesh: engine Cube slab 400 x 20 cm"
 Дано --subject viewport set Camera.Direction 0.001,-1,0.001
 Дано --subject viewport set Camera.Position -40000,9000,0
 Дано run Landscape "Spline: add control point at viewport centre"
@@ -30,8 +29,17 @@
 Дано run Landscape "Spline: add control point at viewport centre"
 Дано --subject viewport set Camera.Position 60000,9000,0
 Дано run Landscape "Spline: add control point at viewport centre"
+# The mesh goes on the segments that exist (SetLandscapeSplineMeshes refuses a spline with no segment), so it is
+# set after the last control point, with the spline still selected.
+Дано run Landscape "Spline mesh: engine Cube slab 400 x 20 cm"
 Дано run Landscape "Spline: deselect"
 Дано run Mode "Select mode"
+# WP_Protocol's "Camera" 1003 (0,-310,0) is AutoActivateForPlayer: with no pawn it is the Play view, so the near frame
+# looked from the world origin, not at the road. Parked 90 m north of the road's near end, 80 m up, looking south
+# across it (the road runs along X at Z 0); Rotation is in radians (pitch -35 deg).
+Дано select 1003
+Дано --subject selection set Translation -38000,8000,9000
+Дано --subject selection set Rotation -0.6109,0,0
 Дано run Action "Save Scene"
 Дано run Scene "Build HLODs"
 Дано wait-idle 2400

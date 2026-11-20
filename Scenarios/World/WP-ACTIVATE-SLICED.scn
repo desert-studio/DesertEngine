@@ -184,7 +184,7 @@
 # (beyond the 200 m range) at 60 m up, turned to look at it, so the frames show the cell come in.
 Дано select 1003
 Дано --subject selection set Translation 6250,6000,-22000
-Дано --subject selection set Rotation -14,180,0
+Дано --subject selection set Rotation -0.2443,3.1416,0
 Дано run Action "Save Scene"
 Дано run Scene "Build HLODs"
 Дано wait-idle 2400
