@@ -275,6 +275,22 @@ namespace Desert::Core::Rules
             return Common::MakeSuccess( true );
         }
 
+        // States @p builder for one build under a name ALREADY registered (the editor's Build HLODs gives its copy
+        // of the registry the impostor builder that bakes, Core::HLODBuilderImpostor, where the process's refuses
+        // by name). Refused, by name: no builder, a name nobody registered (an override must not invent a type).
+        Common::BoolResultStr Override( std::string_view name, std::shared_ptr<const IHLODBuilder> builder )
+        {
+            if ( !builder )
+                return Common::MakeError<bool>(
+                     std::format( "HLOD builder '{}' is overridden with nothing", name ) );
+            const auto at = m_Builders.find( name );
+            if ( at == m_Builders.end() )
+                return Common::MakeError<bool>(
+                     std::format( "HLOD builder '{}' is overridden but was never registered", name ) );
+            at->second = std::move( builder );
+            return Common::MakeSuccess( true );
+        }
+
         // The builder landscape tiles are handed to (HLODBuilderLandscape). None = every tile stays a named
         // LandscapeTile hole.
         void SetLandscapeBuilder( std::shared_ptr<const IHLODBuilder> builder )

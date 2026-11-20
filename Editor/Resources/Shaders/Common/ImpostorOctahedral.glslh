@@ -1,0 +1,195 @@
+#ifndef IMPOSTOR_OCTAHEDRAL_GLSLH
+#define IMPOSTOR_OCTAHEDRAL_GLSLH
+
+// THE OCTAHEDRAL IMPOSTOR, SHADER HALF (IMPOSTORS-HLOD; UE ImpostorBaker's ImposterCommon.ush pattern). The C++ twin
+// is Engine/Core/HLODImpostor.hpp (mapping, frame grid, blend) and HLODApproximate.hpp HLODCaptureViewFacing (the
+// frame's camera): every function here mirrors one there, and the atlas these read was packed by
+// Core::BakeImpostorAtlas. Change one side, change the other.
+//
+// Conventions (HLODImpostor.hpp): world +Y up; a frame is a grid VERTEX, frame (col, row) photographed from
+// ImpostorOctahedralDecode((col, row) / (frames - 1)), a direction pointing from the centre TO the camera; atlas
+// row 0 is V 0 and a frame's row 0 is its photo's +Up edge. All positions here are in the impostor's own space
+// (the mesh-local space its sphere was baked in) unless a name says World.
+//
+// No bindings: pure functions over values a surface passes in.
+
+float ImpostorSignNotZero( float value )
+{
+    return value >= 0.0 ? 1.0 : -1.0;
+}
+
+// Core::ImpostorOctahedralEncode: unit direction -> grid uv in [0, 1]^2.
+vec2 ImpostorOctahedralEncode( vec3 direction, bool hemisphere )
+{
+    if ( hemisphere )
+    {
+        const vec3  up  = vec3( direction.x, max( direction.y, 0.0 ), direction.z );
+        const float sum = abs( up.x ) + up.y + abs( up.z );
+        if ( sum < 1.0e-6 )
+            return vec2( 1.0, 1.0 ); // straight down: the +X horizon frame, as the C++ twin
+        const vec2 p = vec2( up.x, up.z ) / sum;
+        return vec2( p.x + p.y, p.x - p.y ) * 0.5 + 0.5;
+    }
+    const float sum = abs( direction.x ) + abs( direction.y ) + abs( direction.z );
+    vec2        p   = vec2( direction.x, direction.z ) / sum;
+    if ( direction.y < 0.0 )
+        p = vec2( ( 1.0 - abs( p.y ) ) * ImpostorSignNotZero( p.x ), ( 1.0 - abs( p.x ) ) * ImpostorSignNotZero( p.y ) );
+    return p * 0.5 + 0.5;
+}
+
+// Core::ImpostorOctahedralDecode: grid uv -> unit direction.
+vec3 ImpostorOctahedralDecode( vec2 uv, bool hemisphere )
+{
+    const vec2 q = uv * 2.0 - 1.0;
+    if ( hemisphere )
+    {
+        const vec2 t = vec2( q.x + q.y, q.x - q.y ) * 0.5;
+        return normalize( vec3( t.x, 1.0 - abs( t.x ) - abs( t.y ), t.y ) );
+    }
+    vec3 n = vec3( q.x, 1.0 - abs( q.x ) - abs( q.y ), q.y );
+    if ( n.y < 0.0 )
+    {
+        const float x = n.x;
+        n.x           = ( 1.0 - abs( n.z ) ) * ImpostorSignNotZero( x );
+        n.z           = ( 1.0 - abs( x ) ) * ImpostorSignNotZero( n.z );
+    }
+    return normalize( n );
+}
+
+// The direction frame (col, row) was photographed from (centre -> camera).
+vec3 ImpostorFrameDirection( ivec2 frame, int framesPerSide, bool hemisphere )
+{
+    return ImpostorOctahedralDecode( vec2( frame ) / float( framesPerSide - 1 ), hemisphere );
+}
+
+// Core::HLODCaptureViewFacing's frame for a camera looking along -toCamera: right-handed (right, up, backward),
+// +Y up hint, -Z within ~8 degrees of vertical.
+void ImpostorFrameBasis( vec3 toCamera, out vec3 right, out vec3 up )
+{
+    const vec3 forward = -toCamera;
+    const vec3 upHint  = abs( forward.y ) > 0.99 ? vec3( 0.0, 0.0, -1.0 ) : vec3( 0.0, 1.0, 0.0 );
+    right              = normalize( cross( upHint, toCamera ) );
+    up                 = cross( toCamera, right );
+}
+
+// Core::ImpostorBlendFrames: the grid triangle around a view direction, three frames and their weights.
+struct ImpostorBlend
+{
+    ivec2 Frame0;
+    ivec2 Frame1;
+    ivec2 Frame2;
+    vec3  Weights;
+};
+
+ImpostorBlend ImpostorBlendFrames( vec3 toCamera, int framesPerSide, bool hemisphere )
+{
+    const float last = float( framesPerSide - 1 );
+    const vec2  grid = ImpostorOctahedralEncode( toCamera, hemisphere ) * last;
+    const vec2  cell = clamp( floor( grid ), vec2( 0.0 ), vec2( last - 1.0 ) );
+    const vec2  f    = grid - cell;
+    const ivec2 base = ivec2( cell );
+
+    ImpostorBlend blend;
+    if ( f.x + f.y <= 1.0 )
+    {
+        blend.Frame0  = base;
+        blend.Frame1  = base + ivec2( 1, 0 );
+        blend.Frame2  = base + ivec2( 0, 1 );
+        blend.Weights = vec3( 1.0 - f.x - f.y, f.x, f.y );
+    }
+    else
+    {
+        blend.Frame0  = base + ivec2( 1, 1 );
+        blend.Frame1  = base + ivec2( 1, 0 );
+        blend.Frame2  = base + ivec2( 0, 1 );
+        blend.Weights = vec3( f.x + f.y - 1.0, 1.0 - f.y, 1.0 - f.x );
+    }
+    blend.Weights = max( blend.Weights, vec3( 0.0 ) );
+    blend.Weights /= blend.Weights.x + blend.Weights.y + blend.Weights.z;
+    return blend;
+}
+
+// Where the view ray (rayOrigin + t rayDirection) shows frame @p frame: the ray meets the frame's photo plane (through
+// the sphere's centre, facing the frame's camera) at @p planeHit, and that point's orthographic projection into the
+// photo is the returned ATLAS uv. Clamped half a texel inside the frame, so a bilinear tap never reads the
+// neighbouring frame (the bake dilates colour into each frame's own empty border, never across).
+vec2 ImpostorFrameAtlasUV( ivec2 frame, vec3 rayOrigin, vec3 rayDirection, vec3 centre, float radius,
+                           int framesPerSide, int frameResolution, bool hemisphere, out vec3 planeHit )
+{
+    const vec3  toCamera = ImpostorFrameDirection( frame, framesPerSide, hemisphere );
+    const float facing   = dot( rayDirection, toCamera );
+    // A ray parallel to the plane (a frame seen edge-on, weight ~0 by construction): its centre.
+    const float t        = abs( facing ) > 1.0e-5 ? dot( centre - rayOrigin, toCamera ) / facing : 0.0;
+    planeHit             = rayOrigin + rayDirection * t;
+    vec3 right, up;
+    ImpostorFrameBasis( toCamera, right, up );
+    const vec3  local    = planeHit - centre;
+    const vec2  photo    = vec2( dot( local, right ), dot( local, up ) ) / radius; // [-1, 1]^2 inside the frame
+    const float side     = float( framesPerSide * frameResolution );
+    const float halfTexel = 0.5 / float( frameResolution );
+    const vec2  inFrame  = clamp( vec2( photo.x * 0.5 + 0.5, 0.5 - photo.y * 0.5 ), vec2( halfTexel ),
+                                  vec2( 1.0 - halfTexel ) );
+    return ( vec2( frame ) + inFrame ) * float( frameResolution ) / side;
+}
+
+// The NormalDepth atlas's A back in centimetres (impostor space): how far BEHIND the frame's centre plane, along the
+// frame's look direction, the surface lies (Core::HLODImpostorAtlas: (A - 0.5) * 2 * Radius).
+float ImpostorDepthBehindPlane( float depthChannel, float radius )
+{
+    return ( depthChannel - 0.5 ) * 2.0 * radius;
+}
+
+// The surface point frame @p frame shows at @p planeHit: the plane point moved back along the frame's look direction
+// by its stored depth. Blending the three frames' points and measuring the result along the view ray gives the
+// pixel depth offset.
+vec3 ImpostorFrameSurfacePoint( ivec2 frame, vec3 planeHit, float depthChannel, float radius, int framesPerSide,
+                                bool hemisphere )
+{
+    const vec3 toCamera = ImpostorFrameDirection( frame, framesPerSide, hemisphere );
+    return planeHit - toCamera * ImpostorDepthBehindPlane( depthChannel, radius );
+}
+
+// The camera-facing card's corner in WORLD space (UE ImpostorBaker's sprite vertex shader): the sphere's centre,
+// moved TOWARDS the viewer by the sphere's radius so every surface point lies behind the card (the pixel depth offset
+// only ever pushes away, SurfaceParallax.glslh: PixelDepthOffset >= 0), spread over the frame basis of the view
+// direction by @p corner in [-1, 1]^2. A card of half-size radius at that distance covers the sphere's perspective
+// silhouette: (d - r) * r / sqrt(d^2 - r^2) < r for any viewer outside the sphere.
+vec3 ImpostorCardCornerFacing( vec3 centreWorld, float radiusWorld, vec3 toViewer, vec2 corner )
+{
+    vec3 right, up;
+    ImpostorFrameBasis( toViewer, right, up );
+    return centreWorld + toViewer * radiusWorld + ( right * corner.x + up * corner.y ) * radiusWorld;
+}
+
+vec3 ImpostorCardCornerWorld( vec3 centreWorld, float radiusWorld, vec3 viewerWorld, vec2 corner )
+{
+    return ImpostorCardCornerFacing( centreWorld, radiusWorld, normalize( viewerWorld - centreWorld ), corner );
+}
+
+// The direction from a world point TO the viewer of the view a raster matrix draws, for every view the impostor is
+// drawn into: the camera (perspective, reverse-Z), a cascade's caster matrix and a virtual shadow page view
+// (orthographic, standard-Z: @p standardZ). Perspective: the eye is the matrix's null point, inverse * (0, 0, 1, 0)
+// (clip x = y = w = 0). Orthographic: that vector has w = 0 and is the depth axis itself; the viewer lies on the near
+// side, smaller depth in a standard-Z view, larger in a reverse-Z one. Both cells of a view (its depth prepass and its
+// base pass) evaluate this from the same matrix, so the card - and gl_Position - is the same in both.
+vec3 ImpostorViewerDirection( mat4 viewProjection, vec3 pointWorld, bool standardZ )
+{
+    const vec4 eye = inverse( viewProjection ) * vec4( 0.0, 0.0, 1.0, 0.0 );
+    if ( abs( eye.w ) > 1.0e-6 * length( eye.xyz ) )
+        return normalize( eye.xyz / eye.w - pointWorld );
+    const vec3 depthAxis = normalize( eye.xyz ); // depth grows along it
+    return standardZ ? -depthAxis : depthAxis;
+}
+
+// THE CARD MESH (Core::HLODImpostorCardMesh, the one writer): four vertices in impostor space, corner c in {-1, 1}^2,
+//   a_Position  = centre + radius * ( c.x, c.y, c.x * c.y )  - the sphere's bounding cube, so the mesh's bounds cull
+//                                                              the card wherever it turns
+//   a_TexCoord1 = c,   a_TextureCoord (UV 0) = ( radius, radius ),   a_Normal = ( 0, 0, 1 )
+//   (UV 0, not the tangent: the mesh build recomputes and renormalises tangents, it keeps UVs as written)
+// so the vertex stage reads the sphere back from any one vertex.
+vec3 ImpostorCardCentre( vec3 position, vec2 corner, float radius )
+{
+    return position - radius * vec3( corner, corner.x * corner.y );
+}
+
+#endif // IMPOSTOR_OCTAHEDRAL_GLSLH

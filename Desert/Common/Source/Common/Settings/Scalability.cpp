@@ -559,6 +559,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT pages rendered per "
                "frame, r.VT.MaxUploadsPerFrame)",
                64, Vis::Advanced },
+             { P::ViewDistanceHLODImpostors, G::ViewDistance, "ViewDistance.HLODImpostors", 0, 1, CL::None,
+               "WorldStreamer::Tick -> SetHLODVisible (an Impostor HLOD layer's cards, 0 = its instanced source "
+               "meshes)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

@@ -27,6 +27,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <format>
 #include <set>
@@ -130,6 +131,40 @@ namespace Desert::Editor
                                                  ::Desert::Core::Serialize::RenderStoredForm(
                                                       *form, Common::AssetHandle::StableKeyForPath( file ) ) };
             return Common::MakeSuccess( std::move( block ) );
+        }
+
+        // The name the Impostor layer type's builder is registered under (Rules::kBuiltInHLODBuilders), which
+        // Build HLODs overrides in its copy of the registry with the builder that bakes.
+        [[nodiscard]] std::string ImpostorBuilderName()
+        {
+            ::Desert::Core::HLODLayerSerialized layer;
+            layer.Type = ::Desert::Core::HLODLayerType::Impostor;
+            return std::string( ::Desert::Core::Rules::HLODBuilderNameOf( layer ) );
+        }
+
+        // The ISM block that draws an impostor: its card mesh stored as `HLODMesh_<hash>.stmesh` beside the cells
+        // (StoreHLODMesh, as every built HLOD mesh) and its one M_I<key> material.
+        [[nodiscard]] Common::ResultStr<::Desert::Assets::InstancedStaticMeshComponentSer>
+        StoreImpostorCard( const HLODApproximateBaked& baked, const std::filesystem::path& dir )
+        {
+            using Card = ::Desert::Assets::InstancedStaticMeshComponentSer;
+            if ( !baked.Card )
+                return Common::MakeError<Card>(
+                     std::format( "impostor I{} was baked without its card", baked.Key ) );
+            ::Desert::Assets::StaticMeshComponentSer block;
+            block.EditMesh = *baked.Card;
+            auto stored    = StoreHLODMesh( std::move( block ), dir );
+            if ( !stored )
+                return Common::MakeError<Card>( stored.GetError() );
+            if ( !stored.GetValue().MeshHandle )
+                return Common::MakeError<Card>(
+                     std::format( "impostor I{}'s card was stored without a handle", baked.Key ) );
+            Card card;
+            card.MeshGuid      = stored.GetValue().MeshHandle->Guid;
+            card.MeshPath      = stored.GetValue().MeshHandle->Path;
+            card.MaterialGuids = std::vector<std::string>{ baked.MaterialGuid };
+            card.MaterialPaths = std::vector<std::string>{ baked.MaterialPath };
+            return Common::MakeSuccess( std::move( card ) );
         }
 
         // A landscape HLOD's geometry is a function of its tile and of the distance it is first drawn from
@@ -346,6 +381,36 @@ namespace Desert::Editor
             return Common::MakeSuccess( std::move( build.Mesh ) );
         };
         builders.SetMeshGeometry( collectMesh );
+        // Every Impostor layer's mesh (IMPOSTORS-HLOD, UE ImpostorBaker), queued once by its key for the capture
+        // as ONE mesh at identity: the atlas and the card are mesh-local, every instance draws the same bake. The
+        // probe's files are dropped, so its batch is answered as it came; Finish binds the baked card.
+        const ::Desert::Core::HLODImpostorBaker collectImpostor =
+             [&]( const ::Desert::Core::HLODImpostorRequest& request )
+             -> Common::ResultStr<::Desert::Assets::InstancedStaticMeshComponentSer>
+        {
+            const std::string key   = ::Desert::Core::HLODImpostorKey( request.Part, request.Settings );
+            const bool        known = std::any_of( approximations.begin(), approximations.end(),
+                                                   [&]( const HLODApproximateBakeCell& cell )
+                                                   { return cell.Impostor.has_value() && cell.Key == key; } );
+            if ( !known )
+            {
+                HLODApproximateBakeCell cell;
+                cell.Key                                               = key;
+                cell.Impostor                                          = request.Settings;
+                ::Desert::Assets::InstancedStaticMeshComponentSer part = request.Part;
+                std::array<float, 16>                             identity{};
+                identity[0] = identity[5] = identity[10] = identity[15] = 1.0f;
+                part.InstanceTransforms = std::vector<std::array<float, 16>>{ identity };
+                cell.Parts.push_back( std::move( part ) );
+                approximations.push_back( std::move( cell ) );
+            }
+            return Common::MakeSuccess( request.Part );
+        };
+        if ( auto overridden =
+                  builders.Override( ImpostorBuilderName(),
+                                     std::make_shared<::Desert::Core::HLODBuilderImpostor>( collectImpostor ) );
+             !overridden )
+            return Common::MakeError( "Build HLODs: " + overridden.GetError() );
         // The probe only gathers what the rows to build bake: its files are dropped, so the landscape splines'
         // meshes are not built for it (no spline builder: they stay named holes in the dropped files).
         ::Desert::Core::Rules::HLODBuilderRegistry probeBuilders = builders;
@@ -542,9 +607,9 @@ namespace Desert::Editor
             if ( request.Approximation.has_value() )
             {
                 const std::string key = ::Desert::Core::HLODApproximationKey( request );
-                const auto        found =
-                     std::find_if( approximated.begin(), approximated.end(),
-                                   [&]( const HLODApproximateBaked& cell ) { return cell.Key == key; } );
+                const auto        found = std::find_if( approximated.begin(), approximated.end(),
+                                                        [&]( const HLODApproximateBaked& cell )
+                                                        { return !cell.Card.has_value() && cell.Key == key; } );
                 if ( found == approximated.end() )
                     return Common::MakeError<Block>( std::format(
                          "approximation A{} has no captured material (the saved world changed during the build?); "
@@ -586,6 +651,27 @@ namespace Desert::Editor
             return StoreHLODMesh( built.ExtractValue(), dir );
         };
         builders.SetMeshGeometry( mesh );
+        // Each impostor batch draws the card and material its capture wrote (by its key). One that was not baked
+        // is refused by name: drawn as the source mesh it would silently cost what the impostor saves.
+        const ::Desert::Core::HLODImpostorBaker impostor =
+             [&]( const ::Desert::Core::HLODImpostorRequest& request )
+             -> Common::ResultStr<::Desert::Assets::InstancedStaticMeshComponentSer>
+        {
+            const std::string key = ::Desert::Core::HLODImpostorKey( request.Part, request.Settings );
+            const auto        found =
+                 std::find_if( approximated.begin(), approximated.end(), [&]( const HLODApproximateBaked& cell )
+                               { return cell.Card.has_value() && cell.Key == key; } );
+            if ( found == approximated.end() )
+                return Common::MakeError<::Desert::Assets::InstancedStaticMeshComponentSer>(
+                     std::format( "impostor I{} was not baked (the saved world changed during the build?); run "
+                                  "Build HLODs again",
+                                  key ) );
+            return StoreImpostorCard( *found, dir );
+        };
+        if ( auto overridden = builders.Override(
+                  ImpostorBuilderName(), std::make_shared<::Desert::Core::HLODBuilderImpostor>( impostor ) );
+             !overridden )
+            return Common::MakeError( "Build HLODs: " + overridden.GetError() );
         const ::Desert::Core::Rules::LandscapeSplineHLODGeometry splines =
              [&]( const ::Desert::Core::Rules::LandscapeSplineHLODRequest& request,
                   std::span<const Common::Utils::AssetRegistry>            from )

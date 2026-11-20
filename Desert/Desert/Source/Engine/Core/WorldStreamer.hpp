@@ -341,6 +341,17 @@ namespace Desert::Core
 
         // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.
         std::vector<std::vector<Common::UUID>> m_HLODIds;
+        // THE IMPOSTOR PAIR (IMPOSTORS-HLOD): the HLOD record ids an Impostor layer built as cards and as their
+        // instanced source meshes (WorldCells ImpostorCards / ImpostorFallbacks). A shown HLOD draws the cards
+        // while m_HLODImpostors (Scalability ViewDistance.HLODImpostors, read every Tick) is on, the fallbacks
+        // while it is off; every other HLOD record is drawn whenever its HLOD is.
+        std::unordered_set<std::uint64_t> m_ImpostorCards;
+        std::unordered_set<std::uint64_t> m_ImpostorFallbacks;
+        bool                              m_HLODImpostors = true;
+        // States @p cards / @p fallbacks of one saved or cooked HLOD (any of the four HLOD rows).
+        void NoteImpostorPair( std::span<const std::uint64_t> cards, std::span<const std::uint64_t> fallbacks );
+        // Reads the machine's ViewDistance.HLODImpostors; on a change re-shows every shown HLOD with the other side.
+        void SyncHLODImpostors();
         std::optional<Rules::HLODRuntime>      m_HLODs;
         // A streamed hierarchy only (BeginHLODCells): the hierarchy, its residency, the executor that streams its
         // cells and the world that executor acts on.

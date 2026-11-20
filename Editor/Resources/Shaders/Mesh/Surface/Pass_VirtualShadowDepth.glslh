@@ -31,12 +31,12 @@ void main()
     // `Material` is row 0, so a Masked caster clipped with another material's mask and cutoff.
     DESERT_SURFACE_BEGIN_FRAGMENT();
 #endif
-#if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
+#if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET )
     const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN,
                                                v_Surface.UV1, DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
 #endif
-#ifdef DESERT_SURFACE_PARALLAX
+#ifdef DESERT_SURFACE_PIXEL_DEPTH_OFFSET
     // A `.Parallax` cell stores the relief's depth (Pixel Depth Offset, Mesh/Surface/SurfaceParallax.glslh), so the
     // page holds what the cascades and the view see.
     VsmRasterWriteDepth( DesertPixelDepthOffsetDepth( i, EvaluateSurface( i ) ) );

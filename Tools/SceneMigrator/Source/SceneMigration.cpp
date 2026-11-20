@@ -5948,6 +5948,9 @@ namespace Desert::Migration
             // built by its partition's layer, as it was.
             if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionEntityHLODLayer )
                 report.EntityHLODLayerRaised = true;
+            // v13 -> v14 is additive the same way: a v13 world states no Impostor layer.
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionImpostorLayers )
+                report.ImpostorLayersRaised = true;
         }
 
         // v9 -> v10 (WP-DEBUG-DRAW): every runtime partition states Core::SeededDebugColor of its name - what the

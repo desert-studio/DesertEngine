@@ -10,8 +10,17 @@
 // saved beside the built HLODs as `T_A<key>_BaseColor.detex`, `T_A<key>_Normal.detex`, `T_A<key>_ORM.detex` and
 // bound by `M_A<key>.demat` (StandardSurface), the one material of the cell's shell. Recorded into the editor's
 // own frames like LandscapeHLODBake: Tick() once per editor frame until it answers true.
+//
+// THE IMPOSTOR HLOD'S ATLAS IS THE SAME CAPTURE WITH OTHER CAMERAS (IMPOSTORS-HLOD; UE ImpostorBaker renders the
+// mesh from the octahedral frame directions): a cell stating `Impostor` is ONE mesh at identity (mesh-local, the
+// space the card and the atlas share), photographed from ::Desert::Core::HLODImpostorViews at FrameResolution,
+// packed by ::Desert::Core::BakeImpostorAtlas and written as `T_I<key>_BaseColor.detex` (sRGB, A = coverage),
+// `T_I<key>_NormalDepth.detex` (LINEAR Data: A carries depth), `T_I<key>_ORM.detex` and `M_I<key>.demat`
+// (ImpostorSurface, every value the bake knows), plus the card mesh (::Desert::Core::HLODImpostorCardMesh) the
+// builder stores and draws.
 
 #include <Engine/Core/HLODApproximate.hpp>
+#include <Engine/Core/HLODImpostor.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
@@ -53,6 +62,9 @@ namespace Desert::Editor
         ::Desert::Core::HLODApproximationSettings                      Settings;
         std::vector<::Desert::Assets::InstancedStaticMeshComponentSer> Parts;
         ::Desert::Geometry::MeshSavedForm                              Shell;
+        // Stated = the cell is one mesh's octahedral impostor: Parts is that mesh with one identity instance;
+        // Settings and Shell are not read.
+        std::optional<::Desert::Core::HLODImpostorSettings> Impostor;
     };
 
     // The material one cell's shell binds, as a StaticMesh slot states it.
@@ -61,6 +73,9 @@ namespace Desert::Editor
         std::string Key;
         std::string MaterialGuid;
         std::string MaterialPath; // as a scene record stores a material slot (assets-relative)
+        // An impostor cell's card mesh (::Desert::Core::HLODImpostorCardMesh around the atlas's sphere), stored
+        // by Build HLODs beside the cells; absent for an approximated cell.
+        std::optional<::Desert::Geometry::MeshSavedForm> Card;
     };
 
     class HLODApproximateBake
@@ -98,6 +113,7 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr StartCell();
         void                                FrameView();
         [[nodiscard]] Common::BoolResultStr SaveCell();
+        [[nodiscard]] Common::BoolResultStr SaveImpostor();
         void                                Fail( std::string error );
 
         std::filesystem::path                        m_ScenePath;

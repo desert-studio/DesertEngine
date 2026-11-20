@@ -13,6 +13,14 @@
 // Generated/ShadingModels.glslh), for `BlendMode Masked`, DESERT_SURFACE_MASKED and, in the `.Parallax` cells of
 // a template that declares `Height <Texture2D> ... Scale(<Float>)`, DESERT_SURFACE_PARALLAX (SurfaceParallax.glslh). The headers shape their declarations on these so each
 // cell declares exactly what the shader it replaces declared (SurfaceTemplate holds them equal by reflection).
+//
+// THE PIXEL DEPTH OFFSET CELLS: a `.Parallax` cell and every cell of a `Vertex Impostor` template
+// (DESERT_SURFACE_IMPOSTOR, Programs/Surface/ImpostorSurface.shader) move the fragment's depth along the view ray
+// (SurfaceParallax.glslh's pass half), so both evaluate the surface in their depth and caster cells. The pass headers
+// test this one name, never the two that imply it.
+#if defined( DESERT_SURFACE_PARALLAX ) || defined( DESERT_SURFACE_IMPOSTOR )
+#define DESERT_SURFACE_PIXEL_DEPTH_OFFSET 1
+#endif
 
 // The source-to-surface arithmetic a surface function is written in (UV transform, base colour, ORM, normal
 // strength, emission, tangent-normal decode) — the same text the lit shaders compiled.
@@ -271,7 +279,7 @@ SurfaceOutput DefaultSurfaceOutput()
 // and nothing else, exactly as Programs/Shadow/Shadow*.shader.
 // A parallax cell's caster evaluates the surface too: its depth is the relief's (Pixel Depth Offset), not the flat
 // triangle's.
-#if !defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
+#if !defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET )
 #define DESERT_SURFACE_HAS_VARYINGS 1
 #endif
 
@@ -286,7 +294,7 @@ SurfaceOutput DefaultSurfaceOutput()
 // frame and no velocity (UE's depth-only vertex shader; Vertex_Static.glslh). A `.Parallax` cell evaluates the
 // surface.
 #if defined( DESERT_SURFACE_VIEW_PASS ) && defined( DESERT_SURFACE_PASS_Depth ) && \
-     !defined( DESERT_SURFACE_PARALLAX )
+     !defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET )
 #define DESERT_SURFACE_VIEW_DEPTH_CELL 1
 #endif
 
@@ -347,7 +355,7 @@ vec2 DesertPixelToJitteredNdc( const vec2 pixel )
 // writes no Clip: 4 interpolants and a matrix multiply less on every G-buffer draw. A `.Parallax` cell keeps the
 // interpolated clip: its pixel depth offset moves it in homogeneous space (SurfaceParallax.glslh
 // DesertPixelDepthOffsetVelocity). The forward and translucent cells keep it as well (their own passes).
-#if defined( DESERT_SURFACE_PASS_GBuffer ) && !defined( DESERT_SURFACE_PARALLAX )
+#if defined( DESERT_SURFACE_PASS_GBuffer ) && !defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET )
 #define DESERT_SURFACE_CLIP_FROM_PIXEL 1
 #define DESERT_SURFACE_CLIP_VARYING
 #else

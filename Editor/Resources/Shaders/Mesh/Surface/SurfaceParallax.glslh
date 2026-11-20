@@ -43,17 +43,9 @@
 
 #ifdef DESERT_SURFACE_SAMPLES_MATERIAL
 
-#if defined( DESERT_SURFACE_PARALLAX ) && !defined( DESERT_SURFACE_PASS_Hit ) && !defined( DESERT_SURFACE_DISPLACED )
-
-// Generated from the template's `Height` line (DShaderParser HeightFunctions), defined after this header.
-vec2  DesertSurfaceHeightUV( SurfaceInput i );
-float DesertSurfaceHeightGrad( vec2 uv, vec2 dUVdx, vec2 dUVdy );
-float DesertSurfaceHeightScale();
-float DesertSurfaceHeightCenter();
-
-// The bisection after the linear search: each halves the bracket of the crossing, so 6 make the error 1/64 of one
-// linear step - below a texel of the relief at every step count Scalability offers.
-const int kDesertParallaxRefineSteps = 6;
+// The view ray is the pixel depth offset's (a `.Parallax` cell's march and an impostor's frame reprojection both
+// walk it), so it is defined for every DESERT_SURFACE_PIXEL_DEPTH_OFFSET cell (SurfaceTypes.glslh).
+#if defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET ) && !defined( DESERT_SURFACE_PASS_Hit ) && !defined( DESERT_SURFACE_DISPLACED )
 
 // The direction from the eye of the drawing view through a world point, away from the eye. Unprojected from the
 // view block's own matrices, because a view's View / Projection split is not always the camera's: a cascade's caster
@@ -72,6 +64,20 @@ vec3 DesertSurfaceViewRay( vec3 worldPosition )
     const vec4 farther = cameraUB.InvJitteredViewProjection * vec4( clip.xy / clip.w, zFarther, 1.0 );
     return normalize( farther.xyz / farther.w - worldPosition );
 }
+
+#endif
+
+#if defined( DESERT_SURFACE_PARALLAX ) && !defined( DESERT_SURFACE_PASS_Hit ) && !defined( DESERT_SURFACE_DISPLACED )
+
+// Generated from the template's `Height` line (DShaderParser HeightFunctions), defined after this header.
+vec2  DesertSurfaceHeightUV( SurfaceInput i );
+float DesertSurfaceHeightGrad( vec2 uv, vec2 dUVdx, vec2 dUVdy );
+float DesertSurfaceHeightScale();
+float DesertSurfaceHeightCenter();
+
+// The bisection after the linear search: each halves the bracket of the crossing, so 6 make the error 1/64 of one
+// linear step - below a texel of the relief at every step count Scalability offers.
+const int kDesertParallaxRefineSteps = 6;
 
 // A triangle's cotangent frame for one UV: the dual basis that turns an in-plane world vector into that UV's
 // change. dot( w, DualU ) / Frame is the U change of the in-plane vector w (the plane normal drops out).
@@ -225,8 +231,8 @@ vec2 SurfaceParallaxOcclusion( SurfaceInput i, vec2 uv, inout SurfaceOutput s )
 #endif // DESERT_SURFACE_SAMPLES_MATERIAL
 
 // THE PASS HALF of the Pixel Depth Offset: the depth the fragment writes, and the shaded position that goes with it.
-// Only the parallax cells move depth; every other cell keeps the rasterised depth and early depth testing.
-#if defined( DESERT_SURFACE_PARALLAX ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&                              \
+// Only the pixel depth offset cells (parallax, impostor) move depth; every other cell keeps the rasterised depth and early depth testing.
+#if defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&                              \
      !defined( DESERT_SURFACE_PASS_Hit ) && !defined( DESERT_SURFACE_DISPLACED )
 
 // The world point the offset moves the fragment to: along the drawing view's ray, away from its eye.

@@ -125,6 +125,9 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 #include <Common/MaterialTransport.glslh>
 #include <Common/FoliageWind.glslh>
 #include <Common/LocalWind.glslh>
+#ifdef DESERT_SURFACE_IMPOSTOR
+#include <Common/ImpostorOctahedral.glslh>
+#endif
 // The section's wind: its push (a per-variety draw) or its draw row (a bin's draw).
 #ifdef DESERT_SURFACE_DRAW_ROWS
 #define INSTANCED_WIND_A g_MeshDrawRow.WindA
@@ -279,11 +282,42 @@ void main()
 #endif
     // The scene's local wind sources at the instance (Common/LocalWind.glslh): one air per instance, beside the
     // per-draw directional wind.
+    // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip below stay
+    // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
+#ifdef DESERT_VSM_CLUSTER_RASTER
+    v_VsmCutView                    = vg.View;
+    const mat4 rasterViewProjection = Levels[VsmCutViewLevel( vg.View, uint( Frame.Lod.y ) )].ViewProjection;
+#else
+    const mat4 rasterViewProjection = cameraUB.JitteredViewProjection;
+#endif
+#ifdef DESERT_SURFACE_IMPOSTOR
+    // THE IMPOSTOR CARD (`VertexFactory Impostor`, UE ImpostorBaker's sprite vertex shader): the vertex is a corner of
+    // the camera-facing card of the octahedral impostor's sphere (Common/ImpostorOctahedral.glslh card mesh), turned
+    // to the viewer of the view this cell draws - the camera, a cascade's light, a virtual shadow page - read off the
+    // one raster matrix below, so the depth prepass and the base pass place the same card (gl_Position invariance).
+    // No wind: an impostor is the far, still copy of its mesh.
+    const vec2  impostorCorner = a_TexCoord1;
+    // The radius rides in UV 0 (the card mesh contract): a tangent is renormalised by the mesh build, a UV is not.
+    const float impostorRadius = a_TextureCoord.x;
+    const float impostorScale =
+         max( length( model[0].xyz ), max( length( model[1].xyz ), length( model[2].xyz ) ) );
+    const vec3 impostorCentre =
+         ( model * vec4( ImpostorCardCentre( a_Position, impostorCorner, impostorRadius ), 1.0 ) ).xyz;
+#ifdef DESERT_SURFACE_CASTER_PASS
+    const bool impostorStandardZ = true; // the light views are standard-Z (SurfaceParallax.glslh DesertSurfaceViewRay)
+#else
+    const bool impostorStandardZ = false;
+#endif
+    const vec3 impostorToViewer = ImpostorViewerDirection( rasterViewProjection, impostorCentre, impostorStandardZ );
+    const vec3 worldPosition    = ImpostorCardCornerFacing( impostorCentre, impostorRadius * impostorScale,
+                                                            impostorToViewer, impostorCorner );
+#else
     const vec2 localAir      = LocalWindXZ( vec3( model[3] ), false );
     const vec3 worldPosition =
          InstancedWorldPosition( model, a_Position, windA, windB, cameraUB.WindGust, localAir );
+#endif
 #if ( defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_CASTER_PASS ) || defined( DESERT_SURFACE_PASS_Visibility ) ) &&                           \
-     defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PARALLAX )
+     defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PIXEL_DEPTH_OFFSET )
     // THE MASKED DEPTH CELLS - the view's early-Z pass and the casters (UE's depth-only / shadow-depth vertex factory:
     // position and the masked UV; MESH-GRASS-COST, as the blade's, Vertex_GrassBlade.glslh) - read one thing of the
     // instance but its place: the opacity mask's UV (Pass_Depth / Pass_ShadowDepth / Pass_VirtualShadowDepth:
@@ -320,6 +354,17 @@ void main()
     v_Surface.VertexColor    = a_Color;
     v_Surface.ObjectScaleUp = length( mat3( model )[1] );
     v_Surface.TBN            = mat3( T, B, N );
+#ifdef DESERT_SURFACE_IMPOSTOR
+    // The impostor's fragment works in IMPOSTOR SPACE, the mesh-local space its atlas was baked in
+    // (Programs/Surface/ImpostorSurface.shader): UV0 / UV1.x carry the card point there (linear over the card, so the
+    // interpolant is exact), UV1.y the instance's uniform scale, TBN the impostor-to-world rotation (unit columns)
+    // and Normal the card's facing, which the fragment reads the two-sided flip of DesertSurfaceInput back from.
+    const vec3 impostorLocal = ( inverse( model ) * vec4( worldPosition, 1.0 ) ).xyz;
+    v_Surface.Normal         = impostorToViewer;
+    v_Surface.UV0            = impostorLocal.xy;
+    v_Surface.UV1            = vec2( impostorLocal.z, impostorScale );
+    v_Surface.TBN            = mat3( normalize( model[0].xyz ), normalize( model[1].xyz ), normalize( model[2].xyz ) );
+#endif
 #endif
 #if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.MaterialRow    = draw.MaterialRow;
@@ -356,7 +401,18 @@ void main()
 #ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
 #endif
+#ifdef DESERT_SURFACE_IMPOSTOR
+    // The same card at the instance's previous place, turned to the same viewer: a still impostor moves with the
+    // camera alone (the card's own turn is not the surface's motion; the pixel depth offset moves both clips).
+    const vec3 prevImpostorCentre =
+         ( prevModel * vec4( ImpostorCardCentre( a_Position, impostorCorner, impostorRadius ), 1.0 ) ).xyz;
+    v_Surface.PrevClip = cameraUB.PrevViewProjection *
+                         vec4( ImpostorCardCornerFacing( prevImpostorCentre, impostorRadius * impostorScale,
+                                                         impostorToViewer, impostorCorner ),
+                               1.0 );
+#else
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
+#endif
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): the INSTANCE moved (a producer whose
     // instances move states their previous transforms); the wind bends the vertices of a still instance and leaves it 0.
     v_Surface.ObjectMoved = prevModel != model ? 1.0 : 0.0;
@@ -366,20 +422,16 @@ void main()
     v_Surface.ObjectMoved = 0.0;
 #endif
 #endif // the masked depth cells
-    // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
-    // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
-#ifdef DESERT_VSM_CLUSTER_RASTER
-    v_VsmCutView                    = vg.View;
-    const mat4 rasterViewProjection = Levels[VsmCutViewLevel( vg.View, uint( Frame.Lod.y ) )].ViewProjection;
-#else
-    const mat4 rasterViewProjection = cameraUB.JitteredViewProjection;
-#endif
     gl_Position = rasterViewProjection * vec4( worldPosition, 1.0 );
 #ifdef DESERT_SURFACE_CASTER_PASS
     // The caster's slope depth bias, from the instance's vertex normal (UE: ShadowDepthVertexShader.usf); the
     // wind bends the position, not the normal, as the shading normal above.
-    gl_Position = ShadowCasterSlopeBias( gl_Position, rasterViewProjection,
-                                         transpose( inverse( mat3( model ) ) ) * a_Normal, cameraUB.ShadowSlopeBias,
+#ifdef DESERT_SURFACE_IMPOSTOR
+    const vec3 casterNormal = impostorToViewer; // the card faces the light: no slope
+#else
+    const vec3 casterNormal = transpose( inverse( mat3( model ) ) ) * a_Normal;
+#endif
+    gl_Position = ShadowCasterSlopeBias( gl_Position, rasterViewProjection, casterNormal, cameraUB.ShadowSlopeBias,
                                          cameraUB.ShadowSlopeClamp );
 #endif
 }
