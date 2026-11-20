@@ -93,6 +93,7 @@ namespace Common::Content
         SubsurfaceProfile,
         VFXModule,
         IesProfile,
+        SparseVolume,
         COUNT,
     };
 
@@ -224,6 +225,10 @@ namespace Common::Content
              // UE UTextureLightProfile: one IES photometric profile a local light names (Engine/Assets/
              // Serialization/IesProfile.hpp), imported from a `.ies` beside it (Editor/Import/IesProfileImporter).
              /* IesProfile           */ { "IesProfile", ".dies", &P::ASSETS_PATH },
+             // A baked sparse volume (UE USparseVolumeTexture, Engine/Assets/SparseVolume.hpp): a simulated smoke /
+             // fire grid as bricks + page table, imported from a `.vol` beside it; a HeterogeneousVolumeComponent
+             // names it by handle.
+             /* SparseVolume         */ { "SparseVolume", ".dsvol", &P::ASSETS_PATH },
         } };
     }
 
