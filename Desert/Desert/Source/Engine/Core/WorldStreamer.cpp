@@ -535,11 +535,17 @@ namespace Desert::Core
                           log.GetValue().string() );
         }
         streamer->m_MostResident = streamer->Executor().LiveRecords();
+        // WHERE the sources stand, not only how many: a source nobody placed (the player's view point when no pawn
+        // spawns, GatherSources) keeps its cells resident, and a count alone cannot say which one did.
+        std::string where;
+        for ( const Rules::StreamingSource& source : streamer->m_LastSources )
+            where += std::format( "{}({:.0f}, {:.0f}, {:.0f})", where.empty() ? "" : ", ", source.Position.x,
+                                  source.Position.y, source.Position.z );
         LOG_INFO( "[WorldPartition] '{0}': Play streams {1} record(s); {2} resident at the start around {3} "
-                  "streaming source(s), the rest destroyed until their cell is wanted ({4:.1f} ms to parse, plan "
-                  "and destroy).",
+                  "streaming source(s) at {5}, the rest destroyed until their cell is wanted ({4:.1f} ms to parse, "
+                  "plan and destroy).",
                   streamer->m_SceneName, snapshot->Entities.size(), streamer->m_MostResident,
-                  streamer->m_LastSources.size(), MsSince( started ) );
+                  streamer->m_LastSources.size(), MsSince( started ), where );
         if ( const std::size_t unresolved = streamer->Executor().UnresolvedReferences(); unresolved > 0 )
             LOG_INFO( "[WorldPartition] '{0}': {1} reference(s) from records resident at the start name an entity "
                       "that is not resident (they resolve when it is).",

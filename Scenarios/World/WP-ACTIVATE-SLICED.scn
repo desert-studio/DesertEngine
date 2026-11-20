@@ -173,8 +173,16 @@
 Дано --subject viewport set Camera.Position 5250,9000,2455
 Дано run Entity "Place a cube on the surface at the viewport centre"
 Дано run Entity "Replace selected entities with the selected prefab"
+# WPFly flies 8 s at 125 m/s (1000 m) and stops: started 1000 m before HEAVY on -X it stops dead in the middle of the
+# heavy cell, so the cell is wanted from 200 m out and STAYS wanted however many frames its slices take (flown through
+# at 125 m/s it is wanted ~3 s and dropped half-made when the Plane leaves).
 Дано select 9000002
-Дано --subject selection set Translation -25000,5000,0
+Дано --subject selection set Translation -93750,5000,1250
+# WP_Protocol's "Camera" 1003 (0,-310,0) is AutoActivateForPlayer: with no pawn it is the player's view in both Plays
+# (ChooseViewTarget: an Auto Activate camera before Play from Here) and so a streaming source of its own (GatherSources:
+# PlayerViewPoint) 64 m from the heavy cell, keeping it resident from the first frame. Parked 360 m away on -X.
+Дано select 1003
+Дано --subject selection set Translation -30000,3000,-2000
 Дано run Action "Save Scene"
 Дано run Scene "Build HLODs"
 Дано wait-idle 2400
