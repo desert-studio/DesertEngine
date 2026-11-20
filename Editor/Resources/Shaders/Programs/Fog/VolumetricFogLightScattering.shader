@@ -108,9 +108,11 @@ Shader "VolumetricFogLightScattering"
         ReadBuffer(14) LocalFogVolumesBuffer { LocalFogVolumeGpu localFogVolumes[]; };
         // THE HETEROGENEOUS VOLUMES' SHADOW (smoke between the sun and the fog): their buffer (Graphic::
         // kHeterogeneousVolumesBinding) and this frame's lighting cache, whose .a is the sun's transmittance through
-        // the volume from each voxel. VfLocalFog.y of them; 0 = the fallback, never read.
+        // the volume from each voxel. VfLocalFog.y of them; 0 = the fallback, never read. The cache is bound by
+        // name; its slot only has to be free in THIS program: 16 is Mesh/Spotlight.glslh's SpotLightsUB
+        // (ShaderProtocols::kSpotLightsUBBinding), and a texture3D on it made the program refuse to build.
         ReadBuffer(15) HeterogeneousVolumesBuffer { HeterogeneousVolumeGpu heterogeneousVolumes[]; };
-        Uniform(16) texture3D HeterogeneousVolumeCacheTexture;
+        Uniform(18) texture3D HeterogeneousVolumeCacheTexture;
         #define HeterogeneousVolumeCacheTexture sampler3D(HeterogeneousVolumeCacheTexture, LinearClampSampler)
 
         // A froxel has no fragment and no ShadowUB: its froxel keys the PCF rotation, one tap per froxel.
