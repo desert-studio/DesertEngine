@@ -7,9 +7,13 @@
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Graphic/ShaderProtocols/GeneratedProtocolIncludes.hpp>
 
+#include <cctype>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <unordered_set>
 #include <utility>
 
 namespace Desert::Core
@@ -188,5 +192,160 @@ namespace Desert::Core
 
         if ( m_LiveResults > 0 )
             --m_LiveResults;
+    }
+
+    namespace
+    {
+        bool IsIdentifierChar( const char ch )
+        {
+            return std::isalnum( static_cast<unsigned char>( ch ) ) != 0 || ch == '_';
+        }
+
+        // @p name DECLARED on @p line (comments already removed): a whole word followed by `;`, `[`, `{` or the
+        // end of the line — `Uniform(18) texture3D Name;`, `uniform NameUB {`, `} Name[4];`. A use
+        // (`texture( sampler3D( Name, ... ) )`) is followed by something else and is not an answer.
+        bool DeclaresName( const std::string_view line, const std::string_view name )
+        {
+            for ( size_t at = line.find( name ); at != std::string_view::npos; at = line.find( name, at + 1 ) )
+            {
+                if ( at > 0 && IsIdentifierChar( line[at - 1] ) )
+                    continue;
+                size_t end = at + name.size();
+                if ( end < line.size() && IsIdentifierChar( line[end] ) )
+                    continue;
+                while ( end < line.size() && ( line[end] == ' ' || line[end] == '\t' || line[end] == '\r' ) )
+                    ++end;
+                if ( end == line.size() || line[end] == ';' || line[end] == '[' || line[end] == '{' )
+                    return true;
+            }
+            return false;
+        }
+
+        // `#include <a/b.glslh>` / `#include "c.glslh"` on @p line: the target and whether it is an angle include.
+        bool ParseInclude( std::string_view line, std::string& target, bool& angle )
+        {
+            const auto skipSpace = [&line]()
+            {
+                while ( !line.empty() && ( line.front() == ' ' || line.front() == '\t' ) )
+                    line.remove_prefix( 1 );
+            };
+            skipSpace();
+            if ( !line.starts_with( '#' ) )
+                return false;
+            line.remove_prefix( 1 );
+            skipSpace();
+            if ( !line.starts_with( "include" ) )
+                return false;
+            line.remove_prefix( 7 );
+            skipSpace();
+            if ( line.empty() || ( line.front() != '<' && line.front() != '"' ) )
+                return false;
+            angle             = line.front() == '<';
+            const size_t last = line.find( angle ? '>' : '"', 1 );
+            if ( last == std::string_view::npos )
+                return false;
+            target = std::string( line.substr( 1, last - 1 ) );
+            return true;
+        }
+
+        struct LocateWalk
+        {
+            std::string_view                Name;
+            const ShaderVariant&            Variant;
+            std::unordered_set<std::string> Visited;
+        };
+
+        std::string LocateIn( LocateWalk& walk, const std::string& text, const std::string& label,
+                              const std::string& suffix, const std::filesystem::path& file, const size_t depth )
+        {
+            if ( depth >= 32 || !walk.Visited.insert( label ).second )
+                return {};
+            bool   inBlockComment = false;
+            size_t lineNumber     = 0;
+            for ( size_t begin = 0; begin <= text.size(); )
+            {
+                size_t end = text.find( '\n', begin );
+                if ( end == std::string::npos )
+                    end = text.size();
+                ++lineNumber;
+                std::string code;
+                // Comments out: a comment that names the resource ("16 is SpotLightsUB's") is not its declaration.
+                for ( size_t i = begin; i < end; ++i )
+                {
+                    if ( inBlockComment )
+                    {
+                        if ( text[i] == '*' && i + 1 < end && text[i + 1] == '/' )
+                        {
+                            inBlockComment = false;
+                            ++i;
+                        }
+                        continue;
+                    }
+                    if ( text[i] == '/' && i + 1 < end && text[i + 1] == '/' )
+                        break;
+                    if ( text[i] == '/' && i + 1 < end && text[i + 1] == '*' )
+                    {
+                        inBlockComment = true;
+                        ++i;
+                        continue;
+                    }
+                    code.push_back( text[i] );
+                }
+                begin = end + 1;
+
+                std::string target;
+                bool        angle = false;
+                if ( ParseInclude( code, target, angle ) )
+                {
+                    // The includer's own resolution order (ShaderIncluder::GetInclude).
+                    std::string found;
+                    if ( angle )
+                    {
+                        const std::string requested =
+                             std::filesystem::path( target ).lexically_normal().generic_string();
+                        const std::string angleLabel = std::format( "<{}>", requested );
+                        if ( const std::string* substituted = walk.Variant.Find( requested ) )
+                            found = LocateIn( walk, *substituted, angleLabel, " (the variant's substitution)", {},
+                                              depth + 1 );
+                        else if ( const std::string* generated =
+                                       Graphic::ShaderProtocols::FindGeneratedProtocolInclude( requested ) )
+                            found = LocateIn( walk, *generated, angleLabel, " (generated from its C++ protocol)",
+                                              {}, depth + 1 );
+                        else if ( requested != ShadingModels::kGeneratedInclude )
+                        {
+                            const auto full =
+                                 ( std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ) / target )
+                                      .lexically_normal();
+                            if ( auto read = Common::Utils::FileSystem::ReadFileContentIfExists( full );
+                                 read && read.GetValue().has_value() )
+                                found = LocateIn( walk, *read.GetValue(), full.generic_string(), {}, full,
+                                                  depth + 1 );
+                        }
+                    }
+                    else if ( !file.empty() )
+                    {
+                        const auto full = ( file.parent_path() / target ).lexically_normal();
+                        if ( auto read = Common::Utils::FileSystem::ReadFileContentIfExists( full );
+                             read && read.GetValue().has_value() )
+                            found = LocateIn( walk, *read.GetValue(), full.generic_string(), {}, full, depth + 1 );
+                    }
+                    if ( !found.empty() )
+                        return found;
+                    continue;
+                }
+                if ( DeclaresName( code, walk.Name ) )
+                    return std::format( "{}:{}{}", label, lineNumber, suffix );
+            }
+            return {};
+        }
+    } // namespace
+
+    std::string LocateShaderDeclaration( const std::string& source, const Common::Filepath& path,
+                                         const std::string_view name, const ShaderVariant& variant )
+    {
+        if ( name.empty() )
+            return {};
+        LocateWalk walk{ name, variant, {} };
+        return LocateIn( walk, source, path.generic_string(), {}, path, 0 );
     }
 } // namespace Desert::Core

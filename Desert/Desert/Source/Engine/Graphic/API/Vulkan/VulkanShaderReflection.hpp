@@ -62,6 +62,22 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                                                          Core::Formats::ShaderStage      stage,
                                                          ShaderResource::ReflectionData& data );
 
+    // One refusal of ReflectStageRefusals: the message ReflectStage returns, plus the NAMES of the resources it
+    // is about (both holders of a slot claimed twice, the one resource of every other refusal; empty for a
+    // refusal of the whole module). SPIR-V carries no source line, so the names are what lets the program
+    // load (VulkanShader::Reflect) point at the declarations in the shader's own text (Core::
+    // LocateShaderDeclaration) — "file:line", not only "the program refused".
+    struct ReflectionRefusal
+    {
+        std::string              Message;
+        std::vector<std::string> Resources;
+    };
+
+    // ReflectStage with each refusal's resources named. ReflectStage is this, projected to the messages.
+    [[nodiscard]] std::vector<ReflectionRefusal> ReflectStageRefusals( const std::vector<uint32_t>&    spirv,
+                                                                       Core::Formats::ShaderStage      stage,
+                                                                       ShaderResource::ReflectionData& data );
+
     // What ONE stage's SPIR-V says about the material layout: the `Materials` row (binding, stride and
     // every member of one row, padding included), the combined image samplers (name -> binding) and the
     // push block (size and every member). Pure. Core::Formats::ReconcileMaterialLayout holds these to the

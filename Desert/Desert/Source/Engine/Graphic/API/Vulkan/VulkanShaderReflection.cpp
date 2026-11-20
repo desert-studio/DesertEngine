@@ -137,9 +137,22 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     // module, and it ends the process with its message instead of becoming one more diagnostic.
     std::vector<std::string> ReflectStage( const std::vector<uint32_t>& spirv, Core::Formats::ShaderStage stage,
                                            ShaderResource::ReflectionData& data )
+    {
+        std::vector<std::string> messages;
+        for ( auto& refusal : ReflectStageRefusals( spirv, stage, data ) )
+            messages.push_back( std::move( refusal.Message ) );
+        return messages;
+    }
+
+    std::vector<ReflectionRefusal> ReflectStageRefusals( const std::vector<uint32_t>&    spirv,
+                                                         Core::Formats::ShaderStage      stage,
+                                                         ShaderResource::ReflectionData& data )
     try
     {
-        std::vector<std::string> diagnostics;
+        std::vector<ReflectionRefusal> diagnostics;
+        // Every refusal names the resources it is about, so the program load can point at their declarations.
+        const auto refuse = [&diagnostics]( std::vector<std::string> resources, std::string message )
+        { diagnostics.push_back( { std::move( message ), std::move( resources ) } ); };
 
         spirv_cross::CompilerGLSL    compiler( spirv );
         spirv_cross::ShaderResources resources = compiler.get_shader_resources();
@@ -194,10 +207,13 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             // never one built from this shader, so a resource of the shader's own there has no descriptor.
             if ( set == kBindlessSetIndex )
             {
-                diagnostics.push_back( std::format(
-                     "resource '{}' (set {}, binding {}) is in the set reserved for the bindless texture table; "
-                     "only Common/BindlessTextures.glslh declares set {} — move the resource to another set",
-                     resource.name, set, binding, kBindlessSetIndex ) );
+                refuse(
+                     { resource.name },
+                     std::format(
+                          "resource '{}' (set {}, binding {}) is in the set reserved for the bindless texture "
+                          "table; "
+                          "only Common/BindlessTextures.glslh declares set {} — move the resource to another set",
+                          resource.name, set, binding, kBindlessSetIndex ) );
                 return;
             }
             // The shared-sampler marker is renumbered by the program build (ShaderMapBuild.cpp
@@ -205,30 +221,34 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             // through that build, and its sampler has no slot of its own.
             if ( binding == Core::kAutoSamplerBinding )
             {
-                diagnostics.push_back( std::format(
-                     "resource '{}' (set {}) is still on the shared-sampler marker binding {}: the SPIR-V did not "
-                     "come through the program build that numbers `Uniform sampler` declarations (BuildShaderMap)",
-                     resource.name, set, binding ) );
+                refuse( { resource.name }, std::format( "resource '{}' (set {}) is still on the shared-sampler "
+                                                        "marker binding {}: the SPIR-V did not "
+                                                        "come through the program build that numbers `Uniform "
+                                                        "sampler` declarations (BuildShaderMap)",
+                                                        resource.name, set, binding ) );
                 return;
             }
             // Likewise the unnumbered-resource marker (ShaderMapBuild.cpp AssignProgramBindings).
             if ( binding == Core::kAutoResourceBinding )
             {
-                diagnostics.push_back( std::format( "resource '{}' (set {}) is still on the unnumbered-resource "
-                                                    "marker binding {}: the SPIR-V did "
-                                                    "not come through the program build that numbers paren-less "
-                                                    "DSL declarations (BuildShaderMap)",
-                                                    resource.name, set, binding ) );
+                refuse( { resource.name },
+                        std::format( "resource '{}' (set {}) is still on the unnumbered-resource "
+                                     "marker binding {}: the SPIR-V did "
+                                     "not come through the program build that numbers paren-less "
+                                     "DSL declarations (BuildShaderMap)",
+                                     resource.name, set, binding ) );
                 return;
             }
             const auto [it, inserted] = claimed.emplace( std::pair{ set, binding }, resource.name );
             if ( !inserted && it->second != resource.name )
             {
-                diagnostics.push_back( std::format(
-                     "set {}, binding {} is claimed by two resources: '{}' and '{}'; a descriptor slot holds "
-                     "one resource, so one of the two would be silently dropped. If either number was "
-                     "allocated automatically by the shader DSL, give that declaration an explicit binding",
-                     set, binding, it->second, resource.name ) );
+                refuse(
+                     { it->second, resource.name },
+                     std::format(
+                          "set {}, binding {} is claimed by two resources: '{}' and '{}'; a descriptor slot holds "
+                          "one resource, so one of the two would be silently dropped. If either number was "
+                          "allocated automatically by the shader DSL, give that declaration an explicit binding",
+                          set, binding, it->second, resource.name ) );
             }
         };
         // Every category that consumes a descriptor slot, in the order the buckets below read them, so a
@@ -277,12 +297,14 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         // state (a pass's shared states, a material property's own `<name>Sampler`, the bindless table's array).
         for ( const auto& resource : resources.sampled_images )
         {
-            diagnostics.push_back( std::format(
-                 "resource '{}' (set {}, binding {}) is a combined image sampler ({}); declare a separate texture "
-                 "(texture2D / textureCube / texture3D) and read it through a `sampler` state",
-                 resource.name, compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ),
-                 compiler.get_decoration( resource.id, spv::DecorationBinding ),
-                 DescribeImageType( compiler.get_type( resource.base_type_id ) ) ) );
+            refuse( { resource.name },
+                    std::format( "resource '{}' (set {}, binding {}) is a combined image sampler ({}); declare a "
+                                 "separate texture "
+                                 "(texture2D / textureCube / texture3D) and read it through a `sampler` state",
+                                 resource.name,
+                                 compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ),
+                                 compiler.get_decoration( resource.id, spv::DecorationBinding ),
+                                 DescribeImageType( compiler.get_type( resource.base_type_id ) ) ) );
         }
 
         // Storage Buffers
@@ -311,10 +333,11 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
 
             if ( !compiler.get_type( resource.type_id ).array.empty() )
             {
-                diagnostics.push_back( std::format(
-                     "resource '{}' (set {}, binding {}) is an array of {}; arrays of descriptors are "
-                     "not supported — declare separate bindings",
-                     resource.name, set, binding, DescribeImageType( imageType ) ) );
+                refuse( { resource.name },
+                        std::format(
+                             "resource '{}' (set {}, binding {}) is an array of {}; arrays of descriptors are "
+                             "not supported — declare separate bindings",
+                             resource.name, set, binding, DescribeImageType( imageType ) ) );
                 continue;
             }
 
@@ -333,10 +356,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 // single-sample image, which is all the storage path builds: refused like any other.
                 case ImageKind::Image2DMultisample:
                 case ImageKind::Unsupported:
-                    diagnostics.push_back(
-                         std::format( "storage image '{}' (set {}, binding {}) is a {}, which the engine "
-                                      "cannot bind",
-                                      resource.name, set, binding, DescribeImageType( imageType ) ) );
+                    refuse( { resource.name },
+                            std::format( "storage image '{}' (set {}, binding {}) is a {}, which the engine "
+                                         "cannot bind",
+                                         resource.name, set, binding, DescribeImageType( imageType ) ) );
                     break;
             }
         }
@@ -349,10 +372,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             const uint32_t binding = compiler.get_decoration( resource.id, spv::DecorationBinding );
             if ( !compiler.get_type( resource.type_id ).array.empty() )
             {
-                diagnostics.push_back( std::format( "resource '{}' (set {}, binding {}) is an array of "
-                                                    "accelerationStructureEXT; arrays of descriptors are not "
-                                                    "supported — declare separate bindings",
-                                                    resource.name, set, binding ) );
+                refuse( { resource.name }, std::format( "resource '{}' (set {}, binding {}) is an array of "
+                                                        "accelerationStructureEXT; arrays of descriptors are not "
+                                                        "supported — declare separate bindings",
+                                                        resource.name, set, binding ) );
                 continue;
             }
             auto& as         = data.ShaderDescriptorSets[set].AccelerationStructures[binding];
@@ -370,11 +393,13 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         // states then serve many inputs, which is what keeps a screen pass under maxPerStageDescriptorSamplers.
         const auto refuseBindless = [&]( const spirv_cross::Resource& resource, std::string_view expected )
         {
-            diagnostics.push_back( std::format(
-                 "resource '{}' (set {}, binding {}) is a separate sampler/texture in the bindless table's set, "
-                 "which only the table declares ({}); include Common/BindlessTextures.glslh instead",
-                 resource.name, compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ),
-                 compiler.get_decoration( resource.id, spv::DecorationBinding ), expected ) );
+            refuse(
+                 { resource.name },
+                 std::format( "resource '{}' (set {}, binding {}) is a separate sampler/texture in the bindless "
+                              "table's set, "
+                              "which only the table declares ({}); include Common/BindlessTextures.glslh instead",
+                              resource.name, compiler.get_decoration( resource.id, spv::DecorationDescriptorSet ),
+                              compiler.get_decoration( resource.id, spv::DecorationBinding ), expected ) );
         };
         const auto isBindlessSlot = [&]( const spirv_cross::Resource& resource, uint32_t binding )
         {
@@ -399,10 +424,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 claimSlot( resource );
                 if ( !type.array.empty() )
                 {
-                    diagnostics.push_back( std::format( "resource '{}' (set {}, binding {}) is an array of "
-                                                        "samplers; a pass's sampler slot is one "
-                                                        "shared state - declare one `sampler` per state",
-                                                        resource.name, set, binding ) );
+                    refuse( { resource.name }, std::format( "resource '{}' (set {}, binding {}) is an array of "
+                                                            "samplers; a pass's sampler slot is one "
+                                                            "shared state - declare one `sampler` per state",
+                                                            resource.name, set, binding ) );
                     continue;
                 }
                 auto& sampler         = data.ShaderDescriptorSets[set].Samplers[binding];
@@ -436,12 +461,15 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 const ImageKind kind  = ClassifyImage( type );
                 if ( ( !type.array.empty() && !fixedArray ) || kind == ImageKind::Unsupported )
                 {
-                    diagnostics.push_back( std::format(
-                         "resource '{}' (set {}, binding {}) is a separate {}{}; a pass's separate texture is a "
-                         "texture2D, texture2DMS, texture3D, textureCube or textureCubeArray, alone or in a "
-                         "fixed-size array",
-                         resource.name, set, binding, DescribeImageType( type ),
-                         type.array.empty() ? "" : " array" ) );
+                    refuse(
+                         { resource.name },
+                         std::format(
+                              "resource '{}' (set {}, binding {}) is a separate {}{}; a pass's separate texture "
+                              "is a "
+                              "texture2D, texture2DMS, texture3D, textureCube or textureCubeArray, alone or in a "
+                              "fixed-size array",
+                              resource.name, set, binding, DescribeImageType( type ),
+                              type.array.empty() ? "" : " array" ) );
                     continue;
                 }
                 auto& image         = data.ShaderDescriptorSets[set].SampledImages[binding];
@@ -475,9 +503,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             {
                 // The block is named by its TYPE: `uniform PastTheCap { ... };` has no instance name, and
                 // res.name is the instance name, empty for every anonymous push block.
-                diagnostics.push_back( std::format( "push block '{}' is {} bytes; the engine cap is {} bytes",
-                                                    compiler.get_name( res.base_type_id ), declaredSize,
-                                                    ShaderResources::ShaderLayout::kMaxPushConstantBytes ) );
+                refuse( { compiler.get_name( res.base_type_id ) },
+                        std::format( "push block '{}' is {} bytes; the engine cap is {} bytes",
+                                     compiler.get_name( res.base_type_id ), declaredSize,
+                                     ShaderResources::ShaderLayout::kMaxPushConstantBytes ) );
                 return diagnostics;
             }
             if ( !data.PushConstantRanges )
@@ -512,7 +541,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     }
     catch ( const spirv_cross::CompilerError& error )
     {
-        return { std::format( "SPIRV-Cross cannot reflect this stage's SPIR-V: {}", error.what() ) };
+        return { ReflectionRefusal{
+             std::format( "SPIRV-Cross cannot reflect this stage's SPIR-V: {}", error.what() ), {} } };
     }
 
     std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv )

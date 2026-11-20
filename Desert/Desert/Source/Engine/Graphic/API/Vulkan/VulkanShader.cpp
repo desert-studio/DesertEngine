@@ -12,6 +12,10 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
+#include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+
+#include <iterator>
 #include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
@@ -362,7 +366,7 @@ namespace Desert::Graphic::API::Vulkan
         //
         // It reflects into the caller's data, not straight into the shader's: a compile that fails
         // halfway must not leave this object holding half a shader.
-        auto diagnostics = ShaderReflection::ReflectStage( spirv, stage, into );
+        auto diagnostics = ShaderReflection::ReflectStageRefusals( spirv, stage, into );
         // Shared memory above the device's maxComputeSharedMemorySize is not an error the driver must report
         // (Vulkan guarantees only 16 KiB); the program is refused here, by name and with both numbers, so its
         // owner refuses itself instead of dispatching something undefined.
@@ -374,9 +378,10 @@ namespace Desert::Graphic::API::Vulkan
             const uint64_t shared  = ShaderReflection::ReflectWorkgroupMemoryBytes( spirv );
             const uint32_t allowed = EngineContext::GetInstance().GetCapabilities().MaxComputeSharedMemorySize;
             if ( shared > allowed )
-                diagnostics.push_back( std::format( "declares {} bytes of shared memory (std430); the device's "
-                                                    "maxComputeSharedMemorySize is {}",
-                                                    shared, allowed ) );
+                diagnostics.push_back( { std::format( "declares {} bytes of shared memory (std430); the device's "
+                                                      "maxComputeSharedMemorySize is {}",
+                                                      shared, allowed ),
+                                         {} } );
         }
         if ( diagnostics.empty() )
         {
@@ -387,14 +392,46 @@ namespace Desert::Graphic::API::Vulkan
         // binding surfaces far from its cause, and a silently mis-filed one never surfaces at all. The
         // same channel carries a descriptor slot claimed twice, which is refused for the same reason —
         // the layout that would come out of it is complete, plausible and missing a resource.
-        for ( const auto& message : diagnostics )
+        //
+        // SPIR-V has no source line, so each refusal is given the declarations of the resources it names, found in
+        // the program's own text and its includes (Core::LocateShaderDeclaration): "binding 16 is claimed by two
+        // resources" becomes the two lines to look at — one of them usually in an include the author never opened.
+        // The first refusal, so located, is also the error this returns, which is what the shader keeps as its
+        // compile error and ShaderService prints on the "registered but has no compiled stages" line.
+        std::string programText;
+        if ( const auto asset = m_ShaderAsset.lock() )
+            programText = asset->GetShaderContent();
+        else if ( auto read = Common::Utils::FileSystem::ReadFileContentIfExists( m_ShaderPath );
+                  read && read.GetValue().has_value() )
+            programText = *read.GetValue();
+        const auto located = [&]( const ShaderReflection::ReflectionRefusal& refusal )
         {
+            std::string where;
+            for ( const auto& resource : refusal.Resources )
+            {
+                const std::string at =
+                     Core::LocateShaderDeclaration( programText, m_ShaderPath, resource, m_Variant );
+                std::format_to(
+                     std::back_inserter( where ), "{}'{}' declared at {}", where.empty() ? "" : "; ", resource,
+                     at.empty() ? std::format( "no line of {} or its includes", m_ShaderPath.generic_string() )
+                                : at );
+            }
+            if ( where.empty() )
+                return std::format( "{} ({})", refusal.Message, m_ShaderPath.generic_string() );
+            return std::format( "{} [{}]", refusal.Message, where );
+        };
+
+        std::string first;
+        for ( const auto& refusal : diagnostics )
+        {
+            std::string message = located( refusal );
             LOG_ERROR( "Shader '{}' [{}]: {}", m_ShaderName, GetStringShaderStage( stage ), message );
+            if ( first.empty() )
+                first = std::move( message );
         }
 
         return Common::MakeFormattedError( "Shader '{}' [{}]: {} rejected resource(s); first: {}", m_ShaderName,
-                                           GetStringShaderStage( stage ), diagnostics.size(),
-                                           diagnostics.front() );
+                                           GetStringShaderStage( stage ), diagnostics.size(), first );
     }
 
     Common::BoolResultStr

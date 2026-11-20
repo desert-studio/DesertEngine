@@ -86,4 +86,22 @@ namespace Desert::Core
         ShaderVariant    m_Variant;
         std::size_t      m_LiveResults = 0;
     };
+
+    /**
+     * @brief WHERE A RESOURCE OF A PROGRAM IS DECLARED, for a refusal that knows only its name.
+     *
+     * SPIR-V carries no source line, so a reflection refusal ("set 0, binding 16 is claimed by two resources")
+     * names resources, not lines — and the author has to find which of a dozen includes put the second one on
+     * the slot. This walks the program text the way the compile did (comments skipped, `#include` followed
+     * where it stands, with the includer's own resolution: the variant's substitution first, then a generated
+     * protocol include, then the file) and answers the first line that DECLARES @p name: the identifier as a
+     * whole word followed by `;`, `[`, `{` or the end of the line.
+     *
+     * @param source the program's DSL text (line numbers are the file's: the DSL translation is line-preserving).
+     * @param path   the program's file; names it in the answer and anchors quoted includes.
+     * @return "<file>:<line>", "<Include/Path.glslh>:<line> (generated ...)" for text that is not a file, or
+     *         empty when no line declares the name (the caller says so instead of a location).
+     */
+    [[nodiscard]] std::string LocateShaderDeclaration( const std::string& source, const Common::Filepath& path,
+                                                       std::string_view name, const ShaderVariant& variant = {} );
 } // namespace Desert::Core
