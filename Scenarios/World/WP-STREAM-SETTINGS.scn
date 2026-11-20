@@ -10,7 +10,10 @@
 # for) - the earlier target x -25000, z 5000 was such a stretch.
 # Expected (editor.log): Play 1 - "[WorldPartition] 'WP_Protocol': slow streaming (blocking disabled)" once, no
 # "play waits"; Play 2 - "play waits for it", then "play resumes".
-Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+# Every cell read lands 90 Ticks late (--stream-delay-ticks, dev only): without it cell (-15,2) arrived in ~1 s of wall
+# time, less than one scenario step costs (~0.65 s per DesertCtl call), so the wpset_block shot always came after the
+# block lifted. Ticks, not milliseconds, so the capture is reproducible.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce --stream-delay-ticks 90
 Дано run View "View mode: Lit"
 Дано run Scene "Build HLODs"
 Дано wait-idle 2400

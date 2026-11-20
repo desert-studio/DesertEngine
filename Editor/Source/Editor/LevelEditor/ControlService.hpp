@@ -249,5 +249,7 @@ namespace Desert::Editor
 
         // The playing scene's simulated seconds; empty outside Play or without a physics world.
         [[nodiscard]] std::optional<double> PlaySimulatedSeconds() const;
+        // Play is held behind the world-streaming loading overlay (WorldStreamingWait blocks).
+        [[nodiscard]] bool PlayWaitsBehindOverlay() const;
     };
 } // namespace Desert::Editor
