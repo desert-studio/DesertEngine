@@ -6,6 +6,7 @@
 #include "Assimp/AssimpImporter.hpp"
 #include "Blend/BlendImporter.hpp"
 #include "IesProfileImporter.hpp"
+#include "SparseVolumeImporter.hpp"
 #include "CookPaths.hpp"
 #include "CookedJsonWrite.hpp"
 #include "MaterialAdoption.hpp"
@@ -244,6 +245,10 @@ namespace Desert::Editor
         // An IES light profile is no mesh source: it becomes the `.dies` beside it (IesProfileImporter).
         if ( ext == ".ies" )
             return ImportIesProfile( path, pass, force );
+
+        // A simulated volume grid is no mesh source either: it becomes the `.dsvol` beside it (SparseVolumeImporter).
+        if ( ext == ".vol" )
+            return ImportSparseVolume( path, pass, force );
 
         if ( !m_Importers.contains( ext ) )
             return CookVerdict::NotCookable;
