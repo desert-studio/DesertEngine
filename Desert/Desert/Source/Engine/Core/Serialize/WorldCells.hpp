@@ -94,7 +94,7 @@ namespace Desert::Core::WorldCells
     // world is re-derivable, so the answer to an old one is a re-cook.
     inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
     inline constexpr std::uint32_t kWorldFormatVersion =
-         12; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
+         13; // 4: HLOD layers (WP-FAR-7); 5: a cell row states its grid (WP22);
              // 6: a cell row states its streaming bounds (WP-FAR-6B 9g); 7: prefab instances expanded at cook
              // (WP21); 8: a cell row states the height span of what it holds (WP-SRC-ALTITUDE); 9: a unit row
              // states its runtime data layers, the cell's third coordinate, and a cell or always-loaded composite
@@ -106,7 +106,9 @@ namespace Desert::Core::WorldCells
              // runtime would never rebind them; 12: an HLOD record's built mesh is a static mesh asset beside the
              // cells (`HLODMesh_<hash>.stmesh`, StaticMesh.MeshHandle) instead of an EditMesh inside the cell
              // (WP-PERF: 80-85 MB landscape cells read ~70 s each at the start of Play); an older HLOD folder is
-             // derived data, so it is rebuilt, not migrated
+             // derived data, so it is rebuilt, not migrated; 13: an HLOD states which of its records are an
+             // Impostor layer's cards and which their instanced source meshes (ImpostorCards / ImpostorFallbacks,
+             // IMPOSTORS-HLOD), the pair the machine's ViewDistance.HLODImpostors picks one side of
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -180,6 +182,9 @@ namespace Desert::Core::WorldCells
         std::uint64_t                  Instances = 0;
         std::vector<std::uint64_t>     Sources; // the cell's records it stands in for, in member order
         std::vector<IndexNotInstanced> NotInstanced;
+        // Subsets of Ids (BuiltHLODCell's, copied): an Impostor layer's cards and their instanced source meshes.
+        std::vector<std::uint64_t> ImpostorCards;
+        std::vector<std::uint64_t> ImpostorFallbacks;
         std::vector<std::string>       Assets; // registry keys the HLOD needs, transitively; sorted
     };
 
@@ -194,6 +199,10 @@ namespace Desert::Core::WorldCells
         std::uint64_t                  Instances = 0;
         std::vector<std::uint64_t>     Sources; // the world's records it stands in for, in member order
         std::vector<IndexNotInstanced> NotInstanced;
+        // Subsets of Ids (BuiltHLODCell's, copied): an Impostor layer's cards and their instanced source meshes;
+        // the HLOD switch shows one side by the machine's ViewDistance.HLODImpostors. Every other id: always.
+        std::vector<std::uint64_t> ImpostorCards;
+        std::vector<std::uint64_t> ImpostorFallbacks;
     };
 
     struct WorldIndex
@@ -223,7 +232,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexUnit>     HLODUnits;
         std::vector<IndexHLODNode> HLODNodes;
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 12 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 13 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -232,7 +241,7 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
-    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 12 )
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 13 )
     // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
     static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
                    Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );
@@ -468,6 +477,10 @@ namespace Desert::Core::WorldCells
         std::uint64_t                  Instances = 0;
         std::vector<std::uint64_t>     Sources; // the cell's records it stands in for, in member order
         std::vector<IndexNotInstanced> NotInstanced;
+        // Subsets of Ids by Rules::HLODBatchVariant: an Impostor layer's cards and the same instances of their
+        // source meshes. The switch draws one side (WorldStreamer::SetHLODVisible); every other id is always drawn.
+        std::vector<std::uint64_t> ImpostorCards;
+        std::vector<std::uint64_t> ImpostorFallbacks;
     };
 
     struct BuiltHLODIndex
@@ -475,7 +488,7 @@ namespace Desert::Core::WorldCells
         std::string                SceneName;
         std::vector<BuiltHLODCell> Cells; // cell unit order
     };
-    DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 12 )
+    DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 13 )
     static_assert( Common::Json::FormatOf<BuiltHLODIndex>.Version == kWorldFormatVersion );
 
     // Where BuildWorldHLODs hands each cell's record file (CellPayload, kind WorldCell) the moment the cell is

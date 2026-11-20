@@ -19,6 +19,7 @@
 #include <Projects/WorldPartitionSettings.hpp>
 
 #include <Common/Content/ContentChunks.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/ProcessMemory.hpp>
@@ -442,8 +443,11 @@ namespace Desert::Core
                             counts.push_back( row == nullptr ? 0 : row->Ids.size() );
                             std::vector<Common::UUID>& ids = nodeIds.emplace_back();
                             if ( row != nullptr )
+                            {
                                 for ( const std::uint64_t id : row->Ids )
                                     ids.emplace_back( id );
+                                streamer->NoteImpostorPair( row->ImpostorCards, row->ImpostorFallbacks );
+                            }
                         }
                         auto residency = Rules::MakeHLODResidency( *partition, hierarchy.GetValue(), counts );
                         if ( !residency )
@@ -489,6 +493,7 @@ namespace Desert::Core
                         // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this block
                         // ends before that call); `byId` and `snapshot` outlive it.
                         const WorldCells::BuiltHLODCell* cell = row->second;
+                        streamer->NoteImpostorPair( cell->ImpostorCards, cell->ImpostorFallbacks );
                         hlods.push_back( CellHLOD{
                              unit,
                              [held, &byId, &snapshot, cell,
@@ -606,6 +611,7 @@ namespace Desert::Core
                 std::vector<Common::UUID>& ids = nodeIds.emplace_back();
                 for ( const std::uint64_t id : node.Ids )
                     ids.emplace_back( id );
+                streamer->NoteImpostorPair( node.ImpostorCards, node.ImpostorFallbacks );
             }
             LOG_INFO(
                  "[WorldPartition] '{0}': {1} cooked HLOD(s) in {2} HLOD unit(s) ({3} HLOD cell(s)) from '{4}'",
@@ -633,6 +639,7 @@ namespace Desert::Core
                     holes.push_back( missing.Reason );
                 if ( !row.File.has_value() )
                     continue;
+                streamer->NoteImpostorPair( row.ImpostorCards, row.ImpostorFallbacks );
                 // Read when BeginHLODs makes it (CellHLOD); `world` and `reader` outlive that call, made below.
                 hlods.push_back( CellHLOD{
                      row.Unit,
@@ -903,6 +910,9 @@ namespace Desert::Core
         // UE's priority level streaming: while play waits behind the overlay, activation has more of the frame.
         Executor().SetPriorityActivation( m_LastTick.Streaming.Blocks() );
         m_LastTick = TickReport{};
+        // The machine's impostor side first: a quality change re-shows the HLODs already shown (SyncHLODImpostors),
+        // and the switch below shows any newly shown HLOD with the same side.
+        SyncHLODImpostors();
         // The HLODs switch on the state this very tick leaves, before the frame is drawn.
         // NOLINTBEGIN(bugprone-unchecked-optional-access): a streamer that began holds its HLOD switch
         auto tick = m_HLODExecutor.has_value()
@@ -1448,14 +1458,49 @@ namespace Desert::Core
         return BOOLSUCCESS;
     }
 
+    void WorldStreamer::NoteImpostorPair( std::span<const std::uint64_t> cards,
+                                          std::span<const std::uint64_t> fallbacks )
+    {
+        m_ImpostorCards.insert( cards.begin(), cards.end() );
+        m_ImpostorFallbacks.insert( fallbacks.begin(), fallbacks.end() );
+    }
+
+    void WorldStreamer::SyncHLODImpostors()
+    {
+        // Before Initialize (a tool, a headless test) the machine has no selection: the parameter's own default.
+        const bool wanted =
+             ( Common::Scalability::QualityState::Initialized()
+                    ? Common::Scalability::QualityState::Resolved().As<int>(
+                           Common::Scalability::Parameter::ViewDistanceHLODImpostors )
+                    : Common::Scalability::SpecOf( Common::Scalability::Parameter::ViewDistanceHLODImpostors )
+                           .Default ) != 0;
+        if ( wanted == m_HLODImpostors )
+            return;
+        m_HLODImpostors = wanted;
+        if ( m_ImpostorCards.empty() && m_ImpostorFallbacks.empty() )
+            return;
+        LOG_INFO( "[WorldPartition] '{0}': HLOD impostors {1} (ViewDistance.HLODImpostors); {2} card record(s), {3} "
+                  "source-mesh record(s).",
+                  m_SceneName, wanted ? "on" : "off", m_ImpostorCards.size(), m_ImpostorFallbacks.size() );
+        if ( !m_HLODs.has_value() )
+            return;
+        for ( std::size_t hlod = 0; hlod < m_HLODs->Count(); ++hlod )
+            if ( m_HLODs->IsVisible( hlod ) )
+                SetHLODVisible( hlod, true );
+    }
+
     void WorldStreamer::SetHLODVisible( std::size_t hlod, bool visible )
     {
         for ( const Common::UUID& id : m_HLODIds.at( hlod ) )
         {
             // An HLOD entity gameplay destroyed has nothing left to show or hide.
             const auto entity = m_Scene->FindEntityByID( id );
-            if ( entity.has_value() )
-                m_Scene->SetVisibleRecursive( entity->get(), visible );
+            if ( !entity.has_value() )
+                continue;
+            // One side of an Impostor layer's pair (m_ImpostorCards / m_ImpostorFallbacks), by the machine.
+            const auto key   = static_cast<std::uint64_t>( id );
+            const bool other = m_HLODImpostors ? m_ImpostorFallbacks.contains( key ) : m_ImpostorCards.contains( key );
+            m_Scene->SetVisibleRecursive( entity->get(), visible && !other );
         }
         if ( !m_HLODSwitchesSaid || !m_HLODs.has_value() )
             return;

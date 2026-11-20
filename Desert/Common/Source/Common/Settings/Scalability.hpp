@@ -547,6 +547,12 @@ namespace Common::Scalability
         LandscapeVirtualTextureSizeLog2,         // mip0 side of the virtual square in texels, log2. 12..17
         LandscapeVirtualTexturePoolPages,        // physical atlas side in pages (pool = side^2 pages). 8..64
         LandscapeVirtualTextureUpdatesPerFrame,  // pages rendered per frame (r.VT.MaxUploadsPerFrame). 8..256
+        // Impostor HLODs (IMPOSTORS-HLOD; UE: an HLOD layer's impostor batches switched by sg.ViewDistanceQuality,
+        // r.HLOD.*): 1 = a far cell built by an Impostor layer draws its octahedral impostor cards, 0 = it draws the
+        // same cell's source meshes instanced (the fallback the Impostor builder emits beside every card). The HLOD
+        // switch picks the variant: Core::WorldStreamer::SetHLODVisible. Key "ViewDistance.HLODImpostors": 1 at
+        // every level, so only a machine override names it (0 = the A/B and the off switch). 0/1
+        ViewDistanceHLODImpostors,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

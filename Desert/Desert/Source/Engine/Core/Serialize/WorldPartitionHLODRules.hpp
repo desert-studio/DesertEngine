@@ -130,11 +130,22 @@ namespace Desert::Core::Rules
     // One component of the HLOD. An Instancing layer's batch is the ISM block, ready to be a record's
     // "InstancedStaticMesh". A MeshMerge / MeshSimplify layer's batch is the built mesh instead (`Mesh`, a
     // StaticMesh block carrying the merged geometry as its EditMesh, in world space) and its `Block` is unused.
+    // Which machine quality draws a batch (IMPOSTORS-HLOD): Always, or one side of an Impostor layer's pair - the
+    // card, drawn while Scalability's ViewDistance.HLODImpostors is 1, and the same instances of the source mesh,
+    // drawn while it is 0. The pair stands in for the same records; the HLOD switch shows exactly one side.
+    enum class HLODBatchVariant : std::uint8_t
+    {
+        Always,
+        ImpostorCard,
+        ImpostorFallback,
+    };
+
     struct HLODBatch
     {
         Assets::InstancedStaticMeshComponentSer       Block;
         std::optional<Assets::StaticMeshComponentSer> Mesh;
         std::vector<std::size_t>                      Sources; // records that contributed, in member order
+        HLODBatchVariant                              Variant = HLODBatchVariant::Always;
     };
 
     struct InstancingHLOD

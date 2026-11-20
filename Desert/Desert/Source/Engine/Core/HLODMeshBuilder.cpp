@@ -1148,10 +1148,20 @@ namespace Desert::Core
         if ( !m_Baker )
             return Common::MakeError<Rules::InstancingHLOD>(
                  "impostor atlases are photographed by the editor's Build HLODs; this process has no impostor bake" );
+        // THE OFF SWITCH IS THE MACHINE'S (Scalability ViewDistance.HLODImpostors), never the layer's: every mesh
+        // batch becomes a PAIR - the source batch as it was (HLODBatchVariant::ImpostorFallback) and its card
+        // (ImpostorCard) - and the HLOD switch draws one side. A disabled impostor therefore never leaves a hole.
+        std::vector<Rules::HLODBatch> paired;
+        paired.reserve( gathered.Batches.size() * 2 );
         for ( Rules::HLODBatch& batch : gathered.Batches )
         {
             if ( batch.Mesh.has_value() || batch.Block.Primitive.has_value() )
+            {
+                paired.push_back( std::move( batch ) );
                 continue;
+            }
+            Rules::HLODBatch& fallback = paired.emplace_back( batch );
+            fallback.Variant           = Rules::HLODBatchVariant::ImpostorFallback;
             HLODImpostorRequest request;
             request.Part                    = batch.Block;
             request.Part.InstanceTransforms = std::nullopt; // the bake's identity is the mesh, not its instances
@@ -1167,7 +1177,10 @@ namespace Desert::Core
             card.CastContactShadow                      = batch.Block.CastContactShadow;
             card.MaxDrawDistance                        = batch.Block.MaxDrawDistance;
             batch.Block                                 = std::move( card );
+            batch.Variant                                = Rules::HLODBatchVariant::ImpostorCard;
+            paired.push_back( std::move( batch ) );
         }
+        gathered.Batches = std::move( paired );
         return Common::MakeSuccess( std::move( gathered ) );
     }
 

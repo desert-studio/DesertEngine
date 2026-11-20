@@ -811,7 +811,9 @@ namespace Desert::Core::WorldCells
                     row.Ids.push_back( static_cast<std::uint64_t>( id ) );
                     payload.Records.push_back( std::move( hlodRecord ) );
                 }
-                row.Sources = built.Sources;
+                row.Sources           = built.Sources;
+                row.ImpostorCards     = built.ImpostorCards;
+                row.ImpostorFallbacks = built.ImpostorFallbacks;
                 closure.Expand( keys );
                 row.Assets.assign( keys.begin(), keys.end() );
                 auto wrapped =
@@ -908,7 +910,9 @@ namespace Desert::Core::WorldCells
                         node.Ids.push_back( static_cast<std::uint64_t>( id ) );
                         payload.Records.push_back( std::move( hlodRecord ) );
                     }
-                    node.Sources = built.Sources;
+                    node.Sources           = built.Sources;
+                    node.ImpostorCards     = built.ImpostorCards;
+                    node.ImpostorFallbacks = built.ImpostorFallbacks;
                 }
                 closure.Expand( keys );
                 row.Assets.assign( keys.begin(), keys.end() );
@@ -1842,6 +1846,10 @@ namespace Desert::Core::WorldCells
                          "the HLOD id {} of batch {} in '{}' is null or already taken; rename the world",
                          static_cast<std::uint64_t>( id ), batch, name ) );
                 row.Ids.push_back( static_cast<std::uint64_t>( id ) );
+                if ( built.Batches[batch].Variant == Rules::HLODBatchVariant::ImpostorCard )
+                    row.ImpostorCards.push_back( static_cast<std::uint64_t>( id ) );
+                else if ( built.Batches[batch].Variant == Rules::HLODBatchVariant::ImpostorFallback )
+                    row.ImpostorFallbacks.push_back( static_cast<std::uint64_t>( id ) );
                 payload.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
                 for ( const std::size_t source : built.Batches[batch].Sources )
                     sources.insert( static_cast<std::uint64_t>( *records[source].id ) );
