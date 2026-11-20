@@ -180,9 +180,11 @@
 Дано --subject selection set Translation -93750,5000,1250
 # WP_Protocol's "Camera" 1003 (0,-310,0) is AutoActivateForPlayer: with no pawn it is the player's view in both Plays
 # (ChooseViewTarget: an Auto Activate camera before Play from Here) and so a streaming source of its own (GatherSources:
-# PlayerViewPoint) 64 m from the heavy cell, keeping it resident from the first frame. Parked 360 m away on -X.
+# PlayerViewPoint) 64 m from the heavy cell, keeping it resident from the first frame. Parked 232 m south of HEAVY
+# (beyond the 200 m range) at 60 m up, turned to look at it, so the frames show the cell come in.
 Дано select 1003
-Дано --subject selection set Translation -30000,3000,-2000
+Дано --subject selection set Translation 6250,6000,-22000
+Дано --subject selection set Rotation -14,180,0
 Дано run Action "Save Scene"
 Дано run Scene "Build HLODs"
 Дано wait-idle 2400
