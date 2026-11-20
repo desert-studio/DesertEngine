@@ -115,6 +115,46 @@ namespace Desert::Editor
             return parsed.GetValue().Header;
         }
 
+        // Writes one baked texture with the settings the bake authors and answers the GUID its header states.
+        [[nodiscard]] Common::ResultStr<std::string>
+        WriteBakedTexture( const std::filesystem::path& dir, const std::filesystem::path& file,
+                           const std::string& sourceName, std::vector<std::byte> encoded,
+                           ::Desert::Core::Formats::TextureIntent     intent,
+                           ::Desert::Core::Formats::TextureColorSpace colorSpace )
+        {
+            Assets::TextureImportSettings settings;
+            settings.Intent             = intent;
+            settings.ColorSpace         = colorSpace;
+            const std::string sourceKey = Common::AssetHandle::StableKeyForPath( dir / sourceName );
+            auto written = Assets::WriteTextureSource( file, Common::Content::ContentKind::Texture, sourceKey,
+                                                       std::move( encoded ), settings );
+            if ( !written )
+                return Common::MakeError<std::string>( written.GetError() );
+            auto texture = Assets::ReadTextureSourceAssetFile( file );
+            if ( !texture )
+                return Common::MakeError<std::string>( texture.GetError() );
+            if ( texture.GetValue().Import.Settings != settings )
+            {
+                Assets::TextureSourceAsset rewritten = texture.ExtractValue();
+                rewritten.Import.Settings            = settings;
+                if ( auto w = Assets::WriteTextureSourceAssetFile( file, rewritten ); !w.IsSuccess() )
+                    return Common::MakeError<std::string>( w.GetError() );
+                return Common::MakeSuccess( Common::Content::AssetGuidToText( rewritten.Guid ) );
+            }
+            return Common::MakeSuccess( Common::Content::AssetGuidToText( texture.GetValue().Guid ) );
+        }
+
+        // A material texture slot naming a baked texture, as the bakes write it.
+        [[nodiscard]] Assets::MaterialAssetRef BakedSlot( std::string_view slotName, const std::string& guid,
+                                                          const std::filesystem::path& file )
+        {
+            Assets::MaterialAssetRef ref;
+            ref.Name = std::string( slotName );
+            ref.Guid = guid;
+            ref.Path = Common::AssetHandle::StableKeyForPath( file );
+            return ref;
+        }
+
         // The bake scene starts EMPTY (no record, no partition): StartCell instantiates one cell's parts at a
         // time, as UE captures only the HLOD's own actors, so neither a neighbouring cell nor the landscape stands
         // in front of the cell in its photos.
@@ -123,6 +163,24 @@ namespace Desert::Editor
             loaded.Scene.Entities.clear();
             loaded.Scene.WorldPartition.reset();
         }
+
+        // The side of every photo of @p cell: an impostor frame's FrameResolution, an approximation's
+        // CaptureResolution.
+        [[nodiscard]] uint32_t CaptureSide( const HLODApproximateBakeCell& cell )
+        {
+            return static_cast<uint32_t>( cell.Impostor ? cell.Impostor->FrameResolution
+                                                        : cell.Settings.CaptureResolution );
+        }
+
+        // The file stem of @p cell's outputs: I<key> for an impostor, A<key> for an approximation.
+        [[nodiscard]] std::string CellName( const HLODApproximateBakeCell& cell )
+        {
+            return ( cell.Impostor ? "I" : "A" ) + cell.Key;
+        }
+
+        // ImpostorSurface, the material an impostor's atlas binds to (Programs/Surface/ImpostorSurface.shader).
+        constexpr std::string_view kImpostorShaderGuid = "2f529b86e17c474b9d8a426559632481";
+        constexpr std::string_view kImpostorShaderPath = "engine:Shaders/Programs/Surface/ImpostorSurface.shader";
     } // namespace
 
     HLODApproximateBake::HLODApproximateBake( std::filesystem::path scenePath, ::Desert::Core::LoadableScene saved,
@@ -175,8 +233,9 @@ namespace Desert::Editor
     {
         const HLODApproximateBakeCell&         cell = m_Cells[m_Next];
         ::Desert::Core::Rules::HLODMeshRequest request;
-        request.Approximation = cell.Settings;
-        request.Parts         = cell.Parts;
+        if ( !cell.Impostor )
+            request.Approximation = cell.Settings;
+        request.Parts = cell.Parts;
         const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
         auto            merged = ::Desert::Core::MergeHLODParts( request, registries );
         if ( !merged )
@@ -195,7 +254,7 @@ namespace Desert::Editor
         for ( std::size_t i = 0; i < cell.Parts.size(); ++i )
         {
             const Common::UUID id =
-                 ::Desert::Core::Rules::HLODRecordId( m_ScenePath.generic_string(), "A" + cell.Key, i );
+                 ::Desert::Core::Rules::HLODRecordId( m_ScenePath.generic_string(), CellName( cell ), i );
             if ( id.IsNull() )
                 return Common::MakeError( std::format( "part {} of the cell hashes to the null id", i ) );
             ::Desert::Core::Rules::HLODBatch part;
@@ -218,10 +277,11 @@ namespace Desert::Editor
             lo = glm::min( lo, p );
             hi = glm::max( hi, p );
         }
-        m_Views = ::Desert::Core::HLODCaptureViews( lo, hi );
+        m_Views = cell.Impostor ? ::Desert::Core::HLODImpostorViews( lo, hi, *cell.Impostor )
+                                : ::Desert::Core::HLODCaptureViews( lo, hi );
         m_Photos.clear();
         m_View          = 0;
-        const auto side = static_cast<uint32_t>( cell.Settings.CaptureResolution );
+        const auto side = CaptureSide( cell );
         m_Scene->Resize( side, side );
         FrameView();
         return BOOLSUCCESS;
@@ -230,7 +290,7 @@ namespace Desert::Editor
     void HLODApproximateBake::FrameView()
     {
         const ::Desert::Core::HLODCaptureView& view = m_Views[m_View];
-        const auto side = static_cast<uint32_t>( m_Cells[m_Next].Settings.CaptureResolution );
+        const auto side = CaptureSide( m_Cells[m_Next] );
         glm::mat4  world( 1.0f );
         world[0] = glm::vec4( view.Right, 0.0f );
         world[1] = glm::vec4( view.Up, 0.0f );
@@ -247,8 +307,10 @@ namespace Desert::Editor
 
     Common::BoolResultStr HLODApproximateBake::SaveCell()
     {
-        const HLODApproximateBakeCell& cell  = m_Cells[m_Next];
-        auto                           shell = ::Desert::Geometry::DynamicMeshFromSerialized( cell.Shell, "HLOD" );
+        const HLODApproximateBakeCell& cell = m_Cells[m_Next];
+        if ( cell.Impostor )
+            return SaveImpostor();
+        auto shell = ::Desert::Geometry::DynamicMeshFromSerialized( cell.Shell, "HLOD" );
         if ( !shell )
             return Common::MakeError( "the cell's shell did not load: " + shell.GetError() );
         // The tangent frame the runtime shades with: the conversion ComponentRegistry's StaticMesh load makes.
@@ -289,33 +351,11 @@ namespace Desert::Editor
             return Common::MakeError(
                  std::format( "'{}' could not be created: {}", dir.generic_string(), ec.message() ) );
 
-        // Writes one baked texture with the settings the bake authors and answers the GUID its header states.
         const auto writeTexture =
              [&]( const std::filesystem::path& file, const std::string& sourceName, std::vector<std::byte> encoded,
                   ::Desert::Core::Formats::TextureIntent     intent,
-                  ::Desert::Core::Formats::TextureColorSpace colorSpace ) -> Common::ResultStr<std::string>
-        {
-            Assets::TextureImportSettings settings;
-            settings.Intent             = intent;
-            settings.ColorSpace         = colorSpace;
-            const std::string sourceKey = Common::AssetHandle::StableKeyForPath( dir / sourceName );
-            auto written = Assets::WriteTextureSource( file, Common::Content::ContentKind::Texture, sourceKey,
-                                                       std::move( encoded ), settings );
-            if ( !written )
-                return Common::MakeError<std::string>( written.GetError() );
-            auto texture = Assets::ReadTextureSourceAssetFile( file );
-            if ( !texture )
-                return Common::MakeError<std::string>( texture.GetError() );
-            if ( texture.GetValue().Import.Settings != settings )
-            {
-                Assets::TextureSourceAsset rewritten = texture.ExtractValue();
-                rewritten.Import.Settings            = settings;
-                if ( auto w = Assets::WriteTextureSourceAssetFile( file, rewritten ); !w.IsSuccess() )
-                    return Common::MakeError<std::string>( w.GetError() );
-                return Common::MakeSuccess( Common::Content::AssetGuidToText( rewritten.Guid ) );
-            }
-            return Common::MakeSuccess( Common::Content::AssetGuidToText( texture.GetValue().Guid ) );
-        };
+                  ::Desert::Core::Formats::TextureColorSpace colorSpace )
+        { return WriteBakedTexture( dir, file, sourceName, std::move( encoded ), intent, colorSpace ); };
         auto albedoGuid = writeTexture( texFile, "T_" + name + "_BaseColor.png", std::move( albedoPng.GetValue() ),
                                         ::Desert::Core::Formats::TextureIntent::Colour,
                                         ::Desert::Core::Formats::TextureColorSpace::SRGB );
@@ -336,18 +376,9 @@ namespace Desert::Editor
         material.Header = ExistingMaterialHeader( matFile ); // the GUID survives a re-bake
         material.Shader =
              Assets::AssetGuidRef{ std::string( kSurfaceShaderGuid ), std::string( kSurfaceShaderPath ) };
-        const auto slot =
-             []( std::string_view slotName, const std::string& guid, const std::filesystem::path& file )
-        {
-            Assets::MaterialAssetRef ref;
-            ref.Name = std::string( slotName );
-            ref.Guid = guid;
-            ref.Path = Common::AssetHandle::StableKeyForPath( file );
-            return ref;
-        };
-        material.Textures.push_back( slot( kAlbedoSlot, albedoGuid.GetValue(), texFile ) );
-        material.Textures.push_back( slot( kORMSlot, ormGuid.GetValue(), ormFile ) );
-        material.Textures.push_back( slot( kNormalSlot, normalGuid.GetValue(), normalFile ) );
+        material.Textures.push_back( BakedSlot( kAlbedoSlot, albedoGuid.GetValue(), texFile ) );
+        material.Textures.push_back( BakedSlot( kORMSlot, ormGuid.GetValue(), ormFile ) );
+        material.Textures.push_back( BakedSlot( kNormalSlot, normalGuid.GetValue(), normalFile ) );
         material.Params.push_back(
              Assets::MaterialShaderParam{ std::string( kRoughnessFactor ), glm::vec4( 1.0f ) } );
         material.Params.push_back(
@@ -376,6 +407,107 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
+    // One impostor cell: its photos packed into the octahedral atlas (the depth by ray casts into the same merged
+    // mesh the photos show), the three maps and M_I<key> written, the card mesh around the atlas's sphere kept for
+    // Build HLODs to store.
+    Common::BoolResultStr HLODApproximateBake::SaveImpostor()
+    {
+        const HLODApproximateBakeCell& cell = m_Cells[m_Next];
+        glm::vec3                      lo( std::numeric_limits<float>::max() );
+        glm::vec3                      hi( std::numeric_limits<float>::lowest() );
+        for ( const int v : m_Source.VertexIndicesItr() )
+        {
+            const glm::vec3 p( m_Source.GetVertex( v ) );
+            lo = glm::min( lo, p );
+            hi = glm::max( hi, p );
+        }
+        auto atlas = ::Desert::Core::BakeImpostorAtlas( m_Source, lo, hi, m_Photos, *cell.Impostor );
+        if ( !atlas )
+            return Common::MakeError( atlas.GetError() );
+        const ::Desert::Core::HLODImpostorAtlas& baked = atlas.GetValue();
+
+        // BaseColor: the G-buffer's linear colour stated sRGB, as every authored BaseColor; A (coverage) is
+        // linear by definition and kept.
+        std::vector<uint8_t> srgb( baked.BaseColor.size() );
+        for ( std::size_t i = 0; i < srgb.size(); i += 4 )
+        {
+            srgb[i + 0] = LinearToSrgb8( baked.BaseColor[i + 0] );
+            srgb[i + 1] = LinearToSrgb8( baked.BaseColor[i + 1] );
+            srgb[i + 2] = LinearToSrgb8( baked.BaseColor[i + 2] );
+            srgb[i + 3] = baked.BaseColor[i + 3];
+        }
+        auto albedoPng = EncodePng( srgb, baked.Side, baked.Side );
+        auto depthPng  = albedoPng ? EncodePng( baked.NormalDepth, baked.Side, baked.Side ) : albedoPng;
+        auto ormPng    = depthPng ? EncodePng( baked.ORM, baked.Side, baked.Side ) : depthPng;
+        if ( !ormPng )
+            return Common::MakeError( ormPng.GetError() );
+
+        const std::filesystem::path dir       = ::Desert::Core::WorldCells::BuiltHLODDirectory( m_ScenePath );
+        const std::string           name      = CellName( cell );
+        const std::filesystem::path texFile   = dir / ( "T_" + name + "_BaseColor.detex" );
+        const std::filesystem::path depthFile = dir / ( "T_" + name + "_NormalDepth.detex" );
+        const std::filesystem::path ormFile   = dir / ( "T_" + name + "_ORM.detex" );
+        const std::filesystem::path matFile   = dir / ( "M_" + name + ".demat" );
+        std::error_code             ec;
+        std::filesystem::create_directories( dir, ec );
+        if ( ec )
+            return Common::MakeError(
+                 std::format( "'{}' could not be created: {}", dir.generic_string(), ec.message() ) );
+        using Intent = ::Desert::Core::Formats::TextureIntent;
+        using Space  = ::Desert::Core::Formats::TextureColorSpace;
+        auto albedoGuid = WriteBakedTexture( dir, texFile, "T_" + name + "_BaseColor.png",
+                                             std::move( albedoPng.GetValue() ), Intent::Colour, Space::SRGB );
+        if ( !albedoGuid )
+            return Common::MakeError( albedoGuid.GetError() );
+        // Data, not NormalMap: BC5 would drop A, which carries the depth the pixel depth offset reads.
+        auto depthGuid = WriteBakedTexture( dir, depthFile, "T_" + name + "_NormalDepth.png",
+                                            std::move( depthPng.GetValue() ), Intent::Data, Space::Linear );
+        if ( !depthGuid )
+            return Common::MakeError( depthGuid.GetError() );
+        auto ormGuid = WriteBakedTexture( dir, ormFile, "T_" + name + "_ORM.png", std::move( ormPng.GetValue() ),
+                                          Intent::PackedMasks, Space::Linear );
+        if ( !ormGuid )
+            return Common::MakeError( ormGuid.GetError() );
+
+        Assets::MaterialData material;
+        material.Header = ExistingMaterialHeader( matFile ); // the GUID survives a re-bake
+        material.Shader =
+             Assets::AssetGuidRef{ std::string( kImpostorShaderGuid ), std::string( kImpostorShaderPath ) };
+        material.Textures.push_back( BakedSlot( "BaseColorAtlas", albedoGuid.GetValue(), texFile ) );
+        material.Textures.push_back( BakedSlot( "NormalDepthAtlas", depthGuid.GetValue(), depthFile ) );
+        material.Textures.push_back( BakedSlot( "OrmAtlas", ormGuid.GetValue(), ormFile ) );
+        const ::Desert::Core::HLODImpostorSettings& s = baked.Settings;
+        const auto param = [&]( std::string_view paramName, glm::vec4 value )
+        { material.Params.push_back( Assets::MaterialShaderParam{ std::string( paramName ), value } ); };
+        param( "ImpostorSphere", glm::vec4( baked.Sphere.Centre, baked.Sphere.Radius ) );
+        param( "FramesPerSide", glm::vec4( static_cast<float>( s.FramesPerSide ) ) );
+        param( "FrameResolution", glm::vec4( static_cast<float>( s.FrameResolution ) ) );
+        param( "Hemisphere", glm::vec4( s.Hemisphere ? 1.0f : 0.0f ) );
+        material = Assets::StampMaterialHeader( std::move( material ) );
+        if ( auto saved = Assets::WriteMaterialFile( matFile, material ); !saved )
+            return Common::MakeError( saved.GetError() );
+
+        Assets::ContentRegistry::NoteFile( texFile );
+        Assets::ContentRegistry::NoteFile( depthFile );
+        Assets::ContentRegistry::NoteFile( ormFile );
+        Assets::ContentRegistry::NoteFile( matFile );
+        const auto materialForm = ::Desert::Core::Serialize::StoredFormFor( "MaterialAsset" );
+        if ( !materialForm )
+            return Common::MakeError( "the material reference has no stored form (StoredAssetForm.cpp)" );
+        m_Baked.push_back(
+             HLODApproximateBaked{ .Key          = cell.Key,
+                                   .MaterialGuid = material.Header->Guid,
+                                   .MaterialPath = ::Desert::Core::Serialize::RenderStoredForm(
+                                        *materialForm, Common::AssetHandle::StableKeyForPath( matFile ) ),
+                                   .Card         = ::Desert::Core::HLODImpostorCardMesh( baked.Sphere ) } );
+        LOG_INFO( "[Build HLODs] baked impostor {0}: {1} frames of {2}px, {3} texels covered, {4} depth misses -> "
+                  "{5}, {6}, {7}, {8}",
+                  name, m_Photos.size(), s.FrameResolution, baked.CoveredTexels, baked.DepthMisses,
+                  texFile.generic_string(), depthFile.generic_string(), ormFile.generic_string(),
+                  matFile.generic_string() );
+        return BOOLSUCCESS;
+    }
+
     bool HLODApproximateBake::Tick()
     {
         switch ( m_Phase )
@@ -384,7 +516,7 @@ namespace Desert::Editor
             {
                 if ( !m_Renderer )
                 {
-                    const auto side = static_cast<uint32_t>( m_Cells.front().Settings.CaptureResolution );
+                    const auto side = CaptureSide( m_Cells.front() );
                     m_Renderer      = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ side, side },
                                                                                 Graphic::kThumbnailViewProfile );
                 }
@@ -460,7 +592,7 @@ namespace Desert::Editor
                      bBytes.GetValue().size() != count * kHalfTexelBytes ||
                      eBytes.GetValue().size() != count * kHalfTexelBytes )
                 {
-                    Fail( std::format( "approximation {}: the readbacks hold {} / {} / {} bytes, expected {}x{}",
+                    Fail( std::format( "capture {}: the readbacks hold {} / {} / {} bytes, expected {}x{}",
                                        m_Cells[m_Next].Key, pixels.GetValue().size(), bBytes.GetValue().size(),
                                        eBytes.GetValue().size(), m_ReadbackWidth, m_ReadbackHeight ) );
                     return true;
