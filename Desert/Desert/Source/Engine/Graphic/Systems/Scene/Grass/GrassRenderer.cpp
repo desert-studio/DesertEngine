@@ -1570,12 +1570,27 @@ namespace Desert::Graphic::System
         gpu.MeshVisibility.resize( gpu.MeshVisibilityTabled.size() );
         // FPS-GRASS-BLADE-SETUP: every section reads its instances' setup records at the setup section's rows
         // (MeshSetupSection), slot s at that address + s records; 0: no records this frame.
-        const size_t   setupSection = MeshSetupSection( gpu.MeshVisibilityTabled );
-        const uint64_t setupAddress =
-             m_BladeSetupAddress != 0u && setupSection < gpu.MeshVisibilityRows.size()
-                  ? m_BladeSetupAddress +
-                         uint64_t{ gpu.MeshVisibilityRows[setupSection].Visibility.x } * kBladeSetupRecordBytes
-                  : 0u;
+        // FPS-GRASS-MESH-SETUP-3: the resolve reads records [Visibility.x, Visibility.x + Slots.x) of the setup
+        // section by address, unchecked on the GPU; the address is handed out only when that whole span lies
+        // inside this frame's setup buffer (CommitBladeSetup's m_BladeSetupCapacity rows), else 0 (no mesh pixel
+        // resolved, said once) - never an address whose reads run past the buffer.
+        const size_t setupSection = MeshSetupSection( gpu.MeshVisibilityTabled );
+        uint64_t     setupAddress = 0u;
+        if ( m_BladeSetupAddress != 0u && setupSection < gpu.MeshVisibilityRows.size() )
+        {
+            const GrassMeshVisibilityGpu& setupRows = gpu.MeshVisibilityRows[setupSection];
+            const uint64_t setupEnd = uint64_t{ setupRows.Visibility.x } + uint64_t{ setupRows.Slots.x };
+            if ( setupEnd <= m_BladeSetupCapacity )
+                setupAddress = m_BladeSetupAddress + uint64_t{ setupRows.Visibility.x } * kBladeSetupRecordBytes;
+            else
+            {
+                static std::unordered_set<uint64_t> s_SetupPastBuffer;
+                if ( s_SetupPastBuffer.insert( variety.Key ).second )
+                    LOG_ERROR( "[Grass] variety {:016x}: its mesh setup records [{}, {}) pass the {}-row setup "
+                               "buffer; its mesh sections resolve no pixel",
+                               variety.Key, setupRows.Visibility.x, setupEnd, m_BladeSetupCapacity );
+            }
+        }
         for ( std::size_t s = 0; s < gpu.MeshVisibilityTabled.size(); ++s )
         {
             std::shared_ptr<ShaderResources::StorageBuffer>& table = gpu.MeshVisibility[s];
