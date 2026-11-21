@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"ae3b3e60ed014ca392000c3164845787","Versions":{"SHDR":1},"Dependencies":[]}
 // FPS-GRASS-SW-RASTER, THE FAR BLADES' SOFTWARE RASTER (UE 5 Nanite NaniteRasterizer.usf MicropolyRasterize: a
 // cluster whose triangles are a pixel or two goes to a compute raster - the hardware rasterizer's 2x2 quads and
 // its setup per triangle cost more than the few pixels it fills). FIELD_Barn TURN: the HW visibility raster of the

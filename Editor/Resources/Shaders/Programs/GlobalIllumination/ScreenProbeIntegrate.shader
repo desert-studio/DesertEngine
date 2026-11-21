@@ -238,7 +238,11 @@ Shader "ScreenProbeIntegrate"
         {
             GIFrame giFrame;
         };
-        Uniform sampler LinearClampSampler; // the world radiance cache, and the full permutation's filtered probes
+#if defined( SP_INTEGRATE_UNCOVERED ) || !defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
+        // The world radiance cache (the uncovered pass) and the full permutation's filtered probes; the simple-diffuse
+        // permutation samples through neither since FPS-SP-COMPOSITE-WAIT, so it declares no linear sampler.
+        Uniform sampler LinearClampSampler;
+#endif
         Uniform sampler PointClampSampler;
         Uniform(6) texture2D GBufferDepthTexture;
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)

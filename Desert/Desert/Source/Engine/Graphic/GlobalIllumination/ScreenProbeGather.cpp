@@ -1532,11 +1532,14 @@ namespace Desert::Graphic::GlobalIllumination
                      auto block = builder.Bindings( m_Layouts[program].Get( m_Shaders[program] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
                      builder.Read( integrateArgs, RDG::Access::IndirectArgs );
-                     // The simple-diffuse program samples no filtered radiance (ScreenProbeIntegrate.shader); both
-                     // sample the world radiance cache linearly (THE UNCOVERED PIXELS).
+                     // The simple-diffuse program samples no filtered radiance and, since the uncovered pixels
+                     // went to their own pass (FPS-SP-COMPOSITE-WAIT), nothing linearly: it declares no linear
+                     // sampler.
                      if ( !simple )
+                     {
                          block.Texture( IntegrateSlots::ScreenProbeFilteredTexture, filtered, kS, all );
-                     block.Sampler( IntegrateSlots::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
+                         block.Sampler( IntegrateSlots::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
+                     }
                      // The args again as storage: the 2D grid's groups past the count read it (a buffer's two
                      // reads merge into one barrier).
                      block.Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kR )
