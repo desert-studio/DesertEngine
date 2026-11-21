@@ -5,7 +5,9 @@
 // forward-declares the type (see the note there on the include cycle that cost).
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
-#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/AnimationUpdateRate.hpp>
+
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Graphic::Render
@@ -26,6 +28,8 @@ namespace Desert::Graphic::Render
         // The entity's MorphComponent weights and revision; empty weights = no morph.
         std::vector<float>              MorphWeights;
         uint64_t                        MorphRevision = 0;
+        // The animated instance's LOD / update-rate feedback (null: not animated).
+        std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
         bool                            Outlined    = false;
         bool                            CastShadows = true;
 
@@ -33,10 +37,11 @@ namespace Desert::Graphic::Render
                                 Graphic::MaterialSlotBindingPtr materialSlot, const glm::mat4& transform,
                                 std::shared_ptr<const std::vector<glm::mat4>> bones,
                                 std::vector<float>                            morphWeights,
-                                uint64_t morphRevision, bool outlined, bool castShadows )
+                                uint64_t morphRevision, bool outlined, bool castShadows,
+                                std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( std::move( bones ) ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
-               Outlined( outlined ), CastShadows( castShadows )
+               LodFeedback( std::move( lodFeedback ) ), Outlined( outlined ), CastShadows( castShadows )
         {
         }
 
@@ -56,6 +61,7 @@ namespace Desert::Graphic::Render
                                    .BoneMatrices  = BoneMatrices,
                                    .MorphWeights  = MorphWeights,
                                    .MorphRevision = MorphRevision,
+                                   .LodFeedback   = LodFeedback,
                                    .Outlined      = Outlined,
                                    .CastShadows   = CastShadows } );
         }

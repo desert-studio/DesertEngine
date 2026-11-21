@@ -1483,6 +1483,7 @@ namespace Desert::Graphic::System
             if ( sd.SkinSource != nullptr )
                 movers.Casters.Add( sd.SkinSource->GetRenderRevision() );
             movers.Casters.Add( sd.Transform );
+            movers.Casters.Add( sd.Lod );
             movers.Casters.Add( sd.Sections.size() );
             for ( const SkinnedSection& section : sd.Sections )
             {
@@ -3217,6 +3218,7 @@ namespace Desert::Graphic::System
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
                     draw.GpuPrimitive = sd.GpuPrimitive;
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
+                    draw.LodLevel          = sd.Lod; // the level the skin pass skinned
                     if ( IsVirtualShadowView( c ) )
                         draw.WorldBounds = gathered.Skinned[i].WorldBounds;
                     set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
@@ -3248,6 +3250,7 @@ namespace Desert::Graphic::System
                                 .Transform         = caster.Data->Transform,
                                 .Material          = skinMat->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = caster.Hidden,
+                                .LodLevel          = caster.Data->Lod, // the level the skin pass skinned
                                 .Push              = DrawPushFields{}
                                              .BoneOffset( caster.BoneOffset, /*required*/ false )
                                              .SkinCache( address, row.SkinCacheVertexCount ),

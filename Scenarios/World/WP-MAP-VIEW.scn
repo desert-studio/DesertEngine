@@ -9,6 +9,8 @@
 # Lead: the zoom over the panel and the bench's id are the two lines to check against DesertCtl's forms (marked).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Panel "Open World Partition"
+# The map is the canvas under the panel's sections: the panel is maximized so the frame shows it whole.
+Дано run Panel "Maximize panel: World Partition"
 Дано run Scene "World Partition: Load All"
 Дано run Scene "Build HLODs"
 Дано wait-idle 2400
@@ -16,10 +18,11 @@
 Дано run Scene "World Partition: Refresh"
 Тогда map_minimap панель World Partition: под сеткой ячеек - вид мира сверху (ландшафт, дороги, дома), сетка ячеек и цвета состояний поверх; у ячеек с HLOD голубая внутренняя рамка, в легенде строки "HLOD built (N)" и "HLOD stale (Build HLODs again) (0)"
 # Lead: the zoom form over the map (wheel over the panel's canvas), ~10 notches towards the loaded area at the origin.
-Когда wheel "World Partition" 10
+Когда input scroll "World Partition" 1000,1050 10
 Тогда map_zoomed тот же вид ближе: белые прямоугольники отпечатков загруженных сущностей с именами внутри тех, где имя помещается
-# Lead: the bench entity of WP_Protocol (Outliner tag "Bench") - its id here; any change of its mesh record makes its cell's HLOD stale.
-Когда set Bench StaticMesh.Scale 1,1.5,1
+# The house nearest the origin, Main C08_08_B00 (200408): any change of its mesh record makes its cell's HLOD stale.
+Когда select 200408
+Когда --subject selection set Scale 1,1.5,1
 Когда run Action "Save Scene"
 Когда run Scene "World Partition: Refresh"
 Тогда map_footprints_stale прямоугольники и имена сущностей; ячейка скамейки обведена толстой пурпурной рамкой (HLOD stale), в легенде "HLOD stale (Build HLODs again) (1)"

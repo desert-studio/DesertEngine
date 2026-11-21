@@ -647,6 +647,28 @@ namespace Desert::Editor
         }
     }
 
+    // The last kFrameHistory frames, oldest on the left, scaled to the worst of them so a hitch stands out as the
+    // one tall bar. The median is the ordinary frame; a frame well above it is the spike a reader is looking for.
+    void ProfilerWindow::DrawFrameTimeGraph() const
+    {
+        namespace ImGui = ::ImGui;
+        if ( m_FrameHistoryCount == 0 )
+            return;
+        std::array<float, kFrameHistory> ordered{};
+        const std::size_t first = ( m_FrameHistoryNext + kFrameHistory - m_FrameHistoryCount ) % kFrameHistory;
+        for ( std::size_t i = 0; i < m_FrameHistoryCount; ++i )
+            ordered[i] = m_FrameHistory[( first + i ) % kFrameHistory];
+        std::array<float, kFrameHistory> sorted = ordered;
+        std::sort( sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>( m_FrameHistoryCount ) );
+        const float       median = sorted[m_FrameHistoryCount / 2];
+        const float       worst  = sorted[m_FrameHistoryCount - 1];
+        const std::string overlay =
+             std::format( "median {:.1f} ms  worst {:.1f} ms  ({} frames)", median, worst, m_FrameHistoryCount );
+        ImGui::PlotHistogram( "##frametime", ordered.data(), static_cast<int>( m_FrameHistoryCount ), 0,
+                              overlay.c_str(), 0.0f, std::max( worst, 1.0f ),
+                              ImVec2( ImGui::GetContentRegionAvail().x, 70.0f ) );
+    }
+
     void ProfilerWindow::DrawProfilerWindow()
     {
         namespace ImGui = ::ImGui;
@@ -657,6 +679,10 @@ namespace Desert::Editor
 
         const double frameMs = prof.LastFrameMs();
         const double fps     = frameMs > 0.0001 ? 1000.0 / frameMs : 0.0;
+
+        m_FrameHistory[m_FrameHistoryNext] = ImGui::GetIO().DeltaTime * 1000.0f;
+        m_FrameHistoryNext                 = ( m_FrameHistoryNext + 1 ) % kFrameHistory;
+        m_FrameHistoryCount                = std::min( m_FrameHistoryCount + 1, kFrameHistory );
 
         ImGui::SetNextWindowSize( ImVec2( 420, 460 ), ImGuiCond_FirstUseEver );
         ImGui::SetNextWindowPos( ImVec2( 700, 120 ), ImGuiCond_FirstUseEver );
@@ -708,6 +734,7 @@ namespace Desert::Editor
                          static_cast<unsigned long long>( grass.Full ),
                          static_cast<unsigned long long>( grass.Camera ),
                          static_cast<unsigned long long>( grass.Post ) );
+        DrawFrameTimeGraph();
 
         ImGui::Separator();
 

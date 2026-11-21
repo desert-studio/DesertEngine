@@ -28,6 +28,9 @@
 #include <format>
 #include <memory>
 #include <optional>
+
+#include <Engine/Core/Frustum.hpp>
+#include <Engine/Geometry/LODSelection.hpp>
 #include <utility>
 #include <vector>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
@@ -2657,6 +2660,76 @@ namespace Desert::Graphic::System
         placements.Cursor = scene.GetChangeSerial();
     }
 
+    void MeshRenderer::SelectSkinnedLods()
+    {
+        // THE ONE SKELETAL LOD OF THIS FRAME (UE USkinnedMeshComponent::UpdateLODStatus -> PredictedLODLevel): per
+        // skinned record, from the view's FROZEN main camera (BeginScene), before the GpuScene rows, the skin
+        // cache's dispatch ranges and every pass read it - every view and shadow of the frame skins and draws
+        // that one level. Picked here, not at submit: the submit runs on the game side before the view froze its
+        // camera, so it priced the record against no camera (LOD 0 forever).
+        if ( m_SkinnedQueue.empty() )
+            return;
+        if ( m_SceneRenderer->GetMainCamera() == nullptr && !m_SkinnedLodNoCameraReported )
+        {
+            m_SkinnedLodNoCameraReported = true;
+            LOG_WARN( "[SkinnedLOD] no main camera at the frame's sync: skinned meshes draw LOD 0" );
+        }
+        // The animation's side (Animation::SkinnedLodFeedback, UE MaxDistanceFactor / bRecentlyRendered handed to
+        // the next tick): the main view's FOV-aware screen size of the instance and whether its frustum holds it.
+        const Core::Camera* const          camera = m_SceneRenderer->GetMainCamera();
+        std::optional<Core::Frustum>       frustum;
+        std::optional<Geometry::LODView>   lodView;
+        if ( camera != nullptr )
+        {
+            frustum.emplace( camera->GetProjectionMatrix(), camera->GetViewMatrix() );
+            lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
+        }
+        for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+        {
+            data.Lod = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
+            const auto& lods = data.Mesh->GetSkinnedLODs();
+            if ( data.LodFeedback )
+            {
+                Animation::SkinnedLodFeedback& feedback = *data.LodFeedback;
+                float screenSize = Geometry::kLOD0ScreenSize;
+                bool  rendered   = true;
+                // No camera, or a view that draws every mesh at LOD 0 (m_LODEnabled off - the ViewDistance level
+                // that turns mesh LOD off turns the animation's reductions off with it): full size, in view.
+                if ( lodView && m_LODEnabled )
+                {
+                    const Common::Math::AABB bounds = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
+                    const glm::vec3 centre = glm::vec3( data.Transform * glm::vec4( 0.5f * ( bounds.Min + bounds.Max ), 1.0f ) );
+                    const float     scale  = std::max( { glm::length( glm::vec3( data.Transform[0] ) ),
+                                                         glm::length( glm::vec3( data.Transform[1] ) ),
+                                                         glm::length( glm::vec3( data.Transform[2] ) ) } );
+                    const float radius = 0.5f * glm::length( bounds.Max - bounds.Min ) * scale;
+                    screenSize = 2.0f * std::sqrt( Geometry::BoundsScreenRadiusSquared( centre, radius, *lodView ) );
+                    rendered   = frustum->IntersectsSphere( centre, radius );
+                }
+                feedback.DesiredLod.store( data.Lod, std::memory_order_relaxed );
+                feedback.ScreenSize.store( screenSize, std::memory_order_relaxed );
+                feedback.Rendered.store( rendered, std::memory_order_relaxed );
+                feedback.Seen.store( true, std::memory_order_relaxed );
+                // NEVER FINER THAN THE BONES THE POSE EVALUATED (UE draws the game thread's PredictedLODLevel, the
+                // one its anim evaluated for): a level picked finer this frame is drawn from the next tick on.
+                data.Lod = std::max( data.Lod, feedback.EvaluatedLod.load( std::memory_order_relaxed ) );
+            }
+            if ( lods.empty() )
+                continue;
+            data.Lod                     = std::min<uint32_t>( data.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
+            const auto [reported, fresh] = m_SkinnedLodReported.try_emplace( data.Entity, data.Lod );
+            if ( !fresh && reported->second == data.Lod )
+                continue;
+            reported->second                    = data.Lod;
+            const SkinnedMesh::SkinnedLOD& lod  = data.Mesh->GetSkinnedLOD( data.Lod );
+            const SkinnedMesh::SkinnedLOD& full = lods.front();
+            LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, {} "
+                      "influences",
+                      data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
+                      lod.RequiredBones, full.RequiredBones, lod.MaxInfluences );
+        }
+    }
+
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
                                                       std::span<const MotionRecord>          otherRigid,
                                                       RayTracing::RayTracingSkinCache* const skinCache,
@@ -2675,6 +2748,7 @@ namespace Desert::Graphic::System
         // one stand-in draw while a pipeline compiled held the control gate's MaterialPipelines raised for good
         // (WIREFRAME-QUIESCENCE), and under deferred it wiped the counts of the passes declared before it.
         m_StandInDraws = 0;
+        SelectSkinnedLods();
         registry.BeginFrame( frame );
         GpuDriven::GpuScene& scene = registry.Scene();
 
@@ -3316,6 +3390,11 @@ namespace Desert::Graphic::System
                     skinnedData.BoneMatrices = std::span<const glm::mat4>( *skinnedData.BoneOwner );
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
+                // The level is chosen in SyncGpuScene from the frame's frozen main view (SelectSkinnedLods); the
+                // author's forced level / bias ride with the record (UE ForcedLodModel / LOD bias).
+                skinnedData.ForcedLOD = data.ForcedLOD;
+                skinnedData.LODBias   = data.LODBias;
+                skinnedData.LodFeedback = data.LodFeedback; // the animation's side of the level (WP-FAR-11)
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
                 // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )

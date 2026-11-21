@@ -10,6 +10,8 @@
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Libraries/ScriptWorld.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Reflection/FunctionThunk.hpp>
@@ -64,16 +66,36 @@ namespace Desert::Libraries
         return t != nullptr ? t->GetTranslation() : glm::vec3( 0.0f );
     }
 
+    // A script that moves an entity moves its live body / character with it (UE SetActorLocation moves the physics
+    // body); otherwise the next step puts the entity back where physics has it. Nothing to move in Edit.
+    static void MoveThroughPhysics( ECS::Entity entity )
+    {
+        entt::registry*           registry = entity.GetRegistry();
+        const Core::WorldContext* context  = Core::WorldContext::Current();
+        if ( registry == nullptr || context == nullptr || context->World == nullptr ||
+             !ECS::HasLivePhysics( *registry, entity.GetHandle() ) )
+            return;
+        const auto* system = context->World->FindSystem<ECS::PhysicsECSSystem>();
+        if ( system != nullptr && system->GetPhysicsWorld() != nullptr )
+            ECS::TeleportPhysics( *system->GetPhysicsWorld(), *registry, entity.GetHandle(),
+                                  entity.GetWorldTransform() );
+    }
+
     void EntityLibrary::SetPosition( ECS::Entity entity, const glm::vec3& position )
     {
-        if ( Get<ECS::TransformComponent>( entity ) != nullptr )
-            entity.SetLocalTranslation( position );
+        if ( Get<ECS::TransformComponent>( entity ) == nullptr )
+            return;
+        entity.SetLocalTranslation( position );
+        MoveThroughPhysics( entity );
     }
 
     void EntityLibrary::Translate( ECS::Entity entity, const glm::vec3& offset )
     {
-        if ( const auto* t = Get<ECS::TransformComponent>( entity ) )
-            entity.SetLocalTranslation( t->GetTranslation() + offset );
+        const auto* t = Get<ECS::TransformComponent>( entity );
+        if ( t == nullptr )
+            return;
+        entity.SetLocalTranslation( t->GetTranslation() + offset );
+        MoveThroughPhysics( entity );
     }
 
     glm::vec3 EntityLibrary::GetRotation( ECS::Entity entity )
@@ -84,8 +106,10 @@ namespace Desert::Libraries
 
     void EntityLibrary::SetRotation( ECS::Entity entity, const glm::vec3& euler )
     {
-        if ( Get<ECS::TransformComponent>( entity ) != nullptr )
-            entity.SetLocalRotation( euler );
+        if ( Get<ECS::TransformComponent>( entity ) == nullptr )
+            return;
+        entity.SetLocalRotation( euler );
+        MoveThroughPhysics( entity );
     }
 
     glm::vec3 EntityLibrary::GetScale( ECS::Entity entity )

@@ -20,6 +20,7 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Animation/AnimationUpdateRate.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -460,6 +461,9 @@ namespace Desert::Graphic::System
         // Skinned only: MorphComponent's weights and revision (empty = drawn unmorphed). See UpdateMorphTargets.
         std::vector<float> MorphWeights;
         uint64_t           MorphRevision = 0;
+        // Skinned only: the animated instance's LOD / update-rate feedback (Animation::SkinnedLodFeedback), null
+        // for an unanimated one.
+        std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
 
         bool     Outlined        = false;
         uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -618,6 +622,17 @@ namespace Desert::Graphic::System
             // Animated pose, or bind pose: a view of BoneOwner, which keeps it alive while the entry is queued.
             std::shared_ptr<const std::vector<glm::mat4>> BoneOwner;
             std::span<const glm::mat4>                    BoneMatrices;
+            // THE ONE LOD THIS FRAME SKINS AND DRAWS (UE USkinnedMeshComponent::PredictedLODLevel, shared by every
+            // view and shadow of the frame): chosen from the frozen main view's screen size at the frame's sync
+            // (SelectSkinnedLods, FOV-aware). The skin pass skins only its vertex range (SkinnedMesh::GetSkinnedLOD);
+            // every pass draws its index ranges. 0 for a displaced record (its twin is tessellated from LOD 0).
+            uint32_t                    Lod         = 0;
+            int                         ForcedLOD   = -1; // the component's forced level, -1 = auto
+            int                         LODBias     = 0;
+            // The animated instance's side of the level (Animation::SkinnedLodFeedback): SelectSkinnedLods writes
+            // the level picked, the screen size and the view test into it, and draws no level finer than the one
+            // the animation's evaluated bones cover. Null for an unanimated record (its bind pose is whole).
+            std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };
@@ -3861,6 +3876,12 @@ namespace Desert::Graphic::System
         void NoteStaticRewritten( std::size_t index );
         void RestoreRewrittenStatic();
         std::vector<SkinnedMeshRenderData> m_SkinnedQueue;
+        // The skeletal LOD readout (WP-FAR-10): the level each skinned entity was last reported at; a submit at
+        // another level logs "[SkinnedLOD]" with that level's skin work (vertices, bones, influences).
+        std::unordered_map<uint32_t, uint32_t> m_SkinnedLodReported;
+        bool                                   m_SkinnedLodNoCameraReported = false;
+        // Picks every queued skinned record's Lod from the frozen main view and logs a change (WP-FAR-10).
+        void SelectSkinnedLods();
 
         // One morphed twin per skinned COMPONENT drawn with non-zero weights (UE: the component's
         // FMorphVertexBuffer), keyed by the entity (id incl. version). Revision is the MorphComponent revision

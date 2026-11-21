@@ -205,8 +205,12 @@ namespace Desert::Editor::Baking
 
         ::Desert::Submesh one = *first;
         one.VertexOffset      = 0;
-        one.IndexOffset       = 0;
-        one.IndexCount        = static_cast<uint32_t>( proxy.Indices.size() * 3 );
+        // Three vertices per triangle, unshared: more than the source submesh had, so its count is not kept.
+        one.VertexCount = static_cast<uint32_t>( proxy.Vertices.size() );
+        one.IndexOffset = 0;
+        one.IndexCount  = static_cast<uint32_t>( proxy.Indices.size() * 3 );
+        one.LODs.clear();
+        one.BakedLODs.clear();
         // The proxy's vertices are already where the camera frames them: no submesh transform moves them.
         one.Transform = glm::mat4( 1.0f );
         proxy.Submeshes.push_back( one );
@@ -380,8 +384,16 @@ namespace Desert::Editor::Baking
             case Phase::Build:
             {
                 if ( !m_Renderer )
+                {
                     m_Renderer = std::make_unique<Graphic::SceneRenderer>(
                          Graphic::ViewExtent{ m_Request.Size, m_Request.Size }, Graphic::kThumbnailViewProfile );
+                    // The G-buffer is read texel for texel at the bake size: the project's Render Scale (an
+                    // upscaler's internal resolution, 87 % here) would shrink it, so this view renders at 100 %
+                    // (UE's material baking draws at the target resolution, no screen percentage).
+                    Graphic::DebugViewState full = m_Renderer->GetDebugView();
+                    full.ScreenPercentage        = 100;
+                    m_Renderer->SetDebugView( full );
+                }
                 if ( !m_Renderer->AdvanceRendererBuild() )
                     return false;
                 if ( auto started = StartScene(); !started )
@@ -487,6 +499,10 @@ namespace Desert::Editor::Baking
         const glm::vec2 extent( static_cast<float>( size ) );
         const auto      edge = []( const glm::vec2& a, const glm::vec2& b, const glm::vec2& p )
         { return ( b.x - a.x ) * ( p.y - a.y ) - ( b.y - a.y ) * ( p.x - a.x ); };
+        // OVERLAPPING UVs (UE's material baking warns of them): two triangles over one texel leave the G-buffer
+        // the last one drawn while this walk inverts each triangle's own frame, so the map is wrong there.
+        constexpr float kOverlapInset = 0.05f;
+        std::size_t     overlapped    = 0;
         const auto walked = ForEachSlotTriangle(
              m_Request.Mesh, m_Request.Slot,
              [&]( const ::Desert::Vertex* const( &v )[3] )
@@ -515,6 +531,8 @@ namespace Desert::Editor::Baking
                              continue;
                          const std::size_t texel =
                               static_cast<std::size_t>( r ) * size + static_cast<std::size_t>( c );
+                         if ( covered[texel] != 0 && w0 > kOverlapInset && w1 > kOverlapInset && w2 > kOverlapInset )
+                             ++overlapped; // inside a second triangle, not on a shared edge
                          covered[texel]    = 1;
                          const glm::vec4 b = HalfTexel( gbufferB, texel );
                          const glm::vec3 world( b );
@@ -540,6 +558,11 @@ namespace Desert::Editor::Baking
              } );
         if ( !walked )
             return walked;
+        if ( overlapped * 100 > texels )
+            LOG_WARN( "Bake Material to Textures: {} texel(s) ({:.1f} %) lie under two or more triangles - the "
+                         "slot's UVs overlap, and the Normal there is another triangle's; bake a mesh with "
+                         "non-overlapping UVs (a lightmap-style unwrap)",
+                         overlapped, 100.0 * static_cast<double>( overlapped ) / static_cast<double>( texels ) );
 
         // THE ISLAND'S EDGE IS WHERE BOTH RASTERISERS AGREE. The G-buffer is drawn with the view's temporal jitter
         // (up to half a texel) and the GPU's fill rule, the islands above by texel centre: a border texel the CPU

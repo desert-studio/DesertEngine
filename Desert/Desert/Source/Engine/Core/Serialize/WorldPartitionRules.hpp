@@ -3211,6 +3211,9 @@ namespace Desert::Core::Rules
             }
         }
 
+        // ── 7. The references, validated as UE's streaming generation validates them (Detail::ValidateReferences)
+        // ──
+        Detail::ValidateReferences( plan, records, settings, true, byId, ownFootprint );
         return plan;
     }
 

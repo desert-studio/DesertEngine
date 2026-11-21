@@ -289,13 +289,7 @@ namespace Desert::Core
         void MoveThroughPhysics( entt::registry& registry, entt::entity entity, const std::string& label,
                                  Physics::PhysicsWorld* physics, SaveGameLoadReport& report )
         {
-            Physics::BodyHandle      body      = Physics::kInvalidBody;
-            Physics::CharacterHandle character = Physics::kInvalidCharacter;
-            if ( registry.has<ECS::RigidBodyComponent>( entity ) )
-                body = registry.get<ECS::RigidBodyComponent>( entity ).RuntimeBody;
-            if ( registry.has<ECS::CharacterControllerComponent>( entity ) )
-                character = registry.get<ECS::CharacterControllerComponent>( entity ).RuntimeCharacter;
-            if ( body == Physics::kInvalidBody && character == Physics::kInvalidCharacter )
+            if ( !ECS::HasLivePhysics( registry, entity ) )
                 return;
             if ( physics == nullptr )
             {
@@ -304,21 +298,7 @@ namespace Desert::Core
                                            "its transform was restored" );
                 return;
             }
-            const glm::mat4 world = WorldMatrix( registry, entity );
-            const glm::vec3 position( world[3] );
-            glm::mat3       basis( world );
-            for ( int axis = 0; axis < 3; ++axis )
-                if ( glm::length( basis[axis] ) > 1e-6f )
-                    basis[axis] = glm::normalize( basis[axis] );
-            if ( body != Physics::kInvalidBody )
-                physics->TeleportBody( body, position, glm::quat_cast( basis ) );
-            if ( character != Physics::kInvalidCharacter )
-            {
-                physics->TeleportCharacter( character, position );
-                auto& controller        = registry.get<ECS::CharacterControllerComponent>( entity );
-                controller.Velocity     = glm::vec3( 0.0f ); // stopped where it lands, like the capsule
-                controller.CurrentSpeed = 0.0f;
-            }
+            ECS::TeleportPhysics( *physics, registry, entity, WorldMatrix( registry, entity ) );
         }
 
         bool SameTransform( const ECS::TransformComponent& a, const ECS::TransformComponent& b )

@@ -64,7 +64,10 @@
 Когда --subject viewport set Camera.Position 500000,50000,0
 Когда --subject viewport set Camera.Direction -1,-0.1,0
 Когда advance 2
+# At 5 km the city is a sliver at 75 deg; a 12 deg view (binoculars) fills the frame so wall and roof colours can be told.
+Когда set 1003 CameraData.FOV 12
 Тогда matbake_far вдали (флаер на X=5 км, весь город - слитые упрощённые блоки HLOD_Main_Far): силуэты зданий в своих цветах - кирпич стен и крыши различимы, не серые и не одного цвета; нормали дают рельеф кладки; статистика рисования - 1 draw на HLOD_Main_Far-ячейку (16 ячеек = 16 draw)
+Когда set 1003 CameraData.FOV 75
 Когда advance 2
 Когда advance 2
 Когда advance 2

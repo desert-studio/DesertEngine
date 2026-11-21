@@ -27,9 +27,12 @@ Shader "SkinCache"
 
         // x = vertex count V, y = the first bone of this frame's palette in SkinCacheBones (the row's BoneOffset),
         // z = 1 when the current positions hold last frame's pose (rotate them into the previous positions).
+        // Range: x = the first vertex, y = the vertex count of the LOD the record draws this frame (UE: the GPU skin
+        // cache skins only the chosen LOD's vertices - SkinnedMesh::GetSkinnedLODs). V stays the streams' layout.
         Buffer(2) SkinCacheDispatch
         {
             uvec4 Dispatch;
+            uvec4 Range;
         };
 
         Buffer(3) SkinCacheStreams
@@ -39,7 +42,9 @@ Shader "SkinCache"
 
         void main()
         {
-            const uint vertex = gl_GlobalInvocationID.x;
+            if (gl_GlobalInvocationID.x >= Range.y)
+                return;
+            const uint vertex = Range.x + gl_GlobalInvocationID.x;
             if (vertex >= Dispatch.x)
                 return;
 

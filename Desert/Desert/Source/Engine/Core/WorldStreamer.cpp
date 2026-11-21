@@ -406,14 +406,15 @@ namespace Desert::Core
                     {
                         // THE HLOD CELLS (WP-FAR-8): every node's row, read when its HLOD cell is wanted.
                         std::vector<const WorldCells::BuiltHLODCell*> nodeRows;
+                        // One line for every node without a current HLOD, not one per node: an edit that dirties
+                        // a layer leaves hundreds of them, and the count with the first names says the same.
+                        std::vector<std::string> withoutHLOD;
                         for ( const Rules::HLODNode& node : hierarchy.GetValue().Nodes )
                         {
                             const auto row = rows.find( node.Name );
                             if ( staleUnits.contains( node.Name ) || row == rows.end() )
                             {
-                                LOG_ERROR( "[WorldPartition] Play of '{0}': the saved HLOD of {1} is missing or "
-                                           "stale, so it has none. Run Build > Build HLODs.",
-                                           snapshot->SceneName, node.Name );
+                                withoutHLOD.push_back( node.Name );
                                 nodeRows.push_back( nullptr );
                                 continue;
                             }
@@ -428,6 +429,16 @@ namespace Desert::Core
                             nodeRows.push_back( row->second->File.has_value() && !row->second->Ids.empty()
                                                      ? row->second
                                                      : nullptr );
+                        }
+                        if ( !withoutHLOD.empty() )
+                        {
+                            std::string named;
+                            for ( std::size_t i = 0; i < withoutHLOD.size() && i < 8; ++i )
+                                named += ( i == 0 ? "" : ", " ) + withoutHLOD[i];
+                            LOG_ERROR( "[WorldPartition] Play of '{0}': the saved HLOD of {1} node(s) is missing or "
+                                       "stale, so they have none ({2}{3}). Run Build > Build HLODs.",
+                                       snapshot->SceneName, withoutHLOD.size(), named,
+                                       withoutHLOD.size() > 8 ? ", ..." : "" );
                         }
                         LOG_INFO(
                              "[WorldPartition] Play of '{0}': {1} saved HLOD(s) in {2} HLOD cell(s) from {3}, "
@@ -540,11 +551,21 @@ namespace Desert::Core
                           log.GetValue().string() );
         }
         streamer->m_MostResident = streamer->Executor().LiveRecords();
+        // WHERE the sources stand, not only how many: a source nobody placed (the player's view point when no pawn
+        // spawns, GatherSources) keeps its cells resident, and a count alone cannot say which one did.
+        std::string where;
+        for ( const Rules::StreamingSource& source : streamer->m_LastSources )
+            where += std::format( "{}({:.0f}, {:.0f}, {:.0f})", where.empty() ? "" : ", ", source.Position.x,
+                                  source.Position.y, source.Position.z );
         LOG_INFO( "[WorldPartition] '{0}': Play streams {1} record(s); {2} resident at the start around {3} "
-                  "streaming source(s), the rest destroyed until their cell is wanted ({4:.1f} ms to parse, plan "
-                  "and destroy).",
+                  "streaming source(s) at {5}, the rest destroyed until their cell is wanted ({4:.1f} ms to parse, "
+                  "plan and destroy).",
                   streamer->m_SceneName, snapshot->Entities.size(), streamer->m_MostResident,
-                  streamer->m_LastSources.size(), MsSince( started ) );
+                  streamer->m_LastSources.size(), MsSince( started ), where );
+        if ( const std::size_t unresolved = streamer->Executor().UnresolvedReferences(); unresolved > 0 )
+            LOG_INFO( "[WorldPartition] '{0}': {1} reference(s) from records resident at the start name an entity "
+                      "that is not resident (they resolve when it is).",
+                      streamer->m_SceneName, unresolved );
         // THE PLAY START IS THE LARGEST DEPARTURE OF ALL. The editor had the whole world open; the executor has
         // just destroyed every record outside the resident cells, and what those records drew - built meshes,
         // materials, textures - stayed resident until the first cell happened to leave. Measured (WP14 flight):
@@ -718,6 +739,10 @@ namespace Desert::Core
             if ( entities != nullptr )
                 entities->push_back( static_cast<std::uint32_t>( entity ) );
         }
+        // THE PROVIDERS: sources a script states with no entity (WorldPartition.provideSource).
+        if ( const auto* provided = registry.try_ctx<ProvidedStreamingSources>(); provided != nullptr )
+            for ( const auto& [name, source] : provided->Sources )
+                sources.push_back( source );
         // THE PLAYER (UE's APlayerController, a streaming source provider at GetPlayerViewPoint): with a pawn
         // the pawn's own component above stands for it; with none - a level without a Default Pawn, played from
         // here or through an Auto Activate camera - the player is a source where it looks from.
@@ -801,7 +826,7 @@ namespace Desert::Core
             for ( const std::size_t record : records )
                 if ( const auto entity = m_Owner.m_Scene->FindEntityByID( m_RecordIds.at( record ) );
                      entity.has_value() )
-                    m_Owner.m_Scene->DestroyEntity( entity->get() );
+                    m_Owner.m_Scene->DestroyEntityAtFence( entity->get() );
         }
 
         void StartLoad( std::size_t unit, std::uint64_t ticket ) override
@@ -1269,8 +1294,10 @@ namespace Desert::Core
         {
             // A child already went with its parent's tree; a prefab instance's inner entities go with its root.
             const auto entity = m_Scene->FindEntityByID( m_RecordIds.at( record ) );
+            // Streamed out without a mid-frame wait for the render task (WP-OPT-UNLOAD): hidden now, destroyed at
+            // the next view fence.
             if ( entity.has_value() )
-                m_Scene->DestroyEntity( entity->get() );
+                m_Scene->DestroyEntityAtFence( entity->get() );
         }
     }
 

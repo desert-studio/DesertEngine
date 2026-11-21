@@ -657,7 +657,7 @@ namespace Desert::Editor
     // refuses what the planner would refuse. Sizes are world units (centimetres).
     void WorldPartitionPanel::DrawRuntimeGrids()
     {
-        if ( !ImGui::CollapsingHeader( "Runtime partitions" ) )
+        if ( !ImGui::CollapsingHeader( "Runtime partitions", ImGuiTreeNodeFlags_DefaultOpen ) )
             return;
         const ::Desert::Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
         std::optional<::Desert::Core::WorldPartitionSerialized> after;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Animation/AnimationUpdateRate.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -314,6 +315,7 @@ namespace Desert::Graphic
             // Skinned only: the entity's MorphComponent weights and their revision (empty = no morph).
             std::vector<float>     MorphWeights;
             uint64_t               MorphRevision            = 0;
+            std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback; // skinned + animated only
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
             int                    ForcedLOD       = -1; // -1 = auto (by distance)

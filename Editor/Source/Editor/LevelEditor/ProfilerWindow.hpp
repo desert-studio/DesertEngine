@@ -78,6 +78,7 @@ namespace Desert::Editor
         };
         // Re-formats m_TableRows from the profiler's published window when it is a new one.
         void RefreshTable();
+        void DrawFrameTimeGraph() const;
 
         Engine::Application* m_Application;
         SceneWorkspace&      m_Workspace;
@@ -87,6 +88,14 @@ namespace Desert::Editor
         std::vector<TableRow> m_TableRows;                    // by row of Profiler::LastFrame
         uint64_t              m_TablePublish    = UINT64_MAX; // the publication m_TableRows was formatted from
         double                m_TableGpuFrameMs = 0.0;        // that publication's GPU frame bracket
+
+        // THE FRAME-TIME GRAPH (UE `stat unitgraph`): every frame's own wall time, not the averaged window above -
+        // an average over half a second hides exactly the one long frame a hitch is. A ring of the last
+        // kFrameHistory frames, oldest first when drawn.
+        static constexpr std::size_t           kFrameHistory = 240;
+        std::array<float, kFrameHistory>       m_FrameHistory{};
+        std::size_t                            m_FrameHistoryNext  = 0;
+        std::size_t                            m_FrameHistoryCount = 0;
 
         bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
         // --flight: one row per frame of Play, written as the CSV when the capture ends.

@@ -23,6 +23,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
+#include <Projects/WorldPartitionSettings.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -86,6 +87,28 @@ namespace Desert::Editor
                                           default:
                                               return WorldPartition()->DeleteHLODs();
                                       }
+                                  } } );
+        // Project Settings > Engine > World Partition in steps (UE sets wp.Runtime.BlockOnSlowStreaming as a console
+        // variable): the project layer of Config/Engine.json written through the panel's validated save; streaming
+        // reads it as Play begins.
+        for ( const bool block : { true, false } )
+            commands.push_back(
+                 { "Project Settings",
+                   std::format( "World Partition: Block On Slow Streaming {}", block ? "on" : "off" ),
+                   [block]() -> Common::BoolResultStr
+                   {
+                       auto settings                 = ::Desert::Project::ProjectWorldPartitionSettings();
+                       settings.BlockOnSlowStreaming = block;
+                       return ::Desert::Project::SaveWorldPartitionSettings( settings );
+                   } } );
+        for ( const std::uint32_t loads : { 1u, 2u, 4u, 8u } )
+            commands.push_back( { "Project Settings",
+                                  std::format( "World Partition: Max Concurrent Loads {}", loads ),
+                                  [loads]() -> Common::BoolResultStr
+                                  {
+                                      auto settings = ::Desert::Project::ProjectWorldPartitionSettings();
+                                      settings.MaxConcurrentLoads = loads;
+                                      return ::Desert::Project::SaveWorldPartitionSettings( settings );
                                   } } );
         // The World Partition window's Refresh: the map, its held cells and its HLOD overlay read again from the
         // world's saved files (after a save, a cell whose records changed shows its HLOD stale).

@@ -101,4 +101,13 @@ namespace Desert::ECS
         PendingSet             m_PendingBodies;
         PendingSet             m_PendingCharacters;
     };
+
+    /// Whether the entity has a live rigid body or character: what a transform set from outside the step must reach.
+    [[nodiscard]] bool HasLivePhysics( const entt::registry& registry, entt::entity entity );
+
+    /// Puts the entity's live rigid body / character at @p pose, as UE's SetActorLocation moves the physics body
+    /// (ETeleportType::TeleportPhysics): a transform a script or a loaded save game sets is otherwise put back by the
+    /// next step, which writes the physics pose to the transform. A character lands at rest, like its capsule.
+    void TeleportPhysics( Physics::PhysicsWorld& world, entt::registry& registry, entt::entity entity,
+                          const glm::mat4& pose );
 } // namespace Desert::ECS

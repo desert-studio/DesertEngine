@@ -1,0 +1,35 @@
+# WP-FAR-11 (owner 10-20 scope decision: people far away = skeletal LOD + anim budget + impostor beyond).
+# UE 5.5: per-LOD RequiredBones (FBoneContainer from the LOD's ActiveBoneIndices) + Update Rate Optimization
+# (FAnimUpdateRateParameters: tick every N frames by screen size, skipped frames interpolated up to rate 4,
+# not-rendered instances at BaseNonRenderedUpdateRate). Here: SkinnedMesh::SkinnedLOD::Bones, Animator::
+# SetRequiredBones (parent-closed, sampled + resolved only those), AnimUpdateRate (AnimationUpdateRate.hpp),
+# fed back from the renderer's SelectSkinnedLods through Animation::SkinnedLodFeedback (level, FOV-aware screen
+# size, frustum), the renderer drawing no level finer than the bones evaluated.
+# Readout: editor.log "[SkinnedLOD] entity E anim: LOD l evaluates B of B0 bones, update rate R (...), screen size S"
+# per change, and "[SkinnedLOD] anim CPU X ms/frame over 60 frames: ..." every 60 played frames.
+# Scene: CesiumMan at the origin + 20 copies spread 30-300 m behind it (WP_FAR11_SkinnedCrowd).
+# "before": Quality ViewDistance Cinematic resolves MeshLOD off = every mesh LOD 0, every bone, every frame.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR11_SkinnedCrowd.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,500
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 2
+Тогда far11_near CesiumMan at 5 m walking (legs apart, not a T-pose); log: the origin figure's anim line LOD 0, 19 of 19 bones, update rate 1
+Когда --subject viewport set Camera.Position 0,0,6000
+Когда advance 2
+Тогда far11_mid at 60 m the figure is small and still walking (not frozen, not T-pose); log: its anim line bones evaluated < 19, update rate > 1
+Когда --subject viewport set Camera.FOV 10
+Когда advance 2
+Тогда far11_zoom FOV 10 at the same 60 m: the figure is large again, walking; log: anim line update rate 1 and 19 of 19 bones again
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,30000
+Когда advance 2
+Тогда far11_far at 300 m the figures are a few pixels; log: the fewest bones and the slowest rate; anim CPU ms/frame below the near frame's
+Когда run Quality "Quality: ViewDistance Cinematic"
+Когда advance 2
+Тогда far11_far_before the same 300 m view with LOD off (Cinematic): log: every instance LOD 0, 19 of 19 bones, rate 1; anim CPU ms/frame = the cost before this change
+Когда run Action "Stop"

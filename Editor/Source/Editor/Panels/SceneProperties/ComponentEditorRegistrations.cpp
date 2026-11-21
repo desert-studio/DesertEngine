@@ -1951,8 +1951,10 @@ namespace Desert::Editor
             U::ImGuiUtilities::EndPropertyRow();
 
             // --- Socket: the target's own sockets, then its bones -------------------------------------
+            // A Target set by data (a scene file, the control socket) can name an entity with no skinned mesh: it has
+            // no bones to list, so the Socket row stays empty rather than reading a component that is not there.
             const ::Desert::Animation::Skeleton* skeleton = nullptr;
-            if ( targetEntity )
+            if ( targetEntity && targetEntity->HasComponent<::Desert::ECS::SkinnedMeshComponent>() )
             {
                 const auto&     smc = targetEntity->GetComponent<::Desert::ECS::SkinnedMeshComponent>();
                 ::Desert::Mesh* mesh =

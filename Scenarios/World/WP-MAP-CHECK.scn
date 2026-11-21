@@ -20,7 +20,7 @@
 Дано set 9300002 Tag.Tag "MapCheckProbe"
 Дано set 9300002 WorldPartition.IsSpatiallyLoaded false
 Дано add-component 9300002 Socket
-Дано set 9300002 SocketAttachment.Target 9300001
+Дано set 9300002 SocketAttachment.Target '"9300001"'
 Когда run Panel "Open Scene Validation"
 Когда run Tools "Check World Partition"
 Тогда mapcheck_issue окно Scene Validation: строка "InvalidReferenceGridPlacement: AlwaysLoaded MapCheckProbe (9300002) references spatially loaded MapCheckHouse (9300001) (cell G0_L0_24_24) through SocketAttachment.Target: the whole composite is always loaded"; тост "Check World Partition: N World Partition issue(s)" (N >= 1); клик по строке выделяет 9300002 во вьюпорте и Outliner

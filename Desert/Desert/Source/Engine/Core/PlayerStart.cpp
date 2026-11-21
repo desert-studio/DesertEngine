@@ -48,6 +48,15 @@ namespace Desert::Core
         DefaultPawnPrefab( const Scene& scene, const Assets::AssetManager& assets, Assets::AssetHandle pawnHandle )
         {
             auto prefab = assets.FindByHandle<Assets::PrefabAsset>( pawnHandle );
+            // A Default Pawn chosen after the level opened (Details, the control socket) was never part of the
+            // open's asset roots: it is read here, as UE resolves the GameMode's DefaultPawnClass at BeginPlay.
+            if ( prefab && !prefab->IsReadyForUse() )
+            {
+                if ( const auto loaded = prefab->Load(); !loaded )
+                    return Common::MakeFormattedError<Assets::Asset<Assets::PrefabAsset>>(
+                         "level '{}': its Default Pawn (asset handle {}) did not load: {}", scene.GetSceneName(),
+                         static_cast<uint64_t>( pawnHandle ), loaded.GetError() );
+            }
             if ( !prefab || !prefab->IsReadyForUse() )
                 return Common::MakeFormattedError<Assets::Asset<Assets::PrefabAsset>>(
                      "level '{}': its Default Pawn (asset handle {}) is not a loaded prefab", scene.GetSceneName(),

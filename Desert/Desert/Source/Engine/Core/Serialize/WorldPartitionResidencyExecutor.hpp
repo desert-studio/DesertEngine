@@ -475,6 +475,18 @@ namespace Desert::Core::Rules
             return static_cast<std::size_t>( std::count( m_Live.begin(), m_Live.end(), true ) );
         }
 
+        // References from live records naming an entity that is not live (they resolve when it arrives): what the
+        // start leaves unresolved, said once as each tick says the references of the records it activated.
+        [[nodiscard]] std::size_t UnresolvedReferences() const
+        {
+            std::size_t count = 0;
+            for ( std::size_t record = 0; record < m_RefsFrom.size(); ++record )
+                if ( m_Live[record] )
+                    for ( const std::size_t target : m_RefsFrom[record] )
+                        count += m_Live[target] ? 0 : 1;
+            return count;
+        }
+
         [[nodiscard]] const WorldPartitionPlan& Plan() const
         {
             return m_Plan;
