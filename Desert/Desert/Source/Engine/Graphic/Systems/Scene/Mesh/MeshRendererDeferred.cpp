@@ -744,61 +744,14 @@ namespace Desert::Graphic::System
         return GrassVisibilityRasterList( slice ).Record( context );
     }
 
-    void MeshRenderer::PrepareGrassSoftwareRaster( const bool enabled )
-    {
-        m_GrassSoftwareMasks.clear();
-        m_GrassSoftwareKeys.Clear();
-        if ( !enabled || !m_InstancedVisibilityPipeline )
-            return;
-        for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
-        {
-            if ( gpu.Path != MeshVertexPath::GrassBlade || !m_GpuInstancedViaVisibility.Contains( gpu.Key ) )
-                continue;
-            // The record the HW raster draws the section through (DeclareGrassVisibilityRasterDraws): its template's
-            // mask and row layout.
-            const GpuInstancedDrawRecord* const record = GpuInstancedDrawOf(
-                 gpu, MeshPass::Visibility, m_InstancedVisibilityPipeline.get(), nullptr, false, false );
-            if ( record == nullptr || record->Parent == nullptr || record->Cell == nullptr )
-                continue;
-            const Core::Formats::ShaderProgramMeta& schema = record->Parent->GetSchema();
-            const Core::Formats::MaterialLayout&    layout = record->Parent->GetMaterialLayout();
-            const auto slotOf = [&layout]( const std::string& name ) -> uint32_t
-            {
-                const Core::Formats::MaterialLayoutParam* const p = name.empty() ? nullptr : layout.FindParam( name );
-                return p != nullptr ? p->Offset / Core::Formats::kMaterialParamSlotSize : kGrassSoftwareNoSlot;
-            };
-            GrassSoftwareRasterMask mask;
-            mask.HiddenSubmeshes = gpu.HiddenSubmeshes;
-            if ( schema.OpacityMask )
-            {
-                const Core::Formats::SurfaceOpacityMask& m = *schema.OpacityMask;
-                if ( !m.Function.empty() || !m.TilingParam.empty() || !m.OffsetParam.empty() ||
-                     !m.RotationParam.empty() || !m.DitherParam.empty() || m.UVSet > 1u )
-                    continue; // the HW cell evaluates these (Pass_Visibility.glslh)
-                mask.TextureSlot = slotOf( m.Texture );
-                if ( mask.TextureSlot == kGrassSoftwareNoSlot )
-                    continue;
-                mask.ChannelSlot = slotOf( m.ChannelParam );
-                mask.Channel     = m.Channel;
-                mask.ClipSlot    = slotOf( m.ClipParam );
-                mask.UVSet       = m.UVSet;
-            }
-            const uint32_t                stride = layout.RowStride / Core::Formats::kMaterialParamSlotSize;
-            const std::optional<uint32_t> row    = FindMaterialRow( record->Parent, gpu.Material.get() );
-            if ( !row || stride == 0u )
-                continue; // the HW raster refuses it alike (bindRecord)
-            mask.RowSlot = *row * stride;
-            if ( m_GrassSoftwareKeys.Insert( gpu.Key, static_cast<uint32_t>( m_GrassSoftwareMasks.size() ) ) )
-                m_GrassSoftwareMasks.push_back( mask );
-        }
-    }
-
     MeshRendererDetail::MeshDrawList& MeshRenderer::GrassVisibilityRasterList( const GrassRasterSlice slice )
     {
         if ( slice == GrassRasterSlice::Near )
             return m_GrassVisibilityRasterNearDraws;
         if ( slice == GrassRasterSlice::Mid )
             return m_GrassVisibilityRasterMidDraws;
+        if ( slice == GrassRasterSlice::Far )
+            return m_GrassVisibilityRasterFarDraws;
         return m_GrassVisibilityRasterDraws;
     }
 
@@ -809,6 +762,8 @@ namespace Desert::Graphic::System
             return m_GrassVisibilityRasterNearDraws;
         if ( slice == GrassRasterSlice::Mid )
             return m_GrassVisibilityRasterMidDraws;
+        if ( slice == GrassRasterSlice::Far )
+            return m_GrassVisibilityRasterFarDraws;
         return m_GrassVisibilityRasterDraws;
     }
 

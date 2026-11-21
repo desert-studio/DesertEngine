@@ -734,26 +734,24 @@ namespace Desert::Graphic
                  { return m_GrassVisibility.RecordDepth( context ); },
                  [this, words = visibility.Words]( RDG::PassBuilder& pass )
                  { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
-            // FPS-GRASS-SW-RASTER (UE 5 Nanite: the micro-triangles to the compute raster): the blades of every
-            // bucket past Mid - most of the field, 1-2 px triangles - are rastered by "Grass: Blade Software Raster"
-            // against the G-buffer depth (the near and mid grass already in it) into the same words; the HW Rest
-            // slice below keeps the mesh grass and any blade section the software raster did not admit. Replaces
-            // FPS-GRASS-RASTER-COST's Far slice and its "Grass: Visibility Depth Far".
-            bool softwareRastered = false;
-            meshRenderer->PrepareGrassSoftwareRaster( m_FrameGpuSceneTables.has_value() &&
-                                                      m_FrameGpuSceneTables->MaterialRows.IsValid() );
-            if ( meshRenderer->DrawsGrassSoftwareRaster() && m_Systems.Grass != nullptr )
-                if ( const ViewFrame* const swFrame = GetViewFrame(); swFrame != nullptr )
-                {
-                    const auto added = m_Systems.Grass->AddFrameBladeSoftwareRaster(
-                         graph, *swFrame, *meshRenderer, visibility.Words, targets->Depth,
-                         m_FrameGpuSceneTables->MaterialRows );
-                    if ( !added.IsSuccess() )
-                        LOG_ERROR( "[Grass] Blade Software Raster: {}", added.GetError() );
-                    softwareRastered = added.IsSuccess();
-                }
-            if ( !softwareRastered )
-                meshRenderer->PrepareGrassSoftwareRaster( false ); // the HW Rest slice draws every blade
+            // FPS-GRASS-RASTER-COST: the far ring against the near and mid depth, then its depth too - the
+            // farthest buckets (the one-segment blades past it, the small bucket) rasterize behind all three.
+            AddRaster(
+                 graph, "Grass: Visibility Raster Far", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderGrassVisibilityRasterManual( context, false, Slice::Far ); },
+                 [meshRenderer, view, words = visibility.Words, bladeSetup]( RDG::PassBuilder& pass )
+                 {
+                     if ( bladeSetup.IsValid() )
+                         pass.Read( bladeSetup, RDG::Access::StorageRead );
+                     meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, false, Slice::Far );
+                 } );
+            AddRaster(
+                 graph, "Grass: Visibility Depth Far", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return m_GrassVisibility.RecordDepth( context ); },
+                 [this, words = visibility.Words]( RDG::PassBuilder& pass )
+                 { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
         }
         // GRASS-VIS phase 2 (@p postOcclusion): the same two nodes over phase 2's records, after this frame's HZB;
         // the words still hold phase 1's winners, and the G-buffer depth they resolved rejects what lies behind.
