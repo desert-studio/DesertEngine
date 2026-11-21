@@ -721,6 +721,10 @@ namespace Desert::Core
             if ( entities != nullptr )
                 entities->push_back( static_cast<std::uint32_t>( entity ) );
         }
+        // THE PROVIDERS: sources a script states with no entity (WorldPartition.provideSource).
+        if ( const auto* provided = registry.try_ctx<ProvidedStreamingSources>(); provided != nullptr )
+            for ( const auto& [name, source] : provided->Sources )
+                sources.push_back( source );
         // THE PLAYER (UE's APlayerController, a streaming source provider at GetPlayerViewPoint): with a pawn
         // the pawn's own component above stands for it; with none - a level without a Default Pawn, played from
         // here or through an Auto Activate camera - the player is a source where it looks from.
