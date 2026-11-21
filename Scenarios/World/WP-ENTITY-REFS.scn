@@ -46,8 +46,10 @@
 Когда advance 2
 Когда advance 1
 Когда run Action "Stop"
-Дано spawn Content/Meshes/Modeling/Box.stmesh 12700,0,1000 --id 9200003
-Дано spawn Content/Meshes/Modeling/Box.stmesh 12900,0,1000 --id 9200004
+# Main cells are 2500 cm from X 0, so X 12500 is a cell boundary: the pair straddles it (12400 | 12600); the old
+# 12700/12900 sat inside one cell and proved nothing about the cluster.
+Дано spawn Content/Meshes/Modeling/Box.stmesh 12400,0,1000 --id 9200003
+Дано spawn Content/Meshes/Modeling/Box.stmesh 12600,0,1000 --id 9200004
 Когда add-component 9200003 Script
 Когда set 9200003 Script.Scripts '[{"ScriptKey":"assets:Scripts/World/RefHardLink.lua","Props":[{"Name":"Part","Type":7,"Ref":9200004}]}]'
 Когда run Scene "World Partition: Refresh"
