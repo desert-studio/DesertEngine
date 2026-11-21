@@ -212,15 +212,15 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 19> kScreenProbeShaderNames{
-             "ScreenProbePlace",        "ScreenProbeShortRangeAO",  "ScreenProbeTraceScreen",
-             "ScreenProbeTrace",        "ScreenProbeTrace",         "ScreenProbeTrace",
-             "ScreenProbeTrace",        "ScreenProbeTrace",         "ScreenProbeTrace",
-             "ScreenProbeDisocclusion", "ScreenProbeSpatialFilter", "ScreenProbeSpatialFilter",
-             "ScreenProbeFilter",       "ScreenProbeFilter",        "ScreenProbeIntegrate",
-             "ScreenProbeIntegrate",    "ScreenProbeIntegrate",     "ScreenProbeIntegrate",
-             "ScreenProbeTemporal" };
-        static_assert( kScreenProbeShaderNames.size() == 19u, "one shader name a ScreenProbeGather::Program" );
+        constexpr std::array<std::string_view, 20> kScreenProbeShaderNames{
+             "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
+             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
+             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
+             "ScreenProbeTrace",         "ScreenProbeDisocclusion", "ScreenProbeSpatialFilter",
+             "ScreenProbeSpatialFilter", "ScreenProbeFilter",       "ScreenProbeFilter",
+             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeIntegrate",
+             "ScreenProbeIntegrate",     "ScreenProbeTemporal" };
+        static_assert( kScreenProbeShaderNames.size() == 20u, "one shader name a ScreenProbeGather::Program" );
 
         // The permutation define of a layout program that shares its shader with another (empty: none); the
         // spatial filter's first pass rebuilding the sparse stable probes' skipped texels
@@ -228,6 +228,7 @@ namespace Desert::Graphic::GlobalIllumination
         // (ScreenProbeFilter.shader), the integrate's tile
         // classification and its simple-diffuse permutation (ScreenProbeIntegrate.shader).
         constexpr std::array<std::string_view, kScreenProbeShaderNames.size()> kScreenProbeProgramDefines{
+             "",
              "",
              "",
              "",
@@ -264,13 +265,15 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr std::string_view kTraceHitLightingDefine = "SP_TRACE_HIT_LIGHTING";
         constexpr std::string_view kTraceCacheReadDefine   = "SP_TRACE_CACHE_READ";
         constexpr std::string_view kTraceNearHitLightingDefine = "SP_TRACE_NEAR_HIT_LIGHTING";
+        constexpr std::string_view kTraceNearHitInPlaceDefine  = "SP_TRACE_NEAR_HIT_IN_PLACE";
 
         // Whether a tracer has the leg at all: the two hit lightings are the software tracer's deferred passes (its
         // far field defers global-field hits, its near field every mesh SDF hit - FPS-NEAR-FIELD); the hardware
         // legs light their triangle hits in place, so either leg would be an empty dispatch over an empty list.
         [[nodiscard]] constexpr bool TraceLegExists( const Tracer tracer, const std::string_view leg )
         {
-            if ( leg == kTraceHitLightingDefine || leg == kTraceNearHitLightingDefine )
+            if ( leg == kTraceHitLightingDefine || leg == kTraceNearHitLightingDefine ||
+                 leg == kTraceNearHitInPlaceDefine )
                 return tracer == Tracer::SoftwareDistanceField;
             return true;
         }
@@ -282,7 +285,9 @@ namespace Desert::Graphic::GlobalIllumination
         {
             if ( leg == kTraceCacheMissDefine )
                 return true;
-            if ( leg == kTraceHitLightingDefine || leg == kTraceNearHitLightingDefine )
+            // FPS-SP-HITLIGHT: the near hit lighting reads the cards alone (TraceLegReadsCards); the near hits no card
+            // holds are lit in place by their own leg.
+            if ( leg == kTraceHitLightingDefine || leg == kTraceNearHitInPlaceDefine )
                 return tracer == Tracer::SoftwareDistanceField;
             if ( leg == kTraceNearFieldDefine ) // the software near field defers its hits (SP_TRACE_NEAR_HIT_LIGHTING)
                 return tracer != Tracer::SoftwareDistanceField;
@@ -301,11 +306,26 @@ namespace Desert::Graphic::GlobalIllumination
         {
             return leg == kTraceCacheReadDefine || TraceLegLightsHits( tracer, leg );
         }
+        // FPS-SP-HITLIGHT (UE ConeTraceMeshSDFsAndInterpolateFromCards: a mesh SDF hit read from the surface cache):
+        // whether the leg reads the cards (ScreenProbeTrace.shader SP_TRACE_READS_CARDS, or a leg that lights a hit)
+        // - the surface cache's reads and PointClampSampler. The near hit lighting reads only them: no G-buffer, no
+        // voxel lighting, no radiance cache, so the graph joins the cache's writers after it and it runs beside the
+        // cache's filter.
+        [[nodiscard]] constexpr bool TraceLegReadsCards( const Tracer tracer, const std::string_view leg )
+        {
+            if ( leg == kTraceNearHitLightingDefine )
+                return tracer == Tracer::SoftwareDistanceField;
+            return TraceLegLightsHits( tracer, leg );
+        }
         static_assert( !TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearFieldDefine ) &&
                             !TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceFarFieldDefine ) &&
                             TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceCacheReadDefine ) &&
-                            TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ),
+                            !TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ) &&
+                            TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearHitInPlaceDefine ),
                        "the legs the cache's writers join at (ScreenProbeTrace.shader SP_TRACE_READS_CACHE)" );
+        static_assert( TraceLegReadsCards( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ) &&
+                            !TraceLegLightsHits( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ),
+                       "the near hit lighting reads the cards alone (ScreenProbeTrace.shader SP_TRACE_READS_CARDS)" );
 
         // A trace leg's list (THE LEGS' LISTS, Common/ScreenProbeTracing.glslh): its dispatch x = groups, y = z =
         // 1 (a dispatch's three counts; w unused), counted up by the pass that lists the rays; the allocator: 0.
@@ -365,6 +385,8 @@ namespace Desert::Graphic::GlobalIllumination
                 return kTraceCacheReadDefine;
             case TraceNearHitLighting:
                 return kTraceNearHitLightingDefine;
+            case TraceNearHitInPlace:
+                return kTraceNearHitInPlaceDefine;
             default:
                 return {}; // not a trace leg: no SP_TRACE_* permutation
         }
@@ -946,11 +968,14 @@ namespace Desert::Graphic::GlobalIllumination
         // a ray, indexed like the trace hit buffer). FPS-SP-TRACE-FIELD: a near-field miss listed for the far
         // field holds its near offset and far-field span in the same slot (read by the far field,
         // SP_TRACE_FAR_SPAN_BIT).
+        // FPS-SP-HITLIGHT: the near hits no card holds, listed by the near hit lighting for the in-place leg.
         std::optional<RayList> nearHitLightingList;
+        std::optional<RayList> nearHitInPlaceList;
         RDG::BufferRef         nearHit;
         if ( TraceLegExists( inputs.Tracer.Pipeline.Tracer, kTraceNearHitLightingDefine ) )
         {
             nearHitLightingList = rayList( "near hit lighting" );
+            nearHitInPlaceList  = rayList( "near hit in place" );
             nearHit = graph.CreateBuffer( RDG::BufferDesc{ rayBytes * 2u }, "ScreenProbes.NearHit" );
         }
 
@@ -1110,6 +1135,8 @@ namespace Desert::Graphic::GlobalIllumination
             ComputePipeline* const pipeline = m_Pipelines[program].get();
             // the declaration's own rule (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
             const bool lightsHits = TraceLegLightsHits( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
+            // (ScreenProbeTrace.shader SP_TRACE_READS_CARDS: the near hit lighting; every leg that lights a hit)
+            const bool cardsRead = TraceLegReadsCards( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
             // (ScreenProbeTrace.shader SP_TRACE_READS_CACHE)
             const bool readsCache = TraceLegReadsCache( inputs.Tracer.Pipeline.Tracer, TraceLegDefine( program ) );
             graph.AddPass(
@@ -1150,7 +1177,7 @@ namespace Desert::Graphic::GlobalIllumination
                          bindOut3( block, *nearHitLightingList );
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeNearHitUB, nearHit, kW );
                      }
-                     if ( program == TraceNearHitLighting )
+                     if ( program == TraceNearHitLighting || program == TraceNearHitInPlace )
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeNearHitUB, nearHit, kR );
                      // FPS-SP-TRACE-FIELD: the software far field reads the near offset and far-field span the
                      // near field handed each ray it listed (ScreenProbeTrace.shader SP_TRACE_TAKES_FAR_SPAN, the
@@ -1160,10 +1187,10 @@ namespace Desert::Graphic::GlobalIllumination
                                         kR );
                      // The cache-read leg traces nothing (ScreenProbeTrace.shader includes no tracer); a leg that
                      // lights no hit samples nothing point-clamped (the object grid is fetched).
-                     const TracerPointClamp pointClamp = lightsHits ? TracerPointClamp::Bind : TracerPointClamp::Skip;
+                     const TracerPointClamp pointClamp = cardsRead ? TracerPointClamp::Bind : TracerPointClamp::Skip;
                      if ( program != TraceCacheRead )
                          DeclareTracerReads( block, inputs.Tracer, kS, pointClamp );
-                     if ( readsCards && lightsHits )
+                     if ( readsCards && cardsRead )
                          DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
                      // FPS-GI-VOXEL-LIGHT-2: the software legs that light a hit read the directional visibility
                      // from the global field's voxel lighting (ScreenProbeTrace.shader GI_VOXEL_LIGHTING_BINDING,
@@ -1272,9 +1299,12 @@ namespace Desert::Graphic::GlobalIllumination
         // FPS-NEAR-FIELD (UE TraceMeshSDFs, then its hit lighting pass over the compacted hits): the software near
         // field's hits lit in a list of their own, so the near field's waves wait on no card search, no gradient of
         // an object later passed and no shadow ray of their few hit lanes.
+        // FPS-SP-HITLIGHT: the near hit lighting reads the cards alone and lists the hits no card holds - it reads
+        // no radiance cache, so it is declared before the cache's last writers (finishCacheBefore) and runs beside
+        // the cache's filter; the in-place lighting of the listed hits joins the cache after the cache read.
         if ( nearHitLightingList )
             if ( const auto traced = declareLeg( TraceNearHitLighting, "ScreenProbes: Trace Near Hit Lighting",
-                                          *nearHitLightingList, nullptr, nullptr );
+                                          *nearHitLightingList, &*nearHitInPlaceList, nullptr );
                  !traced )
                 return refuseLeg( traced );
         // GPU-FARFIELD-6: the rays the far field left at the radiance cache's coverage read the cache in a list of
@@ -1284,6 +1314,12 @@ namespace Desert::Graphic::GlobalIllumination
                   declareLeg( TraceCacheRead, "ScreenProbes: Trace Cache Read", cacheReadList, &cacheMissList, nullptr );
              !traced )
             return refuseLeg( traced );
+        // FPS-SP-HITLIGHT (UE: hit lighting is its own compacted pass): the near hits no card holds, lit in place.
+        if ( nearHitInPlaceList )
+            if ( const auto traced = declareLeg( TraceNearHitInPlace, "ScreenProbes: Trace Near Hit In Place",
+                                          *nearHitInPlaceList, nullptr, nullptr );
+                 !traced )
+                return refuseLeg( traced );
         // GPU-FARFIELD-3: the far field's global-field hits no card holds, lit in a list of their own (UE's hit
         // lighting is its own compacted pass), so the far field's waves do not wait on their shadow marches.
         if ( hitLightingOut )
