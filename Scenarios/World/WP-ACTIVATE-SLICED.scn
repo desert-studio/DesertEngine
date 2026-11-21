@@ -178,7 +178,7 @@
 # at 125 m/s it is wanted ~3 s and dropped half-made when the Plane leaves).
 Дано select 9000002
 Дано --subject selection set Translation -93750,5000,1250
-# WP_Protocol's "Camera" 1003 (0,-310,0) is AutoActivateForPlayer: with no pawn it is the player's view in both Plays
+# WP_Protocol's "Camera" 1003 (0,190,1200; WP-PLAY-SLAB) is AutoActivateForPlayer: with no pawn it is the player's view in both Plays
 # (ChooseViewTarget: an Auto Activate camera before Play from Here) and so a streaming source of its own (GatherSources:
 # PlayerViewPoint) 64 m from the heavy cell, keeping it resident from the first frame. Parked 232 m south of HEAVY
 # (beyond the 200 m range) at 60 m up, turned to look at it, so the frames show the cell come in.
