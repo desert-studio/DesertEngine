@@ -61,7 +61,19 @@
 //     ones. Hzb.z = 0 (no HZB this frame): every candidate is appended, so a missing HZB never drops grass.
 //   4 THE POST FINALIZE (one group): per row PostArgs' records - phase 2's appended instances, within what phase 1
 //     left of each bucket's capacity, right after phase 1's - and Feedback's phase-2 count.
+//   7 THE HELD SETUP (FPS-GRASS-SETUP-FUSE): one thread per phase-1 drawn slot of every row whose camera list holds
+//     (kGrassRowCameraHeld: no mode 1 thread appended it this frame, but the wind moved) - its setup record
+//     (SetUpSlot). The finalize lays its groups out (CullDispatchData[2], the rows' z); none while no row holds.
 // Both lists are appended to with one atomic per subgroup and counter (WaveAppend).
+// THE BLADE SETUP FUSED INTO THE CULL (FPS-GRASS-SETUP-FUSE; Ghost of Tsushima, GDC 2021 "Procedural Grass in Ghost
+// of Tsushima": the compute that appends a visible blade writes its render data in the same thread): the thread that
+// appends an instance to the camera's list - mode 1's CullInstance, phase 2's PostOcclusion, mode 7 for a held list
+// - writes that slot's GrassBladeSetupData (Mesh/Surface/GrassBlade.glslh) at the raster-stream row
+// Visibility.x + slot of the view's setup records (CullSetupRecords) from the transform it already holds, the
+// row's shape and view wind (CullSetupRows) and the view's camera block and deformation field. No pass of its own,
+// no prefix of drawn counts, no search of a blade's record: the slot IS the position the append returned. A blade
+// variety's record is its curve now and one wind step before, its strip width, card and level; a mesh variety's
+// (FPS-GRASS-MESH-SETUP) its wind sway now and before and its LOD level.
 Shader "GrassCull"
 {
     Compute
@@ -86,10 +98,17 @@ Shader "GrassCull"
         #define GRASS_FIELD_WORD( i ) g_Field.Words[i]
         #include <Common/GrassTileRecord.glslh>
         #include <Common/ShadowWind.glslh>
+        // FPS-GRASS-SETUP-FUSE: the camera block (Common/CameraUB.glslh, binding 0: ShaderProtocols::MakeCameraUB of
+        // the view's frame - the gust and the local wind sources, now and one step before, the very block the
+        // raster's vertex stage reads), the blade curve and the deformation field's trample.
+        #include <Common/LocalWind.glslh>
+        #include <Common/FoliageWind.glslh>
+        #include <Mesh/Surface/GrassBlade.glslh>
+        #include <Deformation/DeformationFieldTrample.glslh>
 
         // GrassRenderer.cpp GrassVarietyTableGpu: the camera's side planes, the cascades' caster boxes and the shadow
         // wind rule's origin, then the rows (this pass's first).
-        ReadBuffer(0) Varieties
+        ReadBuffer(4) Varieties
         {
             vec4            VarietyCameraPlanes[4]; // left / right / bottom / top, xyz.n + w >= 0 inside
             // GRASS-CULL-UNIFY-1: list k's caster box at 6k..6k+5 (the six planes of the matrix the k-th live cascade
@@ -104,8 +123,9 @@ Shader "GrassCull"
         };
 
         // This frame's (a graph buffer): [0] the camera cull's VkDispatchIndirectCommand (w: its groups), [1] phase
-        // 2's, then per row x = its first group of the camera cull, y = of phase 2 (GrassRenderer.cpp
-        // kCullDispatchHeader / kPostDispatchOffset).
+        // 2's, [2] the held setup's (mode 7), then per row x = its first group of the camera cull, y = of phase 2,
+        // z = of the held setup (GrassRenderer.cpp kCullDispatchHeader / kPostDispatchOffset /
+        // kHeldSetupDispatchOffset).
         Buffer(1) CullDispatch
         {
             uvec4 CullDispatchData[];
@@ -124,6 +144,40 @@ Shader "GrassCull"
         Uniform sampler PointClampSampler;
         // The camera cull: the previous frame's furthest HZB of the view; phase 2: this frame's (neutral: none).
         Uniform(2) texture2D GrassHzbTexture;
+
+        // FPS-GRASS-SETUP-FUSE: per row of this pass (the variety table's row r) what its camera list's setup
+        // records need - mirrors Graphic::System::GrassBladeSetupRowGpu (GrassRenderer.cpp), std430: a blade
+        // variety's shape (the GrassBladeShapeData its cells read, without the hull; a mesh variety's setup section's
+        // rows in Visibility / BucketFirst), its view wind (Graphic::PackViewInstanceWind, the raster's draw row's
+        // WindA / WindB) and Kind.x (kCullSetupNone: nothing reads this row's records this frame).
+        struct GrassCullSetupRow
+        {
+            GrassBladeShapeData Shape;
+            vec4                WindA;
+            vec4                WindB;
+            uvec4               Kind;
+        };
+        ReadBuffer(5) CullSetupRows
+        {
+            GrassCullSetupRow CullSetup[];
+        };
+        // The view's setup records (GrassRenderer m_BladeSetup), one per raster-stream row.
+        Buffer(6) CullSetupRecords
+        {
+            GrassBladeSetupData CullSetupRecord[];
+        };
+        // The view's deformation field (FrameGraphRefs.hpp DeformationFieldReads; System.Black and zero levels where
+        // the view has none: every read answers "untouched"), point-sampled as the raster reads it.
+        Uniform sampler DeformationFieldSampler;
+        Uniform(7) texture2D DeformHeight0;
+        Uniform(8) texture2D DeformHeight1;
+        Uniform(9) texture2D DeformDetail0;
+        Uniform(10) texture2D DeformDetail1;
+        ReadBuffer(11) DeformationParams
+        {
+            ivec4 FieldWindows; // Deformation::DeformationFieldParamsGpu: xy level 0's minimum cell, zw level 1's
+            vec4  FieldLevels;  // x, y: texel (cm) of level 0, 1; z, w: their resolution (0: no field)
+        };
 
         // Mirrors Graphic::System::GrassCullPush (GrassRenderer.cpp).
         PushConstant PushConstants
@@ -144,6 +198,11 @@ Shader "GrassCull"
         // 5: the camera cull's instances - no mode of its own (FPS-GRASS-CULL-2): mode 1's subgroups cull their met
         // chunks' records (CullSubgroupRecords).
         const uint kModeCameraTiles   = 6u;
+        const uint kModeHeldSetup     = 7u;
+        // GrassCullSetupRow Kind.x (GrassRenderer.cpp kCullSetup*).
+        const uint kCullSetupNone  = 0u;
+        const uint kCullSetupBlade = 1u;
+        const uint kCullSetupMesh  = 2u;
 
         const uint kCullGroupThreads = 64u;    // LocalSize
         // The camera cull's chunk pass: a lane per chunk of the tiles mode 6 let through, a tile's
@@ -179,7 +238,7 @@ Shader "GrassCull"
         // raster in triangles by the bucket's strip level or LOD.
         const uint kFeedbackCameraWord = 13u;
         const uint kCullGroupsX    = 65535u; // Vulkan's guaranteed maxComputeWorkGroupCount[0]
-        const uint kDispatchHeader = 2u;     // CullDispatchData's two commands before the rows
+        const uint kDispatchHeader = 3u;     // CullDispatchData's three commands before the rows
         // A chunk's reach is grown by this share: the tile cull and this pass compute the same largest axis scale,
         // up to their rounding (a few ulps), and the chunk must hold every instance's sphere.
         const float kChunkReachSlack = 1.0e-4;
@@ -189,6 +248,7 @@ Shader "GrassCull"
         const uint kGrassFadeTwinRows = 1u << 24u;
 
         shared uint s_Groups[64];
+        shared uint s_HeldGroups[64]; // FPS-GRASS-SETUP-FUSE: the rows' held setup groups (LayOutRows)
         // FPS-GRASS-CULL-COST: whether this mode 1 group is the dispatch's last to finish (CameraCullGroup).
         shared bool s_LastGroup;
 
@@ -221,6 +281,84 @@ Shader "GrassCull"
                     hi = mid;
             }
             return lo;
+        }
+
+        // FPS-GRASS-SETUP-FUSE (was GrassBladeSetup.shader SetUpMeshInstance; FPS-GRASS-MESH-SETUP, UE 5 Nanite's
+        // instance scene data, computed once per instance and only fetched by the material pass): mesh row @p r's
+        // camera slot @p slot, the law row @p row (@p origin its root): ONE record a variety (FPS-GRASS-BLADE-SETUP:
+        // every section reads the same one - GrassRenderer.cpp MeshSetupSection), at row Visibility.x + slot of the
+        // variety's setup section (that section owns slots x Visibility.y >= slots rows from Visibility.x, so no
+        // blade's record shares one). GrassMeshSetupData's layout (Mesh/Surface/GrassMeshVisibility.glslh) in
+        // GrassBladeSetupData's words: Root = the sway now (Common/FoliageWind.glslh FoliageWindInstanceSway at the
+        // raster's wind, gust and local wind), Tip = the sway one wind step before (WindB.z, the previous gust and
+        // local wind, at the previous row WindB.w further), Before = 0, Frame.x = the LOD level the slot was drawn
+        // with (GrassMeshVisibilityLevel's rule over the section's bucket firsts).
+        void SetUpMeshSlot( uint r, uint slot, uint row, vec3 origin )
+        {
+            const uvec4 visibility = CullSetup[r].Shape.Visibility;
+            const uint  record     = visibility.x + slot;
+            if ( visibility.y == 0u || slot >= visibility.w || record >= uint( CullSetupRecord.length() ) )
+                return;
+            const vec4 windA   = CullSetup[r].WindA;
+            const vec4 windB   = CullSetup[r].WindB;
+            const uint prevRow = row + floatBitsToUint( windB.w );
+            if ( prevRow >= VarietyRows[r].LawCapacity )
+                return;
+            const vec3 prevOrigin =
+                 prevRow == row ? origin : vec3( GrassLawRows( VarietyRows[r].Instances ).Rows[prevRow][3] );
+            uint level = 0u;
+            for ( uint b = 1u; b < min( visibility.z, 8u ); ++b )
+            {
+                if ( slot < CullSetup[r].Shape.BucketFirst[b / 4u][b % 4u] )
+                    break;
+                level = b;
+            }
+            GrassBladeSetupData setup;
+            setup.Root   = FoliageWindInstanceSway( origin, windA, windB, cameraUB.WindGust,
+                                                    LocalWindXZ( origin, false ) );
+            setup.Tip    = FoliageWindInstanceSway( prevOrigin, windA, vec4( windB.x, windB.z, 0.0, 0.0 ),
+                                                    cameraUB.PrevWindGust, LocalWindXZ( prevOrigin, true ) );
+            setup.Before = vec4( 0.0 );
+            // GRASS-MESH-RESOLVE-LOST: Frame.y names the slot the record was written for (slot + 1, never 0), so the
+            // resolve refuses a row holding anything else (a blade's record, another variety's, never written).
+            setup.Frame             = uvec4( level, slot + 1u, 0u, 0u );
+            CullSetupRecord[record] = setup;
+        }
+
+        // FPS-GRASS-SETUP-FUSE: row @p r's camera list took law row @p row (@p instance, the transform the appending
+        // thread already holds) at slot @p slot - its setup record, the raster's blade (Vertex_GrassBlade.glslh):
+        // the field under the root, the local wind at it now and one step before, the curve at the draw row's wind
+        // and at its previous step (WindB.z), its strip width, card and level, at raster-stream row Visibility.x +
+        // slot (the row the visibility word names). A mesh row: SetUpMeshSlot. A row nothing reads this frame
+        // (kCullSetupNone): none.
+        void SetUpSlot( uint r, uint slot, uint row, mat4 instance )
+        {
+            const uint kind = CullSetup[r].Kind.x;
+            if ( kind == kCullSetupMesh )
+            {
+                SetUpMeshSlot( r, slot, row, vec3( instance[3] ) );
+                return;
+            }
+            if ( kind != kCullSetupBlade )
+                return;
+            const GrassBladeShapeData shape  = CullSetup[r].Shape;
+            const uint                record = shape.Visibility.x + slot;
+            if ( slot >= shape.Visibility.w || record >= uint( CullSetupRecord.length() ) )
+                return;
+            const vec3 root    = vec3( instance[3] );
+            const vec4 windA   = CullSetup[r].WindA;
+            const vec4 windB   = CullSetup[r].WindB;
+            const vec3 trample = DeformationFieldTrampleFrom( DeformHeight0, DeformHeight1, DeformDetail0,
+                                                              DeformDetail1, DeformationFieldSampler, FieldWindows,
+                                                              FieldLevels, root );
+            const BladeCurve now = BladeCurveAt( shape.Size, shape.Bend, instance, windA, windB, cameraUB.WindGust,
+                                                 LocalWindXZ( root, false ), trample );
+            const BladeCurve before =
+                 BladeCurveAt( shape.Size, shape.Bend, instance, windA, vec4( windB.x, windB.z, 0.0, 0.0 ),
+                               cameraUB.PrevWindGust, LocalWindXZ( root, true ), trample );
+            CullSetupRecord[record] = BladeSetupOf( now, before, BladeWidth( shape, instance ),
+                                                    BladeCardIndex( shape, instance[0].w ),
+                                                    BladeLevelSegments( shape, slot ), instance[2].w );
         }
 
         // THE WAVE'S APPEND (GRASS-CULL-1; UE InstanceCulling: one atomic per wave and list): every invocation that
@@ -672,7 +810,11 @@ Shader "GrassCull"
                 candidates.Quads[2u * ( first + index ) + 1u] = uvec4( row, 0u, 0u, 0u );
             }
             else
+            {
                 GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = id;
+                // FPS-GRASS-SETUP-FUSE: the slot just taken gets its setup record from this thread's transform.
+                SetUpSlot( r, first + index, row, instance );
+            }
         }
 
         // A box (@p lo..@p hi) against the views (bit k < kGrassCascadeLists: cascade list k's caster box, none while
@@ -1275,9 +1417,49 @@ Shader "GrassCull"
                                           sphere.xyz - vec3( sphere.w ), sphere.xyz + vec3( sphere.w ) ) )
                 return;
             uint index = camera.Words[phase + 2u] + WaveAppend( camera, phase + 3u, r );
-            if ( index < args.Words[table + 2u] )
-                GrassWords( VarietyRows[r].CameraIds ).Words[first + index] =
-                     candidates.Quads[2u * slot + 1u].x + VarietyRows[r].InstancesBase;
+            if ( index >= args.Words[table + 2u] )
+                return;
+            uint row = candidates.Quads[2u * slot + 1u].x;
+            GrassWords( VarietyRows[r].CameraIds ).Words[first + index] = row + VarietyRows[r].InstancesBase;
+            // FPS-GRASS-SETUP-FUSE: phase 2's slots follow phase 1's in the same list, so its records land on rows
+            // phase 1 did not write.
+            if ( CullSetup[r].Kind.x != kCullSetupNone && row < VarietyRows[r].LawCapacity )
+                SetUpSlot( r, first + index, row, GrassLawRows( VarietyRows[r].Instances ).Rows[row] );
+        }
+
+        // Mode 7 (FPS-GRASS-SETUP-FUSE): one thread per phase-1 drawn slot of every row whose camera list holds - the
+        // groups the camera cull's finalize laid out (LayOutRows, CullDispatchData[2] and the rows' z). The held
+        // list's slots, bucket by bucket (each bucket's drawn count frozen in its third phase word), get their setup
+        // records at this frame's wind from the law rows their ids name.
+        void HeldSetup()
+        {
+            uint group = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+            if ( group >= CullDispatchData[2].w )
+                return;
+            uint       r       = RowOfGroup( group, 2u );
+            uint       t       = ( group - FirstGroup( r, 2u ) ) * kCullGroupThreads + gl_LocalInvocationIndex;
+            GrassWords args    = GrassWords( VarietyRows[r].Args );
+            GrassWords camera  = GrassWords( VarietyRows[r].CameraArgs );
+            uint       buckets = VarietyRows[r].Info.x;
+            uint       tables  = VarietyRows[r].Info.y;
+            uint       phases  = tables + buckets * 4u;
+            uint       b       = 0u;
+            for ( ; b < buckets; ++b )
+            {
+                uint seen = min( camera.Words[phases + b * 4u + 2u], args.Words[tables + b * 4u + 2u] );
+                if ( t < seen )
+                    break;
+                t -= seen;
+            }
+            if ( b == buckets )
+                return;
+            uint slot = args.Words[tables + b * 4u + 1u] + t;
+            uint id   = GrassWords( VarietyRows[r].CameraIds ).Words[slot];
+            uint base = VarietyRows[r].InstancesBase;
+            if ( id < base || id - base >= VarietyRows[r].LawCapacity )
+                return;
+            uint row = id - base;
+            SetUpSlot( r, slot, row, GrassLawRows( VarietyRows[r].Instances ).Rows[row] );
         }
 
         // Row @p r's cascade lists held (kGrassRowCascadesHeld): this frame in flight's Feedback copy gets each view's
@@ -1465,30 +1647,57 @@ Shader "GrassCull"
         // Mode 2, one group (mode 1's last): row i's work by thread i % 64, 64 rows at a time, and the rows' groups
         // of phase 2 laid end to end in row order - row i's first group into its CullDispatchData entry (y for
         // @p command 1; x, the tile pass's, the renderer lays out), their sum into command @p command.
+        // FPS-GRASS-SETUP-FUSE: with them the held setup's (mode 7) - a row whose camera list holds and whose records
+        // are read gets a thread per phase-1 drawn slot (its held drawn count, CameraArgs word 3) - into the rows' z
+        // and command 2.
         void LayOutRows( uint command )
         {
-            uint base = 0u;
+            uint base     = 0u;
+            uint heldBase = 0u;
             for ( uint chunk = 0u; chunk < Rows.x; chunk += kCullGroupThreads )
             {
                 uint row    = chunk + gl_LocalInvocationIndex;
                 uint groups = 0u;
+                uint held   = 0u;
                 if ( row < Rows.x )
+                {
                     groups = RowGroups( row );
-                s_Groups[gl_LocalInvocationIndex] = groups;
+                    if ( ( VarietyRows[row].Info.z & kGrassRowCameraHeld ) != 0u &&
+                         CullSetup[row].Kind.x != kCullSetupNone )
+                        held = ( GrassWords( VarietyRows[row].CameraArgs ).Words[3] + kCullGroupThreads - 1u ) /
+                               kCullGroupThreads;
+                }
+                s_Groups[gl_LocalInvocationIndex]     = groups;
+                s_HeldGroups[gl_LocalInvocationIndex] = held;
                 barrier();
-                uint first = base;
+                uint first     = base;
+                uint heldFirst = heldBase;
                 for ( uint k = 0u; k < gl_LocalInvocationIndex; ++k )
+                {
                     first += s_Groups[k];
-                uint total = 0u;
+                    heldFirst += s_HeldGroups[k];
+                }
+                uint total     = 0u;
+                uint heldTotal = 0u;
                 for ( uint k = 0u; k < kCullGroupThreads; ++k )
+                {
                     total += s_Groups[k];
+                    heldTotal += s_HeldGroups[k];
+                }
                 if ( row < Rows.x )
+                {
                     CullDispatchData[kDispatchHeader + row][command] = first;
+                    CullDispatchData[kDispatchHeader + row][2]       = heldFirst;
+                }
                 base += total;
+                heldBase += heldTotal;
                 barrier();
             }
             if ( gl_LocalInvocationIndex == 0u )
+            {
                 CullDispatchData[command] = CullGroups( base );
+                CullDispatchData[2]       = CullGroups( heldBase );
+            }
         }
 
         // Mode 1's workgroup (FPS-GRASS-CULL-COST, FPS-GRASS-CULL-2: was mode 5's): its lanes' chunks and their
@@ -1536,6 +1745,11 @@ Shader "GrassCull"
             {
                 for ( uint r = gl_LocalInvocationIndex; r < Rows.x; r += kCullGroupThreads )
                     FinalizePost( r );
+                return;
+            }
+            if ( Hzb.w == kModeHeldSetup )
+            {
+                HeldSetup();
                 return;
             }
         }

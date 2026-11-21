@@ -1725,8 +1725,6 @@ namespace Desert::Graphic
         // OnUpdate once the grass visibility frame is made, before any phase-1 raster) or phase 2's (true: from
         // AddFrameGrassPostOcclusion, before its raster). The visibility raster's vertex stage and the blade resolve
         // read those records instead of placing each blade per vertex / per pixel. A refusal is logged.
-        void AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer, const ViewFrame& frame,
-                                      bool postOcclusion );
         // GRASS-VIS-23: the ONE material pass over the visibility buffer, after both phases' rasters (UE Nanite's
         // base pass after the post pass): every word - phase 1's and phase 2's - shaded once into the G-buffer.
         // The blade resolve reads both phases' setup records (AddFrameGrassBladeSetup) instead of rebuilding each
