@@ -9,6 +9,7 @@
 #include <Engine/Geometry/DisplacementTessellation.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/ResultWithCodes.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDisplacementBake.hpp>
@@ -18,6 +19,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <optional>
 #include <unordered_map>
 
@@ -349,11 +351,28 @@ namespace Desert
                                                                     uploaded.GetError() );
             AdoptPoolAllocation( uploaded.ExtractValue(), authored );
             m_Staged = false;
-            std::vector<std::byte>().swap( m_StagedVertices );
-            std::vector<MeshVertexStreams>().swap( m_StagedStreams );
-            std::vector<uint32_t>().swap( m_StagedIndices );
-            std::vector<uint32_t>().swap( m_StagedClusterWords );
+            ReleaseStagedHostCopy();
             return Common::MakeSuccessWithCodes<bool, MeshError>( true );
+        }
+        // THE LANDED HOST COPY IS FREED ON A WORKER (UE FDeferredCleanupInterface / the async loading thread
+        // destroying streamed data, never the game thread): an HLOD mesh's staged copy is tens of MB, and freeing
+        // it here was ~86 % of the 25 ms its commit took on the game thread (WP-OPT-SPIKE-CAUSE profile: four
+        // HLODs committed in one streamer tick = a 100+ ms frame). The vectors are moved out, so the mesh holds
+        // nothing staged from here on; a pool that refuses the job (shutting down) frees it here.
+        void ReleaseStagedHostCopy()
+        {
+            struct HostCopy
+            {
+                std::vector<std::byte>         Vertices;
+                std::vector<MeshVertexStreams> Streams;
+                std::vector<uint32_t>          Indices;
+                std::vector<uint32_t>          ClusterWords;
+            };
+            auto copy = std::make_shared<HostCopy>(
+                 HostCopy{ std::exchange( m_StagedVertices, {} ), std::exchange( m_StagedStreams, {} ),
+                           std::exchange( m_StagedIndices, {} ), std::exchange( m_StagedClusterWords, {} ) } );
+            (void)Common::JobSystem::Get().Submit( [copy = std::move( copy )]() mutable noexcept { copy.reset(); },
+                                                   Common::JobPriority::Background );
         }
         // The mesh now draws from @p allocation (shared by a copy of the mesh, as its buffers were).
         void AdoptPoolAllocation( Graphic::GeometryPoolAllocation allocation, const bool authoredStreams )

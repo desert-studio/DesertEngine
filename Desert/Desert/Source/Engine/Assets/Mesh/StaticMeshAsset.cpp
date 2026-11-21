@@ -278,10 +278,9 @@ namespace Desert::Assets
             MeshDistanceFieldBuildInput Input;
         };
 
-        Common::ResultStr<FieldInputs>
-        ResolveFieldInputs( AssetManager& manager, const std::vector<Common::Content::AssetGuid>& materials,
-                            const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
-                            const std::vector<Submesh>& submeshes )
+        // Every submesh's material sidedness: read from the materials, so on the thread that owns the manager.
+        Common::ResultStr<std::vector<uint8_t>>
+        ResolveSubmeshTwoSided( AssetManager& manager, const std::vector<Common::Content::AssetGuid>& materials )
         {
             std::vector<uint8_t> twoSided( materials.size(), 0 );
             for ( size_t i = 0; i < materials.size(); ++i )
@@ -290,11 +289,23 @@ namespace Desert::Assets
                     continue;
                 const auto sided = ResolveMaterialTwoSided( manager, materials[i] );
                 if ( !sided )
-                    return Common::MakeFormattedError<FieldInputs>(
+                    return Common::MakeFormattedError<std::vector<uint8_t>>(
                          "submesh {} has no distance field material sidedness ({})", i, sided.GetError() );
                 twoSided[i] = sided.GetValue() ? 1 : 0;
             }
-            auto input = MeshDistanceFieldInputOf( vertices, indices, submeshes, twoSided );
+            return Common::MakeSuccess( std::move( twoSided ) );
+        }
+
+        Common::ResultStr<FieldInputs>
+        ResolveFieldInputs( AssetManager& manager, const std::vector<Common::Content::AssetGuid>& materials,
+                            const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
+                            const std::vector<Submesh>& submeshes )
+        {
+            auto resolved = ResolveSubmeshTwoSided( manager, materials );
+            if ( !resolved )
+                return Common::MakeError<FieldInputs>( std::string( resolved.GetError() ) );
+            std::vector<uint8_t> twoSided = resolved.ExtractValue();
+            auto                 input    = MeshDistanceFieldInputOf( vertices, indices, submeshes, twoSided );
             if ( !input )
                 return Common::MakeError<FieldInputs>( std::string( input.GetError() ) );
             return Common::MakeSuccess( FieldInputs{ std::move( twoSided ), input.ExtractValue() } );
@@ -528,12 +539,20 @@ namespace Desert::Assets
         // mesh (the queue logs it), never a field guessed from a different input. The job owns copies of what it
         // reads: this asset may be reloaded or unloaded while it runs, and a reload makes a new slot, so a late
         // field lands in a slot nothing reads any more.
+        // The sidedness is read here (the materials are the manager's); THE TRIANGLES ARE GATHERED BY THE JOB
+        // (UE FDistanceFieldAsyncQueue builds its FSourceMeshDataForDerivedDataTask off the game thread):
+        // gathering an HLOD mesh's LOD0 here was ~25 ms per mesh on the game thread, four in one streamer tick
+        // (WP-OPT-SPIKE-CAUSE profile). The job owns a copy of the render data it gathers from.
         EnsureCpuGeometry(); // a re-resolve after the GPU upload reads the triangles back
-        auto inputs = ResolveFieldInputs( manager, m_MaterialGuids, m_Vertices, m_Indices, m_Submeshes );
-        if ( !inputs )
+        auto sidedness = ResolveSubmeshTwoSided( manager, m_MaterialGuids );
+        if ( sidedness && sidedness.GetValue().size() != m_Submeshes.size() )
+            sidedness = Common::MakeFormattedError<std::vector<uint8_t>>(
+                 "distance field: {} two-sided flags for {} submeshes", sidedness.GetValue().size(),
+                 m_Submeshes.size() );
+        if ( !sidedness )
         {
             LOG_ERROR( "StaticMeshAsset '{}': {}; the mesh is left out of every distance-field trace",
-                       m_Metadata.Filepath.string(), inputs.GetError() );
+                       m_Metadata.Filepath.string(), sidedness.GetError() );
             return;
         }
         std::optional<DisplacementPlan> plan;
@@ -559,19 +578,35 @@ namespace Desert::Assets
                 m_DisplacedMesh = displacedSlot;
             }
         }
-        FieldInputs in   = inputs.ExtractValue();
-        auto        slot = std::make_shared<MeshDistanceFieldSlot>( MostlyTwoSided( in.Input ) );
-        m_DistanceField  = slot;
-        auto cards       = std::make_shared<MeshCardsSlot>();
-        m_Cards          = cards;
+        // Mostly two-sided is learned by the job from the triangles it gathers, before its field is published
+        // (every reader asks it only of a mesh whose field landed).
+        auto slot       = std::make_shared<MeshDistanceFieldSlot>( false );
+        m_DistanceField = slot;
+        auto cards      = std::make_shared<MeshCardsSlot>();
+        m_Cards         = cards;
+        struct RenderData
+        {
+            std::vector<Vertex>  Vertices;
+            std::vector<Index>   Indices;
+            std::vector<Submesh> Submeshes;
+        };
         EnqueueMeshDistanceField(
              slot, m_Metadata.Filepath.string(),
-             [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = std::move( in.SubmeshTwoSided ),
-              input = std::make_shared<const MeshDistanceFieldBuildInput>( std::move( in.Input ) ), cards,
-              plan  = std::move( plan ), topologySlot,
-              displacedSlot]( bool& built, const MeshDistanceFieldCancel& cancel )
-                  -> Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
+             [path = m_Metadata.Filepath, key = m_RenderDataKey, sided = sidedness.ExtractValue(),
+              source   = std::make_shared<const RenderData>( RenderData{ m_Vertices, m_Indices, m_Submeshes } ),
+              weakSlot = std::weak_ptr<MeshDistanceFieldSlot>( slot ), cards, plan = std::move( plan ),
+              topologySlot, displacedSlot]( bool& built, const MeshDistanceFieldCancel& cancel ) mutable
+             -> Common::ResultStr<std::shared_ptr<const MeshDistanceFieldData>>
              {
+                 auto gathered =
+                      MeshDistanceFieldInputOf( source->Vertices, source->Indices, source->Submeshes, sided );
+                 source.reset(); // the render data copy is freed here, on the worker
+                 if ( !gathered )
+                     return Common::MakeError<std::shared_ptr<const MeshDistanceFieldData>>(
+                          std::string( gathered.GetError() ) );
+                 const auto input = std::make_shared<const MeshDistanceFieldBuildInput>( gathered.ExtractValue() );
+                 if ( const auto target = weakSlot.lock() )
+                     target->SetMostlyTwoSided( MostlyTwoSided( *input ) );
                  std::string        displacementError;
                  const FieldSurface surface = DeriveDisplacedSurface(
                       path, key, sided, input, plan, topologySlot.get(), displacedSlot.get(), displacementError );

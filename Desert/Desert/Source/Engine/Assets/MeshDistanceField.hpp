@@ -230,13 +230,19 @@ namespace Desert::Assets
         [[nodiscard]] static uint64_t PublishGeneration();
         [[nodiscard]] bool MostlyTwoSided() const
         {
-            return m_MostlyTwoSided;
+            return m_MostlyTwoSided.load( std::memory_order_acquire );
+        }
+        // A job that gathers the triangles itself (StaticMeshAsset::ResolveDependencies) says it before it
+        // publishes the field: readers ask it only of a slot whose field landed.
+        void SetMostlyTwoSided( const bool mostlyTwoSided )
+        {
+            m_MostlyTwoSided.store( mostlyTwoSided, std::memory_order_release );
         }
 
     private:
         mutable std::mutex                           m_Mutex;
         std::shared_ptr<const MeshDistanceFieldData> m_Field;
-        const bool                                   m_MostlyTwoSided;
+        std::atomic<bool>                            m_MostlyTwoSided;
     };
 
     // THE ASYNCHRONOUS QUEUE (UE FDistanceFieldAsyncQueue, DistanceFieldAtlas.cpp): a field is derived (DDC read
