@@ -2169,6 +2169,17 @@ namespace Desert::Graphic
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
         // after it has no row in the scene material table and is refused at draw. The plan ran on its setup task
         // since "Setup: Grass plan" (FPS-GRASS-PLAN): joined here, committed into this graph.
+        // FPS-GRASS-SETUP-FUSE: before the grass's CommitFrame too - its camera cull writes the blades' setup
+        // records from it.
+        // DEFORM-RT-TRAMPLE (UE: one deformation evaluation shared by the raster and the ray-tracing geometry):
+        // the deformation field before the TLAS, whose grass rows read it (RayTracingGpuInstances.shader), as well
+        // as before any mesh pass - the grass blades of the view, its cascades and its virtual shadow read it
+        // (MeshRenderer::SetFrameDeformationField). Where its contacts write is taken first: the update consumes
+        // them, and the cascade cache plan below reads it.
+        m_FramePendingFootprints = m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
+                                        ? m_DeformationField.PendingFootprints()
+                                        : std::vector<glm::vec4>{};
+        AddFrameDeformationField( graph, textures, frame );
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass" );
         grassTasks.Join();
         if ( growsGrass )
@@ -2280,15 +2291,6 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
-        // DEFORM-RT-TRAMPLE (UE: one deformation evaluation shared by the raster and the ray-tracing geometry):
-        // the deformation field before the TLAS, whose grass rows read it (RayTracingGpuInstances.shader), as well
-        // as before any mesh pass - the grass blades of the view, its cascades and its virtual shadow read it
-        // (MeshRenderer::SetFrameDeformationField). Where its contacts write is taken first: the update consumes
-        // them, and the cascade cache plan below reads it.
-        m_FramePendingFootprints = m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
-                                        ? m_DeformationField.PendingFootprints()
-                                        : std::vector<glm::vec4>{};
-        AddFrameDeformationField( graph, textures, frame );
 
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.

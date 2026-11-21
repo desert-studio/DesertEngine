@@ -261,10 +261,11 @@ namespace Desert::Graphic::System
         // GrassVarietyRows.glslh kGrassLawBuckets: a chunk's law words keep each record's bucket + 1 in four bits.
         constexpr uint32_t kLawBuckets = 15u;
         // GrassCull's dispatch buffer (GrassCull.shader CullDispatch, a buffer of this frame's graph): the camera
-        // cull's and phase 2's VkDispatchIndirectCommand, each on a uvec4 (w: its groups), then per culled row a
-        // uvec4 of its first groups. The CPU never reads it.
-        constexpr uint32_t kCullDispatchHeader = 2u;
-        constexpr uint64_t kPostDispatchOffset = sizeof( glm::uvec4 );
+        // cull's, phase 2's and the held setup's VkDispatchIndirectCommand, each on a uvec4 (w: its groups), then
+        // per culled row a uvec4 of its first groups. The CPU never reads it.
+        constexpr uint32_t kCullDispatchHeader      = 3u;
+        constexpr uint64_t kPostDispatchOffset      = sizeof( glm::uvec4 );
+        constexpr uint64_t kHeldSetupDispatchOffset = 2u * sizeof( glm::uvec4 );
         // GrassCull.shader's modes (Hzb.w).
         // 0, the dispatch, has no pass of its own (FPS-GRASS-CULL-COST): CommitFrame uploads it.
         constexpr uint32_t kCullModeCameraCull     = 1u;
@@ -274,6 +275,12 @@ namespace Desert::Graphic::System
         // 5, the camera cull's instances, has no pass of its own (FPS-GRASS-CULL-2): mode 1's subgroups cull their
         // met chunks' records.
         constexpr uint32_t kCullModeCameraTiles = 6u;
+        // FPS-GRASS-SETUP-FUSE: the held camera lists' setup records (a thread per drawn slot of a held row).
+        constexpr uint32_t kCullModeHeldSetup = 7u;
+        // GrassCull.shader GrassCullSetupRow Kind.x: what a row's camera slots' setup records are.
+        constexpr uint32_t kCullSetupNone  = 0u;
+        constexpr uint32_t kCullSetupBlade = 1u;
+        constexpr uint32_t kCullSetupMesh  = 2u;
         // The tiles' list's room (GrassCull.shader Rows.y, a push word): every culled row's tile slots, capped so the
         // list's buffer stays bounded by what a frame can name.
         constexpr uint64_t kTileRoomLimit = uint64_t( 1u ) << 26u;
@@ -530,6 +537,16 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, CullTiles );
             DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
             DESERT_SHADER_PARAMETER( Texture, GrassHzbTexture );
+            // FPS-GRASS-SETUP-FUSE: what the appending thread writes a slot's setup record from, and the records.
+            DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CullSetupRows );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CullSetupRecords );
+            DESERT_SHADER_PARAMETER( Texture, DeformHeight0 );
+            DESERT_SHADER_PARAMETER( Texture, DeformHeight1 );
+            DESERT_SHADER_PARAMETER( Texture, DeformDetail0 );
+            DESERT_SHADER_PARAMETER( Texture, DeformDetail1 );
+            DESERT_SHADER_PARAMETER( StorageBuffer, DeformationParams );
+            DESERT_SHADER_PARAMETER( Sampler, DeformationFieldSampler );
         };
 
         // FPS-GRASS-SW-RASTER: the software raster's slots (Programs/Grass/GrassBladeSoftwareRaster.shader).
@@ -555,40 +572,9 @@ namespace Desert::Graphic::System
                                               RDG::Erase( VisibilityBuffer ) };
         };
 
-        // FPS-GRASS-RESOLVE-2, THE BLADE SETUP's slots (Programs/Grass/GrassBladeSetup.shader), validated once
-        // against the shader (Initialize).
-        struct GrassBladeSetupShaderParameters
-        {
-            DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
-            DESERT_SHADER_PARAMETER( StorageBuffer, BladeSetupTable );
-            DESERT_SHADER_PARAMETER( StorageBuffer, BladeSetupTransforms );
-            DESERT_SHADER_PARAMETER( StorageBuffer, BladeSetupIds );
-            DESERT_SHADER_PARAMETER( StorageBuffer, BladeSetupArgs );
-            DESERT_SHADER_PARAMETER( StorageBuffer, BladeSetupRecords );
-            DESERT_SHADER_PARAMETER( Texture, DeformHeight0 );
-            DESERT_SHADER_PARAMETER( Texture, DeformHeight1 );
-            DESERT_SHADER_PARAMETER( Texture, DeformDetail0 );
-            DESERT_SHADER_PARAMETER( Texture, DeformDetail1 );
-            DESERT_SHADER_PARAMETER( StorageBuffer, DeformationParams );
-            DESERT_SHADER_PARAMETER( Sampler, DeformationFieldSampler );
-            DESERT_SHADER_PARAMETER( StorageBuffer, BladeSetupWork );
-            static constexpr std::array kAll{ RDG::Erase( CameraUB ),
-                                              RDG::Erase( BladeSetupTable ),
-                                              RDG::Erase( BladeSetupTransforms ),
-                                              RDG::Erase( BladeSetupIds ),
-                                              RDG::Erase( BladeSetupArgs ),
-                                              RDG::Erase( BladeSetupRecords ),
-                                              RDG::Erase( DeformHeight0 ),
-                                              RDG::Erase( DeformHeight1 ),
-                                              RDG::Erase( DeformDetail0 ),
-                                              RDG::Erase( DeformDetail1 ),
-                                              RDG::Erase( DeformationParams ),
-                                              RDG::Erase( DeformationFieldSampler ),
-                                              RDG::Erase( BladeSetupWork ) };
-        };
-        // GrassBladeSetup.shader's GrassBladeSetupRow, std430: the variety's GrassBladeShapeData
-        // (GrassBladeShapeGpu without the hull), the raster draw row's view wind (PackViewInstanceWind) and where
-        // its camera records lie.
+        // GrassCull.shader's GrassCullSetupRow (FPS-GRASS-SETUP-FUSE), std430: a culled row's blade variety's
+        // GrassBladeShapeData (GrassBladeShapeGpu without the hull) or mesh variety's setup section's rows, the raster
+        // draw row's view wind (PackViewInstanceWind) and what its camera slots' records are.
         struct GrassBladeSetupRowGpu
         {
             glm::vec4                 Size{ 0.0f };
@@ -599,16 +585,13 @@ namespace Desert::Graphic::System
             glm::uvec4                Lists{ 0u };
             glm::vec4                 WindA{ 0.0f };
             glm::vec4                 WindB{ 0.0f };
-            // x = this phase's records' first word in the args pool (CameraArgs or PostArgs), y = 0, z = the
-            // records (one per strip level), w = the row's first entry (the earlier rows' records).
-            glm::uvec4 Args{ 0u };
+            // x = kCullSetupNone / kCullSetupBlade / kCullSetupMesh, yzw = 0.
+            glm::uvec4 Kind{ 0u };
         };
         static_assert( sizeof( GrassBladeSetupRowGpu ) == 272 );
         static_assert( offsetof( GrassBladeSetupRowGpu, Lists ) == offsetof( GrassBladeShapeGpu, Lists ) );
         inline constexpr uint64_t kBladeSetupRecordBytes     = 64u;    // GrassBlade.glslh GrassBladeSetupData
-        inline constexpr uint32_t kBladeSetupModeWork        = 0u;     // GrassBladeSetup.shader kModeWork
-        inline constexpr uint32_t kBladeSetupModeSetup       = 1u;     // GrassBladeSetup.shader kModeSetup
-        inline constexpr uint32_t kBladeSetupWorkHeaderWords = 4u;     // GrassBladeSetup.shader kWorkHeaderWords
+        inline constexpr uint32_t kBladeSetupWorkHeaderWords = 4u;     // GrassBladeSoftwareRaster.shader's work header
         inline constexpr uint32_t kBladeSetupArgsHeaderWords = 4u;     // GpuInstances.hpp: the records' header
         inline constexpr uint32_t kBladeSetupRecordWords     = 5u;     // VkDrawIndexedIndirectCommand
         // FPS-GRASS-SW-RASTER: GrassBladeSoftwareRaster.shader's GrassBladeRasterRow, std430 - the variety's whole
@@ -754,7 +737,6 @@ namespace Desert::Graphic::System
         for ( const auto& [name, into] :
               { std::pair{ "GrassGenerate", &m_Generate }, std::pair{ "GrassCull", &m_Cull },
                 std::pair{ "GrassDrawCompact", &m_DrawCompact },
-                std::pair{ "GrassBladeSetup", &m_BladeSetupProgram },
                 std::pair{ "GrassBladeSoftwareRaster", &m_BladeRasterProgram } } )
         {
             const auto shader = shaders->GetByName( name );
@@ -765,10 +747,6 @@ namespace Desert::Graphic::System
                 return Common::MakeError( std::format( "GrassRenderer: {}", made.GetError() ) );
             *into = made.GetValue();
         }
-        if ( auto checked = m_BladeSetupLayout.Validate( m_BladeSetupProgram->GetSpecification().Shader,
-                                                         GrassBladeSetupShaderParameters::kAll );
-             !checked )
-            return Common::MakeError( std::format( "GrassRenderer: GrassBladeSetup: {}", checked.GetError() ) );
         if ( auto checked = m_BladeRasterLayout.Validate( m_BladeRasterProgram->GetSpecification().Shader,
                                                           GrassBladeSoftwareRasterShaderParameters::kAll );
              !checked )
@@ -3013,7 +2991,6 @@ namespace Desert::Graphic::System
         // its graph must not be handed the previous graph's ref (SceneRendererFrameMesh declares a resolve's read
         // of BladeSetupRef) nor AddFrameBladeSetup the previous frame's varieties.
         m_BladeSetupVarieties.clear();
-        m_FramePostAdded    = false;
         m_BladeSetupRef     = RDG::BufferRef{};
         m_BladeSetupAddress = 0u;
         m_BladeRayTracing.BeginFrame( rayTracing );
@@ -3465,6 +3442,8 @@ namespace Desert::Graphic::System
             RDG::BufferDesc tilesDesc;
             tilesDesc.Bytes = kTileHeaderBytes + std::max( tileRoom, uint64_t( 1u ) ) * kTileEntryBytes;
             m_FrameTiles    = graph.CreateBuffer( tilesDesc, "GrassCullTiles" );
+            // FPS-GRASS-SETUP-FUSE: the rows, camera block and field the appending threads write setup records from.
+            WriteCullSetup( graph, frame, meshes );
             const RDG::TextureRef hzb = testsHzb ? occlusion.Hzb : occlusion.Neutral;
             ShaderPush::GrassCull         layOut;
             layOut.HzbViewProjection = occlusion.PrevViewProjection;
@@ -3522,7 +3501,7 @@ namespace Desert::Graphic::System
                      // tile slots' nodes against the views; it appends the slots that may meet one. Its first group
                      // restarts the rows (FPS-GRASS-CULL-COST, GrassCull RestartRows): the law's slots (Chunks'
                      // header) and the full list's counts.
-                     BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageWrite );
+                     BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageWrite, RDG::Access::StorageRead );
                      pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
                      pass.Write( m_ChunksPool.Ref(), RDG::Access::StorageWrite ); // the tiles' nodes, the law's slots
                      pass.Read( m_ParamsPool.Ref(), RDG::Access::StorageRead );
@@ -3547,7 +3526,7 @@ namespace Desert::Graphic::System
                      // finalize (FPS-GRASS-CULL-COST, GrassCull CameraCullGroup) - the camera's and the full list's
                      // records, the cascades' lists, Feedback and phase 2's dispatch (CullDispatch [1] and the rows'
                      // y, its done count before) - so no pass follows it on the async chain.
-                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageRead );
+                     BindCull( pass, hzb, RDG::Access::StorageWrite, RDG::Access::StorageRead, RDG::Access::StorageWrite );
                      pass.Read( m_FrameTiles, RDG::Access::IndirectArgs );
                      // FPS-ARCH-GRASSROWS: every variety's law rows (LawChunk writes them, the instance cull reads
                      // them by id), one pool.
@@ -3578,6 +3557,33 @@ namespace Desert::Graphic::System
                      bindings.PushConstants( cull );
                      return Renderer::DispatchComputeIndirect( bindings, *m_Cull, tilesBuffer, 0u );
                  } );
+
+            // FPS-GRASS-SETUP-FUSE, THE HELD LISTS' SETUP (GrassCull mode 7): a row whose camera list holds
+            // (kRowCameraHeld) had no thread append to it this frame, but the wind moved - a thread per drawn slot,
+            // laid out by the finalize; no such pass while no row holds.
+            if ( m_FrameCameraHeld )
+            {
+                ShaderPush::GrassCull held = layOut;
+                held.Hzb.w                 = kCullModeHeldSetup;
+                graph.AddPass(
+                     "Grass: Held Blade Setup", cullFlags,
+                     [this, hzb]( RDG::PassBuilder& pass )
+                     {
+                         BindCull( pass, hzb, RDG::Access::StorageRead, RDG::Access::StorageRead,
+                                   RDG::Access::StorageWrite );
+                         pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
+                         pass.Read( m_InstancesPool.Ref(), RDG::Access::StorageRead );
+                         pass.Read( m_IdsPool.Ref(), RDG::Access::StorageRead );
+                         pass.Read( m_ArgsPool.Ref(), RDG::Access::StorageRead );
+                     },
+                     [this, held, dispatchBuffer = m_FrameDispatch]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         bindings.PushConstants( held );
+                         return Renderer::DispatchComputeIndirect( bindings, *m_Cull, dispatchBuffer,
+                                                                   kHeldSetupDispatchOffset );
+                     } );
+            }
 
             // RENDER-JOB-CPU-4: the first phase's compacted bins, gathered from the records just finalized.
             if ( const Common::BoolResultStr gathered = AddDrawGather( graph, kGpuDrawBinCameraPhase ); !gathered )
@@ -3613,6 +3619,7 @@ namespace Desert::Graphic::System
         std::vector<uint8_t>& image = m_TableImage;
         image.reserve( sizeof( GrassVarietyTableGpu ) + m_FrameCull.size() * sizeof( GrassVarietyRowGpu ) );
         image.resize( sizeof( GrassVarietyTableGpu ) );
+        m_FrameCameraHeld = false;
         std::memcpy( image.data(), &header, sizeof( header ) );
         for ( const std::vector<VarietyGpu*>* list : { &m_FrameCull } )
         {
@@ -3750,7 +3757,10 @@ namespace Desert::Graphic::System
                         gpu->CameraCulled = false;
                     }
                     if ( gpu->CameraCulled && ( row.Info.z & kRowCascadesHeld ) != 0u )
+                    {
                         row.Info.z |= kRowCameraHeld;
+                        m_FrameCameraHeld = true; // FPS-GRASS-SETUP-FUSE: its slots get mode 7's records
+                    }
                     gpu->CameraCulled = true;
                 }
                 const size_t at = image.size();
@@ -3772,7 +3782,6 @@ namespace Desert::Graphic::System
     Common::BoolResultStr GrassRenderer::CommitBladeSetup( RDG::Builder& graph )
     {
         m_BladeSetupVarieties.clear();
-        m_FramePostAdded    = false;
         m_BladeSetupRef     = RDG::BufferRef{};
         m_BladeSetupAddress = 0u;
         // Past kGrassVisibilityMaxRows the view refuses its grass visibility path (VisibilityRowsOverflow): no
@@ -3809,170 +3818,92 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr GrassRenderer::AddFrameBladeSetup( RDG::Builder& graph, const ViewFrame& frame,
-                                                             const DeformationFieldReads& field,
-                                                             const MeshRenderer& meshes, const bool postOcclusion )
+    void GrassRenderer::WriteCullSetup( RDG::Builder& graph, const ViewFrame& frame, const MeshRenderer& meshes )
     {
-        if ( m_BladeSetupVarieties.empty() || !m_BladeSetupRef.IsValid() || !m_BladeSetupProgram )
-            return BOOLSUCCESS;
-        // Phase 2 sets up only what AddFramePostOcclusion added this frame (a scene capture adds none).
-        if ( postOcclusion && !m_FramePostAdded )
-            return BOOLSUCCESS;
-        // The table: the header, then one row a blade variety or mesh section the visibility raster draws (a
-        // blade's shape without the hull or a mesh section's rows, its view wind, this phase's records: the camera
-        // list's, or phase 2's, and its first entry).
-        std::vector<GrassBladeSetupRowGpu> rows;
-        rows.reserve( m_BladeSetupVarieties.size() );
-        uint32_t entries = 0u;
+        // FPS-GRASS-SETUP-FUSE (Ghost of Tsushima, GDC 2021: the compute that appends a visible blade writes its
+        // render data in the same thread; was "Grass: Blade Setup Work" + "Grass: Blade Setup", a prefix and a binary
+        // search per blade on the graphics queue): per culled row (m_FrameCull's order, the variety table's rows)
+        // what GrassCull's appending threads write its camera slots' setup records from - a blade variety's shape, a
+        // mesh variety's setup section's rows (FPS-GRASS-MESH-SETUP), the raster's draw-row wind - with the view's
+        // camera block and deformation field. Every variety CommitFrame drew with records gets them, on the
+        // visibility path this frame or not: they are its own rows, read only by the path that draws it.
+        std::vector<GrassBladeSetupRowGpu> rows( std::max<size_t>( m_FrameCull.size(), 1u ) );
+        const bool                         records = m_BladeSetupRef.IsValid();
         for ( const BladeSetupVariety& entry : m_BladeSetupVarieties )
         {
-            const VarietyGpu& gpu = *entry.Gpu;
-            if ( gpu.TableWord < kBladeSetupArgsHeaderWords )
+            if ( !records )
+                break;
+            const auto at = std::find( m_FrameCull.begin(), m_FrameCull.end(), entry.Gpu );
+            if ( at == m_FrameCull.end() )
                 continue;
-            if ( postOcclusion && gpu.PostArgs.Bytes == 0u )
-                continue; // phase 2 drew nothing of this variety
-            const uint64_t first = postOcclusion ? gpu.PostArgs.Offset : gpu.CameraArgs.Offset;
+            GrassBladeSetupRowGpu& row = rows[static_cast<size_t>( at - m_FrameCull.begin() )];
+            const VarietyGpu&      gpu = *entry.Gpu;
+            row.WindA                  = entry.Wind.A;
+            row.WindB                  = entry.Wind.B;
             if ( entry.Mesh )
             {
-                // FPS-GRASS-MESH-SETUP: its entries the levels (each level's first submesh record: every submesh
-                // of a level draws the same slots). FPS-GRASS-BLADE-SETUP: ONE row a variety, not one a section -
-                // the record is the instance's, the same for every section (MeshSetupSection) - at the setup
-                // section's rows, written when any section of the variety is drawn through the visibility buffer
-                // this frame (a section on the G-buffer path reads no record).
+                // ONE row a variety (FPS-GRASS-BLADE-SETUP): the record is the instance's, the same for every
+                // section (MeshSetupSection), at the setup section's rows.
                 const auto sections =
                      std::min<size_t>( { entry.Sections, gpu.MeshVisibilityRows.size(),
                                          gpu.MeshVisibilityTabled.size(), gpu.MeshVisibility.size() } );
                 const size_t setupSection = MeshSetupSection( gpu.MeshVisibilityTabled );
                 if ( setupSection >= sections )
                     continue;
-                bool resolved = false;
-                for ( size_t s = 0u; s < sections && !resolved; ++s )
-                    resolved = gpu.MeshVisibilityTabled[s] != 0u && gpu.MeshVisibility[s] != nullptr &&
-                               meshes.DrawsGrassVisibilitySection( gpu.Index * 64u + static_cast<uint32_t>( s ) );
+                bool tabled = false;
+                for ( size_t s = 0u; s < sections && !tabled; ++s )
+                    tabled = gpu.MeshVisibilityTabled[s] != 0u && gpu.MeshVisibility[s] != nullptr;
                 const GrassMeshVisibilityGpu& mesh = gpu.MeshVisibilityRows[setupSection];
-                if ( !resolved || mesh.Visibility.y == 0u || mesh.Visibility.z == 0u || mesh.Visibility.w == 0u )
+                if ( !tabled || mesh.Visibility.y == 0u || mesh.Visibility.z == 0u || mesh.Visibility.w == 0u )
                     continue;
-                GrassBladeSetupRowGpu row;
-                // Visibility: the setup section's first row, its rows per instance, levels, the list's slots
-                // (EntryDrawn's bound).
+                // Visibility: the setup section's first row, its rows per instance, levels, the list's slots.
                 row.Visibility =
                      glm::uvec4( mesh.Visibility.x, mesh.Visibility.y, mesh.Visibility.z, mesh.Slots.x );
-                row.BucketFirst       = mesh.BucketFirst;
-                row.Lists             = glm::uvec4( mesh.Slots.y, 0u, 0u, 0u );
-                row.WindA             = entry.Wind.A;
-                row.WindB             = entry.Wind.B;
-                const uint32_t levels = mesh.Visibility.z;
-                row.Args = glm::uvec4( static_cast<uint32_t>( first / 4u ), mesh.Visibility.w, levels, entries );
-                entries += levels;
-                rows.push_back( row );
+                row.BucketFirst = mesh.BucketFirst;
+                row.Lists       = glm::uvec4( mesh.Slots.y, 0u, 0u, 0u );
+                row.Kind        = glm::uvec4( kCullSetupMesh, 0u, 0u, 0u );
                 continue;
             }
-            // FPS-GRASS-SETUP-TRIM: a variety on the G-buffer path this frame draws from its transforms; nothing
-            // reads its records.
-            bool viaVisibility = false;
-            for ( uint32_t s = 0u; s < entry.Sections && !viaVisibility; ++s )
-                viaVisibility = meshes.DrawsGrassVisibilitySection( gpu.Index * 64u + s );
-            if ( !viaVisibility )
-                continue;
-            GrassBladeSetupRowGpu row;
             row.Size        = gpu.ShapeData.Size;
             row.Bend        = gpu.ShapeData.Bend;
             row.Cards       = gpu.ShapeData.Cards;
             row.Visibility  = gpu.ShapeData.Visibility;
             row.BucketFirst = gpu.ShapeData.BucketFirst;
             row.Lists       = gpu.ShapeData.Lists;
-            row.WindA       = entry.Wind.A;
-            row.WindB              = entry.Wind.B;
-            const uint32_t records = ( gpu.TableWord - kBladeSetupArgsHeaderWords ) / kBladeSetupRecordWords;
-            row.Args               = glm::uvec4( static_cast<uint32_t>( first / 4u ), 0u, records, entries );
-            entries += records;
-            rows.push_back( row );
+            row.Kind        = glm::uvec4( kCullSetupBlade, 0u, 0u, 0u );
         }
-        if ( rows.empty() || entries == 0u )
-            return BOOLSUCCESS;
-        if ( rows.size() > std::numeric_limits<uint32_t>::max() )
-            return Common::MakeError( std::format( "{} blade setup rows pass 32 bits", rows.size() ) );
-        // Two tables, one image: the work pass's header says kModeWork, the setup's kModeSetup (the rows are the
-        // same; GrassBladeSetup.shader reads the mode from BladeSetupInfo.z).
-        const auto             rowCount = static_cast<uint32_t>( rows.size() );
-        std::vector<std::byte> image( sizeof( glm::uvec4 ) + rows.size() * sizeof( GrassBladeSetupRowGpu ) );
-        std::memcpy( image.data() + sizeof( glm::uvec4 ), rows.data(),
-                     rows.size() * sizeof( GrassBladeSetupRowGpu ) );
-        const auto uploadTable = [&graph, &image, rowCount, entries]( const uint32_t mode, const char* name )
+        m_FrameSetupRows = graph.CreateBuffer( RDG::BufferDesc{ rows.size() * sizeof( GrassBladeSetupRowGpu ) },
+                                               "GrassCullSetupRows" );
+        graph.QueueBufferUpload( m_FrameSetupRows, std::as_bytes( std::span( rows ) ) );
+        // No records this frame (CommitBladeSetup refused, logged): every row kCullSetupNone, the slot bound to a
+        // record no thread writes.
+        if ( records )
+            m_FrameSetupRecords = m_BladeSetupRef;
+        else
         {
-            const glm::uvec4 info( rowCount, entries, mode, 0u );
-            std::memcpy( image.data(), &info, sizeof( info ) );
-            const RDG::BufferRef table = graph.CreateBuffer( RDG::BufferDesc{ image.size() }, name );
-            graph.QueueBufferUpload( table, std::span<const std::byte>( image ) );
-            return table;
-        };
-        const RDG::BufferRef workTable  = uploadTable( kBladeSetupModeWork, "GrassBladeSetupWorkTable" );
-        const RDG::BufferRef setupTable = uploadTable( kBladeSetupModeSetup, "GrassBladeSetupTable" );
-        // The work: the setup's indirect dispatch, the drawn total, each entry's drawn blades before it.
-        const RDG::BufferRef work = graph.CreateBuffer(
-             RDG::BufferDesc{ ( uint64_t{ kBladeSetupWorkHeaderWords } + entries ) * sizeof( uint32_t ) },
-             "GrassBladeSetupWork" );
-
+            static constexpr std::array<std::byte, kBladeSetupRecordBytes> kNoRecord{};
+            m_FrameSetupRecords = graph.CreateBuffer( RDG::BufferDesc{ kNoRecord.size() }, "GrassCullNoSetup" );
+            graph.QueueStaticBufferUpload( m_FrameSetupRecords, std::span<const std::byte>( kNoRecord ) );
+        }
         const ShaderProtocols::Camera cameraBlock = ShaderProtocols::MakeCameraUB( frame );
-        const RDG::BufferRef          camera =
-             graph.CreateBuffer( RDG::BufferDesc{ sizeof( cameraBlock ) }, "GrassBladeSetup.CameraUB" );
-        graph.QueueBufferUpload( camera,
+        m_FrameCamera = graph.CreateBuffer( RDG::BufferDesc{ sizeof( cameraBlock ) }, "GrassCull.CameraUB" );
+        graph.QueueBufferUpload( m_FrameCamera,
                                  std::as_bytes( std::span<const ShaderProtocols::Camera>( &cameraBlock, 1 ) ) );
-
-        // One binding set for both dispatches (the program's one layout): @p table, the records written (the
-        // setup) or only read (the work pass touches none), the work written (the work pass) or read (the setup).
-        using P = GrassBladeSetupShaderParameters;
-        const auto bindSetup =
-             [this, camera, work, &field]( RDG::PassBuilder& pass, const RDG::BufferRef table, const bool setsUp )
+        // The view's deformation field (SceneRenderer adds it before CommitFrame); none: System.Black and zero
+        // levels, every read "untouched".
+        const DeformationFieldReads& field = meshes.GetFrameDeformationField();
+        if ( field.IsValid() )
         {
-            pass.Bindings( m_BladeSetupLayout.Get( m_BladeSetupProgram->GetSpecification().Shader ),
-                           Renderer::GetPipelineRouteFill( *m_BladeSetupProgram ) )
-                 .Uniform( P::CameraUB, camera )
-                 .Storage( P::BladeSetupTable, table, RDG::Access::StorageRead )
-                 .Storage( P::BladeSetupTransforms, m_InstancesPool.Ref(), RDG::Access::StorageRead )
-                 .Storage( P::BladeSetupIds, m_IdsPool.Ref(), RDG::Access::StorageRead )
-                 .Storage( P::BladeSetupArgs, m_ArgsPool.Ref(), RDG::Access::StorageRead )
-                 .Storage( P::BladeSetupRecords, m_BladeSetupRef,
-                           setsUp ? RDG::Access::StorageWrite : RDG::Access::StorageRead )
-                 .Texture( P::DeformHeight0, field.Height[0], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Texture( P::DeformHeight1, field.Height[1], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Texture( P::DeformDetail0, field.Detail[0], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Texture( P::DeformDetail1, field.Detail[1], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Storage( P::DeformationParams, field.Params, RDG::Access::StorageRead )
-                 .Sampler( P::DeformationFieldSampler, RDG::SamplerDesc::PointClamp() )
-                 .Storage( P::BladeSetupWork, work,
-                           setsUp ? RDG::Access::StorageRead : RDG::Access::StorageWrite );
-        };
-        // Blade setup stays on the graphics queue: phase 1's raster consumes it immediately, so on the async pipe
-        // (FPS-GRASS-RASTER-COST, scn-1121-111104) the graphics queue only waited 0.235 ms before
-        // 'Grass: Visibility Raster' for the same work - nothing overlapped it. Keep it here until independent
-        // graphics work can be scheduled between the setup and the raster.
-        const RDG::PassFlags setupFlags = RDG::PassFlags::Compute;
-        graph.AddPass(
-             postOcclusion ? "Grass: Blade Setup Work Post-Occlusion" : "Grass: Blade Setup Work", setupFlags,
-             [bindSetup, workTable]( RDG::PassBuilder& pass ) { bindSetup( pass, workTable, false ); },
-             [program = m_BladeSetupProgram]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::DispatchCompute( bindings, *program, 1, 1, 1 );
-             } );
-        graph.AddPass(
-             postOcclusion ? "Grass: Blade Setup Post-Occlusion" : "Grass: Blade Setup", setupFlags,
-             [bindSetup, setupTable, work]( RDG::PassBuilder& pass )
-             {
-                 bindSetup( pass, setupTable, true );
-                 pass.Read( work, RDG::Access::IndirectArgs );
-             },
-             [program = m_BladeSetupProgram, work]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::DispatchComputeIndirect( bindings, *program, work, 0u );
-             } );
-        return BOOLSUCCESS;
+            m_FrameFieldHeight = field.Height;
+            m_FrameFieldDetail = field.Detail;
+            m_FrameFieldParams = field.Params;
+            return;
+        }
+        m_FrameFieldHeight = { m_FrameNeutral, m_FrameNeutral };
+        m_FrameFieldDetail = { m_FrameNeutral, m_FrameNeutral };
+        static constexpr std::array<std::byte, 32u> kNoField{}; // GrassCull DeformationParams: two zero vec4s
+        m_FrameFieldParams = graph.CreateBuffer( RDG::BufferDesc{ kNoField.size() }, "GrassCull.NoDeformation" );
+        graph.QueueStaticBufferUpload( m_FrameFieldParams, std::span<const std::byte>( kNoField ) );
     }
 
     Common::BoolResultStr GrassRenderer::AddFrameBladeSoftwareRaster( RDG::Builder& graph, const ViewFrame& frame,
@@ -4091,7 +4022,7 @@ namespace Desert::Graphic::System
     }
 
     void GrassRenderer::BindCull( RDG::PassBuilder& pass, const RDG::TextureRef hzb, const RDG::Access dispatch,
-                                  const RDG::Access tiles )
+                                  const RDG::Access tiles, const RDG::Access setup )
     {
         pass.Bindings( m_CullLayout.Get( m_Cull->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_Cull ) )
@@ -4101,6 +4032,19 @@ namespace Desert::Graphic::System
              .Sampler( GrassCullShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Texture( GrassCullShaderParameters::GrassHzbTexture, hzb, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() )
+             .Uniform( GrassCullShaderParameters::CameraUB, m_FrameCamera )
+             .Storage( GrassCullShaderParameters::CullSetupRows, m_FrameSetupRows, RDG::Access::StorageRead )
+             .Storage( GrassCullShaderParameters::CullSetupRecords, m_FrameSetupRecords, setup )
+             .Texture( GrassCullShaderParameters::DeformHeight0, m_FrameFieldHeight[0], RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Texture( GrassCullShaderParameters::DeformHeight1, m_FrameFieldHeight[1], RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Texture( GrassCullShaderParameters::DeformDetail0, m_FrameFieldDetail[0], RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Texture( GrassCullShaderParameters::DeformDetail1, m_FrameFieldDetail[1], RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Storage( GrassCullShaderParameters::DeformationParams, m_FrameFieldParams, RDG::Access::StorageRead )
+             .Sampler( GrassCullShaderParameters::DeformationFieldSampler, RDG::SamplerDesc::PointClamp() )
              .PushConstants<ShaderPush::GrassCull>();
     }
 
@@ -4121,13 +4065,13 @@ namespace Desert::Graphic::System
         post.Rows = glm::uvec4( static_cast<uint32_t>( m_FrameCull.size() ), 0u, 0u, 0u );
         ShaderPush::GrassCull finalize = post;
         finalize.Hzb.w         = kCullModePostFinalize;
-        m_FramePostAdded = true; // phase 2's records are drawn this frame: the blade setup reads them too
         graph.AddPass(
              tests ? "Grass: Post-Occlusion" : "Grass: Post-Occlusion (no HZB)", RDG::PassFlags::Compute,
              [this, bound]( RDG::PassBuilder& pass )
              {
-                 BindCull( pass, bound, RDG::Access::StorageRead, RDG::Access::StorageRead );
+                 BindCull( pass, bound, RDG::Access::StorageRead, RDG::Access::StorageRead, RDG::Access::StorageWrite );
                  pass.Read( m_FrameDispatch, RDG::Access::IndirectArgs );
+                 pass.Read( m_InstancesPool.Ref(), RDG::Access::StorageRead ); // the candidates' law rows (setup)
                  pass.Read( m_CandidatesPool.Ref(),
                             RDG::Access::StorageRead ); // every variety's (CPU-GRASS-POOL-1)
                  // Every list's ids and records are ranges of one pool each (CPU-GRASS-POOL-5): the full
@@ -4151,7 +4095,7 @@ namespace Desert::Graphic::System
              "Grass: Post-Occlusion Finalize", RDG::PassFlags::Compute,
              [this, bound]( RDG::PassBuilder& pass )
              {
-                 BindCull( pass, bound, RDG::Access::StorageRead, RDG::Access::StorageRead );
+                 BindCull( pass, bound, RDG::Access::StorageRead, RDG::Access::StorageRead, RDG::Access::StorageRead );
                  if ( !m_FrameCull.empty() )
                  {
                      pass.Write( m_ArgsPool.Ref(), RDG::Access::StorageWrite ); // camera -> post records

@@ -685,10 +685,6 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Raster" );
         if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
             return;
-        // FPS-GRASS-SETUP-TRIM: this phase's blades set up right before its raster reads them, once the sections
-        // were chosen (DrawsGrassVisibility above): only the varieties drawn here, only their drawn blades.
-        if ( const ViewFrame* const viewFrame = GetViewFrame(); viewFrame != nullptr )
-            AddFrameGrassBladeSetup( graph, meshRenderer, *viewFrame, postOcclusion );
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
@@ -907,20 +903,6 @@ namespace Desert::Graphic
         }
         if ( visibility.IsValid() )
             AddFrameGrassVisibility( graph, textures, meshRenderer, visibility, true );
-    }
-
-    void SceneRenderer::AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer,
-                                                 const ViewFrame& frame, const bool postOcclusion )
-    {
-        // Called by AddFrameGrassVisibility once the sections are chosen: GrassRenderer sets up only the varieties
-        // MeshRenderer draws through the visibility buffer (DrawsGrassVisibilitySection).
-        auto* grass = m_Systems.Grass.get();
-        if ( grass == nullptr || meshRenderer == nullptr )
-            return;
-        if ( const auto setup = grass->AddFrameBladeSetup( graph, frame, meshRenderer->GetFrameDeformationField(),
-                                                           *meshRenderer, postOcclusion );
-             !setup )
-            LOG_ERROR( "[Grass] Blade Setup{}: {}", postOcclusion ? " Post-Occlusion" : "", setup.GetError() );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
