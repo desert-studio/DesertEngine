@@ -3121,15 +3121,22 @@ namespace Desert::Graphic::System
                 return 0u;
             return Flags::kPreviousPositions;
         };
+        // THE ROW DRAWS THE LEVEL THE SKIN CACHE SKINNED (UE draws PredictedLODLevel, the one level of the frame):
+        // SelectSkinnedLods picked it above (screen size x LODDistanceScale, never finer than the evaluated pose,
+        // the VAT hand-off), and the skin pass skins only that level's vertex range. Left to InstanceCull's own
+        // SelectLod (-1), the GPU re-chose a level from the bare camera distance; any disagreement drew index
+        // ranges over vertices nobody skinned this frame - the whole Cinematic crowd vanished at LOD > 0
+        // (CINEMATIC-LOD: the CPU chose at distance x 0.5, the GPU at distance x 1). Forced, both agree by
+        // construction, every cull view (main, cascades, VSM) included.
         for ( const auto& data : m_SkinnedQueue )
-            skinned.push_back(
-                 { .Entity  = data.Entity,
-                   .World   = data.Transform,
-                   .Bones   = data.BoneMatrices,
-                   .Mesh    = data.Mesh,
-                   .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ) |
-                             previousPositions( data.Mesh ),
-                   .Content = skinnedContent( data ) } );
+            skinned.push_back( { .Entity = data.Entity,
+                                 .World  = data.Transform,
+                                 .Bones  = data.BoneMatrices,
+                                 .Mesh   = data.Mesh,
+                                 .Flags  = Flags::kSkinned | Flags::kMovableCaster |
+                                          rigidFlags( data.CastShadows, true ) | previousPositions( data.Mesh ),
+                                 .ForcedLod = static_cast<int32_t>( data.Lod ),
+                                 .Content   = skinnedContent( data ) } );
         // The proxies no record claimed this sync left the scene (or the view): released with their bindings.
         if ( skinnedClaimed < m_SkinnedContentProxies.size() )
             std::erase_if( m_SkinnedContentProxies,
