@@ -499,6 +499,10 @@ namespace Desert::Editor::Baking
         const glm::vec2 extent( static_cast<float>( size ) );
         const auto      edge = []( const glm::vec2& a, const glm::vec2& b, const glm::vec2& p )
         { return ( b.x - a.x ) * ( p.y - a.y ) - ( b.y - a.y ) * ( p.x - a.x ); };
+        // OVERLAPPING UVs (UE's material baking warns of them): two triangles over one texel leave the G-buffer
+        // the last one drawn while this walk inverts each triangle's own frame, so the map is wrong there.
+        constexpr float kOverlapInset = 0.05f;
+        std::size_t     overlapped    = 0;
         const auto walked = ForEachSlotTriangle(
              m_Request.Mesh, m_Request.Slot,
              [&]( const ::Desert::Vertex* const( &v )[3] )
@@ -527,6 +531,8 @@ namespace Desert::Editor::Baking
                              continue;
                          const std::size_t texel =
                               static_cast<std::size_t>( r ) * size + static_cast<std::size_t>( c );
+                         if ( covered[texel] != 0 && w0 > kOverlapInset && w1 > kOverlapInset && w2 > kOverlapInset )
+                             ++overlapped; // inside a second triangle, not on a shared edge
                          covered[texel]    = 1;
                          const glm::vec4 b = HalfTexel( gbufferB, texel );
                          const glm::vec3 world( b );
@@ -552,6 +558,11 @@ namespace Desert::Editor::Baking
              } );
         if ( !walked )
             return walked;
+        if ( overlapped * 100 > texels )
+            LOG_WARN( "Bake Material to Textures: {} texel(s) ({:.1f} %) lie under two or more triangles - the "
+                         "slot's UVs overlap, and the Normal there is another triangle's; bake a mesh with "
+                         "non-overlapping UVs (a lightmap-style unwrap)",
+                         overlapped, 100.0 * static_cast<double>( overlapped ) / static_cast<double>( texels ) );
 
         // THE ISLAND'S EDGE IS WHERE BOTH RASTERISERS AGREE. The G-buffer is drawn with the view's temporal jitter
         // (up to half a texel) and the GPU's fill rule, the islands above by texel centre: a border texel the CPU
