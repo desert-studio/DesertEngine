@@ -408,10 +408,13 @@ namespace Desert::Engine
             // recording. The material graveyard's own collector runs a few lines later inside the layer
             // update, which is what actually returns the descriptor pools.
             //
-            // Free when nothing is due: RunIfDue tests one bool and does not build the root set.
+            // Free when nothing is due: RunIfDue tests one bool and does not build the root set. A due sweep runs
+            // in slices, one per frame within AssetEvictionSettings::SliceBudgetMs, until it is done.
             {
                 DESERT_PROFILE_SCOPE( "Assets: Eviction" );
-                Assets::AssetEvictionSchedule::RunIfDue( [] { return Core::CollectAssetRootsFromLiveScenes(); } );
+                static const Assets::AssetEvictionSettings kEviction{};
+                Assets::AssetEvictionSchedule::RunIfDue( [] { return Core::CollectAssetRootsFromLiveScenes(); },
+                                                         kEviction );
             }
 
             // The meshes and textures a sweep dropped are freed here, frames later, once no frame in flight can

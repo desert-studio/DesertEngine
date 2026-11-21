@@ -3,7 +3,9 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRootSet.hpp>
 
+#include <chrono>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -260,12 +262,95 @@ namespace Desert::Assets
          */
         static void EdgesOf( AssetManager& manager, const Common::AssetHandle& handle,
                              const std::function<void( const Common::UUID&, const std::string& )>& visit );
+    };
+
+    /// HOW MUCH OF A FRAME THE SWEEP MAY TAKE (WP-OPT-EVICT-BATCH). A code default like TextureUploadSettings,
+    /// read by `AssetEvictionSchedule::RunIfDue` every frame a sweep is in progress.
+    struct AssetEvictionSettings
+    {
+        /// Game-thread milliseconds one frame's slice of a sweep may spend before it yields to the next frame
+        /// (UE: gc.IncrementalBeginDestroyEnabled with its per-frame time limit). A slice always does at least one
+        /// unit of work, so a sweep finishes however small this is.
+        double SliceBudgetMs = 2.0;
+    };
+
+    /**
+     * @brief ONE SWEEP OF ONE REGISTRY, RESUMABLE ACROSS FRAMES — `AssetEviction::Run` cut into slices.
+     *
+     * UE's incremental purge is the pattern: a world-streaming departure only asks for a collection, and the
+     * collection runs at one fixed point of the frame under a time limit, carrying on next frame where it stopped.
+     * The phases are the ones Run always had — MARK (the closure of the roots through `EdgesOf`, a worklist so
+     * each reachable asset is expanded once), RELEASE (every registered, unreachable, world-scoped asset), FINISH
+     * (graveyard collect, the built-mesh ledger) — and every unit of work is one asset, checked against the slice
+     * deadline.
+     *
+     * THE ROOTS MAY CHANGE BETWEEN SLICES, and the sweep stays safe by only ever GROWING its closure: `AddRoots`
+     * marks what a newly activated cell names and expands it before any further release, and a release checks
+     * the closure at the moment it releases. A root that went away in the meantime keeps its assets until the
+     * next sweep, which its own departure has already asked for: conservative, never wrong.
+     */
+    class AssetEvictionSweep final
+    {
+    public:
+        AssetEvictionSweep( AssetManager& manager, IEvictionSink& sink );
+
+        /// Keep everything @p roots names, with its reasons. Any number of times before the sweep is done.
+        void AddRoots( const AssetRootSet& roots );
+
+        /// Work until @p deadline (at least one unit). True once the sweep is finished and `Outcome()` is final.
+        bool Step( std::chrono::steady_clock::time_point deadline );
+
+        [[nodiscard]] bool Done() const noexcept
+        {
+            return m_Phase == Phase::Done;
+        }
+
+        [[nodiscard]] AssetManager& Manager() const noexcept
+        {
+            return m_Manager;
+        }
+
+        [[nodiscard]] const EvictionOutcome& Outcome() const noexcept
+        {
+            return m_Outcome;
+        }
+
+        /// The costliest single unit of work so far and what it was ("expand", "candidates", "release",
+        /// "finish"): a slice over its budget is one unit that did not fit, and this names it.
+        [[nodiscard]] double LongestUnitMs() const noexcept
+        {
+            return m_LongestUnitMs;
+        }
+
+        [[nodiscard]] const char* LongestUnit() const noexcept
+        {
+            return m_LongestUnit;
+        }
 
     private:
-        /// Add everything the assets already in @p closure name, until it stops growing. The edges come
-        /// from `EdgesOf` so `Desert/Tests/Engine/AssetEviction` has one list to hold against the
-        /// classes that actually have such a field.
-        static void Expand( AssetManager& manager, AssetRootSet& closure );
+        enum class Phase
+        {
+            Mark,
+            Release,
+            Done,
+        };
+
+        void MarkOne( const Common::AssetHandle& handle, std::string why );
+        void ExpandOne( const Common::AssetHandle& handle );
+        void TakeCandidates();
+        void ReleaseOne( const Common::AssetHandle& handle, const Asset<AssetBase>& asset );
+        void Finish();
+
+        AssetManager&                                                 m_Manager;
+        IEvictionSink&                                                m_Sink;
+        Phase                                                         m_Phase = Phase::Mark;
+        AssetRootSet                                                  m_Closure;
+        std::vector<Common::AssetHandle>                              m_Frontier;
+        std::vector<std::pair<Common::AssetHandle, Asset<AssetBase>>> m_Candidates;
+        std::size_t                                                   m_NextCandidate = 0;
+        EvictionOutcome                                               m_Outcome;
+        double                                                        m_LongestUnitMs = 0.0;
+        const char*                                                   m_LongestUnit   = "none";
     };
 
     /**
@@ -300,7 +385,14 @@ namespace Desert::Assets
         /// value: walking every live scene's components costs a pass over the world, and the caller is the
         /// frame loop. It is also what keeps the layering straight — the roots come from ECS components,
         /// which are ABOVE this layer, so the asset layer must be handed them rather than fetch them.
-        static void RunIfDue( const std::function<AssetRootSet()>& collectRoots );
+        ///
+        /// A due sweep is RUN IN SLICES, one per frame, each within `settings.SliceBudgetMs`, until it is done
+        /// (AssetEvictionSweep); the roots are collected again for every slice. Requests that arrive while a
+        /// sweep is in progress arm the next one, which starts only after this one has finished: one sweep at a
+        /// time, at most one slice per frame. One `[Assets] eviction` line per finished sweep says how many
+        /// frames it took and the longest slice.
+        static void RunIfDue( const std::function<AssetRootSet()>& collectRoots,
+                              const AssetEvictionSettings&         settings );
     };
 
 } // namespace Desert::Assets

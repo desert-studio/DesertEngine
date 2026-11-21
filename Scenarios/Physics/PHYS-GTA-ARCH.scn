@@ -1,0 +1,3 @@
+# PHYS-GTA-ARCH: design doc only (no build, no editor). The proof is the document on branch docs/PHYS-GTA-ARCH.
+Дано the doc docs/contracts/PHYS-GTA-ARCH.md on branch docs/PHYS-GTA-ARCH
+Тогда phys_arch_doc PHYS-GTA-ARCH.md has the exists/stub audit, a per-subsystem choice table, the server/client split, and PHYS-1..N slices each with its own scenario line

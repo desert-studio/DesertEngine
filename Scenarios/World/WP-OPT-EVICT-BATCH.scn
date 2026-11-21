@@ -1,0 +1,13 @@
+# WP-OPT-EVICT-BATCH (owner: "WP ready? flight? scope?"): the asset eviction sweep a streamed-out cell asks for no
+# longer costs one whole sweep (~8 ms Debug) in one frame. UE incremental purge: departures only request; one sweep
+# runs at a fixed point of the frame (Application::Run, before BeginFrame) in slices of AssetEvictionSettings::
+# SliceBudgetMs (2 ms), resumed next frame (Assets::AssetEvictionSweep); a probe miss no longer writes a trace line.
+# [flight_after] is the headless flight profiler (ShotOptions --flight), the same line as WP-OPT-UNLOAD:
+#   Editor --project Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce --play
+#          --flight line:-90000,5000,0:90000,5000,0 --flight-speed 6000 --flight-csv <scratch>/flight-after.csv
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Action "Play"
+Тогда-вид play_hill Play view of WP_Protocol: open sky, the landscape and its HLOD on the hill drawn, no hole
+Тогда flight_after editor.log «[Flight]»: ни одного кадра дольше 100 мс; каждая строка «[Assets] eviction» — один срез на кадр, самый длинный срез в пределах бюджета (2 мс)
+# Regression: WP-FAR-9.scn PASS, frames looked at.
