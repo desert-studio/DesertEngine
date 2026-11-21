@@ -27,6 +27,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

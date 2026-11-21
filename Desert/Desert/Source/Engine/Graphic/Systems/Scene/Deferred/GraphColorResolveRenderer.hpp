@@ -13,6 +13,7 @@
 #include <format>
 #include <map>
 #include <memory>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic
 {

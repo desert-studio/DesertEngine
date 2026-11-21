@@ -36,6 +36,7 @@
 #include <string>
 #include <type_traits>
 #include <string_view>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

@@ -20,6 +20,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

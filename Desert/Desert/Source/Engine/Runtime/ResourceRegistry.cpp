@@ -24,6 +24,10 @@
 #include <Engine/Runtime/Services/Video/VideoService.hpp>
 #include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 #include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
+#include <Engine/Runtime/Services/Destruction/FractureService.hpp>
+#include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 
 namespace Desert::Runtime
 {

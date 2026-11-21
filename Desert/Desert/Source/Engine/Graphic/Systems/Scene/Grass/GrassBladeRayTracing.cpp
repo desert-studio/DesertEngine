@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <format>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

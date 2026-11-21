@@ -23,6 +23,7 @@
 #include <format>
 #include <iterator>
 #include <unordered_set>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::RayTracing
 {

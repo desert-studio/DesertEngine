@@ -17,6 +17,7 @@
 #include <cstring>
 #include <format>
 #include <string>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

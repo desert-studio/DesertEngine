@@ -7,12 +7,9 @@
             "LGHT": 1,
             "SCNE": 76,
             "UNIT": 1,
-            "WPAR": 13
+            "WPAR": 14
         },
-        "Dependencies": [
-            "0de3e1610ce1c6a79a3acdc76862136a",
-            "40e8fc4221d33289cca9e025f87dab0a"
-        ]
+        "Dependencies": ["0de3e1610ce1c6a79a3acdc76862136a", "40e8fc4221d33289cca9e025f87dab0a"]
     },
     "SceneName": "WP_FAR11_SkinnedCrowd",
     "Entities": [
@@ -20,45 +17,21 @@
             "id": 1001,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                -1.570796251296997,
-                1.3990358114242554,
-                -1.399035930633545
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-1.570796251296997, 1.3990358114242554, -1.399035930633545],
+            "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
-                "Color": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "Color": [1.0, 1.0, 1.0],
                 "Intensity": 22.0,
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
-                "AtmosphereSunDiskColorScale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
                 "BloomMaxBrightness": 100.0,
-                "BloomTint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
                 "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
@@ -76,58 +49,22 @@
             "id": 1002,
             "siblingIndex": 1,
             "Tag": "Sky",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
                 "HorizonFalloff": 0.8500000238418579,
-                "ZenithColor": [
-                    0.07999999821186066,
-                    0.25999999046325684,
-                    0.699999988079071
-                ],
-                "HorizonColor": [
-                    0.5,
-                    0.6600000262260437,
-                    0.9200000166893005
-                ],
-                "GroundColor": [
-                    0.1599999964237213,
-                    0.1899999976158142,
-                    0.23999999463558197
-                ],
-                "NightColor": [
-                    0.009999999776482582,
-                    0.019999999552965164,
-                    0.05000000074505806
-                ],
+                "ZenithColor": [0.07999999821186066, 0.25999999046325684, 0.699999988079071],
+                "HorizonColor": [0.5, 0.6600000262260437, 0.9200000166893005],
+                "GroundColor": [0.1599999964237213, 0.1899999976158142, 0.23999999463558197],
+                "NightColor": [0.009999999776482582, 0.019999999552965164, 0.05000000074505806],
                 "SunIntensity": 22.0,
-                "SunColor": [
-                    1.0,
-                    0.9599999785423279,
-                    0.8799999952316284
-                ],
+                "SunColor": [1.0, 0.9599999785423279, 0.8799999952316284],
                 "SunAngularDiameter": 2.291800022125244,
                 "SunGlow": 1.0,
-                "SunsetColor": [
-                    1.0,
-                    0.41999998688697815,
-                    0.18000000715255737
-                ],
+                "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
                 "AutoRebakeEnvironment": true,
@@ -138,51 +75,23 @@
                 "Model": 0,
                 "AtmosphereHeight": 60.0,
                 "MultiScatteringFactor": 1.0,
-                "GroundAlbedo": [
-                    0.4019779860973358,
-                    0.4019779860973358,
-                    0.4019779860973358
-                ],
+                "GroundAlbedo": [0.4019779860973358, 0.4019779860973358, 0.4019779860973358],
                 "RayleighScatteringScale": 0.03310000151395798,
-                "RayleighScattering": [
-                    0.17528699338436127,
-                    0.4096069931983948,
-                    1.0
-                ],
+                "RayleighScattering": [0.17528699338436127, 0.4096069931983948, 1.0],
                 "RayleighExponentialDistribution": 8.0,
                 "MieScatteringScale": 0.003996000159531832,
-                "MieScattering": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "MieScattering": [1.0, 1.0, 1.0],
                 "MieAbsorptionScale": 0.0004440000047907233,
-                "MieAbsorption": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "MieAbsorption": [1.0, 1.0, 1.0],
                 "MieAnisotropy": 0.800000011920929,
                 "MieExponentialDistribution": 1.2000000476837158,
                 "OtherAbsorptionScale": 0.0018810000037774444,
-                "OtherAbsorption": [
-                    0.3455609977245331,
-                    1.0,
-                    0.04518900066614151
-                ],
+                "OtherAbsorption": [0.3455609977245331, 1.0, 0.04518900066614151],
                 "AbsorptionTipAltitude": 25.0,
                 "AbsorptionTipValue": 1.0,
                 "AbsorptionTentWidth": 15.0,
-                "SkyLuminanceFactor": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
-                "SkyAndAerialPerspectiveLuminanceFactor": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "SkyLuminanceFactor": [1.0, 1.0, 1.0],
+                "SkyAndAerialPerspectiveLuminanceFactor": [1.0, 1.0, 1.0],
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
@@ -194,11 +103,7 @@
                 },
                 "Intensity": 1.0,
                 "Rotation": 0.0,
-                "Tint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
+                "Tint": [1.0, 1.0, 1.0]
             },
             "TimeOfDay": {
                 "DriveSunFromTimeOfDay": false,
@@ -218,21 +123,9 @@
             "id": 2000,
             "siblingIndex": 2,
             "Tag": "Ground_NormalMapped",
-            "Translation": [
-                0.0,
-                -100.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                2000.0,
-                0.2,
-                2000.0
-            ],
+            "Translation": [0.0, -100.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [2000.0, 0.20000000298023224, 2000.0],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -251,21 +144,9 @@
             "id": 9001,
             "siblingIndex": 4,
             "Tag": "Camera",
-            "Translation": [
-                0.0,
-                10.0,
-                650.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 10.0, 650.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Camera": {
                 "AutoActivateForPlayer": false,
                 "FOV": 45.0,
@@ -277,21 +158,9 @@
             "id": 1106754244744133842,
             "siblingIndex": 7,
             "Tag": "CesiumMan",
-            "Translation": [
-                0.0,
-                -80.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, -80.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Animation": {
                 "CurrentClip": "",
                 "Playing": true,
@@ -303,40 +172,460 @@
             "SkinnedMesh": {
                 "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
                 "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200000,
+            "siblingIndex": 8,
+            "Tag": "CesiumMan_01",
+            "Translation": [300.0, -80.0, -3000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200001,
+            "siblingIndex": 9,
+            "Tag": "CesiumMan_02",
+            "Translation": [-300.0, -80.0, -4421.052734375],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200002,
+            "siblingIndex": 10,
+            "Tag": "CesiumMan_03",
+            "Translation": [300.0, -80.0, -5842.10546875],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200003,
+            "siblingIndex": 11,
+            "Tag": "CesiumMan_04",
+            "Translation": [-300.0, -80.0, -7263.15771484375],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200004,
+            "siblingIndex": 12,
+            "Tag": "CesiumMan_05",
+            "Translation": [600.0, -80.0, -8684.2109375],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200005,
+            "siblingIndex": 13,
+            "Tag": "CesiumMan_06",
+            "Translation": [-600.0, -80.0, -10105.2626953125],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200006,
+            "siblingIndex": 14,
+            "Tag": "CesiumMan_07",
+            "Translation": [600.0, -80.0, -11526.3154296875],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200007,
+            "siblingIndex": 15,
+            "Tag": "CesiumMan_08",
+            "Translation": [-600.0, -80.0, -12947.3681640625],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200008,
+            "siblingIndex": 16,
+            "Tag": "CesiumMan_09",
+            "Translation": [900.0, -80.0, -14368.4208984375],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200009,
+            "siblingIndex": 17,
+            "Tag": "CesiumMan_10",
+            "Translation": [-900.0, -80.0, -15789.4736328125],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200010,
+            "siblingIndex": 18,
+            "Tag": "CesiumMan_11",
+            "Translation": [900.0, -80.0, -17210.525390625],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200011,
+            "siblingIndex": 19,
+            "Tag": "CesiumMan_12",
+            "Translation": [-900.0, -80.0, -18631.578125],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200012,
+            "siblingIndex": 20,
+            "Tag": "CesiumMan_13",
+            "Translation": [1200.0, -80.0, -20052.630859375],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200013,
+            "siblingIndex": 21,
+            "Tag": "CesiumMan_14",
+            "Translation": [-1200.0, -80.0, -21473.68359375],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200014,
+            "siblingIndex": 22,
+            "Tag": "CesiumMan_15",
+            "Translation": [1200.0, -80.0, -22894.736328125],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200015,
+            "siblingIndex": 23,
+            "Tag": "CesiumMan_16",
+            "Translation": [-1200.0, -80.0, -24315.7890625],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200016,
+            "siblingIndex": 24,
+            "Tag": "CesiumMan_17",
+            "Translation": [1500.0, -80.0, -25736.841796875],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200017,
+            "siblingIndex": 25,
+            "Tag": "CesiumMan_18",
+            "Translation": [-1500.0, -80.0, -27157.89453125],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200018,
+            "siblingIndex": 26,
+            "Tag": "CesiumMan_19",
+            "Translation": [1500.0, -80.0, -28578.947265625],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
+            }
+        },
+        {
+            "id": 1106754244744200019,
+            "siblingIndex": 27,
+            "Tag": "CesiumMan_20",
+            "Translation": [-1500.0, -80.0, -30000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
+                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"]
             }
         },
         {
             "id": 2286981293764337250,
             "siblingIndex": 5,
             "Tag": "PostProcessVolume",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
-                "Extent": [
-                    500.0,
-                    500.0,
-                    500.0
-                ],
+                "Extent": [500.0, 500.0, 500.0],
                 "BlendRadius": 100.0,
                 "Priority": 0.0,
                 "BlendWeight": 1.0,
@@ -361,127 +650,27 @@
                     "ToneCurveAmount": 1.0,
                     "WhiteTemp": 6500.0,
                     "WhiteTint": 0.0,
-                    "ColorSaturation": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorContrast": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorGamma": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorGain": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorOffset": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
-                    "ColorSaturationShadows": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorContrastShadows": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorGammaShadows": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorGainShadows": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorOffsetShadows": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
+                    "ColorSaturation": [1.0, 1.0, 1.0, 1.0],
+                    "ColorContrast": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGamma": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGain": [1.0, 1.0, 1.0, 1.0],
+                    "ColorOffset": [0.0, 0.0, 0.0, 0.0],
+                    "ColorSaturationShadows": [1.0, 1.0, 1.0, 1.0],
+                    "ColorContrastShadows": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGammaShadows": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGainShadows": [1.0, 1.0, 1.0, 1.0],
+                    "ColorOffsetShadows": [0.0, 0.0, 0.0, 0.0],
                     "ColorCorrectionShadowsMax": 0.09000000357627869,
-                    "ColorSaturationMidtones": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorContrastMidtones": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorGammaMidtones": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorGainMidtones": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorOffsetMidtones": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
-                    "ColorSaturationHighlights": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorContrastHighlights": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorGammaHighlights": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorGainHighlights": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "ColorOffsetHighlights": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
+                    "ColorSaturationMidtones": [1.0, 1.0, 1.0, 1.0],
+                    "ColorContrastMidtones": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGammaMidtones": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGainMidtones": [1.0, 1.0, 1.0, 1.0],
+                    "ColorOffsetMidtones": [0.0, 0.0, 0.0, 0.0],
+                    "ColorSaturationHighlights": [1.0, 1.0, 1.0, 1.0],
+                    "ColorContrastHighlights": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGammaHighlights": [1.0, 1.0, 1.0, 1.0],
+                    "ColorGainHighlights": [1.0, 1.0, 1.0, 1.0],
+                    "ColorOffsetHighlights": [0.0, 0.0, 0.0, 0.0],
                     "ColorCorrectionHighlightsMin": 0.5,
                     "ColorCorrectionHighlightsMax": 1.0,
                     "ManualExposureEV100": 0.5260688662528992,
@@ -493,18 +682,8 @@
                     "AutoExposureMaxEV100": 6.0,
                     "AutoExposureBias": 0.0,
                     "AutoExposureCurveKeyCount": 0,
-                    "AutoExposureCurveEV100": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
-                    "AutoExposureCurveBias": [
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0
-                    ],
+                    "AutoExposureCurveEV100": [0.0, 0.0, 0.0, 0.0],
+                    "AutoExposureCurveBias": [0.0, 0.0, 0.0, 0.0],
                     "LocalExposureMethod": 0,
                     "LocalExposureHighlightContrastScale": 1.0,
                     "LocalExposureShadowContrastScale": 1.0,
@@ -536,26 +715,14 @@
                     "PaniniS": 0.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
-                    "LensFlareTint": [
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
+                    "LensFlareTint": [1.0, 1.0, 1.0],
                     "LensFlareThreshold": 4.0,
                     "LensFlareGhostCount": 4,
                     "LensFlareGhostSpacing": 0.3499999940395355,
                     "LensFlareGhostSizeNear": 1.0,
                     "LensFlareGhostSizeFar": 3.0,
-                    "LensFlareGhostTintInner": [
-                        1.0,
-                        0.8600000143051147,
-                        0.6200000047683716
-                    ],
-                    "LensFlareGhostTintOuter": [
-                        0.44999998807907104,
-                        0.6800000071525574,
-                        1.0
-                    ],
+                    "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+                    "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
                     "LensFlareHaloIntensity": 0.25,
                     "LensFlareHaloRadius": 0.18000000715255737,
                     "LensFlareStreakIntensity": 8.0,
@@ -565,766 +732,6 @@
                     "SubsurfaceScattering": true,
                     "SubsurfaceScale": 1.0
                 }
-            }
-        },
-        {
-            "id": 1106754244744200000,
-            "siblingIndex": 8,
-            "Tag": "CesiumMan_01",
-            "Translation": [
-                300.0,
-                -80.0,
-                -3000.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200001,
-            "siblingIndex": 9,
-            "Tag": "CesiumMan_02",
-            "Translation": [
-                -300.0,
-                -80.0,
-                -4421.0526315789475
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200002,
-            "siblingIndex": 10,
-            "Tag": "CesiumMan_03",
-            "Translation": [
-                300.0,
-                -80.0,
-                -5842.105263157895
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200003,
-            "siblingIndex": 11,
-            "Tag": "CesiumMan_04",
-            "Translation": [
-                -300.0,
-                -80.0,
-                -7263.157894736842
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200004,
-            "siblingIndex": 12,
-            "Tag": "CesiumMan_05",
-            "Translation": [
-                600.0,
-                -80.0,
-                -8684.21052631579
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200005,
-            "siblingIndex": 13,
-            "Tag": "CesiumMan_06",
-            "Translation": [
-                -600.0,
-                -80.0,
-                -10105.263157894737
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200006,
-            "siblingIndex": 14,
-            "Tag": "CesiumMan_07",
-            "Translation": [
-                600.0,
-                -80.0,
-                -11526.315789473683
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200007,
-            "siblingIndex": 15,
-            "Tag": "CesiumMan_08",
-            "Translation": [
-                -600.0,
-                -80.0,
-                -12947.368421052632
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200008,
-            "siblingIndex": 16,
-            "Tag": "CesiumMan_09",
-            "Translation": [
-                900.0,
-                -80.0,
-                -14368.421052631578
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200009,
-            "siblingIndex": 17,
-            "Tag": "CesiumMan_10",
-            "Translation": [
-                -900.0,
-                -80.0,
-                -15789.473684210525
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200010,
-            "siblingIndex": 18,
-            "Tag": "CesiumMan_11",
-            "Translation": [
-                900.0,
-                -80.0,
-                -17210.526315789473
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200011,
-            "siblingIndex": 19,
-            "Tag": "CesiumMan_12",
-            "Translation": [
-                -900.0,
-                -80.0,
-                -18631.57894736842
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200012,
-            "siblingIndex": 20,
-            "Tag": "CesiumMan_13",
-            "Translation": [
-                1200.0,
-                -80.0,
-                -20052.631578947367
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200013,
-            "siblingIndex": 21,
-            "Tag": "CesiumMan_14",
-            "Translation": [
-                -1200.0,
-                -80.0,
-                -21473.684210526313
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200014,
-            "siblingIndex": 22,
-            "Tag": "CesiumMan_15",
-            "Translation": [
-                1200.0,
-                -80.0,
-                -22894.736842105263
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200015,
-            "siblingIndex": 23,
-            "Tag": "CesiumMan_16",
-            "Translation": [
-                -1200.0,
-                -80.0,
-                -24315.78947368421
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200016,
-            "siblingIndex": 24,
-            "Tag": "CesiumMan_17",
-            "Translation": [
-                1500.0,
-                -80.0,
-                -25736.842105263157
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200017,
-            "siblingIndex": 25,
-            "Tag": "CesiumMan_18",
-            "Translation": [
-                -1500.0,
-                -80.0,
-                -27157.894736842103
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200018,
-            "siblingIndex": 26,
-            "Tag": "CesiumMan_19",
-            "Translation": [
-                1500.0,
-                -80.0,
-                -28578.94736842105
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
-            }
-        },
-        {
-            "id": 1106754244744200019,
-            "siblingIndex": 27,
-            "Tag": "CesiumMan_20",
-            "Translation": [
-                -1500.0,
-                -80.0,
-                -30000.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
-            "Animation": {
-                "CurrentClip": "",
-                "Playing": true,
-                "Loop": true,
-                "PlaybackSpeed": 1.0,
-                "UpdateAnimationInEditor": true,
-                "RootMotion": "NoExtraction"
-            },
-            "SkinnedMesh": {
-                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
-                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
-                "MaterialPaths": [
-                    "assets:Materials/M_NormalWitness.demat"
-                ],
-                "MaterialGuids": [
-                    "40e8fc4221d33289cca9e025f87dab0a"
-                ]
             }
         }
     ],

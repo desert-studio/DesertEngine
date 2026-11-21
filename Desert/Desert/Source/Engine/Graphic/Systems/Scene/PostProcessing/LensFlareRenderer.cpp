@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

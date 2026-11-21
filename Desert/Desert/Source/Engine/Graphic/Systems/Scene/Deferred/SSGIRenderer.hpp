@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

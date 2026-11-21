@@ -21,6 +21,7 @@
 #include <limits>
 #include <span>
 #include <utility>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

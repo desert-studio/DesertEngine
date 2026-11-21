@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 // "Shadows: Ray Traced Sun" (UE RayTracingShadows.cpp + FScreenShadowMaskTexture): ShadowMethod::HardwareTraced
 // for the sun. Every G-buffer pixel traces ray-query visibility over the view's TLAS

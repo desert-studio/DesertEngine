@@ -5,6 +5,7 @@
 #include "SMAASearchTexData.h" // exact SMAA SearchTex bytes (R8)  — engine-owned copy
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

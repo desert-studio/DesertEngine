@@ -4,7 +4,6 @@
 #include <glm/glm.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Engine/Core/WorldTime.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Render/RenderCommandBuffer.hpp>
 
 namespace Desert::ECS
