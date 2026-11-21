@@ -25,4 +25,8 @@
 Когда --subject viewport set Camera.Position 0,0,6000
 Когда advance 2
 Тогда cine_60 at 60 m under Cinematic the figure is walking; log: the origin figure's LOD > 0 and lower (finer) than High's at the same spot
+Когда run Quality "Quality: ViewDistance High"
+Когда --subject viewport set Camera.Position 0,0,3000
+Когда advance 2
+Тогда high_30 control: High at 30 m = the screen size Cinematic gives at 60 m; log: the origin figure's LOD equals cine_60's; the figure is visible and walking iff that level draws under High too
 Когда run Action "Stop"
