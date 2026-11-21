@@ -5482,7 +5482,7 @@ namespace Desert::Graphic
         m_SpotLightShadows.push_back( shadow );
     }
 
-    void SceneRenderer::AddHeterogeneousVolume( const HeterogeneousVolumeGpu& volume )
+    void SceneRenderer::AddHeterogeneousVolume( const HeterogeneousVolumeInstance& volume )
     {
         if ( m_HeterogeneousVolumes.capacity() < kHeterogeneousVolumeMaxVolumes )
             m_HeterogeneousVolumes.reserve( kHeterogeneousVolumeMaxVolumes );

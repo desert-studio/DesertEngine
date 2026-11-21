@@ -55,6 +55,7 @@ namespace Desert::Assets
         { "ImportedMeshSource", DDCBucketReach::Shipped,  "Assets/MeshDerivedData.hpp kMeshSourceDeriver - the MeshSourceAsset envelope an FBX import derives (AF4h: no longer beside its source); a packaged game resolves a static mesh's source data through the DDC, raw .fbx is not shipped" },
         { "GrassCoverLook",   DDCBucketReach::Shipped,    "Assets/GrassCoverLook.hpp kGrassCoverLookDeriver - LandscapeECSSystem reads a grass variety's cover albedo (its material's albedo map averaged over the drawn texels) at runtime; a packaged game registers no builder" },
         { "Texture",          DDCBucketReach::Shipped,    "Assets/TextureSourceAsset.hpp kTextureDeriver - texture streaming reads this at runtime" },
+        { "SparseVolume",     DDCBucketReach::EditorOnly, "Assets/SparseVolume.hpp kSparseVolumeDeriver - the .vol -> bricks import (ImportSparseVolumeCached); the bricked payload ships inside the .dsvol envelope, so a packaged game never reads this bucket" },
         { "CloudModelling",   DDCBucketReach::Shipped,    "Assets/CloudProceduralVolume.hpp kCloudModellingDeriver - VolumetricCloudRenderer reads this at runtime" },
         { "FontCache",        DDCBucketReach::Shipped,    "Text/FontCache.cpp kFontDeriver - text rendering reads this at runtime" },
         { "IconCache",        DDCBucketReach::Shipped,    "Vector/IconBake.cpp kIconDeriver - in-game UI icon rendering reads this at runtime" },

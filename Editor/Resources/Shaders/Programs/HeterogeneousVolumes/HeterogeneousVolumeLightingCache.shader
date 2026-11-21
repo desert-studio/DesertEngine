@@ -17,7 +17,6 @@ Shader "HeterogeneousVolumeLightingCache"
         // coefficient, .a = the sun's transmittance through the volume.
 
         #include <Common/VolumetricFog.glslh>
-        #include <Common/HeterogeneousVolume.glslh>
         #include <Mesh/PointLight.glslh>
         #include <Mesh/Spotlight.glslh>
         #include <Mesh/LightGrid.glslh>
@@ -78,6 +77,15 @@ Shader "HeterogeneousVolumeLightingCache"
 
         ReadBuffer(8) LightGridParamsUB { LightGridParams lightGrid; };
         ReadBuffer(9) LightGridCellsUB { uint lightGridCells[]; };
+        // The baked sources' page tables (Graphic::kSparseVolumePagesBinding, the pipeline's own buffer) and the
+        // shared brick atlas they index (HeterogeneousVolumeRenderer's residency; a 1-brick fallback while no baked
+        // volume is resident). Declared before the medium text, which samples them (HETEROGENEOUS_VOLUME_MEDIUM).
+        ReadBuffer(18) SparseVolumePagesBuffer { uint hvPages[]; };
+        Uniform(19) texture3D SparseVolumeAtlasTexture;
+        #define SparseVolumeAtlasTexture sampler3D(SparseVolumeAtlasTexture, LinearClampSampler)
+        #define HETEROGENEOUS_VOLUME_MEDIUM
+        #include <Common/HeterogeneousVolume.glslh>
+
         // The frame's on-screen volumes (Graphic::kHeterogeneousVolumesBinding, the pipeline's own buffer); VfLocalFog.y
         // of them are valid, volume i in slab i.
         ReadBuffer(15) HeterogeneousVolumesBuffer { HeterogeneousVolumeGpu heterogeneousVolumes[]; };
@@ -87,28 +95,54 @@ Shader "HeterogeneousVolumeLightingCache"
         #define LOCAL_SHADOW_FILTER_TAPS 1.0
         #include <Mesh/LocalLightShadowLookup.glslh>
 
+        // THE SHADOW RAYS SEE EVERY VOLUME OF THE FRAME (volume-on-volume: a plume shadows the one beside it from the
+        // sun, the sky and its lamps). Optical depth along the world ray p + dir t, t in [0, maxT], in @p steps per
+        // crossed box: .x through all volumes, .y through volume @p self only - the cache's .a, which the froxels
+        // multiply per volume they cross, so it must not count a neighbour twice.
+        vec2 OpticalDepthAlong(uint self, vec3 p, vec3 dir, float maxT, int steps)
+        {
+            vec2 depth = vec2(0.0);
+            for (uint i = 0u; i < VfLocalFog.y; ++i)
+            {
+                HeterogeneousVolumeGpu v = heterogeneousVolumes[i];
+                vec3  lo  = (v.WorldToLocal * vec4(p, 1.0)).xyz;
+                vec3  ld  = (v.WorldToLocal * vec4(dir, 0.0)).xyz; // unit box per world cm: t stays world cm
+                vec2  hit = HvIntersectUnitBox(lo, ld);
+                float t0  = max(hit.x, 0.0);
+                float t1  = min(hit.y, maxT);
+                if (t1 <= t0)
+                    continue;
+                float dt  = (t1 - t0) / float(steps);
+                float sum = 0.0;
+                for (int s = 0; s < steps; ++s)
+                    sum += HvExtinction(v, lo + ld * (t0 + (float(s) + 0.5) * dt));
+                sum *= dt;
+                depth.x += sum;
+                if (i == self)
+                    depth.y += sum;
+            }
+            return depth;
+        }
+
+        // SELF-SHADOW TOWARD THE LOCAL LIGHTS (UE's per-light lighting cache, folded into one): the first
+        // HV_LOCAL_LIGHT_SHADOWED lights of the list walked at a voxel are marched to through every volume, 8 steps
+        // per crossed box; the rest light the voxel unshadowed by the smoke (still shadowed by geometry).
+        #define HV_LOCAL_LIGHT_SHADOWED 4u
+        float HvLocalLightTransmittance(vec3 p, vec3 lightPosition, uint ordinal)
+        {
+            if (ordinal >= HV_LOCAL_LIGHT_SHADOWED)
+                return 1.0;
+            vec3  toLight  = lightPosition - p;
+            float dist     = length(toLight);
+            if (dist < 1e-3)
+                return 1.0;
+            return exp(-OpticalDepthAlong(0xffffffffu, p, toLight / dist, dist, 8).x);
+        }
+        #define VOLUME_LOCAL_LIGHT_TRANSMITTANCE(p, lightPosition, ordinal) HvLocalLightTransmittance(p, lightPosition, ordinal)
+
         #include <Common/VolumeLighting.glslh>
 
         LocalSize(4, 4, 4);
-
-        // Optical depth from world point p along the world direction dir through the volume's box, in @p steps.
-        float OpticalDepthThrough(HeterogeneousVolumeGpu v, vec3 p, vec3 dir, int steps)
-        {
-            vec3 localOrigin = (v.WorldToLocal * vec4(p, 1.0)).xyz;
-            vec3 localDir    = (v.WorldToLocal * vec4(dir, 0.0)).xyz; // unit box per world cm
-            vec2 hit         = HvIntersectUnitBox(localOrigin, localDir);
-            float tFar       = max(hit.y, 0.0);
-            if (tFar <= 0.0)
-                return 0.0;
-            float dt  = tFar / float(steps);
-            float sum = 0.0;
-            for (int i = 0; i < steps; ++i)
-            {
-                float t = (float(i) + 0.5) * dt;
-                sum += HvExtinction(v, localOrigin + localDir * t);
-            }
-            return sum * dt;
-        }
 
         void main()
         {
@@ -128,12 +162,14 @@ Shader "HeterogeneousVolumeLightingCache"
             float sunT     = 1.0;
             if (VfSunDirection.w > 0.5)
             {
-                sunT = exp(-OpticalDepthThrough(v, p, VfSunDirection.xyz, 12));
-                lighting += VfSunRadiance.rgb * SunShadow(p) * CloudShadowFactor(p) * sunT *
+                // 12 steps per crossed box, unbounded: every volume toward the sun shadows; .a keeps only this one.
+                vec2 depth = OpticalDepthAlong(slab, p, VfSunDirection.xyz, 1e9, 12);
+                sunT       = exp(-depth.y);
+                lighting += VfSunRadiance.rgb * SunShadow(p) * CloudShadowFactor(p) * exp(-depth.x) *
                             VolumetricFogPhaseHG(g, dot(VfSunDirection.xyz, viewDir));
             }
             lighting += VolumeLocalLighting(p, viewDir, g);
-            lighting += VolumeSkyLighting(p) * exp(-OpticalDepthThrough(v, p, vec3(0.0, 1.0, 0.0), 6));
+            lighting += VolumeSkyLighting(p) * exp(-OpticalDepthAlong(slab, p, vec3(0.0, 1.0, 0.0), 1e9, 6).x);
 
             imageStore(LightingCacheTexture, ivec3(voxel), vec4(lighting, sunT));
         }

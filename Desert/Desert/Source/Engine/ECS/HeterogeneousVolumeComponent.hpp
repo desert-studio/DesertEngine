@@ -5,6 +5,8 @@
 
 #include <CoreReflection/ReflectionMacros.hpp>
 
+#include <Engine/Assets/Common.hpp>
+
 #include <cstdint>
 
 namespace Desert::ECS
@@ -19,10 +21,10 @@ namespace Desert::ECS
     // THE PLACEMENT IS NOT A FIELD. The box's centre, rotation and scale are the entity's world transform; Extent
     // is the half size (cm) in the entity's local space.
     //
-    // THE DENSITY SOURCE. For now a procedural field (fBm of value noise, advected by Wind, shaped by a soft
-    // radial/vertical falloff so the box never shows); the baked sparse brick atlas + page table asset (UE's
-    // SparseVolumeTexture) slots in as a second source behind the same sampler (DensitySource), see
-    // REMAINDER-VOLUMETRIC-SMOKE.
+    // THE DENSITY SOURCE. A procedural field (fBm of value noise, advected by Wind, shaped by a soft
+    // radial/vertical falloff so the box never shows), or a BAKED SPARSE VOLUME (`.dsvol`, UE's
+    // SparseVolumeTexture: a simulated grid as bricks + page table, Assets::SparseVolumeAsset) stretched over the
+    // box; both answer through one sampler (HvMedium, Common/HeterogeneousVolume.glslh).
     //
     // ZERO COST WHEN NOT SEEN: a volume whose box is outside the view frustum is not gathered, and with no
     // gathered volume the renderer declares no pass and allocates nothing.
@@ -31,7 +33,10 @@ namespace Desert::ECS
     // centimetre once (Graphic::PackHeterogeneousVolume); Temperature in Kelvin.
     enum class HeterogeneousVolumeDensitySource : uint8_t
     {
-        ProceduralNoise
+        ProceduralNoise,
+        // The `.dsvol` named by HeterogeneousVolumeData::SparseVolume; its density times Extinction, its temperature
+        // (when the grid has one) drives the blackbody instead of Temperature.
+        BakedSparse
     };
 
     struct HeterogeneousVolumeData
@@ -44,8 +49,14 @@ namespace Desert::ECS
         bool Enabled = true;
 
         PROPERTY( DisplayName( "Density Source" ), Category( "Heterogeneous Volume" ),
-                  Tooltip( "Where the density comes from: Procedural Noise (a turbulent fBm field)." ) )
+                  Tooltip( "Where the density comes from: Procedural Noise (a turbulent fBm field) or Baked "
+                           "Sparse (the Sparse Volume asset, a simulated smoke / fire grid)." ) )
         HeterogeneousVolumeDensitySource DensitySource = HeterogeneousVolumeDensitySource::ProceduralNoise;
+
+        PROPERTY( DisplayName( "Sparse Volume" ), Category( "Heterogeneous Volume" ), Asset<SparseVolumeAsset>,
+                  Tooltip( "The baked grid (.dsvol, imported from a .vol) read under Density Source Baked Sparse, "
+                           "stretched over the box. None under Baked Sparse = the volume is not drawn." ) )
+        Assets::AssetHandle SparseVolume;
 
         PROPERTY(
              DisplayName( "Extent" ), Category( "Heterogeneous Volume" ), Length, Range( 1.0f, 100000.0f ),

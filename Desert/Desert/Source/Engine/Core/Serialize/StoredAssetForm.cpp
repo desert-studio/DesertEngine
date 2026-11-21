@@ -20,7 +20,8 @@ namespace Desert::Core::Serialize
              type == "PrefabAsset" || type == "FoliageTypeAsset" || type == "FractureAsset" ||
              type == "WaterWavesAsset" || type == "InputMappingContextAsset" || type == "PhysicsAsset" ||
              type == "SoundAsset" || type == "VFXSystemAsset" || type == "WorldParametersAsset" ||
-             type == "WeatherPresetAsset" || type == "IesProfileAsset" )
+             type == "WeatherPresetAsset" || type == "IesProfileAsset" ||
+             type == "SparseVolumeAsset" )
             return StoredAssetForm::StableKey;
 
         // Meshes (static/skinned both resolved handle->path through the MeshAsset base): the tagged stable

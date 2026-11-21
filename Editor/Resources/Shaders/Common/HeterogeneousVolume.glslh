@@ -16,6 +16,13 @@
 #define HETEROGENEOUS_VOLUME_CACHE_RES 32.0
 // Must equal Graphic::kHeterogeneousVolumeMaxVolumes (the cache atlas holds this many slabs along Z).
 #define HETEROGENEOUS_VOLUME_MAX 8.0
+// Must equal Graphic::kSparseVolumePagesBinding: the resident baked volumes' page tables, one uint per page
+// (0 = an empty page, else 1 + the brick's index in the shared atlas).
+#define HETEROGENEOUS_VOLUME_PAGES_BINDING 18
+// Must equal Assets::kSparseVolumeBrickSize / kSparseVolumeBrickPhysical: a page is 16^3 voxels, stored in the
+// atlas as an 18^3 brick (one voxel of apron on every side, so the trilinear filter never leaves the brick).
+#define HV_BRICK_SIZE 16.0
+#define HV_BRICK_PHYSICAL 18.0
 
 // Byte for byte Graphic::HeterogeneousVolumeGpu (HeterogeneousVolumePayload.hpp), std430.
 struct HeterogeneousVolumeGpu
@@ -28,6 +35,8 @@ struct HeterogeneousVolumeGpu
     vec4 Wind;         // xyz = local advection velocity (cm/s), w = the noise clock (s)
     vec4 Emissive;     // rgb = emission per unit extinction, w = peak temperature (K)
     vec4 Blackbody;    // x = blackbody intensity, y = lighting-cache slab
+    uvec4 Sparse;      // baked source: x = first page in the page table, yzw = pages per axis (0 = procedural)
+    vec4 SparseScale;  // baked source: xyz = voxels per axis, w = the asset's peak temperature (K)
 };
 
 // Integer hash -> [0, 1) (PCG3D-style), the value-noise lattice.
@@ -86,9 +95,8 @@ float HvEnvelope(HeterogeneousVolumeGpu v, vec3 local)
     return faces * faces * (3.0 - 2.0 * faces) * round;
 }
 
-// The normalised density [0, 1] at a unit-box point (DensitySource ProceduralNoise). The baked sparse brick atlas
-// source slots in here behind the same signature.
-float HvDensity01(HeterogeneousVolumeGpu v, vec3 local)
+// The procedural source (DensitySource ProceduralNoise): normalised density [0, 1] at a unit-box point.
+float HvProceduralDensity01(HeterogeneousVolumeGpu v, vec3 local)
 {
     float envelope = HvEnvelope(v, local);
     if (envelope <= 0.0)
@@ -101,11 +109,66 @@ float HvDensity01(HeterogeneousVolumeGpu v, vec3 local)
     return d * envelope;
 }
 
+// THE MEDIUM SAMPLERS need the baked source's page table and brick atlas, which the INCLUDER declares and then
+// defines HETEROGENEOUS_VOLUME_MEDIUM (the cache and the march do; the froxels read only the cache and do not):
+//   ReadBuffer(HETEROGENEOUS_VOLUME_PAGES_BINDING) SparseVolumePagesBuffer { uint hvPages[]; };
+//   Uniform(19) texture3D SparseVolumeAtlasTexture;  (RG16F: r = density01, g = temperature01)
+//   #define SparseVolumeAtlasTexture sampler3D(SparseVolumeAtlasTexture, LinearClampSampler)
+#ifdef HETEROGENEOUS_VOLUME_MEDIUM
+
+// The baked source (DensitySource BakedSparse, UE SparseVolumeTexture): (density01, temperature01) at a unit-box
+// point, through the page table into the shared brick atlas. An empty page answers zero without a texture read.
+vec2 HvBakedSample(HeterogeneousVolumeGpu v, vec3 local)
+{
+    vec3  voxel = clamp(local * 0.5 + 0.5, vec3(0.0), vec3(1.0)) * v.SparseScale.xyz;
+    uvec3 pages = v.Sparse.yzw;
+    uvec3 page  = min(uvec3(voxel / HV_BRICK_SIZE), pages - 1u);
+    uint  entry = hvPages[v.Sparse.x + page.x + pages.x * (page.y + pages.y * page.z)];
+    if (entry == 0u)
+        return vec2(0.0);
+    uint  brick   = entry - 1u;
+    uvec3 grid    = uvec3(vec3(textureSize(SparseVolumeAtlasTexture, 0)) / HV_BRICK_PHYSICAL);
+    uvec3 slot    = uvec3(brick % grid.x, (brick / grid.x) % grid.y, brick / (grid.x * grid.y));
+    vec3  inBrick = voxel - vec3(page) * HV_BRICK_SIZE; // [0, 16], the apron covers the filter's reach
+    vec3  texel   = vec3(slot) * HV_BRICK_PHYSICAL + 1.0 + inBrick;
+    return textureLod(SparseVolumeAtlasTexture, texel / vec3(textureSize(SparseVolumeAtlasTexture, 0)), 0.0).rg;
+}
+
+// The medium at a unit-box point: x = normalised density [0, 1], y = temperature (K). One signature for both
+// sources, so the cache, the march and the shadow rays never ask which one a volume uses.
+// The authored temperature field (the component's Temperature, Emissive.w): hottest where it is dense and low (the
+// flame's root). The procedural source's always; a baked grid's when it carries no temperature channel.
+float HvAuthoredTemperature(HeterogeneousVolumeGpu v, vec3 local, float d01)
+{
+    float height = clamp(0.5 - 0.5 * local.y, 0.0, 1.0);
+    return v.Emissive.w * d01 * (0.35 + 0.65 * height);
+}
+
+vec2 HvMedium(HeterogeneousVolumeGpu v, vec3 local)
+{
+    if (v.Sparse.y != 0u)
+    {
+        vec2 baked = HvBakedSample(v, local);
+        // SparseScale.w = 0: the grid has no temperature, the component's Temperature drives the blackbody.
+        float t = v.SparseScale.w > 0.0 ? baked.g * v.SparseScale.w : HvAuthoredTemperature(v, local, baked.r);
+        return vec2(baked.r, t);
+    }
+    float d01 = HvProceduralDensity01(v, local);
+    return vec2(d01, HvAuthoredTemperature(v, local, d01));
+}
+
+float HvDensity01(HeterogeneousVolumeGpu v, vec3 local)
+{
+    return HvMedium(v, local).x;
+}
+
 // Extinction per cm at a unit-box point.
 float HvExtinction(HeterogeneousVolumeGpu v, vec3 local)
 {
     return HvDensity01(v, local) * v.Medium.x;
 }
+
+#endif // HETEROGENEOUS_VOLUME_MEDIUM
 
 // Planck's law at three wavelengths (610, 550, 465 nm) in W sr^-1 m^-2 nm^-1, taken to the engine's photometric
 // scene units as 683 lm/W over a ~100 nm band per channel (cd/m^2): the blackbody's linear colour and brightness at
@@ -122,18 +185,11 @@ vec3 HvBlackbody(float t)
     return b * 1e-9 * 68300.0;
 }
 
-// The medium's own emission per unit extinction at a unit-box point of normalised density d: the authored
-// emissive plus the blackbody of its temperature - hottest where it is dense and low (the flame's root).
-vec3 HvEmission(HeterogeneousVolumeGpu v, vec3 local, float d01)
+// The medium's own emission per unit extinction at temperature t (K, HvMedium().y): the authored emissive plus
+// the blackbody.
+vec3 HvEmission(HeterogeneousVolumeGpu v, float temperature)
 {
-    vec3 e = v.Emissive.rgb;
-    if (v.Emissive.w > 0.0)
-    {
-        float height = clamp(0.5 - 0.5 * local.y, 0.0, 1.0);
-        float t      = v.Emissive.w * d01 * (0.35 + 0.65 * height);
-        e += HvBlackbody(t) * v.Blackbody.x;
-    }
-    return e;
+    return v.Emissive.rgb + HvBlackbody(temperature) * v.Blackbody.x;
 }
 
 // Ray [origin + dir * t] against the unit box in local space: (tNear, tFar), tNear > tFar when it misses.

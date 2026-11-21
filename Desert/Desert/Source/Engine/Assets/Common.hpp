@@ -151,6 +151,10 @@ namespace Desert::Assets
         // AN IES LIGHT PROFILE (`.dies`): UE UTextureLightProfile - the photometric data a point, spot or rect
         // light is shaped by, imported from a `.ies`. See Engine/Assets/IesProfileAsset.hpp.
         IesProfile,
+        // A BAKED SPARSE VOLUME (`.dsvol`): UE USparseVolumeTexture - a simulated smoke / fire grid stored as the
+        // bricks that hold medium plus a page table, sampled by a HeterogeneousVolumeComponent. See
+        // Engine/Assets/SparseVolumeAsset.hpp.
+        SparseVolume,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -284,6 +288,9 @@ namespace Desert::Assets
             // AN IES PROFILE IS SCENE-SCOPED: a light names it by handle, and Runtime::IesProfileService reads the
             // file into its atlas on the first ask; no asset object is held.
             case AssetTypeID::IesProfile:
+            // A SPARSE VOLUME IS SCENE-SCOPED for the profile's reason: a heterogeneous volume names it by handle and
+            // the renderer's brick residency reads the file on the first sight; no asset object is held.
+            case AssetTypeID::SparseVolume:
             case AssetTypeID::Count:
                 return false;
         }
@@ -380,6 +387,8 @@ namespace Desert::Assets
                 return "VFXModule";
             case AssetTypeID::IesProfile:
                 return "IesProfile";
+            case AssetTypeID::SparseVolume:
+                return "SparseVolume";
             case AssetTypeID::Count:
                 return "Count";
         }

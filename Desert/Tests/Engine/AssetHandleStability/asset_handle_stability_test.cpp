@@ -58,6 +58,7 @@
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
 #include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Assets/IesProfileAsset.hpp>
+#include <Engine/Assets/SparseVolumeAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -213,6 +214,9 @@ namespace
              { AssetTypeID::IesProfile, "IesProfileAsset", &HandleOf<Desert::Assets::IesProfileAsset>,
                &MetadataTypeOf<Desert::Assets::IesProfileAsset>,
                &DeclaredTypeOf<Desert::Assets::IesProfileAsset> },
+             { AssetTypeID::SparseVolume, "SparseVolumeAsset", &HandleOf<Desert::Assets::SparseVolumeAsset>,
+               &MetadataTypeOf<Desert::Assets::SparseVolumeAsset>,
+               &DeclaredTypeOf<Desert::Assets::SparseVolumeAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1356,6 +1360,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::VFXDataChannel,
          AssetTypeID::VFXModule,
          AssetTypeID::IesProfile,
+         AssetTypeID::SparseVolume,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real

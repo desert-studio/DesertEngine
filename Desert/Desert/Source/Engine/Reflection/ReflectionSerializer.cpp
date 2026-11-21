@@ -29,7 +29,7 @@ namespace Desert::Reflection
             return assetType == "SkyboxAsset" || assetType == "TextureAsset" || assetType == "PrefabAsset" ||
                    assetType == "FoliageTypeAsset" || assetType == "SoundAsset" || assetType == "StaticMeshAsset" ||
                    assetType == "MaterialAsset" || assetType == "WaterWavesAsset" ||
-                   assetType == "IesProfileAsset";
+                   assetType == "IesProfileAsset" || assetType == "SparseVolumeAsset";
         }
 
         void WriteVec( Common::Json::Object& out, const std::string& name, const float* v, int count )

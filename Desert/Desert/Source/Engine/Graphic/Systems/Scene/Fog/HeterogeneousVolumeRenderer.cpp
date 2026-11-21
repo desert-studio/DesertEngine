@@ -1,5 +1,7 @@
 #include "HeterogeneousVolumeRenderer.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/SparseVolumeAsset.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -10,10 +12,15 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Math/Rounding.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstring>
 #include <format>
 #include <string>
 #include <utility>
@@ -34,6 +41,13 @@ namespace Desert::Graphic::System
         constexpr uint32_t kMaxStepsPerVolume = 48;
         // UE r.HeterogeneousVolumes history weight analogue: the jittered steps integrate over ~8 frames.
         constexpr float kHistoryWeight = 0.85f;
+        // A baked volume's bricks stay resident this many frames after it was last on screen (a turn away and
+        // back does not re-read the file).
+        constexpr uint64_t kSparseEvictFrames = 600;
+        // The brick atlas's cap: 4096 bricks of 18^3 RG16F = 91 MiB (UE r.SparseVolumeTexture.Streaming pool
+        // analogue). Beyond it the least recently seen volumes are not placed (said by name in the log).
+        constexpr uint32_t kSparseAtlasMaxBricks = 4096;
+        constexpr uint32_t kBrickPhysical        = Assets::kSparseVolumeBrickPhysical;
 
         // The box's screen footprint: false when it is entirely outside the view frustum. @p rect is the uv
         // rectangle (min xy, max zw) of its corners; the whole screen when a corner is behind the camera.
@@ -101,7 +115,10 @@ namespace Desert::Graphic::System
         m_MarchParams = ShaderResources::StorageBuffer::Create(
              "HeterogeneousVolumes.MarchParams", static_cast<uint32_t>( sizeof( HeterogeneousVolumeMarchGpu ) ),
              kHeterogeneousVolumeParamsBinding, /*persistent=*/false );
-        if ( !m_LightingParams || !m_VolumesBuffer || !m_MarchParams )
+        // The page-table slot's stand-in while no baked volume is drawn (never read then: Sparse.y = 0).
+        m_SparsePagesFallback = ShaderResources::StorageBuffer::Create(
+             "HeterogeneousVolumes.SparsePagesFallback", 16u, kSparseVolumePagesBinding, /*persistent=*/true );
+        if ( !m_LightingParams || !m_VolumesBuffer || !m_MarchParams || !m_SparsePagesFallback )
             return Common::MakeError( "HeterogeneousVolumeRenderer: could not create the parameter buffers" );
         m_CompositeMaterial = std::make_unique<MaterialCloudComposite>();
         if ( const auto valid = m_CacheLayout.Validate( m_CachePipeline->GetShader(),
@@ -284,7 +301,7 @@ namespace Desert::Graphic::System
     ComputeNodeList HeterogeneousVolumeRenderer::DeclareLightingNodes(
          Common::Memory::FrameArena& arena, const FrameGraphRefs& refs, const ViewFrame& frame,
          const VolumetricFogSunInput& sun, const bool virtualLocalShadows,
-         const std::span<const HeterogeneousVolumeGpu> volumes )
+         const std::span<const HeterogeneousVolumeInstance> volumes )
     {
         ComputeNodeList nodes = MakeComputeNodeList( arena );
         // Once per view frame: the froxels' path and the translucency's both ask, the first one declares.
@@ -298,15 +315,52 @@ namespace Desert::Graphic::System
             return nodes;
 
         // THE PER-VIEW CULL: only the boxes that reach this view's frustum are lit and marched. None = zero cost.
+        // A baked volume is drawn once its bricks are placed in the atlas (TouchSparse starts / collects the read;
+        // RepackSparse places). Until then it is skipped, never drawn as something else.
+        std::array<const HeterogeneousVolumeInstance*, kHeterogeneousVolumeMaxVolumes> onScreen{};
+        std::array<glm::vec4, kHeterogeneousVolumeMaxVolumes>                          rects{};
+        uint32_t                                                                       seen = 0;
+        for ( const HeterogeneousVolumeInstance& instance : volumes )
+        {
+            if ( seen == kHeterogeneousVolumeMaxVolumes ||
+                 !ProjectBox( frame.ViewProjection, instance.Gpu.LocalToWorld, rects[seen] ) )
+                continue;
+            if ( instance.SparseVolume != 0 && !TouchSparse( instance.SparseVolume, frame.FrameIndex ) )
+                continue;
+            onScreen[seen++] = &instance;
+        }
+        // Eviction runs only on frames with a volume on screen (the zero-cost rule): what was not seen for
+        // kSparseEvictFrames leaves the atlas at this re-pack.
+        for ( auto it = m_Sparse.begin(); it != m_Sparse.end(); )
+        {
+            if ( !it->second.Loading && it->second.LastSeen + kSparseEvictFrames < frame.FrameIndex )
+            {
+                m_SparseDirty = m_SparseDirty || it->second.Placed;
+                it            = m_Sparse.erase( it );
+            }
+            else
+                ++it;
+        }
+        if ( m_SparseDirty )
+            RepackSparse();
         std::array<HeterogeneousVolumeGpu, kHeterogeneousVolumeMaxVolumes> visible{};
         uint32_t                                                           count = 0;
         glm::vec4                                                          rect( 1.0f, 1.0f, 0.0f, 0.0f );
-        for ( const HeterogeneousVolumeGpu& volume : volumes )
+        m_SparseDrawn = false;
+        for ( uint32_t i = 0; i < seen; ++i )
         {
-            glm::vec4 boxRect;
-            if ( count == kHeterogeneousVolumeMaxVolumes ||
-                 !ProjectBox( frame.ViewProjection, volume.LocalToWorld, boxRect ) )
-                continue;
+            HeterogeneousVolumeGpu volume = onScreen[i]->Gpu;
+            if ( onScreen[i]->SparseVolume != 0 )
+            {
+                const auto resident = m_Sparse.find( onScreen[i]->SparseVolume );
+                if ( resident == m_Sparse.end() || !resident->second.Placed || !m_SparseAtlas || !m_SparsePages )
+                    continue;
+                const Assets::SparseVolumeData& data = resident->second.Data;
+                volume.Sparse      = glm::uvec4( resident->second.FirstPage, data.Pages );
+                volume.SparseScale = glm::vec4( glm::vec3( data.Resolution ), data.PeakTemperature );
+                m_SparseDrawn      = true;
+            }
+            const glm::vec4& boxRect   = rects[i];
             visible[count]             = volume;
             visible[count].Blackbody.y = static_cast<float>( count );
             rect                       = glm::vec4( glm::min( glm::vec2( rect ), glm::vec2( boxRect ) ),
@@ -359,6 +413,31 @@ namespace Desert::Graphic::System
         }
         pipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_LightingParams.get() );
         pipeline->SetStorageBuffer( kHeterogeneousVolumesBinding, m_VolumesBuffer.get() );
+        // The page tables: uploaded every frame a baked volume is drawn (a per-frame buffer, a few KiB), the
+        // fallback slot otherwise. The march binds the same buffer and the same atlas (m_SparseAtlasBinding).
+        ShaderResources::StorageBuffer* pages = m_SparsePagesFallback.get();
+        if ( m_SparseDrawn )
+        {
+            const auto uploaded = m_SparsePages->SetData(
+                 m_SparsePageTable.data(), static_cast<uint32_t>( m_SparsePageTable.size() * sizeof( uint32_t ) ) );
+            if ( !uploaded.IsSuccess() )
+            {
+                LOG_ERROR( "[HeterogeneousVolume] not drawn this frame, the sparse page tables were not uploaded: {}",
+                           uploaded.GetError() );
+                return nodes;
+            }
+            pages = m_SparsePages.get();
+        }
+        pipeline->SetStorageBuffer( kSparseVolumePagesBinding, pages );
+        if ( m_MarchPipeline )
+            m_MarchPipeline->SetStorageBuffer( kSparseVolumePagesBinding, pages );
+        m_SparseAtlasBinding     = FallbackTextures::Get().GetBlackTexture3D();
+        m_SparseAtlasBindingName = "HeterogeneousVolumes.SparseAtlasFallback";
+        if ( m_SparseDrawn )
+        {
+            m_SparseAtlasBinding     = std::shared_ptr<Image>( m_SparseAtlas );
+            m_SparseAtlasBindingName = "HeterogeneousVolumes.SparseAtlas";
+        }
 
         const std::shared_ptr<Image> distantSkyLight =
              atmosphere.DistantSkyLight
@@ -392,7 +471,9 @@ namespace Desert::Graphic::System
              .Texture( Cache::CloudShadowMapTexture, CloudShadowMapOrWhite( refs ), RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() )
              .Texture( Cache::RainOcclusionMapTexture, rainOcclusionMap, RDG::Access::SampledCompute,
-                       RDG::SubresourceRange::All() );
+                       RDG::SubresourceRange::All() )
+             .Texture( Cache::SparseVolumeAtlasTexture, m_SparseAtlasBinding, RDG::Access::SampledCompute,
+                       m_SparseAtlasBindingName );
         if ( virtualLocalShadows )
         {
             block.Storage( kVsmFrameDataBlock, t.Vsm.FrameData, RDG::Access::StorageRead )
@@ -500,7 +581,9 @@ namespace Desert::Graphic::System
              .Texture( March::SceneDepthTexture, std::shared_ptr<Image>( depth ), RDG::Access::SampledCompute,
                        "SceneDepth.Compute" )
              .Sampler( March::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
-             .Sampler( March::PointClampSampler, RDG::SamplerDesc::PointClamp() );
+             .Sampler( March::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Texture( March::SparseVolumeAtlasTexture, m_SparseAtlasBinding, RDG::Access::SampledCompute,
+                       m_SparseAtlasBindingName );
         marchNode.Record = [this, current, halfW, halfH, frameIndex = frame.FrameIndex](
                                 RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -547,6 +630,168 @@ namespace Desert::Graphic::System
         m_CompositeMaterial->SetExposure( glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f ) );
         m_Composite = true;
         return nodes;
+    }
+
+    bool HeterogeneousVolumeRenderer::TouchSparse( const uint64_t handle, const uint64_t frameIndex )
+    {
+        auto [it, inserted] = m_Sparse.try_emplace( handle );
+        SparseResident& resident = it->second;
+        resident.LastSeen        = frameIndex;
+        if ( inserted )
+        {
+            // The first sight: the read goes to a Background job (it is the file's size in I/O and a decode),
+            // and the volume is not drawn until it lands.
+            const std::string key = Assets::ContentRegistry::KeyForHandle( handle );
+            if ( key.empty() )
+            {
+                resident.Loading = false;
+                resident.Failed  = true;
+                LOG_ERROR( "[HeterogeneousVolume] sparse volume {:#x}: no content registry row holds the handle (the "
+                           ".dsvol is missing or not yet discovered); the volume is not drawn",
+                           handle );
+                return false;
+            }
+            const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
+            resident.Pending = Common::JobSystem::Get().Async(
+                 [file]() noexcept { return Assets::SparseVolumeAsset::ReadFile( file ); },
+                 Common::JobPriority::Background );
+            return false;
+        }
+        if ( resident.Loading )
+        {
+            if ( resident.Pending.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+                return false;
+            auto read        = resident.Pending.get();
+            resident.Loading = false;
+            if ( !read )
+            {
+                resident.Failed = true;
+                LOG_ERROR( "[HeterogeneousVolume] sparse volume {:#x} is not drawn: {}", handle, read.GetError() );
+                return false;
+            }
+            resident.Data = read.ExtractValue();
+            m_SparseDirty = true;
+            LOG_INFO( "[HeterogeneousVolume] sparse volume {:#x} resident: {}x{}x{} voxels, {} of {} pages hold "
+                      "medium",
+                      handle, resident.Data.Resolution.x, resident.Data.Resolution.y, resident.Data.Resolution.z,
+                      resident.Data.BrickCount(), resident.Data.PageCount() );
+            return true;
+        }
+        return !resident.Failed;
+    }
+
+    void HeterogeneousVolumeRenderer::RepackSparse()
+    {
+        m_SparseDirty = false;
+        // Most recently seen first: when the cap binds, what is on screen now wins.
+        std::vector<std::pair<uint64_t, SparseResident*>> loaded;
+        for ( auto& [handle, resident] : m_Sparse )
+        {
+            resident.Placed = false;
+            if ( !resident.Loading && !resident.Failed )
+                loaded.emplace_back( handle, &resident );
+        }
+        std::sort( loaded.begin(), loaded.end(),
+                   []( const auto& a, const auto& b ) { return a.second->LastSeen > b.second->LastSeen; } );
+        uint32_t bricks = 0;
+        uint32_t pages  = 0;
+        for ( auto& [handle, resident] : loaded )
+        {
+            const uint32_t count = resident->Data.BrickCount();
+            if ( bricks + count > kSparseAtlasMaxBricks )
+            {
+                LOG_WARN( "[HeterogeneousVolume] sparse volume {:#x} ({} bricks) does not fit the {}-brick atlas "
+                          "beside the volumes seen more recently; not drawn until they leave",
+                          handle, count, kSparseAtlasMaxBricks );
+                continue;
+            }
+            resident->Placed     = true;
+            resident->FirstBrick = bricks;
+            resident->FirstPage  = pages;
+            bricks += count;
+            pages += static_cast<uint32_t>( resident->Data.PageCount() );
+        }
+        m_SparseAtlas = nullptr;
+        m_SparsePageTable.clear();
+        if ( bricks == 0 )
+            return;
+
+        // The atlas: a near-cube of bricks (the shader derives the grid from the texture size / 18).
+        const uint32_t gx    = static_cast<uint32_t>( std::ceil( std::cbrt( static_cast<double>( bricks ) ) ) );
+        const uint32_t gy    = gx;
+        const uint32_t gz    = ( bricks + gx * gy - 1u ) / ( gx * gy );
+        const uint32_t w     = gx * kBrickPhysical;
+        const uint32_t h     = gy * kBrickPhysical;
+        const uint32_t d     = gz * kBrickPhysical;
+        const size_t   texel = 4u; // RG16F
+        std::vector<unsigned char> atlas( size_t( w ) * h * d * texel, 0u );
+        m_SparsePageTable.reserve( pages );
+        for ( auto& [handle, resident] : loaded )
+        {
+            if ( !resident->Placed )
+                continue;
+            const Assets::SparseVolumeData& data = resident->Data;
+            for ( const uint32_t entry : data.PageTable )
+                m_SparsePageTable.push_back( entry == 0u ? 0u : entry + resident->FirstBrick );
+            const uint32_t count = data.BrickCount();
+            for ( uint32_t b = 0; b < count; ++b )
+            {
+                const uint32_t slot = resident->FirstBrick + b;
+                const uint32_t sx   = slot % gx;
+                const uint32_t sy   = ( slot / gx ) % gy;
+                const uint32_t sz   = slot / ( gx * gy );
+                const uint16_t* src = data.Bricks.data() + size_t( b ) * Assets::kSparseVolumeBrickVoxels * 2u;
+                for ( uint32_t z = 0; z < kBrickPhysical; ++z )
+                    for ( uint32_t y = 0; y < kBrickPhysical; ++y )
+                    {
+                        const size_t row = ( ( size_t( sz ) * kBrickPhysical + z ) * h + sy * kBrickPhysical + y ) * w +
+                                           size_t( sx ) * kBrickPhysical;
+                        std::memcpy( atlas.data() + row * texel,
+                                     src + ( size_t( z ) * kBrickPhysical + y ) * kBrickPhysical * 2u,
+                                     kBrickPhysical * texel );
+                    }
+            }
+        }
+        // A fresh image per re-pack (the backend has no 3D re-upload path, as the cloud noise service notes); the
+        // previous one goes through Image3D's deletion queue once the frames still reading it drop it.
+        const Core::Formats::Image3DSpecification spec{
+             .Tag        = "HeterogeneousVolumes.SparseAtlas",
+             .Width      = w,
+             .Height     = h,
+             .Depth      = d,
+             .Format     = Core::Formats::ImageFormat::RG16F,
+             .Data       = std::move( atlas ),
+             .Properties = Core::Formats::Sample,
+        };
+        m_SparseAtlas = Image3D::Create( spec );
+        if ( !m_SparseAtlas )
+        {
+            LOG_ERROR( "[HeterogeneousVolume] the sparse brick atlas ({}x{}x{} RG16F, {} bricks) could not be created; "
+                       "the baked volumes are not drawn",
+                       w, h, d, bricks );
+            for ( auto& [handle, resident] : loaded )
+                resident->Placed = false;
+            m_SparsePageTable.clear();
+            return;
+        }
+        const uint32_t needed = static_cast<uint32_t>( m_SparsePageTable.size() );
+        if ( !m_SparsePages || m_SparsePageCapacity < needed )
+        {
+            m_SparsePageCapacity = std::max( needed, 4096u );
+            m_SparsePages        = ShaderResources::StorageBuffer::Create(
+                 "HeterogeneousVolumes.SparsePages", m_SparsePageCapacity * static_cast<uint32_t>( sizeof( uint32_t ) ),
+                 kSparseVolumePagesBinding, /*persistent=*/false );
+            if ( !m_SparsePages )
+            {
+                LOG_ERROR( "[HeterogeneousVolume] the sparse page-table buffer ({} entries) could not be created; the "
+                           "baked volumes are not drawn",
+                           m_SparsePageCapacity );
+                m_SparsePageCapacity = 0;
+                m_SparseAtlas        = nullptr;
+                for ( auto& [handle, resident] : loaded )
+                    resident->Placed = false;
+            }
+        }
     }
 
     SystemRasterPass HeterogeneousVolumeRenderer::CompositePass()

@@ -23,10 +23,25 @@ namespace Desert::Graphic
         glm::vec4 Wind{ 0.0f };         // xyz = local advection velocity (cm/s), w = the noise clock (s)
         glm::vec4 Emissive{ 0.0f };     // rgb = emission per unit extinction, w = peak temperature (K)
         glm::vec4 Blackbody{ 0.0f };    // x = blackbody intensity, y = lighting-cache slab (set by the renderer)
+        // The baked source (DensitySource BakedSparse), set by the renderer's residency once the asset's bricks
+        // are in the shared atlas: x = the asset's first entry in the page-table buffer, yzw = pages per axis.
+        // yzw = 0 = the procedural source (also a baked volume whose asset is not resident yet).
+        glm::uvec4 Sparse{ 0u };
+        glm::vec4  SparseScale{ 0.0f }; // xyz = the asset's voxels per axis, w = its peak temperature (K)
     };
     static_assert( offsetof( HeterogeneousVolumeGpu, Medium ) == 128 );
     static_assert( offsetof( HeterogeneousVolumeGpu, Blackbody ) == 208 );
-    static_assert( sizeof( HeterogeneousVolumeGpu ) == 224 );
+    static_assert( offsetof( HeterogeneousVolumeGpu, Sparse ) == 224 );
+    static_assert( sizeof( HeterogeneousVolumeGpu ) == 256 );
+
+    // One gathered volume as the ECS hands it to the renderer: the packed GPU block plus the baked asset it
+    // samples (the `.dsvol`'s AssetHandle value, 0 = procedural). The renderer resolves the handle against its
+    // brick residency per view frame and writes Sparse / SparseScale; the GPU never sees the handle.
+    struct HeterogeneousVolumeInstance
+    {
+        HeterogeneousVolumeGpu Gpu;
+        uint64_t               SparseVolume = 0;
+    };
 
     // Volumes per view (UE draws every heterogeneous volume of the view; here the lighting-cache atlas is sized
     // for this many slabs, allocated the first frame a volume is on screen). The gatherer says the excess by name.
@@ -38,6 +53,9 @@ namespace Desert::Graphic
     // and - for the froxels' sun shadow - VolumetricFogLightScattering.shader; and the march's parameter block.
     inline constexpr uint32_t kHeterogeneousVolumesBinding      = 15;
     inline constexpr uint32_t kHeterogeneousVolumeParamsBinding = 17;
+    // The resident baked volumes' page tables (HETEROGENEOUS_VOLUME_PAGES_BINDING of
+    // Common/HeterogeneousVolume.glslh), the cache's and the march's own buffer like the two above.
+    inline constexpr uint32_t kSparseVolumePagesBinding = 18;
 
     // The march's parameter block (HvParams of Common/HeterogeneousVolume.glslh).
     struct HeterogeneousVolumeMarchGpu

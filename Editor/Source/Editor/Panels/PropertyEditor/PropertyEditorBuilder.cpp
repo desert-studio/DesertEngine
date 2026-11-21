@@ -888,11 +888,13 @@ namespace Desert::Editor
                 // Sound and IES profile slots (UE's USoundWave / UTextureLightProfile pickers): every `.desound` /
                 // `.dies` the content registry lists; the slot holds the asset's GUID handle, and the source file
                 // (the audio, the .ies) is the asset's to name.
-                if ( field.Meta.AssetType == "SoundAsset" || field.Meta.AssetType == "IesProfileAsset" )
+                if ( field.Meta.AssetType == "SoundAsset" || field.Meta.AssetType == "IesProfileAsset" ||
+                     field.Meta.AssetType == "SparseVolumeAsset" )
                 {
-                    const Common::Content::ContentKind kind = field.Meta.AssetType == "SoundAsset"
-                                                                   ? Common::Content::ContentKind::Sound
-                                                                   : Common::Content::ContentKind::IesProfile;
+                    const Common::Content::ContentKind kind =
+                         field.Meta.AssetType == "SoundAsset"        ? Common::Content::ContentKind::Sound
+                         : field.Meta.AssetType == "IesProfileAsset" ? Common::Content::ContentKind::IesProfile
+                                                                     : Common::Content::ContentKind::SparseVolume;
                     uint64_t*         handle   = static_cast<uint64_t*>( p );
                     const auto&       registry = Assets::ContentRegistry::Get();
                     const auto*       current  = *handle == 0 ? nullptr : registry.FindByHandle( *handle );

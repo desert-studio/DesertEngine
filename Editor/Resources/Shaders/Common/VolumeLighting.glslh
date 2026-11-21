@@ -13,6 +13,14 @@
 // LightGridCellsUB; Mesh/LocalLightShadowLookup.glslh (atlas or DESERT_LOCAL_SHADOW_VSM); Common/
 // CloudShadowReceiver.glslh; Common/RainOcclusion.glslh; DistantSkyLightTexture with Common/SkyScattering.glslh.
 
+// A MEDIUM THAT SHADOWS ITS OWN LOCAL LIGHTS defines VOLUME_LOCAL_LIGHT_TRANSMITTANCE(p, lightPosition, ordinal)
+// before including this: the transmittance from p toward the light through the medium, ordinal = the light's place
+// in the list walked at p (the heterogeneous volumes' cache marches the first few, HV_LOCAL_LIGHT_SHADOWED). The
+// froxels do not: a froxel's own medium is the fog, already integrated along the view ray.
+#ifndef VOLUME_LOCAL_LIGHT_TRANSMITTANCE
+#define VOLUME_LOCAL_LIGHT_TRANSMITTANCE(p, lightPosition, ordinal) 1.0
+#endif
+
 // The sun's shadow at p: the first cascade that contains it, one bilinear 2x2 comparison (UE's volume shadowing is
 // a single filtered lookup too; jitter and history blur it further).
 float SunShadow(vec3 p)
@@ -35,7 +43,7 @@ float SunShadow(vec3 p)
 
 // One point or spot light of the frame's lists at p, through the medium's Henyey-Greenstein phase g and the light's
 // VolumetricScatteringIntensity, shadowed through the local shadow atlas or the light's virtual map.
-vec3 LocalLight(uint index, vec3 p, vec3 viewDir, float g)
+vec3 LocalLight(uint index, vec3 p, vec3 viewDir, float g, uint ordinal)
 {
     if (index < lightGrid.counts.x)
     {
@@ -44,14 +52,15 @@ vec3 LocalLight(uint index, vec3 p, vec3 viewDir, float g)
         if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) <= 0.0)
             return vec3(0.0);
         return light.Radiance * source.volumetricScatteringIntensity * PointLightShadow(source, p, light.L) *
-               VolumetricFogPhaseHG(g, dot(light.L, viewDir));
+               VolumetricFogPhaseHG(g, dot(light.L, viewDir)) *
+               VOLUME_LOCAL_LIGHT_TRANSMITTANCE(p, source.position, ordinal);
     }
     SpotLight source = spotLights[index - lightGrid.counts.x];
     DesertLight light = DesertSpotLightAt(source, p);
     if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) <= 0.0)
         return vec3(0.0);
     return light.Radiance * source.volumetricScatteringIntensity * SpotLightShadow(source, p, light.L) *
-           VolumetricFogPhaseHG(g, dot(light.L, viewDir));
+           VolumetricFogPhaseHG(g, dot(light.L, viewDir)) * VOLUME_LOCAL_LIGHT_TRANSMITTANCE(p, source.position, ordinal);
 }
 
 // Every local light whose bounds touch p, found through the view's light grid at the pixel p projects to. A point
@@ -76,13 +85,13 @@ vec3 VolumeLocalLighting(vec3 p, vec3 viewDir, float g)
     if (!onScreen || LightGridCellOverflowed(lightGrid, count))
     {
         for (uint i = 0u; i < lightGrid.counts.x + lightGrid.counts.y; ++i)
-            lighting += LocalLight(i, p, viewDir, g);
+            lighting += LocalLight(i, p, viewDir, g, i);
     }
     else
     {
         uint offset = LightGridListOffset(lightGrid, gridCell);
         for (uint i = 0u; i < count; ++i)
-            lighting += LocalLight(lightGridCells[offset + i], p, viewDir, g);
+            lighting += LocalLight(lightGridCells[offset + i], p, viewDir, g, i);
     }
     return lighting;
 }
