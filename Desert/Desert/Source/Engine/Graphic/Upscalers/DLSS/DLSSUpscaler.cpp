@@ -575,13 +575,12 @@ namespace Desert::Graphic
         if ( !exposure )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(),
                                                                         exposure.GetError() );
-        // Streamline is told the vectors include the camera's motion (cameraMotionIncluded): the sky's must be
-        // written too, or its history stays glued to the screen under a turn (UpscalerVelocity.hpp).
-        const Common::ResultStr<RDG::TextureRef> combinedVelocity =
-             m_Velocity.AddPass( graph, frame, inputs.Velocity, inputs.SceneDepth );
-        if ( !combinedVelocity )
-            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "{}: {}", DebugName(),
-                                                                        combinedVelocity.GetError() );
+        // Streamline is told the vectors include the camera's motion (cameraMotionIncluded): the view's velocity
+        // carries it on every texel, the sky's included - the sky draw writes its camera motion at infinity
+        // (Skybox.shader / ProceduralSky.shader, Common/Velocity.glslh DesertSkyVelocity), so it is tagged as is.
+        if ( !inputs.Velocity.IsValid() )
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>(
+                 "{}: the velocity is not a texture of this graph", DebugName() );
 
         RDG::TextureDesc outputDesc;
         outputDesc.Size              = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
@@ -631,7 +630,7 @@ namespace Desert::Graphic
 
         const RDG::TextureRef color       = inputs.SceneColor;
         const RDG::TextureRef depth       = inputs.SceneDepth;
-        const RDG::TextureRef velocity    = combinedVelocity.GetValue();
+        const RDG::TextureRef velocity    = inputs.Velocity;
         const RDG::TextureRef exposureRef = exposure.GetValue();
         const RDG::TextureRef normal      = rr ? guides.NormalRoughness : RDG::TextureRef{};
         const bool            traced      = rr && guides.HitDistanceTraced;
