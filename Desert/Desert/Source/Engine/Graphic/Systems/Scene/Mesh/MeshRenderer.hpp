@@ -700,6 +700,10 @@ namespace Desert::Graphic::System
             // read at MeshVisibility's Slots.z + slot (UE GPUScene: the consumer binds the frame's buffer and
             // indexes it by offset, never by an address that outlives a reallocation). The resolve pass declares
             // the read on the graph (GrassRenderer::BladeSetupRef). Null: no records, the resolve discards.
+            // FPS-GRASS-BLADE-SETUP-BIND: a GrassBlade section's too - bound to its Visibility and
+            // VisibilityResolve cells' GrassBladeSetupRecords block, read at the blade's raster-stream row (its
+            // shape's Lists.y = 1: records this frame). Null: the blade is not drawn through the visibility
+            // buffer.
             std::shared_ptr<ShaderResources::StorageBuffer> SetupRecords;
             // The mesh the visibility resolve's full-screen triangle draws (its first three indices are 0, 1, 2);
             // null: Mesh itself (a blade strip).
@@ -4262,7 +4266,9 @@ namespace Desert::Graphic::System
             StorageBufferProperty*    InstancesBlock = nullptr;
             StorageBufferProperty*    IdsBlock       = nullptr;
             StorageBufferProperty*    MeshRowsBlock  = nullptr; // GRASS-VIS-MESH-1: GrassMeshVisibility
-            StorageBufferProperty*    SetupBlock     = nullptr; // FPS-GRASS-MESH-SETUP-5: GrassMeshSetup (resolve)
+            // FPS-GRASS-MESH-SETUP-5: GrassMeshSetup (Instanced resolve); FPS-GRASS-BLADE-SETUP-BIND:
+            // GrassBladeSetupRecords (GrassBlade Visibility / VisibilityResolve)
+            StorageBufferProperty*    SetupBlock     = nullptr;
             StorageBufferProperty*    BladeBlock     = nullptr;
             StorageBufferProperty*    MaterialBlock  = nullptr; // null: the cell reads no Materials row block
             // THE SPLIT, revised apart from the cells (none depends on it, so a lens that moves it re-derives only

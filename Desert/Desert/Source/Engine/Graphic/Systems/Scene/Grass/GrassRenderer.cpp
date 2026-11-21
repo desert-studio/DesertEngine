@@ -1555,10 +1555,15 @@ namespace Desert::Graphic::System
                 gpu.ShapeRemade = true; // made anew next frame
                 return false;
             }
-            // FPS-GRASS-RESOLVE-2: the view's blade setup records' address (CommitBladeSetup, this frame's), which
-            // "Grass: Visibility Resolve" reads at Visibility.x + instance; 0: none this frame.
-            gpu.ShapeData.Lists.y = static_cast<uint32_t>( m_BladeSetupAddress & 0xFFFFFFFFull );
-            gpu.ShapeData.Lists.z = static_cast<uint32_t>( m_BladeSetupAddress >> 32u );
+            // FPS-GRASS-RESOLVE-2: whether the view's blade setup records exist this frame (CommitBladeSetup),
+            // which the visibility raster and "Grass: Visibility Resolve" read at Visibility.x + instance.
+            // FPS-GRASS-BLADE-SETUP-BIND (UE GPUScene: a consumer binds the frame's buffer through the graph and
+            // indexes it by offset): Lists.y = 1 records this frame, 0 none; Lists.z = 0. The records are read
+            // through the bound GrassBladeSetupRecords block (GpuInstancedRenderData::SetupRecords, the reads
+            // declared on the graph), bounded by its length - never at a device address this per-frame shape copy
+            // held, which a growth of the records moved under every copy written before it.
+            gpu.ShapeData.Lists.y = m_BladeSetupAddress != 0u && m_BladeSetup != nullptr ? 1u : 0u;
+            gpu.ShapeData.Lists.z = 0u;
             if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
                  !wrote.IsSuccess() )
             {
@@ -3215,17 +3220,18 @@ namespace Desert::Graphic::System
                 if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
                     meshRows = gpu->MeshVisibility[s];
                 sections.push_back(
-                     { .Mesh             = mesh,
-                       .Path             = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
-                       .Material         = variety.Sections[s].Material,
-                       .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
-                       .CastShadows      = variety.Placement.CastDynamicShadow,
-                       .Wind             = variety.Wind,
-                       .Instances        = m_InstancesPool.Buffer(),
-                       .CameraIds        = m_IdsPool.Buffer(),
-                       .BladeShape       = gpu->Shape,
-                       .MeshVisibility   = meshRows,
-                       .SetupRecords     = meshRows != nullptr ? m_BladeSetup : nullptr,
+                     { .Mesh            = mesh,
+                       .Path            = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
+                       .Material        = variety.Sections[s].Material,
+                       .HiddenSubmeshes = variety.Sections[s].HiddenSubmeshes,
+                       .CastShadows     = variety.Placement.CastDynamicShadow,
+                       .Wind            = variety.Wind,
+                       .Instances       = m_InstancesPool.Buffer(),
+                       .CameraIds       = m_IdsPool.Buffer(),
+                       .BladeShape      = gpu->Shape,
+                       .MeshVisibility  = meshRows,
+                       // FPS-GRASS-BLADE-SETUP-BIND: a blade section's raster and resolve bind them too.
+                       .SetupRecords     = variety.Blade || meshRows != nullptr ? m_BladeSetup : nullptr,
                        .ResolveMesh      = resolveMesh,
                        .Refs             = &gpu->Refs,
                        .CameraRefs       = &gpu->CameraRefs,

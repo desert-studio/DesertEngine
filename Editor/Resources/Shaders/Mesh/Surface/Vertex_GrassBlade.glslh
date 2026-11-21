@@ -152,13 +152,13 @@ layout( location = 15 ) flat out uint v_VisibilityRow;
 // raster and for phase 2's before phase 2's, SceneRenderer::AddFrameGrassBladeSetup), the very record the resolve
 // rebuilds its pixel from (Pass_VisibilityResolve.glslh): the curve, width, card and clump draw are read, not the
 // transform, the ids, the deformation field and the local wind. Per vertex only BladeCurvePoint and the hull remain.
-// The record is addressed by Blade.Lists.yz (GrassRenderer::CommitBladeSetup), at the row the word names.
+// FPS-GRASS-BLADE-SETUP-BIND: the records are the view's bound GrassBladeSetupRecords block (GrassBlade.glslh
+// GRASS_BLADE_SETUP_BINDING; GrassRenderer::CommitBladeSetup), read at the blade's raster-stream row bounded by the
+// block's length - never by an address a per-frame shape copy held (Lists.yz, retired by a growth of the records).
 #define GRASS_BLADE_FROM_SETUP 1
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_buffer_reference_uvec2 : require
-layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassBladeSetupRef
+layout( std430, binding = GRASS_BLADE_SETUP_BINDING ) readonly buffer GrassBladeSetupRecords
 {
-    GrassBladeSetupData Records[];
+    GrassBladeSetupData BladeSetupRows[];
 };
 #endif
 // The card's cooked hull narrows the strip (FPS-GRASS-HULL).
@@ -181,14 +181,14 @@ void main()
 #ifdef GRASS_BLADE_FROM_SETUP
     const uint row  = Blade.Visibility.x + ( uint( gl_InstanceIndex ) - Blade.Lists.x ); // the variety's slot
     v_VisibilityRow = row;
-    // No records this frame (address 0, the setup buffer refused - logged by GrassRenderer): no blade is placed,
-    // as the resolve then draws no blade pixel.
-    if ( Blade.Lists.y == 0u && Blade.Lists.z == 0u )
+    // No records this frame (Lists.y 0, the setup buffer refused - logged by GrassRenderer) or a row past the bound
+    // records (FPS-GRASS-BLADE-SETUP-BIND: never read): no blade is placed, as the resolve then draws no blade pixel.
+    if ( Blade.Lists.y == 0u || row >= uint( BladeSetupRows.length() ) )
     {
         gl_Position = vec4( 0.0, 0.0, -2.0, 1.0 ); // a degenerate, clipped
         return;
     }
-    const GrassBladeSetupData setup = GrassBladeSetupRef( Blade.Lists.yz ).Records[row];
+    const GrassBladeSetupData setup = BladeSetupRows[row];
     const float               side  = a_Position.x;
     const float               t     = a_Position.y;
     const float               width = BladeSetupWidth( setup );

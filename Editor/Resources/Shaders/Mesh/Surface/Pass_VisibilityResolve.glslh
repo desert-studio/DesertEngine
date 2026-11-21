@@ -32,14 +32,14 @@ layout( std430, binding = 18 ) readonly buffer GpuInstanceIds
 #ifdef DESERT_SURFACE_PATH_GrassBlade
 #include <Mesh/Surface/GrassBlade.glslh>
 // FPS-GRASS-RESOLVE-2: the view's blade setup records (Programs/Grass/GrassBladeSetup.shader, "Grass: Blade Setup"),
-// by device address (Blade.Lists.yz, GrassRenderer::CommitBladeSetup): each drawn blade's curve now and one wind
-// step before - the raster's wind, local wind, gust and deformation field already applied - its width, card and
-// strip level, at its raster-stream row. The rebuild reads it instead of the transform, the ids and the field.
-#extension GL_EXT_buffer_reference : require
-#extension GL_EXT_buffer_reference_uvec2 : require
-layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassBladeSetupRef
+// in GrassRenderer::CommitBladeSetup's buffer: each drawn blade's curve now and one wind step before - the raster's wind, local
+// wind, gust and deformation field already applied - its width, card and strip level, at its raster-stream row.
+// The rebuild reads it instead of the transform, the ids and the field. FPS-GRASS-BLADE-SETUP-BIND: as the bound
+// block GrassBladeSetupRecords (GrassBlade.glslh GRASS_BLADE_SETUP_BINDING, the raster's own declaration), bounded
+// by its length - never by the address a per-frame shape copy held (Lists.yz, retired by a growth of the records).
+layout( std430, binding = GRASS_BLADE_SETUP_BINDING ) readonly buffer GrassBladeSetupRecords
 {
-    GrassBladeSetupData Records[];
+    GrassBladeSetupData BladeSetupRows[];
 };
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
@@ -141,10 +141,11 @@ void main()
         discard;
     const uint instance = row - Blade.Visibility.x;
     // FPS-GRASS-RESOLVE-2: the blade's setup record, at its raster-stream row (a row a word names was drawn, so
-    // "Grass: Blade Setup" wrote it this frame). No records this frame (address 0): no blade pixel to rebuild.
-    if ( Blade.Lists.y == 0u && Blade.Lists.z == 0u )
+    // "Grass: Blade Setup" wrote it this frame). No records this frame (Lists.y 0) or a row past the bound records
+    // (FPS-GRASS-BLADE-SETUP-BIND: never read): no blade pixel to rebuild.
+    if ( Blade.Lists.y == 0u || row >= uint( BladeSetupRows.length() ) )
         discard;
-    const GrassBladeSetupData setup = GrassBladeSetupRef( Blade.Lists.yz ).Records[row];
+    const GrassBladeSetupData setup = BladeSetupRows[row];
     const uint                segments = max( BladeSetupSegments( setup ), 1u );
     vec2                      corner[3];
     BladeTriangleCorners( segments, triangle, corner[0], corner[1], corner[2] );
