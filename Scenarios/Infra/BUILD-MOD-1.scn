@@ -1,0 +1,8 @@
+# BUILD-MOD-1: ResourceRegistry.hpp includes no service, System.hpp no registry; consumers include what they use.
+# Fanout measured outside the editor (ninja -t deps, Debug; DesertEngine-scratch/BUILD-MOD-1/REMAINDER.md):
+#   Destruction/FractureCells.hpp 462 -> 3, Water/GerstnerWaterWaves.hpp 457 -> ~8, ShaderService.hpp 452 -> ~160
+#   (the rest goes through SceneRenderer.hpp pass headers -> BUILD-MOD-4).
+# Regression (here): the Editor built after the cut opens WP_Protocol and draws it as the dev Editor does.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо; без падения и диалога ошибки; в editor.log нет отказа загрузки
