@@ -2909,20 +2909,25 @@ namespace Desert::Graphic
                 // the reflections and the composite still wait only on the runs they read (RDGCompile
                 // FindAsyncRuns: the join at the first consumer). Here only when the depth they march
                 // against is already final (otherwise after the opaque scene, below): a single-sample target (no
-                // resolve after the opaque passes), no "Deferred: Generic" draw (a blended program writes the
-                // depth), no glass section and no water surface (it writes its own depth).
+                // resolve after the opaque passes) and no "Deferred: Generic" draw (a blended program writes the
+                // depth) or depth-writing glass section.
+                // FPS-CLOUDS-WATER: the water surface no longer keeps them late. They march the G-buffer depth
+                // (the opaque scene without the water, UE SceneDepthWithoutSingleLayerWater:
+                // AddFrameVolumetricClouds), and the composite, which draws after the water, depth-tests each
+                // pixel's cloud front against the water's own depth (CloudComposite.shader) - UE's volumetric
+                // clouds traced against the scene depth with the water composited over.
                 {
                     // GPU-ASYNC-WAIT: only a draw that WRITES the depth after the composite keeps the march late -
                     // a generic record in the frustum, or a translucent section whose draw state writes depth
                     // (MeshRenderer::LateDepthWriterInView); an off-screen generic record or a glass section that
-                    // writes none no longer moves 0.9 ms of clouds out of the probes' window.
-                    const auto* waterSurface = m_Systems.Water.get();
-                    const bool  noLateMeshDepth =
+                    // writes none no longer moves 0.9 ms of clouds out of the probes' window. (The composite's
+                    // depth test would settle those too, but a generic record also draws OPAQUE pixels after the
+                    // march, whose surface hides the sky behind them: those keep the late march.)
+                    const bool noLateMeshDepth =
                          meshRenderer == nullptr ||
                          meshRenderer->LateDepthWriterInView() == System::MeshRenderer::LateDepthWriter::None;
-                    const bool depthFinal = m_TargetFramebuffer->GetSpecification().Samples <= 1 &&
-                                            noLateMeshDepth &&
-                                            ( waterSurface == nullptr || !waterSurface->HasDraws() );
+                    const bool depthFinal =
+                         m_TargetFramebuffer->GetSpecification().Samples <= 1 && noLateMeshDepth;
                     if ( depthFinal && !m_DebugView.HidesAtmosphere() )
                     {
                         AddFrameVolumetricClouds( graph, textures, frame, CloudQueue::AsyncCompute );
@@ -3066,7 +3071,8 @@ namespace Desert::Graphic
         // scene copy (AddFrameOpaqueFog; a G-buffer view adds its inputs but not its apply); the sky LUTs are the
         // graph head's. A G-buffer or wireframe view (HidesAtmosphere) composites no cloud layer. The clouds come
         // here when the deferred lighting did not trace them between the probes' fork and join
-        // (m_FrameCloudsTraced): the depth they march against is final only after the water and the forward draws.
+        // (m_FrameCloudsTraced): the depth they march against is final only after the forward draws (a multisampled
+        // target, a late depth writer in view, the forward path).
         if ( !pathTraced && !m_DebugView.HidesAtmosphere() )
         {
             if ( !m_FrameCloudsTraced )

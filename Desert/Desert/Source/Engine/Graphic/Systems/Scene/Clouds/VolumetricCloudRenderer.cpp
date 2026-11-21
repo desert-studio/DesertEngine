@@ -64,6 +64,7 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, CloudReconstructionTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudReconstructionGuideTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, UpsampledCloudTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, UpsampledCloudFrontDepthTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudModellingTexture );
         // The modelling clipmap's conservative density (CloudProceduralClipmap::GetColumnImage), the march's
         // own entry: only its coarse-tier probe reads it, so it is not one of the field's SampledVolumes.
@@ -791,9 +792,13 @@ namespace Desert::Graphic::System
         spec.Shader      = compositeShader;
         spec.TargetLayout = SceneTargetLayout();
 
-        // A fullscreen triangle has no meaningful depth of its own; occlusion was resolved inside the march,
-        // which cut every ray at the distance the depth attachment reported.
-        spec.DepthTestEnabled  = false;
+        // The fullscreen triangle takes each pixel's cloud-front depth as its fragment depth (CloudComposite.shader,
+        // CloudFrontDepthTexture) and is depth-TESTED, never written: the march cut every ray at the depth it read,
+        // so against that depth the test always passes, and what it drops is the cloud behind a surface drawn
+        // after the march - the water of a frame whose clouds were traced at the early (async) placement against
+        // the G-buffer depth (UE: the volumetric render target composed over the scene with the water's depth).
+        spec.DepthTestEnabled  = true;
+        spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
         spec.DepthWriteEnabled = false;
         spec.CullMode          = CullMode::None;
         spec.Topology          = PrimitiveTopology::Triangles;
@@ -1244,6 +1249,20 @@ namespace Desert::Graphic::System
             key.Value( static_cast<uint64_t>( image->GetHash() ) );
             if constexpr ( std::is_base_of_v<Image2D, ImageType> )
                 key.Value( image->GetResourceGeneration() );
+        }
+
+        // The scene depth a cloud node of the frame chain reads (the march, the resolve, the upsample - one depth
+        // for all three, so the guide's scene distances agree): the caller's graph depth when it gave one (the
+        // G-buffer depth of the early placement, DeclareFrameNodes), else the scene target's single-sample image.
+        RenderPassDeclaration::BlockDeclaration& DeclareSceneDepth( RenderPassDeclaration::BlockDeclaration& block,
+                                                                    const RDG::TextureRef            graphDepth,
+                                                                    const std::shared_ptr<Image2D>& image )
+        {
+            if ( graphDepth.IsValid() )
+                return block.Texture( VolumetricCloudShaderParameters::SceneDepthTexture, graphDepth,
+                                      RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+            return block.Texture( VolumetricCloudShaderParameters::SceneDepthTexture, image,
+                                  RDG::Access::SampledCompute, "SceneDepth.Compute" );
         }
     } // namespace
 
@@ -2262,7 +2281,8 @@ namespace Desert::Graphic::System
     }
 
     ComputeNodeList VolumetricCloudRenderer::DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
-                                                                VolumetricCloudHistory& history )
+                                                                VolumetricCloudHistory& history,
+                                                                const RDG::TextureRef  marchDepth )
     {
         Common::Memory::FrameArena& arena = graph.GetFrameArena();
         ComputeNodeList             nodes = MakeComputeNodeList( arena );
@@ -2428,8 +2448,11 @@ namespace Desert::Graphic::System
         // Single-sample: the scene depth at MSAA 1, SceneDepthResolved at MSAA > 1 (a sampler2D over a
         // multisampled image is invalid). With a depth target it always exists: at MSAA > 1 the resolve is part
         // of the renderer, and a resolve that failed to build said so at startup and is said again here.
-        const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
-        if ( !depth )
+        // Or the caller's graph depth (marchDepth: the G-buffer depth of the early placement), and then no image.
+        std::shared_ptr<Image2D> depth;
+        if ( !marchDepth.IsValid() )
+            depth = m_SceneRenderer->GetComputeSceneDepth();
+        if ( !marchDepth.IsValid() && !depth )
         {
             LOG_ERROR( "[Clouds] the cloud march has no single-sample scene depth: SceneDepthResolve was not "
                        "built for the multisampled scene target (see the startup error)" );
@@ -2494,12 +2517,13 @@ namespace Desert::Graphic::System
         const RDG::BufferRef marchCounters =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( kMarchCountersReset ) }, "Clouds.MarchCounters" );
         graph.QueueBufferUpload( marchCounters, std::as_bytes( std::span( kMarchCountersReset ) ) );
-        SampledMedium( SampledVolumes( DeclareComputeBlock<ShaderPush::CloudRaymarch>( march.Access, m_MarchPipeline.get(),
-                                                                                m_MarchLayout ) ) )
-             .Storage( VolumetricCloudShaderParameters::CloudScatterTexture, trace, RDG::Access::StorageWrite )
-             .Storage( VolumetricCloudShaderParameters::CloudGuideTexture, traceGuide, RDG::Access::StorageWrite )
-             .Texture( VolumetricCloudShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute,
-                       "SceneDepth.Compute" )
+        DeclareSceneDepth(
+             SampledMedium( SampledVolumes( DeclareComputeBlock<ShaderPush::CloudRaymarch>(
+                                 march.Access, m_MarchPipeline.get(), m_MarchLayout ) ) )
+                  .Storage( VolumetricCloudShaderParameters::CloudScatterTexture, trace, RDG::Access::StorageWrite )
+                  .Storage( VolumetricCloudShaderParameters::CloudGuideTexture, traceGuide,
+                            RDG::Access::StorageWrite ),
+             marchDepth, depth )
              .Sampler( VolumetricCloudShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
              .Texture( VolumetricCloudShaderParameters::CloudSkyOcclusionVolumeTexture, skyOcclusion,
                        RDG::Access::SampledCompute,
@@ -2642,12 +2666,10 @@ namespace Desert::Graphic::System
                        RDG::SubresourceRange::All() )
              .Sampler( VolumetricCloudShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Texture( VolumetricCloudShaderParameters::CloudTraceGuideTexture, traceGuide,
-                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             // The march's depth image again: the resolve gives every half-res pixel its OWN scene distance rather
-             // than the one the jitter cycle's traced sub-pixel saw (CloudTemporalResolve.shader,
-             // SceneDepthTexture).
-             .Texture( VolumetricCloudShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute,
-                       "SceneDepth.Compute" )
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
+        // The march's depth again: the resolve gives every half-res pixel its OWN scene distance rather than the
+        // one the jitter cycle's traced sub-pixel saw (CloudTemporalResolve.shader, SceneDepthTexture).
+        DeclareSceneDepth( resolveBlock, marchDepth, depth )
              .Sampler( VolumetricCloudShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
              .Storage( VolumetricCloudShaderParameters::ReconstructedScatterTexture, current.Scatter,
                        RDG::Access::StorageWrite )
@@ -2686,19 +2708,29 @@ namespace Desert::Graphic::System
         const RDG::TextureDesc upsampledDesc{ .Size   = RDG::Extent3D{ .Width = fullWidth, .Height = fullHeight },
                                               .Format = ViewTargetFormats::kCloudTrace };
         const RDG::TextureRef  upsampled = graph.CreateTexture( upsampledDesc, "Clouds.Upsampled" );
+        // Beside it, each pixel's cloud-front device depth: the composite writes it as its fragment depth and
+        // tests it against the scene depth of that moment, which holds the water the early placement's march did
+        // not see (DeclareFrameNodes' marchDepth).
+        const RDG::TextureDesc frontDepthDesc{ .Size = RDG::Extent3D{ .Width = fullWidth, .Height = fullHeight },
+                                               .Format = ViewTargetFormats::kCloudFrontDepth };
+        const RDG::TextureRef  upsampledFrontDepth =
+             graph.CreateTexture( frontDepthDesc, "Clouds.UpsampledFrontDepth" );
         ComputeNodeDeclaration upsample( graph.GetFrameArena() );
         upsample.Name = "Clouds: Upsample";
         m_UpsamplePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
-        DeclareComputeBlock( upsample.Access, m_UpsamplePipeline.get(), m_UpsampleLayout )
+        RenderPassDeclaration::BlockDeclaration upsampleBlock =
+             DeclareComputeBlock( upsample.Access, m_UpsamplePipeline.get(), m_UpsampleLayout );
+        upsampleBlock
              .Texture( VolumetricCloudShaderParameters::CloudReconstructionTexture, current.Scatter,
                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Texture( VolumetricCloudShaderParameters::CloudReconstructionGuideTexture, current.Guide,
                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( VolumetricCloudShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
-             .Texture( VolumetricCloudShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute,
-                       "SceneDepth.Compute" )
+             .Sampler( VolumetricCloudShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
+        DeclareSceneDepth( upsampleBlock, marchDepth, depth )
              .Sampler( VolumetricCloudShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
              .Storage( VolumetricCloudShaderParameters::UpsampledCloudTexture, upsampled,
+                       RDG::Access::StorageWrite )
+             .Storage( VolumetricCloudShaderParameters::UpsampledCloudFrontDepthTexture, upsampledFrontDepth,
                        RDG::Access::StorageWrite );
         upsample.Record = [this, fullWidth, fullHeight]( RDG::PassContext& context,
                                                          const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -2712,8 +2744,10 @@ namespace Desert::Graphic::System
         nodes.push_back( std::move( upsample ) );
 
         // Published by SettleFrameNodes, i.e. once the graph accepted the nodes.
-        m_PendingResult =
-             FrameResult{ .Reconstruction = current, .Upsampled = upsampled, .ResolveNode = resolveNode };
+        m_PendingResult = FrameResult{ .Reconstruction      = current,
+                                       .Upsampled           = upsampled,
+                                       .UpsampledFrontDepth = upsampledFrontDepth,
+                                       .ResolveNode         = resolveNode };
         return nodes;
     }
 
@@ -2823,7 +2857,8 @@ namespace Desert::Graphic::System
         config.ExecuteFunc = [this]( RDG::PassContext&     context,
                                      const FrameGraphRefs& refs ) -> Common::BoolResultStr
         {
-            if ( !refs.Transients.CloudScatter.IsValid() || !m_CompositeMaterial )
+            if ( !refs.Transients.CloudScatter.IsValid() || !refs.Transients.CloudFrontDepth.IsValid() ||
+                 !m_CompositeMaterial )
                 return BOOLSUCCESS;
             // Through the block Declare declared below.
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
@@ -2837,8 +2872,9 @@ namespace Desert::Graphic::System
         {
             // The UPSAMPLED image (CloudUpsample.shader, full resolution, published by SceneRenderer),
             // texelFetched 1:1: the upsample needs each pixel's scene depth, which this pass draws with attached.
-            const RDG::TextureRef scatter = refs.Transients.CloudScatter;
-            if ( !scatter.IsValid() || !m_CompositeMaterial )
+            const RDG::TextureRef scatter    = refs.Transients.CloudScatter;
+            const RDG::TextureRef frontDepth = refs.Transients.CloudFrontDepth;
+            if ( !scatter.IsValid() || !frontDepth.IsValid() || !m_CompositeMaterial )
                 return;
             // The composite's one block: the shader's layout, the material route, the image and its sampler
             // state (linear, REPEAT; the fetch never filters). Each entry is the read's declaration.
@@ -2848,6 +2884,8 @@ namespace Desert::Graphic::System
                  .Bindings( m_CompositeLayout.Get( m_CompositePipeline->GetSpecification().Shader ),
                             executor.GetRouteFill() )
                  .Texture( VolumetricCloudCompositeShaderParameters::CloudScatterTexture, scatter,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Texture( VolumetricCloudCompositeShaderParameters::CloudFrontDepthTexture, frontDepth,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                  .Sampler( VolumetricCloudCompositeShaderParameters::LinearRepeatSampler,
                            RDG::SamplerDesc::LinearRepeat() );

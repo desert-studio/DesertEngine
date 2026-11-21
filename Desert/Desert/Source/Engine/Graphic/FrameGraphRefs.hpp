@@ -141,6 +141,9 @@ namespace Desert::Graphic
         // (VolumetricCloudRenderer::GetFrameResult().Upsampled, CloudUpsample.shader: premultiplied radiance +
         // transmittance per framebuffer pixel); invalid when the frame has none -> CloudComposite
         RDG::TextureRef CloudScatter;
+        // Beside it, each pixel's cloud-front device depth (GetFrameResult().UpsampledFrontDepth): the composite's
+        // fragment depth, depth-tested against the water drawn after an early march          -> CloudComposite
+        RDG::TextureRef CloudFrontDepth;
         // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, a transient of this graph), set
         // once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
         RDG::TextureRef CloudShadowMap;
