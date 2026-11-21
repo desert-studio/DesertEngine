@@ -3902,12 +3902,11 @@ namespace Desert::Graphic::System
                  .Storage( P::BladeSetupWork, work,
                            setsUp ? RDG::Access::StorageRead : RDG::Access::StorageWrite );
         };
-        // FPS-GRASS-RASTER-COST (UE InstanceCulling / GoT's per-blade compute on the async pipe): phase 1's two
-        // dispatches join the camera cull's async pipe (CullPassFlags) - they read only the cull's lists, the
-        // deformation field, the uploads and the records no graphics pass touched yet this frame, so the graph
-        // forks them after the field's last write and joins before phase 1's raster (RDG CrossPipeSync); the
-        // graphics queue no longer waits ~0.2 ms for them. Phase 2's follow its graphics-queue cull at once.
-        const RDG::PassFlags setupFlags = postOcclusion ? RDG::PassFlags::Compute : CullPassFlags();
+        // Blade setup stays on the graphics queue: phase 1's raster consumes it immediately, so on the async pipe
+        // (FPS-GRASS-RASTER-COST, scn-1121-111104) the graphics queue only waited 0.235 ms before
+        // 'Grass: Visibility Raster' for the same work - nothing overlapped it. Keep it here until independent
+        // graphics work can be scheduled between the setup and the raster.
+        const RDG::PassFlags setupFlags = RDG::PassFlags::Compute;
         graph.AddPass(
              postOcclusion ? "Grass: Blade Setup Work Post-Occlusion" : "Grass: Blade Setup Work", setupFlags,
              [bindSetup, workTable]( RDG::PassBuilder& pass ) { bindSetup( pass, workTable, false ); },
