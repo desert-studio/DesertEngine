@@ -11,6 +11,9 @@
 Дано --subject viewport set Camera.Position 0,250,-400
 Дано --subject viewport set Camera.Direction 0,-0.5,0.866
 Дано run Modeling "Create shape tool: Sphere"
+# Lat Long: one non-overlapping UV island set (the Box sphere maps every cube face over the whole 0..1 square, and
+# overlapping UVs bake a Normal from another triangle - the bake warns of them).
+Дано run Modeling "Create shape sphere: Lat Long"
 Дано run Modeling "Create shape: place at the viewport centre"
 # A created shape has no slot material; the barn siding (textured) is what the bake flattens.
 Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Siding.demat
