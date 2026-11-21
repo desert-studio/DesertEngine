@@ -1,0 +1,4 @@
+# NET-ARCH: the networking architecture, adapted to World Partition from the start (owner 11-21).
+# A design document only - nothing is built or run. The proof is the document on branch docs/NET-ARCH.
+Дано the doc Docs/contracts/NET-ARCH.md on branch docs/NET-ARCH
+Тогда net_arch_doc NET-ARCH.md names the transport with a comparison table, the WP stable-id rule, the server streaming rule, and NET-1..N slices each with its own scenario line

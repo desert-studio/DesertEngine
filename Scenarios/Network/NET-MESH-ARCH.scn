@@ -1,0 +1,4 @@
+# NET-MESH-ARCH: server meshing revision of NET-ARCH after the owner's answers 11-21 (no player cap, Linux-first,
+# official servers only, storage interface). A design document only - nothing is built or run.
+Дано the doc Docs/contracts/NET-ARCH.md on branch docs/NET-MESH-ARCH
+Тогда net_mesh_doc NET-ARCH.md has the meshing section with the choice table, Linux-first target, revised slice list with NET-MESH-* scenarios, and no per-server player cap anywhere
