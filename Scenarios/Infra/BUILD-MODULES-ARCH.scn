@@ -1,0 +1,5 @@
+# BUILD-MODULES-ARCH: design + measurement document only, no engine run.
+# Дано the doc on branch docs/BUILD-MODULES-ARCH (docs/contracts/BUILD-MODULES.md)
+# Тогда [build_modules_doc]: BUILD-MODULES.md has the measured touch-one-file table (section 2), the target module
+#   graph (section 5), the per-slice targets (section 8) and the rules for the new modules Net/Physics (section 7).
+# Checked by reading the document; nothing for play_scenario.py to drive.
