@@ -818,6 +818,17 @@ namespace Desert::Core
 
         void DestroyEntity( ECS::Entity entity );
 
+        // GAME THREAD. THE STREAM-OUT DESTROY (WP-OPT-UNLOAD; UE ULevelStreaming unload: components unregistered,
+        // primitives removed through the render command queue, never a game-thread wait on the rendering thread).
+        // DestroyEntity joins the render task, because a view still recording may replay a draw that points at
+        // what the entity owns - mid-frame, that join waited a whole frame of recording for every cell streamed
+        // out. This one does not wait: the subtree is hidden now (ECS::StreamingOutComponent, read by every
+        // collector through ECS::IsHidden, so no draw of this update names it), its ids stop resolving
+        // (FindEntityByID; a record made again under the same id is the one found), and the tree is destroyed
+        // at the next view fence (RenderTask::AfterViews: SceneRenderer::BeginScene's JoinViews, which the frame
+        // takes anyway), when no view that recorded it is left.
+        void DestroyEntityAtFence( ECS::Entity entity );
+
         /**
          * @brief THE RENDER-STATE DIRTY SET (UE UPrimitiveComponent::MarkRenderStateDirty).
          *
@@ -906,6 +917,8 @@ namespace Desert::Core
         std::vector<entt::entity> m_DirLightsUnusedScratch; // this frame's, capacity reused (no per-frame heap)
 
         SceneEntityIndex m_Entities;
+        // Roots DestroyEntityAtFence hid, destroyed by the one AfterViews command queued for them.
+        std::vector<entt::entity> m_DestroyAtFence;
 
         // Set by Init(), never cleared — see IsInitialized().
         bool m_Initialized = false;

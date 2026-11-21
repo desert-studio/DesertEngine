@@ -45,6 +45,11 @@ namespace Desert::Core
         // mistake "nothing was there" for "removed".
         bool Remove( entt::entity handle );
 
+        // O(1): the UUID lookup stops naming @p handle (if it still does); the entity keeps its slot. An entity
+        // streamed out and destroyed at the next fence (Scene::DestroyEntityAtFence) is not found by its id in
+        // between, so a record made again under the same id in that window is the one Find answers.
+        void ForgetId( entt::entity handle );
+
         // The entity registered under @p uuid most recently, or null.
         [[nodiscard]] const ECS::Entity* Find( const Common::UUID& uuid ) const;
 
