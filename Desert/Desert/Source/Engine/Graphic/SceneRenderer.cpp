@@ -2245,6 +2245,7 @@ namespace Desert::Graphic
             meshes->SkinCacheReads().clear();
             if ( skinCache != nullptr )
                 skinCache->DeclareReads( graph, *meshes, frameNumber, meshes->SkinCacheReads() );
+            meshes->DeclareCrowdReads( graph );
         }
 
         const auto sceneColor = [this, &textures]()

@@ -158,6 +158,10 @@ namespace Desert::Graphic::RayTracing
             const System::MeshRenderer::SkinnedMeshRenderData& record = records[i];
             if ( record.Mesh == nullptr || !scene.IsValid( record.GpuPrimitive ) )
                 continue;
+            // A far-crowd record (WP-FAR-12) fetches its baked vertex animation (MeshRenderer::SyncGpuScene sets
+            // its row): not skinned, not in the TLAS this frame.
+            if ( record.VatAddress != 0 )
+                continue;
             Entry& entry = m_Entries[m_RecordKeys[i]];
             if ( entry.LastFrame != frame || !entry.Streams )
             {

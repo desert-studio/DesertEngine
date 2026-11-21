@@ -30,7 +30,24 @@ namespace Desert::Animation
         std::atomic<bool>  Seen{ false };    // the renderer wrote at least once
         // Animation -> renderer: the finest level whose required bones the published pose evaluated.
         std::atomic<uint32_t> EvaluatedLod{ 0u };
+
+        // THE FAR CROWD HAND-OFF (UE AnimToTexture / City Sample: beyond skeletal range a figure is an instanced
+        // static mesh whose vertex stage plays a baked vertex animation, no skeleton evaluated on the CPU).
+        // Renderer -> animation: this instance is drawn from its clip's vertex animation (VertexAnimationCrowd),
+        // so the animation does not evaluate a pose; it only runs the clip's clock (VatClock below).
+        std::atomic<bool> Vat{ false };
+        // Animation -> renderer: the clip the instance plays and its playhead in seconds (the VAT frame).
+        std::atomic<const void*> VatClip{ nullptr };
+        std::atomic<float>       VatTime{ 0.0f };
+        // Animation only (its own thread): the clock runs here while Vat holds, from the Animator's playhead at
+        // the hand-off; the Animator is put back on it when the instance returns to skeletal.
+        bool  VatClockRunning = false;
+        float VatClock        = 0.0f;
     };
+
+    // The animation system's last `anim CPU` window, ms per played frame (AnimationECSSystem::ReportAnimationCost),
+    // for the crowd readout (`[Crowd] ... anim CPU X ms`, VertexAnimationCrowd). Negative before the first window.
+    inline std::atomic<float> g_AnimationCpuMsPerFrame{ -1.0f };
 
     // UE FAnimUpdateRateParameters defaults, by screen size instead of UE's two thresholds alone: the rate (tick
     // every N frames) for an instance at least this large on screen. UE BaseVisibleDistanceFactorThesholds
