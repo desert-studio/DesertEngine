@@ -31,10 +31,17 @@ namespace Desert::Runtime
     public:
         virtual ~IMeshUploader() = default;
 
-        /// Build the runtime mesh for @p asset, which MeshService has already parsed, and claim its buffers
-        /// in the resource ledger under the asset's handle. nullptr when the build is refused; the uploader
-        /// has logged which precondition failed.
-        [[nodiscard]] virtual std::shared_ptr<Mesh> Upload( const std::shared_ptr<Assets::MeshAsset>& asset ) = 0;
+        /// THE CPU HALF, ANY THREAD (UE: the render data built/loaded on the async loading thread, before any RHI
+        /// resource exists). Build the runtime mesh for @p asset, which MeshService has already parsed and
+        /// resolved, with its geometry STAGED (host copy, nothing on the device yet). MeshService runs it on a
+        /// worker for a mesh a frame asked for, so it touches no device object, no renderer state and no lock
+        /// of the service. nullptr when the build is refused; the uploader has logged which precondition failed.
+        [[nodiscard]] virtual std::shared_ptr<Mesh> Stage( const std::shared_ptr<Assets::MeshAsset>& asset ) = 0;
+
+        /// THE DEVICE HALF, ON THE THREAD THAT ASKED FOR THE MESH (UE BeginInitResource): upload what Stage left
+        /// staged, build what the device derives from it (the BLAS) and claim the buffers in the resource ledger
+        /// under the asset's handle. False when the upload is refused; the uploader has logged why.
+        [[nodiscard]] virtual bool Commit( const std::shared_ptr<Mesh>& mesh, const Assets::MeshAsset& asset ) = 0;
     };
 
     /// The device implementation: `Graphic::MeshFactory` plus the resource ledger. Defined in
