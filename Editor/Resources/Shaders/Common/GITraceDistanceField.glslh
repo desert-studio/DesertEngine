@@ -436,18 +436,6 @@ GlobalDistanceFieldHit GITraceFarFieldMarchFrom( vec3 start, vec3 direction, flo
                                      seed, !dithered );
 }
 
-// GITraceFarFieldMarchFrom's march in parts (FPS-SSR-FAR-2): its steps from @p state up to @p endStep (at most
-// GI_GDF_MAX_STEPS), the rest resumed later from the @p state it leaves (GlobalDistanceFieldMarchUnfinished) - the
-// parts together take the whole march's steps, dither and refinement, so the answer is the whole march's.
-GlobalDistanceFieldHit GITraceFarFieldMarchSteps( vec3 start, vec3 direction, float marchLength, uint seed,
-                                                  uint flags, inout GlobalDistanceFieldMarchState state,
-                                                  int endStep )
-{
-    const bool dithered = ( flags & GI_TRACE_SHADOW_RAY ) == 0u;
-    return TraceGlobalDistanceFieldSteps( start, direction, marchLength, state, min( endStep, GI_GDF_MAX_STEPS ),
-                                          GI_TRACE_GDF_LEVELS, dithered, seed, !dithered );
-}
-
 // THE FAR FIELD'S MARCH of @p ray over its span (GIFarFieldSpan): true on a hit, @p march the global field's answer
 // (T from @p globalStart). GITraceFarField's walk, apart for a caller that builds the hit's surface in a pass of its
 // own (SSR.shader's world hit lighting: GIFarFieldSurface of the same position and level, so the same surface).

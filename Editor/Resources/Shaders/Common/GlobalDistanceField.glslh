@@ -281,14 +281,6 @@ GlobalDistanceFieldHit TraceGlobalDistanceFieldSteps(vec3 origin, vec3 direction
     return result;
 }
 
-// True when the march that returned @p result from @p state (TraceGlobalDistanceFieldSteps up to @p endStep) stopped
-// only because it reached endStep: no hit, no clipmap left behind (that breaks before endStep), maxT not reached.
-bool GlobalDistanceFieldMarchUnfinished(GlobalDistanceFieldHit result, GlobalDistanceFieldMarchState state,
-                                        int endStep, float maxT)
-{
-    return !result.Hit && state.step >= endStep && state.t < maxT;
-}
-
 // The whole march from @p origin: TraceGlobalDistanceFieldSteps from the first step to @p maxSteps.
 GlobalDistanceFieldHit TraceGlobalDistanceField(vec3 origin, vec3 direction, float maxT, int maxSteps,
                                                 vec4 levels[GDF_NUM_CLIPMAPS], bool ditheredTransparency,

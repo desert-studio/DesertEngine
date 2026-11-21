@@ -60,7 +60,6 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldListUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldFarListUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldHitListUB );
-        DESERT_SHADER_PARAMETER( StorageBuffer, SsrWorldFarRestListUB );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -440,19 +439,14 @@ namespace Desert::Graphic::System
             // more dispatches of the same program follow over their own compacted lists (WorldList::Legs; UE
             // LumenReflectionTracing's TraceMeshSDFs, CompactReflectionTraces, TraceVoxels): WorldFarField = the
             // global field's march of the rays the near field missed, WorldHitLighting = the lighting of its hits.
-            // WorldFarFieldRest (FPS-SSR-FAR-2) = the far field's marches still going after its first
-            // kSSRWorldFarFirstSteps steps (Common/SSRTrace.glslh), resumed over their own compacted list - so a
-            // far field wave never holds one long march with idle lanes; recorded between WorldFarField and
-            // WorldHitLighting.
             World,
             WorldFarField,
             WorldHitLighting,
-            WorldFarFieldRest,
         };
         [[nodiscard]] static constexpr bool IsWorldStage( const TraceStage stage )
         {
             return stage == TraceStage::World || stage == TraceStage::WorldFarField ||
-                   stage == TraceStage::WorldHitLighting || stage == TraceStage::WorldFarFieldRest;
+                   stage == TraceStage::WorldHitLighting;
         }
 
         // THE TRACED TEXELS' LIST of one frame (Common/SSRTrace.glslh SsrTraceListArgsUB / SsrTraceListUB), graph
@@ -485,16 +479,14 @@ namespace Desert::Graphic::System
         // near field (TraceStage::World) missed, Hits = the far field's hits (TraceStage::WorldFarField's), each a
         // uvec4 header - the next leg's indirect dispatch + w = entries, reset by the graph's upload - then one
         // entry per trace texel at most: Far one SSRWorldFarRay (the march itself, so the far field rebuilds no
-        // texel), Hits one uvec4 (its header two: kWorldHitListReset, the list two-ended). FarRest = the far
-        // field's unfinished marches (TraceStage::WorldFarField's), the same header, one uvec4 (the far list index
-        // and the march's state) per trace texel at most. Null without legs (the hardware tracer's one ray query).
+        // texel), Hits one uvec4 (its header two: kWorldHitListReset, the list two-ended). Null without legs (the
+        // hardware tracer's one ray query).
         struct WorldList
         {
             RDG::BufferRef Args;
             RDG::BufferRef Rays;
             RDG::BufferRef Far;
             RDG::BufferRef Hits;
-            RDG::BufferRef FarRest;
             bool           Legs = false;
         };
         // sizeof SSRWorldRay under std430: two vec4, three floats and a uint.
@@ -528,13 +520,10 @@ namespace Desert::Graphic::System
                                             "SSR.WorldFarList" );
             list.Hits = graph.CreateBuffer( RDG::BufferDesc{ kWorldHitHeaderBytes + texels * kWorldLegEntryBytes },
                                             "SSR.WorldHitList" );
-            list.FarRest = graph.CreateBuffer(
-                 RDG::BufferDesc{ kWorldLegEntryBytes + texels * kWorldLegEntryBytes }, "SSR.WorldFarRestList" );
-            list.Legs               = true;
+            list.Legs = true;
             static_assert( sizeof( kTraceListArgsReset ) == kWorldLegEntryBytes );
             graph.QueueStaticBufferUpload( list.Far, std::as_bytes( std::span( kTraceListArgsReset ) ) );
             graph.QueueStaticBufferUpload( list.Hits, std::as_bytes( std::span( kWorldHitListReset ) ) );
-            graph.QueueStaticBufferUpload( list.FarRest, std::as_bytes( std::span( kTraceListArgsReset ) ) );
             return list;
         }
 
@@ -677,12 +666,10 @@ namespace Desert::Graphic::System
                      .Storage( SSRTraceShaderParameters::SsrWorldListUB, world->Rays, worldAccess );
                 if ( stage == TraceStage::World )
                     pass.Read( world->Args, RDG::Access::IndirectArgs );
-                // The software tracer's legs (one program, every leg declares the three lists): the near field
-                // writes the far list and the hit list (its cut spans the far field would only miss,
-                // FPS-SSR-FAR-2), the far field reads the far list (its indirect arguments too) and writes the hit
-                // list and the far rest list, the far field rest reads the far list and the rest list (its
-                // indirect arguments too) and writes the hit list, the hit lighting reads that (its indirect
-                // arguments too).
+                // The software tracer's legs (one program, every leg declares both lists): the near field writes
+                // the far list and the hit list (its cut spans the far field would only miss, FPS-SSR-FAR-2), the
+                // far field reads the far list (its indirect arguments too) and writes the hit list, the hit
+                // lighting reads that (its indirect arguments too).
                 if ( world->Legs && IsWorldStage( stage ) )
                 {
                     const RDG::Access farAccess =
@@ -690,15 +677,10 @@ namespace Desert::Graphic::System
                     const RDG::Access hitAccess = stage == TraceStage::WorldHitLighting
                                                        ? RDG::Access::StorageRead
                                                        : RDG::Access::StorageWrite;
-                    const RDG::Access restAccess =
-                         stage == TraceStage::WorldFarField ? RDG::Access::StorageWrite : RDG::Access::StorageRead;
                     block.Storage( SSRTraceShaderParameters::SsrWorldFarListUB, world->Far, farAccess )
-                         .Storage( SSRTraceShaderParameters::SsrWorldHitListUB, world->Hits, hitAccess )
-                         .Storage( SSRTraceShaderParameters::SsrWorldFarRestListUB, world->FarRest, restAccess );
+                         .Storage( SSRTraceShaderParameters::SsrWorldHitListUB, world->Hits, hitAccess );
                     if ( stage == TraceStage::WorldFarField )
                         pass.Read( world->Far, RDG::Access::IndirectArgs );
-                    if ( stage == TraceStage::WorldFarFieldRest )
-                        pass.Read( world->FarRest, RDG::Access::IndirectArgs );
                     if ( stage == TraceStage::WorldHitLighting )
                         pass.Read( world->Hits, RDG::Access::IndirectArgs );
                 }
@@ -815,11 +797,11 @@ namespace Desert::Graphic::System
             return Renderer::DispatchComputeIndirect( bindings, *pipeline, listArgs, 0u );
         }
 
-        // The world stage (a traced frame that is not hit-lit), one dispatch of @p stage (IsWorldStage): World = one
-        // thread per texel the screen leg listed in the world list (the whole ray, or the software tracer's near
-        // field), WorldFarField / WorldFarFieldRest / WorldHitLighting = one per entry of the software tracer's far /
-        // far rest / hit list (WorldList::Legs). The workgroup count from @p args (WorldList::Args, Far, FarRest or
-        // Hits: the node's IndirectArgs read, its header at offset 0).
+        // The world stage (a traced frame that is not hit-lit), one dispatch of @p stage (IsWorldStage): World =
+        // one thread per texel the screen leg listed in the world list (the whole ray, or the software tracer's
+        // near field), WorldFarField / WorldHitLighting = one per entry of the software tracer's far / hit list
+        // (WorldList::Legs). The workgroup count from @p args (WorldList::Args, Far or Hits: the node's
+        // IndirectArgs read, its header at offset 0).
         [[nodiscard]] Common::BoolResultStr RecordWorldList( const RDG::PassContext& context,
                                                              const glm::vec4&        cameraPos,
                                                              const TraceSettings&    settings,
@@ -841,11 +823,6 @@ namespace Desert::Graphic::System
             case TraceStage::WorldHitLighting:
             {
                 DESERT_PROFILE_PASS( "SSR: World hit lighting" );
-                return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage, args );
-            }
-            case TraceStage::WorldFarFieldRest:
-            {
-                DESERT_PROFILE_PASS( "SSR: World far field rest" );
                 return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage, args );
             }
             case TraceStage::Classify:
@@ -942,8 +919,8 @@ namespace Desert::Graphic::System
         {
             const float screenLeg   = sceneHistoryReadable ? 1.0f : 0.0f;
             const float roughFromGI = settings.Traced && settings.RoughSpecularFromGI ? 1.0f : 0.0f;
-            // SSR.shader's SsrParams3.w: 0 classify, 1 trace, 2 world (the software tracer's near field), 3 its far
-            // field, 4 its hit lighting, 5 its far field rest.
+            // SSR.shader's SsrParams3.w: 0 classify, 1 trace, 2 world (the software tracer's near field), 3 its
+            // far field, 4 its hit lighting.
             const float traceStage = [stage]
             {
                 switch ( stage )
@@ -958,8 +935,6 @@ namespace Desert::Graphic::System
                     return 3.0f;
                 case TraceStage::WorldHitLighting:
                     return 4.0f;
-                case TraceStage::WorldFarFieldRest:
-                    return 5.0f;
                 }
                 return 0.0f;
             }();
