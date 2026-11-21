@@ -967,8 +967,9 @@ namespace Desert::Graphic::RDG
                 continue;
             }
             // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp): the measured balance runs this pass on Graphics. Not a
-            // fallback - the pass keeps its AsyncCompute flag, so the balance can give it back.
-            if ( !m_BalancedToGraphics.empty() &&
+            // fallback - the pass keeps its AsyncCompute flag, so the balance can give it back. Never a pass whose
+            // queue its frame fixed (PassFlags::AsyncComputeFixed).
+            if ( !m_BalancedToGraphics.empty() && !HasFlag( m_Passes[p].Flags, PassFlags::AsyncComputeFixed ) &&
                  std::binary_search( m_BalancedToGraphics.begin(), m_BalancedToGraphics.end(),
                                      AsyncBalancePassKey( m_Name, m_Passes[p].Name ) ) )
                 continue;
@@ -3803,8 +3804,9 @@ namespace Desert::Graphic::RDG
             shape->Names[position]   = pass.Name;
             shape->Keys[position]    = AsyncBalancePassKey( graph, pass.Name );
             shape->Pipes[position]   = pass.OnPipe;
-            shape->Eligible[position] =
-                 plan.Pipes.SeparateComputeFamily && HasFlag( pass.Flags, PassFlags::AsyncCompute );
+            shape->Eligible[position] = plan.Pipes.SeparateComputeFamily &&
+                                        HasFlag( pass.Flags, PassFlags::AsyncCompute ) &&
+                                        !HasFlag( pass.Flags, PassFlags::AsyncComputeFixed );
             positionOf[pass.Pass] = static_cast<uint32_t>( position );
         }
         const auto known = [&positionOf]( uint32_t pass )

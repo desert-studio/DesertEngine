@@ -393,10 +393,15 @@ namespace Desert::Graphic
         // after it and the graphics queue would wait out the whole march. CloudQueue::Graphics (the late
         // placement, after the opaque scene) keeps them on the graphics queue: there the composite follows at
         // once, so an async run would only become a wait. RenderPipeline.AsyncCompute 0 or a device without a
-        // compute family demotes them anyway, and FPS-ASYNC-BALANCE gives a pass back to Graphics when the run
-        // outlasts its window.
+        // compute family demotes them anyway. FPS-CLOUDS-MARCH-ASYNC: the chain's queue is chosen here once, so
+        // FPS-ASYNC-BALANCE never splits it (RDG::PassFlags::AsyncComputeFixed): on FIELD-BARN-TURN
+        // scn-1121-214723 it gave the march alone to Graphics (0.10 ms in a 2.4 ms modelled graph, an early
+        // window) and the graphics queue paid 0.41 ms of march plus a resubmit every frame after.
         for ( ComputeNodeDeclaration& node : nodes )
-            node.AsyncCompute = async;
+        {
+            node.AsyncCompute      = async;
+            node.AsyncComputeFixed = async;
+        }
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         // One AddPass per node from here: the resolve's index among the nodes (FrameResult::ResolveNode) plus this
         // is the writer whose loss the view's EndFrame checks.

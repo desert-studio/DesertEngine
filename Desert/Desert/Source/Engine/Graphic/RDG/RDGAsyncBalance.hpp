@@ -33,7 +33,8 @@
 // published profiler window, GraphicsPasses when a graph compiles (IBackend::GetAsyncBalance). The compile
 // (Compiler::ChoosePipes) runs a listed pass on Graphics; the compile cache keys the list (AsyncBalanceKeyOf).
 // Never: change what a pass reads or writes, or the order of any dependency edge - a flipped pass keeps every
-// edge, so the graph's results are the same; decide from no measurement (no cost: the choice stays).
+// edge, so the graph's results are the same; decide from no measurement (no cost: the choice stays); move a pass
+// declared PassFlags::AsyncComputeFixed (its frame chose the queue of its whole chain once - the cloud trace).
 namespace Desert::Graphic::RDG
 {
     // A pass's identity for the balance: its graph's name and its own name (FNV-1a, 64 bit).

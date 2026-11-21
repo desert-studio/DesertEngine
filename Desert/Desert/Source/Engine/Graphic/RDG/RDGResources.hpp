@@ -291,6 +291,12 @@ namespace Desert::Graphic::RDG
         // acceleration structure builds, ImGui). A pass whose exec writes renderer state other passes read
         // while recording is NeverParallel until that state is per pass.
         NeverParallel = 1u << 5,
+        // FPS-CLOUDS-MARCH-ASYNC. UE: a fixed per-feature switch (r.VolumetricCloud.AsyncCompute). With
+        // AsyncCompute: the frame chose the queue for a whole chain of passes once, so the measured balance
+        // (RDGAsyncBalance.hpp) never gives one of them to Graphics - a chain split by it (FIELD-BARN-TURN
+        // scn-1121-214723: 'Clouds: March' on Graphics, its resolve and upsample on async) puts the chain's
+        // heaviest pass back on the graphics queue. Without AsyncCompute it means nothing.
+        AsyncComputeFixed = 1u << 6,
     };
 
     // A hardware queue timeline the compiled graph records onto (UE: ERHIPipeline). Graphics is the queue the
