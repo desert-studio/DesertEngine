@@ -365,13 +365,29 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame )
+                                                  const ViewFrame& frame, const CloudQueue queue )
     {
         auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
             return;
         VolumetricCloudHistory&             history = m_ViewState.Clouds();
         ComputeNodeList                     nodes   = clouds->DeclareFrameNodes( graph, frame, history );
+        // FPS-CLOUDS-MARCH (UE: the volumetric render target traced on the async pipe, r.VolumetricCloud.
+        // AsyncCompute / r.VolumetricRenderTarget): every node of the layer - the stale sky occlusion, the march,
+        // the temporal resolve and the upsample - is a compute dispatch whose graph inputs are the scene depth,
+        // the sky LUTs, the cloud shadow map and the layer's own volumes, all final before the probes' fork, and
+        // whose only graphics reader of this frame is the cloud composite in the translucency. So the whole chain
+        // asks for the async queue as ONE run: the graph forks it after the last graphics writer of what it reads
+        // and joins it at the composite (RDGCompile FindAsyncRuns), and the graphics queue no longer pays the
+        // march. The chain stays whole on purpose: the march alone on async would be joined by the resolve right
+        // after it and the graphics queue would wait out the whole march. CloudQueue::Graphics (the late
+        // placement, after the opaque scene) keeps them on the graphics queue: there the composite follows at
+        // once, so an async run would only become a wait. RenderPipeline.AsyncCompute 0 or a device without a
+        // compute family demotes them anyway, and FPS-ASYNC-BALANCE gives a pass back to Graphics when the run
+        // outlasts its window.
+        const bool async = queue == CloudQueue::AsyncCompute;
+        for ( ComputeNodeDeclaration& node : nodes )
+            node.AsyncCompute = async;
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         // One AddPass per node from here: the resolve's index among the nodes (FrameResult::ResolveNode) plus this
         // is the writer whose loss the view's EndFrame checks.

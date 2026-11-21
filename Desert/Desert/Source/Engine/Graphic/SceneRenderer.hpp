@@ -2129,7 +2129,16 @@ namespace Desert::Graphic
         // stage, right before the particles' DrawPass (AddFrameTranslucency).
         void AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
                                                  const ViewFrame& frame );
-        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The queue the cloud layer's nodes ask for (FPS-CLOUDS-MARCH): AsyncCompute where the deferred lighting
+        // traces them between the probes' fork and join, far ahead of their composite; Graphics after the opaque
+        // scene, where the composite follows at once and a run would only be waited for.
+        enum class CloudQueue : uint8_t
+        {
+            Graphics,
+            AsyncCompute
+        };
+        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                       CloudQueue queue );
         // The selection outline composited over @p scene (the post input: the temporal resolve's output with the
         // overlays, or the scene colour). Returns what the tonemap reads - the outlined scene - or an invalid ref
         // when the outline system cannot record this frame (the tonemap then reads @p scene).
