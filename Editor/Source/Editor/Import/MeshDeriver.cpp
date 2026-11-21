@@ -240,6 +240,7 @@ namespace Desert::Editor
                  sm.ClusterDag.LevelCount, sm.ClusterDag.Hierarchy.size(), rootTriangles );
 
             sm.LODs.clear();
+            sm.LodCutErrors.clear();
             if ( !cutLods )
                 continue;
             size_t previous = tris.size() / 3;
@@ -256,6 +257,9 @@ namespace Desert::Editor
                 for ( size_t i = 0; i + 2 < cut.size(); i += 3 )
                     faces.push_back( { cut[i], cut[i + 1], cut[i + 2] } );
                 sm.LODs.push_back( std::move( faces ) );
+                // The error this KEPT level was cut at (relative to boundsRadius), aligned with LODs: the
+                // runtime caps the level's screen size by it (Geometry::ResolveLODScreenSizes, ~1 px rule).
+                sm.LodCutErrors.push_back( Geometry::kClusterDagCutErrors[k] );
             }
         }
         return Common::MakeSuccess( true );

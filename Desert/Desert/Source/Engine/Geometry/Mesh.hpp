@@ -275,9 +275,13 @@ namespace Desert
         void ResolveLODScreenSizes()
         {
             const auto levelTriangles = Geometry::LODTriangleCounts( m_Submeshes );
-            m_LODScreenSizes = Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes, 1.0f );
-            m_FieldLODScreenSizes =
-                 Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes, m_LODScreenCoverage );
+            // Both chains are capped by the levels' cut errors (~1 px rule): a DAG cut too coarse for a size is
+            // wrong there whichever chain draws it.
+            const auto levelErrors = Geometry::LODLevelCutErrors( m_Submeshes );
+            m_LODScreenSizes =
+                 Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes, 1.0f, levelErrors );
+            m_FieldLODScreenSizes = Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes,
+                                                                     m_LODScreenCoverage, levelErrors );
         }
         // Geometry::LODScreenCoverage of the mesh's LOD 0 triangles, set by the subclass that holds them before it
         // resolves the sizes (1: the bounding disc, a mesh whose triangles it does not measure); only the field

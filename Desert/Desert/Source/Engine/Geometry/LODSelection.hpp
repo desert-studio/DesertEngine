@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -266,14 +267,49 @@ namespace Desert::Geometry
         return out;
     }
 
+    // THE CUT ERROR EACH LEVEL OF THESE SUBMESHES DRAWS AT, one entry per level the mesh has (as
+    // LODTriangleCounts): the largest relative error (of a submesh's bounds radius) any submesh's drawn level was
+    // cut from its cluster DAG at (Submesh::LODCutErrors); past the end of its own chain a submesh draws its
+    // coarsest level, so its coarsest error. 0 = no submesh states one (LOD 0, a generated chain): no cap.
+    inline std::vector<float> LODLevelCutErrors( const std::vector<Submesh>& submeshes )
+    {
+        std::vector<float> out( MaxAvailableLOD( submeshes ) + 1u, 0.0f );
+        for ( std::size_t level = 1; level < out.size(); ++level )
+            for ( const Submesh& sm : submeshes )
+            {
+                if ( sm.LODs.size() < 2u )
+                    continue;
+                const std::size_t drawn = std::min( level, sm.LODs.size() - 1u ); // >= 1
+                if ( drawn - 1u < sm.LODCutErrors.size() )
+                    out[level] = std::max( out[level], sm.LODCutErrors[drawn - 1u] );
+            }
+        return out;
+    }
+
+    // THE ~1 PIXEL RULE (UE Nanite: a cluster cut is drawn where its projected error is under about one pixel).
+    // A level cut at relative error e (of the bounds radius) seen at screen size S (the sphere's diameter over the
+    // screen height) is off by e x S x H / 2 pixels at H rows; it stays <= kLODCutErrorPixels at the reference
+    // height for S <= 2 kLODCutErrorPixels / (e H). The mesh's radius is at least each submesh's, so the bound
+    // holds per submesh too. Infinite (no cap) for e <= 0.
+    inline constexpr float kLODCutErrorPixels = 1.0f;
+    inline float LODCutErrorScreenSize( const float relativeError )
+    {
+        if ( !( relativeError > 0.0f ) )
+            return std::numeric_limits<float>::infinity();
+        return 2.0f * kLODCutErrorPixels / ( relativeError * kAutoLODReferenceScreenRows );
+    }
+
     // THE SCREEN SIZE OF EACH LEVEL A MESH DRAWS (UE FStaticMeshRenderData::ScreenSize, resolved after the
     // cache by ResolveSectionInfo): the author's per-LOD values where the mesh's asset states them, the
     // automatic rule for every level it does not (nullopt = UE bAutoComputeLODScreenSize; a list shorter than
     // the chain = UE's "no source model for this LOD" branch). One entry per level the mesh actually has:
-    // @p levelTriangles is its LODTriangleCounts, @p coverage its LODScreenCoverage.
+    // @p levelTriangles is its LODTriangleCounts, @p coverage its LODScreenCoverage, @p levelErrors its
+    // LODLevelCutErrors (empty = none): an automatic level is never larger than its LODCutErrorScreenSize, so a
+    // coarse DAG cut is drawn only where its error is under ~1 px (an authored size is the author's and is kept).
     inline std::vector<float> ResolveLODScreenSizes( const std::span<const uint32_t>          levelTriangles,
                                                      const std::optional<std::vector<float>>& authored,
-                                                     const float                              coverage )
+                                                     const float                              coverage,
+                                                     const std::span<const float>             levelErrors = {} )
     {
         std::vector<float> out;
         out.reserve( levelTriangles.size() );
@@ -286,7 +322,11 @@ namespace Desert::Geometry
                 // Locals, not conditionals in the call's by-value arguments (MSVC hangs on that form).
                 const float    previous = level == 0 ? kLOD0ScreenSize : out.back();
                 const uint32_t finer    = level == 0 ? 0u : levelTriangles[level - 1];
-                out.push_back( ComputeLODScreenSize( static_cast<uint32_t>( level ), previous, finer, coverage ) );
+                const float    automatic =
+                     ComputeLODScreenSize( static_cast<uint32_t>( level ), previous, finer, coverage );
+                const float error = level < levelErrors.size() ? levelErrors[level] : 0.0f;
+                const float cap   = LODCutErrorScreenSize( error );
+                out.push_back( std::min( automatic, cap ) );
             }
         }
         return out;

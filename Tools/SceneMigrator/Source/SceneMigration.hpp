@@ -1308,11 +1308,13 @@ namespace Desert::Migration
     // DecodeMeshBinary and re-stated by EncodeMeshBinary. PURE.
     Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( std::string_view path, std::string_view bytes );
 
-    // MeshBinary 6/7 -> 8 (GPU-COST-9): v8 states per submesh whether its LODs are the cook's whole chain. The
+    // MeshBinary 6/7/8 -> 9. v8 (GPU-COST-9) states per submesh whether its LODs are the cook's whole chain; the
     // engine's DecodeMeshBinary reads 6/7 with that derived from the LODs present (a submesh carrying LODs drew
-    // exactly those, one without generated them at load), and EncodeMeshBinary re-states it as v8, so the raise
-    // keeps what every load of the file drew. Any other version is refused by name. PURE.
-    Common::ResultStr<std::string> MigrateMeshBinaryToV8( std::string_view path, std::string_view bytes );
+    // exactly those, one without generated them at load). v9 (FPS-GRASS-LOD) states each LOD's cluster-DAG cut
+    // error; 6-8 read as "none stated" (uncapped levels, what their loads drew). EncodeMeshBinary re-states both
+    // as v9, so the raise keeps what every load of the file drew; the VG DDC key (kClusterDagCutErrors) re-derives
+    // the cut levels and their errors on the next cook. Any other version is refused by name. PURE.
+    Common::ResultStr<std::string> MigrateMeshBinaryToV9( std::string_view path, std::string_view bytes );
 
     // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
     // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a

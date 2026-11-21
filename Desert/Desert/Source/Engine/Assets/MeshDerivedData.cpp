@@ -47,6 +47,11 @@ namespace Desert::Assets
             PutU32( out, std::bit_cast<uint32_t>( dag.GroupReduction ) );
             PutU32( out, std::bit_cast<uint32_t>( dag.MinReductionGain ) );
             PutU32( out, dag.PreserveArea ? 1u : 0u );
+            // The discrete chain's cut levels (FPS-GRASS-LOD): count, then each relative error. The cook cuts the
+            // DAG at these and stores them per level (MeshBinary v9), so a VG mesh re-derives when they change.
+            PutU32( out, static_cast<uint32_t>( std::size( Geometry::kClusterDagCutErrors ) ) );
+            for ( const float cut : Geometry::kClusterDagCutErrors )
+                PutU32( out, std::bit_cast<uint32_t>( cut ) );
         }
         // The canopy's leaf slots, by name (count, then each name's length and bytes): which sections the build
         // turns into the crown's volume.
