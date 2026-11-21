@@ -49,6 +49,13 @@ namespace Desert::Graphic::RDG
         static constexpr uint32_t kFrozenWindows    = 4;
         static constexpr uint32_t kMaxHoldDoublings = 4; // a repeated flip to Graphics holds at most 64 windows
         static constexpr uint32_t kFlipsPerWindow   = 4;
+        // FPS-ASYNC-WARMUP: no flip from a shape's first kWarmupWindows measured windows, nor from a window whose
+        // modelled graph is over kWarmupRatio x the shortest one seen - shader compiles and first-use uploads
+        // inflate costs there. (FPS-FIELD-BARN-TURN scn-1121-111104: a 58.9 ms warm-up window gave
+        // 'ScreenProbes: Integrate Classify' to Graphics for 0.315 ms; beside the async traces it then measured
+        // 0.757 ms there, and the model never saw a gain taking it back.)
+        static constexpr uint32_t kWarmupWindows = 4;
+        static constexpr double   kWarmupRatio   = 1.5;
 
         // One pass's cost for Rebalance: GPU self time per frame (both queues), Measured false when the window
         // has no row for it.
@@ -82,6 +89,9 @@ namespace Desert::Graphic::RDG
             std::vector<bool>        Eligible;       // declared AsyncCompute on a device with an async queue
             std::vector<uint32_t>    PredFirst;      // by position, into Preds; one more entry at the end
             std::vector<uint32_t>    Preds;          // positions this position depends on
+            // Warm-up guard (FPS-ASYNC-WARMUP): measured windows seen and the shortest modelled graph so far.
+            uint32_t Windows   = 0;
+            double   MinLength = 0.0;
         };
         struct Decision
         {

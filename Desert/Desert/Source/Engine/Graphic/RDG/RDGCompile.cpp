@@ -3904,6 +3904,12 @@ namespace Desert::Graphic::RDG
             // A flip is modelled with the pass's cost of THIS window on either queue (RDGAsyncBalance.hpp,
             // FPS-ASYNC-JOIN-2): no earlier window's cost is held; the hysteresis is the hold.
             double length = Simulate( shape, pipes, cost, finish );
+            // FPS-ASYNC-WARMUP (RDGAsyncBalance.hpp): decide only from steady windows.
+            ++shape.Windows;
+            if ( shape.Windows == 1 || length < shape.MinLength )
+                shape.MinLength = length;
+            if ( shape.Windows <= kWarmupWindows || length > kWarmupRatio * shape.MinLength )
+                continue;
             for ( uint32_t flip = 0; flip < kFlipsPerWindow; ++flip )
             {
                 double bestLength   = length;
