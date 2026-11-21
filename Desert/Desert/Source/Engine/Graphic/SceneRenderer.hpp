@@ -95,6 +95,7 @@
 #include "Systems/Scene/Deferred/SSGIRenderer.hpp"
 #include "Systems/Scene/Deferred/CopyRenderer.hpp"
 #include "Systems/Scene/Deferred/VelocityViewRenderer.hpp"
+#include "Systems/Scene/Deferred/IndirectViewRenderer.hpp"
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/GlobalIllumination/IrradianceFieldGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
@@ -186,6 +187,7 @@ namespace Desert::Graphic
         class TonemapRenderer;
         class CombineLUTsRenderer;
         class VelocityViewRenderer;
+        class IndirectViewRenderer;
         class VolumetricCloudRenderer;
         class VolumetricFogRenderer;
         class HeterogeneousVolumeRenderer;
@@ -218,6 +220,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::GraphColorResolveRenderer> GraphColorResolve;
         std::shared_ptr<System::CopyRenderer>              SceneColorCopy;
         std::shared_ptr<System::VelocityViewRenderer>      VelocityView;
+        std::shared_ptr<System::IndirectViewRenderer>      IndirectView;
         std::shared_ptr<System::HeightFogRenderer>         HeightFog;
         std::shared_ptr<System::VolumetricFogRenderer>     VolumetricFog;
         std::shared_ptr<System::HeterogeneousVolumeRenderer> HeterogeneousVolume;
@@ -1777,6 +1780,11 @@ namespace Desert::Graphic
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
         // velocity over @p target, the post input, after the temporal resolve.
         void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
+        // The Indirect Lighting view mode (DeferredDebugMode::GI, Deferred only): "Debug: Indirect" draws the GI
+        // method's diffuse indirect x the diffuse colour over @p target, the post input, after the temporal resolve
+        // (System::IndirectViewRenderer: why not in the composite).
+        void AddFrameIndirectView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target,
+                                   const ViewFrame& frame );
         // The surface cache view modes (DeferredDebugMode::SurfaceCacheAtlas / SurfaceCacheScene / SceneLit,
         // Deferred only): "Debug: Surface Cache Atlas" or "Debug: Lumen Scene" over @p target, from the cache
         // AddFrameSurfaceCache brought up in this frame.

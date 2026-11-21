@@ -265,6 +265,9 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
          { "VelocityViewSystem", "Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp", false, false,
            "a picture of THIS frame's velocity; it holds only the shader, its block layout and one pipeline per "
            "target format and sample count" },
+         { "IndirectViewSystem", "Graphic/Systems/Scene/Deferred/IndirectViewRenderer.hpp", false, false,
+           "a picture of THIS frame's GI diffuse; it holds only the shader, its block layout and one pipeline per "
+           "target format and sample count" },
          { "HeightFogSystem", "Graphic/Systems/Scene/Fog/HeightFogRenderer.hpp", false, false,
            "SetFogSettings takes `present` and HeightFogECSSystem states the absent case explicitly" },
          { "VolumetricFogSystem", "Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp", true, true,

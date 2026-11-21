@@ -511,6 +511,9 @@ namespace Desert::Graphic
                 RegisterSystem<System::VelocityViewRenderer>( m_Systems.VelocityView, this, m_TargetFramebuffer );
                 if ( const auto velocityViewInit = m_Systems.VelocityView->Initialize(); !velocityViewInit )
                     LOG_ERROR( "[SceneRenderer] Velocity view mode unavailable: {}", velocityViewInit.GetError() );
+                RegisterSystem<System::IndirectViewRenderer>( m_Systems.IndirectView, this, m_TargetFramebuffer );
+                if ( const auto indirectViewInit = m_Systems.IndirectView->Initialize(); !indirectViewInit )
+                    LOG_ERROR( "[SceneRenderer] Indirect view mode unavailable: {}", indirectViewInit.GetError() );
                 return "VelocityView";
             }
             case 16:
@@ -3146,6 +3149,8 @@ namespace Desert::Graphic
                  overlay.IsValid() ? std::vector<RDG::TextureRef>{ overlay.Color } : sceneColor();
 #if DESERT_DEV_INSTRUMENTS
             AddFrameVelocityView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameIndirectView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
+                                  frame );
             AddFrameLightGridWorldView( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front(),
                                         frame );
             AddFrameGlobalDistanceFieldView( graph, textures, frame,

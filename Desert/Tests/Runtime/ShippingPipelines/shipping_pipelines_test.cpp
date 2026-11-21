@@ -489,6 +489,8 @@ namespace
                Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/VelocityViewRenderer.hpp",
                "\"VelocityView\"", Verdict::Shipped, "" },
+             { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/IndirectViewRenderer.hpp",
+               "\"IndirectView\"", Verdict::Shipped, "" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp",
                "programName", Verdict::Shipped, "one per sun-shadow permutation (cascades, ray-traced mask)" },
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp",
