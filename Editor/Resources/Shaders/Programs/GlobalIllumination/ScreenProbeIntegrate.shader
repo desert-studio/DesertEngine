@@ -137,34 +137,86 @@ Shader "ScreenProbeIntegrate"
             uint screenProbeIntegrateTiles[];
         };
 
-        shared uint s_EvaluatesRoughSpecular;
+        // FPS-SP-INTEGRATE-WAIT (UE BuildListsCS: one list append a wave over many tiles, WaveInterlockedAdd): one
+        // workgroup classifies SP_CLASSIFY_TILES x SP_CLASSIFY_TILES tiles (32 x 32 pixels, 16 fetches a lane,
+        // each fetch the whole group reading one tile's 8 x 8 pixels), compacts them in shared memory and appends
+        // each list ONCE: two global atomicAdds per 16 tiles, and the dispatch's atomicMax only from the group
+        // whose range opens a row of the grid. Was one group a tile, each with an atomicAdd and two atomicMax on
+        // the same three words: ~97 000 same-address atomics on a 1080p frame, serialised at one L2 slice - 0.028
+        // ms on an idle GPU, 0.75-0.83 ms beside the async traces or the graphics queue's clouds (FIELD_Barn TURN
+        // scn-1121-080838 / -090107 / -115136), the head of the integrate's critical path.
+        #define SP_CLASSIFY_TILES 4u
+        shared uint s_EvaluatesRoughSpecular; // bit j * SP_CLASSIFY_TILES + i: tile (i, j) has a GGX pixel
+        shared uint s_ListCount[2];           // the group's simple / full tiles
+        shared uint s_ListBase[2];            // their first slot in each list
 
         void main()
         {
             if ( gl_LocalInvocationIndex == 0u )
-                s_EvaluatesRoughSpecular = 0u;
-            barrier();
-            const ivec2 pixel = ivec2( gl_GlobalInvocationID.xy );
-            if ( all( lessThan( pixel, ivec2( giFrame.screen.xy ) ) ) )
             {
-                const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
-                if ( dot( gb.xyz, gb.xyz ) > 0.001 && SPRoughSpecularDiffuseLerp( max( gb.a, 0.04 ) ) < 1.0 )
-                    atomicOr( s_EvaluatesRoughSpecular, 1u );
+                s_EvaluatesRoughSpecular = 0u;
+                s_ListCount[0]           = 0u;
+                s_ListCount[1]           = 0u;
             }
             barrier();
-            if ( gl_LocalInvocationIndex != 0u )
+            const ivec2 groupTile = ivec2( gl_WorkGroupID.xy ) * int( SP_CLASSIFY_TILES );
+            const ivec2 screen    = ivec2( giFrame.screen.xy );
+            uint        mask      = 0u;
+            for ( uint j = 0u; j < SP_CLASSIFY_TILES; ++j )
+            {
+                for ( uint i = 0u; i < SP_CLASSIFY_TILES; ++i )
+                {
+                    const ivec2 pixel = ( groupTile + ivec2( i, j ) ) * 8 + ivec2( gl_LocalInvocationID.xy );
+                    if ( any( greaterThanEqual( pixel, screen ) ) )
+                        continue;
+                    const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
+                    if ( dot( gb.xyz, gb.xyz ) > 0.001 && SPRoughSpecularDiffuseLerp( max( gb.a, 0.04 ) ) < 1.0 )
+                        mask |= 1u << ( j * SP_CLASSIFY_TILES + i );
+                }
+            }
+            if ( mask != 0u )
+                atomicOr( s_EvaluatesRoughSpecular, mask );
+            barrier();
+            // One lane a tile of the group: its list and its index among the group's tiles of that list.
+            const uint  tileIndex = gl_LocalInvocationIndex;
+            const ivec2 tile      = groupTile + ivec2( tileIndex % SP_CLASSIFY_TILES, tileIndex / SP_CLASSIFY_TILES );
+            const bool  listed    = tileIndex < SP_CLASSIFY_TILES * SP_CLASSIFY_TILES &&
+                                all( lessThan( tile * 8, screen ) );
+            const uint full  = ( s_EvaluatesRoughSpecular >> min( tileIndex, 31u ) ) & 1u;
+            uint       local = 0u;
+            if ( listed )
+                local = atomicAdd( s_ListCount[full], 1u );
+            barrier();
+            if ( gl_LocalInvocationIndex < 2u )
+            {
+                const uint list  = gl_LocalInvocationIndex;
+                const uint count = s_ListCount[list];
+                const uint args  = list * 4u;
+                uint       base  = 0u;
+                if ( count != 0u )
+                {
+                    base       = atomicAdd( screenProbeIntegrateArgs[args + 3u], count );
+                    const uint end = base + count; // one past the group's last slot
+                    // The 2D grid that covers the list: as wide as the list up to a row (only a range that starts
+                    // inside the first row can widen it; the one that holds slot GROUPS_X - 1 sets the full row),
+                    // as many rows as it fills (only a range that opens a row can add one: the range holding a
+                    // row's first slot writes that row's count).
+                    if ( base < SP_INTEGRATE_GROUPS_X )
+                        atomicMax( screenProbeIntegrateArgs[args], min( end, SP_INTEGRATE_GROUPS_X ) );
+                    if ( base == 0u || ( end - 1u ) / SP_INTEGRATE_GROUPS_X != ( base - 1u ) / SP_INTEGRATE_GROUPS_X )
+                        atomicMax( screenProbeIntegrateArgs[args + 1u], ( end - 1u ) / SP_INTEGRATE_GROUPS_X + 1u );
+                }
+                s_ListBase[list] = base;
+            }
+            barrier();
+            if ( !listed )
                 return;
-            const uint full = s_EvaluatesRoughSpecular;
-            const uint args = full * 4u;
-            const uint slot = atomicAdd( screenProbeIntegrateArgs[args + 3u], 1u );
-            // The 2D grid that covers slot: as wide as the list up to a row, as many rows as it fills.
-            atomicMax( screenProbeIntegrateArgs[args], min( slot + 1u, SP_INTEGRATE_GROUPS_X ) );
-            atomicMax( screenProbeIntegrateArgs[args + 1u], slot / SP_INTEGRATE_GROUPS_X + 1u );
-            const uint tile = gl_WorkGroupID.x | ( gl_WorkGroupID.y << 16u );
+            const uint slot   = s_ListBase[full] + local;
+            const uint packed = uint( tile.x ) | ( uint( tile.y ) << 16u );
             if ( full != 0u )
-                screenProbeIntegrateTiles[SP_INTEGRATE_TILE_COUNT - 1u - slot] = tile;
+                screenProbeIntegrateTiles[SP_INTEGRATE_TILE_COUNT - 1u - slot] = packed;
             else
-                screenProbeIntegrateTiles[slot] = tile;
+                screenProbeIntegrateTiles[slot] = packed;
         }
 #else
         // The integrate permutations (simple diffuse, full): the G-buffer, the short-range AO, the probes, the
