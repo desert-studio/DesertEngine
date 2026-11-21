@@ -94,6 +94,7 @@ namespace Desert::Assets
             uint32_t                                         Slices    = 0;
             double                                           TotalMs   = 0.0;
             double                                           LongestMs = 0.0;
+            double                                           RootsMs   = 0.0; // the costliest root collection
         };
 
         std::optional<SweepInProgress>& InProgress()
@@ -138,6 +139,9 @@ namespace Desert::Assets
         // THE ROOTS OF THIS FRAME, every slice: a cell activated since the sweep began adds what it names before
         // anything more is released (AssetEvictionSweep::AddRoots). A registry gone with its scene is dropped.
         const AssetRootSet roots = collectRoots();
+        progress->RootsMs        = std::max(
+             progress->RootsMs,
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count() );
         std::erase_if( progress->Sweeps, []( const auto& sweep ) { return !IsLive( sweep->Manager() ); } );
         for ( const auto& sweep : progress->Sweeps )
             sweep->AddRoots( roots );
@@ -172,9 +176,9 @@ namespace Desert::Assets
             // The cost is the whole sweep's (every registry), one slice per frame.
             LOG_INFO(
                  "[Assets] eviction ({}) in {} frame(s), one slice per frame, {:.2f} ms in all, {:.2f} ms the "
-                 "longest slice (budget {:.2f} ms): {}",
+                 "longest slice (budget {:.2f} ms; costliest unit '{}' {:.2f} ms, root collection {:.2f} ms): {}",
                  progress->Why, progress->Slices, progress->TotalMs, progress->LongestMs, settings.SliceBudgetMs,
-                 sweep->Outcome().Describe() );
+                 sweep->LongestUnit(), sweep->LongestUnitMs(), progress->RootsMs, sweep->Outcome().Describe() );
         }
         progress.reset();
 

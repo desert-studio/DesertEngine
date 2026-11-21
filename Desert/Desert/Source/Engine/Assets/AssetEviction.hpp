@@ -315,6 +315,18 @@ namespace Desert::Assets
             return m_Outcome;
         }
 
+        /// The costliest single unit of work so far and what it was ("expand", "candidates", "release",
+        /// "finish"): a slice over its budget is one unit that did not fit, and this names it.
+        [[nodiscard]] double LongestUnitMs() const noexcept
+        {
+            return m_LongestUnitMs;
+        }
+
+        [[nodiscard]] const char* LongestUnit() const noexcept
+        {
+            return m_LongestUnit;
+        }
+
     private:
         enum class Phase
         {
@@ -337,6 +349,8 @@ namespace Desert::Assets
         std::vector<std::pair<Common::AssetHandle, Asset<AssetBase>>> m_Candidates;
         std::size_t                                                   m_NextCandidate = 0;
         EvictionOutcome                                               m_Outcome;
+        double                                                        m_LongestUnitMs = 0.0;
+        const char*                                                   m_LongestUnit   = "none";
     };
 
     /**

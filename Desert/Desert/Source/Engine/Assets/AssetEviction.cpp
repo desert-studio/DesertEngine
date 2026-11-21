@@ -335,31 +335,44 @@ namespace Desert::Assets
     {
         // AT LEAST ONE UNIT PER STEP, so a sweep finishes whatever the budget; then units until the deadline.
         bool first = true;
-        while ( m_Phase != Phase::Done && ( first || std::chrono::steady_clock::now() < deadline ) )
+        auto now   = std::chrono::steady_clock::now();
+        while ( m_Phase != Phase::Done && ( first || now < deadline ) )
         {
-            first = false;
+            first            = false;
+            const char* unit = "release";
             // MARK BEFORE ANY RELEASE, in every slice: roots added since the last slice are expanded first, so
             // nothing a new root reaches is released in the meantime.
             if ( !m_Frontier.empty() )
             {
+                unit                             = "expand";
                 const Common::AssetHandle handle = m_Frontier.back();
                 m_Frontier.pop_back();
                 ExpandOne( handle );
-                continue;
             }
-            if ( m_Phase == Phase::Mark )
+            else if ( m_Phase == Phase::Mark )
             {
+                unit = "candidates";
                 TakeCandidates();
                 m_Phase = Phase::Release;
-                continue;
             }
-            if ( m_NextCandidate < m_Candidates.size() )
+            else if ( m_NextCandidate < m_Candidates.size() )
             {
                 const auto& [handle, asset] = m_Candidates[m_NextCandidate++];
                 ReleaseOne( handle, asset );
-                continue;
             }
-            Finish();
+            else
+            {
+                unit = "finish";
+                Finish();
+            }
+            const auto   after = std::chrono::steady_clock::now();
+            const double ms    = std::chrono::duration<double, std::milli>( after - now ).count();
+            if ( ms > m_LongestUnitMs )
+            {
+                m_LongestUnitMs = ms;
+                m_LongestUnit   = unit;
+            }
+            now = after;
         }
         return m_Phase == Phase::Done;
     }
