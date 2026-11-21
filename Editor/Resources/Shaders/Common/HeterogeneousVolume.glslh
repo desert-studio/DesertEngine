@@ -136,17 +136,25 @@ vec2 HvBakedSample(HeterogeneousVolumeGpu v, vec3 local)
 
 // The medium at a unit-box point: x = normalised density [0, 1], y = temperature (K). One signature for both
 // sources, so the cache, the march and the shadow rays never ask which one a volume uses.
+// The authored temperature field (the component's Temperature, Emissive.w): hottest where it is dense and low (the
+// flame's root). The procedural source's always; a baked grid's when it carries no temperature channel.
+float HvAuthoredTemperature(HeterogeneousVolumeGpu v, vec3 local, float d01)
+{
+    float height = clamp(0.5 - 0.5 * local.y, 0.0, 1.0);
+    return v.Emissive.w * d01 * (0.35 + 0.65 * height);
+}
+
 vec2 HvMedium(HeterogeneousVolumeGpu v, vec3 local)
 {
     if (v.Sparse.y != 0u)
     {
         vec2 baked = HvBakedSample(v, local);
-        return vec2(baked.r, baked.g * v.SparseScale.w);
+        // SparseScale.w = 0: the grid has no temperature, the component's Temperature drives the blackbody.
+        float t = v.SparseScale.w > 0.0 ? baked.g * v.SparseScale.w : HvAuthoredTemperature(v, local, baked.r);
+        return vec2(baked.r, t);
     }
     float d01 = HvProceduralDensity01(v, local);
-    // Procedural temperature: hottest where it is dense and low (the flame's root).
-    float height = clamp(0.5 - 0.5 * local.y, 0.0, 1.0);
-    return vec2(d01, v.Emissive.w * d01 * (0.35 + 0.65 * height));
+    return vec2(d01, HvAuthoredTemperature(v, local, d01));
 }
 
 float HvDensity01(HeterogeneousVolumeGpu v, vec3 local)

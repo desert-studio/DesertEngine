@@ -55,6 +55,7 @@ namespace Desert::Editor
              { "State Trees", static_cast<int>( FileType::StateTree ) },
              { "VFX Modules", static_cast<int>( FileType::VFXModule ) },
              { "IES Profiles", static_cast<int>( FileType::IesProfile ) },
+             { "Sparse Volumes", static_cast<int>( FileType::SparseVolume ) },
         };
     } // namespace
 

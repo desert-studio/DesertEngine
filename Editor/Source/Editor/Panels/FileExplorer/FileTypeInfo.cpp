@@ -94,6 +94,8 @@ namespace Desert::Editor
              FileTypeInfo{ FileType::VFXModule, "VFX Module", { 0.95f, 0.55f, 0.20f, 1.00f }, ICON_MDI_PUZZLE },
              // The light family's amber (the outliner's light colour), so a profile reads as part of lighting.
              FileTypeInfo{ FileType::IesProfile, "IES Profile", { 1.00f, 0.80f, 0.43f, 1.00f }, ICON_MDI_LAMP },
+             // The fog family's grey-blue: a baked smoke / fire medium.
+             FileTypeInfo{ FileType::SparseVolume, "Sparse Volume", { 0.62f, 0.70f, 0.80f, 1.00f }, ICON_MDI_SMOKE },
         };
 
         constexpr bool RowsAreInEnumOrder()
