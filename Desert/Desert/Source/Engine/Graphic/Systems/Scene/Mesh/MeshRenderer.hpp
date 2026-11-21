@@ -2074,7 +2074,7 @@ namespace Desert::Graphic::System
         // UE r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale (CINEMATIC-LOD): the distance factor
         // ComputeLOD, ComputeDitheredLOD and SelectSkinnedLods choose a level at (Geometry::LODView::
         // DistanceScale). From Scalability ViewDistance.LODDistanceScalePercent / 100 (SceneRenderer::BeginScene).
-        void SetLODDistanceScale( float scale );
+        void  SetLODDistanceScale( float scale );
         float GetLODDistanceScale() const
         {
             return m_LODDistanceScale;

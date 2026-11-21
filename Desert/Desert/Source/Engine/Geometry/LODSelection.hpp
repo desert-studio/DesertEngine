@@ -152,8 +152,8 @@ namespace Desert::Geometry
     inline float BoundsScreenRadiusSquared( const glm::vec3& center, float radius, const LODView& view )
     {
         const glm::vec3 d      = center - view.Origin;
-        const float     distSq = glm::dot( d, d ) * std::abs( view.Projection[2][3] ) * view.DistanceScale *
-                             view.DistanceScale;
+        const float     distSq =
+             glm::dot( d, d ) * std::abs( view.Projection[2][3] ) * view.DistanceScale * view.DistanceScale;
         const float     multiple =
              std::max( 0.5f * std::abs( view.Projection[0][0] ), 0.5f * std::abs( view.Projection[1][1] ) );
         return ( multiple * radius ) * ( multiple * radius ) / std::max( 1.0f, distSq );

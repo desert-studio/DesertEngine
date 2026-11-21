@@ -537,8 +537,8 @@ namespace Desert::Graphic::System
     {
         if ( scale == m_LODDistanceScale )
             return;
-        LOG_INFO( "[SkinnedLOD] LODDistanceScale {} (was {}): static and skinned LOD chosen at distance x {}", scale,
-                  m_LODDistanceScale, scale );
+        LOG_INFO( "[SkinnedLOD] LODDistanceScale {} (was {}): static and skinned LOD chosen at distance x {}",
+                  scale, m_LODDistanceScale, scale );
         m_LODDistanceScale = scale;
     }
 
@@ -576,9 +576,9 @@ namespace Desert::Graphic::System
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( !camera )
             return levels;
-        const Geometry::LODView view{ .Origin     = camera->GetPosition(),
-                                      .Projection = camera->GetProjectionMatrix(),
-                                      .Temporal   = m_ViewTemporalLOD,
+        const Geometry::LODView view{ .Origin        = camera->GetPosition(),
+                                      .Projection    = camera->GetProjectionMatrix(),
+                                      .Temporal      = m_ViewTemporalLOD,
                                       .DistanceScale = m_LODDistanceScale };
         levels = Geometry::SelectDitheredLODFromBounds( transform, Geometry::LocalBounds( mesh->GetSubmeshes() ),
                                                         view, mesh->GetLODScreenSizes(), forcedLOD, lodBias );
