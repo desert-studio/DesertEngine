@@ -35,7 +35,9 @@ Shader "GrassBladeSoftwareRaster"
             vec4                HullTexels;
             vec4                Hull[128];
             // x = the camera records' first word in the args pool, y = the software buckets (bit b: bucket b is
-            // rastered here), z = the records (one per strip level), w = the row's first entry
+            // rastered here), z = the entries: the camera's set-0 records, one per bucket (a blade's args hold
+            // sets x buckets records, FinalizeCamera fills every set alike - only set 0 is the camera's draw),
+            // w = the row's first entry
             uvec4 Args;
             // x = the section's first slot in BladeRasterMaterialSlots, y = the mask texture's slot, z = the channel
             // parameter's slot, w = the fixed channel (z = kNoSlot)
