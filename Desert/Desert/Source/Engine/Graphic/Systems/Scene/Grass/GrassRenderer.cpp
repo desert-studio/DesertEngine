@@ -2951,6 +2951,14 @@ namespace Desert::Graphic::System
         m_FrameTable     = false;
         m_VisibilityRows = 0;
         m_VisibilitySectionFirstRows.clear();
+        // FPS-GRASS-MESH-SETUP-4: the setup records' graph ref, address and varieties are this frame's or none.
+        // A frame that returns below (no queue, no generate / cull program) never reaches CommitBladeSetup, and
+        // its graph must not be handed the previous graph's ref (SceneRendererFrameMesh declares a resolve's read
+        // of BladeSetupRef) nor AddFrameBladeSetup the previous frame's varieties.
+        m_BladeSetupVarieties.clear();
+        m_FramePostAdded    = false;
+        m_BladeSetupRef     = RDG::BufferRef{};
+        m_BladeSetupAddress = 0u;
         m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Cull )
             return;
@@ -3710,7 +3718,15 @@ namespace Desert::Graphic::System
         m_BladeSetupAddress = 0u;
         // Past kGrassVisibilityMaxRows the view refuses its grass visibility path (VisibilityRowsOverflow): no
         // record past it is ever read, so the records stop there.
-        const uint64_t rows = std::min( std::max<uint64_t>( m_VisibilityRows, 1u ), kGrassVisibilityMaxRows );
+        // FPS-GRASS-MESH-SETUP-4, ONE SETUP BUFFER FOR THE VIEW'S LIFE (UE GPUScene: a consumer never reads a
+        // retired pool): the mesh resolve reads its records at the device address the section's table holds
+        // (GrassMeshVisibilityData Slots.zw), and that table is a host-written per-(view x frame) copy. Growing
+        // the buffer to this frame's rows moved the address under every copy written before the growth: each
+        // FIELD_Barn TURN loss (scn-1120-175921, scn-1121-082654) follows a census with two GrassBladeSetup
+        // buffers (the grown one + the retired one) after a pool growth, the resolve then fetching the retired
+        // one's range. The buffer is made once at the row ceiling, so its address never changes and every row a
+        // table can name (< kGrassVisibilityMaxRows, PrepareVariety refuses a section past it) lies inside it.
+        const uint64_t rows = m_VisibilityRows == 0u ? uint64_t{ 1u } : kGrassVisibilityMaxRows;
         if ( rows > m_BladeSetupCapacity || m_BladeSetup == nullptr )
         {
             const uint64_t bytes = rows * kBladeSetupRecordBytes;
