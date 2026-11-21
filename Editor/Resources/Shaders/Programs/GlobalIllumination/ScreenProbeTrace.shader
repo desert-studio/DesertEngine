@@ -298,11 +298,20 @@ Shader "ScreenProbeTrace"
             RadianceCacheProbe radianceCacheProbes[];
         };
         #endif
-        // Everything read through LinearClampSampler: the sky (GIHitLighting.glslh GIMissRadiance), on every leg -
-        // FPS-SP-SKY: the software near field answers its provably escaping uncovered misses with it - and the
-        // radiance cache's three textures (Common/RadianceCache.glslh's read sections) on the legs that read the
-        // cache (SP_TRACE_READS_CACHE). The pass binds the sky and the sampler on every leg (ScreenProbeGather.cpp).
+        // Everything read through LinearClampSampler: the sky (GIHitLighting.glslh GIMissRadiance) - FPS-SP-SKY: the
+        // software near field answers its provably escaping uncovered misses with it; the far field and the cache
+        // miss take it on a miss - and the radiance cache's three textures (Common/RadianceCache.glslh's read
+        // sections) on the legs that read the cache (SP_TRACE_READS_CACHE). FPS-SP-HITLIGHT (UE shared samplers: a
+        // permutation declares the samplers its code samples through): the near hit lighting reads the cards alone,
+        // through PointClampSampler, and takes no sky, so it declares no linear sampler; GIMissRadiance still
+        // compiles there, uncalled, naming the point sampler that leg declares (SP_TRACE_READS_CARDS above). The
+        // pass binds the sampler under the same rule (ScreenProbeGather.cpp TraceLegSamplesLinear), the sky on
+        // every leg.
+        #if defined( SP_TRACE_NEAR_HIT_LIGHTING )
+        #define LinearClampSampler PointClampSampler
+        #else
         Uniform sampler LinearClampSampler;
+        #endif
         Uniform(16) textureCube EnvironmentSpecularTexture;
         #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
         #if defined( SP_TRACE_READS_CACHE )
