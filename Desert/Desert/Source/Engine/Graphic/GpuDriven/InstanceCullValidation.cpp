@@ -362,8 +362,9 @@ namespace Desert::Graphic::GpuDriven
                         // A kLodDither view selects at its two temporal samples (InstanceCull.shader
                         // SelectLodMask); the word carries the newer sample's level, the older one only adds a
                         // second (FADE_OUT) entry in the bins.
-                        Geometry::LODView lodView{ .Origin     = glm::vec3( view.Gpu.LodOrigin ),
-                                                   .Projection = view.Gpu.LodProjection };
+                        Geometry::LODView lodView{ .Origin        = glm::vec3( view.Gpu.LodOrigin ),
+                                                   .Projection    = view.Gpu.LodProjection,
+                                                   .DistanceScale = view.Gpu.LodDistanceScale };
                         if ( ( view.Gpu.Flags & CullViewFlags::kLodDither ) != 0u )
                         {
                             lodView.Temporal.Active = true;

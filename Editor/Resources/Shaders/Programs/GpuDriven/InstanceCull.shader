@@ -213,7 +213,11 @@ Shader "InstanceCull"
         // Geometry::BoundsScreenRadiusSquared (LODSelection.hpp) of the instance's local bounds sphere in @p view's LOD
         // projection seen from @p lodOrigin (LodOrigin.xyz, or a temporal sample of a kLodDither view): the LOD
         // choice's measure (SelectLod) and the depth-occluder view's (kDepthOccluder).
-        float BoundsScreenRadiusSq( GpuCullView view, GpuScenePrimitive primitive, mat4 world, vec3 lodOrigin )
+        // @p distanceScale: Geometry::LODView::DistanceScale - the LOD choice passes view.LodDistanceScale (UE
+        // r.StaticMeshLODDistanceScale, the same factor MeshRenderer::ComputeLOD applies), the depth-occluder test
+        // 1 (its CPU twin, InstanceCullValidation, measures the true distance).
+        float BoundsScreenRadiusSq( GpuCullView view, GpuScenePrimitive primitive, mat4 world, vec3 lodOrigin,
+                                    float distanceScale )
         {
             const float scale     = max( length( world[0].xyz ), max( length( world[1].xyz ), length( world[2].xyz ) ) );
             const vec3  extent    = primitive.LocalBoundsExtent.xyz;
@@ -223,7 +227,7 @@ Shader "InstanceCull"
             const vec3  center    = ( world * vec4( 0.5 * ( boundsMin + boundsMax ), 1.0 ) ).xyz;
 
             const vec3  d        = center - lodOrigin;
-            const float distSq   = dot( d, d ) * abs( view.LodProjection[2][3] );
+            const float distSq   = dot( d, d ) * abs( view.LodProjection[2][3] ) * distanceScale * distanceScale;
             const float multiple = max( 0.5 * abs( view.LodProjection[0][0] ), 0.5 * abs( view.LodProjection[1][1] ) );
             return ( multiple * radius ) * ( multiple * radius ) / max( 1.0, distSq );
         }
@@ -240,7 +244,7 @@ Shader "InstanceCull"
             if ( ( view.Flags & DESERT_GPU_CULL_VIEW_LOD_DISABLED ) != 0u || primitive.LodCount <= 1u || emptyBounds ||
                  primitive.FirstLodScreenSize == DESERT_GPU_INVALID_INDEX )
                 return 0u;
-            const float screenRadiusSq = BoundsScreenRadiusSq( view, primitive, world, lodOrigin );
+            const float screenRadiusSq = BoundsScreenRadiusSq( view, primitive, world, lodOrigin, view.LodDistanceScale );
 
             const int coarsest = int( primitive.LodCount ) - 1;
             int       base     = 0;
@@ -588,7 +592,7 @@ Shader "InstanceCull"
             if ( ( view.Flags & DESERT_GPU_CULL_VIEW_DEPTH_OCCLUDER ) != 0u &&
                  ( empty || ( Params3.x != 0u && instance.Primitive < Params3.x &&
                               VgPrimitiveDags[instance.Primitive].y != 0u ) ||
-                   BoundsScreenRadiusSq( view, primitive, world, view.LodOrigin.xyz ) < view.DepthOccluder.x ) )
+                   BoundsScreenRadiusSq( view, primitive, world, view.LodOrigin.xyz, 1.0 ) < view.DepthOccluder.x ) )
             {
                 Visibility[cell] = 0u;
                 return;

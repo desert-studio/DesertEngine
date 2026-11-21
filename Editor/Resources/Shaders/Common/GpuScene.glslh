@@ -211,7 +211,7 @@ struct GpuOccludedInstance
     uint View;     // offset 4
 };
 
-// Per (view x pass) the cull serves. 608 bytes.
+// Per (view x pass) the cull serves. 656 bytes.
 struct GpuCullView
 {
     mat4  ViewProjection;     // offset 0   — unjittered
@@ -231,6 +231,10 @@ struct GpuCullView
     ivec4 ContentCells;       // offset 576 — a content-hash view: xy = TexelOrigin, z = cell texels, w = region
     vec4  DepthOccluder;      // offset 592 — a depth-occluder view: x = the minimum screen radius, squared
     vec4  LodTemporalOrigins[2]; // offset 608 — the dithered LOD transition's eye samples, [0] older, [1] newer
+    float LodDistanceScale;   // offset 640 — Geometry::LODView::DistanceScale (r.StaticMeshLODDistanceScale), LOD only
+    uint  LodPad0;            // offset 644
+    uint  LodPad1;            // offset 648
+    uint  LodPad2;            // offset 652
 };
 
 // WHO SWAYS IN THE SHADOWS in a cull view: a caster view's instance of a swaying primitive (Wind.z = Strength > 0)

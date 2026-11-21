@@ -53,6 +53,7 @@ namespace Desert::Graphic
             input.View.PrevViewProjection = prevViewProjection;
             input.View.LodProjection      = lod.Projection;
             input.View.LodOrigin          = glm::vec4( lod.Origin, caster ? shadowWindDistance : 0.0f );
+            input.View.LodDistanceScale   = lod.DistanceScale; // r.StaticMeshLODDistanceScale (InstanceCull SelectLod)
             input.View.CullOrigin         = glm::vec4( lod.Origin, lensScale );
             input.View.Pass               = static_cast<uint32_t>( pass );
             input.View.Flags              = flags;
@@ -285,8 +286,9 @@ namespace Desert::Graphic
         const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = Common::MakeSuccess( *m_FrameGpuSceneTables );
 
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
-                                     .Projection = camera->GetProjectionMatrix(),
-                                     .Temporal   = frame.TemporalLOD };
+                                     .Projection    = camera->GetProjectionMatrix(),
+                                     .Temporal      = frame.TemporalLOD,
+                                     .DistanceScale = meshes->GetLODDistanceScale() };
         const float             lensScale    = Graphic::DrawDistanceScale( lod );
         const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
         const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
@@ -667,7 +669,8 @@ namespace Desert::Graphic
         // Every view selects LOD and distance-culls ISM from the main camera (MeshRenderer::ComputeLOD,
         // MeshRenderer.cpp:193-209; the shadows draw the main view's LOD).
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
-                                     .Projection = camera->GetProjectionMatrix() };
+                                     .Projection    = camera->GetProjectionMatrix(),
+                                     .DistanceScale = meshes->GetLODDistanceScale() };
         const float             lensScale    = Graphic::DrawDistanceScale( lod );
         const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
         const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
@@ -1065,7 +1068,8 @@ namespace Desert::Graphic
         // THE LEVELS AS CULL VIEWS (the validation path's VSM views, AddFrameGpuCull): the far plane open, as the
         // casters' cull, and the level's drawn-page mask; cull view = cut view = level.
         const Geometry::LODView lod{ .Origin     = camera->GetPosition(),
-                                     .Projection = camera->GetProjectionMatrix() };
+                                     .Projection    = camera->GetProjectionMatrix(),
+                                     .DistanceScale = meshes->GetLODDistanceScale() };
         const float             lensScale    = Graphic::DrawDistanceScale( lod );
         const float             windDistance = meshes->GetShadowWindDistance(); // Shadows.WindAnimationDistance
         const uint32_t          lodFlag      = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;

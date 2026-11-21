@@ -304,8 +304,18 @@ namespace Desert::Graphic::GpuDriven
         // THE DITHERED LOD TRANSITION's two eye samples (Geometry::LODView::Temporal; kLodDither): xyz = [0] the
         // older, [1] the newer; w = 0. Each equals LodOrigin.xyz when the view does not fade its level changes.
         glm::vec4  LodTemporalOrigins[2]{};    // 608
+        // 640 UE r.StaticMeshLODDistanceScale (CINEMATIC-LOD-GPU): the level is selected as if the instance stood
+        //     at its distance x this - Geometry::LODView::DistanceScale of the view's LOD eye, the one value the
+        //     CPU path reads (MeshRenderer::GetLODDistanceScale, Scalability ViewDistance.LODDistanceScalePercent
+        //     / 100). Only the level (InstanceCull.shader SelectLod): culling and the depth-occluder size read the
+        //     true distance. 1 = the authored screen sizes.
+        float    LodDistanceScale = 1.0f;
+        uint32_t LodPad0          = 0; // 644
+        uint32_t LodPad1          = 0; // 648
+        uint32_t LodPad2          = 0; // 652
     };
-    static_assert( sizeof( GpuCullView ) == 640, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuCullView ) == 656, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, LodDistanceScale ) == 640, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, DepthOccluder ) == 592, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, LodTemporalOrigins ) == 608, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuCullView, ContentCells ) == 576, "Common/GpuScene.glslh" );
