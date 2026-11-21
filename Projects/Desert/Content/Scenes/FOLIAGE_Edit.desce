@@ -61,7 +61,6 @@
                 "DebugColor": [0.9500000476837158, 0.25, 1.0]
             }
         ],
-        "HLODLayers": [],
         "ChunkRegionSize": 100000.0
     }
 }
