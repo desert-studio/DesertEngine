@@ -96,6 +96,7 @@ namespace Desert::Graphic
 namespace Desert::Graphic::System
 {
     class DisplacementCache;
+    class VertexAnimationCrowd;
     namespace MeshRendererDetail
     {
         // One draw of a lit mesh node, chosen when the frame's draw list is BUILT (the node's setup, before any
@@ -633,6 +634,11 @@ namespace Desert::Graphic::System
             // the level picked, the screen size and the view test into it, and draws no level finer than the one
             // the animation's evaluated bones cover. Null for an unanimated record (its bind pose is whole).
             std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
+            // THE FAR CROWD HAND-OFF (WP-FAR-12, VertexAnimationCrowd): non-zero = this record is drawn this frame
+            // from its clip's baked vertex animation at its lowest level - the device address of the VAT frame its
+            // GpuScene row fetches its posed streams from (the skin cache's layout), so it is neither skinned nor
+            // posed. Set by SelectSkinnedLods; the skin cache leaves such a record alone.
+            uint64_t                    VatAddress  = 0;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };
@@ -1386,6 +1392,9 @@ namespace Desert::Graphic::System
         {
             return m_SkinCacheReads;
         }
+        // The far crowd's vertex-animation buffers the VAT records of this view address (VertexAnimationCrowd),
+        // appended to SkinCacheReads by SceneRenderer after the skin cache's: read where the skin cache's are.
+        void DeclareCrowdReads( RDG::Builder& graph );
         // The morph twin's output external of @p entity when @p mesh is its blended twin (the external
         // UpdateMorphTargets' graph wrote through), else null: the skin step reads the morphed vertices through
         // it.
@@ -3891,6 +3900,8 @@ namespace Desert::Graphic::System
         bool                                   m_SkinnedLodNoCameraReported = false;
         // Picks every queued skinned record's Lod from the frozen main view and logs a change (WP-FAR-10).
         void SelectSkinnedLods();
+        // The far crowd (WP-FAR-12): baked vertex animations and the skeletal <-> VAT hand-off.
+        std::shared_ptr<VertexAnimationCrowd> m_Crowd; // shared: destroyed where the type is incomplete
 
         // One morphed twin per skinned COMPONENT drawn with non-zero weights (UE: the component's
         // FMorphVertexBuffer), keyed by the entity (id incl. version). Revision is the MorphComponent revision

@@ -11,6 +11,8 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/JobSystem.hpp>
+#include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 
@@ -118,40 +120,56 @@ namespace Desert::Runtime
         // that Mesh is then the cached answer for the life of the process — see the header on Register.
         if ( const auto loaded = EnsureLoaded( meshAsset ); !loaded )
             return loaded;
+        auto staged = StageBuild( *m_Uploader, meshAsset );
+        if ( !staged.IsSuccess() )
+            return Common::MakeError( std::string( staged.GetError() ) );
+        return CommitAndCache( meshAsset, staged.ExtractValue() );
+    }
 
-        const std::string path   = meshAsset->GetMetadata().Filepath.string();
-        const auto        handle = meshAsset->GetMetadata().Handle;
+    Common::ResultStr<std::shared_ptr<Desert::Mesh>>
+    MeshService::StageBuild( IMeshUploader& uploader, const std::shared_ptr<Assets::MeshAsset>& meshAsset )
+    {
+        const auto& path = meshAsset->GetMetadata().Filepath;
 
-        auto mesh = m_Uploader->Upload( meshAsset );
+        auto mesh = uploader.Stage( meshAsset );
         if ( !mesh )
         {
             // The uploader has already said which of its preconditions failed; this adds the file, which it
             // does not have. Nothing is cached: the comment this replaces was right that a sticky null can
             // never recover once the dependency is in place.
-            return Common::MakeFormattedError( "MeshService: no runtime mesh could be built for '{}'", path );
+            return Common::MakeFormattedError<std::shared_ptr<Desert::Mesh>>(
+                 "MeshService: no runtime mesh could be built for '{}'", path.string() );
         }
 
         // THE RELATION. Asserted rather than assumed, because both sides are individually well-formed and
         // only their disagreement is the defect.
         if ( mesh->GetSubmeshes().size() != meshAsset->GetSubmeshes().size() )
         {
-            return Common::MakeFormattedError(
+            return Common::MakeFormattedError<std::shared_ptr<Desert::Mesh>>(
                  "MeshService: '{}' holds {} submesh(es) but the runtime mesh built from it has {} — it "
                  "would draw nothing while looking like a built mesh, so it is NOT cached.",
-                 path, meshAsset->GetSubmeshes().size(), mesh->GetSubmeshes().size() );
+                 path.string(), meshAsset->GetSubmeshes().size(), mesh->GetSubmeshes().size() );
         }
 
         // THE AUTHORED LOD SCREEN SIZES, resolved against the chain just built (UE ResolveSectionInfo after the
         // DDC fetch): they are not a build input, so they are read from their home on every build.
-        const auto lodScreenSizes =
-             Assets::Serialization::ReadMeshLodScreenSizes( meshAsset->GetMetadata().Filepath );
+        const auto lodScreenSizes = Assets::Serialization::ReadMeshLodScreenSizes( path );
         if ( !lodScreenSizes )
-            return Common::MakeFormattedError( "MeshService: '{}': LOD screen sizes: {}", path,
-                                               lodScreenSizes.GetError() );
+            return Common::MakeFormattedError<std::shared_ptr<Desert::Mesh>>(
+                 "MeshService: '{}': LOD screen sizes: {}", path.string(), lodScreenSizes.GetError() );
         mesh->SetAuthoredLODScreenSizes( lodScreenSizes.GetValue() );
+        return Common::MakeSuccess( std::move( mesh ) );
+    }
 
-        std::shared_ptr<Mesh>& slot = m_Meshes[handle];
-        std::shared_ptr<Mesh>  outgoing;
+    Common::BoolResultStr MeshService::CommitAndCache( const std::shared_ptr<Assets::MeshAsset>& meshAsset,
+                                                       std::shared_ptr<Desert::Mesh>             mesh ) const
+    {
+        if ( !m_Uploader->Commit( mesh, *meshAsset ) )
+            return Common::MakeFormattedError( "MeshService: '{}' was built and its device upload was refused",
+                                               meshAsset->GetMetadata().Filepath.string() );
+
+        std::shared_ptr<Desert::Mesh>& slot = m_Meshes[meshAsset->GetMetadata().Handle];
+        std::shared_ptr<Desert::Mesh>  outgoing;
         if ( slot ) // a rebuild over a built mesh: the pointer callers were answered is replaced
         {
             m_BuiltRevision.fetch_add( 1, std::memory_order_acq_rel );
@@ -357,6 +375,16 @@ namespace Desert::Runtime
 
     Desert::Mesh* MeshService::Get( const Assets::AssetHandle& handle ) const
     {
+        return Resolve( handle, false );
+    }
+
+    Desert::Mesh* MeshService::GetNow( const Assets::AssetHandle& handle ) const
+    {
+        return Resolve( handle, true );
+    }
+
+    Desert::Mesh* MeshService::Resolve( const Assets::AssetHandle& handle, const bool wait ) const
+    {
         {
             std::shared_lock lock( m_Lock );
             if ( auto it = m_Meshes.find( handle ); it != m_Meshes.end() )
@@ -371,8 +399,51 @@ namespace Desert::Runtime
             return it->second.get();
 
         Entry* entry = FindOrDiscover( handle );
-        if ( entry == nullptr || !Arrived( handle, *entry ) )
+        if ( entry == nullptr )
             return nullptr;
+
+        // A WORKER BUILD IN FLIGHT: pending until it is done (or, for GetNow, waited for — the job takes no lock of
+        // the service, so waiting under m_Lock cannot deadlock it). Then the device half, here.
+        if ( entry->Building.valid() )
+        {
+            if ( !wait && entry->Building.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+                return nullptr;
+            auto       staged   = entry->Building.get();
+            const auto stagedAt = std::chrono::steady_clock::now();
+            if ( !staged.IsSuccess() )
+            {
+                Fail( handle, std::string( staged.GetError() ) );
+                return nullptr;
+            }
+            if ( const auto built = CommitAndCache( entry->Asset, staged.ExtractValue() ); !built )
+            {
+                Fail( handle, built.GetError() );
+                return nullptr;
+            }
+            const auto ms = []( const auto from, const auto to )
+            { return std::chrono::duration<double, std::milli>( to - from ).count(); };
+            LOG_INFO( "[MeshService] '{}' built off the game thread: worker build + wait {:.1f} ms, device upload "
+                      "here {:.1f} ms",
+                      entry->Asset->GetMetadata().Filepath.filename().string(), ms( entry->BuildStarted, stagedAt ),
+                      ms( stagedAt, std::chrono::steady_clock::now() ) );
+            return m_Meshes[handle].get();
+        }
+
+        if ( !Arrived( handle, *entry ) )
+            return nullptr;
+
+        // A static mesh asked for by a frame: the CPU build goes to a worker and the frame is answered pending
+        // (UE: the render data is built/loaded on the async loading thread, the RHI resources initialised after).
+        // Arrived has parsed and resolved it, so the worker reads only this asset; a skinned mesh, and a door
+        // that must answer complete, build here.
+        if ( !wait && !entry->Asset->IsSkinned() && entry->Asset->IsReadyForUse() )
+        {
+            entry->BuildStarted = std::chrono::steady_clock::now();
+            entry->Building     = Common::JobSystem::Get().Async(
+                 [uploader = m_Uploader.get(), asset = entry->Asset]() noexcept
+                 { return StageBuild( *uploader, asset ); } );
+            return nullptr;
+        }
 
         if ( const auto built = BuildAndCache( entry->Asset ); !built )
         {
@@ -436,7 +507,7 @@ namespace Desert::Runtime
 
         std::size_t drawable = 0;
         for ( const auto& handle : handles )
-            drawable += Get( handle ) != nullptr ? 1 : 0;
+            drawable += GetNow( handle ) != nullptr ? 1 : 0;
         return drawable;
     }
 
@@ -462,7 +533,7 @@ namespace Desert::Runtime
             Assets::AsyncAssetLoader::Get().FlushOne( *meshFile );
         if ( rigFile )
             Assets::AsyncAssetLoader::Get().FlushOne( *rigFile );
-        return Get( handle );
+        return GetNow( handle );
     }
 
     bool MeshService::EvictBuilt( const Assets::AssetHandle& handle )

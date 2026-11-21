@@ -1,0 +1,12 @@
+# WP-OPT-HLOD-BUILD-ASYNC (tail of WP-OPT-UNLOAD): the first build of a streamed static mesh (HLOD) leaves the game thread.
+# Before (WP-OPT-UNLOAD, Debug): 3 flight frames of 210-280 ms (183, 258/259, 1787/1788) = WorldStreamer::WarmUp ->
+# ClosureArriving -> MeshService::Get -> BuildAndCache (LOD chain + coverage + staging + upload) on the game thread.
+# UE 5.5: render data on the async loading thread, RHI init after, the actor shows when ready. Now: MeshService::Get hands
+# the CPU build (MeshFactory::Stage) to a JobSystem worker and answers Pending; the Get that finds it done uploads the
+# staged geometry (IMeshUploader::Commit). The warmup keeps the previous representation until the mesh is Ready.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Play"
+Тогда flight_after editor.log «[Flight]»: ни одного кадра дольше 100 мс; stream_ms кадров с деактивацией ячеек меньше 5 мс; «[MeshService] ... built off the game thread» в логе
+Тогда-вид hill HLOD на холме виден, дыры на месте строящейся ячейки нет
+# Regression: WP-FAR-9.scn PASS (buildings appear/disappear, HLOD back on the hill).

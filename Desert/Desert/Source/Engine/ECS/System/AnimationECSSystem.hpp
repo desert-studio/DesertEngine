@@ -148,6 +148,16 @@ namespace Desert::ECS
                     anim.BuiltRigSignature = 0;
                 }
                 ConfigureLodAndRate( entity, anim, *skinnedMeshPtr );
+                // A FAR-CROWD FIGURE ALREADY ON ITS BAKED ANIMATION has no anim tick (UE AnimToTexture: the VAT
+                // instance is a static mesh): only its clip clock runs (StepAnimator's Vat branch), none of the
+                // retarget / clip resolution / pose stages below. Back to skeletal, the full tick resumes.
+                if ( anim.Playing && anim.LodFeedback && anim.LodFeedback->VatClockRunning &&
+                     anim.LodFeedback->Vat.load( std::memory_order_relaxed ) )
+                {
+                    StepAnimator( anim, Common::Timestep( Animation::AnimationAdvanceSeconds(
+                                             gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) ) );
+                    continue;
+                }
 
                 // FIRST OF THE THREE SYNCS, because it is first in the pipeline it feeds: a retarget
                 // changes which rig the SOURCE stage samples, and everything below reads the pose that
@@ -425,6 +435,36 @@ namespace Desert::ECS
         /// Animator stepped (0 when skipped).
         float StepAnimator( ECS::AnimationComponent& anim, const Common::Timestep& animTs )
         {
+            // THE FAR CROWD (UE AnimToTexture): while the renderer draws this instance from its clip's vertex
+            // animation (SkinnedLodFeedback::Vat, VertexAnimationCrowd), no pose is evaluated or published - only
+            // the clip's clock runs, handed to the renderer as the VAT playhead. Back to skeletal, the Animator
+            // resumes from that clock, so the walk continues where the baked one was.
+            if ( anim.LodFeedback )
+            {
+                Animation::SkinnedLodFeedback& feedback = *anim.LodFeedback;
+                const Animation::AnimationClip* clip    = anim.Animator->GetCurrentClip();
+                const float                     length  = anim.Animator->GetDuration();
+                if ( feedback.Vat.load( std::memory_order_relaxed ) && clip != nullptr && length > 0.0F )
+                {
+                    if ( !feedback.VatClockRunning )
+                    {
+                        feedback.VatClockRunning = true;
+                        feedback.VatClock        = anim.Animator->GetCurrentTime();
+                    }
+                    feedback.VatClock += animTs.GetSeconds() * anim.Animator->GetPlaybackSpeed();
+                    feedback.VatClock = anim.Loop ? std::fmod( std::max( feedback.VatClock, 0.0F ), length )
+                                                  : std::clamp( feedback.VatClock, 0.0F, length );
+                    feedback.VatClip.store( clip, std::memory_order_relaxed );
+                    feedback.VatTime.store( feedback.VatClock, std::memory_order_relaxed );
+                    ++m_CostInstances;
+                    return 0.0F;
+                }
+                if ( feedback.VatClockRunning )
+                {
+                    feedback.VatClockRunning = false;
+                    anim.Animator->SetTime( feedback.VatClock );
+                }
+            }
             const float step = anim.UpdateRate.Advance( animTs.GetSeconds() );
             if ( step >= 0.0F )
             {
@@ -434,6 +474,11 @@ namespace Desert::ECS
             }
             ++m_CostInstances;
             anim.Animator->PublishInterpolated( anim.UpdateRate.InterpolationAlpha() );
+            if ( anim.LodFeedback )
+            {
+                anim.LodFeedback->VatClip.store( anim.Animator->GetCurrentClip(), std::memory_order_relaxed );
+                anim.LodFeedback->VatTime.store( anim.Animator->GetCurrentTime(), std::memory_order_relaxed );
+            }
             return std::max( step, 0.0F );
         }
 
@@ -446,6 +491,8 @@ namespace Desert::ECS
             if ( ++m_CostFrames < kCostWindow )
                 return;
             const double frames = static_cast<double>( m_CostFrames );
+            Animation::g_AnimationCpuMsPerFrame.store( static_cast<float>( 1000.0 * m_CostSeconds / frames ),
+                                                       std::memory_order_relaxed );
             LOG_INFO( "[SkinnedLOD] anim CPU {:.4f} ms/frame over {} frames: {:.1f} animated instances, {:.2f} "
                       "evaluations and {:.1f} bones evaluated per frame",
                       1000.0 * m_CostSeconds / frames, m_CostFrames, static_cast<double>( m_CostInstances ) / frames,

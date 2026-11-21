@@ -38,12 +38,25 @@ namespace Desert::Graphic
             }
             else
             {
-                return CreateStatic( asset );
+                return CreateStatic( asset, true );
             }
         }
 
+        // THE CPU HALF OF Create, SAFE OFF THE GAME THREAD for a static mesh (UE: FStaticMeshRenderData built on the
+        // async loading thread, the RHI resources initialised later): the LOD chain, the screen coverage and the
+        // staged host copy are built, nothing touches the device. The mesh draws once Invalidate() uploads what
+        // was staged (MeshService's Commit). A skinned mesh is built whole, as Create does: its device half is not
+        // split (its skin cache binds the skeleton at construction).
+        static std::shared_ptr<Mesh> Stage( const std::shared_ptr<Assets::MeshAsset>& asset )
+        {
+            if ( !asset )
+                return nullptr;
+            return asset->IsSkinned() ? CreateSkinned( asset ) : CreateStatic( asset, false );
+        }
+
     private:
-        static std::shared_ptr<Mesh> CreateStatic( const std::shared_ptr<Assets::MeshAsset>& baseAsset )
+        static std::shared_ptr<Mesh> CreateStatic( const std::shared_ptr<Assets::MeshAsset>& baseAsset,
+                                                   const bool                                upload )
         {
             auto asset = std::dynamic_pointer_cast<Assets::StaticMeshAsset>( baseAsset );
 
@@ -57,7 +70,7 @@ namespace Desert::Graphic
             const auto staticMesh = std::make_shared<StaticMesh>(
                  asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes(), asset->GetVertexStreams(),
                  VirtualGeometrySource{ asset->GetClusterDags(), asset->GetMetadata().Filepath.string() } );
-            if ( !staticMesh->Invalidate() )
+            if ( upload && !staticMesh->Invalidate() )
             {
                 DESERT_VERIFY( false );
             }

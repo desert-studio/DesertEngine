@@ -1,5 +1,6 @@
 #include "MeshRenderer.hpp"
 #include "MeshRendererInternal.hpp"
+#include "VertexAnimationCrowd.hpp"
 
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
@@ -2684,14 +2685,24 @@ namespace Desert::Graphic::System
             frustum.emplace( camera->GetProjectionMatrix(), camera->GetViewMatrix() );
             lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
         }
+        // THE FAR CROWD (WP-FAR-12): a record at its lowest level and below the crowd's screen size plays its
+        // clip from the baked vertex animation (VertexAnimationCrowd) - its row fetches the baked frame, the skin
+        // cache and the animation leave it alone (SkinnedLodFeedback::Vat).
+        if ( !m_Crowd )
+            m_Crowd = std::make_shared<VertexAnimationCrowd>();
+        m_Crowd->BeginFrame();
+        uint32_t crowdSkeletal = 0;
+        uint32_t crowdVat      = 0;
+        uint32_t crowdDraws    = 0;
         for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
         {
-            data.Lod = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
+            data.Lod        = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
+            data.VatAddress = 0;
             const auto& lods = data.Mesh->GetSkinnedLODs();
+            float       screenSize = Geometry::kLOD0ScreenSize;
             if ( data.LodFeedback )
             {
                 Animation::SkinnedLodFeedback& feedback = *data.LodFeedback;
-                float screenSize = Geometry::kLOD0ScreenSize;
                 bool  rendered   = true;
                 // No camera, or a view that draws every mesh at LOD 0 (m_LODEnabled off - the ViewDistance level
                 // that turns mesh LOD off turns the animation's reductions off with it): full size, in view.
@@ -2715,8 +2726,34 @@ namespace Desert::Graphic::System
                 data.Lod = std::max( data.Lod, feedback.EvaluatedLod.load( std::memory_order_relaxed ) );
             }
             if ( lods.empty() )
+            {
+                ++crowdSkeletal;
                 continue;
+            }
             data.Lod                     = std::min<uint32_t>( data.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
+            // The hand-off, by the WP-FAR-10 metric (FOV-aware screen size; a view drawing LOD 0 keeps everyone
+            // skeletal), hysteresis on the way back; only from the lowest level, the one the bake is made of.
+            if ( data.LodFeedback && lodView && m_LODEnabled && data.SkinSource == nullptr &&
+                 data.Lod + 1u == lods.size() )
+            {
+                Animation::SkinnedLodFeedback& feedback = *data.LodFeedback;
+                const float limit = feedback.Vat.load( std::memory_order_relaxed ) ? VertexAnimationCrowd::kSkeletalScreenSize
+                                                                                   : VertexAnimationCrowd::kVatScreenSize;
+                const auto* clip =
+                     static_cast<const Animation::AnimationClip*>( feedback.VatClip.load( std::memory_order_relaxed ) );
+                if ( clip != nullptr && screenSize < limit )
+                    data.VatAddress =
+                         m_Crowd->FrameAddress( *data.Mesh, *clip, feedback.VatTime.load( std::memory_order_relaxed ) );
+            }
+            if ( data.LodFeedback )
+                data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
+            if ( data.VatAddress != 0 )
+            {
+                ++crowdVat;
+                crowdDraws += static_cast<uint32_t>( data.Sections.size() );
+            }
+            else
+                ++crowdSkeletal;
             const auto [reported, fresh] = m_SkinnedLodReported.try_emplace( data.Entity, data.Lod );
             if ( !fresh && reported->second == data.Lod )
                 continue;
@@ -2728,6 +2765,13 @@ namespace Desert::Graphic::System
                       data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
                       lod.RequiredBones, full.RequiredBones, lod.MaxInfluences );
         }
+        m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws );
+    }
+
+    void MeshRenderer::DeclareCrowdReads( RDG::Builder& graph )
+    {
+        if ( m_Crowd )
+            m_Crowd->DeclareReads( graph, m_SkinCacheReads );
     }
 
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
@@ -3329,6 +3373,15 @@ namespace Desert::Graphic::System
         // The GPU skin cache: each skinned primitive learns where its posed vertices are, before the upload.
         if ( skinCache != nullptr )
             skinCache->PrepareRows( *this, scene, frame );
+        // The far crowd's rows fetch their baked frame (the skin cache left them alone); a bake in use for the
+        // first time goes up in this graph, before its readers.
+        if ( m_Crowd )
+        {
+            m_Crowd->UploadInGraph( graph );
+            for ( const SkinnedMeshRenderData& data : m_SkinnedQueue )
+                if ( data.VatAddress != 0 && scene.IsValid( data.GpuPrimitive ) )
+                    scene.SetSkinCache( data.GpuPrimitive, data.VatAddress, data.Mesh->GetVertexCount() );
+        }
         if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
             return uploaded;
         // The scene's skin step after the scatter of the palettes it skins from (it reads them through the same
