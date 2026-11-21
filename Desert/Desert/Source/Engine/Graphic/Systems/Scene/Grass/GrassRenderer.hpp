@@ -260,8 +260,9 @@ namespace Desert::Graphic::System
         // into a compact record; Programs/Grass/GrassBladeSetup.shader): one pass writes the GrassBladeSetupData
         // of every blade a phase's records draw, at its raster-stream row - the curve now and one wind step before
         // from the raster's wind, @p frame's camera block (gust, local wind) and @p field. FPS-GRASS-RASTER-VS:
-        // the visibility raster (Vertex_GrassBlade.glslh) and "Grass: Visibility Resolve" both read them by
-        // address (GrassBladeShapeData Lists.yz), so it runs per phase BEFORE that phase's raster: @p
+        // the visibility raster (Vertex_GrassBlade.glslh) and "Grass: Visibility Resolve" both read them through
+        // the bound GrassBladeSetupRecords block (FPS-GRASS-BLADE-SETUP-BIND; GrassBladeShapeData Lists.y = 1:
+        // records this frame), so it runs per phase BEFORE that phase's raster: @p
         // postOcclusion false after the camera cull ("Grass: Blade Setup", the camera records), true after
         // AddFramePostOcclusion
         // ("Grass: Blade Setup Post-Occlusion", phase 2's records - their slots follow phase 1's in the same list,
@@ -928,6 +929,9 @@ namespace Desert::Graphic::System
             // Its sections handed to MeshRenderer this frame (keys VarietyGpu::Index * 64 + s, s below this):
             // AddFrameBladeSetup asks which of them the visibility raster draws.
             uint32_t Sections = 0u;
+            // FPS-GRASS-MESH-SETUP: a mesh variety, whose tabled sections (VarietyGpu::MeshVisibilityRows) get one
+            // setup row each ("Grass: Mesh Setup", GrassBladeSetup.shader SetUpMeshInstance).
+            bool Mesh = false;
         };
         std::shared_ptr<ComputePipeline>                m_BladeSetupProgram;
         mutable ShaderBindingLayoutCache                m_BladeSetupLayout;

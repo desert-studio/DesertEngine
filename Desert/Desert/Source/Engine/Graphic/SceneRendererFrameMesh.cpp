@@ -692,8 +692,9 @@ namespace Desert::Graphic
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
-        // FPS-GRASS-RASTER-VS: the blade strips are placed from this phase's setup records (Vertex_GrassBlade.glslh,
-        // AddFrameGrassBladeSetup ran before), read by address: each raster declares the read.
+        // FPS-GRASS-RASTER-VS: the blade strips are placed from this phase's setup records
+        // (Vertex_GrassBlade.glslh, AddFrameGrassBladeSetup ran before), read through the cells' bound
+        // GrassBladeSetupRecords block (FPS-GRASS-BLADE-SETUP-BIND): each raster declares the read.
         const RDG::BufferRef bladeSetup =
              m_Systems.Grass != nullptr ? m_Systems.Grass->BladeSetupRef() : RDG::BufferRef{};
         using Slice = System::MeshRenderer::GrassRasterSlice;
@@ -787,7 +788,7 @@ namespace Desert::Graphic
         // FPS-GRASS-RESOLVE-2 (Ghost of Tsushima, GDC 2021): every drawn blade evaluated once - its curve now and
         // one wind step before, width, card and strip level - by each phase's "Grass: Blade Setup" before its
         // raster (AddFrameGrassBladeSetup); the blade resolve reads those records. A refused records buffer leaves
-        // their address 0 and the raster places no blade: logged, never a silent stand-in.
+        // the shape's Lists.y 0 and binds none, and the raster places no blade: logged, never a silent stand-in.
         const RDG::BufferRef bladeSetup =
              m_Systems.Grass != nullptr ? m_Systems.Grass->BladeSetupRef() : RDG::BufferRef{};
         m_GrassVisibility.AddClassify( graph, visibility );
@@ -825,8 +826,11 @@ namespace Desert::Graphic
                  [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), words = visibility.Words,
                   args = visibility.ResolveArgs, path, bladeSetup]( RDG::PassBuilder& pass )
                  {
-                     // The blade setup records, read by address (GrassBladeShapeData Lists.yz).
-                     if ( path == MeshVertexPath::GrassBlade && bladeSetup.IsValid() )
+                     // The setup records, read through bound blocks (GpuInstancedRenderData::SetupRecords): a
+                     // blade's through GrassBladeSetupRecords at its raster-stream row
+                     // (FPS-GRASS-BLADE-SETUP-BIND), a mesh instance's through GrassMeshSetup at
+                     // GrassMeshVisibilityData Slots.z (FPS-GRASS-MESH-SETUP-5).
+                     if ( bladeSetup.IsValid() )
                          pass.Read( bladeSetup, RDG::Access::StorageRead );
                      meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path );
                  } );

@@ -24,7 +24,8 @@ desert_external_includes(Runtime
     "${DESERT_ROOT}/ThirdParty/entt/include/"
     "${DESERT_ROOT}/ThirdParty/glm/"
     "${DESERT_ROOT}/ThirdParty/optick/src/"
-    "${DESERT_ROOT}/ThirdParty/")
+    "${DESERT_ROOT}/ThirdParty/"
+    "${DESERT_VULKAN_INCLUDE}")
 desert_editorspecific_includes(Runtime)
 target_link_libraries(Runtime PRIVATE GLFW ${DESERT_OPTICK} MeshOptimizer Voro Compressonator Embree Dav1d Opus)
 desert_link_engine(Runtime)

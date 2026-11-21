@@ -2,17 +2,24 @@
 # Editor/Baking/MaterialBaking.cpp: the slot's triangles as a UV-space proxy drawn by the material's own G-buffer
 # cell, read back, the normal brought into the source tangent frame, islands dilated, five texture assets written
 # under Content/Textures/Baked as T_<entity>_<slot>_<property>. The palette reply waits for the bake
-# (PendingWork::MaterialBake). The shape is placed in FIELD_Barn and given a barn material before the bake (REMAINDER:
+# (PendingWork::MaterialBake). The shape is placed in WP_Protocol (FIELD_Barn exceeds the Mac memory cap) and baked with its slot material (REMAINDER:
 # the material path and the opened asset's path are to be confirmed on the first run).
-Дано run Scene "Open Scene FIELD_Barn.desce"
+# The bake needs one placed shape and its slot material, not a world: FIELD_Barn alone is 6.6 GB resident on the
+# Mac (run_capped kills it at 6 GB, opened directly or over another scene), so the shape goes into WP_Protocol.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Panel "Open Modeling"
 Дано --subject viewport set Camera.Position 0,250,-400
 Дано --subject viewport set Camera.Direction 0,-0.5,0.866
 Дано run Modeling "Create shape tool: Sphere"
+# Lat Long: one non-overlapping UV island set (the Box sphere maps every cube face over the whole 0..1 square, and
+# overlapping UVs bake a Normal from another triangle - the bake warns of them).
+Дано run Modeling "Create shape sphere: Lat Long"
 Дано run Modeling "Create shape: place at the viewport centre"
+# A created shape has no slot material; the barn siding (textured) is what the bake flattens.
+Дано set selected StaticMeshComponent.MaterialSlots[0] assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Siding.demat
 Тогда-вид matflat_source the placed sphere selected at the viewport centre, its slot 0 material visible on it
 Когда run Modeling "Bake Material to Textures"
-Когда open Content/Textures/Baked/T_Sphere_0_BaseColor.detex
+Когда run Open "Textures/Baked/T_Sphere_0_BaseColor.detex"
 Тогда matflat_basecolor Texture Viewer: T_Sphere_0_BaseColor 1024x1024 - the sphere's unwrap in its material's colours, no black seams at the island borders (dilated outward)
-Когда open Content/Textures/Baked/T_Sphere_0_Normal.detex
+Когда run Open "Textures/Baked/T_Sphere_0_Normal.detex"
 Тогда matflat_normal Texture Viewer: T_Sphere_0_Normal - a bluish tangent-space map (flat = 128,128,255), no black gaps between islands

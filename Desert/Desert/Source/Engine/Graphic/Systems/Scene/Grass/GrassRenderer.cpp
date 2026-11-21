@@ -589,6 +589,22 @@ namespace Desert::Graphic::System
         inline constexpr uint32_t kBladeSetupArgsHeaderWords = 4u;     // GpuInstances.hpp: the records' header
         inline constexpr uint32_t kBladeSetupRecordWords     = 5u;     // VkDrawIndexedIndirectCommand
 
+        // FPS-GRASS-BLADE-SETUP, ONE MESH SETUP A VARIETY (UE 5 Nanite: instance data is per instance, never per
+        // material bin): a mesh variety's setup record - the instance's wind sway now and before, its LOD level -
+        // is the same for every section (the sections share the camera list, its bucket firsts and the level
+        // records; the sway reads only the instance's origin and the wind). It is set up once, at slot s of the
+        // FIRST TABLED section's rows (Visibility.x + s: that section owns capacity x perInstance >= capacity
+        // rows, and no other record lies there), and every section's resolve reads it there (Slots.z: that row in
+        // the bound setup buffer, FPS-GRASS-MESH-SETUP-5). Was: one setup row per section, each writing the same record into its own rows - the mesh
+        // setup's threads and writes times the section count. The section count when none is tabled.
+        size_t MeshSetupSection( const std::vector<uint8_t>& tabled )
+        {
+            for ( size_t s = 0u; s < tabled.size(); ++s )
+                if ( tabled[s] != 0u )
+                    return s;
+            return tabled.size();
+        }
+
         // A pass over the variety table that runs ONE group (GrassCull's post finalize mode): its one binding
         // block, @p push, one dispatch.
         Common::BoolResultStr DispatchOneGroup( RDG::PassContext& context, const ComputePipeline& pipeline,
@@ -1539,10 +1555,15 @@ namespace Desert::Graphic::System
                 gpu.ShapeRemade = true; // made anew next frame
                 return false;
             }
-            // FPS-GRASS-RESOLVE-2: the view's blade setup records' address (CommitBladeSetup, this frame's), which
-            // "Grass: Visibility Resolve" reads at Visibility.x + instance; 0: none this frame.
-            gpu.ShapeData.Lists.y = static_cast<uint32_t>( m_BladeSetupAddress & 0xFFFFFFFFull );
-            gpu.ShapeData.Lists.z = static_cast<uint32_t>( m_BladeSetupAddress >> 32u );
+            // FPS-GRASS-RESOLVE-2: whether the view's blade setup records exist this frame (CommitBladeSetup),
+            // which the visibility raster and "Grass: Visibility Resolve" read at Visibility.x + instance.
+            // FPS-GRASS-BLADE-SETUP-BIND (UE GPUScene: a consumer binds the frame's buffer through the graph and
+            // indexes it by offset): Lists.y = 1 records this frame, 0 none; Lists.z = 0. The records are read
+            // through the bound GrassBladeSetupRecords block (GpuInstancedRenderData::SetupRecords, the reads
+            // declared on the graph), bounded by its length - never at a device address this per-frame shape copy
+            // held, which a growth of the records moved under every copy written before it.
+            gpu.ShapeData.Lists.y = m_BladeSetupAddress != 0u && m_BladeSetup != nullptr ? 1u : 0u;
+            gpu.ShapeData.Lists.z = 0u;
             if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
                  !wrote.IsSuccess() )
             {
@@ -1552,6 +1573,35 @@ namespace Desert::Graphic::System
             return true;
         }
         gpu.MeshVisibility.resize( gpu.MeshVisibilityTabled.size() );
+        // FPS-GRASS-BLADE-SETUP: every section reads its instances' setup records at the setup section's rows
+        // (MeshSetupSection), slot s at that address + s records; 0: no records this frame.
+        // FPS-GRASS-MESH-SETUP-3: the resolve reads records [Visibility.x, Visibility.x + Slots.x) of the setup
+        // section; they are handed out only when that whole span lies inside this frame's setup buffer
+        // (CommitBladeSetup's m_BladeSetupCapacity rows), else none (no mesh pixel resolved, said once).
+        // FPS-GRASS-MESH-SETUP-5: handed out as a ROW OFFSET into the bound setup buffer (Slots.z; Slots.w = 1:
+        // records this frame), never a device address - the resolve binds this frame's buffer through the graph
+        // (GpuInstancedRenderData::SetupRecords) and bounds Slots.z + slot by its length.
+        const size_t setupSection = MeshSetupSection( gpu.MeshVisibilityTabled );
+        uint32_t     setupOffset  = 0u;
+        bool         setupHeld    = false;
+        if ( m_BladeSetupAddress != 0u && m_BladeSetup != nullptr && setupSection < gpu.MeshVisibilityRows.size() )
+        {
+            const GrassMeshVisibilityGpu& setupRows = gpu.MeshVisibilityRows[setupSection];
+            const uint64_t setupEnd = uint64_t{ setupRows.Visibility.x } + uint64_t{ setupRows.Slots.x };
+            if ( setupEnd <= m_BladeSetupCapacity )
+            {
+                setupOffset = setupRows.Visibility.x;
+                setupHeld   = true;
+            }
+            else
+            {
+                static std::unordered_set<uint64_t> s_SetupPastBuffer;
+                if ( s_SetupPastBuffer.insert( variety.Key ).second )
+                    LOG_ERROR( "[Grass] variety {:016x}: its mesh setup records [{}, {}) pass the {}-row setup "
+                               "buffer; its mesh sections resolve no pixel",
+                               variety.Key, setupRows.Visibility.x, setupEnd, m_BladeSetupCapacity );
+            }
+        }
         for ( std::size_t s = 0; s < gpu.MeshVisibilityTabled.size(); ++s )
         {
             std::shared_ptr<ShaderResources::StorageBuffer>& table = gpu.MeshVisibility[s];
@@ -1570,6 +1620,12 @@ namespace Desert::Graphic::System
                            variety.Key, s );
                 continue;
             }
+            // FPS-GRASS-MESH-SETUP: where "Grass: Mesh Setup" wrote each drawn instance's record and every
+            // section's mesh resolve reads it (FPS-GRASS-BLADE-SETUP: the setup section's first row).
+            // FPS-GRASS-MESH-SETUP-5: z = that row as an offset into the bound setup buffer, w = 1 when the
+            // records exist this frame (0: none, the resolve discards).
+            gpu.MeshVisibilityRows[s].Slots.z = setupOffset;
+            gpu.MeshVisibilityRows[s].Slots.w = setupHeld ? 1u : 0u;
             if ( const auto wrote = table->SetData( &gpu.MeshVisibilityRows[s], sizeof( GrassMeshVisibilityGpu ) );
                  !wrote.IsSuccess() )
             {
@@ -2907,6 +2963,14 @@ namespace Desert::Graphic::System
         m_FrameTable     = false;
         m_VisibilityRows = 0;
         m_VisibilitySectionFirstRows.clear();
+        // FPS-GRASS-MESH-SETUP-4: the setup records' graph ref, address and varieties are this frame's or none.
+        // A frame that returns below (no queue, no generate / cull program) never reaches CommitBladeSetup, and
+        // its graph must not be handed the previous graph's ref (SceneRendererFrameMesh declares a resolve's read
+        // of BladeSetupRef) nor AddFrameBladeSetup the previous frame's varieties.
+        m_BladeSetupVarieties.clear();
+        m_FramePostAdded    = false;
+        m_BladeSetupRef     = RDG::BufferRef{};
+        m_BladeSetupAddress = 0u;
         m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Cull )
             return;
@@ -3144,25 +3208,30 @@ namespace Desert::Graphic::System
             // FPS-GRASS-RESOLVE-2: a blade variety the camera draws gets its blades' setup records
             // (AddFrameBladeSetup), at the raster's draw row's wind (MeshRendererGpuInstanced:
             // PackViewInstanceWind, PrevInstanceOffset 0 for grass).
-            if ( variety.Blade && gpu->CameraArgs.Bytes > 0u )
+            // FPS-GRASS-MESH-SETUP: a mesh variety whose sections may leave for the visibility buffer (a resident
+            // resolve strip) gets its drawn instances' setup records the same way ("Grass: Mesh Setup").
+            if ( ( variety.Blade || resolveMesh != nullptr ) && gpu->CameraArgs.Bytes > 0u )
                 m_BladeSetupVarieties.push_back( { gpu, PackViewInstanceWind( variety.Wind ),
-                                                   static_cast<uint32_t>( variety.Sections.size() ) } );
+                                                   static_cast<uint32_t>( variety.Sections.size() ),
+                                                   !variety.Blade } );
             for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
             {
                 std::shared_ptr<ShaderResources::StorageBuffer> meshRows;
                 if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
                     meshRows = gpu->MeshVisibility[s];
                 sections.push_back(
-                     { .Mesh     = mesh,
-                       .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
-                       .Material = variety.Sections[s].Material,
-                       .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
-                       .CastShadows      = variety.Placement.CastDynamicShadow,
-                       .Wind             = variety.Wind,
-                       .Instances        = m_InstancesPool.Buffer(),
-                       .CameraIds        = m_IdsPool.Buffer(),
-                       .BladeShape       = gpu->Shape,
-                       .MeshVisibility   = meshRows,
+                     { .Mesh            = mesh,
+                       .Path            = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
+                       .Material        = variety.Sections[s].Material,
+                       .HiddenSubmeshes = variety.Sections[s].HiddenSubmeshes,
+                       .CastShadows     = variety.Placement.CastDynamicShadow,
+                       .Wind            = variety.Wind,
+                       .Instances       = m_InstancesPool.Buffer(),
+                       .CameraIds       = m_IdsPool.Buffer(),
+                       .BladeShape      = gpu->Shape,
+                       .MeshVisibility  = meshRows,
+                       // FPS-GRASS-BLADE-SETUP-BIND: a blade section's raster and resolve bind them too.
+                       .SetupRecords     = variety.Blade || meshRows != nullptr ? m_BladeSetup : nullptr,
                        .ResolveMesh      = resolveMesh,
                        .Refs             = &gpu->Refs,
                        .CameraRefs       = &gpu->CameraRefs,
@@ -3663,6 +3732,12 @@ namespace Desert::Graphic::System
         m_BladeSetupAddress = 0u;
         // Past kGrassVisibilityMaxRows the view refuses its grass visibility path (VisibilityRowsOverflow): no
         // record past it is ever read, so the records stop there.
+        // FPS-GRASS-MESH-SETUP-5 (UE GPUScene: a consumer binds the frame's buffer through the graph and indexes
+        // it by offset): the buffer grows to this frame's rows. The mesh resolve no longer reads the records at a
+        // device address held in a host-written per-(view x frame) table copy - a growth moved that address
+        // under every copy written before it (FIELD_Barn TURN losses scn-1120-175921, scn-1121-082654) - but
+        // binds this buffer (GpuInstancedRenderData::SetupRecords, the resolve's GrassMeshSetup block, its read
+        // declared on the graph) and reads it at the table's row offset, bounded by the bound buffer's length.
         const uint64_t rows = std::min( std::max<uint64_t>( m_VisibilityRows, 1u ), kGrassVisibilityMaxRows );
         if ( rows > m_BladeSetupCapacity || m_BladeSetup == nullptr )
         {
@@ -3698,8 +3773,9 @@ namespace Desert::Graphic::System
         // Phase 2 sets up only what AddFramePostOcclusion added this frame (a scene capture adds none).
         if ( postOcclusion && !m_FramePostAdded )
             return BOOLSUCCESS;
-        // The table: the header, then one row a blade variety the visibility raster draws (its shape without the
-        // hull, its view wind, this phase's records: the camera list's, or phase 2's, and its first entry).
+        // The table: the header, then one row a blade variety or mesh section the visibility raster draws (a
+        // blade's shape without the hull or a mesh section's rows, its view wind, this phase's records: the camera
+        // list's, or phase 2's, and its first entry).
         std::vector<GrassBladeSetupRowGpu> rows;
         rows.reserve( m_BladeSetupVarieties.size() );
         uint32_t entries = 0u;
@@ -3708,6 +3784,44 @@ namespace Desert::Graphic::System
             const VarietyGpu& gpu = *entry.Gpu;
             if ( gpu.TableWord < kBladeSetupArgsHeaderWords )
                 continue;
+            if ( postOcclusion && gpu.PostArgs.Bytes == 0u )
+                continue; // phase 2 drew nothing of this variety
+            const uint64_t first = postOcclusion ? gpu.PostArgs.Offset : gpu.CameraArgs.Offset;
+            if ( entry.Mesh )
+            {
+                // FPS-GRASS-MESH-SETUP: its entries the levels (each level's first submesh record: every submesh
+                // of a level draws the same slots). FPS-GRASS-BLADE-SETUP: ONE row a variety, not one a section -
+                // the record is the instance's, the same for every section (MeshSetupSection) - at the setup
+                // section's rows, written when any section of the variety is drawn through the visibility buffer
+                // this frame (a section on the G-buffer path reads no record).
+                const auto sections =
+                     std::min<size_t>( { entry.Sections, gpu.MeshVisibilityRows.size(),
+                                         gpu.MeshVisibilityTabled.size(), gpu.MeshVisibility.size() } );
+                const size_t setupSection = MeshSetupSection( gpu.MeshVisibilityTabled );
+                if ( setupSection >= sections )
+                    continue;
+                bool resolved = false;
+                for ( size_t s = 0u; s < sections && !resolved; ++s )
+                    resolved = gpu.MeshVisibilityTabled[s] != 0u && gpu.MeshVisibility[s] != nullptr &&
+                               meshes.DrawsGrassVisibilitySection( gpu.Index * 64u + static_cast<uint32_t>( s ) );
+                const GrassMeshVisibilityGpu& mesh = gpu.MeshVisibilityRows[setupSection];
+                if ( !resolved || mesh.Visibility.y == 0u || mesh.Visibility.z == 0u || mesh.Visibility.w == 0u )
+                    continue;
+                GrassBladeSetupRowGpu row;
+                // Visibility: the setup section's first row, its rows per instance, levels, the list's slots
+                // (EntryDrawn's bound).
+                row.Visibility =
+                     glm::uvec4( mesh.Visibility.x, mesh.Visibility.y, mesh.Visibility.z, mesh.Slots.x );
+                row.BucketFirst       = mesh.BucketFirst;
+                row.Lists             = glm::uvec4( mesh.Slots.y, 0u, 0u, 0u );
+                row.WindA             = entry.Wind.A;
+                row.WindB             = entry.Wind.B;
+                const uint32_t levels = mesh.Visibility.z;
+                row.Args = glm::uvec4( static_cast<uint32_t>( first / 4u ), mesh.Visibility.w, levels, entries );
+                entries += levels;
+                rows.push_back( row );
+                continue;
+            }
             // FPS-GRASS-SETUP-TRIM: a variety on the G-buffer path this frame draws from its transforms; nothing
             // reads its records.
             bool viaVisibility = false;
@@ -3723,11 +3837,8 @@ namespace Desert::Graphic::System
             row.BucketFirst = gpu.ShapeData.BucketFirst;
             row.Lists       = gpu.ShapeData.Lists;
             row.WindA       = entry.Wind.A;
-            row.WindB       = entry.Wind.B;
-            if ( postOcclusion && gpu.PostArgs.Bytes == 0u )
-                continue; // phase 2 drew nothing of this variety
+            row.WindB              = entry.Wind.B;
             const uint32_t records = ( gpu.TableWord - kBladeSetupArgsHeaderWords ) / kBladeSetupRecordWords;
-            const uint64_t first   = postOcclusion ? gpu.PostArgs.Offset : gpu.CameraArgs.Offset;
             row.Args               = glm::uvec4( static_cast<uint32_t>( first / 4u ), 0u, records, entries );
             entries += records;
             rows.push_back( row );

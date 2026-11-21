@@ -28,6 +28,7 @@
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
+#include <Engine/Animation/AnimationUpdateRate.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Timeline/AudioVoices.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
@@ -1529,6 +1530,16 @@ namespace Desert::ECS
          * re-initialised when the skeleton changes).
          */
         uint64_t BuiltSkeletonSignature = 0;
+
+        /**
+         * @brief SKELETAL LOD AND UPDATE RATE OPTIMIZATION, TRANSIENT (UE USkinnedMeshComponent's PredictedLODLevel
+         *        and FAnimUpdateRateParameters). The renderer's view of this instance comes back through
+         *        LodFeedback (co-owned by the frame's skinned record); AnimationECSSystem evaluates only the bones
+         *        of the level drawn and ticks the Animator at the rate its screen size sets.
+         */
+        std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
+        Animation::AnimUpdateRate                      UpdateRate;
+        uint64_t                                       ReportedUpdateRate = UINT64_MAX; // last [SkinnedLOD] anim line
 
         AnimationComponent() = default;
 

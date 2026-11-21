@@ -16,9 +16,10 @@
 # -> Apply to Prefab: the 9 instances that stayed packed are rebuilt from the new form and lose board 10 too.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_PackedPrefab.desce
 Дано run View "View mode: Lit"
+# The scene holds Fence_Run ten times, 2000 cm apart along X (authored); the one at the origin is 1174862943940799056.
+Дано select 1174862943940799056
 Дано --subject viewport set Camera.Position -600,250,-700
 Дано --subject viewport set Camera.Direction 1,-0.12,0.35
-Дано run Entity "Fence_Run"
 Дано run Entity "Select all instances of the same prefab"
 Тогда packed_before десять экземпляров Fence_Run стоят в ряд раскрытыми: 400 статических мешей (по одному на столб и доску), выделены все десять корней
 Когда run Entity "Pack Prefab Instances"
@@ -33,11 +34,11 @@
 Когда run Scene "Open Scene WP_PackedPrefab.desce"
 Дано --subject viewport set Camera.Position -600,250,-700
 Дано --subject viewport set Camera.Direction 1,-0.12,0.35
-Дано run Entity "Fence_Run"
+Дано select 1174862943940799056
 Дано run Panel "Open Details"
 Тогда packed_reload после повторного открытия экземпляры упакованы (Details «Packed: 2 ISM»; у записей в .desce "PrefabPacked": true и нет PrefabOverrides), картинка как на packed_draws
 Когда run Entity "Unpack Prefab Instances to Edit"
 Когда run Entity "Delete Board_10"
-Дано run Entity "Post_10"
+Дано select 1174862943940799056
 Когда run Entity "Apply to Prefab"
 Тогда packed_repacked у всех 10 экземпляров нет доски 10 (у 9 упакованных — пересобраны из новой формы: в логе 9 строк «changed (source …): a packed instance is rebuilt from 2 group(s)»); Details упакованного экземпляра «Packed: 2 ISM», 39 экземпляров в его группах

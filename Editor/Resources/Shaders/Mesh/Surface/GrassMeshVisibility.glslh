@@ -15,7 +15,9 @@ struct GrassMeshVisibilityData
 {
     uvec4 Visibility;     // x = first row, y = rows per instance, z = level (bucket) count, w = submesh count
     uvec4 Slots;          // x = the slots the section's list holds (its capacity), y = the camera list's first
-                          // slot in the shared ids pool (CPU-GRASS-POOL-5); z, w = 0
+                          // slot in the shared ids pool (CPU-GRASS-POOL-5); z = the setup records' first row in
+                          // the bound GrassMeshSetup block, w = 1: records this frame, 0: none
+                          // (FPS-GRASS-MESH-SETUP-5)
     uvec4 BucketFirst[2]; // the first slot of bucket (= LOD level) b < 8, [b / 4][b % 4]
     // [0] = vertex address lo, hi, stream address lo, hi; [1] = index address lo, hi (uint32 indices), vertex
     // stride, stream stride (bytes). The mesh's own spans (MeshGeometry byte offsets added).
@@ -67,6 +69,29 @@ uvec2 GrassMeshAddressAdd( const uvec2 address, const uint bytes )
     const uint low = uaddCarry( address.x, bytes, carry );
     return uvec2( low, address.y + carry );
 }
+
+// FPS-GRASS-MESH-SETUP: a drawn instance's setup record ("Grass: Mesh Setup", Programs/Grass/GrassBladeSetup.shader
+// SetUpMeshInstance), 64 bytes in the view's setup records (GrassBladeSetupData's size and words), one an instance
+// for all the variety's sections (FPS-GRASS-BLADE-SETUP): record slot from Slots.z, the setup section's first row.
+struct GrassMeshSetupData
+{
+    vec4  Sway;     // Common/FoliageWind.glslh FoliageWindInstanceSway now (the raster's wind, gust, local wind)
+    vec4  PrevSway; // the same one wind step before (WindB.z, the previous gust and local wind, the previous row)
+    vec4  Unused;   // 0 (GrassBladeSetupData.Before's words)
+    uvec4 Info;     // x = the LOD level the slot was drawn with (GrassMeshVisibilityLevel), y = the slot + 1 it was
+                    // written for (GRASS-MESH-RESOLVE-LOST: the resolve refuses any other row), z, w = 0
+};
+// FPS-GRASS-MESH-SETUP-5 (UE GPUScene: the consumer binds the frame's buffer and indexes it by offset): the view's
+// setup records as a BOUND block (MeshRenderer GpuInstancedDrawRecord::SetupBlock, GpuInstancedRenderData::
+// SetupRecords; the pass declares the read on the graph), read at Slots.z + slot and bounded by its length. Was: a
+// device address in Slots.zw, which a growth of the records moved under every table copy written before it.
+// Slot 14: beside the section's rows (13), free in the Instanced resolve cell (the forward pass's lighting slots
+// are not in it; InstanceTransforms 17, GpuInstanceIds 18, the scene-read range from 25). Bound by name.
+#define GRASS_MESH_SETUP_BINDING 14
+layout( std430, binding = GRASS_MESH_SETUP_BINDING ) readonly buffer GrassMeshSetup
+{
+    GrassMeshSetupData MeshSetupRecords[];
+};
 
 uint GrassMeshUint( const uvec2 address )
 {

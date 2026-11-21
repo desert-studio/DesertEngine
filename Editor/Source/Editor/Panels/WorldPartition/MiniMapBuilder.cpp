@@ -285,6 +285,11 @@ namespace Desert::Editor
                     m_Renderer        = std::make_unique<Graphic::SceneRenderer>(
                          Graphic::ViewExtent{ first.X1 - first.X0, first.Y1 - first.Y0 },
                          Graphic::kThumbnailViewProfile );
+                    // A tile is read back pixel for pixel from the G-buffer: the capture renders at 100 % whatever
+                    // the project's render scale (UE's minimap capture is a SceneCapture at the texture's size).
+                    Graphic::DebugViewState view = m_Renderer->GetDebugView();
+                    view.ScreenPercentage        = 100;
+                    m_Renderer->SetDebugView( view );
                 }
                 if ( !m_Renderer->AdvanceRendererBuild() )
                     return false;

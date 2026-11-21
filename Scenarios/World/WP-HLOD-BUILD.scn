@@ -3,18 +3,19 @@
 # A static mesh that stands in some Main cells of WP_Protocol is changed and saved through the Assets palette (UE Asset
 # Actions > Nanite > Enable: SetStoredVirtualGeometry rewrites the .stmesh and notes it in the content registry):
 # exactly the cells that use it and their HLOD_Main_Far parent go stale; Build HLODs rebuilds only them.
-# LEAD (review, unbuilt): the guessed «Open Static Mesh Editor» / StaticMesh "Scale" / «Save Asset» steps did not
-# exist in DesertCtl; they are replaced by real palette entries. MESH below is a placeholder: put the folder and file
-# of a .stmesh that WP_Protocol's Main-grid records draw (WP_Protocol.desce names no .stmesh directly - look in its
-# external entity files), and the stale count S (its cells + parents) into hlodbuild_stale / hlodbuild_incremental.
 # A build with landscape tiles bakes over editor frames: each «Тогда» after a build waits for its «built X of N» line.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Panel "Open World Partition"
+# WP_Protocol's houses draw engine primitives (no .stmesh), so house 200408 (Main C08_08_B00, the one nearest the origin)
+# is pointed at Meshes/Modeling/Box.stmesh (its GUID stated: a path alone is a locator) first: one Main cell and its HLOD_Main_Far parent then name that mesh.
+Дано set 200408 StaticMesh.Primitive null
+Дано set 200408 StaticMesh.MeshHandle '{"Guid":"0301c8e85f0161b95e9eff7163dd359f","Path":"assets:Meshes/Modeling/Box.stmesh"}'
+Дано run Action "Save Scene"
 Дано run Scene "Build HLODs (force all)"
 Дано wait-idle 2400
 Тогда 0_fresh World Partition panel, HLODs section: «0 stale HLOD»; log «built N of N HLOD cells (force all)», read back 0 stale
-Дано run Assets "Open folder: Meshes"
-Дано run Assets "Select asset MESH.stmesh"
+Дано run Assets "Open folder: Meshes/Modeling"
+Дано run "Content Browser" "Sync to Asset Meshes/Modeling/Box.stmesh"
 Когда run Assets "Static Mesh: Virtual Geometry on"
 Тогда hlodbuild_stale World Partition panel, HLODs section: «S stale HLOD» (the mesh's Main cells + their HLOD_Main_Far parent; hover lists them); a toast «World Partition: S stale HLOD - Build HLODs»
 Когда run Scene "Build HLODs"

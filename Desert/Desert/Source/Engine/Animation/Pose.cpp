@@ -160,4 +160,20 @@ namespace Desert::Animation
         for ( size_t i = 0; i < n; ++i )
             out[i] = m_Global[i] * bones[i].OffsetMatrix;
     }
+
+    void ComponentPose::WriteSkinningMatrices( std::vector<glm::mat4>& out, const std::span<const uint32_t> bones )
+    {
+        if ( bones.empty() )
+        {
+            WriteSkinningMatrices( out );
+            return;
+        }
+        const auto&  skeletonBones = m_Skeleton.GetBones();
+        const size_t n             = m_Global.size();
+        if ( out.size() != n )
+            out.assign( n, glm::mat4( 1.0F ) );
+        for ( const uint32_t bone : bones )
+            if ( bone < n )
+                out[bone] = Get( bone ) * skeletonBones[bone].OffsetMatrix;
+    }
 } // namespace Desert::Animation

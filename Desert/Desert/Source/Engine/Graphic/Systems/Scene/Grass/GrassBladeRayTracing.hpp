@@ -55,8 +55,9 @@ namespace Desert::Graphic::System
         glm::uvec4                Visibility{ 0u };
         std::array<glm::uvec4, 2> BucketFirst{}; // the first instance of bucket b < 8, [b / 4][b % 4]
         // CPU-GRASS-POOL-5: x = the camera list's first slot in the shared ids pool (its CameraIds range), so
-        // the raster's gl_InstanceIndex - x is the variety's own slot; y, z = the view's blade setup records'
-        // device address lo, hi (FPS-GRASS-RESOLVE-2, GrassRenderer::CommitBladeSetup; 0: none), w = 0.
+        // the raster's gl_InstanceIndex - x is the variety's own slot; y = 1 when the view's blade setup records
+        // exist this frame (FPS-GRASS-RESOLVE-2, GrassRenderer::CommitBladeSetup; 0: none), read through the bound
+        // GrassBladeSetupRecords block, never by address (FPS-GRASS-BLADE-SETUP-BIND), z = w = 0.
         glm::uvec4 Lists{ 0u };
         // FPS-GRASS-HULL: x, y = the opacity mask's level-0 texels, z = 1 when the raster's strip spans only its
         // card's hull (GrassQuality::BladeCardHull and a cooked hull), w = 0; Hull = GrassBladeDraw::CardHulls.
@@ -75,7 +76,10 @@ namespace Desert::Graphic::System
     struct GrassMeshVisibilityGpu
     {
         glm::uvec4                Visibility{ 0u }; // first row, rows per instance, level count, submesh count
-        glm::uvec4                Slots{ 0u };      // x = the slots the section's list holds (its capacity)
+        // x = the slots the section's list holds (its capacity), y = the camera list's first slot in the ids pool,
+        // z = the setup records' first row in the bound setup buffer, w = 1: records this frame
+        // (FPS-GRASS-MESH-SETUP-5)
+        glm::uvec4                Slots{ 0u };
         std::array<glm::uvec4, 2> BucketFirst{};    // the first slot of bucket (= level) b < 8, [b / 4][b % 4]
         // [0] vertex address lo, hi, stream address lo, hi; [1] index address lo, hi, vertex stride, stream stride
         std::array<glm::uvec4, 2>                                Geometry{};

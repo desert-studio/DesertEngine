@@ -22,7 +22,10 @@ struct GrassBladeShapeData
     // row (instance i is row x + i), y = the strip's level-0 segments, z = its bucket (= strip level) count.
     uvec4 Visibility;
     uvec4 BucketFirst[2]; // the first instance of bucket b < 8, [b / 4][b % 4] (GrassRenderer's bucket table)
-    uvec4 Lists;          // x = the camera list's first slot in the shared ids pool (CPU-GRASS-POOL-5)
+    // x = the camera list's first slot in the shared ids pool (CPU-GRASS-POOL-5), y = 1: the view's blade setup
+    // records exist this frame (read through the bound GrassBladeSetupRecords block, GRASS_BLADE_SETUP_BINDING;
+    // FPS-GRASS-BLADE-SETUP-BIND), 0: none; z = w = 0
+    uvec4 Lists;
     // FPS-GRASS-HULL: GrassBladeShapeGpu goes on with HullTexels and Hull[128] (the cards' cooked hulls). They are
     // NOT members here - a function takes this struct by value, and the hull is read only where the raster's
     // strip is placed: the raster's buffer blocks declare them after it (Mesh/Surface/GrassBladeHull.glslh).
@@ -208,6 +211,17 @@ struct GrassBladeSetupData
     // width (BladeWidth, half: bits 0-15) | the card (BladeCardIndex: 16-23) | the level's segments (24-31)
     uvec4 Frame;
 };
+
+// FPS-GRASS-BLADE-SETUP-BIND (UE GPUScene: the consumer binds the frame's buffer through the graph and indexes it
+// by offset; no raw address outlives a reallocation): the surface cells that read the records - the GrassBlade
+// path's visibility raster (Vertex_GrassBlade.glslh, its draw-row cell too) and its resolve
+// (Pass_VisibilityResolve.glslh) - declare them as the BOUND block GrassBladeSetupRecords at this slot
+// (Material.hpp kGrassBladeSetupBlock, bound from GpuInstancedRenderData::SetupRecords; the passes declare the read
+// on the graph) and read row r only when GrassBladeShapeData Lists.y = 1 and r < its length. Was: a device address
+// in Lists.yz of a per-frame shape copy, which a growth of the records moved under every copy written before it.
+// Slot 14: beside the shape (13), as the mesh path's GrassMeshSetup; free in those cells (the forward pass's
+// lighting slots are not in them; InstanceTransforms 17, GpuInstanceIds 18, the scene-read range from 25).
+#define GRASS_BLADE_SETUP_BINDING 14
 
 // A unit vector as one word: octahedral around +Y (a blade's axes lie near the upper hemisphere), snorm 2x16
 // (Cigolle et al. 2014, "A Survey of Efficient Representations for Independent Unit Vectors").

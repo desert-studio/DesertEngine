@@ -14,6 +14,8 @@
 
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
@@ -37,6 +39,33 @@ namespace Desert::Editor
 {
     namespace
     {
+        // The level's game mode prefabs (Default Pawn, Player Controller), read before Play spawns them: a prefab
+        // chosen after the level opened (Details, the control socket) was never one of the open's asset roots, so
+        // the manager has no loaded asset for its handle. UE resolves the GameMode's classes at BeginPlay the same
+        // way; a handle nothing names is left to BeginPlay, which refuses by name.
+        void LoadGameModePrefabs( const ::Desert::Core::Scene& scene, Assets::AssetManager& assets )
+        {
+            for ( const Assets::AssetHandle handle :
+                  { scene.GetSettings().DefaultPawn, scene.GetSettings().PlayerController } )
+            {
+                if ( handle == 0 )
+                    continue;
+                if ( const auto found = assets.FindByHandle<Assets::PrefabAsset>( handle );
+                     found && found->IsReadyForUse() )
+                    continue;
+                const std::string key = Assets::ContentRegistry::KeyForHandle( static_cast<uint64_t>( handle ) );
+                if ( key.empty() )
+                    continue;
+                const std::filesystem::path file   = Common::AssetHandle::PathForStableKey( key );
+                auto                        prefab = assets.FindByPath<Assets::PrefabAsset>( file );
+                if ( !prefab )
+                    prefab = assets.CreateAsset<Assets::PrefabAsset>( file.string() );
+                if ( prefab && !prefab->IsReadyForUse() )
+                    if ( const auto loaded = prefab->Load(); !loaded )
+                        LOG_ERROR( "[Play] the game mode prefab '{}' did not load: {}", key, loaded.GetError() );
+            }
+        }
+
         // One slot of the segmented playback group. Drawn by hand rather than with ImGui::Button because a
         // segmented group rounds only its OUTER corners, which a Button cannot, and because a disabled slot must
         // keep its place and its fill (dimmed) — the group's shape is the same in every state.
@@ -158,6 +187,7 @@ namespace Desert::Editor
             request.SpawnAt          = glm::translate( glm::mat4( 1.0f ), glm::vec3( camWorld[3] ) ) *
                               glm::rotate( glm::mat4( 1.0f ), yaw, glm::vec3( 0.0f, 1.0f, 0.0f ) );
         }
+        LoadGameModePrefabs( *scene, *m_Assets );
         if ( const auto began = Desert::Core::BeginPlay( *scene, *m_Assets, request ); !began )
         {
             LOG_ERROR( "[Scene] Play refused: {0}", began.GetError() );
@@ -356,6 +386,7 @@ namespace Desert::Editor
         phases.Lap( "load the travelled level", scene->GetAllEntities().size() );
 
         // Play first: the spawned pawn is the source the streamer begins around (PawnIsAStreamingSource).
+        LoadGameModePrefabs( *scene, *m_Assets );
         if ( const auto began = Desert::Core::BeginPlay( *scene, *m_Assets, {} ); !began )
             return stayInPlay( std::format( "Play refused for '{}': {}", path, began.GetError() ) );
         auto streamer = Desert::Core::WorldStreamer::Begin( *scene, *m_Assets, json, std::filesystem::path( path ),

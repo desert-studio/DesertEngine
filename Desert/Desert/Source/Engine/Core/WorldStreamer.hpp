@@ -406,4 +406,12 @@ namespace Desert::Core
     {
         WorldStreamer* Streamer = nullptr;
     };
+
+    // STREAMING SOURCES NO ENTITY CARRIES (UE IWorldPartitionStreamingSourceProvider, registered with the World
+    // Partition subsystem): a script states one by name (WorldPartition.provideSource) and it streams until the
+    // script removes it. On the scene's registry context; GatherSources reads them after the component sources.
+    struct ProvidedStreamingSources
+    {
+        std::map<std::string, Rules::StreamingSource> Sources;
+    };
 } // namespace Desert::Core

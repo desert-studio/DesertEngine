@@ -761,7 +761,7 @@ namespace Desert::Animation::Timeline
     } // namespace
 
     Common::BoolResultStr EvaluatePose( const Sequence& sequence, const BoneBindingTable& table,
-                                        const FrameTime at, LocalPose& pose )
+                                        const FrameTime at, LocalPose& pose, const std::span<const uint8_t> required )
     {
         if ( table.Revision != sequence.Revision || table.BoneOfTrack.size() != sequence.Tracks.size() )
         {
@@ -777,6 +777,10 @@ namespace Desert::Animation::Timeline
             if ( bone == UINT32_MAX || track.Muted )
             {
                 continue; // not a bone track, a bone this rig lacks, or muted: the pose underneath shows
+            }
+            if ( !required.empty() && ( bone >= required.size() || required[bone] == 0u ) )
+            {
+                continue; // a bone the drawn LOD does not need (Animator::SetRequiredBones): its rest shows
             }
             if ( bone >= pose.Size() )
             {

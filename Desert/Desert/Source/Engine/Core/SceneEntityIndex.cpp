@@ -43,6 +43,16 @@ namespace Desert::Core
         return true;
     }
 
+    void SceneEntityIndex::ForgetId( entt::entity handle )
+    {
+        const auto slot = m_SlotOf.find( handle );
+        if ( slot == m_SlotOf.end() )
+            return;
+        if ( const auto byId = m_ByUuid.find( m_Ids[slot->second] );
+             byId != m_ByUuid.end() && byId->second == handle )
+            m_ByUuid.erase( byId );
+    }
+
     const ECS::Entity* SceneEntityIndex::Find( const Common::UUID& uuid ) const
     {
         const auto byId = m_ByUuid.find( uuid );

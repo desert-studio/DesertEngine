@@ -504,6 +504,15 @@ namespace Desert::Graphic::System
         if ( !drawRows && gpu.Path == MeshVertexPath::Instanced &&
              ( pass == MeshPass::Visibility || pass == MeshPass::VisibilityResolve ) )
             record.MeshRowsBlock = record.Cell->Get<StorageBufferProperty>( kGrassMeshVisibilityBlock );
+        // FPS-GRASS-MESH-SETUP-5: its resolve cell reads the view's setup records through a bound block.
+        if ( !drawRows && gpu.Path == MeshVertexPath::Instanced && pass == MeshPass::VisibilityResolve )
+            record.SetupBlock = record.Cell->Get<StorageBufferProperty>( kGrassMeshSetupBlock );
+        // FPS-GRASS-BLADE-SETUP-BIND: a blade's visibility raster (its bins' draw-row cell too: the records are
+        // the view's one buffer, indexed by the absolute raster-stream row) and its resolve read the blade setup
+        // records through a bound block, never by an address a per-frame shape copy held.
+        if ( gpu.Path == MeshVertexPath::GrassBlade &&
+             ( pass == MeshPass::Visibility || pass == MeshPass::VisibilityResolve ) )
+            record.SetupBlock = record.Cell->Get<StorageBufferProperty>( kGrassBladeSetupBlock );
         // Find: a surface template with no parameters declares no Materials row block (LendMaterialTable).
         record.MaterialBlock = record.Cell->Find<StorageBufferProperty>( kMaterialRowBlock );
         record.Cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
@@ -591,6 +600,15 @@ namespace Desert::Graphic::System
                 of.BladeBlock->SetBuffer( section.BladeShape );
             if ( of.MeshRowsBlock != nullptr )
                 of.MeshRowsBlock->SetBuffer( section.MeshVisibility );
+            // FPS-GRASS-MESH-SETUP-5: this frame's setup records (the buffer CommitBladeSetup grew this frame, a
+            // new object after a growth, so the view's set takes it); without them the resolve has nothing to
+            // read. FPS-GRASS-BLADE-SETUP-BIND: a blade's raster and resolve alike (GrassBladeSetupRecords).
+            if ( of.SetupBlock != nullptr )
+            {
+                if ( section.SetupRecords == nullptr )
+                    return std::nullopt;
+                of.SetupBlock->SetBuffer( section.SetupRecords );
+            }
             const std::optional<uint32_t> materialRow = FindMaterialRow( of.Parent, section.Material.get() );
             if ( !materialRow )
                 return std::nullopt;

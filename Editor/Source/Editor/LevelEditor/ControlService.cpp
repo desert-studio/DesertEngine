@@ -76,6 +76,8 @@
 #include <glm/gtc/quaternion.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
+#include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <format>
 
 namespace Desert::Editor
@@ -644,6 +646,17 @@ namespace Desert::Editor
         return world->GetSimulatedSeconds();
     }
 
+    bool ControlService::PlayWaitsBehindOverlay() const
+    {
+        if ( !m_Play.InPlayMode() )
+            return false;
+        const auto scene = m_Workspace.ActiveScene();
+        if ( !scene )
+            return false;
+        const auto* wait = scene->GetRegistry().try_ctx<::Desert::Core::WorldStreamingWait>();
+        return wait != nullptr && wait->Assessment.Blocks();
+    }
+
     void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
                                                 const bool                       texturesStreaming,
                                                 const Control::BackgroundReport& hlodBuild,
@@ -708,12 +721,18 @@ namespace Desert::Editor
         // THE SAME PICTURE THE --shot GATE WAITS FOR (ShotRecordGate): a frame drawn while the reflection
         // captures are filled for the first time, or while textures are still landing, is not the scene - the
         // first Starter shot after boot came back with a black sky that the next frame had filled.
+        // EXCEPT WHILE PLAY WAITS BEHIND THE LOADING OVERLAY (BlockOnSlowStreaming): then the picture IS the
+        // loading screen over a dimmed world that is by definition still arriving, as in UE where a screenshot of
+        // the loading screen is taken while the level streams. Waiting for the world's textures, HLODs, pipelines
+        // and grass here could only end with the wait itself, so no capture could ever show the overlay
+        // (WP-STREAM-SETTINGS wpset_block).
+        const bool behindOverlay = PlayWaitsBehindOverlay();
         quiescence.Set( Control::PendingWork::ReflectionCaptures, reflectionCapturesFilling );
-        quiescence.Set( Control::PendingWork::TexturesStreaming, texturesStreaming );
+        quiescence.Set( Control::PendingWork::TexturesStreaming, texturesStreaming && !behindOverlay );
         // UE's HLOD editor subsystem loads an HLOD actor's package when it is to be shown; here its proxy file is
         // read on a worker (EditorHLODs), so a frame - and the reply to Build HLODs or a region change - waits for
         // the HLODs in view as it waits for streaming textures.
-        quiescence.Set( Control::PendingWork::EditorHLODs, editorHLODsReading );
+        quiescence.Set( Control::PendingWork::EditorHLODs, editorHLODsReading && !behindOverlay );
         // UE's Bake Materials is modal too: the reply to "Bake Material to Textures" waits for the offscreen
         // render and its five texture assets (Editor/Baking/MaterialBaking).
         quiescence.Set( Control::PendingWork::MaterialBake, ::Desert::Editor::Baking::IsBakeOfSelectionRunning() );
@@ -746,11 +765,14 @@ namespace Desert::Editor
         // THE FRAME IS JUDGED BY ITS OWN CENSUS (@p built, OVERLAP-ON-3) plus the four entries the frame itself
         // decides, below. The channel's live census takes those four as well, as it always has (`state`,
         // RecordWindowCaptureIfDue): in the serial loop the two are one value.
-        Control::EditorQuiescence judged         = built.Quiescence;
-        const auto                noteAfterFrame = [&]( const Control::PendingWork work, const bool pending )
+        Control::EditorQuiescence judged = built.Quiescence;
+        // The world behind the loading overlay is still arriving (SampleFrameQuiescence): its after-the-frame
+        // entries describe what the dim hides.
+        const bool behindOverlay  = PlayWaitsBehindOverlay();
+        const auto noteAfterFrame = [&]( const Control::PendingWork work, const bool pending )
         {
-            judged.Set( work, pending );
-            m_FrameQuiescence.Set( work, pending );
+            judged.Set( work, pending && !behindOverlay );
+            m_FrameQuiescence.Set( work, pending && !behindOverlay );
         };
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
         // it: its renderer asks for the displaced twins, launches their tessellation and swaps in the ones that
@@ -1278,6 +1300,14 @@ namespace Desert::Editor
                     const ECS::Entity entity = ref->get();
                     entity.SetLocalTransform( ECS::LocalTransform{
                          after.GetValue().Translation, after.GetValue().Rotation, after.GetValue().Scale } );
+                    // In Play the live body / character moves with it (UE SetActorLocation, TeleportPhysics);
+                    // otherwise the next step puts the entity back where physics has it.
+                    entt::registry* registry = entity.GetRegistry();
+                    auto*           physics  = m_Workspace.ActiveScene()->FindSystem<ECS::PhysicsECSSystem>();
+                    if ( m_Play.InPlayMode() && registry != nullptr && physics != nullptr &&
+                         physics->GetPhysicsWorld() != nullptr && ECS::HasLivePhysics( *registry, entity.GetHandle() ) )
+                        ECS::TeleportPhysics( *physics->GetPhysicsWorld(), *registry, entity.GetHandle(),
+                                              entity.GetWorldTransform() );
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }

@@ -17,6 +17,175 @@
 #            "... per kind: static mesh 0.0xxx ms, physics 0.0xxx ms, ..." replaces the old flat 0.02 ms.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
+# The heavy cell is authored here: WP_Protocol has no dense Main cell (the densest holds 23 records). Main cell (2,0),
+# X 5000..7500 / Z 0..2500 (HEAVY = 6250,-50,1250), gets 50 Fence_Run instances (41 records each, ~2050), stacked 45 cm
+# apart along Z; the Plane starts 312 m before it on -X (beyond the 200 m range) and its +X route crosses it.
+Дано run Assets "Open folder: Prefabs"
+Дано run "Content Browser" "Sync to Asset Prefabs/Fence_Run.deprefab"
+Дано --subject viewport set Camera.Direction 0.001,-1,0.001
+Дано --subject viewport set Camera.Position 5250,9000,250
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,295
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,340
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,385
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,430
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,475
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,520
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,565
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,610
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,655
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,700
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,745
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,790
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,835
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,880
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,925
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,970
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1015
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1060
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1105
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1150
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1195
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1240
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1285
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1330
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1375
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1420
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1465
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1510
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1555
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1600
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1645
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1690
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1735
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1780
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1825
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1870
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1915
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,1960
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2005
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2050
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2095
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2140
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2185
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2230
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2275
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2320
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2365
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2410
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+Дано --subject viewport set Camera.Position 5250,9000,2455
+Дано run Entity "Place a cube on the surface at the viewport centre"
+Дано run Entity "Replace selected entities with the selected prefab"
+# WPFly flies 8 s at 125 m/s (1000 m) and stops: started 1000 m before HEAVY on -X it stops dead in the middle of the
+# heavy cell, so the cell is wanted from 200 m out and STAYS wanted however many frames its slices take (flown through
+# at 125 m/s it is wanted ~3 s and dropped half-made when the Plane leaves).
+Дано select 9000002
+Дано --subject selection set Translation -93750,5000,1250
+# WP_Protocol's "Camera" 1003 (0,-310,0) is AutoActivateForPlayer: with no pawn it is the player's view in both Plays
+# (ChooseViewTarget: an Auto Activate camera before Play from Here) and so a streaming source of its own (GatherSources:
+# PlayerViewPoint) 64 m from the heavy cell, keeping it resident from the first frame. Parked 232 m south of HEAVY
+# (beyond the 200 m range) at 60 m up, turned to look at it, so the frames show the cell come in.
+Дано select 1003
+Дано --subject selection set Translation 6250,6000,-22000
+Дано --subject selection set Rotation -0.2443,3.1416,0
+Дано run Action "Save Scene"
 Дано run Scene "Build HLODs"
 Дано wait-idle 2400
 Дано run Panel "Open World Partition"
@@ -30,7 +199,7 @@
 Когда run Action "Play from Here"
 Когда advance 2
 Когда advance 1
-Когда --subject viewport set Camera.Position HEAVY_X,40000,HEAVY_Z-40000
+Когда --subject viewport set Camera.Position 6250,40000,-38750
 Когда --subject viewport set Camera.Direction 0,-1,1
 Когда advance 2
 Когда advance 2
@@ -158,11 +327,16 @@
 Когда run Action "Stop"
 Дано set 9000001 StreamingSourceData.Enabled true
 Дано set 9000002 StreamingSourceData.Enabled false
+# The Player starts 350 m before the heavy cell on -X (beyond the 200 m range): from its authored spot (0,0) the cell is
+# 64 m away and resident when Play begins, so the teleport would land on a loaded floor and nothing would wait.
+Дано select 9000001
+Дано --subject selection set Translation -30000,-204,0
 Когда run Action "Play"
 Когда advance 2
 Когда advance 1
 # Teleport into the middle of the heavy cell: the cell under the source is not resident, play waits behind the overlay.
-Когда set 9000001 Transform.Translation HEAVY_X,HEAVY_Y,HEAVY_Z
+Когда select 9000001
+Когда --subject selection set Translation 6250,-50,1250
 Когда advance 1
 Когда advance 1
 # Тогда [кадр]: slice_physics_ready - the first frame after the block lifts: the player stands on the floor of the cell, does

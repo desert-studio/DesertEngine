@@ -279,18 +279,23 @@ namespace Desert::Graphic::RayTracing
                 vertexRef->second = graph.RegisterExternal( *source, "SkinCache.Vertices" );
 
             // The shader's SkinCacheDispatch: x = vertex count, y = the first bone of this frame's palette, z = 1
-            // when the streams' current positions are last frame's pose (rotate them into the previous positions).
-            const bool                    history     = entry.HasSkinned && entry.SkinnedFrame + 1u == frame;
+            // when the streams' current positions are last frame's pose (rotate them into the previous positions);
+            // then the vertex range of the LOD the record draws this frame (UE: the skin cache skins only the
+            // chosen LOD's vertices). A level change has no previous pose in the new range: no history.
+            const SkinnedMesh::SkinnedLOD& lod        = entry.Source->GetSkinnedLOD( record.Lod );
+            const bool                     history    = entry.HasSkinned && entry.SkinnedFrame + 1u == frame &&
+                                                 entry.SkinnedLod == record.Lod;
+            entry.PendingLod                          = record.Lod;
             const uint32_t                vertexCount = entry.Source->GetVertexCount();
-            const std::array<uint32_t, 4> dispatch    = { vertexCount, scene.Primitive( record.GpuPrimitive ).BoneOffset,
-                                                       history ? 1u : 0u, 0u };
+            const std::array<uint32_t, 8> dispatch    = { vertexCount, scene.Primitive( record.GpuPrimitive ).BoneOffset,
+                                                       history ? 1u : 0u, 0u, lod.FirstVertex, lod.VertexCount, 0u, 0u };
             const RDG::BufferRef          dispatchRef =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( dispatch ) }, "SkinCache.Dispatch" );
             graph.QueueBufferUpload( dispatchRef, std::as_bytes( std::span( dispatch ) ) );
             const RDG::BufferRef streams = BaseStreamsIn( graph, entry );
             const RDG::BufferRef vertices = vertexRef->second;
             const RDG::BufferRef bonesRef = *bones;
-            const uint32_t       groups   = ( vertexCount + kSkinCacheGroupSize - 1u ) / kSkinCacheGroupSize;
+            const uint32_t       groups   = ( lod.VertexCount + kSkinCacheGroupSize - 1u ) / kSkinCacheGroupSize;
             graph.AddPass(
                  kSkinCachePassName, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -347,6 +352,7 @@ namespace Desert::Graphic::RayTracing
         for ( Entry* entry : skinned )
         {
             entry->SkinnedFrame   = frame;
+            entry->SkinnedLod     = entry->PendingLod;
             entry->HasSkinned     = true;
             entry->DisplacedFresh = false;
         }
@@ -441,7 +447,7 @@ namespace Desert::Graphic::RayTracing
             if ( !entry.Geometry )
                 entry.Geometry = CreateSkinnedRayTracingGeometry();
             const Common::ResultStr<SkinnedBlasPrepared> prepared =
-                 entry.Geometry->Prepare( DescribeDeformedMeshBlas( *record.Mesh, request.Submeshes ) );
+                 entry.Geometry->Prepare( DescribeDeformedMeshBlas( *record.Mesh, request.Submeshes, record.Lod ) );
             if ( !prepared )
             {
                 if ( !entry.RefusalLogged )
