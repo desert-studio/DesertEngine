@@ -27,9 +27,10 @@ namespace Desert::Graphic::ViewTargetFormats
     // pass's result - RGBA16F, not R11G11B10F (skin gradients band in a 6-bit mantissa; a = the profile row + 1).
     inline constexpr ImageFormat kSubsurfaceDiffuse = ImageFormat::RGBA16F;
     // GPU-TURN-3: "Deferred: Direct Lighting"'s sum, the composite's input (DeferredLighting.shader oDirect) -
-    // RGBA32F, not RGBA16F: it is stored before the pre-exposure (a 100 000 lx sun is past half range), and
-    // the composite adds the ambient to the very float the split-free sum held, so the frame is unchanged.
-    inline constexpr ImageFormat kDeferredDirectLighting = ImageFormat::RGBA32F;
+    // RGBA16F like kSceneColor, because it is stored PRE-EXPOSED as the scene colour is (UE keeps pre-exposed
+    // scene colour in FP16): a 100 000 lx sun stays inside half range, and the composite multiplies the
+    // exposure back off before adding the ambient. Half the bandwidth of the RGBA32F it was (FPS-SMALL-PASSES).
+    inline constexpr ImageFormat kDeferredDirectLighting = ImageFormat::RGBA16F;
     // ...and a scattered texel's direct specular, which the composite's subsurface split takes off it.
     inline constexpr ImageFormat kDeferredDirectSpecular = ImageFormat::RGBA32F;
     inline constexpr ImageFormat kSceneDepth      = ImageFormat::DEPTH32F;
