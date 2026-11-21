@@ -1527,6 +1527,8 @@ namespace Desert::Graphic
         if ( const auto& it = m_Systems.Terrain )
             it->SetWireframe( m_DebugView.WireframeMode );
         m_Systems.Mesh->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
+        m_Systems.Mesh->SetLODDistanceScale(
+             0.01f * static_cast<float>( quality.As<int>( Parameter::ViewDistanceLODDistanceScalePercent ) ) );
         m_Systems.Mesh->SetSkinCacheEnabled( quality.As<bool>( Parameter::SkinCache ) );
         m_Systems.Mesh->SetShadowWindDistance(
              static_cast<float>( quality.As<int>( Parameter::ShadowWindAnimationDistance ) ) );

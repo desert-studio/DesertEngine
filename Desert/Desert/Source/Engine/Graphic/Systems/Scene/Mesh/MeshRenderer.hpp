@@ -2071,6 +2071,14 @@ namespace Desert::Graphic::System
         {
             return m_LODEnabled;
         }
+        // UE r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale (CINEMATIC-LOD): the distance factor
+        // ComputeLOD, ComputeDitheredLOD and SelectSkinnedLods choose a level at (Geometry::LODView::
+        // DistanceScale). From Scalability ViewDistance.LODDistanceScalePercent / 100 (SceneRenderer::BeginScene).
+        void SetLODDistanceScale( float scale );
+        float GetLODDistanceScale() const
+        {
+            return m_LODDistanceScale;
+        }
 
         // Which LOD level to draw for a mesh: a forced level (>= 0) wins; otherwise auto by screen
         // coverage (world bounding radius / camera distance), so big objects keep detail farther than
@@ -2917,6 +2925,7 @@ namespace Desert::Graphic::System
         bool m_Wireframe = false;
 #endif
         bool                              m_LODEnabled = true;
+        float                             m_LODDistanceScale = 1.0f; // SetLODDistanceScale
 
         // Deferred G-buffer geometry pipeline (static): writes Albedo+Metallic / Normal+Roughness into the
         // scene renderer's MRT G-buffer instead of shading. Same vertex layout + material bindings as the

@@ -550,6 +550,11 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT pages rendered per "
                "frame, r.VT.MaxUploadsPerFrame)",
                64, Vis::Advanced },
+             { P::ViewDistanceLODDistanceScalePercent, G::ViewDistance, "ViewDistance.LODDistanceScalePercent", 25,
+               400, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD selection "
+               "distance, percent)",
+               100, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

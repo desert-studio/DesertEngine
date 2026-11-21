@@ -533,6 +533,15 @@ namespace Desert::Graphic::System
         ++m_IsmViewCullGeneration;
     }
 
+    void MeshRenderer::SetLODDistanceScale( const float scale )
+    {
+        if ( scale == m_LODDistanceScale )
+            return;
+        LOG_INFO( "[SkinnedLOD] LODDistanceScale {} (was {}): static and skinned LOD chosen at distance x {}", scale,
+                  m_LODDistanceScale, scale );
+        m_LODDistanceScale = scale;
+    }
+
     uint32_t MeshRenderer::ComputeLOD( const glm::mat4& transform, const Mesh* mesh, int forcedLOD,
                                        int lodBias ) const
     {
@@ -547,7 +556,9 @@ namespace Desert::Graphic::System
         // The policy itself lives in Geometry::SelectLOD so the editor can report the SAME level it
         // draws with (Details "Mesh" section); this only resolves the renderer's camera + LOD toggle.
         return Geometry::SelectLOD( transform, mesh->GetSubmeshes(),
-                                    Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                                    Geometry::LODView{ .Origin        = camera->GetPosition(),
+                                                       .Projection    = camera->GetProjectionMatrix(),
+                                                       .DistanceScale = m_LODDistanceScale },
                                     mesh->GetLODScreenSizes(), forcedLOD, lodBias );
     }
 
@@ -567,7 +578,8 @@ namespace Desert::Graphic::System
             return levels;
         const Geometry::LODView view{ .Origin     = camera->GetPosition(),
                                       .Projection = camera->GetProjectionMatrix(),
-                                      .Temporal   = m_ViewTemporalLOD };
+                                      .Temporal   = m_ViewTemporalLOD,
+                                      .DistanceScale = m_LODDistanceScale };
         levels = Geometry::SelectDitheredLODFromBounds( transform, Geometry::LocalBounds( mesh->GetSubmeshes() ),
                                                         view, mesh->GetLODScreenSizes(), forcedLOD, lodBias );
         const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
@@ -2683,7 +2695,9 @@ namespace Desert::Graphic::System
         if ( camera != nullptr )
         {
             frustum.emplace( camera->GetProjectionMatrix(), camera->GetViewMatrix() );
-            lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
+            lodView.emplace( Geometry::LODView{ .Origin        = camera->GetPosition(),
+                                                .Projection    = camera->GetProjectionMatrix(),
+                                                .DistanceScale = m_LODDistanceScale } );
         }
         // THE FAR CROWD (WP-FAR-12): a record at its lowest level and below the crowd's screen size plays its
         // clip from the baked vertex animation (VertexAnimationCrowd) - its row fetches the baked frame, the skin
@@ -2761,9 +2775,9 @@ namespace Desert::Graphic::System
             const SkinnedMesh::SkinnedLOD& lod  = data.Mesh->GetSkinnedLOD( data.Lod );
             const SkinnedMesh::SkinnedLOD& full = lods.front();
             LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, {} "
-                      "influences",
+                      "influences, screen size {:.4f}, LODDistanceScale {}",
                       data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
-                      lod.RequiredBones, full.RequiredBones, lod.MaxInfluences );
+                      lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, screenSize, m_LODDistanceScale );
         }
         m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws );
     }
