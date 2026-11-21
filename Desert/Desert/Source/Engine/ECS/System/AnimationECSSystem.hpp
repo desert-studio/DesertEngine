@@ -148,6 +148,16 @@ namespace Desert::ECS
                     anim.BuiltRigSignature = 0;
                 }
                 ConfigureLodAndRate( entity, anim, *skinnedMeshPtr );
+                // A FAR-CROWD FIGURE ALREADY ON ITS BAKED ANIMATION has no anim tick (UE AnimToTexture: the VAT
+                // instance is a static mesh): only its clip clock runs (StepAnimator's Vat branch), none of the
+                // retarget / clip resolution / pose stages below. Back to skeletal, the full tick resumes.
+                if ( anim.Playing && anim.LodFeedback && anim.LodFeedback->VatClockRunning &&
+                     anim.LodFeedback->Vat.load( std::memory_order_relaxed ) )
+                {
+                    StepAnimator( anim, Common::Timestep( Animation::AnimationAdvanceSeconds(
+                                             gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) ) );
+                    continue;
+                }
 
                 // FIRST OF THE THREE SYNCS, because it is first in the pipeline it feeds: a retarget
                 // changes which rig the SOURCE stage samples, and everything below reads the pose that
