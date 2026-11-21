@@ -115,9 +115,11 @@ namespace Desert::Graphic
     // (the depth and the velocity of a pixel must come from the same surface, or TAA reprojects a wall with a
     // character's motion). Value: current unjittered NDC.xyz minus previous unjittered NDC.xyz of the surface
     // point (ViewFrame rule: velocity never carries the jitter; z = the device depth's change, VelocityNdc).
-    // Pixels no geometry covered (sky, clouds, far plane) keep the clear value 0; every reader that needs their
-    // motion derives the camera's at infinity (ViewFrame::ClipToPrevClip, Common/Velocity.glslh
-    // DesertCameraVelocityAtInfinity): TAA, TSR, UpscalerVelocity (DLSS / FSR3) and motion blur's Flatten.
+    // The sky draw writes the camera's motion at infinity into the texels no geometry covered (Skybox.shader /
+    // ProceduralSky.shader, Common/Velocity.glslh DesertSkyVelocity; the clouds over them share it), so the vendor
+    // upscalers (DLSS / FSR3) take the velocity as is (UE: the sky writes velocity, no VelocityCombine pass). With
+    // no sky drawn those texels keep the clear value 0, and TAA, TSR and motion blur's Flatten derive the same
+    // motion there (ViewFrame::ClipToPrevClip, DesertCameraVelocityAtInfinity).
     inline constexpr Core::Formats::ImageFormat kVelocityFormat = ViewTargetFormats::kVelocity;
 
     // RDG-FAULT1 fit. Velocity lost to a fault (every geometry pass that wrote it removed) is read as Black = zero
