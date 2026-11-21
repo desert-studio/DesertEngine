@@ -409,8 +409,7 @@ namespace Desert::Graphic
         if ( m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineTileClassify ) == 0 ||
              deferred == nullptr || !deferred->ClassifyReady() )
             return;
-        if ( static_cast<int>( m_DebugView.DeferredDebug ) != 0 &&
-             m_DebugView.DeferredDebug != DeferredDebugMode::LocalExposure )
+        if ( !DrawsLitComposite( m_DebugView.DeferredDebug ) )
             return;
         if ( gbuffer.size() < 3 )
         {
@@ -1163,9 +1162,9 @@ namespace Desert::Graphic
         // first consumer). The composite then adds only the ambient, the emissive and the subsurface split.
         // FillMaterial fills both programs' materials.
         // A post view mode draws Lit; a G-buffer view writes the sky's texels too (the composite's black).
-        const int debugMode = m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
-                                   ? 0
-                                   : static_cast<int>( m_DebugView.DeferredDebug );
+        // The Indirect view (GI) is drawn after the temporal resolve (AddFrameIndirectView): Lit here too.
+        const int debugMode =
+             DrawsLitComposite( m_DebugView.DeferredDebug ) ? 0 : static_cast<int>( m_DebugView.DeferredDebug );
         // GPU-TILE-CLASSIFY (RenderPipeline.TileClassify; UE Substrate ClassificationTiles): both lighting passes
         // draw only the 8x8 tiles that hold geometry (the view's tile list, AddFrameTileClassify), a
         // DefaultLit-only tile through the permutation with the model folded. The list exists in the Lit view
@@ -1223,8 +1222,7 @@ namespace Desert::Graphic
         if ( !m_SubsurfaceScattering || m_SubsurfaceScale <= 0.0f )
             return false;
         // The debug channels return before the split: only the Lit view (and the post view modes drawn Lit).
-        if ( static_cast<int>( m_DebugView.DeferredDebug ) != 0 &&
-             m_DebugView.DeferredDebug != DeferredDebugMode::LocalExposure )
+        if ( !DrawsLitComposite( m_DebugView.DeferredDebug ) )
             return false;
         // The shadow views write a grey occlusion / a cascade-tinted colour: no scattered texel to split off.
         if ( m_DebugView.ShadowDebug != ShadowDebugMode::Off )
@@ -1596,6 +1594,58 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  view->DeclareBindings( pass, velocity );
+                 pass.ColorTarget( 0, target, EngineClearColor() );
+             },
+             [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );
+    }
+
+    void SceneRenderer::AddFrameIndirectView( RDG::Builder& graph, FrameTextures& textures,
+                                              const RDG::TextureRef target, const ViewFrame& frame )
+    {
+        // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame. The composite drew
+        // this frame Lit (DrawsLitComposite), so the scene colour history the screen traces read stays lit.
+        if ( m_DebugView.DeferredDebug != DeferredDebugMode::GI || m_RenderPath != Core::RenderPath::Deferred )
+            return;
+        auto* const view = m_Systems.IndirectView.get();
+        if ( view == nullptr || !target.IsValid() || !m_GBuffer )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Indirect not drawn: {}",
+                       view == nullptr ? "no IndirectViewRenderer" : "the frame has no post input or no G-buffer" );
+            return;
+        }
+        const std::vector<RDG::TextureRef> gbuffer = textures.Colors( m_GBuffer, "GBuffer" );
+        if ( gbuffer.empty() )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Indirect not drawn: the graph has no G-buffer colour" );
+            return;
+        }
+        // No GI method this frame (Off, or its pass unavailable): no indirect to show, the view is black - the
+        // answer, as the composite's sky-only ambient is not a GI method's.
+        const FrameGraphRefs  refs = textures.GraphRefs();
+        const RDG::TextureRef diffuseIndirect =
+             refs.Transients.GIDiffuse.IsValid() ? refs.Transients.GIDiffuse : refs.System.Black;
+        const auto desc = graph.GetTextureDesc( target );
+        if ( !desc )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Indirect: {}", desc.GetError() );
+            return;
+        }
+        if ( const auto prepared = view->Prepare( desc.GetValue().Format, desc.GetValue().Samples ); !prepared )
+        {
+            LOG_ERROR( "[SceneRenderer] Debug: Indirect: {}", prepared.GetError() );
+            return;
+        }
+        // IndirectViewUB: x = the pre-exposure the post input carries (the tonemap divides it back out).
+        const glm::vec4      params( frame.PreExposure, 0.0f, 0.0f, 0.0f );
+        const RDG::BufferRef paramsBuffer =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( glm::vec4 ) }, "Debug.IndirectView" );
+        graph.QueueBufferUpload( paramsBuffer, std::as_bytes( std::span<const glm::vec4>( &params, 1 ) ) );
+        const RDG::TextureRef gbufferA = gbuffer[0];
+        graph.AddPass(
+             "Debug: Indirect", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 view->DeclareBindings( pass, diffuseIndirect, gbufferA, paramsBuffer );
                  pass.ColorTarget( 0, target, EngineClearColor() );
              },
              [view]( RDG::PassContext& context ) -> Common::BoolResultStr { return view->Record( context ); } );

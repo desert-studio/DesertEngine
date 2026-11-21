@@ -27,7 +27,8 @@ namespace Desert::Graphic
         Metallic  = 3,
         Roughness = 4,
         AO        = 5,
-        GI        = 6, // indirect light only (whichever GI method is effective) — for judging GI in isolation
+        GI        = 6, // the GI method's diffuse indirect x the diffuse colour — for judging GI in isolation;
+                       // drawn by "Debug: Indirect" after the temporal resolve (System::IndirectViewRenderer)
         LightComplexity = 7, // per-pixel count of point/spot light volumes, heat-mapped (UE-style)
         Overdraw        = 8, // additive re-raster of all meshes -> heat-mapped overdraw count (both paths)
         MaterialComplexity =
@@ -71,8 +72,9 @@ namespace Desert::Graphic
         // shows in a mirror under SoftwareTraced / HardwareTraced. Deferred only; under any other reflection
         // method the frame is black and the renderer refuses by name - never the screen trace in its place.
         Reflections = 18,
-        // UE's Local Exposure visualisation (PostProcessVisualizeLocalExposure.cpp): the tonemap draws each pixel's
-        // local exposure (green = lifted, red = pulled down, grey = 1) over the scene's luminance. Post only.
+        // UE's Local Exposure visualisation (PostProcessVisualizeLocalExposure.cpp): the tonemap draws each
+        // pixel's local exposure (green = lifted, red = pulled down, grey = 1) over the scene's luminance. Post
+        // only.
         LocalExposure = 19,
         // The deformation field around the view (DEFORM-FIELD; Graphic/Deformation/DeformationFieldRenderer): each
         // surface pixel's world X, Z looked up in the clipmap - blue = sink, red = rim over a grey metre checker
@@ -87,6 +89,16 @@ namespace Desert::Graphic
     {
         return ( mode >= DeferredDebugMode::Albedo && mode <= DeferredDebugMode::AO ) ||
                mode == DeferredDebugMode::ShadingModel || mode == DeferredDebugMode::SunShadowReceive;
+    }
+
+    // A view the deferred composite draws LIT, with every Lit-only pass (tile classify, the subsurface split): the
+    // post views that only change the tonemap (LocalExposure) or are drawn after the temporal resolve over a lit
+    // frame whose scene colour history the next frame's screen traces read back (GI:
+    // System::IndirectViewRenderer).
+    [[nodiscard]] constexpr bool DrawsLitComposite( const DeferredDebugMode mode )
+    {
+        return mode == DeferredDebugMode::Off || mode == DeferredDebugMode::LocalExposure ||
+               mode == DeferredDebugMode::GI;
     }
 
     // A DISPLAY-REFERRED BUFFER VIEW (UE VMI_VisualizeBuffer): the composite writes a stored value or a heat-map

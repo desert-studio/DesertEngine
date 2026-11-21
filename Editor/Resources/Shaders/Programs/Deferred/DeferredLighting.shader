@@ -756,9 +756,9 @@ Shader "DeferredLighting"
         	// in GiDiffuseTexture) over the sky's cubes, 2 the traced gather, 3 the same gather with its own
         	// short-range AO. GI comes from the method alone: the composite gathers no bounce of its own.
         	const int giMode = int(Params.w + 0.5);
-        	// Indirect GI only (UE: the Lumen Global Illumination view): the ambient's diffuse below; a view
-        	// without a GI method has no indirect GI to show.
-        	if (dbg == 6 && giMode < 1) { oColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+        	// The Indirect view (DeferredDebugMode::GI) is not drawn here: "Debug: Indirect" draws it after the
+        	// temporal resolve (System::IndirectViewRenderer), so this pass writes the Lit frame the scene colour
+        	// history - and the next frame's SSGI and SSR - read back.
 
         	// Ambient = the BAKED ENVIRONMENT (split-sum IBL: diffuse irradiance + prefiltered specular),
         	// attenuated by SSAO — assembled by the SAME shared function the forward mesh shaders call, so a
@@ -845,13 +845,6 @@ Shader "DeferredLighting"
         		// UE's SSR input: the screen's hits over the GI's specular (or the environment), by their coverage.
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(SsrTexture, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);
-        	if (dbg == 6)
-        	{
-        		const vec3 ambientDiffuse =
-        		     ambient - DesertEvaluateShadingModelAmbientSpecular(shadingModel, sampled, surface, payload);
-        		oColor = vec4(max(ambientDiffuse, vec3(0.0)) * CompositeView.y, 1.0);
-        		return;
-        	}
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.
