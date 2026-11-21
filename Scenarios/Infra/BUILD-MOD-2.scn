@@ -1,0 +1,8 @@
+# BUILD-MOD-2: ECS/Components.hpp deleted -> one header per component in its owning module; Entity.hpp includes no component.
+# Fanout measured outside the editor (ninja -t deps, Debug; DesertEngine-scratch/BUILD-MOD-2/timings.txt):
+#   PhysicsCore/PhysicsWorld.hpp <= 30, ECS/RagdollComponent.hpp <= 25, Animation/Pose.hpp <= 80,
+#   World/Landscape/LandscapeData.hpp <= 40 objects.
+# Regression (here): components serialize unchanged -> the Editor built after the split opens WP_Protocol as on dev.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо; без падения и диалога ошибки; в editor.log нет отказа загрузки

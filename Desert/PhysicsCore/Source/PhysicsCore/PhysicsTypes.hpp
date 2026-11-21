@@ -3,6 +3,9 @@
 // The physics value types a component or a system names without the world: body/shape enums and the
 // opaque handles (PhysicsWorld.hpp owns the world API; including it costs ~every physics consumer).
 
+#include <glm/vec3.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <cstdint>
 
 namespace Desert::Physics
@@ -48,4 +51,18 @@ namespace Desert::Physics
     /// A ragdoll in the world (a JPH::Ragdoll: one body per part, a constraint per jointed part).
     using RagdollHandle                     = uint32_t;
     constexpr RagdollHandle kInvalidRagdoll = 0xFFFFFFFFu;
+
+    /// What moves a ragdoll's bodies (UE: PhysicsBlendWeight 0 with kinematic bodies / SetSimulatePhysics).
+    enum class RagdollMotion
+    {
+        Kinematic, ///< every part follows the target pose (MoveKinematic per fixed step); pushes dynamic bodies
+        Simulated, ///< every part is dynamic: gravity, contacts and the constraints move it
+    };
+
+    /// One part's body in the world: its origin (the bone, not the centre of mass) and rotation, cm.
+    struct RagdollPartTransform
+    {
+        glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+        glm::quat Rotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
+    };
 } // namespace Desert::Physics

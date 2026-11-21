@@ -3,7 +3,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
-#include <Engine/ECS/VFXPointSet.hpp>
+#include <Engine/VFX/VFXPointSet.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>

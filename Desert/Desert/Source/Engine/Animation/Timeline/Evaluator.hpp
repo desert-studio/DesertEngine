@@ -19,7 +19,7 @@
  * `LocalPose` — the AnimationClip host's whole playback path, and the Animator's `SampleTrack` replacement.
  */
 
-#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/BoneTransform.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Channel.hpp>
@@ -41,6 +41,7 @@
 namespace Desert::Animation
 {
     class Skeleton;
+    class LocalPose; // Pose.hpp: EvaluatePose writes into the caller's pose
 }
 
 namespace Desert::Animation::Timeline

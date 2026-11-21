@@ -22,8 +22,8 @@
 #include <string_view>
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/ECS/VFXPointSet.hpp>
-#include <Engine/ECS/VFXUserOverride.hpp>
+#include <Engine/VFX/VFXPointSet.hpp>
+#include <Engine/VFX/VFXUserOverride.hpp>
 
 namespace Desert::ECS
 {

@@ -101,6 +101,7 @@
 #include <PhysicsCore/CollisionProfiles.hpp>
 #include <PhysicsCore/PhysicsTypes.hpp>
 #include <UI/Args/UIButtonArgs.hpp>
+#include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 
 namespace Desert::Migration
 {

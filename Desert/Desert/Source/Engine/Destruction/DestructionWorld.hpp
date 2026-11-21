@@ -31,7 +31,7 @@
 
 #include <Engine/Destruction/DestructionField.hpp>
 #include <Engine/Destruction/FractureFormat.hpp>
-#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -45,6 +45,11 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+namespace Desert::Physics
+{
+    class PhysicsWorld; // PhysicsCore/PhysicsWorld.hpp: held by reference, driven from the .cpp
+}
 
 namespace Desert::Destruction
 {

@@ -21,6 +21,7 @@
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/NotifyEvent.hpp>
 #include <Engine/Animation/RootMotionMode.hpp>
 #include <Engine/Assets/Common.hpp>
 
@@ -29,7 +30,6 @@ namespace Desert
     namespace Animation
     {
         class Animator;     // Animator.hpp: the component owns one, it does not need its definition
-        struct NotifyEvent; // Animator.hpp
     } // namespace Animation
     namespace Animation
     {

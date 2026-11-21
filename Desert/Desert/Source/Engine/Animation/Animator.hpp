@@ -12,6 +12,7 @@
 #include "Rig/ControlRigStage.hpp"
 #include "Retarget/RetargetSource.hpp"
 #include "Timeline/Evaluator.hpp"
+#include "NotifyEvent.hpp"
 
 #include <Common/Core/Timestep.hpp>
 
@@ -58,26 +59,6 @@ namespace Desert::Animation
     };
 
     [[nodiscard]] const char* ToString( PoseStage stage );
-
-    /// What one notify did during a step of playback: UE's Notify (instant) / NotifyBegin / NotifyEnd.
-    enum class NotifyEventKind : uint8_t
-    {
-        Fire,
-        Begin,
-        End,
-    };
-
-    struct NotifyEvent
-    {
-        std::string     Name;
-        NotifyEventKind Kind = NotifyEventKind::Fire;
-        /// The pose-graph node whose clip reported it (UE: the notify's source player); -1 = the base clip (the
-        /// Source stage, Play/CrossFade). With `LinkedSlot` >= 0 the node is of that linked layer's graph.
-        int SourceNode = -1;
-        int LinkedSlot = -1;
-
-        bool operator==( const NotifyEvent& ) const = default;
-    };
 
     /// A notify state (an Event key with a duration on the clip's Event track) spanning the playhead — UE's
     /// active AnimNotifyState. BY VALUE, not a key pointer: a reload of the clip frees the key, and an edit

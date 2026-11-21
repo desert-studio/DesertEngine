@@ -28,6 +28,7 @@
 #include <initializer_list>
 #include <utility>
 #include <Engine/ECS/StaticMeshComponent.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
 
 namespace Desert::Editor
 {

@@ -19,6 +19,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 namespace Desert::ECS
 {

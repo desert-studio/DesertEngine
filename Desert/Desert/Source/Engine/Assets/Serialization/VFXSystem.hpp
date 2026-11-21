@@ -12,7 +12,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
-#include <Engine/ECS/VFXUserOverride.hpp>
+#include <Engine/VFX/VFXUserOverride.hpp>
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 
