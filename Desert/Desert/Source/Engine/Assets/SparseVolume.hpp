@@ -15,7 +15,7 @@ namespace Desert::Assets
     // A BAKED SPARSE VOLUME (`.dsvol`) - UE's USparseVolumeTexture, reimplemented: a simulated smoke / fire grid
     // (density and temperature) stored as the bricks that hold any medium plus a page table over the whole grid,
     // so a 256^3 plume that fills a tenth of its box costs a tenth of a dense 3D texture. Read by
-    // ECS::HeterogeneousVolumeComponent (DensitySource BakedSparse) through Runtime::SparseVolumeService; the
+    // ECS::HeterogeneousVolumeComponent (DensitySource BakedSparse) by its GUID handle; the
     // renderer (Graphic::System::HeterogeneousVolumeRenderer) streams the bricks of the volumes on screen into one
     // shared atlas and the page tables into one buffer, and Common/HeterogeneousVolume.glslh HvBakedSample reads
     // them.
