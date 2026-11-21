@@ -2903,9 +2903,11 @@ namespace Desert::Graphic
                 // THE CLOUDS BETWEEN THE SCREEN PROBES' FORK AND THEIR JOIN (UE: the volumetric render target
                 // traced before the lights while Lumen's gather runs on the async queue). The march, its temporal
                 // resolve and its upsample read the sky LUTs (the graph head), the cloud shadow map and the scene
-                // depth - nothing the async runs write - so the graphics queue traces them while the probes
-                // gather, ahead of the reflections and the composite, which wait on the runs they read
-                // (RDGCompile FindAsyncRuns: the join at the first consumer). Here only when the depth they march
+                // depth - nothing the async runs write. FPS-CLOUDS-MARCH: they run on the async queue as their
+                // own run after the probes' (CloudQueue::AsyncCompute), joined only at their composite in the
+                // translucency, so the graphics queue pays none of the march (0.46-0.49 ms on FIELD-BARN-TURN);
+                // the reflections and the composite still wait only on the runs they read (RDGCompile
+                // FindAsyncRuns: the join at the first consumer). Here only when the depth they march
                 // against is already final (otherwise after the opaque scene, below): a single-sample target (no
                 // resolve after the opaque passes), no "Deferred: Generic" draw (a blended program writes the
                 // depth), no glass section and no water surface (it writes its own depth).
@@ -2923,7 +2925,7 @@ namespace Desert::Graphic
                                             ( waterSurface == nullptr || !waterSurface->HasDraws() );
                     if ( depthFinal && !m_DebugView.HidesAtmosphere() )
                     {
-                        AddFrameVolumetricClouds( graph, textures, frame );
+                        AddFrameVolumetricClouds( graph, textures, frame, CloudQueue::AsyncCompute );
                         m_FrameCloudsTraced = true;
                     }
                 }
@@ -3068,7 +3070,7 @@ namespace Desert::Graphic
         if ( !pathTraced && !m_DebugView.HidesAtmosphere() )
         {
             if ( !m_FrameCloudsTraced )
-                AddFrameVolumetricClouds( graph, textures, frame );
+                AddFrameVolumetricClouds( graph, textures, frame, CloudQueue::Graphics );
         }
         else
             AddFrameCloudSkyOcclusion( graph, textures );
