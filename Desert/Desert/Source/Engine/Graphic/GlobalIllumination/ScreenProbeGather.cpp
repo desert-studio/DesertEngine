@@ -323,6 +323,14 @@ namespace Desert::Graphic::GlobalIllumination
                             !TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ) &&
                             TraceLegReadsCache( Tracer::SoftwareDistanceField, kTraceNearHitInPlaceDefine ),
                        "the legs the cache's writers join at (ScreenProbeTrace.shader SP_TRACE_READS_CACHE)" );
+        // Whether the leg samples through LinearClampSampler (ScreenProbeTrace.shader: declared on every leg but
+        // the near hit lighting - the same rule): the sky on a miss and the radiance cache's atlases. The near hit
+        // lighting reads the cards alone, through PointClampSampler, so it declares no linear sampler and the pass
+        // binds none there (UE: a pass binds the parameters its permutation declares).
+        [[nodiscard]] constexpr bool TraceLegSamplesLinear( const std::string_view leg )
+        {
+            return leg != kTraceNearHitLightingDefine;
+        }
         static_assert( TraceLegReadsCards( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ) &&
                             !TraceLegLightsHits( Tracer::SoftwareDistanceField, kTraceNearHitLightingDefine ),
                        "the near hit lighting reads the cards alone (ScreenProbeTrace.shader SP_TRACE_READS_CARDS)" );
@@ -1202,12 +1210,15 @@ namespace Desert::Graphic::GlobalIllumination
                          block.Storage( ScreenProbeGatherTraceShaderParameters::ScreenProbeMissReasonsUB, missReasons,
                                         kW );
 #endif
-                     // The sky, on every leg (ScreenProbeTrace.shader: FPS-SP-SKY, the software near field answers
-                     // its provably escaping uncovered misses with it).
+                     // The sky, declared on every leg (ScreenProbeTrace.shader: FPS-SP-SKY, the software near
+                     // field answers its provably escaping uncovered misses with it); the linear sampler only
+                     // where the leg samples through it (TraceLegSamplesLinear: not the near hit lighting, which
+                     // reads the cards alone).
                      block.Texture( ScreenProbeGatherTraceShaderParameters::EnvironmentSpecularTexture,
-                                    inputs.EnvSpecular, kS, all )
-                          .Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() );
+                                    inputs.EnvSpecular, kS, all );
+                     if ( TraceLegSamplesLinear( TraceLegDefine( program ) ) )
+                         block.Sampler( ScreenProbeGatherTraceShaderParameters::LinearClampSampler,
+                                        RDG::SamplerDesc::LinearClamp() );
                      // The radiance cache's probes, only where the leg reads them (ScreenProbeTrace.shader
                      // SP_TRACE_READS_CACHE): the graph joins the cache's writers at that leg, so the software
                      // near field's march and far field overlap the cache (FPS-QUEUE-WAIT).
