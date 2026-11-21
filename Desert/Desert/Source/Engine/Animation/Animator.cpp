@@ -211,7 +211,8 @@ namespace Desert::Animation
         const size_t n = m_Skeleton.GetBones().size();
         if ( m_AuthoringPose.Size() != n )
             m_AuthoringPose = m_BindPose;
-        SampleClipPose( TargetSampling(), &clip, time, m_AuthoringPose );
+        // The authoring pose is the whole rig, whatever LOD the entity draws.
+        SampleClipPose( RigSampling{ m_Skeleton, m_BindPose, m_TrackBinding }, &clip, time, m_AuthoringPose );
     }
 
     Common::BoolResultStr Animator::RebindRestPose()
@@ -993,10 +994,8 @@ namespace Desert::Animation
             return;
         }
         const Timeline::BoneBindingTable& table = BindingFor( rig, *clip );
-        // Only the drawn LOD's bones on this Animator's own rig (SetRequiredBones); a source rig is sampled whole.
-        const std::span<const uint8_t> required =
-             &rig.Rig == &m_Skeleton ? std::span<const uint8_t>( m_RequiredMask ) : std::span<const uint8_t>();
-        if ( auto sampled = Timeline::EvaluatePose( clip->Sequence, table, OnSequence( *clip, time ), out, required );
+        // Only the drawn LOD's bones on this Animator's own rig (TargetSampling); a source rig is sampled whole.
+        if ( auto sampled = Timeline::EvaluatePose( clip->Sequence, table, OnSequence( *clip, time ), out, rig.Required );
              !sampled.IsSuccess() )
         {
             // BindingFor rebuilt the table for this very revision, so this is a broken invariant, said loudly.
@@ -1115,7 +1114,7 @@ namespace Desert::Animation
 
     Animator::RigSampling Animator::TargetSampling() const
     {
-        return RigSampling{ m_Skeleton, m_BindPose, m_TrackBinding };
+        return RigSampling{ m_Skeleton, m_BindPose, m_TrackBinding, m_RequiredMask };
     }
 
     Animator::RigSampling Animator::SourceSampling() const

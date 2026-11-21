@@ -747,6 +747,8 @@ namespace Desert::Animation
             const Skeleton&  Rig;
             const LocalPose& Rest; ///< what a bone with no track in this clip reads
             std::unordered_map<const AnimationClip*, ClipBinding>& Binding;
+            /// Per bone, nonzero = sampled (SetRequiredBones on this Animator's own rig); empty = every bone.
+            std::span<const uint8_t> Required = {};
         };
 
         const Skeleton& m_Skeleton;
