@@ -398,10 +398,22 @@ Shader "ScreenProbeTrace"
         }
 #endif
 
+        // FPS-SP-LIST-ATOMICS: whether the list's range [start, start + count) must raise its dispatch, a list of
+        // groups of groupSize. The dispatch is ceil(end / groupSize) of the list's last range; a range that opens
+        // no new group (ceil(end / groupSize) == ceil(start / groupSize), start > 0) has it already raised by the
+        // range ending at its start (which raised it itself or, by the same rule, was covered by the one before).
+        // Every writer of a list counts its consumer's groupSize (THE LEGS' LISTS), so the chain holds across
+        // writers. Was an atomicMax per subgroup append on the list's one dispatch word: ~1/8 of them remain at
+        // 256-thread consumers, ~1/2 at 64.
+        bool SPListOpensGroup( const uint start, const uint count, const uint groupSize )
+        {
+            return start == 0u || ( start + count + groupSize - 1u ) / groupSize != ( start + groupSize - 1u ) / groupSize;
+        }
+
 #if defined( SP_TRACE_LISTS_RAYS )
         // Append the lanes that list their ray to the next leg's list (UE ScreenProbeCompactTracesCS's wave-ops
-        // path): in lane order, one atomic on the allocator and one on the dispatch per subgroup. Called once by
-        // every lane still running.
+        // path): in lane order, one atomic on the allocator per subgroup, and one on the dispatch per subgroup
+        // whose range opens a group (SPListOpensGroup). Called once by every lane still running.
         void SPListRay( const bool listed, const uint slot )
         {
             const uvec4 ballot = subgroupBallot( listed );
@@ -412,8 +424,9 @@ Shader "ScreenProbeTrace"
             if ( subgroupElect() )
             {
                 start = atomicAdd( screenProbeOutAllocator, count );
-                atomicMax( screenProbeOutArgs.x,
-                           ( start + count + SP_TRACE_LEG_GROUP_SIZE - 1u ) / SP_TRACE_LEG_GROUP_SIZE );
+                if ( SPListOpensGroup( start, count, SP_TRACE_LEG_GROUP_SIZE ) )
+                    atomicMax( screenProbeOutArgs.x,
+                               ( start + count + SP_TRACE_LEG_GROUP_SIZE - 1u ) / SP_TRACE_LEG_GROUP_SIZE );
             }
             start = subgroupBroadcastFirst( start );
             if ( listed )
@@ -433,8 +446,9 @@ Shader "ScreenProbeTrace"
             if ( subgroupElect() )
             {
                 start = atomicAdd( screenProbeOut2Allocator, count );
-                atomicMax( screenProbeOut2Args.x,
-                           ( start + count + SP_TRACE_LIST2_GROUP_SIZE - 1u ) / SP_TRACE_LIST2_GROUP_SIZE );
+                if ( SPListOpensGroup( start, count, SP_TRACE_LIST2_GROUP_SIZE ) )
+                    atomicMax( screenProbeOut2Args.x,
+                               ( start + count + SP_TRACE_LIST2_GROUP_SIZE - 1u ) / SP_TRACE_LIST2_GROUP_SIZE );
             }
             start = subgroupBroadcastFirst( start );
             if ( listed )
@@ -453,8 +467,9 @@ Shader "ScreenProbeTrace"
             if ( subgroupElect() )
             {
                 start = atomicAdd( screenProbeOut3Allocator, count );
-                atomicMax( screenProbeOut3Args.x, ( start + count + SP_TRACE_BINNED_LEG_GROUP_SIZE - 1u ) /
-                                                      SP_TRACE_BINNED_LEG_GROUP_SIZE );
+                if ( SPListOpensGroup( start, count, SP_TRACE_BINNED_LEG_GROUP_SIZE ) )
+                    atomicMax( screenProbeOut3Args.x, ( start + count + SP_TRACE_BINNED_LEG_GROUP_SIZE - 1u ) /
+                                                          SP_TRACE_BINNED_LEG_GROUP_SIZE );
             }
             start = subgroupBroadcastFirst( start );
             if ( listed )

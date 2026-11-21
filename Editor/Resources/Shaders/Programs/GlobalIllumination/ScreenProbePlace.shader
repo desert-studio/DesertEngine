@@ -62,33 +62,36 @@ Shader "ScreenProbePlace"
             uint Level;
         };
 
-        void main()
+        // FPS-SP-LIST-ATOMICS (UE BuildListsCS group reservation): an adaptive level's group counts its wanted probes
+        // in shared memory and reserves their ids with ONE atomicAdd on the adaptive count, and raises the dispatch
+        // and the census once - was an atomicAdd and two atomicMax per wanted probe on the same three words (the
+        // per-tile headers stay per probe: each tile's own word). Which wanted probes the budget keeps was first
+        // come and stays so; the ids' order is only the probes' slots (each tile's list names its own ids).
+        shared uint s_Wanted;     // the group's wanted adaptive probes
+        shared uint s_WantedBase; // the adaptive count before them: the first one's k
+
+        // The level's probe at @p cell: @p probe / @p speed / @p pixel, false when the cell holds none to place
+        // (past the grid, a coarser level's position, past the screen).
+        bool SPPlaceProbe( const uint level, const ivec2 cell, out ivec2 pixel, out ScreenProbe probe, out float speed )
         {
             const vec2  extent = giFrame.screen.xy;
-            const uint  level  = Level;
             const uvec2 grid   = SPGridSize( level, extent );
-            const ivec2 cell   = ivec2( gl_GlobalInvocationID.xy );
-            if ( level == 0u && cell == ivec2( 0 ) )
-            {
-                screenProbeIndex[0]   = 0u;
-                screenProbePlacedArgs = uvec4( screenProbeParams.grid.z, 1u, 1u, 0u );
-            }
+            probe.position = vec4( 0.0 );
+            probe.normal   = vec4( 0.0 );
+            speed          = 0.0;
+            pixel          = ivec2( 0 );
             if ( any( greaterThanEqual( uvec2( cell ), grid ) ) )
-                return;
+                return false;
             if ( level > 0u && all( equal( cell & 1, ivec2( 0 ) ) ) )
-                return; // a coarser level's position
+                return false; // a coarser level's position
 
-            ivec2 pixel = SPProbePixel( level, cell, SPJitter() );
+            pixel = SPProbePixel( level, cell, SPJitter() );
             if ( level == 0u )
                 pixel = min( pixel, ivec2( extent ) - 1 );
             else if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
-                return;
+                return false;
             const vec2 uv     = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
             const vec3 normal = texelFetch( GBufferBTexture, pixel, 0 ).xyz;
-            ScreenProbe probe;
-            probe.position = vec4( 0.0 );
-            probe.normal   = vec4( 0.0 );
-            float speed    = 0.0;
             if ( dot( normal, normal ) > 0.001 )
             {
                 const float depth = texelFetch( GBufferDepthTexture, pixel, 0 ).r;
@@ -100,9 +103,27 @@ Shader "ScreenProbePlace"
                      SPPreviousSurfaceNdc( screenProbeParams, uv, depth, texelFetch( Velocity, pixel, 0 ).xyz ) );
                 speed = length( p - previous );
             }
+            return true;
+        }
 
-            if ( level == 0u )
+        void main()
+        {
+            const uint  level = Level;
+            const ivec2 cell  = ivec2( gl_GlobalInvocationID.xy );
+            if ( level == 0u && cell == ivec2( 0 ) )
             {
+                screenProbeIndex[0]   = 0u;
+                screenProbePlacedArgs = uvec4( screenProbeParams.grid.z, 1u, 1u, 0u );
+            }
+            ivec2       pixel;
+            ScreenProbe probe;
+            float       speed;
+            const bool  placed = SPPlaceProbe( level, cell, pixel, probe, speed );
+
+            if ( level == 0u ) // a push constant: level 0's dispatch returns here, before any barrier
+            {
+                if ( !placed )
+                    return;
                 const uint id = SPUniformTileIndex( cell ); // uniform probe i is tile i
                 screenProbes[id]                     = probe;
                 screenProbeSpeed[id]                 = speed;
@@ -112,21 +133,41 @@ Shader "ScreenProbePlace"
                 return;
             }
 
-            if ( probe.position.w <= 0.0 )
+            if ( gl_LocalInvocationIndex == 0u )
+                s_Wanted = 0u;
+            barrier();
+            bool wanted = placed && probe.position.w > 0.0;
+            if ( wanted )
+            {
+                uvec4 ids;
+                vec4  weights;
+                SPInterpolate( pixel, probe.position.xyz, probe.normal.xyz, probe.position.w, level, ids, weights );
+                wanted = dot( weights, vec4( 1.0 ) ) < SP_ADAPTIVE_EPSILON;
+            }
+            uint local = 0u;
+            if ( wanted )
+                local = atomicAdd( s_Wanted, 1u );
+            barrier();
+            if ( gl_LocalInvocationIndex == 0u && s_Wanted != 0u )
+            {
+                const uint count = s_Wanted;
+                const uint base  = atomicAdd( screenProbeIndex[0], count );
+                // w: the adaptive probes wanted, the budget's refusals included - the census of the dev counters
+                // (ScreenProbeGather.cpp ScreenProbeCensusCounts); no dispatch reads w.
+                atomicMax( screenProbePlacedArgs.w, base + count );
+                // x: past the last id the budget keeps (the group's kept probes are k in [base, min(end, budget))).
+                if ( base < screenProbeParams.grid.w )
+                    atomicMax( screenProbePlacedArgs.x,
+                               screenProbeParams.grid.z + min( base + count, screenProbeParams.grid.w ) );
+                s_WantedBase = base;
+            }
+            barrier();
+            if ( !wanted )
                 return;
-            uvec4 ids;
-            vec4  weights;
-            SPInterpolate( pixel, probe.position.xyz, probe.normal.xyz, probe.position.w, level, ids, weights );
-            if ( dot( weights, vec4( 1.0 ) ) >= SP_ADAPTIVE_EPSILON )
-                return;
-            const uint k = atomicAdd( screenProbeIndex[0], 1u );
-            // w: the adaptive probes wanted, the budget's refusals included - the census of the dev counters
-            // (ScreenProbeGather.cpp ScreenProbeCensusCounts); no dispatch reads w.
-            atomicMax( screenProbePlacedArgs.w, k + 1u );
+            const uint k = s_WantedBase + local;
             if ( k >= screenProbeParams.grid.w )
                 return; // the budget is spent: the integrate reads the world radiance cache here
             const uint id    = screenProbeParams.grid.z + k;
-            atomicMax( screenProbePlacedArgs.x, id + 1u );
             screenProbes[id]     = probe;
             screenProbeSpeed[id] = speed;
             const uint tile  = SPUniformTileIndex( cell >> int( level ) );
