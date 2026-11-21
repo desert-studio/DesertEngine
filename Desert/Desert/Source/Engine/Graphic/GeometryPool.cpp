@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <iterator>
 #include <string>
@@ -348,7 +349,9 @@ namespace Desert::Graphic
                  "GeometryPool: {} indices + {} cluster words pass 2^32 elements", indices.size(),
                  clusterWords.size() );
 
+        const auto      started = std::chrono::steady_clock::now();
         std::lock_guard lock( m_Mutex );
+        const auto      locked     = std::chrono::steady_clock::now();
         Arena&          target     = m_Arenas[static_cast<std::size_t>( arena )];
         const uint64_t  vertexSpan = RoundUp( vertexCount, VertexGranule( arena ) );
         const auto      base       = RT_TakeVertices( target, arena, vertexSpan );
@@ -374,11 +377,21 @@ namespace Desert::Graphic
             range.IndexCount       = static_cast<uint32_t>( indices.size() );
             range.ClusterWordCount = static_cast<uint32_t>( clusterWords.size() );
         }
+        const auto taken = std::chrono::steady_clock::now();
         if ( const auto wrote = RT_Write( range, vertices, streams, indices, clusterWords ); !wrote.IsSuccess() )
         {
             GiveBack( range );
             return Common::MakeError<GeometryPoolAllocation>( wrote.GetError() );
         }
+        // THE SPLIT OF A SLOW UPLOAD (WP-OPT-UPLOAD-BATCH): the pool lock, the span (a new page is a device
+        // allocation) and the writes (copies into the upload batch's staging).
+        const auto ms = []( const auto from, const auto to )
+        { return std::chrono::duration<double, std::milli>( to - from ).count(); };
+        if ( const auto now = std::chrono::steady_clock::now(); ms( started, now ) >= 2.0 )
+            LOG_INFO( "[GeometryPool] upload of {} vertices ({} B, {} streams) + {} indices: lock {:.1f} ms, span "
+                      "{:.1f} ms, writes {:.1f} ms",
+                      vertexCount, vertices.size(), streams.size(), indices.size(), ms( started, locked ),
+                      ms( locked, taken ), ms( taken, now ) );
         ++m_Allocations;
         return Common::MakeSuccess( GeometryPoolAllocation( this, range ) );
     }
