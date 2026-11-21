@@ -10,6 +10,10 @@ Shader "CloudUpsample"
         // loop; here, ahead of the translucency phase, the depth is an ordinary sampled image (the same
         // SceneDepth.Compute the march and the resolve read).
         //
+        // The pixel's scene depth is the one the march read: the scene target's after the opaque scene, or the
+        // G-buffer's (no water) when the chain was traced early on the async queue (DeclareFrameNodes'
+        // marchDepth); the second output, the cloud front's device depth, lets the composite settle the water.
+        //
         // WHAT IT REPLACES AND WHY (FOLIAGE-CLOUD-FLICKER). The composite used to upsample the half-resolution
         // reconstruction against the BILINEAR BLEND of the four guide distances, its best guess at the pixel's
         // distance. At a grass blade or a leaf against the sky, that guess is a mixture of the blade and the sky
@@ -45,6 +49,13 @@ Shader "CloudUpsample"
 
         // The output: one texel per framebuffer pixel, read 1:1 by CloudComposite.shader.
         layout(binding = 3, rgba16f) restrict writeonly uniform image2D UpsampledCloudTexture;
+        // Beside it, the DEVICE DEPTH (reversed-Z) of the pixel's nearest cloud front, read 1:1 by
+        // CloudComposite.shader as its fragment depth (FPS-CLOUDS-WATER). The march traced against the depth it
+        // was given; a frame that traced it at the early (async) placement gave it the G-buffer depth, the opaque
+        // scene WITHOUT the water (UE SceneDepthWithoutSingleLayerWater). The water draws its own depth after
+        // that, and the composite's hardware depth test against it drops the cloud whose front lies behind the
+        // water surface - the pixel's own surface here is the lake bed, which says nothing about the water.
+        layout(binding = 4, r32f) restrict writeonly uniform image2D UpsampledCloudFrontDepthTexture;
 
         // Shared sampler states (UE's shared samplers), as in the resolve.
         Uniform(8) sampler LinearClampSampler;
@@ -150,6 +161,13 @@ Shader "CloudUpsample"
             float referenceFrontKm = 0.0f;
             for (int i = 0; i < 4; ++i)
                 referenceFrontKm += bilinear[i] * frontKm[i];
+            // The nearest front among the texels that reach this pixel (a texel the surface occludes stands at
+            // the surface): the composite keeps the pixel's cloud wherever any of it lies in front of a later
+            // surface, as the march's own cut would have.
+            float nearestFrontKm = pixelKm;
+            for (int i = 0; i < 4; ++i)
+                if (bilinear[i] > 0.0f)
+                    nearestFrontKm = min(nearestFrontKm, frontKm[i]);
 
             float frontSpreadKm = max(max(frontKm[0], frontKm[1]), max(frontKm[2], frontKm[3])) -
                                   min(min(frontKm[0], frontKm[1]), min(frontKm[2], frontKm[3]));
@@ -185,6 +203,27 @@ Shader "CloudUpsample"
             // Radiance clamped against negatives (a NaN can bring one), transmittance both ways: above 1 it
             // would brighten what is behind the cloud.
             imageStore(UpsampledCloudTexture, coord, vec4(max(cloud.rgb, vec3(0.0f)), clamp(cloud.a, 0.0f, 1.0f)));
+
+            // THE FRONT AS A DEVICE DEPTH. Along one pixel's ray a perspective projection's device depth is affine
+            // in 1 / distance: device = A + B / d. Two un-projections of this ray fix A and B for any perspective
+            // (finite or infinite far). Devices 1e-3 and 1e-4 sit at about a hundred metres and a kilometre with
+            // the 10 cm near plane (Core/Projection.hpp), where the distance to the camera loses no precision to
+            // the world position it is subtracted from (the near plane itself would: centimetres against a
+            // world coordinate in the hundreds of metres).
+            const float kDeviceA = 1e-3f;
+            const float kDeviceB = 1e-4f;
+            vec4  aH  = InverseViewProjection * vec4(ndc.x, ndc.y, kDeviceA, 1.0f);
+            vec4  bH  = InverseViewProjection * vec4(ndc.x, ndc.y, kDeviceB, 1.0f);
+            float aKm = max(length(aH.xyz / aH.w - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM), 1e-9f);
+            float bKm = max(length(bH.xyz / bH.w - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM), 1e-9f);
+            float slope  = (kDeviceA - kDeviceB) / (1.0f / aKm - 1.0f / bKm);
+            float offset = kDeviceA - slope / aKm;
+            // Pulled a hundredth of its distance toward the camera: the march's unjittered matrix un-projects the
+            // jittered depth to a few parts in ten thousand (CloudResolveParams), and a front AT the march's own
+            // cut (the surface the pixel shows) must pass the test against that same surface, never fail it.
+            float pulledFrontKm = max(nearestFrontKm * 0.99f, 1e-9f);
+            float frontDevice   = clamp(offset + slope / pulledFrontKm, 0.0f, 1.0f);
+            imageStore(UpsampledCloudFrontDepthTexture, coord, vec4(frontDevice, 0.0f, 0.0f, 0.0f));
         }
     }
 }

@@ -370,8 +370,18 @@ namespace Desert::Graphic
         auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
             return;
-        VolumetricCloudHistory&             history = m_ViewState.Clouds();
-        ComputeNodeList                     nodes   = clouds->DeclareFrameNodes( graph, frame, history );
+        VolumetricCloudHistory& history = m_ViewState.Clouds();
+        const bool              async   = queue == CloudQueue::AsyncCompute;
+        // FPS-CLOUDS-WATER: the early (async) chain marches against the G-buffer depth - the opaque scene without
+        // the water (UE SceneDepthWithoutSingleLayerWater), the same image the radiance cache's async run reads -
+        // never the scene target's depth, which the water writes after it ("Deferred: Water"): that write would
+        // join the run before the water and hand the graphics queue the march back. The composite's depth test
+        // (CloudComposite.shader) then drops the cloud behind the water surface. The late chain reads the scene
+        // target's depth, final there (DeclareFrameNodes' default).
+        RDG::TextureRef marchDepth;
+        if ( async && m_GBuffer && m_GBuffer->GetDepthAttachmentCount() > 0 )
+            marchDepth = textures.Depth( m_GBuffer, "GBuffer" );
+        ComputeNodeList nodes = clouds->DeclareFrameNodes( graph, frame, history, marchDepth );
         // FPS-CLOUDS-MARCH (UE: the volumetric render target traced on the async pipe, r.VolumetricCloud.
         // AsyncCompute / r.VolumetricRenderTarget): every node of the layer - the stale sky occlusion, the march,
         // the temporal resolve and the upsample - is a compute dispatch whose graph inputs are the scene depth,
@@ -385,7 +395,6 @@ namespace Desert::Graphic
         // once, so an async run would only become a wait. RenderPipeline.AsyncCompute 0 or a device without a
         // compute family demotes them anyway, and FPS-ASYNC-BALANCE gives a pass back to Graphics when the run
         // outlasts its window.
-        const bool async = queue == CloudQueue::AsyncCompute;
         for ( ComputeNodeDeclaration& node : nodes )
             node.AsyncCompute = async;
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
@@ -400,6 +409,7 @@ namespace Desert::Graphic
         const System::VolumetricCloudRenderer::FrameResult result = clouds->GetFrameResult();
         if ( accepted && hasNodes && result.Reconstruction.Scatter.IsValid() )
             history.SetWriterPass( firstPass + result.ResolveNode );
-        textures.Transients.CloudScatter = result.Upsampled;
+        textures.Transients.CloudScatter    = result.Upsampled;
+        textures.Transients.CloudFrontDepth = result.UpsampledFrontDepth;
     }
 } // namespace Desert::Graphic

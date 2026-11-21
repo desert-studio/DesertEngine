@@ -91,6 +91,9 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // VolumetricCloudRenderer::EnsureTraceTargets.
     inline constexpr ImageFormat kCloudTrace = ImageFormat::RGBA16F;
+    // CloudUpsample's full-resolution cloud-front device depth (reversed-Z), the composite's fragment depth: one
+    // 32-bit float, the depth attachment's own precision.
+    inline constexpr ImageFormat kCloudFrontDepth = ImageFormat::R32F;
 
     // The path tracer (System::PathTracer). The accumulation sums up to PathTracing.MaxSamples paths per pixel
     // (rgb) and counts them (a): a half float stops adding 1 at 2048, so it is 32-bit. The sky's equal-area

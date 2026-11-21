@@ -105,8 +105,12 @@ namespace Desert::Graphic::System
     struct VolumetricCloudCompositeShaderParameters
     {
         DESERT_SHADER_PARAMETER( Texture, CloudScatterTexture );
+        // The device depth of each pixel's cloud front (CloudUpsample.shader), written as the fragment's depth so
+        // the hardware depth test drops the cloud behind a surface drawn after the march (the water).
+        DESERT_SHADER_PARAMETER( Texture, CloudFrontDepthTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
-        static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( LinearRepeatSampler ) };
+        static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( CloudFrontDepthTexture ),
+                                          RDG::Erase( LinearRepeatSampler ) };
     };
 
     // GPU-FARFIELD-4: one frame of the march's own counters ("Clouds.MarchCounters", CloudRaymarch.shader
@@ -190,8 +194,13 @@ namespace Desert::Graphic::System
          */
         // @p frame: this view's frame (TAA1 step 3) — the march's and the resolve's matrices and camera position,
         // and whether the view's previous frame may be reprojected at all (ViewFrame::HistoryValid).
+        // @p marchDepth: the graph depth the march, the resolve and the upsample read; invalid = the scene
+        // target's single-sample depth (SceneRenderer::GetComputeSceneDepth), final only after the opaque scene.
+        // The early (async) placement passes the G-buffer depth - the opaque depth without the water (UE
+        // SceneDepthWithoutSingleLayerWater) - which nothing after it writes this frame, so the run is not joined
+        // by the water's depth write; the composite's depth test then drops the cloud behind the water.
         ComputeNodeList DeclareFrameNodes( RDG::Builder& graph, const ViewFrame& frame,
-                                           VolumetricCloudHistory& history );
+                                           VolumetricCloudHistory& history, RDG::TextureRef marchDepth );
         // Graph-build state of DeclareFrameNodes, applied once the frame graph answered: @p accepted publishes
         // the frame's reconstruction refs and advances the frame index; a refusal publishes none (the composite
         // draws nothing) and drops the sky-occlusion volume rather than claim a resolve that never ran.
@@ -217,6 +226,9 @@ namespace Desert::Graphic::System
             VolumetricCloudHistory::Refs Reconstruction;
             // The full-resolution image the upsample writes and the composite reads 1:1.
             RDG::TextureRef Upsampled;
+            // Beside it, the device depth (reversed-Z) of each pixel's nearest cloud front: the composite's
+            // fragment depth.
+            RDG::TextureRef UpsampledFrontDepth;
             // The resolve's position among the nodes DeclareFrameNodes returned: the writer whose loss the
             // view's EndFrame checks (SceneRenderer::AddFrameVolumetricClouds turns it into a pass index).
             uint32_t ResolveNode = 0;

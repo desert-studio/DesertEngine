@@ -1011,7 +1011,8 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the clouds and the particles after it see the surface. It samples the opaque
+        // depth, so the glass, the clouds and the particles after it see the surface (the clouds through their
+        // composite's depth test when they were marched early against the G-buffer depth, CloudComposite.shader). It samples the opaque
         // scene's copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different
         // image from the scene target's depth it writes -
         // UE's SceneDepthWithoutSingleLayerWater). It fogs itself at its own depth (the opaque fog ran before it;
