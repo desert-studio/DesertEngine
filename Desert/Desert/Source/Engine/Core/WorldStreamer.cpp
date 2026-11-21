@@ -819,7 +819,7 @@ namespace Desert::Core
             for ( const std::size_t record : records )
                 if ( const auto entity = m_Owner.m_Scene->FindEntityByID( m_RecordIds.at( record ) );
                      entity.has_value() )
-                    m_Owner.m_Scene->DestroyEntity( entity->get() );
+                    m_Owner.m_Scene->DestroyEntityAtFence( entity->get() );
         }
 
         void StartLoad( std::size_t unit, std::uint64_t ticket ) override
@@ -1284,8 +1284,10 @@ namespace Desert::Core
         {
             // A child already went with its parent's tree; a prefab instance's inner entities go with its root.
             const auto entity = m_Scene->FindEntityByID( m_RecordIds.at( record ) );
+            // Streamed out without a mid-frame wait for the render task (WP-OPT-UNLOAD): hidden now, destroyed at
+            // the next view fence.
             if ( entity.has_value() )
-                m_Scene->DestroyEntity( entity->get() );
+                m_Scene->DestroyEntityAtFence( entity->get() );
         }
     }
 

@@ -17,6 +17,15 @@ namespace Desert::ECS
     {
     };
 
+    // AN ENTITY STREAMED OUT, DESTROYED AT THE NEXT VIEW FENCE (WP-OPT-UNLOAD; UE: a streamed-out level's
+    // components are unregistered and its primitives leave the FScene through the render command queue - the
+    // game thread never waits for the rendering thread to stream out). Scene::DestroyEntityAtFence stamps it on
+    // the whole subtree so this update's recording no longer draws the entity, and destroys the tree once the
+    // views that may still replay its draws have finished. Runtime only, never saved.
+    struct StreamingOutComponent
+    {
+    };
+
     // ── "DO NOT DRAW ME", AS ONE PURE FUNCTION OF A REGISTRY ─────────────────────────────────────────
     //
     // The outliner's eye and the Details "Visible" tick both write one bool, VisibilityComponent::Visible,
@@ -44,7 +53,7 @@ namespace Desert::ECS
     {
         if ( entity == entt::null || !registry.valid( entity ) )
             return false;
-        if ( registry.has<StreamingPendingComponent>( entity ) )
+        if ( registry.has<StreamingPendingComponent>( entity ) || registry.has<StreamingOutComponent>( entity ) )
             return true;
 
         // Its data layers are hidden in the editor (UE bHiddenEdLayer): stamped on the entity itself, so no walk.

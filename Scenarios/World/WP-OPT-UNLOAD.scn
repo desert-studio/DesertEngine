@@ -1,0 +1,14 @@
+# WP-OPT-UNLOAD (owner queue 11-21 "optimise World Partition"): a cell streamed out no longer stalls the frame.
+# Before: headless flight over WP_Protocol (Debug) CPU p50 52.0 / p99 74.1 / max 305 ms; every deactivation frame waited
+# for the render task inside Scene::DestroyEntity (RenderTask::Join -> WaitDrained) once per streamed-out record.
+# UE 5.5 ULevelStreaming unload: components unregistered, primitives removed through the render command queue, the game
+# thread never waits mid-frame. Now WorldStreamer::Destroy -> Scene::DestroyEntityAtFence: the subtree is hidden
+# (ECS::StreamingOutComponent), its ids stop resolving, and the tree is destroyed at the next view fence (AfterViews).
+# [flight_after] is the headless flight profiler (ShotOptions --flight), the same line as WP-PERF [1_flight]:
+#   Editor --project Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce --play
+#          --flight line:-90000,5000,0:90000,5000,0 --flight-speed 6000 --flight-csv <scratch>/WP-PERF/flight-after.csv
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Play"
+Тогда flight_after editor.log «[Flight]»: ни одного кадра дольше 100 мс; stream_ms кадров с деактивацией ячеек меньше 5 мс
+# Regression: WP-DATA-LAYERS-RUNTIME and WP-FAR-9 frames still show cells streaming in and out as before.

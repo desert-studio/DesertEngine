@@ -1254,6 +1254,7 @@ namespace Desert::Core
         r.prepare<ECS::VisibilityComponent>();
         r.prepare<ECS::HiddenByDataLayersComponent>();
         r.prepare<ECS::StreamingPendingComponent>(); // ECS::IsHidden reads it from every collector
+        r.prepare<ECS::StreamingOutComponent>();     // and this one (DestroyEntityAtFence)
 
         // Renderables.
         r.prepare<ECS::StaticMeshComponent>();
@@ -1878,6 +1879,42 @@ namespace Desert::Core
         // The algorithm lives beside the index it maintains — see SceneEntityIndex.hpp for why it is O(1)
         // per entity and what that did to the order of GetAllEntities().
         DestroyEntityTree( m_Registry, m_Entities, entity.GetHandle() );
+    }
+
+    void Scene::DestroyEntityAtFence( ECS::Entity entity )
+    {
+        if ( !entity || !m_Registry.valid( entity.GetHandle() ) )
+            return;
+        const entt::entity root = entity.GetHandle();
+        // Hidden and unnamed now, the whole subtree: a prefab instance's inner entities go with its root.
+        std::vector<entt::entity> walk{ root };
+        while ( !walk.empty() )
+        {
+            const entt::entity next = walk.back();
+            walk.pop_back();
+            if ( !m_Registry.valid( next ) || m_Registry.has<ECS::StreamingOutComponent>( next ) )
+                continue;
+            m_Registry.emplace<ECS::StreamingOutComponent>( next );
+            m_Entities.ForgetId( next );
+            if ( const auto* relationship = m_Registry.try_get<ECS::RelationshipComponent>( next ) )
+                walk.insert( walk.end(), relationship->Children.begin(), relationship->Children.end() );
+        }
+        MarkRenderStateDirty( root, true );
+        m_DestroyAtFence.push_back( root );
+        if ( m_DestroyAtFence.size() > 1 )
+            return; // the command queued for the first root destroys this one too
+        // Serial, or nothing in flight: it runs now.
+        ::Desert::Engine::RenderTask::Get().AfterViews(
+             [this]()
+             {
+                 DESERT_PROFILE_SCOPE( "Scene: Destroy streamed-out entities (fence)" );
+                 std::vector<entt::entity> roots = std::move( m_DestroyAtFence );
+                 m_DestroyAtFence.clear();
+                 // A root destroyed since (a script, its parent's tree) is no longer valid; DestroyEntityTree
+                 // skips it, and a recycled handle carries another version.
+                 for ( const entt::entity doomed : roots )
+                     DestroyEntityTree( m_Registry, m_Entities, doomed );
+             } );
     }
 
 } // namespace Desert::Core
