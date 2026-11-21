@@ -66,8 +66,11 @@ namespace Common::Content
     /// Version 8 (GPU-COST-9) appends the SubmeshLodChains section: per submesh, whether its LODs are the cook's
     /// whole chain (Assets::Serialization::SubmeshData::LodChainCooked). v6/v7 are read with it derived from the
     /// LODs present (what their loads did); Tools/SceneMigrator writes them back as v8.
+    /// Version 9 (FPS-GRASS-LOD) appends the LodCutErrors section: per LOD range, the relative error a cluster-DAG
+    /// level was cut at (0 = none stated). v6-v8 are read as "no errors" (uncapped levels); Tools/SceneMigrator
+    /// writes them back as v9.
     inline constexpr uint32_t kMeshBinaryVersion =
-         8; // 8: cooked LOD chain per submesh; 7: cluster DAG; 6: skinned DisplacementMode; 5: SkeletonGuid
+         9; // 9: LOD cut errors; 8: cooked LOD chain per submesh; 7: cluster DAG; 6: DisplacementMode; 5: Skeleton
     inline constexpr uint32_t    kMeshBinaryOldestReadVersion = 6;
     [[nodiscard]] constexpr bool IsReadableMeshBinaryVersion( const uint32_t version )
     {

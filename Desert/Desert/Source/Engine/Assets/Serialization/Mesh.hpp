@@ -85,6 +85,12 @@ namespace Desert::Assets::Serialization
         // back.
         bool LodChainCooked = false;
 
+        // THE LEVELS' CUT ERRORS (MeshBinary v9, FPS-GRASS-LOD): for a chain cut from ClusterDag at
+        // Geometry::kClusterDagCutErrors, the relative error (of the submesh's bounds radius) each level of LODs
+        // was cut at, index-aligned with LODs. Empty = no error known (a generated or imported chain, or a v6-v8
+        // file): the level's screen size is not capped by it (Geometry::ResolveLODScreenSizes).
+        std::vector<float> LodCutErrors;
+
         // THE SUBMESH'S CLUSTER LOD DAG (MeshBinary v7, VIRT-GEOM): built at cook for a mesh imported with
         // MeshImportSettings::VirtualGeometry, empty (no clusters) otherwise. Vertex refs are submesh-relative, as
         // the triangles of Indices / LODs are.

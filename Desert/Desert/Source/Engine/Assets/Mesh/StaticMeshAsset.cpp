@@ -157,6 +157,7 @@ namespace Desert::Assets
         for ( size_t s = 0; s < m_Submeshes.size() && s < data.Submeshes.size(); ++s )
         {
             m_Submeshes[s].LodChainCooked = data.Submeshes[s].LodChainCooked;
+            m_Submeshes[s].LODCutErrors   = data.Submeshes[s].LodCutErrors;
             auto& baked                   = m_Submeshes[s].BakedLODs;
             baked.clear();
             baked.reserve( data.Submeshes[s].LODs.size() );
