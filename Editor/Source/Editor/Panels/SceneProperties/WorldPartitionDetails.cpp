@@ -6,6 +6,7 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -300,7 +301,8 @@ namespace Desert::Editor
             return "not planned: the world states no runtime partition";
         const ::Desert::Core::WorldPartitionSerialized& partition = *serialized.WorldPartition;
         const Rules::WorldPartitionPlan       plan =
-             Rules::PlanWorldPartition( serialized.Entities, partition, ::Desert::Core::RegistryMeshBounds() );
+             Rules::PlanWorldPartition( serialized.Entities, partition, ::Desert::Core::RegistryMeshBounds(),
+                                       ::Desert::Core::WorldCells::ScriptReferenceKinds() );
 
         const Common::UUID uuid   = entity.GetComponent<::Desert::ECS::UUIDComponent>().UUID;
         std::size_t        record = Rules::kNoRecord;
