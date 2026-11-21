@@ -10,6 +10,8 @@
 #include <Engine/Runtime/Services/Mesh/MeshUploader.hpp>
 
 #include <atomic>
+#include <chrono>
+#include <future>
 #include <mutex>
 #include <shared_mutex>
 #include <span>
@@ -68,7 +70,19 @@ namespace Desert::Runtime
         // resident is PENDING: the first ask requests it from AsyncAssetLoader and answers nullptr, which
         // the draw path already treats as "do not draw"; the frame after it lands, `Get` builds the GPU mesh
         // (an upload, not a read). A handle the service has no shell for is discovered from its registry row.
+        //
+        // THE BUILD OF A STATIC MESH IS NOT THIS THREAD'S EITHER (UE: render data on the async loading thread, RHI
+        // init after). Once the read landed, the first `Get` resolves the mesh's dependencies and hands the CPU
+        // build (LOD chain, screen coverage, staged copy, MeshFactory::Stage) to a worker and answers nullptr; the
+        // `Get` that finds the worker done uploads what it staged (IMeshUploader::Commit) and answers the mesh.
+        // StateOf reads Pending the whole time, so a streamer warming a cell keeps the previous representation
+        // until the mesh draws (WorldStreamer's warmup over ClosureArriving). A skinned mesh is built in place.
         Mesh*              Get( const Assets::AssetHandle& handle ) const;
+
+        /// THE BLOCKING DOOR OVER `Get`: everything Get does, but a mesh whose read has landed is built before
+        /// this returns — on this thread, or by waiting for the worker build already in flight. For the doors
+        /// that promise a complete answer (AwaitResident, LoadNow, the scene-open closure), never for a frame.
+        Mesh*              GetNow( const Assets::AssetHandle& handle ) const;
         Assets::MeshAsset* GetAsset( const Assets::AssetHandle& handle ) const; // parsed, or nullptr (pending)
 
         /// THE SCENE-OPEN DOOR (plan §2.4(b)): request every mesh in @p handles and its rig, block until the
@@ -189,6 +203,17 @@ namespace Desert::Runtime
         // and never consults the asset again.
         Common::BoolResultStr BuildAndCache( const std::shared_ptr<Assets::MeshAsset>& meshAsset ) const;
 
+        // BuildAndCache's two halves. StageBuild is the CPU half and runs on any thread: it takes no lock of the
+        // service and reads nothing but the (parsed, resolved) asset and its file's LOD screen sizes, and checks
+        // the relation above. CommitAndCache is the device half and the cache write (m_Lock held exclusively).
+        static Common::ResultStr<std::shared_ptr<Mesh>> StageBuild( IMeshUploader&                            uploader,
+                                                                    const std::shared_ptr<Assets::MeshAsset>& meshAsset );
+        Common::BoolResultStr CommitAndCache( const std::shared_ptr<Assets::MeshAsset>& meshAsset,
+                                              std::shared_ptr<Mesh>                     mesh ) const;
+
+        // Get and GetNow: @p wait builds (or waits for the worker build) instead of answering pending.
+        Mesh* Resolve( const Assets::AssetHandle& handle, bool wait ) const;
+
         // ONE LOCK OVER BOTH MAPS (UE: the render thread reads a published resource; replacement is deferred
         // deletion). Shared for the lookups (`Get`'s hit, HasAsset, StateOf, IsSkinned, BuiltHandles), exclusive
         // for everything that inserts, builds, evicts or clears. Every private helper below runs with it held
@@ -229,6 +254,11 @@ namespace Desert::Runtime
             Assets::LoadRequest                  RigRead;
             std::optional<RigAwaited>            AwaitedRig;
             bool                                 Failed = false;
+            // The worker build of a static mesh in flight (Get). It owns its asset pointer and the uploader's
+            // address (the uploader lives as long as the service), never the Entry: Clear may drop the Entry
+            // while it runs, and then the staged mesh it answers dies unused.
+            std::future<Common::ResultStr<std::shared_ptr<Mesh>>> Building;
+            std::chrono::steady_clock::time_point                 BuildStarted;
         };
 
         Entry* FindOrDiscover( const Assets::AssetHandle& handle ) const;

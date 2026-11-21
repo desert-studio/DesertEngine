@@ -120,12 +120,16 @@ namespace
         std::shared_ptr<int> UploadsOfShells = std::make_shared<int>( 0 );
         std::shared_ptr<int> SubmeshSkew     = std::make_shared<int>( 0 );
 
-        std::shared_ptr<Mesh> Upload( const std::shared_ptr<Assets::MeshAsset>& asset ) override
+        std::shared_ptr<Mesh> Stage( const std::shared_ptr<Assets::MeshAsset>& asset ) override
         {
             ++*Uploads;
             if ( !asset->IsReadyForUse() )
                 ++*UploadsOfShells;
             return std::make_shared<FakeMesh>( asset->GetSubmeshes().size() + *SubmeshSkew );
+        }
+        bool Commit( const std::shared_ptr<Mesh>& mesh, const Assets::MeshAsset& ) override
+        {
+            return mesh != nullptr;
         }
     };
 
@@ -201,8 +205,11 @@ TEST_F( MeshServiceResidency, AnArrivedMeshIsDrawnFromTheNextAskAndBuiltOnce )
     ASSERT_EQ( Service->Get( Handle ), nullptr );
     ASSERT_TRUE( PumpUntilQuiet() );
 
-    const Mesh* drawn = Service->Get( Handle );
-    ASSERT_NE( drawn, nullptr ) << "the read arrived and the next ask still drew nothing";
+    // The arrival's ask hands the CPU build to a worker and answers pending (the frame never builds it);
+    // GetNow is the door that waits for that build.
+    ASSERT_EQ( Service->Get( Handle ), nullptr ) << "the frame's ask built the mesh on the frame's thread";
+    const Mesh* drawn = Service->GetNow( Handle );
+    ASSERT_NE( drawn, nullptr ) << "the read arrived and the worker build drew nothing";
     EXPECT_EQ( drawn->GetSubmeshes().size(), 2u );
     EXPECT_EQ( Service->Get( Handle ), drawn )
          << "a second ask rebuilt the mesh instead of drawing the cached one";
@@ -231,7 +238,7 @@ TEST_F( MeshServiceResidency, ABuildWhoseSubmeshesDisagreeWithTheAssetIsNeverDra
     ASSERT_EQ( Service->Get( Handle ), nullptr );
     ASSERT_TRUE( PumpUntilQuiet() );
 
-    EXPECT_EQ( Service->Get( Handle ), nullptr )
+    EXPECT_EQ( Service->GetNow( Handle ), nullptr )
          << "a mesh with 3 submeshes built from a 2-submesh asset was drawn";
     EXPECT_EQ( Service->Get( Handle ), nullptr );
     EXPECT_EQ( *Uploads, 1 ) << "a failed mesh is final; the service rebuilt it on every ask";
@@ -244,7 +251,7 @@ TEST_F( MeshServiceResidency, AnEvictedMeshReleasesItsBuffersAndRebuildsWithoutA
 {
     ASSERT_EQ( Service->Get( Handle ), nullptr );
     ASSERT_TRUE( PumpUntilQuiet() );
-    ASSERT_NE( Service->Get( Handle ), nullptr );
+    ASSERT_NE( Service->GetNow( Handle ), nullptr );
     ASSERT_EQ( g_LiveMeshes.load(), 1 );
 
     // WP13: an evicted mesh is PARKED with the sweep's absolute frame and released once every frame recorded
@@ -259,7 +266,7 @@ TEST_F( MeshServiceResidency, AnEvictedMeshReleasesItsBuffersAndRebuildsWithoutA
     EXPECT_EQ( Service->RetireEvicted(), 1u );
     EXPECT_EQ( g_LiveMeshes.load(), 0 ) << "retirement kept the device buffers alive";
 
-    EXPECT_NE( Service->Get( Handle ), nullptr );
+    EXPECT_NE( Service->GetNow( Handle ), nullptr );
     EXPECT_EQ( *Uploads, 2 );
     EXPECT_EQ( Asset->Reads.load(), 1 );
     EXPECT_EQ( SyncLoadLedger::InFrameLoads(), 0u );

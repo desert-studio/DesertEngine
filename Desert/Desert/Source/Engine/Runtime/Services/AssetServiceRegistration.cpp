@@ -288,7 +288,7 @@ namespace Desert::Runtime
         if ( meshes != nullptr )
             for ( const auto& row : closure )
                 if ( IsMeshKind( row.Kind ) )
-                    outcome.DrawableMeshes += meshes->Get( row.Handle ) != nullptr ? 1 : 0;
+                    outcome.DrawableMeshes += meshes->GetNow( row.Handle ) != nullptr ? 1 : 0;
         return outcome;
     }
 
