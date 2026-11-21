@@ -2657,6 +2657,40 @@ namespace Desert::Graphic::System
         placements.Cursor = scene.GetChangeSerial();
     }
 
+    void MeshRenderer::SelectSkinnedLods()
+    {
+        // THE ONE SKELETAL LOD OF THIS FRAME (UE USkinnedMeshComponent::UpdateLODStatus -> PredictedLODLevel): per
+        // skinned record, from the view's FROZEN main camera (BeginScene), before the GpuScene rows, the skin
+        // cache's dispatch ranges and every pass read it - every view and shadow of the frame skins and draws
+        // that one level. Picked here, not at submit: the submit runs on the game side before the view froze its
+        // camera, so it priced the record against no camera (LOD 0 forever).
+        if ( m_SkinnedQueue.empty() )
+            return;
+        if ( m_SceneRenderer->GetMainCamera() == nullptr && !m_SkinnedLodNoCameraReported )
+        {
+            m_SkinnedLodNoCameraReported = true;
+            LOG_WARN( "[SkinnedLOD] no main camera at the frame's sync: skinned meshes draw LOD 0" );
+        }
+        for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+        {
+            data.Lod = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
+            const auto& lods = data.Mesh->GetSkinnedLODs();
+            if ( lods.empty() )
+                continue;
+            data.Lod                     = std::min<uint32_t>( data.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
+            const auto [reported, fresh] = m_SkinnedLodReported.try_emplace( data.Entity, data.Lod );
+            if ( !fresh && reported->second == data.Lod )
+                continue;
+            reported->second                    = data.Lod;
+            const SkinnedMesh::SkinnedLOD& lod  = data.Mesh->GetSkinnedLOD( data.Lod );
+            const SkinnedMesh::SkinnedLOD& full = lods.front();
+            LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, {} "
+                      "influences",
+                      data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
+                      lod.RequiredBones, full.RequiredBones, lod.MaxInfluences );
+        }
+    }
+
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
                                                       std::span<const MotionRecord>          otherRigid,
                                                       RayTracing::RayTracingSkinCache* const skinCache,
@@ -2675,6 +2709,7 @@ namespace Desert::Graphic::System
         // one stand-in draw while a pipeline compiled held the control gate's MaterialPipelines raised for good
         // (WIREFRAME-QUIESCENCE), and under deferred it wiped the counts of the passes declared before it.
         m_StandInDraws = 0;
+        SelectSkinnedLods();
         registry.BeginFrame( frame );
         GpuDriven::GpuScene& scene = registry.Scene();
 
@@ -3316,6 +3351,10 @@ namespace Desert::Graphic::System
                     skinnedData.BoneMatrices = std::span<const glm::mat4>( *skinnedData.BoneOwner );
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
+                // The level is chosen in SyncGpuScene from the frame's frozen main view (SelectSkinnedLods); the
+                // author's forced level / bias ride with the record (UE ForcedLodModel / LOD bias).
+                skinnedData.ForcedLOD = data.ForcedLOD;
+                skinnedData.LODBias   = data.LODBias;
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
                 // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )

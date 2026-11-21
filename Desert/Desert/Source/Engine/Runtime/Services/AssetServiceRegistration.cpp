@@ -219,14 +219,17 @@ namespace Desert::Runtime
                 {
                     arena += submesh.VertexCount;
                     indices += submesh.IndexCount;
-                    if ( skinned )
-                        continue; // a skinned mesh uploads no LOD chain (SkinnedMesh.cpp)
+                    uint64_t chainIndices = 0;
                     if ( !submesh.LodChainCooked )
-                        indices +=
-                             Geometry::AutoLODIndexTarget( submesh.IndexCount, Geometry::UnbakedLODChain() );
+                        chainIndices = Geometry::AutoLODIndexTarget( submesh.IndexCount, Geometry::UnbakedLODChain() );
                     else
                         for ( const auto& level : submesh.BakedLODs )
-                            indices += level.size() * 3;
+                            chainIndices += level.size() * 3;
+                    indices += chainIndices;
+                    // A skinned level carries its own vertex copies (SkinnedMesh::GetSkinnedLODs): about one per
+                    // triangle of the level (a closed surface has half as many vertices as triangles).
+                    if ( skinned )
+                        arena += chainIndices / 3u;
                 }
                 ++counted;
             }

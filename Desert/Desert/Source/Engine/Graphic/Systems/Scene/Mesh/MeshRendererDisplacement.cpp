@@ -213,6 +213,7 @@ namespace Desert::Graphic::System
             }
             data.Sections   = SkinnedSectionList( std::move( sections ) );
             data.SkinSource = data.Mesh;
+            data.Lod        = 0; // the twin is tessellated from LOD 0, the base skinned whole
             data.Mesh       = twin.get(); // the cache holds the twin past this frame's draws (parked on release)
         }
         for ( StaticMeshRenderData& data : m_StaticQueue )

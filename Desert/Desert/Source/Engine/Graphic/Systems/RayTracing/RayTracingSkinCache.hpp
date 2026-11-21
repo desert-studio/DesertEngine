@@ -189,6 +189,8 @@ namespace Desert::Graphic::RayTracing
             uint64_t            LastFrame     = 0;     // last frame a view asked for it
             uint64_t            SkinnedFrame  = 0;     // last frame a skin graph that skinned it executed
             uint64_t            BuiltFrame    = 0;     // last frame its BLAS build was declared
+            uint32_t            SkinnedLod    = 0;     // the LOD SkinnedFrame skinned (its range holds that pose)
+            uint32_t            PendingLod    = 0;     // the LOD this frame's dispatch skins
             bool                StreamsReady  = false; // prepared in LastFrame: rows carry its address
             bool                HasSkinned    = false; // SkinnedFrame is meaningful
             bool                BlasReady     = false; // BuiltFrame's build was declared

@@ -488,7 +488,7 @@ namespace Desert::Graphic::System
         {
             if ( data.Entity != entity || data.Mesh == nullptr )
                 continue;
-            // One draw per section, each with its own material (BuildSkinnedDraws); the skin pass draws LOD 0.
+            // One draw per section, each with its own material (BuildSkinnedDraws), at the record's skinned LOD.
             for ( uint32_t section = 0; section < data.Sections.size(); ++section )
             {
                 PrimitiveDrawReadout& out    = draws.emplace_back();
@@ -499,6 +499,7 @@ namespace Desert::Graphic::System
                 out.ShadingPass  = shading.Translucent ? Pass::Translucency : opaquePass;
                 out.CastShadows  = data.CastShadows;
                 out.GpuPrimitive = data.GpuPrimitive;
+                out.Lod          = data.Lod;
                 place( out, data.Transform, *data.Mesh );
             }
         }
@@ -652,6 +653,7 @@ namespace Desert::Graphic::System
                                                  .Mesh      = sd->Mesh,
                                                  .Transform = sd->Transform,
                                                  .Material  = skinnedMask->GetMaterialExecutor(),
+                                                 .LodLevel  = sd->Lod, // the level the skin pass skinned
                                                  .Push      = DrawPushFields{}
                                                               .BoneOffset( boneOffset, /*required*/ false )
                                                               .SkinCache( address, row.SkinCacheVertexCount ) } );
