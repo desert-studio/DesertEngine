@@ -1,0 +1,17 @@
+# WP-PLAY-SLAB (owner 11-21 "WP ready? plane flight? scope?"): WP-OPT-UNLOAD [play_hill] showed a flat brown slab over
+# the upper half of the Play view. It was the Player 9000001 itself: a 2 m Cube (CB_Orange, Scale 2) at (0,-204,0),
+# its bottom face at y -304, and WP_Protocol's Play camera 1003 (AutoActivateForPlayer, the view target with no pawn)
+# parked at (0,-310,0) - 6 cm under that face, looking -Z. The near plane (10 cm) cut the face at 31 deg above the
+# view axis (atan 6/10) and its far edge sat 1 m away at 3.4 deg - the slab's top and bottom lines in the frame; the
+# shadow under the camera was the cube's. UE: the player's view comes from the pawn's camera boom, behind and above
+# the pawn, never inside its body. Owner of the wrong data = the scene content: camera 1003 is moved to a third-person
+# spot 12 m behind (+Z) and 5 m above the Player's feet, pitched 14 deg down, and the scene is saved (its external
+# entity file and the partition descriptors through the editor's own save, not by hand).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано select 1003
+Дано --subject selection set Translation 0,190,1200
+Дано --subject selection set Rotation -0.2443,0,0
+Дано run Action "Save Scene"
+Дано run Action "Play"
+Тогда-вид play_hill Play view through camera 1003: open sky over the hill, no slab; the orange Player cube small ahead and below the view centre; landscape + HLOD on the hill drawn, no hole
