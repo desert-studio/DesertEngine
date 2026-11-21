@@ -176,13 +176,6 @@ namespace Desert::Assets
             return asset;
         }
 
-        // WHAT A MISS MEANS — and only the caller knows. See ProbeByHandle below for the whole story.
-        enum class LookupReport
-        {
-            Named,   ///< a mismatch is a symptom: somebody holds the wrong handle. Reported.
-            Probing, ///< a mismatch is the expected answer to "is it one of these?". Trace only.
-        };
-
         template <typename TypeAsset>
         Asset<TypeAsset> FindByHandle( const AssetHandle& handle ) const
         {
@@ -212,12 +205,13 @@ namespace Desert::Assets
         template <typename TypeAsset>
         Asset<TypeAsset> ProbeByHandle( const AssetHandle& handle ) const
         {
+            // A PROBE'S MISS IS ANSWERED BY THE CAST ALONE: no subject string, no log line. It used to go through
+            // AsRequestedType at trace, and a trace line per miss was 95 % of an eviction sweep in a Debug flight
+            // (WP-OPT-EVICT-BATCH, /usr/bin/sample: 1526 of 1665 samples of AssetEviction::Expand in LogTrace) --
+            // a line that says only "the expected answer happened" is not worth a frame.
+            static_assert( std::is_base_of_v<AssetBase, TypeAsset>, "TypeAsset must inherit from AssetBase" );
             if ( auto it = m_HandleLookup.find( handle ); it != m_HandleLookup.end() )
-            {
-                return AsRequestedType<TypeAsset>( m_AssetsCache[it->second].second, "ProbeByHandle",
-                                                   std::to_string( static_cast<uint64_t>( handle ) ),
-                                                   LookupReport::Probing );
-            }
+                return std::dynamic_pointer_cast<TypeAsset>( m_AssetsCache[it->second].second );
             return nullptr;
         }
 
@@ -348,8 +342,7 @@ namespace Desert::Assets
         // discriminator is whether the registry's recorded type id agrees with the requested one.
         template <typename TypeAsset>
         static Asset<TypeAsset> AsRequestedType( const Asset<AssetBase>& stored, const char* who,
-                                                 const std::string& subject,
-                                                 LookupReport       report = LookupReport::Named )
+                                                 const std::string& subject )
         {
             static_assert( std::is_base_of_v<AssetBase, TypeAsset>, "TypeAsset must inherit from AssetBase" );
 
@@ -380,23 +373,9 @@ namespace Desert::Assets
                 // like a typo. Real ERROR lines are only worth reading if they are all real; a routine
                 // subtype probe is not one, so it goes to trace and NAMES BOTH CLASSES rather than the
                 // shared type name that made the pair indistinguishable.
-                // AND THERE IS A THIRD CASE THAT ONLY THE CALLER CAN DECLARE. The two branches below
-                // guess at intent from the type ids, which is all this function can see. A caller that
-                // asks "is this handle a Mesh? a Material? a CloudType?" about EVERY handle it holds —
-                // the eviction root walk does exactly that — expects a mismatch on nearly every question
-                // and a DISAGREEING type id on most of them, so the ERROR branch fires four times per
-                // scene load about work that is going exactly right. No discriminator computed here can
-                // separate that from a real confusion, because the difference is not in the data: it is
-                // in what the caller meant. So the caller says so, with ProbeByHandle, and this stays
-                // quiet for it. See LookupReport above the entry points.
-                if ( report == LookupReport::Probing )
-                {
-                    LOG_TRACE( "AssetManager::{}: '{}' is a '{}', not the '{}' being probed for. The caller "
-                               "declared this a probe over mixed handles, so a miss is the expected answer.",
-                               who, subject, typeid( storedRef ).name(), typeid( TypeAsset ).name() );
-                    return nullptr;
-                }
-
+                // A caller that asks "is this handle one of these?" about every handle it holds does not come
+                // here at all: ProbeByHandle answers with the cast alone, because only the caller can say a
+                // mismatch is the expected answer.
                 const bool typeIdAgrees = stored->GetMetadata().AssetType == TypeAsset::GetTypeID();
                 if ( typeIdAgrees )
                 {
