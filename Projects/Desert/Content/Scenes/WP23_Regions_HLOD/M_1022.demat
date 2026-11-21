@@ -1,0 +1,42 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "d57fac70ccc26c3ecfd15107e71804ee",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "880d5a45a6271bff4f57fcafa9baaf2f", "23659fec2dd76278ab8dcaac21b36d39", "6d07b065d8cde8eca8756fcd5d0632e0"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "880d5a45a6271bff4f57fcafa9baaf2f",
+            "Path": "assets:Scenes/WP23_Regions_HLOD/T_1022_BaseColor.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "23659fec2dd76278ab8dcaac21b36d39",
+            "Path": "assets:Scenes/WP23_Regions_HLOD/T_1022_ORM.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "6d07b065d8cde8eca8756fcd5d0632e0",
+            "Path": "assets:Scenes/WP23_Regions_HLOD/T_1022_Normal.detex"
+        }
+    ],
+    "CloudAssets": []
+}
