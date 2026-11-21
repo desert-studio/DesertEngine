@@ -2171,14 +2171,18 @@ namespace Desert::Graphic
         // since "Setup: Grass plan" (FPS-GRASS-PLAN): joined here, committed into this graph.
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass" );
         grassTasks.Join();
-        if ( growsGrass )
-            m_Systems.Grass->CommitFrame( graph, *m_Systems.Mesh.get() );
         // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the
-        // grass registered it just above: FramePrevHzb hands the same ref), before any node drawing the terrain.
+        // grass plan registered it above: FramePrevHzb hands the same ref), before any node drawing the
+        // terrain. FPS-TERRAIN-PREPASS-WAIT: declared BEFORE the grass commit, so it is the FIRST pass of the
+        // async run it shares with the grass cull chain ("Grass: Camera Cull Tiles" ..). Its consumer, the
+        // terrain depth prepass, comes before any grass consumer, so CutRunsAtConsumers cuts the run right after
+        // it: the prepass joins on the cull alone, not on the 7-pass chain the cull used to end (FIELD_Barn: 0.35
+        // ms graphics wait before "Deferred: Terrain Depth Prepass"); the grass passes follow on the compute
+        // queue and join at their own consumers (UE: the landscape's view cull issued first on async compute).
         {
             // RenderPipeline.LandscapeDiceCullAsync (FPS-TERRAIN-LOD): the cull as an async segment - its first
-            // reader is the terrain's first raster (the depth prepass), past the landscape's virtual texture pages
-            // declared below, so the graph's join lands after work the cull overlaps.
+            // reader is the terrain's first raster (the depth prepass), past the grass commit and the landscape's
+            // virtual texture pages declared below, so the graph's join lands after work the cull overlaps.
             const int diceCullAsync =
                  m_Quality.As<int>( Common::Scalability::Parameter::RenderPipelineLandscapeDiceCullAsync );
             System::TerrainRenderer::DiceOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black,
@@ -2198,7 +2202,12 @@ namespace Desert::Graphic
                       terrain->AddDiceCullPass( graph, textures, frame, occlusion );
                  !culled )
                 LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), culled.GetError() );
+        }
+        if ( growsGrass )
+            m_Systems.Grass->CommitFrame( graph, *m_Systems.Mesh.get() );
+        {
             // LANDSCAPE-RVT: the landscape's runtime virtual texture pages, before the G-buffer pass reads them.
+            auto* terrain = m_Systems.Terrain.get();
             if ( const Common::BoolResultStr virtualTexture = terrain->AddVirtualTexturePasses(
                       graph, textures, frame,
                       m_RenderPath == Core::RenderPath::Deferred && !m_ViewProfile.SceneCapture );
