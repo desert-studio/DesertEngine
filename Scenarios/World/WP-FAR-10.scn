@@ -2,12 +2,14 @@
 # UE 5.5 USkeletalMesh LODs: each LOD its own vertices (FSkeletalMeshLODRenderData) and required bones, the LOD picked
 # from FOV-aware screen size (USkinnedMeshComponent::UpdateLODStatus), the skin cache skinning ONLY that LOD's
 # vertices. Here: SkinnedMesh::GetSkinnedLODs (vertex range + required bones + influences per level), the record's
-# Lod (SkinnedMeshRenderData::Lod, ComputeLOD at submit), the SkinCache dispatch sized by the level's range.
+# Lod (SkinnedMeshRenderData::Lod, MeshRenderer::SelectSkinnedLods at the frame's GpuScene sync), the SkinCache dispatch sized by the level's range.
 # Readout: editor.log "[SkinnedLOD] entity E: LOD l/n skins V of V0 vertices (from F), B of B0 bones, I influences",
 # one line each time the entity's level changes. Scene: CesiumMan (walk clip, plain material - not displaced) on a
 # wide ground, the player camera not auto-activated, so the viewport camera is the view.
+# ViewDistance High: the Cinematic level (this machine's default) resolves MeshLOD 0 = every mesh draws LOD 0.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR10_SkinnedLOD.desce
 Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
 Когда --subject viewport set Camera.FOV 90
