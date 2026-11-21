@@ -16,6 +16,8 @@
 //   - Planar:         PlanarCut.cpp FPlanarCells(planes) — the plane arrangement inside the bounds; built with
 //                     voro++'s own cell clipping (voronicell::plane) so all three methods share one polytope type.
 
+#include <Engine/Destruction/FractureCutSettings.hpp>
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -72,21 +74,6 @@ namespace Desert::Destruction
     std::vector<glm::dvec3> GenerateClusteredSites( const CellBounds& bounds, int clusters, int sitesPerCluster,
                                                     double minRadius, double maxRadius, FractureRandom& random );
 
-    /// UE Fracture Mode "Radial" (FractureToolRadial.cpp GenerateVoronoiSites), made three-dimensional: UE lays
-    /// AngularSteps sites on each of RadialSteps RINGS in the plane of a normal, so its cells are wedges through
-    /// the whole object; here each ring is a SHELL (a sphere) around the centre, so the cells are small at the
-    /// centre and grow outward in every direction — what a hit does to a solid (the At Impact cut, DST-RUNTIME).
-    struct RadialSettings
-    {
-        glm::dvec3 Center{ 0.0 };    // cm, in the space of the mesh being cut
-        double     Radius = 50.0;    // cm: the outermost shell sits at Radius * (RadialSteps - 0.5) / RadialSteps
-        int        RadialSteps  = 4; // shells, UE RadialSteps
-        int        AngularSteps = 8; // sites per shell, UE AngularSteps
-        double     Variability  = 0.0; // cm: each site moves by up to this in a random direction (UE Variability)
-
-        bool operator==( const RadialSettings& ) const = default;
-    };
-
     /// The sites of @p radial: shell k (0-based) at UE's radius (k + 0.5) * Radius / RadialSteps, each site in a
     /// uniformly drawn direction and offset by Variability * a random point in the unit ball. Unlike UE's rings,
     /// a shell's AngularSteps sites are drawn INSIDE @p bounds (the piece being cut; up to 64 draws per site): a
@@ -99,32 +86,8 @@ namespace Desert::Destruction
     /// the bounds, or on top of another) yields no cell; the result holds only computed cells, in site order.
     std::vector<ConvexCell> ComputeVoronoiCells( const std::vector<glm::dvec3>& sites, const CellBounds& bounds );
 
-    struct CutPlane
-    {
-        glm::dvec3 Normal{ 0.0, 0.0, 1.0 }; // need not be unit length
-        glm::dvec3 Point{ 0.0 };
-
-        bool operator==( const CutPlane& ) const = default;
-    };
-
     /// The arrangement of `planes` inside `bounds`: every non-empty convex region the planes cut the box into.
     std::vector<ConvexCell> ComputePlanarCells( const std::vector<CutPlane>& planes, const CellBounds& bounds );
-
-    enum class BrickBond : uint8_t
-    {
-        Stretcher, // running bond: alternate courses offset by half a brick
-        Stack,     // no offset between courses
-    };
-
-    struct BrickSettings
-    {
-        BrickBond Bond   = BrickBond::Stretcher;
-        double    Length = 194.0; // cm, UE's defaults (FractureToolBrick.h:49)
-        double    Height = 52.0;
-        double    Depth  = 96.0;
-
-        bool operator==( const BrickSettings& ) const = default;
-    };
 
     /// Axis-aligned bricks covering `bounds` in the bond pattern, each clipped to the bounds.
     std::vector<ConvexCell> ComputeBrickCells( const BrickSettings& settings, const CellBounds& bounds );

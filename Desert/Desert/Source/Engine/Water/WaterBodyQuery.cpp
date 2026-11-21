@@ -1,4 +1,5 @@
 #include <Engine/Water/WaterBodyQuery.hpp>
+#include <Engine/Water/GerstnerWaterWaves.hpp>
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>

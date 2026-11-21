@@ -1,4 +1,5 @@
 #include <Engine/Destruction/FractureBake.hpp>
+#include <Engine/Destruction/FractureCells.hpp>
 
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>

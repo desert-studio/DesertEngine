@@ -26,6 +26,7 @@
 #include <utility>
 #include <string_view>
 #include <vector>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 // THE EMISSIVE TRIANGLE LIST ON THE GPU (EmissiveLights.hpp is the list; Common/EmissiveLights.glslh the GPU
 // side; Programs/EmissiveLights/EmissiveLights.shader the passes). Two parts under one root (EmissiveLights.hpp):

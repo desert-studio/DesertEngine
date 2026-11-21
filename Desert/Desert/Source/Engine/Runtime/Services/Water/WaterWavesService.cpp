@@ -1,6 +1,8 @@
 #include "WaterWavesService.hpp"
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Engine/Water/GerstnerWaterWaves.hpp>
 
 #include <Common/Core/Logger.hpp>
 

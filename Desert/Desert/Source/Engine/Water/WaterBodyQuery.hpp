@@ -11,7 +11,6 @@
 // the physics step (UE's FSolverSafeWaterBodyData), not a UObject; UE's LWC tile is the body's WaveOrigin, its
 // own location. Ocean only: lakes and rivers take their shape and depth from a spline (W-9, W-10).
 
-#include <Engine/Water/GerstnerWaterWaves.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
 #include <glm/vec2.hpp>
@@ -26,6 +25,8 @@
 
 namespace Desert::Water
 {
+    struct GerstnerWave; // Engine/Water/GerstnerWaterWaves.hpp: held by shared pointer, evaluated in the .cpp
+
     /// The depth an ocean reports where no landscape answers under the point, or the landscape stands above the
     /// plane (UE r.Water.OceanFallbackDepth, its default).
     inline constexpr float kOceanFallbackDepthCm = 3000.0f;

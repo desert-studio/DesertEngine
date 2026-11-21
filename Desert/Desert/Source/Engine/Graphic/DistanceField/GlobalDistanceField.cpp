@@ -29,6 +29,7 @@
 #include <tuple>
 #include <unordered_set>
 #include <utility>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::DistanceField
 {

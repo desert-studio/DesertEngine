@@ -11,6 +11,7 @@
 
 #include <array>
 #include <string>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

@@ -1,4 +1,5 @@
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>

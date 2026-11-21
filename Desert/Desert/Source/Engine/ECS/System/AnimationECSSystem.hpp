@@ -40,6 +40,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::ECS
 {

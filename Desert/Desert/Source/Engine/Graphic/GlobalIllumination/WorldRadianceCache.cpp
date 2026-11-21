@@ -19,6 +19,7 @@
 #include <cstring>
 #include <format>
 #include <span>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

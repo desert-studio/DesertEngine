@@ -23,7 +23,7 @@
 // Every number is in centimetres. The bake is deterministic: the same source and settings give the same
 // nodes bit for bit on every platform (FractureRandom; sequential cutting, no unordered containers).
 
-#include <Engine/Destruction/FractureCells.hpp>
+#include <Engine/Destruction/FractureCutSettings.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 

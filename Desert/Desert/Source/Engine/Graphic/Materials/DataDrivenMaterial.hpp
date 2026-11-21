@@ -7,7 +7,6 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 #include <Engine/Graphic/Materials/MaterialProperty.hpp> // NextMaterialRevision
@@ -42,14 +41,9 @@ namespace Desert::Graphic
     class DataDrivenMaterial : public Material
     {
     public:
-        explicit DataDrivenMaterial( const std::string& shaderName )
-             : Material( "DDM_" + shaderName, std::string( shaderName ) ), m_ShaderName( shaderName )
-        {
-            if ( auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName ) )
-                m_Schema = shader->GetProgramMeta();
-
-            ApplyDefaults();
-        }
+        // Out of line (DataDrivenMaterial.cpp): the schema comes from ShaderService, which this header does not
+        // include -- it sits under every scene pass (BUILD-MOD-1).
+        explicit DataDrivenMaterial( const std::string& shaderName );
 
         // Over one compiled permutation of a program (ShaderService::AcquireVariant): its layout is the
         // permutation's own, so the material fills exactly the bindings that permutation declares.

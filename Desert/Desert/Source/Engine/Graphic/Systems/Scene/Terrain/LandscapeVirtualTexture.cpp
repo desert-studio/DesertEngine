@@ -20,6 +20,7 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

@@ -47,6 +47,9 @@
 #include <string>
 #include <vector>
 #include <type_traits>
+#include <Engine/Runtime/Services/Destruction/FractureService.hpp>
+#include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
+#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 
 namespace Desert::ECS
 {
