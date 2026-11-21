@@ -1,0 +1,33 @@
+# WP-FAR-12 (owner 10-20 scope decision: people far away = skeletal LOD -> anim budget -> baked crowd beyond).
+# UE 5.5 AnimToTexture (City Sample / Mass crowds): beyond skeletal range a figure plays a baked vertex animation,
+# no skeleton evaluated on the CPU. Here: VertexAnimationCrowd bakes the clip x the lowest skinned level into the
+# skin cache's stream layout (30 fps); a record at its lowest level and below screen size 0.03 (the WP-FAR-10
+# FOV-aware metric; back above 0.04) is drawn from its baked frame, the animation only runs its clock
+# (SkinnedLodFeedback::Vat / VatClock), the skin cache skips it.
+# Readout: editor.log "[Crowd] skeletal N, vat M, draws D, anim CPU X ms" and "[Crowd] baked clip ...".
+# Scene: CesiumMan at the origin + 199 copies spread 30-600 m behind it (WP_FAR12_SkinnedCrowd).
+# "before": Quality ViewDistance Cinematic resolves MeshLOD off = every figure skeletal LOD 0, every frame.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR12_SkinnedCrowd.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,500
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 2
+Тогда far12_near CesiumMan at 5 m walking, skeletal; log: [Crowd] skeletal > 0 (the near figures), vat = the far ones
+Когда --subject viewport set Camera.Position 0,0,15000
+Когда advance 2
+Тогда far12_mid at 150 m the far figures are VAT and walking (legs apart, not frozen, no T-pose), no pop against LOD 6; log: [Crowd] vat > 0
+Когда --subject viewport set Camera.FOV 10
+Когда advance 2
+Тогда far12_zoom FOV 10 at 150 m: the zoomed figures are large and skeletal again; log: [Crowd] skeletal grows, vat shrinks
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,60000
+Когда advance 2
+Тогда far12_far at 600 m every figure is VAT; log: [Crowd] skeletal 0, vat 200, anim CPU ms below the near frame's
+Когда run Quality "Quality: ViewDistance Cinematic"
+Когда advance 2
+Тогда far12_far_before the same 600 m view with LOD off (Cinematic): log: [Crowd] skeletal 200, vat 0; anim CPU ms = the cost before this change
+Когда run Action "Stop"
