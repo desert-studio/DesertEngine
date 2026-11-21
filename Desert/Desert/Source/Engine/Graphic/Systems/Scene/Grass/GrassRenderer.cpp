@@ -3919,7 +3919,13 @@ namespace Desert::Graphic::System
             return Common::MakeError( "the program, the setup records, the words, the depth or the material table "
                                       "is missing this frame" );
         // The table: one row a (blade variety x admitted section), its software buckets those past Mid the
-        // section does not hide; its entries the variety's camera records (one per strip level).
+        // section does not hide; its entries the variety's camera records of set 0 (one per bucket).
+        // FPS-GRASS-SW-RASTER fix (scn-1121-202729: 'Grass: Blade Software Raster' 32-42 ms): a blade's args hold
+        // sets x buckets records (GrassRenderer args build: record k x submeshCount + s, set k the shadow LOD),
+        // and GrassCull FinalizeCamera writes EVERY record s with bucket s % buckets' count and first
+        // (GrassBucketOfRecord). The camera draws set 0 only; taking all records as buckets rastered each far
+        // bucket once per set and - worse - the near and mid buckets (0, 1) again from every set k >= 1: the
+        // nearest, largest blades in compute, screen-sized boxes per thread. The entries are set 0's records.
         std::vector<GrassBladeSoftwareRasterRowGpu> rows;
         uint32_t                                    entries = 0u;
         for ( const BladeSetupVariety& entry : m_BladeSetupVarieties )
@@ -3929,7 +3935,10 @@ namespace Desert::Graphic::System
             const VarietyGpu& gpu = *entry.Gpu;
             if ( gpu.TableWord < kBladeSetupArgsHeaderWords || gpu.CameraArgs.Bytes == 0u )
                 continue;
-            const uint32_t records = ( gpu.TableWord - kBladeSetupArgsHeaderWords ) / kBladeSetupRecordWords;
+            const uint32_t allRecords = ( gpu.TableWord - kBladeSetupArgsHeaderWords ) / kBladeSetupRecordWords;
+            const uint32_t records    = std::min( gpu.Buckets, allRecords ); // set 0: the camera's buckets
+            if ( records == 0u )
+                continue;
             for ( uint32_t s = 0u; s < entry.Sections; ++s )
             {
                 const MeshRenderer::GrassSoftwareRasterMask* const mask =
