@@ -162,6 +162,30 @@ namespace Desert::Animation
         /// The pipeline's OUTPUT: `component_i * OffsetMatrix_i` per bone, which is what the GPU skins with.
         [[nodiscard]] const SkinningMatrices& GetPose() const;
 
+        /**
+         * @brief THE BONES THE DRAWN LOD NEEDS (UE FBoneContainer built from the LOD's RequiredBones): only these,
+         *        closed over their parents, are sampled from the clips and resolved into skinning matrices; every
+         *        other bone keeps its rest local and its last matrix, which no vertex of that LOD reads. Empty =
+         *        every bone. A retargeted source rig is still sampled whole (its bones are another rig's).
+         * @return true when the set gained a bone: the pose must be evaluated this frame, whatever the update rate,
+         *         before a finer level is drawn with it.
+         */
+        bool SetRequiredBones( std::span<const uint32_t> skinnedBones );
+        /// The bones the pipeline resolves per evaluation (the closed set, or every bone).
+        [[nodiscard]] uint32_t GetEvaluatedBoneCount() const noexcept
+        {
+            return m_RequiredOrder.empty() ? static_cast<uint32_t>( m_Skeleton.GetBones().size() )
+                                           : static_cast<uint32_t>( m_RequiredOrder.size() );
+        }
+
+        /**
+         * @brief UE URO's InterpolateSkippedFrames: while on, an evaluation no longer publishes its pose directly;
+         *        PublishInterpolated moves the SHOWN pose @p alpha of the way to the evaluated one (local space,
+         *        slerped) and publishes that, every frame. Turning it on starts the shown pose at the evaluated one.
+         */
+        void SetSkippedFrameInterpolation( bool interpolate );
+        void PublishInterpolated( float alpha );
+
         /// Moves on every publish of GetPose() (PublishPose, its one writer): a consumer that copies the pose
         /// (MeshECSSystem's bone buffer) copies it again only when this moved.
         [[nodiscard]] uint64_t GetPoseRevision() const noexcept
@@ -830,5 +854,17 @@ namespace Desert::Animation
 
         SkinningMatrices m_Skinning;
         uint64_t         m_SkinningRevision = 0; // GetPoseRevision
+
+        // SetRequiredBones: per bone 1 = evaluated (empty = all), the same set in resolve order, and the list it
+        // was built from (rebuilt only when that moves).
+        std::vector<uint8_t>  m_RequiredMask;
+        std::vector<uint32_t> m_RequiredOrder;
+        std::vector<uint32_t> m_RequiredSource;
+
+        // SetSkippedFrameInterpolation: the pose shown between evaluations and its resolve. Declared after
+        // m_DisplayPose for the same reason as m_Component.
+        bool          m_InterpolateSkipped = false;
+        LocalPose     m_DisplayPose;
+        ComponentPose m_DisplayComponent;
     };
 } // namespace Desert::Animation

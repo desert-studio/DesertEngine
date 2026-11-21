@@ -128,6 +128,9 @@ namespace Desert
             uint32_t VertexCount   = 0;
             uint32_t RequiredBones = 0; // distinct bones the range's influences name
             uint32_t MaxInfluences = 0;
+            // Those bones, ascending (UE FSkeletalMeshLODRenderData::ActiveBoneIndices): what the animation of a
+            // record drawing this level must evaluate (Animator::SetRequiredBones closes it over the parents).
+            std::vector<uint32_t> Bones;
         };
         // One per LOD level, [0] = the authored vertices. Never empty on a mesh with vertices.
         [[nodiscard]] const std::vector<SkinnedLOD>& GetSkinnedLODs() const

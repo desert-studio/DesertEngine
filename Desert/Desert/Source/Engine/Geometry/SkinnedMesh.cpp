@@ -53,8 +53,8 @@ namespace Desert
             return reduced;
         }
 
-        [[nodiscard]] uint32_t CountRequiredBones( const std::vector<SkinnedVertex>& vertices, const std::size_t first,
-                                                   const std::size_t count )
+        [[nodiscard]] std::vector<uint32_t> RequiredBoneList( const std::vector<SkinnedVertex>& vertices,
+                                                              const std::size_t first, const std::size_t count )
         {
             std::vector<uint32_t> bones;
             for ( std::size_t v = first; v < first + count; ++v )
@@ -62,7 +62,8 @@ namespace Desert
                     if ( vertices[v].BoneWeights[k] > 0.0f )
                         bones.push_back( vertices[v].BoneIDs[k] );
             std::sort( bones.begin(), bones.end() );
-            return static_cast<uint32_t>( std::unique( bones.begin(), bones.end() ) - bones.begin() );
+            bones.erase( std::unique( bones.begin(), bones.end() ), bones.end() );
+            return bones;
         }
 
         // THE SKELETAL LOD CHAIN (UE FSkeletalMeshLODRenderData per LOD): the static chain's index levels
@@ -90,10 +91,12 @@ namespace Desert
             SkinnedLODChain chain{ .Vertices = vertices, .Streams = streams, .Morphs = morphTargets,
                                    .GpuIndices = {}, .Submeshes = submeshes, .LODs = {} };
             const auto authored = static_cast<uint32_t>( vertices.size() );
+            std::vector<uint32_t> authoredBones = RequiredBoneList( vertices, 0u, vertices.size() );
             chain.LODs.push_back( { .FirstVertex   = 0u,
                                     .VertexCount   = authored,
-                                    .RequiredBones = CountRequiredBones( vertices, 0u, vertices.size() ),
-                                    .MaxInfluences = LODMaxInfluences( 0 ) } );
+                                    .RequiredBones = static_cast<uint32_t>( authoredBones.size() ),
+                                    .MaxInfluences = LODMaxInfluences( 0 ),
+                                    .Bones         = std::move( authoredBones ) } );
 
             std::vector<Vertex> positions;
             positions.reserve( vertices.size() );
@@ -169,10 +172,12 @@ namespace Desert
                     }
                 }
                 const auto count = static_cast<uint32_t>( chain.Vertices.size() ) - first;
+                std::vector<uint32_t> levelBones = RequiredBoneList( chain.Vertices, first, count );
                 chain.LODs.push_back( { .FirstVertex   = first,
                                         .VertexCount   = count,
-                                        .RequiredBones = CountRequiredBones( chain.Vertices, first, count ),
-                                        .MaxInfluences = maxInfluences } );
+                                        .RequiredBones = static_cast<uint32_t>( levelBones.size() ),
+                                        .MaxInfluences = maxInfluences,
+                                        .Bones         = std::move( levelBones ) } );
             }
             return chain;
         }
@@ -366,7 +371,9 @@ namespace Desert
         twin->m_SkinnedLODs = { { .FirstVertex   = 0u,
                                   .VertexCount   = vertexCount,
                                   .RequiredBones = base.m_SkinnedLODs.empty() ? 0u : base.m_SkinnedLODs[0].RequiredBones,
-                                  .MaxInfluences = static_cast<uint32_t>( SkinnedVertex::MAX_BONE_INFLUENCES ) } };
+                                  .MaxInfluences = static_cast<uint32_t>( SkinnedVertex::MAX_BONE_INFLUENCES ),
+                                  .Bones = base.m_SkinnedLODs.empty() ? std::vector<uint32_t>{}
+                                                                      : base.m_SkinnedLODs[0].Bones } };
         return twin;
     }
 

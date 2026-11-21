@@ -231,10 +231,15 @@ namespace Desert::ECS
                                                        registry.get<UUIDComponent>( entity ).UUID );
 
                          const Animation::Animator* animator = nullptr;
+                         // The animated pose's LOD / update-rate feedback (null on the bind pose: it is whole).
+                         std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback;
                          if ( !bindPreview )
                              if ( const auto* anim = registry.try_get<AnimationComponent>( entity );
                                   anim != nullptr && anim->Animator && !anim->Animator->GetPose().Matrices.empty() )
-                                 animator = anim->Animator.get();
+                             {
+                                 animator    = anim->Animator.get();
+                                 lodFeedback = anim->LodFeedback;
+                             }
                          // THE POSE IS COPIED ONCE PER PUBLISHED POSE (UE: a skeletal proxy's bone buffer is
                          // updated on a new pose only): a still or paused character re-records the same co-owned
                          // buffer, and a new pose goes into a pooled buffer no command in flight holds.
@@ -290,7 +295,8 @@ namespace Desert::ECS
 
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, palette.Current,
-                              std::move( morphWeights ), morphRevision, isSelected, mesh.GetCastShadows() );
+                              std::move( morphWeights ), morphRevision, isSelected, mesh.GetCastShadows(),
+                              std::move( lodFeedback ) );
                      } );
                 // A character no longer drawn (destroyed, hidden, no mesh) gives its buffers back.
                 std::erase_if( m_BonePalettes,

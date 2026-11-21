@@ -32,6 +32,8 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <span>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -103,10 +105,20 @@ namespace Desert::ECS
             if ( m_AnimationLibrary != nullptr )
                 libraryRevision = m_AnimationLibrary->Revision();
 
+            const auto tickStart = std::chrono::steady_clock::now();
+            UpdateEntities( registry, view, gameplaySeconds, libraryRevision );
+            ReportAnimationCost( std::chrono::steady_clock::now() - tickStart, gameplaySeconds );
+        }
+
+    private:
+        template <typename View>
+        void UpdateEntities( entt::registry& registry, View& view, const float gameplaySeconds,
+                             const uint64_t libraryRevision )
+        {
             for ( auto entity : view )
             {
-                auto& skinnedMesh = view.get<ECS::SkinnedMeshComponent>( entity );
-                auto& anim        = view.get<ECS::AnimationComponent>( entity );
+                auto& skinnedMesh = view.template get<ECS::SkinnedMeshComponent>( entity );
+                auto& anim        = view.template get<ECS::AnimationComponent>( entity );
 
                 // Editor-built runtime rig (Convert to Skinned) has no MeshHandle — prefer it (mirrors the
                 // render/pick paths) so a converted mesh can still animate.
@@ -135,6 +147,7 @@ namespace Desert::ECS
                     anim.BuiltRigRevision  = 0;
                     anim.BuiltRigSignature = 0;
                 }
+                ConfigureLodAndRate( entity, anim, *skinnedMeshPtr );
 
                 // FIRST OF THE THREE SYNCS, because it is first in the pipeline it feeds: a retarget
                 // changes which rig the SOURCE stage samples, and everything below reads the pose that
@@ -281,13 +294,11 @@ namespace Desert::ECS
                         DrivePoseGraph( anim, clipRig, graphRebuilt );
                         const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
                              gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
-                        anim.Animator->Update( animTs );
-                        ApplyRootMotion( registry, entity, anim,
-                                         gameplaySeconds > 0.0F ? animTs.GetSeconds() : 0.0F );
+                        const float stepped = StepAnimator( anim, animTs );
+                        ApplyRootMotion( registry, entity, anim, gameplaySeconds > 0.0F ? stepped : 0.0F );
                         // The machine's active transitions on the SAME step the Animator's fades just took
                         // (its clock scales by the playback speed), so both stacks retire on one frame.
-                        anim.GraphEvaluator->AdvanceTransitions( animTs.GetSeconds() *
-                                                                 anim.Animator->GetPlaybackSpeed() );
+                        anim.GraphEvaluator->AdvanceTransitions( stepped * anim.Animator->GetPlaybackSpeed() );
                         anim.PendingNotifies = anim.Animator->ConsumeNotifyEvents();
                     }
                     continue;
@@ -351,8 +362,8 @@ namespace Desert::ECS
 
                     const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
                          gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
-                    anim.Animator->Update( animTs );
-                    ApplyRootMotion( registry, entity, anim, gameplaySeconds > 0.0F ? animTs.GetSeconds() : 0.0F );
+                    const float stepped = StepAnimator( anim, animTs );
+                    ApplyRootMotion( registry, entity, anim, gameplaySeconds > 0.0F ? stepped : 0.0F );
 
                     // Notify markers crossed this frame -> queued for ScriptSystem to dispatch (assigned, so
                     // a paused/cleared frame leaves it empty and nothing re-fires).
@@ -364,6 +375,86 @@ namespace Desert::ECS
                     }
                 }
             }
+        }
+
+        /**
+         * @brief THE DRAWN LOD'S BONES AND THIS FRAME'S UPDATE RATE (UE USkinnedMeshComponent::UpdateLODStatus +
+         *        FAnimUpdateRateManager::AnimUpdateRateTick), from what the renderer reported of the instance on
+         *        the previous frame (SkinnedLodFeedback): the level it picked and its FOV-aware screen size. Before
+         *        the renderer has seen it: every bone, every frame. The level the evaluated bones cover goes back
+         *        (EvaluatedLod), and the renderer draws no finer level than that.
+         */
+        void ConfigureLodAndRate( const entt::entity entity, ECS::AnimationComponent& anim,
+                                  const Desert::SkinnedMesh& mesh )
+        {
+            if ( !anim.LodFeedback )
+                anim.LodFeedback = std::make_shared<Animation::SkinnedLodFeedback>();
+            Animation::SkinnedLodFeedback& feedback = *anim.LodFeedback;
+            const auto&                    lods     = mesh.GetSkinnedLODs();
+            const bool                     seen     = feedback.Seen.load( std::memory_order_relaxed );
+            uint32_t lod = seen ? feedback.DesiredLod.load( std::memory_order_relaxed ) : 0u;
+            if ( !lods.empty() )
+                lod = std::min<uint32_t>( lod, static_cast<uint32_t>( lods.size() - 1u ) );
+            const bool grew = anim.Animator->SetRequiredBones(
+                 lods.empty() ? std::span<const uint32_t>() : std::span<const uint32_t>( lods[lod].Bones ) );
+            const float screenSize = seen ? feedback.ScreenSize.load( std::memory_order_relaxed ) : 1.0F;
+            const bool  rendered   = !seen || feedback.Rendered.load( std::memory_order_relaxed );
+            anim.UpdateRate.SetRate( seen ? Animation::UpdateRateForScreenSize( screenSize, rendered ) : 1u, grew );
+            anim.Animator->SetSkippedFrameInterpolation( anim.UpdateRate.Interpolate );
+            feedback.EvaluatedLod.store( lod, std::memory_order_relaxed );
+
+            const uint32_t bones = anim.Animator->GetEvaluatedBoneCount();
+            const uint64_t key   = static_cast<uint64_t>( lod ) | ( static_cast<uint64_t>( bones ) << 8u ) |
+                                 ( static_cast<uint64_t>( anim.UpdateRate.Rate ) << 24u ) |
+                                 ( static_cast<uint64_t>( rendered ? 1u : 0u ) << 40u );
+            if ( key == anim.ReportedUpdateRate )
+                return;
+            anim.ReportedUpdateRate = key;
+            LOG_INFO( "[SkinnedLOD] entity {} anim: LOD {} evaluates {} of {} bones, update rate {} ({}), screen "
+                      "size {:.4f}, {}",
+                      static_cast<uint32_t>( entity ), lod, bones, mesh.GetSkeleton().GetBones().size(),
+                      anim.UpdateRate.Rate,
+                      anim.UpdateRate.Rate == 1u      ? "every frame"
+                      : anim.UpdateRate.Interpolate ? "skipped frames interpolated"
+                                                    : "pose held between evaluations",
+                      screenSize, rendered ? "in view" : "out of view" );
+        }
+
+        /// The Animator's step at this frame's rate: the whole skipped interval on an evaluating frame, nothing on
+        /// a skipped one; the shown pose moves toward the evaluated one when interpolating. Returns the seconds the
+        /// Animator stepped (0 when skipped).
+        float StepAnimator( ECS::AnimationComponent& anim, const Common::Timestep& animTs )
+        {
+            const float step = anim.UpdateRate.Advance( animTs.GetSeconds() );
+            if ( step >= 0.0F )
+            {
+                anim.Animator->Update( Common::Timestep( step ) );
+                ++m_CostEvaluations;
+                m_CostBones += anim.Animator->GetEvaluatedBoneCount();
+            }
+            ++m_CostInstances;
+            anim.Animator->PublishInterpolated( anim.UpdateRate.InterpolationAlpha() );
+            return std::max( step, 0.0F );
+        }
+
+        /// `[SkinnedLOD] anim CPU`: this system's whole tick, averaged over kCostWindow played frames.
+        void ReportAnimationCost( const std::chrono::steady_clock::duration elapsed, const float gameplaySeconds )
+        {
+            if ( gameplaySeconds <= 0.0F )
+                return;
+            m_CostSeconds += std::chrono::duration<double>( elapsed ).count();
+            if ( ++m_CostFrames < kCostWindow )
+                return;
+            const double frames = static_cast<double>( m_CostFrames );
+            LOG_INFO( "[SkinnedLOD] anim CPU {:.4f} ms/frame over {} frames: {:.1f} animated instances, {:.2f} "
+                      "evaluations and {:.1f} bones evaluated per frame",
+                      1000.0 * m_CostSeconds / frames, m_CostFrames, static_cast<double>( m_CostInstances ) / frames,
+                      static_cast<double>( m_CostEvaluations ) / frames, static_cast<double>( m_CostBones ) / frames );
+            m_CostSeconds     = 0.0;
+            m_CostFrames      = 0u;
+            m_CostInstances   = 0u;
+            m_CostEvaluations = 0u;
+            m_CostBones       = 0u;
         }
 
     private:
@@ -1252,6 +1343,13 @@ namespace Desert::ECS
         /// The editor world's preview step (Scene::SetEditorTick): the world's Delta in Edit (0 with Realtime
         /// off), 0 in Play/Paused.
         float m_EditorSeconds = 0.0f;
+        // ReportAnimationCost's window.
+        static constexpr uint32_t kCostWindow     = 60u;
+        double                    m_CostSeconds     = 0.0;
+        uint32_t                  m_CostFrames      = 0u;
+        uint64_t                  m_CostInstances   = 0u;
+        uint64_t                  m_CostEvaluations = 0u;
+        uint64_t                  m_CostBones       = 0u;
 
         // ONE dedupe store for every complaint this system makes, and it remembers the MESSAGE rather than
         // just the key. The set it replaces could only say "already complained about this state", so a
