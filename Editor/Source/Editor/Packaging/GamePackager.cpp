@@ -896,6 +896,15 @@ namespace Desert::Editor
                                            kBundledLoaderName + " " + ShellQuote( playerBinary.string() ) );
                              !r )
                             return r;
+                // A build-tree LC_RPATH (CMake writes the linked libraries' directories, /opt/homebrew/lib on a
+                // Homebrew Mac) names this machine only; the bundle resolves @rpath from inside itself, so the
+                // copy drops it (UE's staged binaries carry only @executable_path-relative rpaths).
+                for ( const std::string& path : paths.GetValue() )
+                    if ( !path.ends_with( ".dylib" ) && !IsBundleSafeReference( path ) )
+                        if ( auto r = Run( "install_name_tool -delete_rpath " + ShellQuote( path ) + " " +
+                                           ShellQuote( playerBinary.string() ) );
+                             !r )
+                            return r;
                 signs.push_back( playerBinary );
             }
             for ( const fs::path& binary : signs )
