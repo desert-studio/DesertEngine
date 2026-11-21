@@ -84,6 +84,11 @@ namespace Desert::Geometry
         glm::vec3          Origin{ 0.0f };
         glm::mat4          Projection{ 1.0f };
         LODTemporalSamples Temporal{};
+        // UE r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale (CINEMATIC-LOD): the level is chosen
+        // as if every object stood at its distance x this (UE ComputeLODForMeshes' FactorScale = 1 / scale on
+        // the screen radius). < 1 keeps finer levels farther; 1 = the authored screen sizes. Set by the mesh
+        // renderer from Scalability ViewDistance.LODDistanceScalePercent (MeshRenderer::LodView).
+        float DistanceScale = 1.0f;
     };
 
     // THE PER-VIEW STATE the samples come from (UE FTemporalLODState::UpdateTemporalLODTransition): the newer
@@ -147,7 +152,8 @@ namespace Desert::Geometry
     inline float BoundsScreenRadiusSquared( const glm::vec3& center, float radius, const LODView& view )
     {
         const glm::vec3 d      = center - view.Origin;
-        const float     distSq = glm::dot( d, d ) * std::abs( view.Projection[2][3] );
+        const float     distSq =
+             glm::dot( d, d ) * std::abs( view.Projection[2][3] ) * view.DistanceScale * view.DistanceScale;
         const float     multiple =
              std::max( 0.5f * std::abs( view.Projection[0][0] ), 0.5f * std::abs( view.Projection[1][1] ) );
         return ( multiple * radius ) * ( multiple * radius ) / std::max( 1.0f, distSq );
@@ -343,8 +349,8 @@ namespace Desert::Geometry
         namespace S                  = Common::Math::Simd;
         const float     halfDiagonal = glm::length( localBounds.Max - localBounds.Min ) * 0.5f;
         const glm::vec3 localCentre  = 0.5f * ( localBounds.Min + localBounds.Max );
-        // BoundsScreenRadiusSquared's lens terms.
-        const float distanceScale = std::abs( view.Projection[2][3] );
+        // BoundsScreenRadiusSquared's lens terms (and the view's LOD distance scale, squared like the distance).
+        const float distanceScale = std::abs( view.Projection[2][3] ) * view.DistanceScale * view.DistanceScale;
         const float multiple =
              std::max( 0.5f * std::abs( view.Projection[0][0] ), 0.5f * std::abs( view.Projection[1][1] ) );
         const int coarsest = static_cast<int>( screenSizes.size() ) - 1;

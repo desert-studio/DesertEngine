@@ -526,6 +526,15 @@ namespace Common::Scalability
         LandscapeVirtualTextureSizeLog2,         // mip0 side of the virtual square in texels, log2. 12..17
         LandscapeVirtualTexturePoolPages,        // physical atlas side in pages (pool = side^2 pages). 8..64
         LandscapeVirtualTextureUpdatesPerFrame,  // pages rendered per frame (r.VT.MaxUploadsPerFrame). 8..256
+        // Percent (CINEMATIC-LOD; UE r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale): every mesh's
+        // LOD level - static, skinned, and the skinned instance's animation side (SkinnedLodFeedback screen size)
+        // - is selected at its true distance x this / 100, so 50 keeps each finer level out to twice the
+        // distance (each level begins at half the screen size). Only the level: culling reads the true
+        // distance. Read by SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale ->
+        // MeshRenderer::LodView (Geometry::LODView::DistanceScale) -> Geometry::BoundsScreenRadiusSquared /
+        // SelectLODsFromBounds. 25..400; 100 = the meshes' screen sizes as authored. Cinematic 50 (MeshLOD stays
+        // 1 at every level: UE never forces LOD 0, MeshLOD 0 is a debug/machine override).
+        ViewDistanceLODDistanceScalePercent,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

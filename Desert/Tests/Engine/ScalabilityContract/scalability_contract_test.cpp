@@ -60,7 +60,7 @@ namespace
       "Medium":    { "ViewDistance.MeshLOD": 1 },
       "High":      { "ViewDistance.MeshLOD": 1 },
       "Epic":      { "ViewDistance.MeshLOD": 1 },
-      "Cinematic": { "ViewDistance.MeshLOD": 0 }
+      "Cinematic": { "ViewDistance.MeshLOD": 1, "ViewDistance.LODDistanceScalePercent": 50 }
     },
     "Effects": {
       "Low":       { "Effects.CloudQuality": 0, "Effects.VolumetricFog": 0, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
@@ -254,6 +254,10 @@ TEST( ScalabilityContract, TheTableParsesAndAnswersPerLevel )
     EXPECT_EQ( table.Version, 1u );
     EXPECT_EQ( table.ValueAt( Parameter::Anisotropy, Level::Medium ), 4 );
     EXPECT_EQ( table.ValueAt( Parameter::RenderScalePercent, Level::Cinematic ), 200 );
+    // CINEMATIC-LOD: Cinematic keeps LOD selection on and biases it (UE r.StaticMeshLODDistanceScale < 1).
+    EXPECT_EQ( table.ValueAt( Parameter::MeshLOD, Level::Cinematic ), 1 );
+    EXPECT_EQ( table.ValueAt( Parameter::ViewDistanceLODDistanceScalePercent, Level::Cinematic ), 50 );
+    EXPECT_EQ( table.ValueAt( Parameter::ViewDistanceLODDistanceScalePercent, Level::High ), 100 );
     EXPECT_EQ( table.ValueAt( Parameter::AntiAliasingMethod, Level::High ),
                static_cast<ParameterValue>( AntiAliasingMethod::TAA ) );
 }
