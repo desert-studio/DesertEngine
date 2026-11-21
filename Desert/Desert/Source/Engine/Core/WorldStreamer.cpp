@@ -405,14 +405,15 @@ namespace Desert::Core
                     {
                         // THE HLOD CELLS (WP-FAR-8): every node's row, read when its HLOD cell is wanted.
                         std::vector<const WorldCells::BuiltHLODCell*> nodeRows;
+                        // One line for every node without a current HLOD, not one per node: an edit that dirties
+                        // a layer leaves hundreds of them, and the count with the first names says the same.
+                        std::vector<std::string> withoutHLOD;
                         for ( const Rules::HLODNode& node : hierarchy.GetValue().Nodes )
                         {
                             const auto row = rows.find( node.Name );
                             if ( staleUnits.contains( node.Name ) || row == rows.end() )
                             {
-                                LOG_ERROR( "[WorldPartition] Play of '{0}': the saved HLOD of {1} is missing or "
-                                           "stale, so it has none. Run Build > Build HLODs.",
-                                           snapshot->SceneName, node.Name );
+                                withoutHLOD.push_back( node.Name );
                                 nodeRows.push_back( nullptr );
                                 continue;
                             }
@@ -427,6 +428,16 @@ namespace Desert::Core
                             nodeRows.push_back( row->second->File.has_value() && !row->second->Ids.empty()
                                                      ? row->second
                                                      : nullptr );
+                        }
+                        if ( !withoutHLOD.empty() )
+                        {
+                            std::string named;
+                            for ( std::size_t i = 0; i < withoutHLOD.size() && i < 8; ++i )
+                                named += ( i == 0 ? "" : ", " ) + withoutHLOD[i];
+                            LOG_ERROR( "[WorldPartition] Play of '{0}': the saved HLOD of {1} node(s) is missing or "
+                                       "stale, so they have none ({2}{3}). Run Build > Build HLODs.",
+                                       snapshot->SceneName, withoutHLOD.size(), named,
+                                       withoutHLOD.size() > 8 ? ", ..." : "" );
                         }
                         LOG_INFO(
                              "[WorldPartition] Play of '{0}': {1} saved HLOD(s) in {2} HLOD cell(s) from {3}, "
