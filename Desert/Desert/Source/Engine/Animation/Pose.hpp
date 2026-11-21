@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 /**
  * THE POSE IS THE PIPELINE'S CURRENCY, NOT ITS RESULT.
  *
@@ -194,6 +196,8 @@ namespace Desert::Animation
 
         /// `component_i * OffsetMatrix_i` for every bone. Converts everything first.
         void WriteSkinningMatrices( std::vector<glm::mat4>& out );
+        /// Only @p bones (parent-closed, in resolve order; empty = every bone): the others keep what @p out held.
+        void WriteSkinningMatrices( std::vector<glm::mat4>& out, std::span<const uint32_t> bones );
 
     private:
         const Skeleton&        m_Skeleton;

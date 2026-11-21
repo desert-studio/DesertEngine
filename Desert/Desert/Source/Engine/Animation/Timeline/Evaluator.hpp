@@ -33,6 +33,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <variant>
 #include <vector>
@@ -243,9 +244,12 @@ namespace Desert::Animation::Timeline
      *
      * Refuses (by name) a table built for another `Sequence::Revision`. Bit-identical to
      * `BoneTrack::Sample` for a lifted clip — the migration's acceptance test.
+     * @param required per bone, nonzero = sampled (UE FBoneContainer of the drawn LOD); empty = every bone. A bone
+     *        left out keeps what @p pose holds.
      */
     [[nodiscard]] Common::BoolResultStr EvaluatePose( const Sequence& sequence, const BoneBindingTable& table,
-                                                      FrameTime at, LocalPose& pose );
+                                                      FrameTime at, LocalPose& pose,
+                                                      std::span<const uint8_t> required = {} );
 
     /**
      * @brief `EvaluatePose` for ONE bone: every unmuted Transform track bound to @p bone folded over @p acc

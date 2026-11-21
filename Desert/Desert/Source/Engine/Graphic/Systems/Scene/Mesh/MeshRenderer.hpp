@@ -20,6 +20,7 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Animation/AnimationUpdateRate.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -460,6 +461,9 @@ namespace Desert::Graphic::System
         // Skinned only: MorphComponent's weights and revision (empty = drawn unmorphed). See UpdateMorphTargets.
         std::vector<float> MorphWeights;
         uint64_t           MorphRevision = 0;
+        // Skinned only: the animated instance's LOD / update-rate feedback (Animation::SkinnedLodFeedback), null
+        // for an unanimated one.
+        std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
 
         bool     Outlined        = false;
         uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -625,6 +629,10 @@ namespace Desert::Graphic::System
             uint32_t                    Lod         = 0;
             int                         ForcedLOD   = -1; // the component's forced level, -1 = auto
             int                         LODBias     = 0;
+            // The animated instance's side of the level (Animation::SkinnedLodFeedback): SelectSkinnedLods writes
+            // the level picked, the screen size and the view test into it, and draws no level finer than the one
+            // the animation's evaluated bones cover. Null for an unanimated record (its bind pose is whole).
+            std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };

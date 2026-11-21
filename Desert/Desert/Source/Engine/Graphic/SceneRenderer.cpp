@@ -4572,6 +4572,7 @@ namespace Desert::Graphic
                                       .BoneMatrices             = extra.BoneMatrices,
                                       .MorphWeights             = extra.MorphWeights,
                                       .MorphRevision            = extra.MorphRevision,
+                                      .LodFeedback              = extra.LodFeedback,
                                       .Outlined                 = extra.Outlined,
                                       .HiddenSubmeshes          = extra.HiddenSubmeshes,
                                       .ForcedLOD                = LODPreviewFor( extra.Entity, extra.ForcedLOD ),

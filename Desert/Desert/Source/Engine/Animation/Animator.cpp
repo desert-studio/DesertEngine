@@ -126,7 +126,8 @@ namespace Desert::Animation
     }
 
     Animator::Animator( const Skeleton& skeleton )
-         : m_Skeleton( skeleton ), m_Component( skeleton, m_EvaluatedPose )
+         : m_Skeleton( skeleton ), m_Component( skeleton, m_EvaluatedPose ),
+           m_DisplayComponent( skeleton, m_DisplayPose )
     {
         // THE BIND POSE IS DECOMPOSED ONCE, HERE. Every untracked bone of every clip and every additive
         // layer's reference reads it; it used to be recovered from `LocalBindTransform` on each access, and
@@ -210,7 +211,8 @@ namespace Desert::Animation
         const size_t n = m_Skeleton.GetBones().size();
         if ( m_AuthoringPose.Size() != n )
             m_AuthoringPose = m_BindPose;
-        SampleClipPose( TargetSampling(), &clip, time, m_AuthoringPose );
+        // The authoring pose is the whole rig, whatever LOD the entity draws.
+        SampleClipPose( RigSampling{ m_Skeleton, m_BindPose, m_TrackBinding }, &clip, time, m_AuthoringPose );
     }
 
     Common::BoolResultStr Animator::RebindRestPose()
@@ -761,7 +763,82 @@ namespace Desert::Animation
     void Animator::PublishPose()
     {
         m_Component.Invalidate();
-        m_Component.WriteSkinningMatrices( m_Skinning.Matrices );
+        // Update's evaluation while interpolating skipped frames: the shown pose is published by
+        // PublishInterpolated, every frame. Every other publish (a scrub, a physics pose) writes as before.
+        if ( m_InterpolateSkipped && m_ExtractingStep )
+            return;
+        m_Component.WriteSkinningMatrices( m_Skinning.Matrices, m_RequiredOrder );
+        ++m_SkinningRevision;
+    }
+
+    bool Animator::SetRequiredBones( const std::span<const uint32_t> skinnedBones )
+    {
+        if ( std::equal( skinnedBones.begin(), skinnedBones.end(), m_RequiredSource.begin(), m_RequiredSource.end() ) )
+            return false;
+        m_RequiredSource.assign( skinnedBones.begin(), skinnedBones.end() );
+        const std::size_t boneCount = m_Skeleton.GetBones().size();
+        const std::vector<uint8_t> previous = m_RequiredMask;
+        m_RequiredMask.assign( boneCount, 0u );
+        // CLOSED OVER THE PARENTS (UE FBoneContainer: a required bone's ancestors are required): a bone's matrix
+        // is its parent's times its own local.
+        for ( uint32_t bone : skinnedBones )
+            while ( bone < boneCount && m_RequiredMask[bone] == 0u )
+            {
+                m_RequiredMask[bone] = 1u;
+                bone                 = m_Skeleton.ResolveParent( bone );
+            }
+        m_RequiredOrder.clear();
+        for ( const uint32_t bone : m_Skeleton.GetResolveOrder() )
+            if ( bone < boneCount && m_RequiredMask[bone] != 0u )
+                m_RequiredOrder.push_back( bone );
+        // Every bone (or none named): no restriction at all - the full pipeline, bit for bit.
+        if ( m_RequiredOrder.size() == boneCount || m_RequiredOrder.empty() )
+        {
+            m_RequiredMask.clear();
+            m_RequiredOrder.clear();
+        }
+        // Grew: a bone now drawn was not evaluated (or was evaluated under a narrower set).
+        if ( m_RequiredMask.empty() )
+            return !previous.empty();
+        if ( previous.empty() )
+            return false;
+        for ( std::size_t bone = 0; bone < boneCount && bone < previous.size(); ++bone )
+            if ( m_RequiredMask[bone] != 0u && previous[bone] == 0u )
+                return true;
+        return false;
+    }
+
+    void Animator::SetSkippedFrameInterpolation( const bool interpolate )
+    {
+        if ( interpolate == m_InterpolateSkipped )
+            return;
+        m_InterpolateSkipped = interpolate;
+        if ( interpolate )
+        {
+            m_DisplayPose = m_EvaluatedPose;
+            m_DisplayComponent.Reset( m_DisplayPose.Size() );
+        }
+    }
+
+    void Animator::PublishInterpolated( const float alpha )
+    {
+        if ( !m_InterpolateSkipped )
+            return;
+        if ( m_DisplayPose.Size() != m_EvaluatedPose.Size() )
+        {
+            m_DisplayPose = m_EvaluatedPose;
+            m_DisplayComponent.Reset( m_DisplayPose.Size() );
+        }
+        const auto step = [this, alpha]( const std::size_t bone )
+        { m_DisplayPose[bone] = alpha >= 1.0F ? m_EvaluatedPose[bone] : Blend( m_DisplayPose[bone], m_EvaluatedPose[bone], alpha ); };
+        if ( m_RequiredOrder.empty() )
+            for ( std::size_t bone = 0; bone < m_DisplayPose.Size(); ++bone )
+                step( bone );
+        else
+            for ( const uint32_t bone : m_RequiredOrder )
+                step( bone );
+        m_DisplayComponent.Invalidate();
+        m_DisplayComponent.WriteSkinningMatrices( m_Skinning.Matrices, m_RequiredOrder );
         ++m_SkinningRevision;
     }
 
@@ -917,7 +994,8 @@ namespace Desert::Animation
             return;
         }
         const Timeline::BoneBindingTable& table = BindingFor( rig, *clip );
-        if ( auto sampled = Timeline::EvaluatePose( clip->Sequence, table, OnSequence( *clip, time ), out );
+        // Only the drawn LOD's bones on this Animator's own rig (TargetSampling); a source rig is sampled whole.
+        if ( auto sampled = Timeline::EvaluatePose( clip->Sequence, table, OnSequence( *clip, time ), out, rig.Required );
              !sampled.IsSuccess() )
         {
             // BindingFor rebuilt the table for this very revision, so this is a broken invariant, said loudly.
@@ -1036,7 +1114,7 @@ namespace Desert::Animation
 
     Animator::RigSampling Animator::TargetSampling() const
     {
-        return RigSampling{ m_Skeleton, m_BindPose, m_TrackBinding };
+        return RigSampling{ m_Skeleton, m_BindPose, m_TrackBinding, m_RequiredMask };
     }
 
     Animator::RigSampling Animator::SourceSampling() const

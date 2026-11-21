@@ -28,6 +28,9 @@
 #include <format>
 #include <memory>
 #include <optional>
+
+#include <Engine/Core/Frustum.hpp>
+#include <Engine/Geometry/LODSelection.hpp>
 #include <utility>
 #include <vector>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
@@ -2671,10 +2674,46 @@ namespace Desert::Graphic::System
             m_SkinnedLodNoCameraReported = true;
             LOG_WARN( "[SkinnedLOD] no main camera at the frame's sync: skinned meshes draw LOD 0" );
         }
+        // The animation's side (Animation::SkinnedLodFeedback, UE MaxDistanceFactor / bRecentlyRendered handed to
+        // the next tick): the main view's FOV-aware screen size of the instance and whether its frustum holds it.
+        const Core::Camera* const          camera = m_SceneRenderer->GetMainCamera();
+        std::optional<Core::Frustum>       frustum;
+        std::optional<Geometry::LODView>   lodView;
+        if ( camera != nullptr )
+        {
+            frustum.emplace( camera->GetProjectionMatrix(), camera->GetViewMatrix() );
+            lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
+        }
         for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
         {
             data.Lod = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
             const auto& lods = data.Mesh->GetSkinnedLODs();
+            if ( data.LodFeedback )
+            {
+                Animation::SkinnedLodFeedback& feedback = *data.LodFeedback;
+                float screenSize = Geometry::kLOD0ScreenSize;
+                bool  rendered   = true;
+                // No camera, or a view that draws every mesh at LOD 0 (m_LODEnabled off - the ViewDistance level
+                // that turns mesh LOD off turns the animation's reductions off with it): full size, in view.
+                if ( lodView && m_LODEnabled )
+                {
+                    const Common::Math::AABB bounds = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
+                    const glm::vec3 centre = glm::vec3( data.Transform * glm::vec4( 0.5f * ( bounds.Min + bounds.Max ), 1.0f ) );
+                    const float     scale  = std::max( { glm::length( glm::vec3( data.Transform[0] ) ),
+                                                         glm::length( glm::vec3( data.Transform[1] ) ),
+                                                         glm::length( glm::vec3( data.Transform[2] ) ) } );
+                    const float radius = 0.5f * glm::length( bounds.Max - bounds.Min ) * scale;
+                    screenSize = 2.0f * std::sqrt( Geometry::BoundsScreenRadiusSquared( centre, radius, *lodView ) );
+                    rendered   = frustum->IntersectsSphere( centre, radius );
+                }
+                feedback.DesiredLod.store( data.Lod, std::memory_order_relaxed );
+                feedback.ScreenSize.store( screenSize, std::memory_order_relaxed );
+                feedback.Rendered.store( rendered, std::memory_order_relaxed );
+                feedback.Seen.store( true, std::memory_order_relaxed );
+                // NEVER FINER THAN THE BONES THE POSE EVALUATED (UE draws the game thread's PredictedLODLevel, the
+                // one its anim evaluated for): a level picked finer this frame is drawn from the next tick on.
+                data.Lod = std::max( data.Lod, feedback.EvaluatedLod.load( std::memory_order_relaxed ) );
+            }
             if ( lods.empty() )
                 continue;
             data.Lod                     = std::min<uint32_t>( data.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
@@ -3355,6 +3394,7 @@ namespace Desert::Graphic::System
                 // author's forced level / bias ride with the record (UE ForcedLodModel / LOD bias).
                 skinnedData.ForcedLOD = data.ForcedLOD;
                 skinnedData.LODBias   = data.LODBias;
+                skinnedData.LodFeedback = data.LodFeedback; // the animation's side of the level (WP-FAR-11)
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
                 // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
