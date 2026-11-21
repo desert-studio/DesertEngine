@@ -4344,6 +4344,12 @@ namespace Desert::Graphic::System
         std::unordered_map<uint32_t, uint64_t>               m_GrassCasterBinsSaid;
         std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
         uint32_t                                             m_GpuInstancedStamp = 0;
+        // THE STAMP IS READ ONCE PER VIEW FRAME (WP-FAR-9 crash): the invalidation version is an atomic a load
+        // completion or an Invalidate bumps from another thread while this view records; dropping the records
+        // mid-frame freed the ones the walk already held (GpuInstancedListBin::By, `own`) and the bins' draws read
+        // a freed record. The first GpuInstancedDrawOf of a view frame compares it, ClearQueues re-arms it; a cell
+        // parked during the frame outlives it (the graveyard keeps frames-in-flight frames).
+        bool m_GpuInstancedStampChecked = false;
         // FPS-CPU2-GRASS, THE WALKS' KEPT STATE (UE FMeshDrawCommand caching + FParallelMeshDrawCommandPass's kept
         // lists; BuildGpuInstancedDraws, BuildGpuInstancedShadowDraws - serial setups, one walk at a time):
         //   - one list's compacted bins (GpuInstancedListBin) and the slots of the open-addressing index over

@@ -528,6 +528,7 @@ namespace Desert::Graphic::System
         // A GPU-instanced draw record whose producer's material instance is gone leaves (its section left the
         // scene or took a new material); the rest are kept across frames (GpuInstancedDrawRecord).
         std::erase_if( m_GpuInstancedDraws, []( const auto& held ) { return held.second.Source.expired(); } );
+        m_GpuInstancedStampChecked = false; // the next view frame compares the material invalidation version again
         // The ISM view culls no pass asked for this frame: their field left the scene or took a new snapshot.
         std::erase_if( m_IsmViewCulls, [this]( const auto& entry )
                        { return entry.second.Generation != m_IsmViewCullGeneration; } );
