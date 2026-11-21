@@ -1801,7 +1801,7 @@ namespace Desert::Graphic
         // resolved scene depth, AddFrameParticlesPostOpaque) are NOT among them: they are graphics-queue passes.
         graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
         graph.SetParallelExecute( m_Quality.As<int>( Common::Scalability::Parameter::ParallelExecute ) != 0 );
-        // RenderPipeline.HZBSinglePass (GPU-TERRAIN-HZB): up to six HZB mips per dispatch, or one (the A/B).
+        // RenderPipeline.HZBSinglePass (GPU-TERRAIN-HZB): up to four HZB mips per dispatch, or one (the A/B).
         if ( m_Systems.HZB )
             m_Systems.HZB->SetSinglePass( m_Quality.As<int>( Common::Scalability::Parameter::HZBSinglePass ) !=
                                           0 );

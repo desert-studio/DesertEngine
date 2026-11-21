@@ -103,6 +103,9 @@ namespace Desert::Graphic::RDG
             bool HeldOnAsync = false;
             // FPS-GI-ASYNC: the current group is a write every pass of which declared SkipBarrier (TrackUse).
             bool GroupSkipsBarrier = false;
+            // The current group is a SHARED read group (FindAsyncRuns) both pipes read: a use on AsyncCompute that
+            // ends it while Graphics holds it transitions it there, after the fork (FPS-PROBE-CLASSIFY-REG).
+            bool GroupShared = false;
         };
 
         // A maximal run of consecutive executed passes on Pipe::AsyncCompute, with its fork and join.
@@ -431,10 +434,9 @@ namespace Desert::Graphic::RDG
         ScratchVector<ScratchVector<uint32_t>> m_WaitAt;
         ScratchVector<ScratchVector<uint32_t>> m_SignalAt;
         // SHARED READ GROUPS (FindAsyncRuns). m_GroupOfUse[position][i]: the read group use i of the pass at
-        // that position belongs to, -1 for a use that writes. By group: whether it is shared across the pipes,
-        // and the position and pipe of its first use (the one whose barrier opened it).
+        // that position belongs to, -1 for a use that writes; every group is shared across the pipes. By group:
+        // the position and pipe of its first use (the one whose barrier opened it).
         ScratchVector<ScratchVector<int32_t>> m_GroupOfUse;
-        ScratchVector<bool>                   m_GroupShared;
         ScratchVector<uint32_t>               m_GroupOpener;
         ScratchVector<Pipe>                   m_GroupOpenerPipe;
         // By group: an AsyncCompute opener with a Graphics reader after it in the group; and HELD - such a shared
@@ -1504,12 +1506,19 @@ namespace Desert::Graphic::RDG
         // TrackUse merges into one barrier. A graph that crosses queues has every resource CONCURRENT across the
         // two families (VulkanResourceSharing.hpp; Execute refuses it otherwise), so both queues may read one
         // group at once: what needs ordering is the group's opening barrier before every reader, and every
-        // reader before the use that ends the group. A group ended on Graphics, or by the graph end (where every
-        // run has joined), is SHARED: a read on the other pipe takes no ownership hand-over, so a graphics reader
-        // waits only for the run that opened the group, never for the async readers after it (FPS-FIELD-BARN:
-        // "Deferred: Reflections" waited 2.1 ms for the screen-probe run, which only READ the radiance cache and
-        // the distance fields it reads too). A group ended on AsyncCompute keeps the hand-over at every crossing:
-        // its end would have to order the graphics readers' release before it.
+        // reader before the use that ends the group. Every group is SHARED: a read on the other pipe takes no
+        // ownership hand-over, so a graphics reader waits only for the run that opened the group, never for the
+        // async readers after it (FPS-FIELD-BARN: "Deferred: Reflections" waited 2.1 ms for the screen-probe run,
+        // which only READ the radiance cache and the distance fields it reads too). A group ended on Graphics
+        // joins its last async reader (sharedAsync below) and transitions there; a group ended on AsyncCompute
+        // (FPS-PROBE-CLASSIFY-REG, UE: the transition out of ERHIPipeline::All begun on the pipe that ends it) is
+        // ordered after every graphics reader by their WAR edges - its run forks after the last one - and after
+        // the async readers by queue order, so its transition records on AsyncCompute at the end itself
+        // (TrackUse, RdgSubTrack::GroupShared), never as a release on Graphics that nothing orders after the
+        // async readers. The radiance cache's update runs on AsyncCompute after its last reader (FPS-ASYNC-WAIT):
+        // when such a group kept the hand-over, "Deferred: Reflections World" took the cache over from - and
+        // joined - the screen-probe run up to "ScreenProbes: Integrate" (0.85 ms of graphics idle, FIELD_Barn
+        // scn-1121-080838).
         // A HELD group (UE: the transition into the read state of ERHIPipeline::All is begun on the pipe that
         // last used the resource, before the fork) is a shared group AsyncCompute opens over contents Graphics
         // holds - a graphics pass wrote or read them last, or an external enters the graph there - that a graphics
@@ -1541,13 +1550,10 @@ namespace Desert::Graphic::RDG
                                           openState[use.Sub].Layout == use.State.Layout );
                     if ( !member )
                     {
-                        if ( group >= 0 )
-                            m_GroupShared[static_cast<size_t>( group )] = m_PipeAt[position] == Pipe::Graphics;
                         group = -1;
                         if ( use.State.IsReadOnly() )
                         {
-                            group = static_cast<int32_t>( m_GroupShared.size() );
-                            m_GroupShared.push_back( true ); // unless a use on AsyncCompute ends it
+                            group = static_cast<int32_t>( m_GroupOpener.size() );
                             m_GroupOpener.push_back( position );
                             m_GroupOpenerPipe.push_back( m_PipeAt[position] );
                             m_GroupGraphicsReader.push_back( false );
@@ -1588,12 +1594,14 @@ namespace Desert::Graphic::RDG
             {
                 const RdgSubUse& use    = uses[i];
                 const int32_t    group  = m_GroupOfUse[position][i];
-                const bool       shared = group >= 0 && m_GroupShared[static_cast<size_t>( group )];
+                const bool       shared = group >= 0;
                 const bool       opens  = group < 0 || m_GroupOpener[static_cast<size_t>( group )] == position;
                 if ( opens && sharedAsync[use.Sub] >= 0 )
                 {
+                    // An end on AsyncCompute follows its async readers in queue order.
                     const uint32_t reader = static_cast<uint32_t>( sharedAsync[use.Sub] );
-                    consumedBy( reader, position, use.Resource );
+                    if ( pipe == Pipe::Graphics )
+                        consumedBy( reader, position, use.Resource );
                     sharedAsync[use.Sub] = -1;
                 }
                 if ( shared && pipe == Pipe::AsyncCompute )
@@ -2234,6 +2242,7 @@ namespace Desert::Graphic::RDG
             sub.GroupRawInEpilogue = true;
             sub.GroupRaw           = -1;
             sub.ReleaseRaw         = -1;
+            sub.GroupShared        = true;
             const bool nothingToWaitFor =
                  record.Kind == ResourceKind::Buffer && sub.GroupBefore == kRdgUntouchedState;
             if ( !nothingToWaitFor && !IsCoveredReadState( sub.GroupBefore, use.State ) )
@@ -2361,6 +2370,8 @@ namespace Desert::Graphic::RDG
             sub.GroupRawInEpilogue = false;
             sub.ReleaseRaw         = -1;
             const bool graphicsReadHeld = sub.HeldOnAsync && pipe == Pipe::Graphics;
+            const bool sharedEndOnAsync =
+                 sub.GroupShared && sub.GroupBefore.IsReadOnly() && pipe == Pipe::AsyncCompute && sub.GroupPipe != pipe;
             sub.HeldOnAsync             = false;
             if ( opensAsyncHeldGroup && sub.GroupPipe != pipe && m_SyncError.empty() )
             {
@@ -2377,6 +2388,14 @@ namespace Desert::Graphic::RDG
                 // change there would run under "Deferred: Reflections" still sampling the group. The graphics
                 // readers are before it on this queue; the async ones are ordered by the join of the last async
                 // reader (FindAsyncRuns: sharedAsync). Contents it discards enter from Undefined.
+                sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, !use.Consumes );
+            }
+            else if ( sharedEndOnAsync )
+            {
+                // A SHARED group Graphics holds, ended on AsyncCompute (FindAsyncRuns): the resource is CONCURRENT,
+                // so no hand-over - the transition records HERE, after the fork the graphics readers' WAR edges
+                // put after the last of them and after the async readers before it on this queue. A release on
+                // Graphics would change the layout under an async reader still sampling the group.
                 sub.GroupRaw = addRaw( position, sub.GroupBefore, use.State, !use.Consumes );
             }
             else if ( sub.GroupPipe != pipe )
@@ -2406,6 +2425,7 @@ namespace Desert::Graphic::RDG
         sub.GroupPipe         = pipe;
         sub.LastTouch         = position;
         sub.GroupSkipsBarrier = use.Writes && use.SkipBarrier;
+        sub.GroupShared       = sharedRead;
     }
 
     // The pass's compiled record and its load decisions (UE CompilePassOps). Load: a transient attachment
@@ -2480,7 +2500,7 @@ namespace Desert::Graphic::RDG
             {
                 // A single-pipe compile finds no runs and groups nothing (FindAsyncRuns returns before them).
                 const int32_t group  = position < m_GroupOfUse.size() ? m_GroupOfUse[position][i] : -1;
-                const bool    shared = group >= 0 && m_GroupShared[static_cast<size_t>( group )];
+                const bool    shared = group >= 0;
                 const bool    held   = shared && m_GroupHeld[static_cast<size_t>( group )] &&
                                   m_GroupOpener[static_cast<size_t>( group )] == position;
                 const bool heldOnAsync = shared && m_GroupHeldOnAsync[static_cast<size_t>( group )] &&
