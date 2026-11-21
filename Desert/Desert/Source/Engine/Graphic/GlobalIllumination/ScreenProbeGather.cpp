@@ -1436,6 +1436,12 @@ namespace Desert::Graphic::GlobalIllumination
              RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y * sizeof( uint32_t ) },
              "ScreenProbes.IntegrateTiles" );
         {
+            // FPS-SP-INTEGRATE-WAIT: one group per 4 x 4 tiles, one list append per group and list
+            // (ScreenProbeIntegrate.shader SP_CLASSIFY_TILES): the one-group-a-tile pass's ~3 same-address atomics
+            // a tile measured 0.75-0.83 ms beside the traces or the clouds wherever it was queued.
+            constexpr uint32_t     kClassifyTiles = 4u; // SP_CLASSIFY_TILES
+            const glm::uvec2       classifyGroups( DivideRoundUp( integrateTiles.x, kClassifyTiles ),
+                                                   DivideRoundUp( integrateTiles.y, kClassifyTiles ) );
             ComputePipeline* const pipeline = m_Pipelines[IntegrateClassify].get();
             graph.AddPass(
                  "ScreenProbes: Integrate Classify", kAsyncPass,
@@ -1450,10 +1456,10 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kW )
                           .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kW );
                  },
-                 [pipeline, integrateTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline, classifyGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, integrateTiles.x, integrateTiles.y,
+                     return Renderer::DispatchCompute( bindings, *pipeline, classifyGroups.x, classifyGroups.y,
                                                        1u );
                  } );
         }
