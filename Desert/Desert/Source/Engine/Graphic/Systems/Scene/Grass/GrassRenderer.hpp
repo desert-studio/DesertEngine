@@ -281,6 +281,20 @@ namespace Desert::Graphic::System
             return m_BladeSetupRef;
         }
 
+        // FPS-GRASS-SW-RASTER, THE FAR BLADES' SOFTWARE RASTER (Programs/Grass/GrassBladeSoftwareRaster.shader; UE 5
+        // Nanite MicropolyRasterize): phase 1's drawn blades of every bucket >= MeshRenderer::kGrassRasterMidBuckets
+        // of the sections @p meshes admitted (MeshRenderer::PrepareGrassSoftwareRaster), placed from their setup
+        // records (AddFrameBladeSetup ran before), scanned against @p depth (the G-buffer's, CloserOrEqual) and their
+        // section's mask (its row of the scene material table @p materials), atomic-maxed into @p visibility -
+        // the words the HW raster would have left. "Grass: Blade Software Raster Work" prefix-sums the software
+        // buckets' instance counts into the raster's indirect dispatch, one thread a blade. An error: nothing was
+        // added (the caller hands those blades back to the HW raster).
+        [[nodiscard]] Common::BoolResultStr AddFrameBladeSoftwareRaster( RDG::Builder& graph, const ViewFrame& frame,
+                                                                         const MeshRenderer& meshes,
+                                                                         RDG::BufferRef      visibility,
+                                                                         RDG::TextureRef     depth,
+                                                                         RDG::BufferRef      materials );
+
         // GRASS-VIS: the last AddFrame handed out more raster-stream rows than a visibility word addresses
         // (kGrassVisibilityMaxRows): the view refuses its grass visibility buffer path this frame.
         [[nodiscard]] bool VisibilityRowsOverflow() const noexcept
@@ -936,6 +950,8 @@ namespace Desert::Graphic::System
         };
         std::shared_ptr<ComputePipeline>                m_BladeSetupProgram;
         mutable ShaderBindingLayoutCache                m_BladeSetupLayout;
+        std::shared_ptr<ComputePipeline>                m_BladeRasterProgram; // FPS-GRASS-SW-RASTER
+        mutable ShaderBindingLayoutCache                m_BladeRasterLayout;
         std::shared_ptr<ShaderResources::StorageBuffer> m_BladeSetup;
         RDG::ExternalBuffer                             m_BladeSetupImport;
         RDG::BufferRef                                  m_BladeSetupRef{};

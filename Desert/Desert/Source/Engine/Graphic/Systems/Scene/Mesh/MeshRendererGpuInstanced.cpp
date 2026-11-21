@@ -1063,8 +1063,8 @@ namespace Desert::Graphic::System
                 }
             };
             // FPS-GRASS-VIS-2: the visibility raster's slice (GrassRasterSlice) - Near its first
-            // kGrassRasterNearBuckets buckets, Mid up to kGrassRasterMidBuckets (FPS-GRASS-RASTER-3), Far up to
-            // kGrassRasterFarBuckets (FPS-GRASS-RASTER-COST), Rest the rest; a visibility section is never
+            // kGrassRasterNearBuckets buckets, Mid up to kGrassRasterMidBuckets (FPS-GRASS-RASTER-3), Rest the rest
+            // (FPS-GRASS-SW-RASTER: none of a software-rastered blade section's); a visibility section is never
             // prepassed, so prepassBuckets is every bucket here.
             uint32_t sliceFirst = 0u;
             uint32_t sliceEnd   = prepassBuckets;
@@ -1072,7 +1072,6 @@ namespace Desert::Graphic::System
             {
                 const uint32_t nearEnd = std::min( kGrassRasterNearBuckets, draw.Buckets );
                 const uint32_t midEnd  = std::min( kGrassRasterMidBuckets, draw.Buckets );
-                const uint32_t farEnd  = std::min( kGrassRasterFarBuckets, draw.Buckets );
                 if ( slice == GrassRasterSlice::Near )
                     sliceEnd = std::min( sliceEnd, nearEnd );
                 else if ( slice == GrassRasterSlice::Mid )
@@ -1080,13 +1079,13 @@ namespace Desert::Graphic::System
                     sliceFirst = nearEnd;
                     sliceEnd   = std::min( sliceEnd, midEnd );
                 }
-                else if ( slice == GrassRasterSlice::Far )
+                else
                 {
                     sliceFirst = midEnd;
-                    sliceEnd   = std::min( sliceEnd, farEnd );
+                    // FPS-GRASS-SW-RASTER: these buckets of an admitted blade section are rastered in compute.
+                    if ( m_GrassSoftwareKeys.Contains( gpu.Key ) )
+                        sliceEnd = sliceFirst;
                 }
-                else
-                    sliceFirst = farEnd;
             }
             addBuckets( draw, sliceFirst, sliceEnd );
             if ( !prepassed || prepassBuckets >= draw.Buckets )
