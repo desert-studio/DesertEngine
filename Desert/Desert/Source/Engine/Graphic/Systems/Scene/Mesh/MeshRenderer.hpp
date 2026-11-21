@@ -1783,49 +1783,25 @@ namespace Desert::Graphic::System
         // rasters [kGrassRasterMidBuckets, kGrassRasterFarBuckets) against Mid's depth, "Grass: Visibility Depth
         // Far" writes the words' depth, and Rest (the pass keeps its name "Grass: Visibility Raster") rasters the
         // farthest buckets against it: their fragments behind a nearer far blade die in early-Z / HiZ instead of
-        // the fragment stage's hidden-word read. Exact by the same argument.
+        // the fragment stage's hidden-word read. Exact by the same argument. FPS-GRASS-SW-RASTER (measured,
+        // dropped): a compute raster of the buckets past Mid, one thread a blade (UE 5 Nanite MicropolyRasterize),
+        // cost 4.0 ms in FIELD_Barn TURN (scn-1121-205105) against these HW slices' 0.36 ms - a masked blade's
+        // pixel is a chain of dependent reads (G-buffer depth, hidden word, material row, bindless mask texture,
+        // 64-bit atomic) one thread walks serially, where the HW raster runs them per pixel behind early-Z / HiZ.
+        // Nanite's software raster pays off for opaque micro-triangles without a per-pixel material read; the
+        // blades are masked.
         enum class GrassRasterSlice : uint8_t
         {
             All,
             Near,
             Mid,
+            Far,
             Rest
         };
         static constexpr uint32_t kGrassRasterNearBuckets = 1u;
         static constexpr uint32_t kGrassRasterMidBuckets  = 2u; // the end of the Mid slice's buckets
-        // FPS-GRASS-SW-RASTER (UE 5 Nanite MicropolyRasterize: the micro-triangles go to a compute raster): the
-        // blade sections whose buckets past Mid (>= kGrassRasterMidBuckets, the one- and two-segment far blades,
-        // 1-2 px triangles) GrassRenderer::AddFrameBladeSoftwareRaster rasters in compute into the same words;
-        // their HW Rest slice is empty (BuildGpuInstancedDraws). This supersedes FPS-GRASS-RASTER-COST's Far slice
-        // and its "Grass: Visibility Depth Far": Rest now rasters every bucket past Mid of what stays on the HW
-        // raster (the mesh grass, a blade section not admitted here). A section is admitted when its Visibility
-        // record's template masks by a plain texture (no UV transform, no computed mask, no dither - those the HW
-        // cell evaluates) and its material row is in the scene table this frame: the software raster reads the
-        // row there (UE: the material's uniform buffer), so a material edit reaches both rasters alike.
-        static constexpr uint32_t kGrassSoftwareNoSlot = ~0u;
-        struct GrassSoftwareRasterMask
-        {
-            uint64_t HiddenSubmeshes = 0;                    // the section's hidden strip levels
-            uint32_t RowSlot         = 0;                    // its row's first vec4 slot in the scene material table
-            uint32_t TextureSlot     = kGrassSoftwareNoSlot; // the mask texture's slot in the row (none: opaque)
-            uint32_t ChannelSlot     = kGrassSoftwareNoSlot; // the channel parameter's slot (none: Channel)
-            uint32_t Channel         = 3u;
-            uint32_t ClipSlot        = kGrassSoftwareNoSlot; // the clip threshold's slot (none: 0)
-            uint32_t UVSet           = 0u;                   // 0 the card UV, 1 (clump draw, height share)
-        };
-        // Phase 1, before its Rest raster is declared (SceneRenderer::AddFrameGrassVisibility): admits this
-        // frame's blade visibility sections; @p enabled false admits none (every blade on the HW raster).
-        void PrepareGrassSoftwareRaster( bool enabled );
-        [[nodiscard]] bool DrawsGrassSoftwareRaster() const noexcept
-        {
-            return !m_GrassSoftwareMasks.empty();
-        }
-        [[nodiscard]] const GrassSoftwareRasterMask* GrassSoftwareRasterMaskOf( const uint64_t key ) const noexcept
-        {
-            const uint32_t* const at = m_GrassSoftwareKeys.Find( key );
-            return at != nullptr && *at < m_GrassSoftwareMasks.size() ? &m_GrassSoftwareMasks[*at] : nullptr;
-        }
-        // The phase-1 list of @p slice (Near, Mid, else Rest).
+        static constexpr uint32_t kGrassRasterFarBuckets  = 3u; // the end of the Far slice's buckets
+        // The phase-1 list of @p slice (Near, Mid, Far, else Rest).
         [[nodiscard]] MeshRendererDetail::MeshDrawList& GrassVisibilityRasterList( GrassRasterSlice slice );
         [[nodiscard]] const MeshRendererDetail::MeshDrawList&
              GrassVisibilityRasterList( GrassRasterSlice slice ) const;
@@ -2661,12 +2637,10 @@ namespace Desert::Graphic::System
         // instead of the masked prepass + G-buffer; the resolve's argument table of this frame.
         bool                             m_GrassVisibilityActive = false;
         std::vector<uint32_t>            m_GrassVisibilitySections;
-        // FPS-GRASS-SW-RASTER: the admitted sections' masks and their keys (PrepareGrassSoftwareRaster).
-        std::vector<GrassSoftwareRasterMask> m_GrassSoftwareMasks;
-        GpuSectionKeyTable                   m_GrassSoftwareKeys;
         size_t                           m_GrassVisibilityMeshSections = 0; // of them, the Instanced (mesh) ones
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterNearDraws; // "Grass: Visibility Raster Near"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterMidDraws;  // "Grass: Visibility Raster Mid"
+        MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterFarDraws;  // "Grass: Visibility Raster Far"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterDraws;  // "Grass: Visibility Raster"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolveDraws; // "Grass: Visibility Resolve"
         MeshRendererDetail::MeshDrawList m_GrassMeshVisibilityResolveDraws; // "Grass: Mesh Visibility Resolve"
