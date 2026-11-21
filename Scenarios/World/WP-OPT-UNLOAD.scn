@@ -4,11 +4,13 @@
 # UE 5.5 ULevelStreaming unload: components unregistered, primitives removed through the render command queue, the game
 # thread never waits mid-frame. Now WorldStreamer::Destroy -> Scene::DestroyEntityAtFence: the subtree is hidden
 # (ECS::StreamingOutComponent), its ids stop resolving, and the tree is destroyed at the next view fence (AfterViews).
+# WP-OPT-UPLOAD-BATCH: «Scene/Play» no longer exists - Play is the Action command (as WP-PERF.scn).
 # [flight_after] is the headless flight profiler (ShotOptions --flight), the same line as WP-PERF [1_flight]:
 #   Editor --project Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce --play
 #          --flight line:-90000,5000,0:90000,5000,0 --flight-speed 6000 --flight-csv <scratch>/WP-PERF/flight-after.csv
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
-Дано run Scene "Play"
+Дано run Action "Play"
+Тогда-вид play_hill Play view of WP_Protocol: the landscape and its HLOD on the hill drawn, no hole, no black frame
 Тогда flight_after editor.log «[Flight]»: ни одного кадра дольше 100 мс; stream_ms кадров с деактивацией ячеек меньше 5 мс
 # Regression: WP-DATA-LAYERS-RUNTIME and WP-FAR-9 frames still show cells streaming in and out as before.
