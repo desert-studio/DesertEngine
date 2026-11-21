@@ -90,6 +90,18 @@ namespace Desert::Libraries
 
         /// Not script-callable: the host calls it once a played frame (ScriptEngine::DeliverWorldPartitionEvents)
         /// to fire the waits whose query completed, in the order they were made.
+        FUNCTION( ScriptCallable, ScriptName( "provideSource" ),
+                  Tooltip( "States a streaming source no entity carries, by name (UE "
+                           "IWorldPartitionStreamingSourceProvider): the table is read as a query (Location, Yaw, "
+                           "Radius or Shapes, TargetGrids) and streams like an entity's source until removeSource. "
+                           "Stating the name again replaces it (call it every frame to move it)." ) )
+        static Common::BoolResultStr ProvideSource( const std::string& name, const Reflection::Value& source );
+
+        FUNCTION( ScriptCallable, ScriptName( "removeSource" ),
+                  Tooltip( "Removes the streaming source provideSource stated under the name; its cells unload "
+                           "when nothing else wants them. A name not provided is refused." ) )
+        static Common::BoolResultStr RemoveSource( const std::string& name );
+
         static void FireCompletedWaits( Core::Scene& scene );
     };
 } // namespace Desert::Libraries

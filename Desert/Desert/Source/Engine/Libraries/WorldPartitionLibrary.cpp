@@ -571,4 +571,51 @@ namespace Desert::Libraries
             registry.set<StreamingWaits>( std::move( kept ) );
         }
     }
+
+    Common::BoolResultStr WorldPartitionLibrary::ProvideSource( const std::string& name, const Reflection::Value& source )
+    {
+        constexpr std::string_view call = "provideSource";
+        if ( name.empty() )
+            return Common::MakeFormattedError<bool>( "{}.{}: the source has no name", kLibrary, call );
+        Core::Scene* scene    = nullptr;
+        auto         streamer = StreamerOf( call, &scene );
+        if ( !streamer )
+            return Common::MakeError<bool>( streamer.GetError() );
+        auto parsed = QueryOf( source, std::format( "{}.{}('{}')", kLibrary, call, name ),
+                               streamer.GetValue()->Partition() );
+        if ( !parsed )
+            return Common::MakeError<bool>( parsed.GetError() );
+        if ( !parsed.GetValue().Spatial )
+        {
+            return Common::MakeFormattedError<bool>( "{}.{}('{}'): a streaming source is spatial (SpatialQuery false "
+                                                     "is a query's, not a source's)",
+                                                     kLibrary, call, name );
+        }
+        entt::registry& registry = scene->GetRegistry();
+        auto&           provided = registry.try_ctx<Core::ProvidedStreamingSources>() != nullptr
+                                       ? registry.ctx<Core::ProvidedStreamingSources>()
+                                       : registry.set<Core::ProvidedStreamingSources>();
+        const bool      fresh    = !provided.Sources.contains( name );
+        provided.Sources[name]   = parsed.GetValue().Source;
+        if ( fresh )
+            LOG_INFO( "[WorldPartition] streaming source provider '{}' registered at ({:.0f}, {:.0f}, {:.0f}), {} "
+                      "shape(s)",
+                      name, parsed.GetValue().Source.Position.x, parsed.GetValue().Source.Position.y,
+                      parsed.GetValue().Source.Position.z, parsed.GetValue().Source.Shapes.size() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr WorldPartitionLibrary::RemoveSource( const std::string& name )
+    {
+        constexpr std::string_view call = "removeSource";
+        Core::Scene*               scene    = nullptr;
+        auto                       streamer = StreamerOf( call, &scene );
+        if ( !streamer )
+            return Common::MakeError<bool>( streamer.GetError() );
+        auto* provided = scene->GetRegistry().try_ctx<Core::ProvidedStreamingSources>();
+        if ( provided == nullptr || provided->Sources.erase( name ) == 0 )
+            return Common::MakeFormattedError<bool>( "{}.{}: no source '{}' was provided", kLibrary, call, name );
+        LOG_INFO( "[WorldPartition] streaming source provider '{}' unregistered", name );
+        return Common::MakeSuccess( true );
+    }
 } // namespace Desert::Libraries
