@@ -1050,44 +1050,6 @@ namespace Desert::Graphic::GlobalIllumination
             graph.QueueBufferUpload( traceDisocclusion, std::as_bytes( std::span( &kNoDisocclusion, 1 ) ) );
         }
 
-        // INTEGRATION TILE CLASSIFICATION (UE r.Lumen.ScreenProbeGather.IntegrationTileClassification): every 8x8
-        // tile listed simple-diffuse or full (ScreenProbeIntegrate.shader SP_INTEGRATE_CLASSIFY), then the two
-        // integrate permutations dispatched indirectly over their own lists. It reads the G-buffer alone, so it is
-        // declared before the screen leg (FPS-PROBE-CLASSIFY-REG): after it, the graphics queue reached it only
-        // once the trace chain had forked onto AsyncCompute and the 8x8-tile pass waited behind the traces' waves
-        // (0.028 -> 0.753 ms, FIELD_Barn scn-1121-080838), and the integrate's fork waited with it.
-        using IntegrateSlots = ScreenProbeGatherIntegrateShaderParameters;
-        const glm::uvec2     integrateTiles( DivideRoundUp( inputs.Extent.x, 8u ),
-                                             DivideRoundUp( inputs.Extent.y, 8u ) );
-        const RDG::BufferRef integrateArgs =
-             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kIntegrateArgsReset ) }, "ScreenProbes.IntegrateArgs" );
-        graph.QueueStaticBufferUpload( integrateArgs, std::as_bytes( std::span( kIntegrateArgsReset ) ) );
-        const RDG::BufferRef integrateTileList = graph.CreateBuffer(
-             RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y * sizeof( uint32_t ) },
-             "ScreenProbes.IntegrateTiles" );
-        {
-            ComputePipeline* const pipeline = m_Pipelines[IntegrateClassify].get();
-            graph.AddPass(
-                 "ScreenProbes: Integrate Classify", kGraphicsPass,
-                 [&]( RDG::PassBuilder& builder )
-                 {
-                     auto block =
-                          builder.Bindings( m_Layouts[IntegrateClassify].Get( m_Shaders[IntegrateClassify] ),
-                                            Renderer::GetPipelineRouteFill( *pipeline ) );
-                     block.Storage( IntegrateSlots::GIFrameUB, inputs.GIFrame, kR )
-                          .Texture( IntegrateSlots::GBufferBTexture, inputs.GBufferB, kS, all )
-                          .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() )
-                          .Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kW )
-                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kW );
-                 },
-                 [pipeline, integrateTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 {
-                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, integrateTiles.x, integrateTiles.y,
-                                                       1u );
-                 } );
-        }
-
         {
             ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
             const ShaderPush::ScreenProbeTraceScreen  push{ NearFieldEnd( inputs.Tracer.Pipeline.Tracer ) };
@@ -1452,6 +1414,47 @@ namespace Desert::Graphic::GlobalIllumination
                  {
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, 0u );
+                 } );
+        }
+        // INTEGRATION TILE CLASSIFICATION (UE r.Lumen.ScreenProbeGather.IntegrationTileClassification): every 8x8
+        // tile listed simple-diffuse or full (ScreenProbeIntegrate.shader SP_INTEGRATE_CLASSIFY), then the two
+        // integrate permutations dispatched indirectly over their own lists. It runs on AsyncCompute, in the trace
+        // chain's FIFO right before the integrates it alone feeds (UE: the tile classification is dispatched on
+        // the same compute pipe as the ScreenProbeIntegrate it lists tiles for). FPS-SP-CLASSIFY-COST: as a
+        // Graphics pass
+        // - declared after the filter (scn-1121-080838) or before the screen leg (b1ee077a8, scn-1121-090107) -
+        // its 8x8-tile waves found every SM held by the async traces' waves and the 0.028 ms pass measured 0.746
+        // ms (the near/far/cache-read legs' 0.72 ms); on the async queue those legs finished before it starts, and
+        // the integrates take their args with no graphics -> async edge.
+        using IntegrateSlots = ScreenProbeGatherIntegrateShaderParameters;
+        const glm::uvec2     integrateTiles( DivideRoundUp( inputs.Extent.x, 8u ),
+                                             DivideRoundUp( inputs.Extent.y, 8u ) );
+        const RDG::BufferRef integrateArgs =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( kIntegrateArgsReset ) }, "ScreenProbes.IntegrateArgs" );
+        graph.QueueStaticBufferUpload( integrateArgs, std::as_bytes( std::span( kIntegrateArgsReset ) ) );
+        const RDG::BufferRef integrateTileList = graph.CreateBuffer(
+             RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y * sizeof( uint32_t ) },
+             "ScreenProbes.IntegrateTiles" );
+        {
+            ComputePipeline* const pipeline = m_Pipelines[IntegrateClassify].get();
+            graph.AddPass(
+                 "ScreenProbes: Integrate Classify", kAsyncPass,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block =
+                          builder.Bindings( m_Layouts[IntegrateClassify].Get( m_Shaders[IntegrateClassify] ),
+                                            Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Storage( IntegrateSlots::GIFrameUB, inputs.GIFrame, kR )
+                          .Texture( IntegrateSlots::GBufferBTexture, inputs.GBufferB, kS, all )
+                          .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kW )
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kW );
+                 },
+                 [pipeline, integrateTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, integrateTiles.x, integrateTiles.y,
+                                                       1u );
                  } );
         }
         // One integrate permutation over its tiles: the simple-diffuse one binds no filtered radiance (it samples
