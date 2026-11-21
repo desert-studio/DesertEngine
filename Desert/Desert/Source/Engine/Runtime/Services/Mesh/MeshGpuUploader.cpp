@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Render/RayTracingMeshInput.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <mutex>
 
 namespace Desert::Runtime
@@ -25,6 +26,7 @@ namespace Desert::Runtime
             {
                 if ( !mesh )
                     return false;
+                const auto started = std::chrono::steady_clock::now();
                 // A static mesh's geometry is staged by Stage and lands in the geometry pool here; a skinned one
                 // was built whole by Stage (MeshFactory::Stage says why).
                 if ( !asset.IsSkinned() )
@@ -36,7 +38,18 @@ namespace Desert::Runtime
                         return false;
                     }
                 }
+                const auto uploaded = std::chrono::steady_clock::now();
                 BuildRayTracingGeometry( mesh, asset );
+                // THE COMMIT'S OWN SPLIT (WP-OPT-UPLOAD-BATCH): the geometry upload (pool span + batched copies +
+                // virtual-geometry registration) and the BLAS, so a slow arrival frame (>= 2 ms)
+                // names its stage.
+                const auto ms = []( const auto from, const auto to )
+                { return std::chrono::duration<double, std::milli>( to - from ).count(); };
+                const auto done = std::chrono::steady_clock::now();
+                if ( ms( started, done ) >= 2.0 )
+                    LOG_INFO( "[MeshService] '{}' commit: geometry upload {:.1f} ms, BLAS {:.1f} ms",
+                              asset.GetMetadata().Filepath.filename().string(), ms( started, uploaded ),
+                              ms( uploaded, done ) );
                 return true;
             }
 

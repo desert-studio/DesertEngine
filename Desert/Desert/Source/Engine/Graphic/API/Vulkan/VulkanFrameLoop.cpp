@@ -2,19 +2,41 @@
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanBufferUploadBatch.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChainOutput.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
 #include <Common/Core/EngineThread.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
+#include <exception>
 #include <utility>
 
 namespace Desert::Graphic::API::Vulkan
 {
+    namespace
+    {
+        // THE UPLOAD BATCH GOES FIRST (WP-OPT-UPLOAD-BATCH): every hand-off to the queue below is preceded by the
+        // device-buffer copies written so far, on the caller's thread, so whatever it hands over - a frame that
+        // draws a mesh committed this frame, a one-off that builds its BLAS or copies out of the arena - reaches
+        // the queue after them. A refused batch is the upload's failure, named here; the hand-off still goes.
+        void FlushUploadBatchFirst() noexcept
+        {
+            try
+            {
+                if ( const auto flushed = VulkanBufferUploadBatch::Get().Flush(); !flushed.IsSuccess() )
+                    LOG_ERROR( "[Upload] {}", flushed.GetError() );
+            }
+            catch ( const std::exception& error )
+            {
+                LOG_ERROR( "[Upload] upload batch flush threw: {}", error.what() );
+            }
+        }
+    } // namespace
     namespace
     {
         // THE PROCESS'S FRAME LOOP, for DrainSubmitThread / DeferRelease / SubmitOrdered: VulkanLogicalDevice::
@@ -144,6 +166,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !Graphic::DeviceLost::AllowWork() )
             return Common::MakeError( "the device is lost; nothing is submitted" );
+        FlushUploadBatchFirst();
         if ( frame.empty() || frame.back().OnPipe != RDG::Pipe::Graphics )
             return Common::MakeError( "the frame's last submission is not its graphics tail" );
         if ( slot >= m_Fences.size() || m_Fences[slot] == VK_NULL_HANDLE )
@@ -608,6 +631,7 @@ namespace Desert::Graphic::API::Vulkan
 
     VkResult VulkanFrameLoop::SubmitOrdered( const std::function<VkResult()>& submit )
     {
+        FlushUploadBatchFirst();
         // On the submit thread (a deferred release that uploads) this IS queue order already, and waiting for
         // its own ticket would never end.
         if ( !t_OnSubmitThread )
@@ -748,6 +772,7 @@ namespace Desert::Graphic::API::Vulkan
     VulkanFrameLoop::EnqueueUnwaited( const std::function<uint64_t()>&       reserve,
                                       std::function<std::string( uint64_t )> submit ) noexcept
     {
+        FlushUploadBatchFirst();
         // No t_OnSubmitThread case here: on that thread nothing waits (QueueUnwaited skips the depth bound), so
         // it may queue behind itself. Inline there instead would overtake the uploads already queued behind the
         // current entry, whose values are lower than one picked now.

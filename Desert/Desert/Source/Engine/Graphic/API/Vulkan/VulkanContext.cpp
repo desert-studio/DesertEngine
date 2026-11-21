@@ -1,3 +1,4 @@
+#include <Engine/Graphic/API/Vulkan/VulkanBufferUploadBatch.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include <vk-bootstrap/VkBootstrap.h>
@@ -356,6 +357,9 @@ namespace Desert::Graphic::API::Vulkan
         // NO QUEUED RELEASE RUNS AFTER vmaDestroyAllocator (REVIEW-FPS13 R2): the frame loop is destroyed in
         // Renderer::Shutdown, before this, and its destructor runs its whole queue; drained here as well, so a
         // loop that ever outlived this point still has nothing queued when the allocator below goes.
+        // Copies still in the upload batch are submitted (their staging released with them) before the drain.
+        if ( const auto flushed = VulkanBufferUploadBatch::Get().Flush(); !flushed.IsSuccess() )
+            LOG_ERROR( "[Upload] teardown: {}", flushed.GetError() );
         VulkanFrameLoop::DrainSubmitThread();
         CommandBufferAllocator::GetInstance().Destroy();
         // Every upload reading the stream-in ring has been waited by the line above: its buffer goes before VMA.

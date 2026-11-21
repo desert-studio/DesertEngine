@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <vector>
 
+#include <chrono>
+
 namespace Desert
 {
     StaticMesh::StaticMesh( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
@@ -110,9 +112,11 @@ namespace Desert
 
     Common::BoolResultWithCodes<Desert::MeshError> StaticMesh::Invalidate()
     {
-        auto uploaded = UploadStagedGeometry();
+        const auto started  = std::chrono::steady_clock::now();
+        auto       uploaded = UploadStagedGeometry();
         if ( !uploaded.IsSuccess() || m_VirtualGeometrySource.Dags.empty() )
             return uploaded;
+        const auto pooled = std::chrono::steady_clock::now();
         // The DAG rows point into the span just uploaded. A refusal leaves the mesh drawing its discrete LOD
         // chain (cut from the same DAG at cook), named in the log; the CPU DAGs are dropped either way.
         auto registered = Graphic::VirtualGeometry::VirtualMeshTable::Get().RT_Register(
@@ -123,6 +127,12 @@ namespace Desert
         else
             LOG_ERROR( "StaticMesh '{}': not registered as virtual geometry ({}); its discrete LODs draw",
                        m_VirtualGeometrySource.Name, registered.GetError() );
+        // The split of a slow upload (WP-OPT-UPLOAD-BATCH): pool span + batched copies vs the DAG registration.
+        const auto ms = []( const auto from, const auto to )
+        { return std::chrono::duration<double, std::milli>( to - from ).count(); };
+        if ( const auto now = std::chrono::steady_clock::now(); ms( started, now ) >= 2.0 )
+            LOG_INFO( "StaticMesh '{}': pool upload {:.1f} ms, virtual geometry registration {:.1f} ms",
+                      m_VirtualGeometrySource.Name, ms( started, pooled ), ms( pooled, now ) );
         m_VirtualGeometrySource = {};
         return uploaded;
     }
