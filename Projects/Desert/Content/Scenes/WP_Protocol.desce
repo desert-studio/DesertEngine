@@ -185,6 +185,7 @@
                 "Type": "Instancing"
             }
         ],
-        "ChunkRegionSize": 100000.0
+        "ChunkRegionSize": 100000.0,
+        "DataLayersLogicOperator": "Or"
     }
 }
