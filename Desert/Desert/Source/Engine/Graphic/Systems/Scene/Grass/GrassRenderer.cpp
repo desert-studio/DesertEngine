@@ -594,8 +594,8 @@ namespace Desert::Graphic::System
         // is the same for every section (the sections share the camera list, its bucket firsts and the level
         // records; the sway reads only the instance's origin and the wind). It is set up once, at slot s of the
         // FIRST TABLED section's rows (Visibility.x + s: that section owns capacity x perInstance >= capacity
-        // rows, and no other record lies there), and every section's resolve reads it there (Slots.zw: the address
-        // of that row). Was: one setup row per section, each writing the same record into its own rows - the mesh
+        // rows, and no other record lies there), and every section's resolve reads it there (Slots.z: that row in
+        // the bound setup buffer, FPS-GRASS-MESH-SETUP-5). Was: one setup row per section, each writing the same record into its own rows - the mesh
         // setup's threads and writes times the section count. The section count when none is tabled.
         size_t MeshSetupSection( const std::vector<uint8_t>& tabled )
         {
@@ -1571,17 +1571,23 @@ namespace Desert::Graphic::System
         // FPS-GRASS-BLADE-SETUP: every section reads its instances' setup records at the setup section's rows
         // (MeshSetupSection), slot s at that address + s records; 0: no records this frame.
         // FPS-GRASS-MESH-SETUP-3: the resolve reads records [Visibility.x, Visibility.x + Slots.x) of the setup
-        // section by address, unchecked on the GPU; the address is handed out only when that whole span lies
-        // inside this frame's setup buffer (CommitBladeSetup's m_BladeSetupCapacity rows), else 0 (no mesh pixel
-        // resolved, said once) - never an address whose reads run past the buffer.
+        // section; they are handed out only when that whole span lies inside this frame's setup buffer
+        // (CommitBladeSetup's m_BladeSetupCapacity rows), else none (no mesh pixel resolved, said once).
+        // FPS-GRASS-MESH-SETUP-5: handed out as a ROW OFFSET into the bound setup buffer (Slots.z; Slots.w = 1:
+        // records this frame), never a device address - the resolve binds this frame's buffer through the graph
+        // (GpuInstancedRenderData::SetupRecords) and bounds Slots.z + slot by its length.
         const size_t setupSection = MeshSetupSection( gpu.MeshVisibilityTabled );
-        uint64_t     setupAddress = 0u;
-        if ( m_BladeSetupAddress != 0u && setupSection < gpu.MeshVisibilityRows.size() )
+        uint32_t     setupOffset  = 0u;
+        bool         setupHeld    = false;
+        if ( m_BladeSetupAddress != 0u && m_BladeSetup != nullptr && setupSection < gpu.MeshVisibilityRows.size() )
         {
             const GrassMeshVisibilityGpu& setupRows = gpu.MeshVisibilityRows[setupSection];
             const uint64_t setupEnd = uint64_t{ setupRows.Visibility.x } + uint64_t{ setupRows.Slots.x };
             if ( setupEnd <= m_BladeSetupCapacity )
-                setupAddress = m_BladeSetupAddress + uint64_t{ setupRows.Visibility.x } * kBladeSetupRecordBytes;
+            {
+                setupOffset = setupRows.Visibility.x;
+                setupHeld   = true;
+            }
             else
             {
                 static std::unordered_set<uint64_t> s_SetupPastBuffer;
@@ -1609,11 +1615,12 @@ namespace Desert::Graphic::System
                            variety.Key, s );
                 continue;
             }
-            // FPS-GRASS-MESH-SETUP: the address of the variety's setup records (CommitBladeSetup, this frame's;
-            // FPS-GRASS-BLADE-SETUP: the setup section's first row), where "Grass: Mesh Setup" wrote each drawn
-            // instance's record and every section's mesh resolve reads it; 0: none this frame.
-            gpu.MeshVisibilityRows[s].Slots.z = static_cast<uint32_t>( setupAddress & 0xFFFFFFFFull );
-            gpu.MeshVisibilityRows[s].Slots.w = static_cast<uint32_t>( setupAddress >> 32u );
+            // FPS-GRASS-MESH-SETUP: where "Grass: Mesh Setup" wrote each drawn instance's record and every
+            // section's mesh resolve reads it (FPS-GRASS-BLADE-SETUP: the setup section's first row).
+            // FPS-GRASS-MESH-SETUP-5: z = that row as an offset into the bound setup buffer, w = 1 when the
+            // records exist this frame (0: none, the resolve discards).
+            gpu.MeshVisibilityRows[s].Slots.z = setupOffset;
+            gpu.MeshVisibilityRows[s].Slots.w = setupHeld ? 1u : 0u;
             if ( const auto wrote = table->SetData( &gpu.MeshVisibilityRows[s], sizeof( GrassMeshVisibilityGpu ) );
                  !wrote.IsSuccess() )
             {
@@ -3208,9 +3215,9 @@ namespace Desert::Graphic::System
                 if ( resolveMesh != nullptr && s < gpu->MeshVisibility.size() )
                     meshRows = gpu->MeshVisibility[s];
                 sections.push_back(
-                     { .Mesh     = mesh,
-                       .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
-                       .Material = variety.Sections[s].Material,
+                     { .Mesh             = mesh,
+                       .Path             = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
+                       .Material         = variety.Sections[s].Material,
                        .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
                        .CastShadows      = variety.Placement.CastDynamicShadow,
                        .Wind             = variety.Wind,
@@ -3218,6 +3225,7 @@ namespace Desert::Graphic::System
                        .CameraIds        = m_IdsPool.Buffer(),
                        .BladeShape       = gpu->Shape,
                        .MeshVisibility   = meshRows,
+                       .SetupRecords     = meshRows != nullptr ? m_BladeSetup : nullptr,
                        .ResolveMesh      = resolveMesh,
                        .Refs             = &gpu->Refs,
                        .CameraRefs       = &gpu->CameraRefs,
@@ -3718,15 +3726,13 @@ namespace Desert::Graphic::System
         m_BladeSetupAddress = 0u;
         // Past kGrassVisibilityMaxRows the view refuses its grass visibility path (VisibilityRowsOverflow): no
         // record past it is ever read, so the records stop there.
-        // FPS-GRASS-MESH-SETUP-4, ONE SETUP BUFFER FOR THE VIEW'S LIFE (UE GPUScene: a consumer never reads a
-        // retired pool): the mesh resolve reads its records at the device address the section's table holds
-        // (GrassMeshVisibilityData Slots.zw), and that table is a host-written per-(view x frame) copy. Growing
-        // the buffer to this frame's rows moved the address under every copy written before the growth: each
-        // FIELD_Barn TURN loss (scn-1120-175921, scn-1121-082654) follows a census with two GrassBladeSetup
-        // buffers (the grown one + the retired one) after a pool growth, the resolve then fetching the retired
-        // one's range. The buffer is made once at the row ceiling, so its address never changes and every row a
-        // table can name (< kGrassVisibilityMaxRows, PrepareVariety refuses a section past it) lies inside it.
-        const uint64_t rows = m_VisibilityRows == 0u ? uint64_t{ 1u } : kGrassVisibilityMaxRows;
+        // FPS-GRASS-MESH-SETUP-5 (UE GPUScene: a consumer binds the frame's buffer through the graph and indexes
+        // it by offset): the buffer grows to this frame's rows. The mesh resolve no longer reads the records at a
+        // device address held in a host-written per-(view x frame) table copy - a growth moved that address
+        // under every copy written before it (FIELD_Barn TURN losses scn-1120-175921, scn-1121-082654) - but
+        // binds this buffer (GpuInstancedRenderData::SetupRecords, the resolve's GrassMeshSetup block, its read
+        // declared on the graph) and reads it at the table's row offset, bounded by the bound buffer's length.
+        const uint64_t rows = std::min( std::max<uint64_t>( m_VisibilityRows, 1u ), kGrassVisibilityMaxRows );
         if ( rows > m_BladeSetupCapacity || m_BladeSetup == nullptr )
         {
             const uint64_t bytes = rows * kBladeSetupRecordBytes;

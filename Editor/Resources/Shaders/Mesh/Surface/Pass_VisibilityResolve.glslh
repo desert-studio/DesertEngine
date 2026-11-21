@@ -263,11 +263,13 @@ void main()
     // SetUpMeshInstance), at the slot's first row: its wind sway now and one step before and its LOD level, written
     // this frame for every slot the raster drew (a row a word names was drawn). No records this frame (address 0):
     // no mesh pixel to rebuild, as the blade's resolve. FPS-GRASS-BLADE-SETUP: one record an instance for all the
-    // variety's sections, Slots.zw the address of its slot 0 (GrassRenderer.cpp MeshSetupSection).
-    const uvec2 setupAddress = MeshRows.Slots.zw;
-    if ( setupAddress == uvec2( 0u ) )
+    // variety's sections, Slots.z the row of its slot 0 (GrassRenderer.cpp MeshSetupSection).
+    // FPS-GRASS-MESH-SETUP-5: in the bound block (GrassMeshSetup), Slots.w = 0 no records; a row past the bound
+    // buffer is never read.
+    if ( MeshRows.Slots.w == 0u || MeshRows.Slots.z >= uint( MeshSetupRecords.length() ) ||
+         slot >= uint( MeshSetupRecords.length() ) - MeshRows.Slots.z )
         discard;
-    const GrassMeshSetupData setup = GrassMeshSetupRef( setupAddress ).Records[slot];
+    const GrassMeshSetupData setup = MeshSetupRecords[MeshRows.Slots.z + slot];
     // GRASS-MESH-RESOLVE-LOST: only a record written for THIS slot (Info.y = slot + 1, SetUpMeshInstance) and a
     // level the section has. A row holding another record (a blade's Frame words, another variety's, never
     // written) gave an unbounded level whose level x w + s wrapped onto another submesh's range: its indices plus

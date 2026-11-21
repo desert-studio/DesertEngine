@@ -75,7 +75,10 @@ namespace Desert::Graphic::System
     struct GrassMeshVisibilityGpu
     {
         glm::uvec4                Visibility{ 0u }; // first row, rows per instance, level count, submesh count
-        glm::uvec4                Slots{ 0u };      // x = the slots the section's list holds (its capacity)
+        // x = the slots the section's list holds (its capacity), y = the camera list's first slot in the ids pool,
+        // z = the setup records' first row in the bound setup buffer, w = 1: records this frame
+        // (FPS-GRASS-MESH-SETUP-5)
+        glm::uvec4                Slots{ 0u };
         std::array<glm::uvec4, 2> BucketFirst{};    // the first slot of bucket (= level) b < 8, [b / 4][b % 4]
         // [0] vertex address lo, hi, stream address lo, hi; [1] index address lo, hi, vertex stride, stream stride
         std::array<glm::uvec4, 2>                                Geometry{};

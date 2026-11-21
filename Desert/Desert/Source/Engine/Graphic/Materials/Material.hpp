@@ -45,6 +45,9 @@ namespace Desert::Graphic
     // GRASS-VIS-MESH-1: a mesh grass section's raster-stream rows (Mesh/Surface/GrassMeshVisibility.glslh), in the
     // Instanced path's Visibility / VisibilityResolve cells only.
     inline constexpr RDG::StorageBufferParameter kGrassMeshVisibilityBlock{ "GrassMeshVisibility" };
+    // FPS-GRASS-MESH-SETUP-5: the view's mesh grass setup records (Mesh/Surface/GrassMeshVisibility.glslh
+    // GrassMeshSetup), in the Instanced path's VisibilityResolve cell only.
+    inline constexpr RDG::StorageBufferParameter kGrassMeshSetupBlock{ "GrassMeshSetup" };
     // GPU-COST-22: a GPU-instanced list's ids (GpuInstanceRefs::Ids), in the kSurfaceInstanceIdsDefine cells only.
     inline constexpr RDG::StorageBufferParameter kGpuInstanceIdsBlock{ "GpuInstanceIds" };
 
