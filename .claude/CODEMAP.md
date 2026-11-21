@@ -46,7 +46,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `GameplayDebugger` — 13 files, 1,800 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerCategoryPhysics, GameplayDebuggerCategoryRendering, GameplayDebuggerCategoryScript, GameplayDebuggerCategoryWorldPartition, GameplayDebuggerShape, IGameplayDebuggerCategory, SeenContact, View
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
 - `Generated` — 32 files, 4,192 lines: AEAverage, AEHistogram, BakeProceduralSky, BloomDownsample, BloomUpsample, CloudRaymarch, CloudShadowMap, ClusterCut, DLSSRRGuides, DLSSRRPathGuides, DefaultDecal, DeformStampApply, … (+101)
-- `Geometry` — 90 files, 22,906 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, ClusterDag, ClusterDagBuild, ClusterDagSettings, ClusterGroupRecord, ClusterHierarchyNode, ClusterRecord, … (+122)
+- `Geometry` — 90 files, 22,912 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, ClusterDag, ClusterDagBuild, ClusterDagSettings, ClusterGroupRecord, ClusterHierarchyNode, ClusterRecord, … (+122)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,411 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
 - `Geometry/MeshCore/CompGeom` — 8 files, 1,363 lines: ConstrainedDelaunay2, Delaunay2
@@ -63,7 +63,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 136 files, 37,558 lines: ActiveViewScope, AllocationLedger, Arena, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BinDraw, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, … (+281)
+- `Graphic` — 136 files, 37,560 lines: ActiveViewScope, AllocationLedger, Arena, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BinDraw, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, … (+281)
 - `Graphic/API` — 4 files, 295 lines: CooperativeMatrixShape, NeuralComputeCaps
 - `Graphic/API/D3D12` — 3 files, 2,171 lines: AdapterChoice, BarrierState, BarrierTarget, BufferDesc, CommandContext, CpuDescriptor, D3D12BarrierBatch, D3D12BindlessHeap, D3D12CommandPool, D3D12CpuDescriptorHeap, D3D12Device, D3D12Heap, … (+7)
 - `Graphic/API/Vulkan` — 94 files, 36,754 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, Block, BoundSetsEntry, BoundSetsShard, Bucket, BufferDeletionEntry, BufferKey, BuiltCompute, CachedSet, CachedSetEntry, … (+164)
@@ -107,7 +107,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Systems/Scene/Fog` — 4 files, 1,188 lines: HeightFogApplyShaderParameters, HeightFogFogShaderParameters, HeightFogRenderer, VolumetricFogFrameResult, VolumetricFogIntegrationShaderParameters, VolumetricFogLightScatteringShaderParameters, VolumetricFogRenderer, VolumetricFogSunInput
 - `Graphic/Systems/Scene/Grass` — 5 files, 5,320 lines: BladeKey, BufferPool, CameraCullKey, CascadeGuard, Desert, DrawBinBuffers, FieldGpu, FrameSubmit, GrassBladeDraw, GrassBladeRayTracing, GrassBladeShapeGpu, GrassBladeStripLevel, … (+18)
 - `Graphic/Systems/Scene/Lights` — 2 files, 565 lines: Draw, FrameTile, LightFunctionAtlas, LightFunctionProxy, LightFunctionRowGpu, LightFunctionShaderParameters, Program, RetiredProgram, Tile
-- `Graphic/Systems/Scene/Mesh` — 21 files, 26,751 lines: Bake, BinnedCarrier, BinnedFeedSlot, BinnedIssue, BinnedPrimitiveFeed, BladeCasterLod, Block, BucketScratch, BuildKey, CardCaptureSection, CardCaptureSource, CardGatherGroup, … (+149)
+- `Graphic/Systems/Scene/Mesh` — 21 files, 26,781 lines: Bake, BinnedCarrier, BinnedFeedSlot, BinnedIssue, BinnedPrimitiveFeed, BladeCasterLod, Block, BucketScratch, BuildKey, CardCaptureSection, CardCaptureSource, CardGatherGroup, … (+149)
 - `Graphic/Systems/Scene/Particles` — 9 files, 4,600 lines: EmitterMaterial, EventImport, MeshInstances, ParticleChannelSpawnGpu, ParticleDebugRequest, ParticleDrawLayoutGpu, ParticleDrawSlotGpu, ParticleEmitterDebug, ParticleEmitterGpu, ParticleEventLayout, ParticleFrameEmitter, ParticleFrameRenderer, … (+26)
 - `Graphic/Systems/Scene/PathTracing` — 1 files, 2,076 lines: AccumulationRefs, AccumulationTarget, CacheInputs, CacheRefusal, DenoiseProgram, FrameInputs, HistoryRefs, HistoryTarget, LightGridTargets, OidnKey, OidnState, PathTracer, … (+19)
 - `Graphic/Systems/Scene/PostProcessing` — 23 files, 18,571 lines: AutoExposureAverageShaderParameters, AutoExposureClearShaderParameters, AutoExposureHistogramShaderParameters, AutoExposureRenderer, BackdropBlurDownsampleShaderParameters, BackdropBlurRenderer, BloomDownsampleShaderParameters, BloomRenderer, BloomUpsampleShaderParameters, CombineLUTsRenderer, CombineLUTsShaderParameters, FXAARenderer, … (+29)
@@ -181,7 +181,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Platform` — 1 files, 76 lines
 - `Platform/MacOS` — 1 files, 20 lines
 - `Project` — 2 files, 23 lines
-- `Settings` — 16 files, 5,386 lines: AntiAliasingPreset, ApplyReport, BenchmarkCacheKey, BenchmarkPass, BenchmarkReference, BenchmarkResult, CapabilityCatalog, DisplaySettings, Fallback, GroupLevel, GroupLevels, MachineSettings, … (+14)
+- `Settings` — 16 files, 5,400 lines: AntiAliasingPreset, ApplyReport, BenchmarkCacheKey, BenchmarkPass, BenchmarkReference, BenchmarkResult, CapabilityCatalog, DisplaySettings, Fallback, GroupLevel, GroupLevels, MachineSettings, … (+14)
 - `Utilities` — 28 files, 6,015 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, FootprintBreakdown, … (+13)
 
 ## Editor — `Editor/Source/Editor`
