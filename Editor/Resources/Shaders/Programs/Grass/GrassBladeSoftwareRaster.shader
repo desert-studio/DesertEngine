@@ -20,6 +20,9 @@ Shader "GrassBladeSoftwareRaster"
     {
         LocalSize(64, 1, 1);
 
+        // The camera block (binding 0, GrassRenderer AddFrameBladeSoftwareRaster: ShaderProtocols::MakeCameraUB of the
+        // view): the projection the raster and Mesh/Surface/GrassBladeHull.glslh read.
+        #include <Common/CameraUB.glslh>
         #include <Common/VisibilityBuffer.glslh>
         #include <Common/BindlessTextures.glslh>
         #include <Mesh/Surface/GrassBlade.glslh>

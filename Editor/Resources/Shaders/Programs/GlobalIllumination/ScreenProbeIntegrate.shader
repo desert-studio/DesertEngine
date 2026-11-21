@@ -242,6 +242,10 @@ Shader "ScreenProbeIntegrate"
         // The world radiance cache (the uncovered pass) and the full permutation's filtered probes; the simple-diffuse
         // permutation samples through neither since FPS-SP-COMPOSITE-WAIT, so it declares no linear sampler.
         Uniform sampler LinearClampSampler;
+#else
+        // The radiance cache's lookups (Common/RadianceCache.glslh) still have to compile here, uncalled: they name
+        // the point sampler this permutation declares and samples through for the G-buffer.
+        #define LinearClampSampler PointClampSampler
 #endif
         Uniform sampler PointClampSampler;
         Uniform(6) texture2D GBufferDepthTexture;
