@@ -551,6 +551,15 @@ namespace Common::Scalability
         // switch picks the variant: Core::WorldStreamer::SetHLODVisible. Key "ViewDistance.HLODImpostors": 1 at
         // every level, so only a machine override names it (0 = the A/B and the off switch). 0/1
         ViewDistanceHLODImpostors,
+        // Percent (CINEMATIC-LOD; UE r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale): every mesh's
+        // LOD level - static, skinned, and the skinned instance's animation side (SkinnedLodFeedback screen size)
+        // - is selected at its true distance x this / 100, so 50 keeps each finer level out to twice the
+        // distance (each level begins at half the screen size). Only the level: culling reads the true
+        // distance. Read by SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale ->
+        // MeshRenderer::LodView (Geometry::LODView::DistanceScale) -> Geometry::BoundsScreenRadiusSquared /
+        // SelectLODsFromBounds. 25..400; 100 = the meshes' screen sizes as authored. Cinematic 50 (MeshLOD stays
+        // 1 at every level: UE never forces LOD 0, MeshLOD 0 is a debug/machine override).
+        ViewDistanceLODDistanceScalePercent,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

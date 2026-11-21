@@ -1,0 +1,32 @@
+# CINEMATIC-LOD (11-21, Mac + Windows; owner «Реши с виндой»): Cinematic keeps mesh LOD selection on and
+# biases it, as UE 5.5 Cinematic does (r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale < 1) - it
+# never forces LOD 0. Scalability ViewDistance.MeshLOD = 1 at every level; ViewDistance.LODDistanceScalePercent
+# = 50 at Cinematic (100 elsewhere) -> MeshRenderer::SetLODDistanceScale -> Geometry::LODView::DistanceScale,
+# read by ComputeLOD / ComputeDitheredLOD (static) and SelectSkinnedLods (skinned + the animation's screen size).
+# Readout: editor.log "[SkinnedLOD] LODDistanceScale S (was P)" on the level change and "[SkinnedLOD] entity E:
+# LOD l/n ... screen size X, LODDistanceScale S" per level change.
+# Scene: CesiumMan at the origin + 20 copies spread 30-300 m behind it (WP_FAR11_SkinnedCrowd).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR11_SkinnedCrowd.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,6000
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 2
+Тогда high_60 at 60 m under High the figure is small and walking; log: the origin figure's [SkinnedLOD] LOD (the High reference for cine_60), LODDistanceScale 1
+Когда --subject viewport set Camera.Position 0,0,30000
+Когда advance 2
+Тогда high_300 at 300 m under High the figures are a few pixels; log: the origin figure's LOD (the High reference for cine_300)
+Когда run Quality "Quality: ViewDistance Cinematic"
+Когда advance 2
+Тогда cine_300 the same 300 m view under Cinematic: figure visible, walking; log: "[SkinnedLOD] LODDistanceScale 0.5", the origin figure's LOD > 0 and no coarser than High's at 300 m
+Когда --subject viewport set Camera.Position 0,0,6000
+Когда advance 2
+Тогда cine_60 at 60 m under Cinematic the figure is walking; log: the origin figure's LOD > 0 and lower (finer) than High's at the same spot
+Когда run Quality "Quality: ViewDistance High"
+Когда --subject viewport set Camera.Position 0,0,3000
+Когда advance 2
+Тогда high_30 control: High at 30 m = the screen size Cinematic gives at 60 m; log: the origin figure's LOD equals cine_60's; the figure is visible and walking iff that level draws under High too
+Когда run Action "Stop"

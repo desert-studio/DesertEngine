@@ -563,6 +563,11 @@ namespace Common::Scalability
                "WorldStreamer::Tick -> SetHLODVisible (an Impostor HLOD layer's cards, 0 = its instanced source "
                "meshes)",
                1, Vis::Advanced },
+             { P::ViewDistanceLODDistanceScalePercent, G::ViewDistance, "ViewDistance.LODDistanceScalePercent", 25,
+               400, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD selection "
+               "distance, percent)",
+               100, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

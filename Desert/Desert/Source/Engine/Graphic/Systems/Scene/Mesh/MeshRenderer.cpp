@@ -533,6 +533,15 @@ namespace Desert::Graphic::System
         ++m_IsmViewCullGeneration;
     }
 
+    void MeshRenderer::SetLODDistanceScale( const float scale )
+    {
+        if ( scale == m_LODDistanceScale )
+            return;
+        LOG_INFO( "[SkinnedLOD] LODDistanceScale {} (was {}): static and skinned LOD chosen at distance x {}",
+                  scale, m_LODDistanceScale, scale );
+        m_LODDistanceScale = scale;
+    }
+
     uint32_t MeshRenderer::ComputeLOD( const glm::mat4& transform, const Mesh* mesh, int forcedLOD,
                                        int lodBias ) const
     {
@@ -547,7 +556,9 @@ namespace Desert::Graphic::System
         // The policy itself lives in Geometry::SelectLOD so the editor can report the SAME level it
         // draws with (Details "Mesh" section); this only resolves the renderer's camera + LOD toggle.
         return Geometry::SelectLOD( transform, mesh->GetSubmeshes(),
-                                    Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                                    Geometry::LODView{ .Origin        = camera->GetPosition(),
+                                                       .Projection    = camera->GetProjectionMatrix(),
+                                                       .DistanceScale = m_LODDistanceScale },
                                     mesh->GetLODScreenSizes(), forcedLOD, lodBias );
     }
 
@@ -565,9 +576,10 @@ namespace Desert::Graphic::System
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( !camera )
             return levels;
-        const Geometry::LODView view{ .Origin     = camera->GetPosition(),
-                                      .Projection = camera->GetProjectionMatrix(),
-                                      .Temporal   = m_ViewTemporalLOD };
+        const Geometry::LODView view{ .Origin        = camera->GetPosition(),
+                                      .Projection    = camera->GetProjectionMatrix(),
+                                      .Temporal      = m_ViewTemporalLOD,
+                                      .DistanceScale = m_LODDistanceScale };
         levels = Geometry::SelectDitheredLODFromBounds( transform, Geometry::LocalBounds( mesh->GetSubmeshes() ),
                                                         view, mesh->GetLODScreenSizes(), forcedLOD, lodBias );
         const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
@@ -2683,7 +2695,9 @@ namespace Desert::Graphic::System
         if ( camera != nullptr )
         {
             frustum.emplace( camera->GetProjectionMatrix(), camera->GetViewMatrix() );
-            lodView.emplace( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() } );
+            lodView.emplace( Geometry::LODView{ .Origin        = camera->GetPosition(),
+                                                .Projection    = camera->GetProjectionMatrix(),
+                                                .DistanceScale = m_LODDistanceScale } );
         }
         // THE FAR CROWD (WP-FAR-12): a record at its lowest level and below the crowd's screen size plays its
         // clip from the baked vertex animation (VertexAnimationCrowd) - its row fetches the baked frame, the skin
@@ -2761,9 +2775,9 @@ namespace Desert::Graphic::System
             const SkinnedMesh::SkinnedLOD& lod  = data.Mesh->GetSkinnedLOD( data.Lod );
             const SkinnedMesh::SkinnedLOD& full = lods.front();
             LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, {} "
-                      "influences",
+                      "influences, screen size {:.4f}, LODDistanceScale {}",
                       data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
-                      lod.RequiredBones, full.RequiredBones, lod.MaxInfluences );
+                      lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, screenSize, m_LODDistanceScale );
         }
         m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws );
     }
@@ -3107,15 +3121,22 @@ namespace Desert::Graphic::System
                 return 0u;
             return Flags::kPreviousPositions;
         };
+        // THE ROW DRAWS THE LEVEL THE SKIN CACHE SKINNED (UE draws PredictedLODLevel, the one level of the frame):
+        // SelectSkinnedLods picked it above (screen size x LODDistanceScale, never finer than the evaluated pose,
+        // the VAT hand-off), and the skin pass skins only that level's vertex range. Left to InstanceCull's own
+        // SelectLod (-1), the GPU re-chose a level from the bare camera distance; any disagreement drew index
+        // ranges over vertices nobody skinned this frame - the whole Cinematic crowd vanished at LOD > 0
+        // (CINEMATIC-LOD: the CPU chose at distance x 0.5, the GPU at distance x 1). Forced, both agree by
+        // construction, every cull view (main, cascades, VSM) included.
         for ( const auto& data : m_SkinnedQueue )
-            skinned.push_back(
-                 { .Entity  = data.Entity,
-                   .World   = data.Transform,
-                   .Bones   = data.BoneMatrices,
-                   .Mesh    = data.Mesh,
-                   .Flags   = Flags::kSkinned | Flags::kMovableCaster | rigidFlags( data.CastShadows, true ) |
-                             previousPositions( data.Mesh ),
-                   .Content = skinnedContent( data ) } );
+            skinned.push_back( { .Entity = data.Entity,
+                                 .World  = data.Transform,
+                                 .Bones  = data.BoneMatrices,
+                                 .Mesh   = data.Mesh,
+                                 .Flags  = Flags::kSkinned | Flags::kMovableCaster |
+                                          rigidFlags( data.CastShadows, true ) | previousPositions( data.Mesh ),
+                                 .ForcedLod = static_cast<int32_t>( data.Lod ),
+                                 .Content   = skinnedContent( data ) } );
         // The proxies no record claimed this sync left the scene (or the view): released with their bindings.
         if ( skinnedClaimed < m_SkinnedContentProxies.size() )
             std::erase_if( m_SkinnedContentProxies,
