@@ -24,6 +24,7 @@ then the editor is quit. Output: <scratch>/<CODE>/frames/scn-<time>/ with every 
 must show), result.txt, editor.log and a copy of the scenario; scn-latest points at it. The digest is ≤ 3 lines.
 --hold leaves the editor running after a passing run for inspection (quit it yourself: DesertCtl --socket <s> quit 0).
 """
+import hashlib
 import os
 import shlex
 import subprocess
@@ -96,7 +97,8 @@ def main():
     with open(os.path.join(out, "scenario.scn"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
-    sock = os.path.join(tempfile.gettempdir(), f"desert-scn-{os.path.basename(os.path.normpath(tree))}-{code}.sock")
+    # 11-18: a long tree+code name passed the 104-byte sun_path limit and the editor died at start - a short digest
+    sock = os.path.join(tempfile.gettempdir(), "dscn-" + hashlib.sha1(f"{tree}|{code}".encode()).hexdigest()[:12] + ".sock")
     if os.path.exists(sock):
         os.remove(sock)
     log = open(os.path.join(out, "editor.log"), "w", encoding="utf-8", errors="replace")
@@ -110,9 +112,12 @@ def main():
         # a step against a dead editor fails at once (the memory cap kills it; --wait would sit 2400 s per step, 10-28)
         if proc.poll() is not None:
             return False, [f"editor exited (rc {proc.returncode}) - see editor.log"]
-        c = subprocess.Popen([ctl, "--socket", sock, "--wait", "2400", *a], stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
-        deadline = time.time() + 2700
+        # 11-18: a pipe read only after exit filled up on a long reply and DesertCtl hung on write - output goes to a file
+        cout = tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace")
+        c = subprocess.Popen([ctl, "--socket", sock, "--wait", "2400", *a], stdout=cout, stderr=subprocess.STDOUT)
+        # a wait-idle longer than the step cap (a Debug HLOD approximation build) keeps its own budget
+        waited = int(a[1]) if len(a) > 1 and a[0] == "wait-idle" and a[1].isdigit() else 0
+        deadline = time.time() + max(2700, waited + 300)
         while c.poll() is None:
             if proc.poll() is not None or time.time() > deadline:
                 c.kill()
@@ -120,7 +125,8 @@ def main():
                 return False, [f"editor exited (rc {proc.returncode}) - see editor.log" if proc.poll() is not None
                                else "DesertCtl timed out"]
             time.sleep(1)
-        return c.returncode == 0, c.stdout.read().strip().splitlines() or [""]
+        cout.seek(0)
+        return c.returncode == 0, cout.read().strip().splitlines() or [""]
 
     # run_capped may queue the editor for the GPU slot longer than DesertCtl's --wait: wait for the socket itself
     while not os.path.exists(sock) and proc.poll() is None:

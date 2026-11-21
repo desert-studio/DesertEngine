@@ -67,7 +67,7 @@
         ]
       },
       {
-        "matcher": "Agent|Bash|Edit|Write|mcp__notion__.*",
+        "matcher": "Agent|SendMessage|Bash|Edit|Write|mcp__notion__.*",
         "hooks": [
           {
             "type": "command",
