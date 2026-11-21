@@ -205,8 +205,12 @@ namespace Desert::Editor::Baking
 
         ::Desert::Submesh one = *first;
         one.VertexOffset      = 0;
-        one.IndexOffset       = 0;
-        one.IndexCount        = static_cast<uint32_t>( proxy.Indices.size() * 3 );
+        // Three vertices per triangle, unshared: more than the source submesh had, so its count is not kept.
+        one.VertexCount = static_cast<uint32_t>( proxy.Vertices.size() );
+        one.IndexOffset = 0;
+        one.IndexCount  = static_cast<uint32_t>( proxy.Indices.size() * 3 );
+        one.LODs.clear();
+        one.BakedLODs.clear();
         // The proxy's vertices are already where the camera frames them: no submesh transform moves them.
         one.Transform = glm::mat4( 1.0f );
         proxy.Submeshes.push_back( one );
@@ -380,8 +384,16 @@ namespace Desert::Editor::Baking
             case Phase::Build:
             {
                 if ( !m_Renderer )
+                {
                     m_Renderer = std::make_unique<Graphic::SceneRenderer>(
                          Graphic::ViewExtent{ m_Request.Size, m_Request.Size }, Graphic::kThumbnailViewProfile );
+                    // The G-buffer is read texel for texel at the bake size: the project's Render Scale (an
+                    // upscaler's internal resolution, 87 % here) would shrink it, so this view renders at 100 %
+                    // (UE's material baking draws at the target resolution, no screen percentage).
+                    Graphic::DebugViewState full = m_Renderer->GetDebugView();
+                    full.ScreenPercentage        = 100;
+                    m_Renderer->SetDebugView( full );
+                }
                 if ( !m_Renderer->AdvanceRendererBuild() )
                     return false;
                 if ( auto started = StartScene(); !started )
