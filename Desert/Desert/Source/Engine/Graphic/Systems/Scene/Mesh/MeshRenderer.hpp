@@ -618,6 +618,11 @@ namespace Desert::Graphic::System
             // Animated pose, or bind pose: a view of BoneOwner, which keeps it alive while the entry is queued.
             std::shared_ptr<const std::vector<glm::mat4>> BoneOwner;
             std::span<const glm::mat4>                    BoneMatrices;
+            // THE ONE LOD THIS FRAME SKINS AND DRAWS (UE USkinnedMeshComponent::PredictedLODLevel, shared by every
+            // view and shadow of the frame): chosen from the main view's screen size at submit (ComputeLOD, FOV-
+            // aware). The skin pass skins only its vertex range (SkinnedMesh::GetSkinnedLOD); every pass draws its
+            // index ranges. 0 for a displaced record (its twin is tessellated from LOD 0).
+            uint32_t                    Lod         = 0;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };
@@ -3800,6 +3805,9 @@ namespace Desert::Graphic::System
         void NoteStaticRewritten( std::size_t index );
         void RestoreRewrittenStatic();
         std::vector<SkinnedMeshRenderData> m_SkinnedQueue;
+        // The skeletal LOD readout (WP-FAR-10): the level each skinned entity was last reported at; a submit at
+        // another level logs "[SkinnedLOD]" with that level's skin work (vertices, bones, influences).
+        std::unordered_map<uint32_t, uint32_t> m_SkinnedLodReported;
 
         // One morphed twin per skinned COMPONENT drawn with non-zero weights (UE: the component's
         // FMorphVertexBuffer), keyed by the entity (id incl. version). Revision is the MorphComponent revision

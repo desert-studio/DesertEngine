@@ -3316,6 +3316,23 @@ namespace Desert::Graphic::System
                     skinnedData.BoneMatrices = std::span<const glm::mat4>( *skinnedData.BoneOwner );
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
+                // One level per frame for every view and shadow, from the main view (FOV-aware screen size).
+                skinnedData.Lod = ComputeLOD( skinnedData.Transform, skinnedData.Mesh, /*forced*/ -1 );
+                if ( !skinnedData.Mesh->GetSkinnedLODs().empty() )
+                {
+                    const auto [reported, fresh] = m_SkinnedLodReported.try_emplace( data.Entity, skinnedData.Lod );
+                    if ( fresh || reported->second != skinnedData.Lod )
+                    {
+                        reported->second              = skinnedData.Lod;
+                        const SkinnedMesh::SkinnedLOD& lod  = skinnedData.Mesh->GetSkinnedLOD( skinnedData.Lod );
+                        const SkinnedMesh::SkinnedLOD& full = skinnedData.Mesh->GetSkinnedLODs().front();
+                        LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, "
+                                  "{} influences",
+                                  data.Entity, skinnedData.Lod, skinnedData.Mesh->GetSkinnedLODs().size() - 1u,
+                                  lod.VertexCount, full.VertexCount, lod.FirstVertex, lod.RequiredBones,
+                                  full.RequiredBones, lod.MaxInfluences );
+                    }
+                }
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
                 // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )

@@ -1,0 +1,28 @@
+# WP-FAR-10 (owner 10-20 scope decision: people far away = skeletal LOD + anim budget + impostor beyond).
+# UE 5.5 USkeletalMesh LODs: each LOD its own vertices (FSkeletalMeshLODRenderData) and required bones, the LOD picked
+# from FOV-aware screen size (USkinnedMeshComponent::UpdateLODStatus), the skin cache skinning ONLY that LOD's
+# vertices. Here: SkinnedMesh::GetSkinnedLODs (vertex range + required bones + influences per level), the record's
+# Lod (SkinnedMeshRenderData::Lod, ComputeLOD at submit), the SkinCache dispatch sized by the level's range.
+# Readout: editor.log "[SkinnedLOD] entity E: LOD l/n skins V of V0 vertices (from F), B of B0 bones, I influences",
+# one line each time the entity's level changes. Scene: CesiumMan (walk clip, plain material - not displaced) on a
+# wide ground, the player camera not auto-activated, so the viewport camera is the view.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR10_SkinnedLOD.desce
+Дано run View "View mode: Lit"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,500
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 1
+Тогда far10_near CesiumMan at 5 m fills a good part of the frame, walking (legs apart, not a T-pose); log: [SkinnedLOD] LOD 0 skins all vertices, all bones
+Когда --subject viewport set Camera.Position 0,0,6000
+Когда advance 1
+Тогда far10_mid at 60 m the figure is small, still walking; log: [SkinnedLOD] LOD >= 1, skinned vertices and bones below LOD 0's
+Когда --subject viewport set Camera.FOV 10
+Когда advance 1
+Тогда far10_zoom FOV 10 at the same 60 m: the figure is large again, walking; log: [SkinnedLOD] LOD back to 0 or 1
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,30000
+Когда advance 1
+Тогда far10_far at 300 m the figure is a few pixels; log: [SkinnedLOD] the coarsest LOD, fewest vertices and bones
+Когда run Action "Stop"

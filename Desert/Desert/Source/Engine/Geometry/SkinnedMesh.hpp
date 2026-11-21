@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 #include "Mesh.hpp"
 
 #include <cstdint>
@@ -114,6 +116,29 @@ namespace Desert
         {
             return m_VertexCount;
         }
+
+        // ONE SKELETAL LOD'S SKINNING WORK (UE FSkeletalMeshLODRenderData: each LOD its own vertices and its
+        // RequiredBones / ActiveBoneIndices). Level L's submesh ranges (Submesh::LODs[L]) index ONLY vertices in
+        // [FirstVertex, FirstVertex + VertexCount) - its own copies, appended after LOD 0's at load, their
+        // influences reduced to MaxInfluences (UE FSkeletalMeshOptimizationSettings::MaxBonesPerVertex) - so the
+        // skin pass of a record drawing level L skins exactly that range and reads RequiredBones bones.
+        struct SkinnedLOD
+        {
+            uint32_t FirstVertex   = 0;
+            uint32_t VertexCount   = 0;
+            uint32_t RequiredBones = 0; // distinct bones the range's influences name
+            uint32_t MaxInfluences = 0;
+        };
+        // One per LOD level, [0] = the authored vertices. Never empty on a mesh with vertices.
+        [[nodiscard]] const std::vector<SkinnedLOD>& GetSkinnedLODs() const
+        {
+            return m_SkinnedLODs;
+        }
+        // The level a record drawing @p level skins (clamped to the chain).
+        [[nodiscard]] const SkinnedLOD& GetSkinnedLOD( const uint32_t level ) const
+        {
+            return m_SkinnedLODs[std::min<std::size_t>( level, m_SkinnedLODs.size() - 1u )];
+        }
         [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetMorphDeltas() const
         {
             return m_MorphDeltas;
@@ -129,6 +154,7 @@ namespace Desert
         const Animation::Skeleton* m_Skeleton = nullptr;
         std::vector<SkinnedVertex> m_Vertices; // empty on a morphed twin: picking reads the base mesh
         std::vector<BoneBounds>    m_BoneBounds;
+        std::vector<SkinnedLOD>    m_SkinnedLODs;
         float                      m_MorphReach       = 0.0f; // twin only (GetMorphReach)
         float                      m_MorphTargetReach = 0.0f; // the base's sum, handed to its twins
 

@@ -3924,6 +3924,7 @@ namespace Desert::Graphic::System
                             .Transform         = glm::mat4( 1.0f ), // relative to the motion row's World
                             .Material          = mat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj.Section->HiddenSubmeshes,
+                            .LodLevel          = obj.Obj->Lod, // the level the skin pass skinned this frame
                             .Push              = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj.Obj->GpuPrimitive )
