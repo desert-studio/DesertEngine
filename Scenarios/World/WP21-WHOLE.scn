@@ -3,8 +3,11 @@
 # planner makes it ONE composite: one cell (promoted to the level its 4500 cm footprint needs), one HLOD source, and
 # moving the root in Play carries all four cubes. Compare with WP21-PLAY-near (Partitioned: 4 records in 4 cells).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP21_PrefabSpan_Near.desce
-Дано set 9001 Prefab.RuntimeBehavior Standalone
+# A partitioned world opens with nothing loaded in Edit (UE: no loader region yet): the instance 9001 is on disk,
+# not in the scene, until Load All.
 Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано set 9001 Prefab.RuntimeBehavior Standalone
 Когда run Scene "Build HLODs"
 Когда wait-idle 2400
 Когда run Action "Play"
