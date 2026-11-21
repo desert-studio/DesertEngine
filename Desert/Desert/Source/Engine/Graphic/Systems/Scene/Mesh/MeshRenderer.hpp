@@ -1768,17 +1768,25 @@ namespace Desert::Graphic::System
         // one slice: a Masked cell writes no depth). Mid now rasters the buckets [kGrassRasterNearBuckets,
         // kGrassRasterMidBuckets) against Near's depth, "Grass: Visibility Depth Mid" writes the words' depth
         // again (near and mid), and Far rasters the rest against it. Exact by the same argument; costs one more
-        // depth pass over the words.
+        // depth pass over the words. FPS-GRASS-RASTER-COST, THE OCCLUDERS IN THREE STEPS: the last slice still
+        // held the two-segment ring together with the one-segment blades and the small bucket past it (most of the
+        // field, "Grass: Visibility Raster" 0.548 ms of 0.69 in FIELD_Barn TURN scn-1121-090107) - so Far now
+        // rasters [kGrassRasterMidBuckets, kGrassRasterFarBuckets) against Mid's depth, "Grass: Visibility Depth
+        // Far" writes the words' depth, and Rest (the pass keeps its name "Grass: Visibility Raster") rasters the
+        // farthest buckets against it: their fragments behind a nearer far blade die in early-Z / HiZ instead of
+        // the fragment stage's hidden-word read. Exact by the same argument.
         enum class GrassRasterSlice : uint8_t
         {
             All,
             Near,
             Mid,
-            Far
+            Far,
+            Rest
         };
         static constexpr uint32_t kGrassRasterNearBuckets = 1u;
         static constexpr uint32_t kGrassRasterMidBuckets  = 2u; // the end of the Mid slice's buckets
-        // The phase-1 list of @p slice (Near, Mid, else Far).
+        static constexpr uint32_t kGrassRasterFarBuckets  = 3u; // the end of the Far slice's buckets
+        // The phase-1 list of @p slice (Near, Mid, Far, else Rest).
         [[nodiscard]] MeshRendererDetail::MeshDrawList& GrassVisibilityRasterList( GrassRasterSlice slice );
         [[nodiscard]] const MeshRendererDetail::MeshDrawList&
              GrassVisibilityRasterList( GrassRasterSlice slice ) const;
@@ -2609,6 +2617,7 @@ namespace Desert::Graphic::System
         size_t                           m_GrassVisibilityMeshSections = 0; // of them, the Instanced (mesh) ones
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterNearDraws; // "Grass: Visibility Raster Near"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterMidDraws;  // "Grass: Visibility Raster Mid"
+        MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterFarDraws;  // "Grass: Visibility Raster Far"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterDraws;  // "Grass: Visibility Raster"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolveDraws; // "Grass: Visibility Resolve"
         MeshRendererDetail::MeshDrawList m_GrassMeshVisibilityResolveDraws; // "Grass: Mesh Visibility Resolve"

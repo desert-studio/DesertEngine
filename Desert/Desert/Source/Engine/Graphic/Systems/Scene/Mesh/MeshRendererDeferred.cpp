@@ -750,6 +750,8 @@ namespace Desert::Graphic::System
             return m_GrassVisibilityRasterNearDraws;
         if ( slice == GrassRasterSlice::Mid )
             return m_GrassVisibilityRasterMidDraws;
+        if ( slice == GrassRasterSlice::Far )
+            return m_GrassVisibilityRasterFarDraws;
         return m_GrassVisibilityRasterDraws;
     }
 
@@ -760,6 +762,8 @@ namespace Desert::Graphic::System
             return m_GrassVisibilityRasterNearDraws;
         if ( slice == GrassRasterSlice::Mid )
             return m_GrassVisibilityRasterMidDraws;
+        if ( slice == GrassRasterSlice::Far )
+            return m_GrassVisibilityRasterFarDraws;
         return m_GrassVisibilityRasterDraws;
     }
 

@@ -906,7 +906,8 @@ namespace Desert::Graphic::System
         Common::BoolResultStr AddDrawGather( RDG::Builder& graph, uint32_t phase );
         // The camera cull's flags (GPU-HZB-SPD, RenderPipeline.GrassCullAsync): Compute, plus AsyncCompute when
         // m_CullAsync - the dispatch, the cull, the finalize and the camera's and cascades' gathers form one async
-        // segment the graph joins before the first grass draw. The post-occlusion passes stay on graphics: the
+        // segment the graph joins before the first grass draw; phase 1's blade setup (AddFrameBladeSetup) runs on
+        // the same async pipe, joined before phase 1's raster. The post-occlusion passes stay on graphics: the
         // current HZB they test is built just before them, so their join would follow at once.
         [[nodiscard]] RDG::PassFlags CullPassFlags() const
         {

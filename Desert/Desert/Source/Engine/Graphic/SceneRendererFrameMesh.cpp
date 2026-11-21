@@ -738,10 +738,28 @@ namespace Desert::Graphic
                  { return m_GrassVisibility.RecordDepth( context ); },
                  [this, words = visibility.Words]( RDG::PassBuilder& pass )
                  { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
+            // FPS-GRASS-RASTER-COST: the far ring against the near and mid depth, then its depth too - the
+            // farthest buckets (the one-segment blades past it, the small bucket) rasterize behind all three.
+            AddRaster(
+                 graph, "Grass: Visibility Raster Far", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderGrassVisibilityRasterManual( context, false, Slice::Far ); },
+                 [meshRenderer, view, words = visibility.Words, bladeSetup]( RDG::PassBuilder& pass )
+                 {
+                     if ( bladeSetup.IsValid() )
+                         pass.Read( bladeSetup, RDG::Access::StorageRead );
+                     meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, false, Slice::Far );
+                 } );
+            AddRaster(
+                 graph, "Grass: Visibility Depth Far", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return m_GrassVisibility.RecordDepth( context ); },
+                 [this, words = visibility.Words]( RDG::PassBuilder& pass )
+                 { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
         }
         // GRASS-VIS phase 2 (@p postOcclusion): the same two nodes over phase 2's records, after this frame's HZB;
         // the words still hold phase 1's winners, and the G-buffer depth they resolved rejects what lies behind.
-        const Slice slice = postOcclusion ? Slice::All : Slice::Far;
+        const Slice slice = postOcclusion ? Slice::All : Slice::Rest;
         AddRaster(
              graph, postOcclusion ? "Grass: Visibility Raster Post-Occlusion" : "Grass: Visibility Raster", depthOnly,
              {}, RDG::LoadOp::Load(), {},
