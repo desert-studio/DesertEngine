@@ -16,7 +16,9 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
+#include <chrono>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Assets
@@ -183,128 +185,189 @@ namespace Desert::Assets
         }
     }
 
-    void AssetEviction::Expand( AssetManager& manager, AssetRootSet& closure )
+    EvictionOutcome AssetEviction::Run( AssetManager& manager, const AssetRootSet& roots, IEvictionSink& sink )
     {
-        // Iterated to a fixpoint because the graph has depth: an entity names a mesh, the mesh names a
-        // material, the material names a texture. Three passes is the depth of the deepest chain in this
-        // engine today and the loop below stops when nothing new was marked, so a fourth level added
-        // tomorrow needs no edit here.
-        for ( ;; )
+        // The whole sweep in one call: the slices of AssetEvictionSweep with no deadline. What the suite drives,
+        // and the same code the frame loop runs a slice at a time.
+        AssetEvictionSweep sweep( manager, sink );
+        sweep.AddRoots( roots );
+        while ( !sweep.Step( std::chrono::steady_clock::time_point::max() ) )
         {
-            const std::size_t before = closure.Size();
+        }
+        return sweep.Outcome();
+    }
 
-            for ( const Common::AssetHandle& handle : closure.Handles() )
-            {
-                EdgesOf( manager, handle, [&closure]( const Common::UUID& edge, const std::string& why )
-                         { closure.Mark( edge, why ); } );
-            }
+    AssetEvictionSweep::AssetEvictionSweep( AssetManager& manager, IEvictionSink& sink )
+         : m_Manager( manager ), m_Sink( sink )
+    {
+        m_Outcome.LedgerRowsBefore = Graphic::ResourceLedger::Take().Live;
+    }
 
-            if ( closure.Size() == before )
-                break;
+    void AssetEvictionSweep::MarkOne( const Common::AssetHandle& handle, std::string why )
+    {
+        const std::size_t before = m_Closure.Size();
+        m_Closure.Mark( handle, std::move( why ) );
+        if ( m_Closure.Size() != before )
+            m_Frontier.push_back( handle );
+    }
+
+    void AssetEvictionSweep::AddRoots( const AssetRootSet& roots )
+    {
+        if ( m_Phase == Phase::Done )
+            return;
+        for ( const Common::AssetHandle& root : roots.Handles() )
+        {
+            const std::size_t before = m_Closure.Size();
+            MarkOne( root, roots.WhyKept( root ) );
+            if ( m_Closure.Size() != before )
+                m_Outcome.Roots++;
         }
     }
 
-    EvictionOutcome AssetEviction::Run( AssetManager& manager, const AssetRootSet& roots, IEvictionSink& sink )
+    void AssetEvictionSweep::ExpandOne( const Common::AssetHandle& handle )
     {
-        EvictionOutcome outcome;
-        outcome.Roots            = static_cast<uint32_t>( roots.Size() );
-        outcome.LedgerRowsBefore = Graphic::ResourceLedger::Take().Live;
+        // A WORKLIST, NOT A FIXPOINT: each reachable asset is expanded exactly once, when it is first marked. The
+        // fixpoint it replaces walked the whole closure again per level of depth (entity -> mesh -> material ->
+        // texture) and once more to see nothing change.
+        AssetEviction::EdgesOf( m_Manager, handle, [this]( const Common::UUID& edge, const std::string& why )
+                                { MarkOne( edge, why ); } );
+    }
 
-        AssetRootSet closure = roots;
-        Expand( manager, closure );
-        outcome.Reachable = static_cast<uint32_t>( closure.Size() );
-
+    void AssetEvictionSweep::TakeCandidates()
+    {
         // The registry's storage is a vector and `RegisteredAssets()` hands back a reference into it, so
-        // the handles are copied out BEFORE anything is released. Nothing below registers an asset today —
-        // but "today" is how a container gets mutated under an iterator six months from now.
-        std::vector<std::pair<Common::AssetHandle, Asset<AssetBase>>> candidates;
-        candidates.reserve( manager.RegisteredAssets().size() );
-        for ( const auto& [metadata, asset] : manager.RegisteredAssets() )
+        // the handles are copied out BEFORE anything is released -- and the sweep now spans frames, in which the
+        // registry may grow. An asset registered after this point is the next sweep's.
+        m_Candidates.reserve( m_Manager.RegisteredAssets().size() );
+        for ( const auto& [metadata, asset] : m_Manager.RegisteredAssets() )
         {
-            outcome.Registered++;
+            m_Outcome.Registered++;
             if ( !asset || !metadata.IsValid() )
                 continue;
-            if ( closure.Contains( metadata.Handle ) )
+            if ( m_Closure.Contains( metadata.Handle ) )
             {
                 if ( metadata.AssetType == AssetTypeID::Texture2D )
-                    outcome.KeptTextures.push_back( "'" + metadata.Filepath.string() + "' <- " +
-                                                    closure.WhyKept( metadata.Handle ) );
+                    m_Outcome.KeptTextures.push_back( "'" + metadata.Filepath.string() + "' <- " +
+                                                      m_Closure.WhyKept( metadata.Handle ) );
                 continue;
             }
             // NOT EVERY ASSET BELONGS TO A WORLD. A project-scoped type is named by no component, so the
-            // root walk can never reach one and "unreachable" says nothing about whether it is in use —
+            // root walk can never reach one and "unreachable" says nothing about whether it is in use --
             // see Assets::IsProjectScopedAsset for the measurement that put this line here.
             if ( IsProjectScopedAsset( metadata.AssetType ) )
             {
-                outcome.ProjectScoped++;
+                m_Outcome.ProjectScoped++;
                 continue;
             }
-            candidates.emplace_back( metadata.Handle, asset );
+            m_Candidates.emplace_back( metadata.Handle, asset );
         }
+    }
 
-        for ( const auto& [handle, asset] : candidates )
+    void AssetEvictionSweep::ReleaseOne( const Common::AssetHandle& handle, const Asset<AssetBase>& asset )
+    {
+        // Reachable SINCE the candidates were taken: a cell activated between two slices named it (AddRoots).
+        if ( m_Closure.Contains( handle ) )
+            return;
+
+        // THE BUILT GPU OBJECTS FIRST, THE PAYLOAD SECOND, and the order is not arbitrary: both
+        // rebuild paths (`MeshService::Get`, `MaterialService::Get`) read the asset shell, so dropping
+        // the payload first would leave a window in which a draw between the two statements rebuilds
+        // from an emptied asset. There is no such window this way round.
+        //
+        // `Invalidate` and not `Release`: Release forgets the shell as well, and the shell is what the
+        // rebuild reads. Invalidate parks the runtime materials in the graveyard — destroying them
+        // here would invalidate a command buffer that is still recording against their descriptor
+        // pools — and `CollectGarbage()` destroys them at a later frame start, once no frame in flight can
+        // still reference them (FrameRetireQueue).
+        if ( m_Sink.HasBuiltMaterial( handle ) )
         {
-            // THE BUILT GPU OBJECTS FIRST, THE PAYLOAD SECOND, and the order is not arbitrary: both
-            // rebuild paths (`MeshService::Get`, `MaterialService::Get`) read the asset shell, so dropping
-            // the payload first would leave a window in which a draw between the two statements rebuilds
-            // from an emptied asset. There is no such window this way round.
-            //
-            // `Invalidate` and not `Release`: Release forgets the shell as well, and the shell is what the
-            // rebuild reads. Invalidate parks the runtime materials in the graveyard — destroying them
-            // here would invalidate a command buffer that is still recording against their descriptor
-            // pools — and `CollectGarbage()` destroys them at a later frame start, once no frame in flight can
-            // still reference them (FrameRetireQueue).
-            if ( sink.HasBuiltMaterial( handle ) )
-            {
-                sink.DropBuiltMaterial( handle );
-                outcome.MaterialsDropped++;
-            }
-
-            if ( sink.DropBuiltMesh( handle ) )
-                outcome.MeshesDropped++;
-
-            if ( sink.DropBuiltTexture( handle ) )
-                outcome.TexturesDropped++;
-
-            // A READ IS IN FLIGHT FOR THIS HANDLE, OR ITS COMPLETION HAS NOT BEEN PUMPED YET.
-            //
-            // Releasing here is not merely wasteful, it DESTROYS THE READ: the worker has filled the
-            // asset and the completion delegate has not run, so the bytes this sweep is about to free
-            // are the only copy, and the delegate finds `IsReadyForUse()` false and refuses to upload.
-            // Measured on `Clouds_HeroTrio`: the read finished at 04.671, this sweep ran at 04.761, and
-            // the frame drew no clouds at all while the log said "was read but could not be uploaded".
-            //
-            // It is not reachability that is wrong -- a noise volume genuinely is unreachable from a
-            // scene root, it is named by a cloud TYPE -- it is that "unreachable" says nothing about an
-            // asset somebody is in the middle of loading. The eager model could not hit this because the
-            // read and the upload were one call with no sweep between them.
-            if ( AsyncAssetLoader::Get().IsRequested( handle ) )
-            {
-                outcome.Refused++;
-                outcome.Refusals.push_back(
-                     "'" + asset->GetMetadata().Filepath.string() +
-                     "' has a read in flight (or a completion not yet pumped). Releasing it would throw "
-                     "away the bytes a worker has just finished reading, and the consumer that asked for "
-                     "them would be told the file 'is not loaded'. The asset stays resident; the next "
-                     "sweep after the completion will reconsider it." );
-                continue;
-            }
-
-            if ( !asset->IsReadyForUse() )
-            {
-                outcome.AlreadyCold++;
-                continue;
-            }
-
-            if ( const auto released = asset->Unload(); !released )
-            {
-                outcome.Refused++;
-                outcome.Refusals.push_back( released.GetError() );
-                continue;
-            }
-
-            outcome.Released++;
+            m_Sink.DropBuiltMaterial( handle );
+            m_Outcome.MaterialsDropped++;
         }
+
+        if ( m_Sink.DropBuiltMesh( handle ) )
+            m_Outcome.MeshesDropped++;
+
+        if ( m_Sink.DropBuiltTexture( handle ) )
+            m_Outcome.TexturesDropped++;
+
+        // A READ IS IN FLIGHT FOR THIS HANDLE, OR ITS COMPLETION HAS NOT BEEN PUMPED YET.
+        //
+        // Releasing here is not merely wasteful, it DESTROYS THE READ: the worker has filled the
+        // asset and the completion delegate has not run, so the bytes this sweep is about to free
+        // are the only copy, and the delegate finds `IsReadyForUse()` false and refuses to upload.
+        // Measured on `Clouds_HeroTrio`: the read finished at 04.671, this sweep ran at 04.761, and
+        // the frame drew no clouds at all while the log said "was read but could not be uploaded".
+        //
+        // It is not reachability that is wrong -- a noise volume genuinely is unreachable from a
+        // scene root, it is named by a cloud TYPE -- it is that "unreachable" says nothing about an
+        // asset somebody is in the middle of loading. The eager model could not hit this because the
+        // read and the upload were one call with no sweep between them.
+        if ( AsyncAssetLoader::Get().IsRequested( handle ) )
+        {
+            m_Outcome.Refused++;
+            m_Outcome.Refusals.push_back(
+                 "'" + asset->GetMetadata().Filepath.string() +
+                 "' has a read in flight (or a completion not yet pumped). Releasing it would throw "
+                 "away the bytes a worker has just finished reading, and the consumer that asked for "
+                 "them would be told the file 'is not loaded'. The asset stays resident; the next "
+                 "sweep after the completion will reconsider it." );
+            return;
+        }
+
+        if ( !asset->IsReadyForUse() )
+        {
+            m_Outcome.AlreadyCold++;
+            return;
+        }
+
+        if ( const auto released = asset->Unload(); !released )
+        {
+            m_Outcome.Refused++;
+            m_Outcome.Refusals.push_back( released.GetError() );
+            return;
+        }
+
+        m_Outcome.Released++;
+    }
+
+    bool AssetEvictionSweep::Step( const std::chrono::steady_clock::time_point deadline )
+    {
+        // AT LEAST ONE UNIT PER STEP, so a sweep finishes whatever the budget; then units until the deadline.
+        bool first = true;
+        while ( m_Phase != Phase::Done && ( first || std::chrono::steady_clock::now() < deadline ) )
+        {
+            first = false;
+            // MARK BEFORE ANY RELEASE, in every slice: roots added since the last slice are expanded first, so
+            // nothing a new root reaches is released in the meantime.
+            if ( !m_Frontier.empty() )
+            {
+                const Common::AssetHandle handle = m_Frontier.back();
+                m_Frontier.pop_back();
+                ExpandOne( handle );
+                continue;
+            }
+            if ( m_Phase == Phase::Mark )
+            {
+                TakeCandidates();
+                m_Phase = Phase::Release;
+                continue;
+            }
+            if ( m_NextCandidate < m_Candidates.size() )
+            {
+                const auto& [handle, asset] = m_Candidates[m_NextCandidate++];
+                ReleaseOne( handle, asset );
+                continue;
+            }
+            Finish();
+        }
+        return m_Phase == Phase::Done;
+    }
+
+    void AssetEvictionSweep::Finish()
+    {
+        m_Outcome.Reachable = static_cast<uint32_t>( m_Closure.Size() );
+        m_Candidates.clear();
 
         // COLLECT WHAT HAS RETIRED, THEN READ THE LEDGER BACK. `Invalidate` does not destroy a runtime
         // material and `EvictBuilt` does not destroy a mesh — both are parked until no frame in flight can
@@ -313,28 +376,31 @@ namespace Desert::Assets
         // the GPU mid-flight. So `LedgerRowsAfter` counts what THIS sweep dropped as still live: the rows go
         // a few frames later, when the frame loop collects (MeshService::RetireEvicted, CollectGarbage).
         // Collecting here still releases what earlier sweeps parked, and is free when nothing is due.
-        sink.CollectGarbage();
+        m_Sink.CollectGarbage();
 
         // THE OTHER SIDE OF THE LEDGER: what is still built, and why. Asked of the sink, not the registry, so
         // a built mesh whose key the registry walk above never met is named instead of silently resident.
-        for ( const Common::AssetHandle& built : sink.BuiltMeshHandles() )
+        // One map of the registry, not a registry walk per built mesh.
+        std::unordered_map<uint64_t, std::string> paths;
+        paths.reserve( m_Manager.RegisteredAssets().size() );
+        for ( const auto& [metadata, asset] : m_Manager.RegisteredAssets() )
+            paths.emplace( static_cast<uint64_t>( metadata.Handle ), "'" + metadata.Filepath.string() + "'" );
+        for ( const Common::AssetHandle& built : m_Sink.BuiltMeshHandles() )
         {
-            std::string registered;
-            for ( const auto& [metadata, asset] : manager.RegisteredAssets() )
-                if ( metadata.Handle == built )
-                    registered = "'" + metadata.Filepath.string() + "'";
-            const std::string key = std::to_string( static_cast<uint64_t>( built ) );
-            if ( registered.empty() )
-                outcome.BuiltMeshesLeft.push_back( key + " is a key the asset registry does not hold" );
-            else if ( closure.Contains( built ) )
-                outcome.BuiltMeshesLeft.push_back( key + " " + registered + " <- " + closure.WhyKept( built ) );
+            const auto        found = paths.find( static_cast<uint64_t>( built ) );
+            const std::string key   = std::to_string( static_cast<uint64_t>( built ) );
+            if ( found == paths.end() )
+                m_Outcome.BuiltMeshesLeft.push_back( key + " is a key the asset registry does not hold" );
+            else if ( m_Closure.Contains( built ) )
+                m_Outcome.BuiltMeshesLeft.push_back( key + " " + found->second + " <- " +
+                                                     m_Closure.WhyKept( built ) );
             else
-                outcome.BuiltMeshesLeft.push_back( key + " " + registered +
-                                                   " is unreachable and was not dropped" );
+                m_Outcome.BuiltMeshesLeft.push_back( key + " " + found->second +
+                                                     " is unreachable and was not dropped" );
         }
 
-        outcome.LedgerRowsAfter = Graphic::ResourceLedger::Take().Live;
-        return outcome;
+        m_Outcome.LedgerRowsAfter = Graphic::ResourceLedger::Take().Live;
+        m_Phase                   = Phase::Done;
     }
 
 } // namespace Desert::Assets
