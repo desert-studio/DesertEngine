@@ -3080,8 +3080,8 @@ namespace Desert::Graphic::System
         }
 
         // FPS-GRASS-RESOLVE-2: the view's blade setup records, sized by the plan's raster-stream rows (final after
-        // the plan's join), before CommitVarietyObjects writes their address into every blade shape (Lists.yz).
-        // Without them the address is 0 and the resolve draws no blade pixel (it discards): logged, not hidden.
+        // the plan's join), before CommitVarietyObjects flags them in every blade shape (Lists.y = 1; the cells
+        // bind the records). Without them Lists.y is 0 and the resolve draws no blade pixel: logged, not hidden.
         if ( const auto setup = CommitBladeSetup( graph ); !setup )
             LOG_ERROR( "[Grass] the blade setup records were not made: {}", setup.GetError() );
 

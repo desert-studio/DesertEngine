@@ -49,7 +49,7 @@ namespace Desert::Graphic
     // GrassMeshSetup), in the Instanced path's VisibilityResolve cell only.
     inline constexpr RDG::StorageBufferParameter kGrassMeshSetupBlock{ "GrassMeshSetup" };
     // FPS-GRASS-BLADE-SETUP-BIND: the view's blade setup records (Mesh/Surface/GrassBlade.glslh
-    // GRASS_BLADE_SETUP_BLOCK), in the GrassBlade path's Visibility (its draw-row cell too) and VisibilityResolve
+    // GRASS_BLADE_SETUP_BINDING), in the GrassBlade path's Visibility (its draw-row cell too) and VisibilityResolve
     // cells only.
     inline constexpr RDG::StorageBufferParameter kGrassBladeSetupBlock{ "GrassBladeSetupRecords" };
     // GPU-COST-22: a GPU-instanced list's ids (GpuInstanceRefs::Ids), in the kSurfaceInstanceIdsDefine cells only.
