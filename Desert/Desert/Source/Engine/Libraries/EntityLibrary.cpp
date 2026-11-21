@@ -9,7 +9,6 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Libraries/ScriptWorld.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
@@ -20,6 +19,20 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <format>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/MaterialParamOverride.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SocketAttachmentComponent.hpp>
+#include <Engine/ECS/SpringArmComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/ProjectileComponent.hpp>
 
 namespace Desert::Libraries
 {

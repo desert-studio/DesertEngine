@@ -2,6 +2,9 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <vector>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
 
 namespace Desert::ECS
 {
@@ -72,6 +75,28 @@ namespace Desert::ECS
         if ( const auto* transform = m_Registry->try_get<TransformComponent>( m_Handle ) )
             return transform->GetWorldTransform();
         return ParentWorldTransform( *m_Registry, m_Handle );
+    }
+
+
+    bool Entity::SetLocalTransform( const LocalTransform& local ) const
+    {
+        return ECS::SetLocalTransform( *m_Registry, m_Handle, local );
+    }
+    bool Entity::SetLocalTranslation( const glm::vec3& translation ) const
+    {
+        return ECS::SetLocalTranslation( *m_Registry, m_Handle, translation );
+    }
+    bool Entity::SetLocalRotation( const glm::vec3& rotation ) const
+    {
+        return ECS::SetLocalRotation( *m_Registry, m_Handle, rotation );
+    }
+    bool Entity::SetLocalScale( const glm::vec3& scale ) const
+    {
+        return ECS::SetLocalScale( *m_Registry, m_Handle, scale );
+    }
+    bool Entity::SetVisible( bool visible ) const
+    {
+        return ECS::SetVisible( *m_Registry, m_Handle, visible );
     }
 
 } // namespace Desert::ECS

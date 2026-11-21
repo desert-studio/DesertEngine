@@ -4,7 +4,6 @@
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditorHLODComponent.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -16,6 +15,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <Engine/ECS/RelationshipComponent.hpp>
 
 namespace Desert::Editor
 {

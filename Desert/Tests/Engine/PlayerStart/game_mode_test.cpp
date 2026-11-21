@@ -4,7 +4,6 @@
 // and time is the deltas the test passes.
 #include <Engine/Core/GameMode.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
 
@@ -14,6 +13,10 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/PlayerStartComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
 
 using namespace Desert;
 using namespace Desert::Core;

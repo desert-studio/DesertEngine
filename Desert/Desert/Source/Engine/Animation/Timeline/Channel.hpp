@@ -37,7 +37,7 @@
  */
 
 #include <Engine/Animation/KeyInterpolation.hpp>
-#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/BoneTransform.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 
 #include <Common/Core/ResultStr.hpp>

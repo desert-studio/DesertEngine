@@ -1,6 +1,4 @@
 #include <Engine/ECS/System/FoliageCollision.hpp>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -11,6 +9,8 @@
 #include <algorithm>
 #include <vector>
 #include <vector>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
 
 namespace Desert::ECS
 {

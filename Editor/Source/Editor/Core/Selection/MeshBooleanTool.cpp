@@ -12,7 +12,6 @@
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
@@ -31,6 +30,10 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor::Core
 {

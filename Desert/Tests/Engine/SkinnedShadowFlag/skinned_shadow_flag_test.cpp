@@ -25,7 +25,6 @@
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Engine/Assets/Prefab/PrefabData.hpp> // SkinnedMeshComponentSer, the on-disk mirror
-#include <Engine/ECS/Components.hpp>
 
 #include <Common/Json/Json.hpp>
 
@@ -35,6 +34,8 @@
 #include <sstream>
 #include <format>
 #include <string>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace
 {

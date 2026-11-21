@@ -1,8 +1,6 @@
 #pragma once
 
 #include "System.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 // SELF-CONTAINED, AND IT WAS NOT. `Animation::AnimationLibrary` is used through a pointer and CALLED, and
 // `Mesh`/`SkinnedMesh` are cast between — all three arrived transitively, so this header only compiled
@@ -41,6 +39,17 @@
 #include <unordered_set>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/ControlRigComponent.hpp>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/RetargetComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/TwoBoneIKComponent.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
 
 namespace Desert::ECS
 {

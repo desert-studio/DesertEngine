@@ -22,6 +22,10 @@
 #include <numbers>
 #include <string>
 #include <vector>
+#include <Engine/Assets/Common.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Geometry/PrimitiveType.hpp>
 
 using namespace Desert;
 

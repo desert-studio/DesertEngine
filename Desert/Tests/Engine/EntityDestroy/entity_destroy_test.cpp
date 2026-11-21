@@ -12,7 +12,6 @@
 // not milliseconds, so it holds under a sanitizer or a loaded machine.
 
 #include <Engine/Core/SceneEntityIndex.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleEmitterRetire.hpp>
@@ -28,6 +27,16 @@
 #include <cstdio>
 #include <random>
 #include <vector>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace
 {

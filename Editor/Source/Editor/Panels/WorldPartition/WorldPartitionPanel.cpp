@@ -36,7 +36,6 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Projects/WorldPartitionSettings.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -60,6 +59,10 @@
 #include <string_view>
 #include <unordered_set>
 #include <vector>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Partition/HLODLayerComponent.hpp>
+#include <Engine/World/Partition/LocationVolumeComponent.hpp>
 
 namespace Desert::Editor
 {

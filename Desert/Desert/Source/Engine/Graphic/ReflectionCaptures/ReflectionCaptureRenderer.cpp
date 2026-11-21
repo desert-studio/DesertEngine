@@ -3,7 +3,6 @@
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -25,6 +24,11 @@
 #include <format>
 #include <span>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/ECS/PointLightComponent.hpp>
+#include <Engine/ECS/RectLightComponent.hpp>
+#include <Engine/ECS/ReflectionCaptureComponent.hpp>
+#include <Engine/ECS/SpotLightComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace
 {

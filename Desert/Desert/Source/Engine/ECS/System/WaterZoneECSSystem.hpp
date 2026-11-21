@@ -1,8 +1,6 @@
 #pragma once
 
 #include "System.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Water/WaterBodyQuery.hpp>
@@ -15,6 +13,9 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/WaterBodyComponent.hpp>
+#include <Engine/ECS/WaterZoneComponent.hpp>
 
 namespace Desert::ECS
 {

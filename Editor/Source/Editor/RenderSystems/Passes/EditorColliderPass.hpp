@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <span>
 #include <vector>
+#include <Engine/Physics/ColliderComponent.hpp>
 
 namespace Desert::ECS
 {

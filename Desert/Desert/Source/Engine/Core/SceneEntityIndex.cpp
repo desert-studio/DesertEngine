@@ -1,10 +1,9 @@
 #include <Engine/Core/SceneEntityIndex.hpp>
 
-#include <Engine/ECS/Components.hpp>
-
 #include <algorithm>
 #include <ranges>
 #include <unordered_set>
+#include <Engine/ECS/RelationshipComponent.hpp>
 
 namespace Desert::Core
 {

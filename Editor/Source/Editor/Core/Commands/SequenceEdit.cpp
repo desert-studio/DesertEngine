@@ -3,13 +3,13 @@
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Animation/Animator.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <algorithm>
 #include <cstdio>
 #include <exception>
 #include <utility>
 #include <variant>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
 
 namespace Desert::Editor
 {

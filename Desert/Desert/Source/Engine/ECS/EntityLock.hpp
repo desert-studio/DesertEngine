@@ -1,8 +1,8 @@
 #pragma once
 
-#include <Engine/ECS/Components.hpp>
-
 #include <entt/entt.hpp>
+#include <Engine/ECS/LockComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
 
 namespace Desert::ECS
 {

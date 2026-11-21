@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
 
 namespace Desert::Editor
 {

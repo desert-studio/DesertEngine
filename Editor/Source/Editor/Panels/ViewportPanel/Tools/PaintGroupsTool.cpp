@@ -9,7 +9,6 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 
@@ -19,6 +18,7 @@
 #include <cmath>
 #include <format>
 #include <vector>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

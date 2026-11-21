@@ -7,7 +7,6 @@
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
 
@@ -18,6 +17,9 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <Engine/Animation/Timeline/Track.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

@@ -5,6 +5,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 
 #include <vector>
+#include <Engine/ECS/AnimationComponent.hpp>
 
 namespace Desert::Animation
 {

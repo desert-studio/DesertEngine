@@ -33,7 +33,6 @@
 #include <Engine/Assets/Serialization/Retarget.hpp>
 
 #include <Engine/Core/SceneSettings.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
@@ -91,6 +90,17 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <Common/Core/Events/RoutedEvents.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/LightUnits.hpp>
+#include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/TimeOfDayComponent.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
+#include <UI/Args/UIButtonArgs.hpp>
 
 namespace Desert::Migration
 {

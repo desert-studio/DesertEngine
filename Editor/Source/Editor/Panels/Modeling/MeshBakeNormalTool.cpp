@@ -22,7 +22,6 @@
 #include <Engine/Core/Formats/TextureIntent.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -45,6 +44,11 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor::Core
 {

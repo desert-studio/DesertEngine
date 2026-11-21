@@ -22,7 +22,6 @@
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
@@ -55,6 +54,17 @@
 #include <filesystem>
 #include <unordered_map>
 #include <unordered_set>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/LockComponent.hpp>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/PrefabInstanceComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
 
 namespace Desert::Editor::Commands
 {

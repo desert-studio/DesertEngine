@@ -4,10 +4,10 @@
 
 #include <Editor/Core/Selection/EditedMeshAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor
 {

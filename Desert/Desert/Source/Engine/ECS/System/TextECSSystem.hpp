@@ -3,7 +3,6 @@
 #include "System.hpp"
 
 #include <Common/Core/Logger.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -14,6 +13,11 @@
 #include <Engine/Graphic/Systems/RayTracing/TextRayTracing.hpp>
 
 #include <limits>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/RenderCacheRetire.hpp>
+#include <Engine/ECS/TextComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 namespace Desert::ECS
 {

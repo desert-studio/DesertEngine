@@ -1,9 +1,8 @@
 #include <Engine/ECS/System/DestructionFields.hpp>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <Engine/ECS/DestructionFieldComponents.hpp>
 
 namespace Desert::ECS
 {

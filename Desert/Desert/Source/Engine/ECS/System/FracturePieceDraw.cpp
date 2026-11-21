@@ -2,7 +2,6 @@
 
 #include <Engine/Destruction/FractureEdit.hpp>
 #include <Engine/Destruction/FracturePieces.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/FracturePreviewComponent.hpp>
@@ -20,6 +19,10 @@
 #include <span>
 
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::ECS
 {

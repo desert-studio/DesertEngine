@@ -5,12 +5,13 @@
 
 #include <SceneMigration.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
+#include <Engine/ECS/LightUnits.hpp>
+#include <UI/Args/UIButtonArgs.hpp>
 
 namespace Migration = Desert::Migration;
 using Desert::Assets::EntityData;

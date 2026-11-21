@@ -4,7 +4,6 @@
 #include "SystemRules.hpp"
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
@@ -26,6 +25,10 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::ECS
 {

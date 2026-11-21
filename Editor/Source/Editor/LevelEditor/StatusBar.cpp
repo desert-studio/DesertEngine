@@ -20,7 +20,6 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/ViewBudget.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/MeshStats.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
@@ -31,6 +30,9 @@
 #include <format>
 #include <optional>
 #include <string>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
 
 namespace Desert::Editor
 {

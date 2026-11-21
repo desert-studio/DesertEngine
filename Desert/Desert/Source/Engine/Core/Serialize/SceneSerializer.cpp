@@ -6,7 +6,6 @@
 #include <Common/Core/Constants.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Common/Json/Document.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
@@ -36,6 +35,13 @@
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::Core
 {

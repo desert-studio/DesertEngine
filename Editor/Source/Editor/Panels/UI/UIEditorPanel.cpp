@@ -4,7 +4,6 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -17,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
 
 namespace Desert::Editor
 {

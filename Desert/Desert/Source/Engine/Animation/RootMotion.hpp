@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Pose.hpp"
+#include <Engine/Animation/RootMotionMode.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -23,24 +24,6 @@
 // direction it is actually walking. Rotation is about the component origin, as UE applies it.
 namespace Desert::Animation
 {
-    /**
-     * @brief UE ERootMotionMode, per animated component. Serialized by NAME (reflect-cpp); append only.
-     *
-     * UE's fourth mode, RootMotionFromMontagesOnly, is NOT here: the engine has no montages, and a mode that
-     * can only ever behave as IgnoreRootMotion would be a choice that changes nothing. It arrives with them.
-     */
-    enum class RootMotionMode
-    {
-        NoExtraction             = 0, ///< the root plays as authored; nothing is extracted (UE's default)
-        IgnoreRootMotion         = 1, ///< the root is locked in the pose and its movement is discarded
-        RootMotionFromEverything = 2, ///< locked and extracted from every clip that plays, weighted by blend
-    };
-
-    [[nodiscard]] constexpr bool LocksRoot( const RootMotionMode mode )
-    {
-        return mode != RootMotionMode::NoExtraction;
-    }
-
     /// The identity delta: a frame with no root movement.
     [[nodiscard]] inline BoneTransform NoRootMotion()
     {

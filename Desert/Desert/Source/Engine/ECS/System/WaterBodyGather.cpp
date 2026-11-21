@@ -1,8 +1,8 @@
 #include <Engine/ECS/System/WaterBodyGather.hpp>
 
-#include <Engine/ECS/Components.hpp>
-
 #include <Common/Core/Logger.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/WaterBodyComponent.hpp>
 
 namespace Desert::ECS
 {

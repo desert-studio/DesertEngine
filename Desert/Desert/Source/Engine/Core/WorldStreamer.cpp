@@ -11,7 +11,6 @@
 #include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityReferenceEvents.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
@@ -36,6 +35,9 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 namespace Desert::Core
 {

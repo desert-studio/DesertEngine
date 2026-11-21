@@ -18,7 +18,6 @@
 #include <ImGui/imgui_internal.h>
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
@@ -34,6 +33,15 @@
 #include <cmath>
 #include <cstdio>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::Editor
 {

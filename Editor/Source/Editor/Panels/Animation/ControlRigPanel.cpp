@@ -9,7 +9,6 @@
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -21,6 +20,8 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/ControlRigComponent.hpp>
 
 namespace Desert::Editor
 {

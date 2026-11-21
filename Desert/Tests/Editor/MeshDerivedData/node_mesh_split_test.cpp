@@ -15,7 +15,6 @@
 #include <Editor/Import/NodeActors.hpp>
 #include <Editor/Import/NodeMeshSplit.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 
@@ -26,6 +25,8 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace fs = std::filesystem;
 using namespace Desert;

@@ -12,7 +12,6 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/CubeGridBlockoutComponent.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
@@ -31,6 +30,11 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

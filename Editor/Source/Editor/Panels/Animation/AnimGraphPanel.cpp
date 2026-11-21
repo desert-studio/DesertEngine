@@ -25,7 +25,6 @@
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Graph/AnimGraphValidation.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <ImGuizmo.h>
 #include <imgui-node-editor/imgui_node_editor.h>
@@ -36,6 +35,9 @@
 #include <functional>
 #include <cstdint>
 #include <memory>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/MorphComponent.hpp>
 
 namespace ed = ax::NodeEditor;
 

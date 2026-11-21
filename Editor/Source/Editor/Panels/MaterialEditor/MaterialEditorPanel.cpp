@@ -57,6 +57,7 @@
 #include <Editor/Core/AssetPickerRows.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
 
 namespace Desert::Editor
 {

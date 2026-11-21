@@ -5,7 +5,6 @@
 #include <Editor/Core/IPanel.hpp>
 
 #include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <memory>
 #include <optional>

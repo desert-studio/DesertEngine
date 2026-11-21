@@ -27,8 +27,6 @@
 // entt::registry and a DrawList2D, the source is an interface, and the stub below answers it. That is the
 // purity UIRenderTextureSource.hpp exists to protect — naming the concrete Render2D cache here would drag
 // a Vulkan device, a Core::Scene and a SceneRenderer into a test about six comparisons.
-
-#include <Engine/ECS/Components.hpp>
 #include <UI/UICanvasContext.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
@@ -41,6 +39,11 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UIRenderTextureComponent.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
 
 // The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
 namespace

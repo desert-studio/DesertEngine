@@ -9,7 +9,6 @@
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -20,6 +19,7 @@
 #include <functional>
 #include <string>
 #include <system_error>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor
 {

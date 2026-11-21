@@ -10,6 +10,7 @@
 #include <format>
 #include <span>
 #include <vector>
+#include <Engine/Core/Camera.hpp>
 
 namespace Desert::Core
 {

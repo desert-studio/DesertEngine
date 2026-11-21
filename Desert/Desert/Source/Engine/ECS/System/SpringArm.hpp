@@ -1,11 +1,10 @@
 #pragma once
-
-#include <Engine/ECS/Components.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <Engine/ECS/SpringArmComponent.hpp>
 
 // UE USpringArmComponent::UpdateDesiredArmLocation (GP2a): where the arm's camera goes this frame. Device-free:
 // the solve needs a PhysicsWorld only for the probe sweep (Desert/Tests/Engine/CharacterMovement drives it).

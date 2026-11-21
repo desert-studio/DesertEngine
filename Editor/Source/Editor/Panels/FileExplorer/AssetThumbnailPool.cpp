@@ -22,6 +22,7 @@
 #include <cctype>
 #include <system_error>
 #include <utility>
+#include <Engine/Animation/Skeleton.hpp>
 
 namespace Desert::Editor
 {

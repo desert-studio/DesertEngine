@@ -4,7 +4,6 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -13,6 +12,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <utility>
+#include <Engine/Input/EnhancedInputPlayerComponent.hpp>
 
 namespace Desert::Input
 {

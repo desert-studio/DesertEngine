@@ -30,6 +30,10 @@
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Widgets/AssetFieldOpen.hpp>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
 
 namespace Desert::Editor
 {

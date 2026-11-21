@@ -4,7 +4,6 @@
 // through ECS::SetEntityTransformKeyShape, so the two together are what the user sees after a pick.
 
 #include <Engine/Animation/Timeline/Sequence.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
 
 #include <Common/Core/UUID.hpp>
@@ -13,6 +12,7 @@
 
 #include <optional>
 #include <vector>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace
 {

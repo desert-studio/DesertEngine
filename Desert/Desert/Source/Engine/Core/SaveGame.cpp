@@ -2,7 +2,6 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Projects/ProjectContext.hpp>
@@ -21,6 +20,12 @@
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
+#include <Engine/Scripting/ScriptProperty.hpp>
 
 namespace Desert::Core
 {

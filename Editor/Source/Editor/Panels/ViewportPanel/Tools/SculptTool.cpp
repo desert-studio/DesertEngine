@@ -6,7 +6,6 @@
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshRemesh.hpp>
@@ -21,6 +20,8 @@
 #include <cmath>
 #include <format>
 #include <vector>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

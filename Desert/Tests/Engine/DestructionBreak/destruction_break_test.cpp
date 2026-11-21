@@ -8,7 +8,6 @@
 //   * DestructibleLifetime.cpp PublishEvents — drop `queue.Breaks.clear()`        (BreakIsNamedByItsEntity)
 
 #include <Engine/Destruction/DestructionWorld.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
@@ -20,6 +19,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <Engine/ECS/DestructibleComponent.hpp>
 
 using namespace Desert;
 using namespace Desert::Destruction;

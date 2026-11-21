@@ -2,9 +2,13 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include "ComponentRegistry.hpp"
 #include <Common/Json/Document.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Core::Serialize
 {

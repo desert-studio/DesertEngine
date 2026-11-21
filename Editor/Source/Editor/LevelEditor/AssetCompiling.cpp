@@ -10,7 +10,8 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor
 {

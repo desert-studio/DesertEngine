@@ -1,10 +1,15 @@
 #pragma once
 
 #include <entt/entt.hpp>
-#include <Engine/ECS/Components.hpp>
+#include <glm/glm.hpp>
+
+// No component here (BUILD-MOD-2): an entity handle names no component type; callers include the
+// component headers they use (UE: AActor.h includes no UActorComponent subclass).
 
 namespace Desert::ECS
 {
+    struct LocalTransform; // Engine/ECS/TransformComponent.hpp
+
     class Entity final
     {
     public:
@@ -44,28 +49,13 @@ namespace Desert::ECS
         }
 
         // The entity's TransformComponent writers: ECS::SetLocalTransform and its one-field forms.
-        bool SetLocalTransform( const LocalTransform& local ) const
-        {
-            return ECS::SetLocalTransform( *m_Registry, m_Handle, local );
-        }
-        bool SetLocalTranslation( const glm::vec3& translation ) const
-        {
-            return ECS::SetLocalTranslation( *m_Registry, m_Handle, translation );
-        }
-        bool SetLocalRotation( const glm::vec3& rotation ) const
-        {
-            return ECS::SetLocalRotation( *m_Registry, m_Handle, rotation );
-        }
-        bool SetLocalScale( const glm::vec3& scale ) const
-        {
-            return ECS::SetLocalScale( *m_Registry, m_Handle, scale );
-        }
+        bool SetLocalTransform( const LocalTransform& local ) const;
+        bool SetLocalTranslation( const glm::vec3& translation ) const;
+        bool SetLocalRotation( const glm::vec3& rotation ) const;
+        bool SetLocalScale( const glm::vec3& scale ) const;
 
         // The entity's VisibilityComponent writer (adds it when absent): ECS::SetVisible.
-        bool SetVisible( bool visible ) const
-        {
-            return ECS::SetVisible( *m_Registry, m_Handle, visible );
-        }
+        bool SetVisible( bool visible ) const;
 
         template <typename EntityT>
         void RemoveComponent() const

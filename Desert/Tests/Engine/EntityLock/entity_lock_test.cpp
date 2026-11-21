@@ -11,13 +11,13 @@
 // the thing they then accidentally grab is one of its meshes.
 
 #include <gtest/gtest.h>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 
 #include <entt/entt.hpp>
 
 #include <vector>
+#include <Engine/ECS/LockComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
 
 using Desert::ECS::IsLocked;
 using Desert::ECS::LockComponent;

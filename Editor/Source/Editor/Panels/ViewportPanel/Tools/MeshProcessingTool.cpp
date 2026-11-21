@@ -11,7 +11,6 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
@@ -33,6 +32,12 @@
 
 #include <format>
 #include <string>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

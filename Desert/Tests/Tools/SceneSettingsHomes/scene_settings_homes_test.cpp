@@ -9,7 +9,6 @@
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
@@ -26,6 +25,9 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
 
 using namespace Desert;
 

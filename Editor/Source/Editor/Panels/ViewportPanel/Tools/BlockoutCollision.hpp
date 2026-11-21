@@ -1,10 +1,12 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
 
 namespace Desert::Editor::Tools
 {

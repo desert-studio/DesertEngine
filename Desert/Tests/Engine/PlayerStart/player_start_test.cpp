@@ -14,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Engine/Core/Camera.hpp>
 
 using namespace Desert::Core;
 

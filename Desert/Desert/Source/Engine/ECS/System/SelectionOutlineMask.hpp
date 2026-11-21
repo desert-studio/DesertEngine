@@ -1,6 +1,4 @@
 #pragma once
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/HierarchyRevision.hpp>
 #include <Engine/Runtime/SelectionContext.hpp>
 
@@ -8,6 +6,9 @@
 
 #include <cstdint>
 #include <vector>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::ECS
 {

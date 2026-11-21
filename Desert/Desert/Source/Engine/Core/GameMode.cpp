@@ -1,9 +1,9 @@
 #include "GameMode.hpp"
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <utility>
+#include <Engine/ECS/TagComponent.hpp>
 
 namespace Desert::Core
 {

@@ -5,7 +5,6 @@
 #include <Editor/Core/Selection/ModelingState.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
@@ -25,6 +24,8 @@
 #include <memory>
 #include <optional>
 #include <unordered_set>
+#include <Engine/Animation/Timeline/Track.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor::Core
 {

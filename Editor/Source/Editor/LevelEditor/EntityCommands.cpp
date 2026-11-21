@@ -18,13 +18,18 @@
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 
 #include <format>
 #include <string>
 #include <utility>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

@@ -1,7 +1,6 @@
 #include <Engine/ECS/System/LandscapeSplineMeshDraw.hpp>
 
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
@@ -10,6 +9,7 @@
 #include <algorithm>
 #include <span>
 #include <unordered_set>
+#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
 
 namespace Desert::ECS
 {

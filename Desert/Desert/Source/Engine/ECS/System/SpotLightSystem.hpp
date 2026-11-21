@@ -1,8 +1,6 @@
 #pragma once
 
 #include "System.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 
 #include <Engine/Graphic/Render/Commands/SpotLightCommand.hpp>
@@ -10,6 +8,10 @@
 
 #include <glm/gtc/constants.hpp>
 #include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
+#include <Engine/ECS/LightUnits.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SpotLightComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::ECS
 {

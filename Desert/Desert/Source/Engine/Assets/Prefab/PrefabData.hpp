@@ -10,7 +10,7 @@
 #include <Engine/Assets/Prefab/PrefabRuntimeBehavior.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
-#include <Engine/Animation/RootMotion.hpp>
+#include <Engine/Animation/RootMotionMode.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>

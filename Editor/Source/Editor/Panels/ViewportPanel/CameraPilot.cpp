@@ -4,9 +4,11 @@
 
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <glm/gtc/quaternion.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor
 {

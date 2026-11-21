@@ -21,8 +21,6 @@
 
 #include <gtest/gtest.h>
 #include "../../TestSupport/runner.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
@@ -31,6 +29,15 @@
 #include <cstdint>
 #include <string>
 #include <Common/Json/Document.hpp>
+#include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+#include <UI/Args/UICanvasArgs.hpp>
+#include <UI/Args/UIImageArgs.hpp>
+#include <UI/Args/UILayoutArgs.hpp>
+#include <UI/Args/UIPanelArgs.hpp>
+#include <UI/Args/UIPathArgs.hpp>
+#include <UI/Args/UIRetainerArgs.hpp>
+#include <UI/Args/UIScrollArgs.hpp>
+#include <UI/Args/UIStyleArgs.hpp>
 
 namespace
 {

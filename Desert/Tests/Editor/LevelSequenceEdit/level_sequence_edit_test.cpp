@@ -5,7 +5,6 @@
 // Engine/LevelSequence; this suite links the editor sources, so it lives in the editor's runner.
 
 #include <Engine/Animation/Timeline/Sequence.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
 
 #include <Editor/Core/CommandHistory.hpp>
@@ -21,6 +20,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace
 {

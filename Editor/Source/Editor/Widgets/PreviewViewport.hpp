@@ -18,6 +18,10 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
 
 namespace Desert::Animation
 {

@@ -2,11 +2,11 @@
 // part of one promotes to the field. The two predicates both callers use, over a hand-built registry.
 
 #include <gtest/gtest.h>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/FoliageFieldEntities.hpp>
 
 #include <entt/entt.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
 
 using Desert::ECS::FoliageComponent;
 using Desert::ECS::HidesChildrenFromOutliner;

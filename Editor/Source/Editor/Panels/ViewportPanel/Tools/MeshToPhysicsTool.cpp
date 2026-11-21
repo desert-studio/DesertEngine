@@ -9,7 +9,6 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
@@ -20,6 +19,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

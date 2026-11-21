@@ -40,6 +40,7 @@ namespace
     using glm::vec4;
     DESERT_GLSL_AS_CPP_BEGIN
 #include <Common/ShadowWind.glslh>
+#include <Engine/Animation/Graph/AnimGraph.hpp>
     DESERT_GLSL_AS_CPP_END
 
     // How far, relative to the shadow wind distance, the CPU walk's float rounding of the rule may differ from the

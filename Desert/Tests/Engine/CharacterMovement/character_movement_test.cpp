@@ -17,6 +17,10 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/SpringArmComponent.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
 
 using namespace Desert;
 

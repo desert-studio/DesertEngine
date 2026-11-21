@@ -1,8 +1,45 @@
 #include "EcsUITree.hpp"
 
-#include <Engine/ECS/Components.hpp>
-
 #include <algorithm>
+#include <Common/Core/Events/RoutedEvents.hpp>
+#include <Common/Core/UUID.hpp>
+#include <Common/Json/Document.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/UI/Ecs/UIBindingComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UIDraggableComponent.hpp>
+#include <Engine/UI/Ecs/UIDropTargetComponent.hpp>
+#include <Engine/UI/Ecs/UIDropdownComponent.hpp>
+#include <Engine/UI/Ecs/UIIconComponent.hpp>
+#include <Engine/UI/Ecs/UIImageComponent.hpp>
+#include <Engine/UI/Ecs/UIInputFieldComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutGroupComponent.hpp>
+#include <Engine/UI/Ecs/UIListViewComponent.hpp>
+#include <Engine/UI/Ecs/UINavigationComponent.hpp>
+#include <Engine/UI/Ecs/UIOverlayComponent.hpp>
+#include <Engine/UI/Ecs/UIOverlayTriggerComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UIPathComponent.hpp>
+#include <Engine/UI/Ecs/UIPointerEventsComponent.hpp>
+#include <Engine/UI/Ecs/UIProgressBarComponent.hpp>
+#include <Engine/UI/Ecs/UIRenderTextureComponent.hpp>
+#include <Engine/UI/Ecs/UIRetainerComponent.hpp>
+#include <Engine/UI/Ecs/UIScreenComponent.hpp>
+#include <Engine/UI/Ecs/UIScreenStackComponent.hpp>
+#include <Engine/UI/Ecs/UIScrollViewComponent.hpp>
+#include <Engine/UI/Ecs/UISliderComponent.hpp>
+#include <Engine/UI/Ecs/UIStyleComponent.hpp>
+#include <Engine/UI/Ecs/UITabsComponent.hpp>
+#include <Engine/UI/Ecs/UITextComponent2D.hpp>
+#include <Engine/UI/Ecs/UITileViewComponent.hpp>
+#include <Engine/UI/Ecs/UIToggleComponent.hpp>
+#include <Engine/UI/Ecs/UITreeViewComponent.hpp>
+#include <Engine/UI/Ecs/UITweenComponent.hpp>
 
 namespace Desert::UI
 {

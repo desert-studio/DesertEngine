@@ -9,8 +9,6 @@
 
 #include <gtest/gtest.h>
 #include "../../TestSupport/runner.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <UI/UILayout.hpp>
@@ -20,6 +18,8 @@
 
 #include <string>
 #include <vector>
+#include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+#include <UI/Args/UILayoutArgs.hpp>
 
 namespace UI = Desert::UI;
 using UI::LayoutGroupParams;

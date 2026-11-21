@@ -3,13 +3,15 @@
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/matrix_decompose.hpp>
 
 #include <format>
 #include <string>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
 
 namespace Desert::Debug
 {

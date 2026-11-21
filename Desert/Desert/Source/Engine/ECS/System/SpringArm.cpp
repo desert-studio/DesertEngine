@@ -1,6 +1,10 @@
 #include <Engine/ECS/System/SpringArm.hpp>
 
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SpringArmComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::ECS::SpringArm
 {

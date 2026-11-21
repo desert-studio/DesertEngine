@@ -14,7 +14,6 @@
 #include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/PipelineBuilds.hpp>
@@ -39,6 +38,8 @@
 #include <Engine/Runtime/Services/CloudNoise/CloudNoiseService.hpp>
 #include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Runtime
 {

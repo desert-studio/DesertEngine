@@ -19,7 +19,6 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/TimerManager.hpp>
 #include <Engine/Core/WorldContext.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/Scripting/Luau/LuauBinder.hpp>
 #include <Engine/Scripting/Luau/LuauRuntime.hpp>

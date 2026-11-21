@@ -41,5 +41,4 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>

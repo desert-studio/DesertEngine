@@ -5,7 +5,6 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -17,6 +16,11 @@
 #include <ImGui/imgui.h>
 #include <format>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {
