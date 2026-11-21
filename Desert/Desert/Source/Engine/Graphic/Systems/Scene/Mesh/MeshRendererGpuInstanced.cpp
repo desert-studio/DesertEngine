@@ -351,11 +351,16 @@ namespace Desert::Graphic::System
         auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
             return nullptr;
-        if ( materials->GetInvalidationVersion() != m_GpuInstancedStamp )
+        // Once per view frame (m_GpuInstancedStampChecked): the walks of this frame hold records by address.
+        if ( !m_GpuInstancedStampChecked )
         {
-            // The cells and the templates they copy may be in the graveyard: every record goes.
-            m_GpuInstancedDraws.clear();
-            m_GpuInstancedStamp = materials->GetInvalidationVersion();
+            m_GpuInstancedStampChecked = true;
+            if ( const uint32_t version = materials->GetInvalidationVersion(); version != m_GpuInstancedStamp )
+            {
+                // The cells and the templates they copy may be in the graveyard: every record goes.
+                m_GpuInstancedDraws.clear();
+                m_GpuInstancedStamp = version;
+            }
         }
         const bool              cameraList       = gpu.CameraIds != nullptr && gpu.CameraRefs != nullptr;
         GraphicsPipeline* const companionCarrier = companion != nullptr ? companion->InstancedState : nullptr;
@@ -848,8 +853,8 @@ namespace Desert::Graphic::System
                 // own G-buffer record (the one the G-buffer draws it with when this pass did not: the same
                 // carrier, no companion, the same phase) Ready this frame, decided here and recorded, so the
                 // G-buffer draws exactly what this pass left it. Until then every bucket stays in the pair.
-                // (GpuInstancedDrawOf drops every record only when the material service's invalidation version
-                // moves, which no lookup of this loop does: `draw` stays this section's.)
+                // (GpuInstancedDrawOf drops every record only at a view frame's first lookup, when the material
+                // service's invalidation version moved: `draw` stays this section's.)
                 prepassBuckets = draw.PrepassBuckets;
                 if ( prepassBuckets < draw.Buckets && !ownGBufferReady( gpu ) )
                     prepassBuckets = draw.Buckets;
