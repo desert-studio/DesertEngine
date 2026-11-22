@@ -1,0 +1,168 @@
+// THE RESTIR GI RESERVOIR (Ouyang et al. 2021, "ReSTIR GI: Path Resampling for Real-Time Path Tracing"; UE 5.4+
+// Shaders/Private/Lumen/LumenReSTIRGather.usf): the math the ReSTIR final gather's passes share
+// (GlobalIllumination::ReSTIRGather; Programs/GlobalIllumination/ReSTIRGI*.shader). One reservoir a reservoir texel
+// (the G-buffer's extent / RESTIR_DOWNSAMPLE): its sample is a secondary hit (point, normal, outgoing radiance toward
+// the visible point), W its unbiased contribution weight, M the candidates it stands for. The reservoir textures'
+// layout is ScreenProbeGatherHistory::Reservoir (View/SceneViewState.hpp):
+//   Hit       xyz = the hit point (world cm; the sky: the visible point + direction * RESTIR_SKY_DISTANCE),
+//             w   = uintBitsToFloat( RESTIRPackNormal( hit normal ) ), 0 for the sky
+//   Radiance  rgb = the outgoing radiance toward the visible point (absolute, clamped as a screen probe ray is)
+//   State     x = W, y = M, z = the visible point's distance to the camera (cm), w = its packed normal
+// The target function p^ is the luminance of the sample's radiance times the cosine at the visible point (the
+// diffuse integrand, the paper's choice and UE's), so the reservoirs converge on the diffuse irradiance and the
+// rough specular is resolved from the same samples by a ratio estimator (ReSTIRGIResolve.shader).
+#ifndef RESTIR_GI_GLSLH
+#define RESTIR_GI_GLSLH
+
+#define RESTIR_DOWNSAMPLE   2         // must match GlobalIllumination::kReSTIRDownsample
+#define RESTIR_SKY_DISTANCE 1.0e6     // cm: where a sky sample's "hit" is put (direction, no parallax)
+
+struct ReSTIRReservoir {
+    vec3  hitPosition;
+    vec3  hitNormal;  // 0 for the sky
+    vec3  radiance;
+    float W;
+    float M;
+    float wSum;       // the running sum of resampling weights (not stored: W is finalised before the store)
+};
+
+ReSTIRReservoir RESTIREmptyReservoir()
+{
+    ReSTIRReservoir r;
+    r.hitPosition = vec3( 0.0 );
+    r.hitNormal   = vec3( 0.0 );
+    r.radiance    = vec3( 0.0 );
+    r.W           = 0.0;
+    r.M           = 0.0;
+    r.wSum        = 0.0;
+    return r;
+}
+
+// Octahedral normal packing into one 32-bit word (16 + 16 bits); 0 is reserved for "no normal" (the sky).
+uint RESTIRPackNormal( vec3 n )
+{
+    if ( dot( n, n ) < 1e-8 )
+        return 0u;
+    n /= ( abs( n.x ) + abs( n.y ) + abs( n.z ) );
+    vec2 o = n.z >= 0.0 ? n.xy : ( 1.0 - abs( n.yx ) ) * vec2( n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0 );
+    const uvec2 q = uvec2( clamp( o * 0.5 + 0.5, 0.0, 1.0 ) * 65534.0 + 0.5 ) + 1u; // 1..65535: never both 0
+    return q.x | ( q.y << 16u );
+}
+
+vec3 RESTIRUnpackNormal( uint packed )
+{
+    if ( packed == 0u )
+        return vec3( 0.0 );
+    const vec2 o = ( vec2( packed & 0xFFFFu, packed >> 16u ) - 1.0 ) / 65534.0 * 2.0 - 1.0;
+    vec3       n = vec3( o, 1.0 - abs( o.x ) - abs( o.y ) );
+    const float t = max( -n.z, 0.0 );
+    n.xy += vec2( n.x >= 0.0 ? -t : t, n.y >= 0.0 ? -t : t );
+    return normalize( n );
+}
+
+float RESTIRLuminance( vec3 c )
+{
+    return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+}
+
+// The direction from the visible point @p p to the sample (the sky's is stored as a far point).
+vec3 RESTIRSampleDirection( ReSTIRReservoir r, vec3 p )
+{
+    return normalize( r.hitPosition - p );
+}
+
+// p^ of the reservoir's sample at the visible point (@p p, @p n).
+float RESTIRTargetPdf( ReSTIRReservoir r, vec3 p, vec3 n )
+{
+    return RESTIRLuminance( r.radiance ) * max( dot( n, RESTIRSampleDirection( r, p ) ), 0.0 );
+}
+
+// The Jacobian of reusing a sample generated at @p from at the visible point @p to (paper eq. 11): the solid
+// angle the sample's hit patch subtends changes with the distance and the angle under which it is seen. The sky
+// has no patch (direction only): 1. Clamped (UE ReSTIR GI: r.Lumen.ReSTIRGather... a reuse whose Jacobian blows up
+// is rejected) so one neighbour across a corner cannot carry a firefly.
+float RESTIRJacobian( ReSTIRReservoir r, vec3 from, vec3 to )
+{
+    if ( dot( r.hitNormal, r.hitNormal ) < 0.5 )
+        return 1.0;
+    const vec3  toFrom = from - r.hitPosition;
+    const vec3  toTo   = to - r.hitPosition;
+    const float dFrom2 = max( dot( toFrom, toFrom ), 1e-4 );
+    const float dTo2   = max( dot( toTo, toTo ), 1e-4 );
+    const float cosFrom = abs( dot( r.hitNormal, toFrom * inversesqrt( dFrom2 ) ) );
+    const float cosTo   = abs( dot( r.hitNormal, toTo * inversesqrt( dTo2 ) ) );
+    const float jacobian = ( cosTo * dFrom2 ) / max( cosFrom * dTo2, 1e-6 );
+    return ( jacobian > 10.0 || jacobian < 0.1 || isnan( jacobian ) ) ? 0.0 : jacobian;
+}
+
+// Weighted reservoir sampling: stream @p candidate (with its own M) into @p r with resampling weight @p weight.
+bool RESTIRUpdate( inout ReSTIRReservoir r, ReSTIRReservoir candidate, float weight, float random )
+{
+    r.wSum += weight;
+    r.M += candidate.M;
+    if ( weight > 0.0 && random * r.wSum < weight )
+    {
+        r.hitPosition = candidate.hitPosition;
+        r.hitNormal   = candidate.hitNormal;
+        r.radiance    = candidate.radiance;
+        return true;
+    }
+    return false;
+}
+
+// W = wSum / (M * p^(selected)) at the visible point.
+void RESTIRFinalize( inout ReSTIRReservoir r, vec3 p, vec3 n )
+{
+    const float target = RESTIRTargetPdf( r, p, n );
+    r.W = ( target > 0.0 && r.M > 0.0 ) ? r.wSum / ( r.M * target ) : 0.0;
+    if ( isnan( r.W ) || isinf( r.W ) )
+        r.W = 0.0;
+}
+
+// The surface test of a reuse (temporal: the reprojected history texel; spatial: a neighbour): the same plane
+// within @p depthTolerance (relative distance to the camera) and normals within @p cosTolerance (UE ReSTIR GI's
+// depth / normal rejection).
+bool RESTIRSimilarSurface( float viewDistance, vec3 n, float otherViewDistance, vec3 otherN, float depthTolerance,
+                           float cosTolerance )
+{
+    return abs( otherViewDistance - viewDistance ) <= depthTolerance * viewDistance && dot( n, otherN ) >= cosTolerance;
+}
+
+// A reservoir from its three stored texels.
+ReSTIRReservoir RESTIRLoad( vec4 hit, vec4 radiance, vec4 state )
+{
+    ReSTIRReservoir r;
+    r.hitPosition = hit.xyz;
+    r.hitNormal   = RESTIRUnpackNormal( floatBitsToUint( hit.w ) );
+    r.radiance    = radiance.rgb;
+    r.W           = state.x;
+    r.M           = state.y;
+    r.wSum        = 0.0;
+    return r;
+}
+
+// The full-resolution pixel a reservoir texel stands for this frame: one of its RESTIR_DOWNSAMPLE² pixels, visited
+// over four frames (the temporal filter gathers them; UE ReSTIR GI's per-frame downsample jitter).
+ivec2 RESTIRReservoirPixel( ivec2 reservoirTexel, uint frameIndex, ivec2 extent )
+{
+    const uint  i      = frameIndex & 3u;
+    const ivec2 offset = ivec2( i & 1u, ( ( i >> 1u ) ^ i ) & 1u );
+    return min( reservoirTexel * RESTIR_DOWNSAMPLE + offset, extent - 1 );
+}
+
+// A cheap per-texel random sequence (PCG hash), decorrelated by the frame index and the use.
+uint RESTIRHash( uint v )
+{
+    uint state = v * 747796405u + 2891336453u;
+    uint word  = ( ( state >> ( ( state >> 28u ) + 4u ) ) ^ state ) * 277803737u;
+    return ( word >> 22u ) ^ word;
+}
+
+float RESTIRRandom( ivec2 texel, uint frameIndex, uint use )
+{
+    return float( RESTIRHash( uint( texel.x ) * 73856093u ^ uint( texel.y ) * 19349663u ^ frameIndex * 83492791u ^
+                              use * 2654435761u ) ) *
+           ( 1.0 / 4294967296.0 );
+}
+
+#endif // RESTIR_GI_GLSLH

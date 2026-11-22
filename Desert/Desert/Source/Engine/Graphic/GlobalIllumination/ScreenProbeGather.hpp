@@ -281,6 +281,11 @@ namespace Desert::Graphic::GlobalIllumination
         // rebuilds the other half from their traced neighbours. Only with the denoiser (Denoise): it is what
         // measures the history and accumulates the two halves.
         bool SparseStableRays = true;
+        // The final gather is the ReSTIR one (SceneRenderer m_ReSTIRGather, ReSTIRGatherRuns: Scalability
+        // GlobalIllumination.FinalGather = ReSTIR on the hardware tracer): one ray a reservoir texel, temporal and
+        // spatial reservoir reuse, resolved per pixel into the same diffuse / rough specular / backface textures
+        // the integrate writes, which the same disocclusion and temporal filter then take.
+        bool               ReSTIR = false;
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
         // ViewFrame::PrevPreExposure: the scale the scene colour history (the screen trace's hit radiance) is

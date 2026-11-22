@@ -175,6 +175,17 @@ namespace Desert::Graphic::GlobalIllumination
                             CapabilityCatalog::Offers( device.RayTracingModes, RayTracingMode::RayQuery ) );
     }
 
+    // PURE. Whether the traced GI's final gather is the ReSTIR one (GlobalIllumination::ReSTIRGather): the tier
+    // asks for it (Scalability GlobalIllumination.FinalGather, @p method) and @p pipeline gathers through screen
+    // probes with the hardware tracer - the gather's one ray a reservoir texel is a ray query from the pixel (UE
+    // LumenReSTIRGather is a hardware ray tracing gather). Otherwise the screen probes gather.
+    [[nodiscard]] constexpr bool ReSTIRGatherRuns( const Common::Scalability::ScreenProbeGatherMethod method,
+                                                   const Pipeline&                                    pipeline )
+    {
+        return method == Common::Scalability::ScreenProbeGatherMethod::ReSTIR && pipeline.Traced &&
+               pipeline.ScreenProbes && pipeline.Tracer == Tracer::HardwareRayQuery;
+    }
+
     // PURE. Whether this pipeline's tracer reads the global distance field — what the frame's owner asks before it
     // brings the field up for GI (the software walk marches it; the ray-query walk does not need it).
     [[nodiscard]] constexpr bool TracerReadsGlobalDistanceField( const Pipeline& pipeline )

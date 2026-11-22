@@ -204,12 +204,81 @@ namespace Desert::Graphic
 
         using ScreenProbeHistorySet = std::array<RDG::ExternalTexture, ScreenProbeGatherHistory::TextureCount>;
 
-        [[nodiscard]] bool AnyMissing( const ScreenProbeHistorySet& set )
+        template <std::size_t N>
+        [[nodiscard]] bool AnyMissing( const std::array<RDG::ExternalTexture, N>& set )
         {
             return std::ranges::any_of( set,
                                         []( const RDG::ExternalTexture& texture ) { return !texture.Physical; } );
         }
+
+        constexpr std::array<std::string_view, ScreenProbeGatherHistory::ReservoirCount> kReSTIRReservoirNames{
+             "ReSTIR.ReservoirHit", "ReSTIR.ReservoirRadiance", "ReSTIR.ReservoirState" };
+        constexpr std::array<std::string_view, ScreenProbeGatherHistory::ReservoirCount>
+             kReSTIRReservoirPreviousNames{ "ReSTIR.ReservoirHit.Previous", "ReSTIR.ReservoirRadiance.Previous",
+                                            "ReSTIR.ReservoirState.Previous" };
     } // namespace
+
+    RDG::TextureDesc ScreenProbeGatherHistory::ReservoirDesc( const Reservoir  reservoir,
+                                                              const ViewExtent reservoirExtent )
+    {
+        const Core::Formats::ImageFormat format =
+             reservoir == ReservoirHit        ? ViewTargetFormats::kReSTIRReservoirHit
+             : reservoir == ReservoirRadiance ? ViewTargetFormats::kReSTIRReservoirRadiance
+                                              : ViewTargetFormats::kReSTIRReservoirState;
+        return RDG::TextureDesc{ .Size   = { .Width = reservoirExtent.Width, .Height = reservoirExtent.Height },
+                                 .Format = format };
+    }
+
+    ScreenProbeGatherHistory::ReservoirRefs
+    ScreenProbeGatherHistory::RegisterPreviousReservoirs( RDG::Builder& graph, const ViewExtent reservoirExtent )
+    {
+        m_ReservoirsCreated   = false;
+        m_ReservoirWriterPass = UINT32_MAX;
+        const std::array<RDG::ExternalTexture, ReservoirCount>& previous =
+             m_ReservoirSlots[m_PreviousReservoirSlot];
+        if ( !m_HasPreviousReservoirs || AnyMissing( previous ) ||
+             m_PreviousReservoirExtent.Width != reservoirExtent.Width ||
+             m_PreviousReservoirExtent.Height != reservoirExtent.Height )
+            return {};
+        ReservoirRefs refs;
+        for ( uint32_t i = 0; i < ReservoirCount; ++i )
+            refs[i] = graph.RegisterExternal( previous[i], kReSTIRReservoirPreviousNames[i] );
+        return refs;
+    }
+
+    ScreenProbeGatherHistory::ReservoirRefs
+    ScreenProbeGatherHistory::CreateCurrentReservoirs( RDG::Builder& graph, const ViewExtent reservoirExtent )
+    {
+        // The images of two frames ago are written again, as CreateCurrent does with the lighting set.
+        std::array<RDG::ExternalTexture, ReservoirCount>& next = m_ReservoirSlots[m_PreviousReservoirSlot ^ 1u];
+        bool                                              reusable = !AnyMissing( next );
+        for ( uint32_t i = 0; reusable && i < ReservoirCount; ++i )
+        {
+            const RDG::TextureDesc wanted = ReservoirDesc( static_cast<Reservoir>( i ), reservoirExtent );
+            reusable                      = next[i].Desc.Size.Width == wanted.Size.Width &&
+                       next[i].Desc.Size.Height == wanted.Size.Height && next[i].Desc.Format == wanted.Format;
+        }
+        if ( !reusable )
+            next = {};
+        ReservoirRefs current;
+        for ( uint32_t i = 0; i < ReservoirCount; ++i )
+        {
+            current[i] = reusable
+                              ? graph.RegisterExternal( next[i], kReSTIRReservoirNames[i] )
+                              : graph.CreateTexture( ReservoirDesc( static_cast<Reservoir>( i ), reservoirExtent ),
+                                                     kReSTIRReservoirNames[i] );
+            graph.Extract( current[i], next[i], RDG::Access::SampledCompute );
+        }
+        m_CurrentReservoirExtent = reservoirExtent;
+        m_ReservoirsCreated      = true;
+        m_ReservoirWriterPass    = UINT32_MAX;
+        return current;
+    }
+
+    void ScreenProbeGatherHistory::SetReservoirWriterPass( const uint32_t writerPass )
+    {
+        m_ReservoirWriterPass = writerPass;
+    }
 
     RDG::TextureDesc ScreenProbeGatherHistory::Desc( const Texture texture, const ViewExtent extent )
     {
@@ -274,6 +343,25 @@ namespace Desert::Graphic
 
     void ScreenProbeGatherHistory::EndFrame( const RDG::ExecuteReport& report )
     {
+        // The reservoirs first, by the same rule as the lighting set below, each set on its own writer.
+        {
+            const bool reservoirsCreated = std::exchange( m_ReservoirsCreated, false );
+            const bool reservoirsLost =
+                 m_ReservoirWriterPass == UINT32_MAX ||
+                 std::ranges::find( report.FaultCulled, m_ReservoirWriterPass ) != report.FaultCulled.end();
+            const uint32_t nextReservoirs = m_PreviousReservoirSlot ^ 1u;
+            if ( !reservoirsCreated || reservoirsLost || AnyMissing( m_ReservoirSlots[nextReservoirs] ) )
+            {
+                m_ReservoirSlots        = {};
+                m_HasPreviousReservoirs = false;
+            }
+            else
+            {
+                m_PreviousReservoirSlot   = nextReservoirs;
+                m_PreviousReservoirExtent = m_CurrentReservoirExtent;
+                m_HasPreviousReservoirs   = true;
+            }
+        }
         const bool created = std::exchange( m_Created, false );
         const bool lost    = m_WriterPass == UINT32_MAX ||
                           std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
@@ -300,12 +388,23 @@ namespace Desert::Graphic
         m_HasPrevious    = false;
         m_Created        = false;
         m_WriterPass     = UINT32_MAX;
+        m_ReservoirSlots          = {};
+        m_PreviousReservoirExtent = {};
+        m_CurrentReservoirExtent  = {};
+        m_PreviousReservoirSlot   = 0;
+        m_HasPreviousReservoirs   = false;
+        m_ReservoirsCreated       = false;
+        m_ReservoirWriterPass     = UINT32_MAX;
     }
 
     uint64_t ScreenProbeGatherHistory::HeldBytes() const
     {
         uint64_t bytes = 0;
         for ( const std::array<RDG::ExternalTexture, TextureCount>& slot : m_Slots )
+            for ( const RDG::ExternalTexture& texture : slot )
+                if ( texture.Physical )
+                    bytes += TextureBytes( texture.Desc );
+        for ( const std::array<RDG::ExternalTexture, ReservoirCount>& slot : m_ReservoirSlots )
             for ( const RDG::ExternalTexture& texture : slot )
                 if ( texture.Physical )
                     bytes += TextureBytes( texture.Desc );

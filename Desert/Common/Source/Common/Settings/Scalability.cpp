@@ -388,15 +388,22 @@ namespace Common::Scalability
                Vis::Advanced },
              { P::ScreenProbeSparseStableRays, G::GlobalIllumination,
                "GlobalIllumination.ScreenProbeSparseStableRays", 0, 1, CL::None,
-               "SceneRenderer -> GlobalIllumination::ScreenProbeGather (ScreenProbeGatherInputs::SparseStableRays: "
+               "SceneRenderer -> GlobalIllumination::ScreenProbeGather "
+               "(ScreenProbeGatherInputs::SparseStableRays: "
                "settled uniform probes trace a checkerboard half of their texels)",
                1, Vis::Advanced },
+             { P::ScreenProbeGatherMethod, G::GlobalIllumination, "GlobalIllumination.FinalGather", 0,
+               LastOf( kScreenProbeGatherMethodNames.size() ), CL::None,
+               "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather "
+               "(ScreenProbeGatherInputs::ReSTIR: "
+               "the ReSTIR gather on the hardware tracer, else the screen probes)",
+               Of( ScreenProbeGatherMethod::ScreenProbes ), Vis::Advanced },
              { P::GlobalIlluminationScreenSpaceRays, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceRays",
                1, 32, CL::None, "SceneRenderer::BeginScene -> SSGIRenderer::Settings::RaysPerPixel", 8,
                Vis::Advanced },
              { P::GlobalIlluminationScreenSpaceSteps, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSteps",
-               8, 128, CL::None, "SceneRenderer::BeginScene -> SSGIRenderer::Settings::Iterations",
-               32, Vis::Advanced },
+               8, 128, CL::None, "SceneRenderer::BeginScene -> SSGIRenderer::Settings::Iterations", 32,
+               Vis::Advanced },
              { P::GlobalIlluminationScreenSpaceDenoiserRadius, G::GlobalIllumination,
                "GlobalIllumination.ScreenSpaceDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> SSGIRenderer -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect", 2,
@@ -472,7 +479,8 @@ namespace Common::Scalability
                "strip level by its projected height and its sub-pixel cull, GrassCull GrassBladeCurveLevel)",
                8, Vis::Advanced },
              { P::FoliageGrassBladeCardHull, G::Foliage, "Foliage.GrassBladeCardHull", 0, 1, CL::None,
-               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (a blade's "
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (a "
+               "blade's "
                "raster strip spans its card's cooked hull, Vertex_GrassBlade BladeHullSide)",
                0, Vis::Advanced },
              { P::EarlyZPass, G::ViewDistance, "RenderPipeline.EarlyZPass", 0, 2, CL::None,
@@ -525,9 +533,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync (the grass camera cull, its finalize and "
                "the camera's and cascades' draw gathers as one async compute segment; 0 = the graphics queue)",
                1, Vis::Advanced },
-             { P::RenderPipelineLandscapeDiceCullAsync, G::ViewDistance, "RenderPipeline.LandscapeDiceCullAsync", 0,
-               1, CL::None,
-               "SceneRenderer -> TerrainRenderer::AddDiceCullPass (DiceOcclusion::Async: the landscape camera dice "
+             { P::RenderPipelineLandscapeDiceCullAsync, G::ViewDistance, "RenderPipeline.LandscapeDiceCullAsync",
+               0, 1, CL::None,
+               "SceneRenderer -> TerrainRenderer::AddDiceCullPass (DiceOcclusion::Async: the landscape camera "
+               "dice "
                "cull as an async compute segment joined before the terrain depth prepass; 0 = the graphics queue)",
                1, Vis::Advanced },
              { P::RenderPipelineGpuCrashBreadcrumbs, G::Effects, "RenderPipeline.GpuCrashBreadcrumbs", 0, 1,
@@ -547,17 +556,19 @@ namespace Common::Scalability
                1, Vis::Advanced },
              { P::LandscapeVirtualTextureSizeLog2, G::Textures, "Textures.LandscapeVirtualTextureSizeLog2", 12, 17,
                CL::None,
-               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT mip0 side, log2 "
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT mip0 side, "
+               "log2 "
                "texels)",
                16, Vis::Advanced },
-             { P::LandscapeVirtualTexturePoolPages, G::Textures, "Textures.LandscapeVirtualTexturePoolPages", 8, 64,
-               CL::None,
+             { P::LandscapeVirtualTexturePoolPages, G::Textures, "Textures.LandscapeVirtualTexturePoolPages", 8,
+               64, CL::None,
                "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT atlas side in "
                "pages)",
                32, Vis::Advanced },
-             { P::LandscapeVirtualTextureUpdatesPerFrame, G::Textures, "Textures.LandscapeVirtualTextureUpdatesPerFrame",
-               8, 256, CL::None,
-               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT pages rendered per "
+             { P::LandscapeVirtualTextureUpdatesPerFrame, G::Textures,
+               "Textures.LandscapeVirtualTextureUpdatesPerFrame", 8, 256, CL::None,
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT pages "
+               "rendered per "
                "frame, r.VT.MaxUploadsPerFrame)",
                64, Vis::Advanced },
              { P::ViewDistanceHLODImpostors, G::ViewDistance, "ViewDistance.HLODImpostors", 0, 1, CL::None,
@@ -566,7 +577,8 @@ namespace Common::Scalability
                1, Vis::Advanced },
              { P::ViewDistanceLODDistanceScalePercent, G::ViewDistance, "ViewDistance.LODDistanceScalePercent", 25,
                400, CL::None,
-               "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD selection "
+               "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD "
+               "selection "
                "distance, percent)",
                100, Vis::Advanced },
         } };
@@ -609,6 +621,8 @@ namespace Common::Scalability
                 return kShadowMethodNames;
             if ( parameter == Parameter::PathTracingRadianceCache )
                 return kPathTracingRadianceCacheNames;
+            if ( parameter == Parameter::ScreenProbeGatherMethod )
+                return kScreenProbeGatherMethodNames;
             if ( parameter == Parameter::EarlyZPass )
                 return kEarlyZPassNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )

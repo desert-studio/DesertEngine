@@ -2494,6 +2494,10 @@ namespace Desert::Graphic
         // GlobalIllumination.ScreenProbeSparseStableRays, ScreenProbeGatherInputs::SparseStableRays), refreshed
         // each BeginScene.
         bool m_ScreenProbeSparseStableRays = true;
+        // The traced GI's final gather is the ReSTIR one (Scalability GlobalIllumination.FinalGather = ReSTIR on
+        // the hardware tracer, GlobalIllumination::ReSTIRGatherRuns; ScreenProbeGatherInputs::ReSTIR), refreshed
+        // each BeginScene.
+        bool m_ReSTIRGather = false;
         // The surface cache's radiosity on the async compute queue (Scalability
         // GlobalIllumination.SurfaceCacheAsyncRadiosity, SurfaceCacheRenderer::IndirectLightingInputs::Async),
         // refreshed each BeginScene.

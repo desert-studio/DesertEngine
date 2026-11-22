@@ -130,6 +130,13 @@ namespace Desert::Graphic::ViewTargetFormats
     // The screen probe gather's temporal guide, per pixel (ScreenProbeGatherHistory): the world normal and the
     // frames the history accumulated.
     inline constexpr ImageFormat kGIFinalGatherGuide = ImageFormat::RGBA16F;
+    // The ReSTIR final gather's reservoirs (GlobalIllumination::ReSTIRGather,
+    // ScreenProbeGatherHistory::Reservoir): the sample's hit point and the reservoir's state (W, M, the visible
+    // point's distance, its packed normal) in 32-bit floats - a world position in cm and a packed normal's bits do
+    // not survive half floats; the sample's radiance in half floats (the final gather's own precision).
+    inline constexpr ImageFormat kReSTIRReservoirHit      = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kReSTIRReservoirRadiance = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kReSTIRReservoirState    = ImageFormat::RGBA32F;
 
     // EVERY SHADOW MAP IS ONE DEPTH-ONLY D32F IMAGE (UE: the shadow depth pass writes depth and nothing else,
     // ShadowDepthPixelShader.usf). The cascades (two per cascade: the sampled map and its cache of static casters,
