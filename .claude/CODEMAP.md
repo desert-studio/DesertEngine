@@ -77,7 +77,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Environment` — 6 files, 1,017 lines: Environment, EnvironmentCacheEntry, EnvironmentCacheWriter, EnvironmentConvolution, EnvironmentManager, OwnedEnvironment, SampledCube, SkyLook, SkyLookGPU, Write
 - `Graphic/Fog` — 3 files, 449 lines: FogGpuPayload, HeterogeneousVolumeGpu, HeterogeneousVolumeInstance, HeterogeneousVolumeMarchGpu, LocalFogVolumeGpu, VolumetricFogGpuPayload, VolumetricFogQuality
 - `Graphic/GlobalIllumination` — 14 files, 7,655 lines: AtlasRect, Bin, CaptureTextures, Card, CardCapture, CardMip, CardPageCopy, CardPagePayload, CardPayload, Clipmap, DirectLightingInputs, DirectionalLighting, … (+51)
-- `Graphic/GpuDriven` — 15 files, 5,783 lines: CullPhaseCounts, CullPhaseSource, CullPhaseViewCount, CullViewInput, CulledDraws, CulledRowStore, DrawCommandBuffers, DrawCommandCache, EntityScratch, Entry, FieldHeld, GpuAffine3x4, … (+56)
+- `Graphic/GpuDriven` — 15 files, 5,797 lines: CullPhaseCounts, CullPhaseSource, CullPhaseViewCount, CullViewInput, CulledDraws, CulledRowStore, DrawCommandBuffers, DrawCommandCache, EntityScratch, Entry, FieldHeld, GpuAffine3x4, … (+56)
 - `Graphic/Materials` — 21 files, 4,720 lines: ContactShadowSettings, DataDrivenMaterial, DirectionalShadowView, DrawPushFields, Entry, Material, MaterialBackend, MaterialExecutor, MaterialInstance, MaterialLayoutStamp, MaterialOverrideHandles, MaterialOverrides, … (+19)
 - `Graphic/Materials/Clouds` — 2 files, 30 lines: MaterialCloudComposite
 - `Graphic/Materials/Debug` — 5 files, 219 lines: CubemapSphereUB, GridUB, LineVertex, MaterialCubemapSphere, MaterialCubemapSphereShaderParameters, MaterialDebugLine, MaterialDebugLineShaderParameters, MaterialGrid, MaterialGridShaderParameters, MaterialOverdraw, MaterialOverdrawResolve
@@ -190,7 +190,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Builders` — 3 files, 640 lines: BuilderCell, BuilderContext, IWorldPartitionBuilder, WorldPartitionBuilderRow, WorldPartitionBuilderRun
 - `Core` — 111 files, 25,948 lines: AssetEditorToolbar, AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, BakedImages, BakedMaterial, Barrier, BuilderRunOptions, ByteCommand, Capture, Choice, ClosedDocument, … (+100)
 - `Core/Commands` — 23 files, 7,585 lines: AnimGraphEditCommand, AnimGraphEditTransaction, AnimGraphOwner, AssetFolderMoveCommand, AssetMoveCommand, AssetTrashCommand, BindPoseGesture, BoneDelta, BoneGizmoGesture, CommandRegistry, ControlAutoKey, ControlEdit, … (+30)
-- `Core/Control` — 9 files, 3,645 lines: AuthoringSnapshot, BackgroundReport, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DeviceSnapshot, DocumentSnapshot, DrawBinViewSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, … (+26)
+- `Core/Control` — 9 files, 3,647 lines: AuthoringSnapshot, BackgroundReport, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DeviceSnapshot, DocumentSnapshot, DrawBinViewSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, … (+26)
 - `Core/GraphCanvas` — 4 files, 908 lines: CanvasPlan, CanvasRect, DeferredFrameAll, ElementIdMap, ElementLedger, FindPopup, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 2 files, 296 lines: Bone, RigBuilder
 - `Core/Selection` — 24 files, 5,090 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BooleanToolArgs, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MergeInputs, MeshElementSelection, MeshOperationArgs, … (+13)
@@ -199,7 +199,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Import` — 52 files, 11,000 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+17)
 - `Import/Assimp` — 12 files, 2,251 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
 - `Import/Blend` — 2 files, 238 lines: BlendImporter
-- `LevelEditor` — 53 files, 17,903 lines: AssetCompiling, BuiltFrame, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, EntityCommands, FrameCensus, FrameCensusSources, LevelEditorCommands, … (+28)
+- `LevelEditor` — 53 files, 17,907 lines: AssetCompiling, BuiltFrame, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, EntityCommands, FrameCensus, FrameCensusSources, LevelEditorCommands, … (+28)
 - `Packaging` — 8 files, 2,948 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
 - `Panels` — 1 files, 42 lines
 - `Panels/Animation` — 10 files, 4,149 lines: AnimGraphCanvas, AnimGraphPanel, ControlRigPanel, PoseFieldEdit, PoseGraphCanvas, PoseGraphTarget, PosePinRef, PoseWireRef, StatePosition, TransitionRef, WarningTarget
