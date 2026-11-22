@@ -1,4 +1,5 @@
 #include "ControlHierarchy.hpp"
+#include <Engine/Animation/Pose.hpp>
 
 #include <cctype>
 

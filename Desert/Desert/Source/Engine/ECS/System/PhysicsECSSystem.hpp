@@ -10,6 +10,7 @@
 #include <Engine/ECS/System/WaterBodyGather.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/FoliageCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>

@@ -66,6 +66,7 @@
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 namespace Desert::Editor::Tools
 {

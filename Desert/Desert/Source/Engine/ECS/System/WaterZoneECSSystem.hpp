@@ -3,6 +3,7 @@
 #include "System.hpp"
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Water/WaterBodyQuery.hpp>
 #include <Engine/Graphic/Render/Commands/WaterZoneCommand.hpp>
 

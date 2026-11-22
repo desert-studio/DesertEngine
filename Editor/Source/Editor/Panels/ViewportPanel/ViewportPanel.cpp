@@ -3,6 +3,8 @@
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
+#include "Tools/LandscapePaintTool.hpp"
+#include "Tools/LandscapeSculptTool.hpp"
 #include "Tools/MeshToPhysicsTool.hpp"
 #include "RenderMethodsOverlay.hpp"
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -347,6 +349,8 @@ namespace Desert::Editor
 
         m_LightGizmoRenderer = std::make_unique<LightGizmoRenderer>( scene, assetManager, m_UIHelper.get() );
         m_AsyncLoader        = std::make_unique<AsyncMeshLoader>(); // starts the background cook worker
+        m_LandscapeTool      = std::make_unique<Tools::LandscapeSculptTool>();
+        m_LandscapePaintTool = std::make_unique<Tools::LandscapePaintTool>();
 
         s_Live.push_back( this );
     }
@@ -2247,9 +2251,9 @@ namespace Desert::Editor
                      camera->GetViewMatrix(), camera->GetPosition(), width, height );
                 const auto edMode = Core::LandscapeSculptState::Get().Mode;
                 if ( edMode == Core::LandscapeEdMode::Paint )
-                    m_LandscapePaintTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered );
+                    m_LandscapePaintTool->Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered );
                 else if ( edMode == Core::LandscapeEdMode::Sculpt )
-                    m_LandscapeTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered,
+                    m_LandscapeTool->Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered,
                                             ImGui::GetIO().DeltaTime );
             }
         }

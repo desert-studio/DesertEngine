@@ -54,11 +54,12 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
-#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/BoneTransform.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -66,6 +67,7 @@
 namespace Desert::Animation
 {
     class Animator;
+    class LocalPose; // Pose.hpp
 }
 
 namespace Desert::ECS
@@ -249,6 +251,12 @@ namespace Desert::Editor
         };
 
     public:
+        // The two poses are held out of line so this header does not pull Pose.hpp (BUILD-MOD-2).
+        SequenceEditTransaction();
+        ~SequenceEditTransaction();
+        SequenceEditTransaction( SequenceEditTransaction&& ) noexcept;
+        SequenceEditTransaction& operator=( SequenceEditTransaction&& ) noexcept;
+
         /// Open on @p owner; @p animator (clip hosts) adds the pose half. Refuses while one is open (nesting
         /// would have to decide whose End commits) and an owner that does not resolve.
         [[nodiscard]] Common::BoolResultStr Begin( SequenceOwner owner, Animation::Animator* animator = nullptr );
@@ -297,9 +305,9 @@ namespace Desert::Editor
         Driver                        m_Driver   = Driver::Edge;
         bool                          m_Held     = false; ///< last frame's bit, for the edges
         Animation::Timeline::Sequence m_Before;
-        Animation::LocalPose          m_PoseBefore;
+        std::unique_ptr<Animation::LocalPose> m_PoseBefore; ///< never null (made in the constructor)
         /// Last frame's authoring pose while nothing is open (the rising-edge before).
-        Animation::LocalPose m_Baseline;
+        std::unique_ptr<Animation::LocalPose> m_Baseline; ///< never null (made in the constructor)
         bool                 m_BaselineValid = false;
     };
 

@@ -2,7 +2,7 @@
 
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeLayerLimits.hpp>
 
 #include <glm/glm.hpp>
 

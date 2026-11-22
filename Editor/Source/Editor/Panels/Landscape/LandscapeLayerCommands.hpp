@@ -1,5 +1,4 @@
 #pragma once
-#include <Engine/World/Landscape/LandscapeGenerator.hpp>
 #include <Engine/World/Landscape/LandscapeSplines.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
@@ -9,6 +8,11 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+namespace Desert::World::Landscape
+{
+    struct LandscapeGenerateSettings; // LandscapeGenerator.hpp
+}
 
 namespace Desert::Core
 {

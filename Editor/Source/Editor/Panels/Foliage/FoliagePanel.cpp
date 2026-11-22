@@ -45,6 +45,7 @@
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 namespace Desert::Editor::Tools
 {
