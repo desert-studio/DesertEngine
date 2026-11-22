@@ -1,7 +1,0 @@
-# WP-FAR-10B-COOK: re-import CesiumMan so its .skmesh carries the LOD chain cooked at the mesh's own LodChain
-# (UE: a skeletal mesh's LODs are generated at import / in derived data, never at load). Run once; the re-cooked
-# Content/Meshes/Displace/CesiumMan.skmesh is committed. The scene is not saved.
-Дано run Scene "Open Scene M4_RampNormalMap.desce"
-Когда run Assets "Select asset Meshes/Displace/CesiumMan.skmesh"
-Когда run "Content Browser" "Reimport"
-Тогда cooked editor.log: "[MeshLOD] LOD n" lines from the import's bake, 0 import errors, CesiumMan.skmesh rewritten

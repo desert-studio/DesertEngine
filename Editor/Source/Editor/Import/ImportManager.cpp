@@ -125,7 +125,24 @@ namespace Desert::Editor
             if ( !recorded.has_value() )
                 return false;
             const auto hash = Assets::HashMeshSourceFile( source );
-            return hash && *recorded == hash.GetValue();
+            if ( !hash || *recorded != hash.GetValue() )
+                return false;
+            // THE .skmesh IS CURRENT ONLY UNDER THE BUILD THAT MADE IT (WP-FAR-10C): the builder's version and
+            // the mesh options (LodChain, ...) the record states now, keyed as UE keys a skeletal mesh's derived
+            // data. A builder bump re-derives it like a static mesh, never draws the old chain.
+            const auto settings = Assets::Serialization::ReadImportRecordSettings( source );
+            if ( !settings )
+                return false;
+            const uint64_t current = Assets::SkinnedMeshBuildKey( hash.GetValue(), settings.GetValue().Mesh );
+            if ( stored->RenderDataKey == current )
+                return true;
+            LOG_WARN( "[SkinnedLOD] '{}': its .skmesh was derived under build key {}, the current one (mesh builder "
+                      "v{}, the record's mesh options) is {:016x} - stale, derived again by its import",
+                      source.generic_string(),
+                      stored->RenderDataKey ? std::format( "{:016x}", *stored->RenderDataKey )
+                                            : std::string( "<none>" ),
+                      Assets::kMeshBuilderVersion, current );
+            return false;
         }
 
         // THE IMPORTED RIG IS AN EXISTING SKELETON WHEN ONE REGISTERED .skeleton STATES ITS BONES (SKEL-TREE,
@@ -625,7 +642,13 @@ namespace Desert::Editor
             const auto hash = Assets::HashMeshSourceFile( sourcePath );
             if ( !hash )
                 return Common::MakeError<bool>( hash.GetError() );
-            if ( auto stated = Assets::Serialization::SetImportRecordSourceHash( sourcePath, hash.GetValue() );
+            // A skinned mesh states the build it was derived under (SkinnedImportIsFresh reads it back).
+            const std::optional<uint64_t> renderDataKey =
+                 resolved.Mesh && resolved.Mesh->IsSkinned
+                      ? std::optional<uint64_t>( Assets::SkinnedMeshBuildKey( hash.GetValue(), settings.Mesh ) )
+                      : std::nullopt;
+            if ( auto stated =
+                      Assets::Serialization::SetImportRecordSourceHash( sourcePath, hash.GetValue(), renderDataKey );
                  !stated )
                 return stated;
         }
