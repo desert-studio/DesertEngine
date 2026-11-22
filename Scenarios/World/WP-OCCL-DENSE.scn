@@ -15,11 +15,11 @@
 Когда --subject viewport set Camera.Direction 0,0,1
 Когда frames 30
 Когда state
-Тогда 0_hidden only the white wall and the floor in front of it; no red crate; state gbuffer occluded >= 60 (half of the 120 crates), phase1 small
+Тогда 0_hidden only the white wall and the floor in front of it; no red crate; state gbuffer occluded >= 60 (half of the 120 crates), phase1 small (measured 11-22: phase1 2 (floor+wall), occluded 120, phase2Total 0)
 Когда --subject viewport set Camera.Position 1500,150,0
 Когда --subject viewport set Camera.Direction -0.35,0,1
 Когда frames 1
-Тогда 1_disocclude the frame right after the step: the wall on the left, all 120 red crates drawn, no hole and no missing crate
+Тогда 1_disocclude the frame right after the step: the wall on the right, all 120 red crates drawn, no hole and no missing crate
 Когда frames 10
 Когда state
-Тогда 2_settled the same view 10 frames later, identical crates to 1_disocclude; state gbuffer phase2Total rose vs 0_hidden (phase 2 found the revealed crates in the step frame), occluded near 0
+Тогда 2_settled the same view 10 frames later, identical crates to 1_disocclude; state gbuffer phase2Total rose vs 0_hidden (phase 2 found the revealed crates in the step frame), occluded near 0 (measured: phase2Total 0 -> 280, phase1 114, occluded 8 = crates hidden by taller crates)
