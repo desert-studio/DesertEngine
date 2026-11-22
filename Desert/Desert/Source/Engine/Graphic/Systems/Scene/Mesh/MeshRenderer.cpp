@@ -2727,12 +2727,14 @@ namespace Desert::Graphic::System
         uint32_t crowdDraws    = 0;
         uint32_t crowdGrown    = 0;
         float    crowdMaxScale = 1.0f;
+        bool     followers     = false;
         for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
         {
             data.Lod        = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
             data.VatAddress     = 0;
             data.VatVertexCount = 0;
             data.MinScreenScale = 1.0f;
+            followers           = followers || data.Leader.Follows();
             const auto& lods = data.Mesh->GetSkinnedLODs();
             float       screenSize = Geometry::kLOD0ScreenSize;
             if ( data.LodFeedback )
@@ -2791,9 +2793,10 @@ namespace Desert::Graphic::System
             // skeletal alike (WP-FAR-10D). The clamp is about pixels, so it never asks which path draws the
             // figure: gated on the VAT path, it followed the level index, and Cinematic (LODDistanceScale 0.5)
             // kept every far figure one level short of the baked lowest one - none went VAT, none was grown, and
-            // the crowd High showed at 300 m vanished into sub-pixel skeletal draws. A follower mesh
-            // (SkinSource) keeps its own size: it is grown with its leader's world or not at all.
-            if ( lodView && m_LODEnabled && data.SkinSource == nullptr && screenSize > 0.0f )
+            // the crowd High showed at 300 m vanished into sub-pixel skeletal draws. A displaced twin (SkinSource)
+            // is tessellated from LOD 0 and keeps its size; a follower mesh (Leader) is grown with its leader
+            // below, never by its own bounds (its sleeve alone would grow about its own feet and leave the body).
+            if ( lodView && m_LODEnabled && data.SkinSource == nullptr && !data.Leader.Follows() && screenSize > 0.0f )
             {
                 const float trueSize = screenSize * m_LODDistanceScale;
                 if ( trueSize < VertexAnimationCrowd::kMinScreenSize )
@@ -2801,8 +2804,11 @@ namespace Desert::Graphic::System
                     const Common::Math::AABB bounds = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
                     data.MinScreenScale = std::min( VertexAnimationCrowd::kMinScreenSize / trueSize,
                                                     VertexAnimationCrowd::kMaxMinScreenScale );
-                    data.MinScreenPivot = glm::vec3( 0.5f * ( bounds.Min.x + bounds.Max.x ), bounds.Min.y,
-                                                     0.5f * ( bounds.Min.z + bounds.Max.z ) );
+                    // The feet in world space: the growth is uniform, so about this point it is the same matrix
+                    // in the figure's frame and in the world's - and a follower can share it (below).
+                    data.MinScreenPivot = glm::vec3(
+                         data.Transform * glm::vec4( 0.5f * ( bounds.Min.x + bounds.Max.x ), bounds.Min.y,
+                                                     0.5f * ( bounds.Min.z + bounds.Max.z ), 1.0f ) );
                     ++crowdGrown;
                     crowdMaxScale = std::max( crowdMaxScale, data.MinScreenScale );
                 }
@@ -2824,6 +2830,29 @@ namespace Desert::Graphic::System
                       "influences, screen size {:.4f}, LODDistanceScale {}",
                       data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
                       lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, screenSize, m_LODDistanceScale );
+        }
+        // THE FOLLOWERS TAKE THEIR LEADER'S GROWTH (UE SetLeaderPoseComponent: the follower inherits the leader's
+        // transform and LOD decisions): the leader's scale about the leader's feet, both decided above from the
+        // leader's own bounds - the one source of truth - so the clothing drawn on a grown far body is the body's
+        // size, on it, in every pass (its row's world: bounds, shadow, velocity). A follower whose leader is not
+        // queued this frame (hidden, culled out of the submit) is drawn at its own size, as its leader would be.
+        if ( followers )
+        {
+            m_ScratchSkinnedLeaders.clear();
+            for ( uint32_t i = 0; i < static_cast<uint32_t>( m_SkinnedQueue.size() ); ++i )
+                if ( !m_SkinnedQueue[i].Leader.Follows() )
+                    m_ScratchSkinnedLeaders.try_emplace( m_SkinnedQueue[i].Entity, i );
+            for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+            {
+                if ( !data.Leader.Follows() )
+                    continue;
+                const auto leader = m_ScratchSkinnedLeaders.find( *data.Leader.LeaderEntity );
+                if ( leader == m_ScratchSkinnedLeaders.end() )
+                    continue;
+                const SkinnedMeshRenderData& lead = m_SkinnedQueue[leader->second];
+                data.MinScreenScale               = lead.MinScreenScale;
+                data.MinScreenPivot               = lead.MinScreenPivot;
+            }
         }
         m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws, crowdGrown, crowdMaxScale );
     }
@@ -3182,15 +3211,17 @@ namespace Desert::Graphic::System
         // ranges over vertices nobody skinned this frame - the whole Cinematic crowd vanished at LOD > 0
         // (CINEMATIC-LOD: the CPU chose at distance x 0.5, the GPU at distance x 1). Forced, both agree by
         // construction, every cull view (main, cascades, VSM) included.
-        // A far VAT figure under its minimum screen size (SelectSkinnedLods, WP-FAR-12D) is drawn grown about
-        // its feet: one world for every pass, so its bounds, shadow and velocity follow the drawn figure.
+        // A far figure under its minimum screen size (SelectSkinnedLods, WP-FAR-12D) is drawn grown about its
+        // feet IN WORLD SPACE (MinScreenPivot is a world point): one world for every pass, so its bounds, shadow
+        // and velocity follow the drawn figure. A follower (WP-FAR-10E) carries its leader's scale and feet, so
+        // it grows about the body's feet with the body, wherever its own origin is.
         const auto drawnWorld = []( const SkinnedMeshRenderData& data ) -> glm::mat4
         {
             if ( data.MinScreenScale == 1.0f )
                 return data.Transform;
-            return data.Transform * glm::translate( glm::mat4( 1.0f ), data.MinScreenPivot ) *
+            return glm::translate( glm::mat4( 1.0f ), data.MinScreenPivot ) *
                    glm::scale( glm::mat4( 1.0f ), glm::vec3( data.MinScreenScale ) ) *
-                   glm::translate( glm::mat4( 1.0f ), -data.MinScreenPivot );
+                   glm::translate( glm::mat4( 1.0f ), -data.MinScreenPivot ) * data.Transform;
         };
         for ( const auto& data : m_SkinnedQueue )
             skinned.push_back( { .Entity = data.Entity,
@@ -3533,6 +3564,7 @@ namespace Desert::Graphic::System
                 skinnedData.ForcedLOD = data.ForcedLOD;
                 skinnedData.LODBias   = data.LODBias;
                 skinnedData.LodFeedback = data.LodFeedback; // the animation's side of the level (WP-FAR-11)
+                skinnedData.Leader      = data.Leader;      // a follower is grown with its leader (WP-FAR-10E)
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
                 // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
