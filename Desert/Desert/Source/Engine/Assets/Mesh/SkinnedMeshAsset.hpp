@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MeshAsset.hpp"
+#include <Engine/Assets/AssetManager.hpp>
 
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Assets/Common.hpp>

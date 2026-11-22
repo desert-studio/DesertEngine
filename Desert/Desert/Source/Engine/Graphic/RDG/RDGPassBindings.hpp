@@ -2,7 +2,9 @@
 
 #include <Common/Core/ResultStr.hpp>
 
-#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/ShaderPushBlock.hpp>
 
@@ -49,6 +51,9 @@
 // keep the sampler their image owns; that is the other route and is unchanged.
 namespace Desert::Graphic::RDG
 {
+    class PassBuilder; // RDGBuilder.hpp
+    class PassContext; // RDGBuilder.hpp
+
     // One resolved texture entry: the binding PassContext::GetTexture returned for THIS execution of the pass.
     // Valid only until the exec lambda returns (see PassContext A(3)).
     // RDG-PARALLEL-9 (RDG-REC-2): ShaderName views the declared entry's name (DeclaredBindingEntry::ShaderName
@@ -234,17 +239,7 @@ namespace Desert::Graphic::RDG
     class OpenBindingBlocks
     {
     public:
-        OpenBindingBlocks( const PassContext& context, const uint32_t first, const size_t count )
-             : m_Base( Slots().Used ), m_Count( count )
-        {
-            ThreadSlots& open = Slots();
-            while ( open.Slots.size() < m_Base + m_Count )
-                open.Slots.push_back( std::make_unique<std::optional<PassBindings>>() );
-            open.Used = m_Base + m_Count;
-            for ( size_t index = 0; index < m_Count; ++index )
-                open.Slots[m_Base + index]->emplace(
-                     context, context.GetBindingBlock( first + static_cast<uint32_t>( index ) ) );
-        }
+        OpenBindingBlocks( const PassContext& context, uint32_t first, size_t count );
         ~OpenBindingBlocks()
         {
             ThreadSlots& open = Slots();

@@ -9,7 +9,7 @@
 
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
-#include <Engine/Geometry/Mesh.hpp>
+#include <Engine/Graphic/MeshGeometry.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -17,6 +17,11 @@
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/ProceduralIndexedRange.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
+
+namespace Desert
+{
+    class Mesh;
+}
 
 namespace Desert::ShaderResources
 {

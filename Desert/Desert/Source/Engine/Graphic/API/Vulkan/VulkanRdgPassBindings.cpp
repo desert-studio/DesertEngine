@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
