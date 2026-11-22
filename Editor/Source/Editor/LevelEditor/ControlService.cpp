@@ -2360,7 +2360,9 @@ namespace Desert::Editor
                                                        .VsmFallbackSubmeshes = vg.VsmFallbackSubmeshes,
                                                        .Overflow             = vg.Overflow,
                                                        .OccludedClusters     = vg.OccludedClusters,
-                                                       .BinnedVgInstances    = vg.BinnedVgInstances };
+                                                       .BinnedVgInstances    = vg.BinnedVgInstances,
+                                                       .HwClusters           = vg.HwClusters,
+                                                       .SwClusters           = vg.SwClusters };
             }
             // The scene-owned GI pools: one per live scene that brought each up, never one per view.
             for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )

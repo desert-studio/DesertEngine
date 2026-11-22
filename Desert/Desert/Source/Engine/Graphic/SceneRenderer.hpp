@@ -648,6 +648,10 @@ namespace Desert::Graphic
             // VG instances still drawn by the bins of a view with a cut (main or cascade; must be 0: the cluster
             // raster draws them).
             uint32_t BinnedVgInstances = 0;
+            // VG-SW-RASTER: the main view's clusters per raster (main + post phase): the hardware raster's and the
+            // software raster's ("VirtualGeometry: Software Raster" -> the visibility buffer).
+            uint32_t HwClusters = 0;
+            uint32_t SwClusters = 0;
         };
         [[nodiscard]] VirtualGeometryCounts GetVirtualGeometryCounts() const;
         /// This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps). Public

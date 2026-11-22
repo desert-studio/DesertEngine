@@ -3567,7 +3567,7 @@ namespace Desert::Core::Preprocess
                         }
                 }
             // VG-SW-RASTER: the VG visibility resolve of every kSurfaceVirtualGeometryPaths path
-            // (kSurfaceVirtualGeometryResolveCellOf), after every `.VirtualGeometry` cell (the earlier cells'
+            // (MeshVertexPath.hpp VisibilityResolveCellOf), after every `.VirtualGeometry` cell (the earlier cells'
             // order is unchanged). No `.Parallax` twin: a parallax template's clusters stay on the hardware raster
             // (ClusterCut's SW split admits only slots with kDrawSlotSoftwareRaster).
             if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )

@@ -1233,6 +1233,8 @@ namespace Desert::Graphic
                  .VsmFallbackSubmeshes = fallback,
                  .Overflow = last.Status.StackOverflow + last.Status.VisibleOverflow + last.Status.MissingSlot,
                  .OccludedClusters  = last.Status.OccludedClusters,
-                 .BinnedVgInstances = last.Status.BinnedVgInstances };
+                 .BinnedVgInstances = last.Status.BinnedVgInstances,
+                 .HwClusters        = last.HwClusters,
+                 .SwClusters        = last.SwClusters };
     }
 } // namespace Desert::Graphic
