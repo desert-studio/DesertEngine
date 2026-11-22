@@ -35,7 +35,10 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         22; // 22: every generated level is made at its target share again (21's dropped grass levels drew LOD 0
+         23; // 23: a generated level's measured error no longer caps its screen size at ~1 px - the automatic
+             // progression draws it (UE non-Nanite reduction); the cap held LOD0 on foliage to the far field
+             // (FIELD_Barn 4.0M -> 69M mesh triangles, FPS-MESHLOD-CAP).
+             // 22: every generated level is made at its target share again (21's dropped grass levels drew LOD 0
              // at every distance - FIELD_Barn 0.8M -> 49.9M triangles, FPS-MESHLOD-BUDGET); its measured error (of
              // the bounds radius) is stored per level in LodCutErrors and caps its screen size at ~1 px (UE: a
              // reduction's MaxDeviation sets the LOD's screen size, the level is never removed);

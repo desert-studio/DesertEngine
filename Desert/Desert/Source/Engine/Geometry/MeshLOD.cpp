@@ -485,8 +485,11 @@ namespace Desert::Geometry
                 }
                 SimplifiedLODChain generated =
                      SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain, attrs.data() );
-                levels          = std::move( generated.Levels );
-                sm.LODCutErrors = std::move( generated.Errors ); // one per level, aligned with LODs[1..]
+                // A generated level is drawn at the automatic progression (UE bAutoComputeLODScreenSize for a
+                // reduced, non-Nanite LOD); its measured error is reported, not a ~1 px cap - that cap is the
+                // DAG cut's (ClusterDag), and on generated foliage chains it held LOD0 out to the far field
+                // (FIELD_Barn 4.0M -> 69M mesh triangles, FPS-MESHLOD-CAP).
+                levels = std::move( generated.Levels );
             }
 
             for ( const auto& lvl : levels )
