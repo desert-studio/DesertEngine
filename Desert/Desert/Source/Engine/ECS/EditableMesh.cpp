@@ -69,8 +69,9 @@ namespace Desert::ECS
         const StaticMeshComponent& now              = registry.get<StaticMeshComponent>( entity );
         const bool                 meshChanged      = edited.MeshHandle != now.GetMeshHandle();
         const bool                 materialsChanged = edited.MaterialSlots != now.GetMaterialSlots();
+        // Neither reference moved (an Impostor field, WP-FAR-12E): the value is written as edited.
         if ( !meshChanged && !materialsChanged )
-            return false;
+            return SetStaticMesh( registry, entity, edited );
         if ( meshChanged && edited.MeshHandle )
         {
             edited.Primitive.reset();
@@ -85,7 +86,7 @@ namespace Desert::ECS
     bool PostEditStaticMesh( entt::registry& registry, entt::entity entity, const StaticMeshDesc& before )
     {
         StaticMeshDesc edited = registry.get<StaticMeshComponent>( entity ).GetDesc();
-        if ( edited.MeshHandle == before.MeshHandle && edited.MaterialSlots == before.MaterialSlots )
+        if ( edited == before )
             return false;
         SetStaticMesh( registry, entity, before );
         return ApplyStaticMeshEdit( registry, entity, std::move( edited ) );
