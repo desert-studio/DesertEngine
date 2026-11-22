@@ -117,7 +117,7 @@ struct RadianceCacheProbe {
     ivec4 cell;     // xyz = world cell (cells of its clipmap from the world origin), w = clipmap
     uvec4 frames;   // x = last used, y = last traced (0 = never), z = traced light hash, w = light hash
     vec4  offset;   // xyz = relocation out of geometry (cm)
-    uvec4 priority; // x = priority bucket this frame
+    uvec4 priority; // x = priority bucket this frame, y = 1 when a coverage reader stamped it this frame (0: the fallback only)
 };
 
 // An indirection entry: a probe index, RADIANCE_CACHE_INVALID_PROBE, or a probe index with this bit set while the

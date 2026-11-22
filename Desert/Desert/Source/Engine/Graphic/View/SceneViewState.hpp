@@ -225,9 +225,10 @@ namespace Desert::Graphic
         // This frame's set: transients of @p graph ("ScreenProbes.<name>") extracted into the view for the next
         // frame. At most one call per graph.
         [[nodiscard]] Refs CreateCurrent( RDG::Builder& graph, ViewExtent extent );
-        // The AddPass index of the temporal pass that writes the set (Builder::GetPassCount() before its
-        // AddPass), whose loss EndFrame checks. Not called -> the set counts as unwritten.
-        void SetWriterPass( uint32_t writerPass );
+        // Adds the AddPass index of a pass that writes the set (Builder::GetPassCount() before its AddPass):
+        // the integrates with the temporal filter fused in, one each (FPS-SP-INTEGRATE). EndFrame drops the set
+        // when any writer was lost. Not called -> the set counts as unwritten.
+        void AddWriterPass( uint32_t writerPass );
 
         // After Execute succeeded: the extracted set becomes the previous one when its writer survived (@p
         // report); otherwise, and when this frame created none, the next frame has no previous.
@@ -244,7 +245,7 @@ namespace Desert::Graphic
         uint32_t                                                      m_PreviousSlot = 0;
         bool                                                          m_HasPrevious  = false;
         bool                                                          m_Created      = false;
-        uint32_t                                                      m_WriterPass   = UINT32_MAX;
+        std::vector<uint32_t>                                         m_WriterPasses; // cleared each frame
     };
 
     // ---- Temporal history ------------------------------------------------------------------------------------
