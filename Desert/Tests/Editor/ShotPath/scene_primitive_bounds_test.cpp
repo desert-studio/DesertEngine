@@ -1,12 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <Editor/LevelEditor/ScenePrimitiveBounds.hpp>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 
 #include <memory>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 using namespace Desert;
 using namespace Desert::Editor;

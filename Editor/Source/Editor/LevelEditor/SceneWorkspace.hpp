@@ -11,12 +11,8 @@
 // between frames, because opening and closing a view allocates or destroys GPU resources, which is not legal
 // inside the ImGui pass that noticed the click.
 
-#include <Engine/Graphic/SceneRenderer.hpp>
-#include <Engine/Graphic/Renderer.hpp>
-#include <Engine/Core/Camera.hpp>
-#include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Animation/AnimationLibrary.hpp>
-#include <Engine/Core/Scene.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <Common/Core/Timestep.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
@@ -28,9 +24,27 @@
 #include <string_view>
 #include <vector>
 
+// The renderer, the worlds and the asset/animation services by name only (UE: the level editor sees
+// FSceneRenderer through forward declarations): the workspace owns them, SceneWorkspace.cpp builds them.
 namespace Desert::Core
 {
     class EditorCamera;
+    class Scene;
+}
+
+namespace Desert::Graphic
+{
+    class SceneRenderer;
+}
+
+namespace Desert::Assets
+{
+    class AssetManager;
+}
+
+namespace Desert::Animation
+{
+    class AnimationLibrary;
 }
 
 namespace Desert::Graphic::System
@@ -61,6 +75,8 @@ namespace Desert::Editor
             std::unique_ptr<Graphic::SceneRenderer> Renderer;
             std::unique_ptr<Render::RenderRegistry> Registry;
             ViewportPanel*                          Viewport = nullptr; // non-owning; lives in PanelRegistry
+
+            ~SceneDocument(); // out of line: SceneRenderer is complete only in SceneWorkspace.cpp
         };
 
         // A SECOND ANGLE, not a second document: no Scene and no RenderRegistry of its own.
@@ -72,10 +88,13 @@ namespace Desert::Editor
             std::weak_ptr<Desert::Core::Scene>      Scene;
             std::unique_ptr<Graphic::SceneRenderer> Renderer;
             ViewportPanel*                          Viewport = nullptr; // non-owning; lives in PanelRegistry
+
+            ~SceneViewport(); // out of line, as SceneDocument
         };
 
         SceneWorkspace( PanelRegistry& panels, const std::shared_ptr<Assets::AssetManager>& assets,
                         const std::unique_ptr<Animation::AnimationLibrary>& animations );
+        ~SceneWorkspace(); // out of line: the owned SceneRenderers are complete only in SceneWorkspace.cpp
 
         // ── the primary document ───────────────────────────────────────────────────────────────────
         void CreatePrimaryScene(); // the renderer and the always-present document #-1 (ctor, once)

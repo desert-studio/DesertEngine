@@ -19,8 +19,6 @@
 #include <format>
 #include <array>
 #include <optional>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -74,6 +72,33 @@
 #include <Engine/Runtime/Services/Icon/IconService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/Animation/Timeline/Player.hpp>
+#include <Engine/Core/WindowCloseGate.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/FolderComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/LockComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SocketAttachmentComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TextComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
+#include <Engine/Scripting/ScriptProperty.hpp>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
+#include <Engine/UI/Ecs/UIRenderTextureComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
+#include <UI/Args/UIImageArgs.hpp>
 
 namespace Desert::Core::Serialize
 {

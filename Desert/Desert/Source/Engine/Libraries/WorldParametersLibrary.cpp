@@ -3,6 +3,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Libraries/ScriptWorld.hpp>
+#include <Engine/Core/WorldParameterInstance.hpp>
 
 namespace Desert::Libraries
 {

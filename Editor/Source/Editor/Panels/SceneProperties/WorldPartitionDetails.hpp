@@ -10,7 +10,7 @@
 // why it is always loaded - the planner's own answer (Rules::PlanWorldPartition over the scene's own serialised
 // form, the loader's path), remade when the history moves, the selection changes or the world's partition changes.
 
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 
 #include <cstdint>
 #include <memory>

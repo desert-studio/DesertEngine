@@ -26,6 +26,9 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/DisplacementCache.hpp>
 
@@ -49,6 +52,10 @@ namespace Desert::Editor
          : m_Panels( panels ), m_Assets( assets ), m_Animations( animations )
     {
     }
+
+    SceneWorkspace::~SceneWorkspace()                = default;
+    SceneWorkspace::SceneDocument::~SceneDocument() = default;
+    SceneWorkspace::SceneViewport::~SceneViewport() = default;
 
     void SceneWorkspace::CreatePrimaryScene()
     {

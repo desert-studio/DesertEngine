@@ -21,6 +21,7 @@
 #include <unordered_set>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Animation/Graph/AnimGraph.hpp>
 
 namespace
 {

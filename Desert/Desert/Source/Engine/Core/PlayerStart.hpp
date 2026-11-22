@@ -10,6 +10,8 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Camera.hpp>
 
 namespace Desert::Assets
 {

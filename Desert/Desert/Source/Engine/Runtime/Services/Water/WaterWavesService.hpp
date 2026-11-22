@@ -2,8 +2,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
-#include <Engine/Assets/WaterWavesAsset.hpp>
-#include <Engine/Water/GerstnerWaterWaves.hpp>
+#include <Engine/Assets/Common.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -11,6 +10,18 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+// Declared, not included: the generated set is shared, not looked into here, and the asset is only named -- so a
+// caller of Get() does not compile the Gerstner generator (BUILD-MOD-1).
+namespace Desert::Water
+{
+    struct GerstnerWave; // Engine/Water/GerstnerWaterWaves.hpp
+}
+
+namespace Desert::Assets
+{
+    class WaterWavesAsset; // Engine/Assets/WaterWavesAsset.hpp
+}
 
 namespace Desert::Runtime
 {

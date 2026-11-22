@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 // "Shadows: Ray Traced Local" (UE RayTracingShadows.cpp, per light): ShadowMethod::HardwareTraced for the point
 // and spot lights. UE renders every shadowed local light alone (its screen shadow mask, then RenderLight); here
@@ -81,9 +82,8 @@ namespace Desert::Graphic::System
     public:
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
-            auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
-            m_TraceShader       = shaders->GetByName( "RayTracedLocalShadow" );
-            m_PackShader        = shaders->GetByName( "RayTracedLocalShadowPack" );
+            m_TraceShader       = Runtime::FindShader( "RayTracedLocalShadow" );
+            m_PackShader        = Runtime::FindShader( "RayTracedLocalShadowPack" );
             if ( !m_TraceShader || !m_PackShader )
                 return Common::MakeError( "Shadows: Ray Traced Local: shader RayTracedLocalShadow or "
                                           "RayTracedLocalShadowPack not found" );

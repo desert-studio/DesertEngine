@@ -2,7 +2,6 @@
 
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/Mesh/MeshAsset.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -450,33 +449,5 @@ namespace Desert::Assets
         // Each registry type id's records, in registration order (FindAllByType).
         std::unordered_map<decltype( AssetMetadata::AssetType ), std::vector<AssetIndex>> m_TypeSlots;
         uint64_t m_RegistrationRevision = 0; // RegistrationRevision()
-    };
-
-    template <typename T>
-    struct AssetDependency
-    {
-        AssetHandle      Handle;
-        std::weak_ptr<T> Cached;
-
-        void Resolve( AssetManager& manager )
-        {
-            auto asset = manager.FindByHandle<T>( Handle );
-            Cached     = asset;
-        }
-
-        bool IsValid() const
-        {
-            return !Cached.expired();
-        }
-
-        T* Get() const
-        {
-            if (auto ptr = Cached.lock())
-            {
-                return ptr.get();
-            }
-
-            return nullptr;
-        }
     };
 } // namespace Desert::Assets

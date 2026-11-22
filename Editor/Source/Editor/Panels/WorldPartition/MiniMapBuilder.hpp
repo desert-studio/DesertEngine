@@ -10,7 +10,7 @@
 // scene as `<stem>_MiniMap.detex` (sRGB colour). The capture is recorded into the editor's own frames (as
 // LandscapeHLODBake's is), so a build runs over many frames: Tick() once per editor frame until it answers true.
 
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

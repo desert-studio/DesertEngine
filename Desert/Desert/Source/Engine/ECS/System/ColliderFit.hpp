@@ -1,7 +1,5 @@
 #pragma once
 
-#include <Engine/ECS/Components.hpp>
-
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -11,6 +9,8 @@
 #include <cmath>
 #include <format>
 #include <span>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
 
 namespace Desert::ECS
 {

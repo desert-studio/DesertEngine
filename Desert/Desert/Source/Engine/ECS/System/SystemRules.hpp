@@ -1,6 +1,4 @@
 #pragma once
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
@@ -14,6 +12,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::ECS::Rules
 {

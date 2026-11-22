@@ -1,0 +1,10 @@
+# WP-FAR-10C: a skinned mesh's derived data is keyed like a static mesh's (UE FSkeletalMeshBuilder DDC key = source +
+# build settings + builder version). The import record states the key its .skmesh was built under (RenderDataKey);
+# a record from an older builder (v21 chain, WP-FAR-12C) is stale - editor.log "[SkinnedLOD] ... stale, derived again
+# by its import" - and the Content Browser's Reimport derives it again. Run once; the re-derived
+# Content/Meshes/Displace/CesiumMan.skmesh and its .deimport (RenderDataKey) are committed. The scene is not saved.
+# Then Scenarios/World/WP-FAR-10B.scn (high_60) and Scenarios/World/CINEMATIC-LOD.scn (cine_300).
+Дано run Scene "Open Scene M4_RampNormalMap.desce"
+Когда run "Content Browser" "Sync to Asset Meshes/Displace/CesiumMan.skmesh"
+Когда run "Content Browser" "Reimport"
+Тогда rederived editor.log: the stale-key warning for CesiumMan.glb before the reimport, the reimport's "[MeshBuild]"/LOD lines, 0 import errors; CesiumMan.skmesh rewritten, CesiumMan.glb.deimport states RenderDataKey

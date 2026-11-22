@@ -18,8 +18,6 @@
 // the walk no longer asking about it (UIRenderTextureSource.hpp). A virtualized list is the first
 // consumer that stops asking EN MASSE, so that test drives a counting stand-in for the backend and
 // requires the demand set to shrink to the window.
-
-#include <Engine/ECS/Components.hpp>
 #include <UI/UICanvasContext.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
@@ -38,6 +36,15 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
+#include <Engine/UI/Ecs/UIBindingComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UIListViewComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UIRenderTextureComponent.hpp>
+#include <Engine/UI/Ecs/UIScrollViewComponent.hpp>
 
 // The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
 namespace

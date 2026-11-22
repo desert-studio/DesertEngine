@@ -3,8 +3,9 @@
 // THE EDITOR LIBRARIES' PRECOMPILED HEADER (cmake/DesertEditorLibs.cmake), force-included into every
 // source of every editor library. What is here is what the editor's translation units include most - counted
 // over Editor/Source when this was written: the standard headers a third to a half of them name, ImGui, glm,
-// the Common result/log/constant headers, and the four engine headers (scene, components, asset manager,
-// resource registry) that most panels and commands start from and that cost the most to parse.
+// the Common result/log/constant headers. NO engine header: the scene, the asset manager and the resource
+// registry used to be here, which made every editor object a dependent of them (touch Scene.hpp -> rebuild the
+// whole editor); a source names the engine headers it uses (BUILD-MOD-4).
 //
 // A header belongs here only if including it in EVERY editor source changes nothing but compile time: no
 // header that needs a macro defined before it (imgui_internal.h wants IMGUI_DEFINE_MATH_OPERATORS first, the
@@ -39,7 +40,3 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
 
-#include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>

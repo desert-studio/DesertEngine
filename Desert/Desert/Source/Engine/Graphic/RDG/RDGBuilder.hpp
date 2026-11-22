@@ -39,26 +39,6 @@ namespace Desert::Graphic::RDG
     struct ShaderBindingLayout;
     struct OtherRouteFill;
 
-    struct TextureBinding
-    {
-        uint32_t           Resource = kInvalidResource;
-        std::string_view   Name;
-        const TextureDesc* Desc     = nullptr;
-        ExternalTexture*   External = nullptr; // null for a transient
-        const Allocation*  Memory   = nullptr; // null for an external or extracted texture
-        IPhysicalTexture*  Physical = nullptr; // the backend's image
-    };
-
-    struct BufferBinding
-    {
-        uint32_t          Resource = kInvalidResource;
-        std::string_view  Name;
-        const BufferDesc* Desc     = nullptr;
-        ExternalBuffer*   External = nullptr;
-        const Allocation* Memory   = nullptr;
-        IPhysicalBuffer*  Physical = nullptr;
-    };
-
     // What an exec lambda sees. Get* is the ONLY way from a handle to a resource inside a pass, which is
     // what lets it refuse a resource the pass never declared: an undeclared read would get no barrier and
     // an undeclared write would be invisible to culling, and neither shows up as anything but a wrong

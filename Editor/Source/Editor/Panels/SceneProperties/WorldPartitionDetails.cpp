@@ -9,7 +9,6 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
 #include <ImGui/imgui.h>
@@ -19,6 +18,12 @@
 #include <functional>
 #include <span>
 #include <vector>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
+#include <Engine/World/Partition/DataLayersComponent.hpp>
+#include <Engine/World/Partition/HLODLayerComponent.hpp>
+#include <Engine/World/Partition/RuntimeGridComponent.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 
 namespace Desert::Editor
 {

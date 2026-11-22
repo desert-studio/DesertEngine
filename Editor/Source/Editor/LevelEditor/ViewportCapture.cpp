@@ -1,4 +1,5 @@
 // VIEWPORT CAPTURE — see ViewportCapture.hpp. Moved out of EditorLayer.cpp unchanged (EDL-4).
+#include <Engine/Core/Scene.hpp>
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/Core/ProjectContext.hpp"

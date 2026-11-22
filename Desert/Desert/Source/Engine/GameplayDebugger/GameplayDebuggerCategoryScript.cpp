@@ -2,13 +2,13 @@
 
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 
 #include <algorithm>
 #include <format>
 #include <string>
+#include <Engine/Scripting/ScriptComponent.hpp>
 
 namespace Desert::Debug
 {

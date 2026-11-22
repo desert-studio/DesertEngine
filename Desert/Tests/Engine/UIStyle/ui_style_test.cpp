@@ -20,7 +20,6 @@
 // reddens it until something draws it.
 
 #include <Engine/Assets/UIThemeData.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <UI/UIStyleResolver.hpp>
 #include <UI/UIStyleSlots.hpp>
 
@@ -35,6 +34,16 @@
 #include <limits>
 #include <unordered_set>
 #include <vector>
+#include <Common/Core/Events/RoutedEvents.hpp>
+#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
+#include <UI/Args/UIButtonArgs.hpp>
+#include <UI/Args/UIControlArgs.hpp>
+#include <UI/Args/UIEventArgs.hpp>
+#include <UI/Args/UIImageArgs.hpp>
+#include <UI/Args/UILayoutArgs.hpp>
+#include <UI/Args/UIPanelArgs.hpp>
+#include <UI/Args/UIScrollArgs.hpp>
+#include <UI/Args/UITextArgs.hpp>
 
 using Desert::Assets::BuildUIThemeRuntime;
 using Desert::Assets::ParseUITheme;

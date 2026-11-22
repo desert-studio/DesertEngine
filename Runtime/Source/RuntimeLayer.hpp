@@ -26,6 +26,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 
 namespace Desert::Graphic
 {

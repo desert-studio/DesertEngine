@@ -1,4 +1,5 @@
 #include "AssetThumbnailRenderer.hpp"
+#include <Engine/Core/Scene.hpp>
 #include <Editor/Widgets/ThumbnailSlots.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
@@ -10,7 +11,6 @@
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
@@ -31,6 +31,13 @@
 #include <filesystem>
 #include <cmath>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); just declare here.
 

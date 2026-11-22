@@ -8,7 +8,6 @@
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Animation/Timeline/Track.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
 
@@ -30,6 +29,17 @@
 
 #include <string>
 #include <vector>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/BoneInfo.hpp>
+#include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Core/WindowCloseGate.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/Graphic/RDG/RDGAccess.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace
 {

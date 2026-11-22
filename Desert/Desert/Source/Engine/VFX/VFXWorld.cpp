@@ -1,6 +1,4 @@
 #include "VFXWorld.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
@@ -19,6 +17,9 @@
 
 #include <glm/geometric.hpp>
 #include <unordered_map>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::VFX
 {

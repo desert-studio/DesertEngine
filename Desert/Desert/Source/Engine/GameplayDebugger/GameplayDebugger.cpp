@@ -2,7 +2,6 @@
 
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryBasic.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryPhysics.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryRendering.hpp>
@@ -15,6 +14,8 @@
 
 #include <format>
 #include <string>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/Core/Camera.hpp>
 
 namespace Desert::Debug
 {

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Animation/SkeletonSockets.hpp>

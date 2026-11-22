@@ -4,7 +4,6 @@
 // around the physics step after the animator.
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <PhysicsCore/PhysicsAssetFormat.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
@@ -30,6 +29,9 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/RagdollComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 using namespace Desert::Physics;
 using Desert::Animation::BoneInfo;

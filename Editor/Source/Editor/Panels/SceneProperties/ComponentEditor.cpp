@@ -17,8 +17,8 @@
 #include <Editor/Widgets/Controls/Controls.hpp>
 
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

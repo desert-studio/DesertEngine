@@ -1,4 +1,5 @@
 #include "ControlKeyer.hpp"
+#include <Engine/Animation/Pose.hpp>
 
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/Timeline/Evaluator.hpp>

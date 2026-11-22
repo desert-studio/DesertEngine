@@ -25,6 +25,7 @@
 #include <filesystem>
 #include <format>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace ed = ax::NodeEditor;
 

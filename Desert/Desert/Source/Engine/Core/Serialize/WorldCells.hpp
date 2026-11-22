@@ -61,8 +61,9 @@
 // checksum, so a cell that is intact on its own but belongs to ANOTHER cook of the world (a stale file left in
 // the directory) is refused too. Every refusal names the file.
 
-#include <Engine/Core/Serialize/PrefabExpansion.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/PrefabReader.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
+#include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/WorldCellSource.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODBuilders.hpp>
@@ -86,6 +87,11 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+namespace Desert::Core
+{
+    struct SceneSerialized;
+}
 
 namespace Desert::Core::WorldCells
 {
@@ -287,20 +293,6 @@ namespace Desert::Core::WorldCells
     CookWorld( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
                const StoredHLODs* hlods = nullptr );
-
-    // THE WORLD A COOK CUTS (WP21): @p scene with every prefab instance expanded (ExpandPrefabInstances) and the
-    // descriptors it is planned with - the source's own for a plain record, the expanded records' own
-    // (DescribeEntities) in place of an instance's. CookWorld and BuildWorldHLODs both cut this world, so the
-    // HLODs Build HLODs saves are the ones the cook checks. Refused when @p descriptors are not the source
-    // records', id for id and in order, or when an instance does not expand (naming the prefab).
-    struct ExpandedWorld
-    {
-        ExpandedScene                        World;
-        std::vector<Rules::EntityDescriptor> Descriptors; // one per World.Scene record
-    };
-    [[nodiscard]] Common::ResultStr<ExpandedWorld>
-    ExpandWorldForCook( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
-                        const PrefabReader& prefabs );
 
     // The bounds source a cook plans with: the first registry that knows the mesh answers.
     [[nodiscard]] Rules::AssetBoundsSource BoundsFrom( std::span<const Common::Utils::AssetRegistry> registries );

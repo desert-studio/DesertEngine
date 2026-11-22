@@ -23,7 +23,6 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Scripting/ScriptSchema.hpp>
@@ -39,6 +38,10 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <Engine/Destruction/DestructionField.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
 
 namespace Desert::Editor
 {

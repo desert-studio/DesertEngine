@@ -1,9 +1,11 @@
 #pragma once
 
-#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 
 namespace Desert::Graphic::RDG
 {
+    class Builder;
+
     // RDG-A2. The engine's constant textures as graph resources of ONE graph (UE: FRDGSystemTextures). The frame
     // setup registers them once per graph, before any pass is added, and hands the refs to every AddFrame*
     // (FrameTextures::System). A pass that needs a neutral input - the black texture where an optional producer
@@ -34,14 +36,6 @@ namespace Desert::Graphic::RDG
 
     // Registers @p black, @p white and @p blackCube (externals already holding the engine images and their
     // recorded layouts) in @p graph under the names "System.Black" / "System.White" / "System.BlackCube".
-    inline SystemTextures RegisterSystemTextures( Builder& graph, ExternalTexture& black, ExternalTexture& white,
-                                                  ExternalTexture& blackCube )
-    {
-        const SystemTextures system{ graph.RegisterExternal( black, "System.Black" ),
-                                     graph.RegisterExternal( white, "System.White" ),
-                                     graph.RegisterExternal( blackCube, "System.BlackCube" ) };
-        // RDG-FAULT1: the images a FaultDefault names, so every graph with system textures can honour one.
-        graph.GetFaultDefaults().SetSources( system.Black, system.White, system.BlackCube );
-        return system;
-    }
+    SystemTextures RegisterSystemTextures( Builder& graph, ExternalTexture& black, ExternalTexture& white,
+                                           ExternalTexture& blackCube );
 } // namespace Desert::Graphic::RDG

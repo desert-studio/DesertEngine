@@ -11,11 +11,13 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <imgui-node-editor/imgui_node_editor.h>
 
 #include <format>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 
 namespace ed = ax::NodeEditor;
 

@@ -36,6 +36,7 @@
 #include <string>
 #include <type_traits>
 #include <string_view>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -250,7 +251,7 @@ namespace Desert::Graphic::System
         virtual Common::BoolResultStr Initialize() override
         {
             // The shader without defines is the composite; every direct program is a permutation of it.
-            m_Composite.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "DeferredLighting" );
+            m_Composite.Shader = Runtime::FindShader( "DeferredLighting" );
             if ( !m_Composite.Shader )
                 return Common::MakeError( "DeferredLighting shader not found" );
             if ( const Common::BoolResultStr built = BuildComposite(); !built )
@@ -269,7 +270,7 @@ namespace Desert::Graphic::System
                 RefuseProgram( index, built.GetError() );
             }
 
-            m_GridShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridBuild" );
+            m_GridShader = Runtime::FindShader( "LightGridBuild" );
             if ( !m_GridShader )
                 return Common::MakeError( "LightGridBuild shader not found" );
             const auto gridPipeline =
@@ -278,11 +279,11 @@ namespace Desert::Graphic::System
                 return Common::MakeError( gridPipeline.GetError() );
             m_GridPipeline = gridPipeline.GetValue();
 
-            m_WorldViewShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridWorldView" );
+            m_WorldViewShader = Runtime::FindShader( "LightGridWorldView" );
             if ( !m_WorldViewShader )
                 return Common::MakeError( "LightGridWorldView shader not found" );
 
-            m_ClassifyShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "DeferredTileClassify" );
+            m_ClassifyShader = Runtime::FindShader( "DeferredTileClassify" );
             if ( !m_ClassifyShader )
                 return Common::MakeError( "DeferredTileClassify shader not found" );
             const auto classifyPipeline =
@@ -1013,7 +1014,7 @@ namespace Desert::Graphic::System
         {
             CompositeProgram& program = m_Programs[index];
             program                   = CompositeProgram{};
-            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+            auto acquired = Runtime::AcquireShaderVariant(
                  "DeferredLighting", ProgramVariant( index ) );
             if ( !acquired )
                 return Common::MakeError( std::string( acquired.GetError() ) );
@@ -1158,7 +1159,7 @@ namespace Desert::Graphic::System
                                             const RenderTargetLayout& targetLayout, const std::string_view name )
         {
             program       = CompositeProgram{};
-            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "DeferredLighting",
+            auto acquired = Runtime::AcquireShaderVariant( "DeferredLighting",
                                                                                            variant );
             if ( !acquired )
                 return Common::MakeError( std::string( acquired.GetError() ) );

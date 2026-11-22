@@ -1,4 +1,3 @@
-#include <Engine/ECS/Components.hpp>
 #include <Engine/UI/Ecs/EcsUITree.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
@@ -7,6 +6,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <vector>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
 
 // The ECS half of UI introspection. CaptureFrame's registry overload wraps the scene in an EcsUITree and
 // looks each canvas's cell up in the view; the element-cost probe and the per-frame sink stay here whole

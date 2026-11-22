@@ -1,5 +1,22 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Core/Camera.hpp>
+#include <Engine/Core/DebugDraw.hpp>
+#include <Engine/Core/GameMode.hpp>
+#include <Engine/Core/SceneSettings.hpp>
+#include <Engine/Core/WeatherState.hpp>
+#include <Engine/Core/WorldParameterInstance.hpp>
+#include <Engine/Core/WorldTime.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/ECS/System/System.hpp>
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
+#include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+#include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/World/Deformation/DeformationWorld.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Json/Carry.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Engine/ECS/EditorHLODComponent.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
@@ -25,7 +42,6 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/FracturePreviewComponent.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -62,6 +78,51 @@
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/AudioSourceComponent.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/ControlRigComponent.hpp>
+#include <Engine/ECS/DecalComponent.hpp>
+#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Engine/ECS/DestructionFieldComponents.hpp>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/ECS/PlayerStartComponent.hpp>
+#include <Engine/ECS/PointLightComponent.hpp>
+#include <Engine/ECS/ProceduralFoliageComponent.hpp>
+#include <Engine/ECS/RagdollComponent.hpp>
+#include <Engine/ECS/RectLightComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/RetargetComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/SocketAttachmentComponent.hpp>
+#include <Engine/ECS/SpotLightComponent.hpp>
+#include <Engine/ECS/SpringArmComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TextComponent.hpp>
+#include <Engine/ECS/TimeOfDayComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/TwoBoneIKComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/ECS/WaterBodyComponent.hpp>
+#include <Engine/ECS/WaterZoneComponent.hpp>
+#include <Engine/ECS/WindSourceComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
+#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
+#include <Engine/World/Partition/HiddenByDataLayersComponent.hpp>
+#include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 namespace Desert::Core
 {
@@ -423,6 +484,13 @@ namespace Desert::Core
         }
     } // namespace
 
+    struct Scene::FileState
+    {
+        std::optional<Common::Content::TextAssetHeaderSerialized> AssetHeader;
+        std::optional<Common::Json::TextDocument>                 LoadedDocument;
+        std::optional<WorldPartitionSerialized>                   WorldPartition;
+    };
+
     struct Scene::FrameRendererInfos
     {
         std::array<Graphic::SceneRenderer::UpdateInfo, 2> Slots; // index-matched to m_SystemCommandArenas
@@ -434,23 +502,11 @@ namespace Desert::Core
     }
 
     Scene::Scene()
-         : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
-           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
-           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
-           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
-           m_Atmosphere( std::make_shared<Graphic::SceneAtmosphere>() ),
-           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields(
-                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
-           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
-           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() )
-    {
-        LiveSceneList().push_back( this );
-        m_Subsystems.Begin();
-    }
-
-    Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
-         : m_SceneName( std::move( sceneName ) ),
+         : m_ExtensionPasses( std::make_unique<Graphic::ExtensionPassRegistry>() ),
+           m_DebugDraw( std::make_unique<DebugDrawWorld>() ),
+#if DESERT_DEV_INSTRUMENTS
+           m_GameplayDebugger( std::make_unique<Debug::GameplayDebugger>() ),
+#endif
            m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
            m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
@@ -460,7 +516,47 @@ namespace Desert::Core
            m_DistanceFields(
                 std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
            m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
-           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() )
+           m_WorldTime( std::make_unique<WorldTime>() ),
+           m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
+           m_Deformation( std::make_unique<World::DeformationWorld>() ),
+           m_Weather( std::make_unique<WeatherState>() ),
+           m_GameMode( std::make_unique<GameMode>() ),
+           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
+           m_Settings( std::make_unique<SceneSettings>() ),
+           m_Packages( std::make_shared<EntityPackages>() ),
+           m_File( std::make_unique<FileState>() ),
+           m_VFXWorld( std::make_unique<VFX::VFXWorld>() )
+    {
+        LiveSceneList().push_back( this );
+        m_Subsystems.Begin();
+    }
+
+    Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
+         : m_ExtensionPasses( std::make_unique<Graphic::ExtensionPassRegistry>() ),
+           m_DebugDraw( std::make_unique<DebugDrawWorld>() ),
+#if DESERT_DEV_INSTRUMENTS
+           m_GameplayDebugger( std::make_unique<Debug::GameplayDebugger>() ),
+#endif
+           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
+           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
+           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
+           m_Atmosphere( std::make_shared<Graphic::SceneAtmosphere>() ),
+           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
+           m_DistanceFields(
+                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
+           m_WorldTime( std::make_unique<WorldTime>() ),
+           m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
+           m_Deformation( std::make_unique<World::DeformationWorld>() ),
+           m_Weather( std::make_unique<WeatherState>() ),
+           m_GameMode( std::make_unique<GameMode>() ),
+           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
+           m_Settings( std::make_unique<SceneSettings>() ),
+           m_SceneName( std::move( sceneName ) ),
+           m_Packages( std::make_shared<EntityPackages>() ),
+           m_File( std::make_unique<FileState>() ),
+           m_VFXWorld( std::make_unique<VFX::VFXWorld>() )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -475,6 +571,65 @@ namespace Desert::Core
             LOG_ERROR( "[Scene] '{}' refused its own renderer as view 0.", m_SceneName );
 
         m_Subsystems.Begin();
+    }
+
+    void Scene::SetState( SceneState state )
+    {
+        if ( m_State == SceneState::Edit && state == SceneState::Play )
+        {
+            m_WorldTime->Reset();
+            m_VFXWorld->Reset();
+        }
+        else if ( m_State != SceneState::Edit && state == SceneState::Edit )
+            m_VFXWorld->Reset();
+        m_State = state;
+        if ( state == SceneState::Edit )
+            m_Simulating = false; // a simulation ends with the session it ran in
+        m_Subsystems.SetPlaying( state != SceneState::Edit );
+        if ( state != SceneState::Paused )
+        {
+            m_SingleFramePending = false; // a step belongs to the pause it was asked in
+        }
+    }
+
+    const std::optional<Common::Content::TextAssetHeaderSerialized>& Scene::GetAssetHeader() const
+    {
+        return m_File->AssetHeader;
+    }
+
+    void Scene::SetAssetHeader( std::optional<Common::Content::TextAssetHeaderSerialized> header )
+    {
+        m_File->AssetHeader = std::move( header );
+    }
+
+    const std::optional<Common::Json::TextDocument>& Scene::GetLoadedDocument() const
+    {
+        return m_File->LoadedDocument;
+    }
+
+    void Scene::SetLoadedDocument( Common::Json::TextDocument document )
+    {
+        m_File->LoadedDocument = std::move( document );
+    }
+
+    const std::optional<WorldPartitionSerialized>& Scene::GetWorldPartition() const
+    {
+        return m_File->WorldPartition;
+    }
+
+    void Scene::SetWorldPartition( std::optional<WorldPartitionSerialized> partition )
+    {
+        m_File->WorldPartition = std::move( partition );
+    }
+
+    void Scene::MarkModified( Common::UUID id ) const
+    {
+        m_Packages->MarkModified( id );
+    }
+
+    void Scene::MarkModifiedAll() const
+    {
+        m_Packages->TouchAll();
     }
 
     Scene::~Scene()
@@ -657,22 +812,22 @@ namespace Desert::Core
 
     Common::BoolResultStr Scene::SyncWorldParameters()
     {
-        const Common::AssetHandle named = m_Settings.WorldParameters;
+        const Common::AssetHandle named = m_Settings->WorldParameters;
         if ( named == Common::AssetHandle{} )
         {
-            m_WorldParameters.Adopt( named, nullptr );
+            m_WorldParameters->Adopt( named, nullptr );
             return BOOLSUCCESS;
         }
         const auto data = Runtime::ResourceRegistry::GetWorldParametersService()->Get( named );
         if ( !data )
         {
-            m_WorldParameters.Adopt( Common::AssetHandle{}, nullptr );
+            m_WorldParameters->Adopt( Common::AssetHandle{}, nullptr );
             return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
                                                      static_cast<uint64_t>( named ), data.GetError() );
         }
         // A Texture row names its .detex by path; the world holds the handle, each view its bindless slot.
         std::string unresolved;
-        m_WorldParameters.Adopt(
+        m_WorldParameters->Adopt(
              named, data.GetValue(),
              [&unresolved]( const std::string& path )
              {
@@ -768,7 +923,7 @@ namespace Desert::Core
 
         // THE WORLD'S CLOCK TICKS FIRST, once, before anything reads it: the systems below, and every
         // view's renderer after them, see the same Delta and GameTime this frame.
-        m_WorldTime.Tick( ts.GetSeconds(), WorldTime::ClockModeFor(
+        m_WorldTime->Tick( ts.GetSeconds(), WorldTime::ClockModeFor(
                                                 TicksGameplay(), m_State == SceneState::Paused && !TicksGameplay(),
                                                 m_PreviewRealtime ) );
 
@@ -784,7 +939,7 @@ namespace Desert::Core
             sceneRendererInfo                           = Graphic::SceneRenderer::UpdateInfo{};
             sceneRendererInfo.DirLights.DirectionLights = std::move( lights );
         }
-        sceneRendererInfo.Timestep     = Common::Timestep( m_WorldTime.GetDeltaSeconds() );
+        sceneRendererInfo.Timestep     = Common::Timestep( m_WorldTime->GetDeltaSeconds() );
         sceneRendererInfo.RealTimestep = ts;
 
         // Gameplay systems (animation, physics, scripts) advance only when the world TICKS GAMEPLAY — Play,
@@ -792,7 +947,7 @@ namespace Desert::Core
         // time dilation reaches them from the same clock as the picture. Systems still RUN every frame (they
         // collect render data); they see a zero step otherwise. The world's preview time reaches its
         // consumers through SetWorldTime below; the editor-world animation preview through SetEditorTick.
-        const Common::Timestep gameplayTs( TicksGameplay() ? m_WorldTime.GetDeltaSeconds() : 0.0f );
+        const Common::Timestep gameplayTs( TicksGameplay() ? m_WorldTime->GetDeltaSeconds() : 0.0f );
 
         // Push the active-camera snapshot to systems that lay out camera-relative geometry (billboarded
         // text). Done on the main thread before ExecuteSystems so the parallel system group reads it
@@ -811,13 +966,13 @@ namespace Desert::Core
                 system->SetCameraSnapshot( camView, camPos );
         }
         for ( auto& system : m_Systems )
-            system->SetWorldTime( m_WorldTime );
+            system->SetWorldTime( *m_WorldTime );
 
         // THE EDITOR WORLD'S PREVIEW STEP, separate from gameplay's (WorldTime::EditorPreviewSeconds). A system
         // previews in the editor only on the author's request (UE bUpdateAnimationInEditor), so it needs to know
         // which world this is — a zero gameplay timestep alone cannot tell Edit from Paused. With Realtime off
         // the character holds still with the wind, the particles and the material Time.
-        const Common::Timestep editorTs( m_WorldTime.EditorPreviewSeconds( m_State == SceneState::Edit ) );
+        const Common::Timestep editorTs( m_WorldTime->EditorPreviewSeconds( m_State == SceneState::Edit ) );
         for ( auto& system : m_Systems )
             system->SetEditorTick( editorTs );
 
@@ -835,16 +990,16 @@ namespace Desert::Core
         if ( TicksGameplay() )
         {
             DESERT_PROFILE_SCOPE( "Weather" );
-            m_Weather.Tick( m_Registry, gameplayTs.GetSeconds() );
+            m_Weather->Tick( m_Registry, gameplayTs.GetSeconds() );
             if ( const auto observer = GetActiveCamera() )
-                m_Weather.Apply( m_Registry, m_WorldParameters, observer->GetPosition() );
+                m_Weather->Apply( m_Registry, *m_WorldParameters, observer->GetPosition() );
         }
         // THE DEBUG DRAWING AGES before the systems draw this frame's (scripts run in them): last frame's
         // one-frame items go unless the world is paused, timed items count down by the scene's time - the editor's
         // step in Edit, gameplay's in Play, nothing while paused - as the effects clock below.
         {
             DESERT_PROFILE_SCOPE( "Scene: DebugDraw Tick" );
-            m_DebugDraw.Tick( m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+            m_DebugDraw->Tick( m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
                               m_State != SceneState::Paused || TicksGameplay() );
         }
 
@@ -865,7 +1020,7 @@ namespace Desert::Core
             if ( m_State != SceneState::Edit )
                 if ( auto* scripts = FindSystem<ECS::ScriptSystem>() )
                     playerInput = &scripts->PlayerInput();
-            m_GameplayDebugger.Tick( *this, playerInput,
+            m_GameplayDebugger->Tick( *this, playerInput,
                                      m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
                                      m_State != SceneState::Paused || TicksGameplay() );
         }
@@ -878,13 +1033,13 @@ namespace Desert::Core
         {
             DESERT_PROFILE_SCOPE( "VFX World" );
             const Common::Timestep vfxTs = m_State == SceneState::Edit ? ts : gameplayTs;
-            m_VFXWorld.Tick( m_Registry, static_cast<double>( vfxTs.GetSeconds() ) );
+            m_VFXWorld->Tick( m_Registry, static_cast<double>( vfxTs.GetSeconds() ) );
         }
 #if DESERT_DEV_INSTRUMENTS
         // VFX-16 (UE Niagara debugger "show bounds"): every system's fixed bounds, its local box through the
         // entity's transform, as this frame's debug lines (DebugDraw ticked above, so they draw this frame).
-        if ( m_VFXWorld.GetDebugSettings().DrawBounds )
-            for ( const VFX::VFXSystemDebugStats& system : m_VFXWorld.GetDebugStats().Systems )
+        if ( m_VFXWorld->GetDebugSettings().DrawBounds )
+            for ( const VFX::VFXSystemDebugStats& system : m_VFXWorld->GetDebugStats().Systems )
                 for ( const VFX::VFXEmitterDebugStats& emitter : system.Emitters )
                 {
                     if ( emitter.Capacity == 0 )
@@ -1069,7 +1224,7 @@ namespace Desert::Core
             // values. The cache outlives the command: a Clear parks it (m_RetiringSurfaceCaches) for frames.
             const Core::PostProcessSettings scenePost =
                  Graphic::ResolveViewSettings( m_Registry, std::nullopt ).Post;
-            const bool deferred = m_Settings.RenderingPath == RenderPath::Deferred;
+            const bool deferred = m_Settings->RenderingPath == RenderPath::Deferred;
             Graphic::SurfaceCache::SurfaceCacheRenderer* const cache = m_SurfaceCache.get();
             ::Desert::Engine::RenderTask::Get().Enqueue(
                  "Scene: Surface cache frame",
@@ -1483,7 +1638,7 @@ namespace Desert::Core
         // (SceneRenderer::AddExtensionPoint): the list changes, and a replaced pass's owner may be freed, only
         // after it.
         ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
-        m_ExtensionPasses.Register( std::move( pass ) );
+        m_ExtensionPasses->Register( std::move( pass ) );
     }
 
     void Scene::UnregisterExtensionPass( const std::string& name )
@@ -1491,7 +1646,7 @@ namespace Desert::Core
         // Same fence as Register: the owner calls this from its destructor, and its members (the state the pass's
         // Declare/Execute read) are destroyed right after.
         ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
-        m_ExtensionPasses.Unregister( name );
+        m_ExtensionPasses->Unregister( name );
     }
 
     std::optional<size_t> Scene::AddView( Graphic::SceneRenderer* renderer )
@@ -1625,12 +1780,12 @@ namespace Desert::Core
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayerController = entt::null;
-        m_GameMode.Reset();
+        m_GameMode->Reset();
         m_PlayFromHere = false;
         m_Simulating   = false;
 
         m_Entities.Clear();
-        m_VFXWorld.Clear();
+        m_VFXWorld->Clear();
 
         SetupRegistryCallbacks();
         m_Subsystems.Begin();

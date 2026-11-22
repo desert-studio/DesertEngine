@@ -11,6 +11,7 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
+#include <Engine/Assets/AssetManager.hpp>
 
 struct ImGuiTextFilter;
 

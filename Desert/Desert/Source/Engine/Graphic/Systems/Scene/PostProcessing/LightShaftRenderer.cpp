@@ -6,6 +6,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

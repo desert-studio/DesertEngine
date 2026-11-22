@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Engine/Core/Camera.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Editor/Core/GizmoState.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 
@@ -10,6 +9,12 @@
 #include <glm/glm.hpp>
 
 #include <vector>
+#include <Engine/Assets/Common.hpp>
+
+namespace Desert::Core
+{
+    class Scene; // Scene.hpp: the .cpp that walks the scene includes it
+} // namespace Desert::Core
 
 namespace Desert::Editor::Tools
 {

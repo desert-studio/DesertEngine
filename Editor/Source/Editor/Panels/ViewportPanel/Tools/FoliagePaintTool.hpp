@@ -3,7 +3,6 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Common/Core/Math/Ray.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
@@ -18,6 +17,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+namespace Desert::Core
+{
+    class Scene; // Scene.hpp: the .cpp that walks the scene includes it
+} // namespace Desert::Core
 
 namespace Desert::Editor::UI
 {

@@ -114,6 +114,7 @@
 
 namespace Desert::Animation
 {
+    class LocalPose; // Pose.hpp
     class Skeleton;
 
     /**

@@ -5,7 +5,6 @@
 #include <Engine/Core/GameMode.hpp>
 #include <Engine/Core/PawnBodyRules.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
@@ -16,6 +15,14 @@
 
 #include <format>
 #include <vector>
+#include <Engine/ECS/PlayerStartComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
+#include <Engine/World/Partition/StreamingSourceComponent.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 
 namespace Desert::Core
 {

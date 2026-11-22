@@ -30,6 +30,11 @@
 #include <unordered_set>
 #include <vector>
 
+namespace Desert::Graphic::Render
+{
+    class RenderCommandBuffer;
+}
+
 namespace Desert
 {
     class DynamicMesh;

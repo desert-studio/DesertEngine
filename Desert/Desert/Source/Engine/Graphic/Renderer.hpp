@@ -7,9 +7,8 @@
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 
-#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
-#include <Engine/Geometry/Mesh.hpp>
+#include <Engine/Graphic/MeshGeometry.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -17,6 +16,11 @@
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/ProceduralIndexedRange.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
+
+namespace Desert
+{
+    class Mesh;
+}
 
 namespace Desert::ShaderResources
 {
@@ -28,6 +32,10 @@ namespace Desert::Graphic
     class RendererAPI;
     struct BinDraw; // RendererAPI.hpp: a caller of RenderMeshIndirectCountBins includes it
     class RayTracingPipeline;
+    class GraphicsPipeline; // Pipeline.hpp: callers that build/bind pipelines include it
+    class ComputePipeline;
+    class Shader;
+    class Framebuffer;
     namespace RayTracing
     {
         struct RayTracingHitGroupTable;

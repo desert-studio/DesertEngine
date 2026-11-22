@@ -25,7 +25,6 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/System/DestructionFields.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
@@ -34,6 +33,9 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <Engine/ECS/PlayerStartComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 
 namespace Desert::Editor
 {

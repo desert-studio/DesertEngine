@@ -35,7 +35,10 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         20; // 20: each section's vertices are welded over every stream and put in GPU order (meshopt remap,
+         21; // 21: a generated level's error is MEASURED - the larger of the quadric deviation and the outline it
+             // lost (support distance in 26 directions) - and a level stops short of its target to fit its budget
+             // or is not made (WP-FAR-12C: CesiumMan LOD 6 folded to a quarter of its height at 0.09 "error");
+             // 20: each section's vertices are welded over every stream and put in GPU order (meshopt remap,
              // vertex cache, overdraw 1.05, vertex fetch) before its LODs / cluster DAG are cut, and a generated
              // level adds no vertex: its thinned leaf cards keep their own corners (18's inflated copies were a
              // second vertex set per level - FIELD_Barn 4.15M -> 8.24M static vertices; MESH-VTX-2X);
@@ -77,6 +80,16 @@ namespace Desert::Assets
     // deriver), so its key is the hash of its MeshBinary bytes with the header's displacement-mode byte zeroed - the
     // mode does not change the geometry that the displacement topology (keyed from this) is built from.
     [[nodiscard]] uint64_t SkinnedMeshRenderDataKey( std::string_view meshBinaryBytes );
+
+    // THE SKINNED MESH'S BUILD KEY (WP-FAR-10C; UE: a skeletal mesh's render data is keyed by the source, its build
+    // settings and FSkeletalMeshBuilder's version, so a builder change re-derives it and never ships stale). A
+    // .skmesh is Content written by the import, but its GPU order and LOD chain come from the static mesh's builder
+    // steps (OptimizeSectionsForGpu, BakeMeshLODs at the import's LodChain): the import record states this key
+    // (ImportRecordData::RenderDataKey), and a record stating another - an older builder, another chain - is a stale
+    // .skmesh (ImportManager's freshness), re-derived by the Reimport, refused by a cook.
+    inline constexpr Common::DDC::Deriver kSkinnedMeshDeriver{
+         "SkeletalMesh", ".skmesh", { 0x7D21C4A95E3B0F68ULL, 0xB4106E2FD83A97C5ULL } };
+    [[nodiscard]] uint64_t SkinnedMeshBuildKey( uint64_t sourceHash, const MeshImportSettings& settings );
 
     // The MeshBinary container bytes of the asset's render data (EncodeMeshBinary's output).
     using MeshPlatformDataBuilder = std::function<Common::ResultStr<std::string>( const MeshSourceAsset& asset )>;

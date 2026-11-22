@@ -24,6 +24,7 @@
 #include <format>
 #include <string>
 #include <utility>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

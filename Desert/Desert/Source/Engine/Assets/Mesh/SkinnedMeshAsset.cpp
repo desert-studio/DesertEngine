@@ -1,9 +1,11 @@
 #include "SkinnedMeshAsset.hpp"
+#include <Engine/Assets/AssetManager.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/MeshDisplacementBake.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
@@ -43,6 +45,35 @@ namespace Desert::Assets
         if ( !data.IsSkinned )
         {
             return Common::MakeError( "SkinnedMeshAsset cannot load static mesh data." );
+        }
+
+        // A STALE DERIVATION IS NOT DRAWN (WP-FAR-10C; UE re-derives a skeletal mesh whose DDC key moved, never
+        // draws the old render data): an imported skinned mesh's record states the build key its .skmesh was made
+        // under (ImportRecordData::RenderDataKey). A key other than the one the current builder and the record's
+        // mesh options make - a builder bump, an edited LodChain - is refused with the re-import that derives it
+        // again. A mesh no record speaks for (hand-authored, a packaged game without sources) has nothing to check.
+        if ( const auto home = Serialization::LodScreenSizesHomeOf( m_Metadata.Filepath ) )
+        {
+            const auto record = Serialization::ReadImportRecord( home->Source );
+            if ( !record )
+                return Common::MakeError( record.GetError() );
+            if ( record.GetValue().has_value() && record.GetValue()->SourceHash.has_value() )
+            {
+                const auto settings = Serialization::ReadImportRecordSettings( home->Source );
+                if ( !settings )
+                    return Common::MakeError( settings.GetError() );
+                const auto&    stated = record.GetValue()->RenderDataKey;
+                const uint64_t current =
+                     SkinnedMeshBuildKey( *record.GetValue()->SourceHash, settings.GetValue().Mesh );
+                if ( stated != current )
+                    return Common::MakeFormattedError(
+                         "'{}' was derived under build key {}, and mesh builder v{} with the mesh options its import "
+                         "record states now makes {:016x}: its LOD chain is stale - re-import '{}' (Content Browser "
+                         "> Reimport) to derive it again",
+                         m_Metadata.Filepath.string(),
+                         stated ? std::format( "{:016x}", *stated ) : std::string( "<none>" ), kMeshBuilderVersion,
+                         current, home->Source.generic_string() );
+            }
         }
 
         // The same refusal StaticMeshAsset::Load states in full, for the same reason and in the same place:
@@ -92,6 +123,20 @@ namespace Desert::Assets
             submesh.IndexCount   = s.IndexCount;
             submesh.Transform    = s.Transform;
             submesh.BoundingBox  = s.BoundingBox;
+            // THE COOKED LOD CHAIN (UE: a skeletal mesh's LODs are its cooked FSkeletalMeshLODRenderData, never
+            // reduced at load): the triangle sets the import baked at the mesh's own chain (its record's
+            // MeshImportSettings::LodChain), as StaticMeshAsset::Load keeps them. SkinnedMesh appends exactly
+            // these levels; only a section no cook decided (LodChainCooked false) is generated at load.
+            submesh.LodChainCooked = s.LodChainCooked;
+            submesh.BakedLODs.reserve( s.LODs.size() );
+            for ( const auto& level : s.LODs )
+            {
+                std::vector<Index> tris;
+                tris.reserve( level.size() );
+                for ( const auto& t : level )
+                    tris.push_back( { t.V1, t.V2, t.V3 } );
+                submesh.BakedLODs.push_back( std::move( tris ) );
+            }
 
             // NEVER FILLED HERE UNTIL Д19, while a per-index accessor indexed it — so every material
             // lookup on a skinned mesh was an out-of-bounds read of an EMPTY vector. StaticMeshAsset::Load

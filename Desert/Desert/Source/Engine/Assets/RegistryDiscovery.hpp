@@ -2,7 +2,7 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Content/ImportRecord.hpp>
-#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -12,9 +12,15 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <type_traits>
 
 namespace Desert::Assets
 {
+    // Declared, not included: every function below names the manager through its Manager parameter (defaulted
+    // to AssetManager, never deduced), so its members are looked up where a caller instantiates it - and that
+    // caller includes AssetManager.hpp. The same shape as AssetDependency.hpp's Resolve (BUILD-MOD-4).
+    class AssetManager;
+
     // AN ON-DEMAND KIND'S SHELL, CREATED FROM ITS REGISTRY ROW AT THE MOMENT SOMETHING NAMES IT.
     //
     // This replaces the boot-time loop that created a shell for every `.dcnv`/`.dcmv`/`.dclayout` whether
@@ -28,10 +34,10 @@ namespace Desert::Assets
     // The path is printed forward-slashed: the row's spelling is whatever the directory scan joined, which
     // on Windows mixes both separators, and a message that is searched for (by a person or a test) needs
     // one spelling on every platform.
-    template <typename AssetType>
-    Common::ResultStr<Asset<AssetType>> CreateFromRegistryRow( const std::weak_ptr<AssetManager>& assets,
-                                                               const AssetHandle&                 handle,
-                                                               const Common::Content::ContentKind kind )
+    template <typename AssetType, typename Manager = AssetManager>
+    Common::ResultStr<Asset<AssetType>>
+    CreateFromRegistryRow( const std::weak_ptr<std::type_identity_t<Manager>>& assets, const AssetHandle& handle,
+                           const Common::Content::ContentKind kind )
     {
         const auto manager = assets.lock();
         if ( !manager )
@@ -39,7 +45,7 @@ namespace Desert::Assets
                  "{} {} was asked for, but no asset manager is bound to create it in",
                  Common::Content::KindName( kind ), static_cast<uint64_t>( handle ) );
 
-        if ( auto existing = manager->ProbeByHandle<AssetType>( handle ) )
+        if ( auto existing = manager->template ProbeByHandle<AssetType>( handle ) )
             return Common::MakeSuccess( std::move( existing ) );
 
         const auto row = ContentRegistry::RowOf( kind, static_cast<uint64_t>( handle ) );
@@ -59,8 +65,8 @@ namespace Desert::Assets
                  Common::Content::KindName( kind ), row->Path.generic_string(), guid,
                  static_cast<uint64_t>( handle ) );
 
-        auto created = manager->CreateAsset<AssetType>( row->Path,
-                                                        /*loadAfterCreate=*/false );
+        auto created = manager->template CreateAsset<AssetType>( row->Path,
+                                                                 /*loadAfterCreate=*/false );
         if ( !created )
             return Common::MakeFormattedError<Asset<AssetType>>( "{} '{}' (GUID {}) could not be created",
                                                                  Common::Content::KindName( kind ),
@@ -80,15 +86,16 @@ namespace Desert::Assets
     // The registry row of `kind` whose header states @p guid, created as an (unread) asset when the
     // manager does not hold it yet. What a reference by GUID resolves through: the row, not the set of
     // assets somebody happened to create first.
-    template <typename AssetType>
-    Asset<AssetType> CreateFromRegistryGuid( AssetManager& manager, const Common::Content::AssetGuid& guid,
+    template <typename AssetType, typename Manager = AssetManager>
+    Asset<AssetType> CreateFromRegistryGuid( std::type_identity_t<Manager>&     manager,
+                                             const Common::Content::AssetGuid&  guid,
                                              const Common::Content::ContentKind kind )
     {
         for ( const auto& row : ContentRegistry::Rows( kind ) )
         {
             if ( row.Guid && *row.Guid == guid )
-                return manager.CreateAsset<AssetType>( row.Path,
-                                                       /*loadAfterCreate=*/false );
+                return manager.template CreateAsset<AssetType>( row.Path,
+                                                                /*loadAfterCreate=*/false );
         }
         return nullptr;
     }
@@ -97,8 +104,9 @@ namespace Desert::Assets
     // editor the user is waiting on). It still goes through the loader - `Request` + `FlushOne` - so
     // SyncLoadLedger sees the read, and a read a worker already started is waited for, not repeated.
     // Dependencies are resolved against @p manager once the body is in.
-    template <typename AssetType>
-    Common::BoolResultStr LoadThroughLoader( AssetManager& manager, const Asset<AssetType>& asset )
+    template <typename AssetType, typename Manager = AssetManager>
+    Common::BoolResultStr LoadThroughLoader( std::type_identity_t<Manager>& manager,
+                                             const Asset<AssetType>&        asset )
     {
         if ( !asset )
             return Common::MakeError<bool>( "no asset to load" );

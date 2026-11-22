@@ -7,7 +7,7 @@
 // the palette's Play entries. A member of EditorLayer BY VALUE, declared after the SceneWorkspace it plays.
 
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Core/Scene.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
@@ -18,6 +18,12 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <Common/Core/Timestep.hpp>
+
+namespace Desert::Core
+{
+    class Scene; // Scene.hpp: the .cpp that walks the scene includes it
+} // namespace Desert::Core
 
 namespace Desert::Editor
 {

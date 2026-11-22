@@ -2,7 +2,6 @@
 
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -14,6 +13,11 @@
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::Editor
 {

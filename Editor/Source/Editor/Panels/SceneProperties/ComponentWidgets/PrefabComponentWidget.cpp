@@ -19,6 +19,8 @@
 #include <filesystem>
 #include <optional>
 #include <format>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

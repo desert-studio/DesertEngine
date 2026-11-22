@@ -15,9 +15,8 @@
 // EDITS. Each tile's own Physics list of dirty rectangles (LandscapeDirtyConsumer) is patched into the
 // existing shape; the body is created once per tile and kept, so a brush stroke never re-creates it.
 
-#include <Engine/ECS/LandscapeRootOf.hpp>
-#include <PhysicsCore/PhysicsWorld.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeFrame.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
 
 #include <entt/entt.hpp>
 
@@ -25,8 +24,15 @@
 #include <unordered_map>
 #include <vector>
 
+namespace Desert::Physics
+{
+    class PhysicsWorld; // held by pointer, driven from LandscapeCollision.cpp
+}
+
 namespace Desert::ECS
 {
+    struct LandscapeTileRef; // LandscapeRootOf.hpp: the drawable tile table Sync reads
+
     class LandscapeCollision final
     {
     public:

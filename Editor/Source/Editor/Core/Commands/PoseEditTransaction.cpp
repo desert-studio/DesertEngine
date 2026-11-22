@@ -1,4 +1,5 @@
 #include "PoseEditTransaction.hpp"
+#include <Engine/Animation/Pose.hpp>
 
 #include <Common/Core/Logger.hpp>
 

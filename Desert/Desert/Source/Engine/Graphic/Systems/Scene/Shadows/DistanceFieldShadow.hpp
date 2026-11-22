@@ -30,6 +30,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 // "Shadows: Distance Field Sun" (UE FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection, r.DFShadow*):
 // the sun past its last cascade. Four compute nodes over this frame's mesh distance fields and global distance
@@ -575,7 +576,7 @@ namespace Desert::Graphic::System
                                                          const std::span<const RDG::ShaderParameter> parameters )
         {
             const std::string shaderName( name );
-            node.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
+            node.Shader = Runtime::FindShader( shaderName );
             if ( !node.Shader )
                 return Common::MakeFormattedError<bool>( "Shadows: Distance Field: shader {} not found", name );
             if ( const auto valid = node.Layout.Validate( node.Shader, parameters ); !valid )

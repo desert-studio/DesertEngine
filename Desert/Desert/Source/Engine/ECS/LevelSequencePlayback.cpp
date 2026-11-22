@@ -1,13 +1,21 @@
 #include <Engine/ECS/LevelSequencePlayback.hpp>
 
-#include <Engine/ECS/Components.hpp>
-
 #include <Common/Content/AssetEnvelope.hpp>
 
 #include <algorithm>
 #include <charconv>
 #include <format>
 #include <iterator>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/Assets/Common.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::ECS
 {

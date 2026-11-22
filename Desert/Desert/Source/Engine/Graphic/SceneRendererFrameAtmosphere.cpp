@@ -35,6 +35,8 @@
 #include <string_view>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 
 namespace Desert::Graphic
 {

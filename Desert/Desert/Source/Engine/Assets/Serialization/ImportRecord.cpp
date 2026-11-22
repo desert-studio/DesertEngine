@@ -644,7 +644,8 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
         return WriteRecordFile( record, text.GetValue() );
     }
-    Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, const uint64_t hash )
+    Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, const uint64_t hash,
+                                                     const std::optional<uint64_t> renderDataKey )
     {
         const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
         auto                        data   = ReadImportRecord( source );
@@ -656,9 +657,10 @@ namespace Desert::Assets::Serialization
                                                      "recorded",
                                                      record.string() );
         ImportRecordData out = *stored;
-        if ( out.SourceHash == hash )
+        if ( out.SourceHash == hash && out.RenderDataKey == renderDataKey )
             return BOOLSUCCESS;
-        out.SourceHash = hash;
+        out.SourceHash    = hash;
+        out.RenderDataKey = renderDataKey;
         if ( !out.Header.has_value() )
             return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
         const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );

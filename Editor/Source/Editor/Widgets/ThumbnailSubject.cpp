@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <unordered_map>
 #include <utility>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Editor::ThumbnailSubject
 {

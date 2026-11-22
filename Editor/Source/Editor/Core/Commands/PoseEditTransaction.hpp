@@ -25,7 +25,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
-#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/BoneTransform.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
 #include <Engine/Animation/Rig/ControlKeyer.hpp>
 

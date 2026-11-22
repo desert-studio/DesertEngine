@@ -17,7 +17,6 @@
 //   * ComponentEvents.cpp Prune — return false from the predicate (ADestroyedEntityTakes...)
 
 #include <Engine/ECS/ComponentEvents.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
@@ -40,6 +39,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 using namespace Desert;
 using Reflection::Value;

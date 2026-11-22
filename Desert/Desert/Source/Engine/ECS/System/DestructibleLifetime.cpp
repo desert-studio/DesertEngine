@@ -1,6 +1,4 @@
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
@@ -16,6 +14,11 @@
 #include <format>
 #include <unordered_map>
 #include <type_traits>
+#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::ECS
 {

@@ -20,6 +20,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -48,7 +49,7 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSAO" );
+            m_Shader = Runtime::FindShader( "SSAO" );
             if ( !m_Shader )
                 return Common::MakeError( "SSAO shader not found" );
             const auto pipeline = ComputePipeline::Create( { .Shader = m_Shader, .DebugName = "SSAO" } );
@@ -59,7 +60,7 @@ namespace Desert::Graphic::System
             // said here; the view then dispatches over every texel (the same AO).
             m_TiledShader   = nullptr;
             m_TiledPipeline = nullptr;
-            auto tiled = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSAO", TiledVariant() );
+            auto tiled = Runtime::AcquireShaderVariant( "SSAO", TiledVariant() );
             if ( !tiled )
             {
                 LOG_ERROR( "SSAO: the tiled permutation: {} (the view dispatches every texel)", tiled.GetError() );

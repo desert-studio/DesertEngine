@@ -4,6 +4,8 @@
 
 #include <ImGui/imgui.h>
 #include <glm/gtc/constants.hpp>
+#include <Engine/Destruction/DestructionField.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor
 {

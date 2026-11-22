@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "Mesh.hpp"
+#include "SkinnedLODModel.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -117,21 +118,8 @@ namespace Desert
             return m_VertexCount;
         }
 
-        // ONE SKELETAL LOD'S SKINNING WORK (UE FSkeletalMeshLODRenderData: each LOD its own vertices and its
-        // RequiredBones / ActiveBoneIndices). Level L's submesh ranges (Submesh::LODs[L]) index ONLY vertices in
-        // [FirstVertex, FirstVertex + VertexCount) - its own copies, appended after LOD 0's at load, their
-        // influences reduced to MaxInfluences (UE FSkeletalMeshOptimizationSettings::MaxBonesPerVertex) - so the
-        // skin pass of a record drawing level L skins exactly that range and reads RequiredBones bones.
-        struct SkinnedLOD
-        {
-            uint32_t FirstVertex   = 0;
-            uint32_t VertexCount   = 0;
-            uint32_t RequiredBones = 0; // distinct bones the range's influences name
-            uint32_t MaxInfluences = 0;
-            // Those bones, ascending (UE FSkeletalMeshLODRenderData::ActiveBoneIndices): what the animation of a
-            // record drawing this level must evaluate (Animator::SetRequiredBones closes it over the parents).
-            std::vector<uint32_t> Bones;
-        };
+        // One skeletal level's skinning work (SkinnedLODModel.hpp: the CPU chain this mesh uploads).
+        using SkinnedLOD = ::Desert::SkinnedLOD;
         // One per LOD level, [0] = the authored vertices. Never empty on a mesh with vertices.
         [[nodiscard]] const std::vector<SkinnedLOD>& GetSkinnedLODs() const
         {

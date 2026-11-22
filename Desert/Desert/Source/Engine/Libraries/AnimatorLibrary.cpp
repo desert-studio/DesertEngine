@@ -5,12 +5,14 @@
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Core/WorldContext.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 
 namespace Desert::Libraries
 {

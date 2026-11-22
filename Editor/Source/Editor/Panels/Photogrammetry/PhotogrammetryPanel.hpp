@@ -16,6 +16,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Graphic/Image.hpp>
 
 namespace Desert::Core
 {

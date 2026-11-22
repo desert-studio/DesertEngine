@@ -1,4 +1,5 @@
 #include "EditorColliderPass.hpp"
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -9,6 +10,11 @@
 
 #include <algorithm>
 #include <unordered_set>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/VolumeComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Editor::Render
 {

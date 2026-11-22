@@ -54,6 +54,7 @@
 #include <algorithm> // std::sort (scene list)
 #include <format>
 #include <functional>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor
 {

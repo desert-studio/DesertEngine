@@ -11,7 +11,6 @@
 #include <Engine/Core/Input.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Core/Scene.hpp>
 
 #include "Editor/Core/ActorDropPlacement.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
@@ -27,8 +26,6 @@
 #include "PerfHudOverlay.hpp"
 #include "Tools/FoliagePaintTool.hpp"
 #include "Tools/VFXPaintTool.hpp"
-#include "Tools/LandscapePaintTool.hpp"
-#include "Tools/LandscapeSculptTool.hpp"
 #include "Tools/CubeGridTool.hpp"
 #include "Tools/CreateShapeTool.hpp"
 #include "Tools/ActiveToolBar.hpp"
@@ -42,6 +39,12 @@
 #include "Tools/ToolCursor.hpp"
 #include "Tools/GizmoController.hpp"
 #include "Tools/PickingController.hpp"
+
+namespace Desert::Core
+{
+    class Scene; // Scene.hpp: the .cpp that walks the scene includes it
+    struct RaycastHit;
+} // namespace Desert::Core
 
 namespace Desert::Graphic
 {
@@ -75,6 +78,12 @@ namespace Desert::Editor
         AnchorMin, // draggable anchor markers on the parent rect (re-anchor without moving the element)
         AnchorMax
     };
+
+    namespace Tools
+    {
+        class LandscapeSculptTool;
+        class LandscapePaintTool;
+    } // namespace Tools
 
     class ViewportPanel : public IPanel
     {
@@ -458,8 +467,9 @@ namespace Desert::Editor
         std::unique_ptr<Editor::UI::UIHelper> m_UIHelper;
         std::unique_ptr<LightGizmoRenderer>   m_LightGizmoRenderer;
         PerfHudOverlay                        m_PerfHud; // View -> Perf HUD viewport overlay
-        Tools::LandscapeSculptTool            m_LandscapeTool;      // UE-style landscape Sculpt / Smooth
-        Tools::LandscapePaintTool             m_LandscapePaintTool; // Landscape mode Paint (weight layers)
+        // Held out of line so this header never pulls the landscape tile data the tools edit (made in the ctor).
+        std::unique_ptr<Tools::LandscapeSculptTool> m_LandscapeTool;      // UE-style landscape Sculpt / Smooth
+        std::unique_ptr<Tools::LandscapePaintTool>  m_LandscapePaintTool; // Landscape mode Paint (weight layers)
         Tools::VFXPaintTool                   m_VFXPaintTool; // VFX-15: VFX Paint mode's Painted Set brush
         Tools::FoliagePaintTool               m_FoliageTool;  // UE5-style foliage painting (extracted)
         Tools::CubeGridTool                   m_CubeGridTool; // UE5-style CubeGrid blockout (Modeling mode)

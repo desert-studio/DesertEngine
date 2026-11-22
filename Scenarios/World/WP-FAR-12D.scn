@@ -1,0 +1,29 @@
+# WP-FAR-12D (11-22): far crowd figures keep a minimum screen size. A VAT (far LOD) figure whose true projected
+# size (FOV-aware, LODDistanceScale removed) is below VertexAnimationCrowd::kMinScreenSize (0.012 of the view
+# height) is drawn grown about its feet to that size, capped at x6; near / skeletal figures unchanged.
+# Readout: editor.log "[Crowd] skeletal N, vat M, draws D, grown to min screen size G (max xS)".
+# Scene: CesiumMan at the origin + 20 copies spread 30-300 m behind it (WP_FAR11_SkinnedCrowd).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR11_SkinnedCrowd.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,6000
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 2
+Тогда high_60 at 60 m under High the origin figure is unchanged vs dev (its own size); the far figures are no smaller than before
+Когда --subject viewport set Camera.Position 0,0,30000
+Когда advance 2
+Тогда high_300 at 300 m under High the crowd (300-600 m away) reads as walking figures, not dots; log: [Crowd] grown G > 0, max scale <= 6
+Когда run Quality "Quality: ViewDistance Cinematic"
+Когда advance 2
+Тогда cine_300 the same 300 m view under Cinematic: the crowd reads as walking figures, not dots; log: [Crowd] grown G > 0
+Когда --subject viewport set Camera.Position 0,0,6000
+Когда advance 2
+Тогда cine_60 at 60 m under Cinematic the origin figure is walking, its own size
+Когда run Quality "Quality: ViewDistance High"
+Когда --subject viewport set Camera.Position 0,0,3000
+Когда advance 2
+Тогда high_30 control: at 30 m under High the origin figure is unchanged vs dev
+Когда run Action "Stop"

@@ -1,6 +1,10 @@
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
@@ -79,6 +83,7 @@
 #include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
 #include <Engine/Runtime/Services/Lights/RectLightLtcService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Core/WorldTime.hpp>
 
 namespace Desert::Graphic
 {
@@ -897,7 +902,11 @@ namespace Desert::Graphic
     SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile,
                                   const ResourceOwnerInstance accountUnder )
          : m_LedgerView( accountUnder ), m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ),
-           m_ViewExtent( extent ), m_RenderExtent( extent )
+           m_ViewExtent( extent ), m_RenderExtent( extent ),
+           m_EmissiveLights( std::make_unique<RayTracing::EmissiveLightsRenderer>() ),
+           m_EmissiveList( std::make_unique<RayTracing::EmissiveTriangleListCache>() ),
+           m_SceneEmissiveLights( std::make_unique<RayTracing::EmissiveLightsRenderer>() ),
+           m_SceneEmissiveList( std::make_unique<RayTracing::EmissiveTriangleListCache>() )
     {
         // Every device object this view makes, here and in each entry point that can allocate (Init, the staged
         // build, the three frame phases, Resize, the Ensure* builders), is opened under the view's ledger
@@ -924,6 +933,20 @@ namespace Desert::Graphic
         // printed rather than left for a reader to derive. There is no ceiling on the count — each view
         // owns its own copies, and the only limit is the byte budget the editor checks before opening one.
         LOG_INFO( "[SceneRenderer] Created view '{}' ({}).", m_ViewResources.GetName(), DescribeLiveViews() );
+    }
+
+    SceneRenderer::EmissiveLightCounters SceneRenderer::GetEmissiveLightCounters() const
+    {
+        return { .GatherFullRebuilds = m_RayTracingScene.GetSceneGatherCount(),
+                 .GatherMoves        = m_RayTracingScene.GetSceneGatherMoveCount(),
+                 .ListFullRebuilds   = m_EmissiveList->GetBuildCount(),
+                 .ListMoves          = m_EmissiveList->GetMoveCount(),
+                 .GpuFullRebuilds    = m_EmissiveLights->GetStaticRebuildCount(),
+                 .GpuMoves           = m_EmissiveLights->GetStaticMoveCount(),
+                 .GpuMovesRetried    = m_EmissiveLights->GetStaticMoveRetryCount(),
+                 .TlasFullBuilds     = m_RayTracingScene.GetTlasFullBuildCount(),
+                 .TlasUpdates        = m_RayTracingScene.GetTlasUpdateCount(),
+                 .TlasMovedRows      = m_RayTracingScene.GetTlasMovedRowCount() };
     }
 
     SceneRenderer::~SceneRenderer()
@@ -3684,9 +3707,9 @@ namespace Desert::Graphic
                 LOG_ERROR( "[SceneRenderer] {}: no emissive lights in MegaLights this frame: {}",
                            m_ViewResources.GetName(), m_ReportedSceneEmissive );
             }
-            const Common::BoolResultStr ready = m_SceneEmissiveLights.Initialize();
+            const Common::BoolResultStr                              ready = m_SceneEmissiveLights->Initialize();
             const Common::ResultStr<RayTracing::EmissiveLightsFrame> empty =
-                 ready ? m_SceneEmissiveLights.AddPasses( graph, RayTracing::EmissiveTriangleList{} )
+                 ready ? m_SceneEmissiveLights->AddPasses( graph, RayTracing::EmissiveTriangleList{} )
                        : Common::MakeError<RayTracing::EmissiveLightsFrame>( ready.GetError() );
             if ( !empty )
             {
@@ -3974,7 +3997,7 @@ namespace Desert::Graphic
             return {};
         auto* const meshes = m_Systems.Mesh.get();
         // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
-        System::MeshRenderer::VirtualShadowInvalidation& invalidation = m_VsmInvalidation;
+        System::VirtualShadowInvalidation& invalidation = m_VsmInvalidation;
         meshes->CollectVirtualShadowInvalidation( invalidation );
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
              graph, view, hasSun ? &sun : nullptr, locals, receiverDepths, m_VirtualShadowQuality,
@@ -4364,7 +4387,7 @@ namespace Desert::Graphic
             RefusePathTracer( "PathTracer", initialized.GetError() );
             return false;
         }
-        if ( const Common::BoolResultStr emissive = m_EmissiveLights.Initialize(); !emissive )
+        if ( const Common::BoolResultStr emissive = m_EmissiveLights->Initialize(); !emissive )
         {
             RefusePathTracer( "EmissiveLightList", emissive.GetError() );
             return false;

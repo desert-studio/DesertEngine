@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeFrame.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -18,6 +18,10 @@
 
 namespace Desert::World::Landscape
 {
+    class LandscapeTileData; // LandscapeData.hpp
+    struct LandscapeEditLayerStack; // LandscapeData.hpp
+    struct LandscapeLayerRule; // LandscapeData.hpp
+
     /**
      * @brief One control point of a landscape spline (UE 5.8: ULandscapeSplineControlPoint,
      * Classes/LandscapeSplineControlPoint.h:50-109), world centimetres.

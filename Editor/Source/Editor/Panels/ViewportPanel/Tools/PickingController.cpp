@@ -7,6 +7,10 @@
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/ECS/FoliageFieldEntities.hpp>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor::Tools
 {

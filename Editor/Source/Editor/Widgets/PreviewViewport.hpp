@@ -3,7 +3,6 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Core/Camera.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
@@ -18,6 +17,15 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/Animation/Animator.hpp>
+
+namespace Desert::Core
+{
+    class Scene; // Scene.hpp: the .cpp that walks the scene includes it
+} // namespace Desert::Core
 
 namespace Desert::Animation
 {

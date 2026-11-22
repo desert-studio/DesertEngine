@@ -494,6 +494,15 @@ def main():
             save(s)
         sys.exit(0)
 
+    if event == "PostToolUse" and tool == "SendMessage":
+        # A stopped agent resumed by SendMessage is live again: the Stop check must not call its card abandoned.
+        m = re.search(r"resumedAgentId\"?\s*[:=]\s*\"?([0-9a-z]{8,})", json.dumps(data.get("tool_response"), ensure_ascii=False))
+        if m and m.group(1) in s["agents"]:
+            s["stopped"].pop(m.group(1), None)
+            s["launched"][m.group(1)] = time.time()
+            save(s)
+        sys.exit(0)
+
     if event == "PostToolUse" and tool in ("Bash", "Edit", "Write"):
         text = str(tin.get("command") or tin.get("file_path") or "")
         writes_remainder = re.search(r">>?\s*\S*REMAINDER\.md", text) if tool == "Bash" else text.endswith("REMAINDER.md")

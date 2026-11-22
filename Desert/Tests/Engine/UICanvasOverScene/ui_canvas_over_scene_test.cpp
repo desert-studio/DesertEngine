@@ -18,8 +18,6 @@
 // before and after the same view has looked at a different registry. It is the device-free shape of the
 // A->B->A protocol, and it is the one that would catch a per-entity table surviving a scene it does not
 // belong to, which is this project's recurring defect (entity ids are unique only inside a registry).
-
-#include <Engine/ECS/Components.hpp>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -41,6 +39,14 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
 
 // The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
 namespace

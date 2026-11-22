@@ -3,11 +3,11 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
-#include <Engine/ECS/VFXPointSet.hpp>
+#include <Engine/VFX/VFXPointSet.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/VFX/VFXWorldGpuState.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
@@ -24,10 +24,16 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <Engine/VFX/VFXWorld.hpp>
 
 namespace Desert::Core
 {
     class Scene;
+}
+
+namespace Desert::VFX
+{
+    class VFXWorld;
 }
 
 namespace Desert::Graphic::System

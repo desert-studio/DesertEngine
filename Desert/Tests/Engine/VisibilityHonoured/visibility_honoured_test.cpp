@@ -29,8 +29,6 @@
 // PROSE quoting the very thing it forbids, and the second time it nearly drowned a real finding in
 // the same run. The verdicts below are explained in comments inside the systems themselves, so a scan
 // that read comments would fire on every one of them.
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 
 #include <entt/entt.hpp>
@@ -45,6 +43,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Engine/ECS/VisibilityComponent.hpp>
 
 using Desert::ECS::IsHidden;
 using Desert::ECS::SetVisible;

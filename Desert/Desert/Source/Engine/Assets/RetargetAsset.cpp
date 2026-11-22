@@ -1,4 +1,5 @@
 #include <Engine/Assets/RetargetAsset.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 

@@ -44,6 +44,7 @@
 #include <vector>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

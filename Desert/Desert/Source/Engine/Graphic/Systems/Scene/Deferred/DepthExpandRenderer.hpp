@@ -9,6 +9,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <format>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -45,7 +46,7 @@ namespace Desert::Graphic::System
             if ( spec.Samples <= 1 || target->GetDepthAttachmentCount() == 0 )
                 return BOOLSUCCESS;
 
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "DepthExpand" );
+            m_Shader = Runtime::FindShader( "DepthExpand" );
             if ( !m_Shader )
                 return Common::MakeError( "DepthExpand shader not found" );
 

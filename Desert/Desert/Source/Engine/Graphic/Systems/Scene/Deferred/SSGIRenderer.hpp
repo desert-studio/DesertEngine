@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -81,7 +82,7 @@ namespace Desert::Graphic::System
         // refuses GIMethod::ScreenSpace (SceneRenderer::EnsureSSGIResources).
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSGI" );
+            m_Shader = Runtime::FindShader( "SSGI" );
             if ( !m_Shader )
                 return Common::MakeError( "SSGI shader not found" );
             const auto pipeline = ComputePipeline::Create( { .Shader = m_Shader, .DebugName = "SSGI" } );

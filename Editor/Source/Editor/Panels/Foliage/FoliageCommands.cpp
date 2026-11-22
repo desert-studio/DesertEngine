@@ -3,7 +3,6 @@
 #include <Editor/Core/CommandPalette.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
@@ -20,6 +19,13 @@
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 #include <functional>
 #include <utility>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 namespace Desert::Editor
 {

@@ -28,21 +28,20 @@
 // RuntimeBehavior and instances no prefab is refused by name (it would be a setting nothing reads).
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
+#include <Engine/Core/Serialize/PrefabReader.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
 #include <functional>
+#include <span>
 #include <string_view>
 #include <vector>
 
 namespace Desert::Core::WorldCells
 {
-    // Reads the prefab a record states (EntityData::PrefabPath spelling). The tool and the packager read the file
-    // (Assets::ResolvePrefabPath + Assets::ParseLoadablePrefab); a suite answers from a table.
-    using PrefabReader = std::function<Common::ResultStr<Assets::PrefabData>( std::string_view statedPath )>;
-
     struct ExpandedSlot
     {
         std::size_t First    = 0; // index into ExpandedScene::Scene.Entities
@@ -71,4 +70,18 @@ namespace Desert::Core::WorldCells
     // file read whole and parsed as the loader parses it (Assets::ParseLoadablePrefab). Refused by path: a file
     // that does not open, a prefab that does not parse.
     [[nodiscard]] PrefabReader PrefabFileReader();
+
+    // THE WORLD A COOK CUTS (WP21): @p scene with every prefab instance expanded (ExpandPrefabInstances) and the
+    // descriptors it is planned with - the source's own for a plain record, the expanded records' own
+    // (DescribeEntities) in place of an instance's. CookWorld and BuildWorldHLODs both cut this world, so the
+    // HLODs Build HLODs saves are the ones the cook checks. Refused when @p descriptors are not the source
+    // records', id for id and in order, or when an instance does not expand (naming the prefab).
+    struct ExpandedWorld
+    {
+        ExpandedScene                        World;
+        std::vector<Rules::EntityDescriptor> Descriptors; // one per World.Scene record
+    };
+    [[nodiscard]] Common::ResultStr<ExpandedWorld>
+    ExpandWorldForCook( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
+                        const PrefabReader& prefabs );
 } // namespace Desert::Core::WorldCells

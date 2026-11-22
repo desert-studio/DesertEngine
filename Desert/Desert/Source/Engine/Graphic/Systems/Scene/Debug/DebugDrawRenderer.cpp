@@ -14,6 +14,7 @@
 #include <format>
 #include <vector>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic
 {

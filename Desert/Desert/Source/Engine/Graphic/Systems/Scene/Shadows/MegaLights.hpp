@@ -28,6 +28,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 // MEGALIGHTS (UE 5.5 Renderer/Private/MegaLights; Shadows Stochastic): the view's local lights shaded at a FIXED
 // price per pixel instead of every light of the froxel with its shadow map (no shadow map is drawn for them:
@@ -443,7 +444,7 @@ namespace Desert::Graphic::System
 
         [[nodiscard]] static Common::BoolResultStr Build( Stage& program, const std::string_view name )
         {
-            program.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) );
+            program.Shader = Runtime::FindShader( std::string( name ) );
             if ( !program.Shader )
                 return Common::MakeError( std::format( "MegaLights: shader {} not found", name ) );
             const auto pipeline =

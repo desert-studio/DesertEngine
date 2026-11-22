@@ -1,3 +1,4 @@
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -2042,7 +2043,7 @@ namespace Desert::Graphic
             return Common::MakeError<Result>( gathered.GetError() );
         // Its programs, on the first frame that asks (the path tracer's bring-up, or the surface cache lighting
         // under either GI tracer, GI-EMISSIVE-LIGHTS); made once, kept.
-        if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
+        if ( const Common::BoolResultStr ready = m_EmissiveLights->Initialize(); !ready )
             return Common::MakeError<Result>( ready.GetError() );
         const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
         { return EstimateSegmentEmission( segment ); };
@@ -2057,15 +2058,16 @@ namespace Desert::Graphic
         m_EmissiveLayoutSerial    = layout;
         {
             DESERT_PROFILE_SCOPE( "EmissiveLights: List" );
-            const Common::BoolResultStr updated = m_EmissiveList.Update(
-                 m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
-                 tlas ? std::span<const RayTracing::RayTracingInstance>( m_RayTracingScene.GetInstances().Instances )
-                      : std::span<const RayTracing::RayTracingInstance>(),
-                 regathered, m_RayTracingScene.GetSceneMovedPrimitives(), estimateOf );
+            const Common::BoolResultStr updated =
+                 m_EmissiveList->Update( m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
+                                         tlas ? std::span<const RayTracing::RayTracingInstance>(
+                                                     m_RayTracingScene.GetInstances().Instances )
+                                              : std::span<const RayTracing::RayTracingInstance>(),
+                                         regathered, m_RayTracingScene.GetSceneMovedPrimitives(), estimateOf );
             if ( !updated )
                 return Common::MakeError<Result>( updated.GetError() );
         }
-        const RayTracing::EmissiveTriangleList& list = m_EmissiveList.GetList();
+        const RayTracing::EmissiveTriangleList& list = m_EmissiveList->GetList();
 #if DESERT_DEV_INSTRUMENTS
         if ( list.UnplacedDeformedSegments != m_LoggedUnplacedEmissive )
         {
@@ -2076,7 +2078,7 @@ namespace Desert::Graphic
                           m_ViewResources.GetName(), m_LoggedUnplacedEmissive );
         }
 #endif // DESERT_DEV_INSTRUMENTS
-        return m_EmissiveLights.AddPasses( graph, list );
+        return m_EmissiveLights->AddPasses( graph, list );
     }
 
     Common::ResultStr<RayTracing::EmissiveLightsFrame>
@@ -2085,7 +2087,7 @@ namespace Desert::Graphic
         using Result = RayTracing::EmissiveLightsFrame;
         if ( const Common::BoolResultStr gathered = GatherFrameEmissiveScene(); !gathered )
             return Common::MakeError<Result>( gathered.GetError() );
-        if ( const Common::BoolResultStr ready = m_SceneEmissiveLights.Initialize(); !ready )
+        if ( const Common::BoolResultStr ready = m_SceneEmissiveLights->Initialize(); !ready )
             return Common::MakeError<Result>( ready.GetError() );
         // The shared estimate where the segment's material lights the scene (Emissive Lights Scene, resolved up
         // the instance chain as TwoSided), dark elsewhere: a dark segment is not in the list. Read per material
@@ -2104,14 +2106,14 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_SCOPE( "EmissiveLights: Scene List" );
             // No hit lookup: MegaLights picks the triangles, no ray asks which one it met.
-            const Common::BoolResultStr updated = m_SceneEmissiveList.Update(
+            const Common::BoolResultStr updated = m_SceneEmissiveList->Update(
                  m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
                  std::span<const RayTracing::RayTracingInstance>(), regathered,
                  m_RayTracingScene.GetSceneMovedPrimitives(), estimateOf );
             if ( !updated )
                 return Common::MakeError<Result>( updated.GetError() );
         }
-        return m_SceneEmissiveLights.AddPasses( graph, m_SceneEmissiveList.GetList() );
+        return m_SceneEmissiveLights->AddPasses( graph, m_SceneEmissiveList->GetList() );
     }
 
     Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,

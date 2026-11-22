@@ -57,7 +57,9 @@ namespace Desert::Geometry
     // triangles (indices relative to the submesh's VertexOffset); `attributes` = null or kSimplifyAttributeCount
     // floats per vertex (normal xyz, uv) so the reduction is attribute-aware.
     // Each level aims at its target share of the BASE triangles: the solid parts are reduced by meshopt with the
-    // level's error budget (kLODMaxPixelError - a level stops short of its target rather than exceed it), the
+    // level's error budget (kLODMaxPixelError - a level stops short of its target rather than exceed it; the error
+    // is MEASURED as the larger of meshopt's quadric deviation and the outline the level lost, its support
+    // distance against the source's in 26 directions, and a level no count fits is not made), the
     // elements (kLODElementExtentShare) are thinned to the same share, never below the area the budget may lose.
     // Every index names one of the submesh's own vertexCount vertices (a level adds none), so the cook and the
     // load-time chain over a fixed vertex buffer build the same levels. Logs target / result / error / elements.

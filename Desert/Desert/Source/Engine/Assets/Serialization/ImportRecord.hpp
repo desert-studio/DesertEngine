@@ -176,6 +176,14 @@ namespace Desert::Assets::Serialization
         // import's hash is in each mesh it writes (MeshImportInfo::SourceHash).
         std::optional<uint64_t> SourceHash;
 
+        // THE BUILD THE SKINNED MESH WAS DERIVED UNDER (WP-FAR-10C; UE FSkeletalMeshBuilder's DDC key = the source,
+        // the build settings, the builder's version): Assets::SkinnedMeshBuildKey of SourceHash and the Settings'
+        // mesh options at kMeshBuilderVersion. The .skmesh's GPU order and LOD chain are made by the static mesh's
+        // builder steps (OptimizeSectionsForGpu, BakeMeshLODs), so a builder bump or a changed LodChain makes the
+        // .skmesh stale exactly as it re-derives a static mesh: SkinnedImportIsFresh refuses it, a cook names the
+        // re-import, the editor's Reimport derives it again. Absent = derived before builds were keyed = stale.
+        std::optional<uint64_t> RenderDataKey;
+
         // HOW EACH MESH THIS IMPORT WRITES IS PHOTOGRAPHED (UE: UStaticMesh::ThumbnailInfo, a USceneThumbnailInfo
         // saved in the mesh's package). The record IS the imported mesh's package: the combined mesh lives in the
         // DDC and every node `.stmesh` is rewritten by each re-import, so an orbit stored in either would be lost;
@@ -245,9 +253,11 @@ namespace Desert::Assets::Serialization
     Common::BoolResultStr SetImportRecordLights( const std::filesystem::path&          source,
                                                  const std::vector<ImportRecordLight>& lights );
 
-    /// Rewrites the record's `SourceHash`: the import of @p source that read bytes of @p hash completed. The
-    /// record must exist (EnsureImportRecord runs first); written only when the hash changes.
-    Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, uint64_t hash );
+    /// Rewrites the record's `SourceHash` and `RenderDataKey`: the import of @p source that read bytes of @p hash
+    /// (and, for a skinned mesh, derived it under @p renderDataKey; nullopt for a skeleton or clips only) completed.
+    /// The record must exist (EnsureImportRecord runs first); written only when either changes.
+    Common::BoolResultStr SetImportRecordSourceHash( const std::filesystem::path& source, uint64_t hash,
+                                                     std::optional<uint64_t> renderDataKey );
 
     /// Rewrites the skeleton the record's `Settings` choose (SourceImportSettings::Skeleton; UE: the Skeleton of
     /// the source's AssetImportData, which Reimport repeats): the artist's assignment of another skeleton to the

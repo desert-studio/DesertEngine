@@ -1,6 +1,4 @@
 #include "LandscapeECSSystem.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -34,6 +32,9 @@
 #include <vector>
 #include <Engine/Runtime/Services/Landscape/LandscapeGrassTypeService.hpp>
 #include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::ECS
 {

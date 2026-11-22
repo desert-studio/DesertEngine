@@ -46,6 +46,11 @@
 #include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Widgets/MeshLODRows.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
 
 namespace Desert::Editor
 {

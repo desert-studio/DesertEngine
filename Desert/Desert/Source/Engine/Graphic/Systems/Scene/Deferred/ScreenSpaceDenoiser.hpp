@@ -23,6 +23,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -191,9 +192,8 @@ namespace Desert::Graphic::System
 
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
-            const auto        shaders         = Runtime::ResourceRegistry::GetShaderService();
             const std::string reconstructName = ReconstructShaderName( m_Signal );
-            m_ReconstructShader               = shaders->GetByName( reconstructName );
+            m_ReconstructShader               = Runtime::FindShader( reconstructName );
             if ( !m_ReconstructShader )
                 return Common::MakeError( std::format( "Denoiser: shader {} not found", reconstructName ) );
             const ComputePipelineSpecification reconstructSpec{ .Shader    = m_ReconstructShader,
@@ -203,7 +203,7 @@ namespace Desert::Graphic::System
                 return Common::MakeError( reconstruct.GetError() );
             m_ReconstructPipeline = reconstruct.GetValue();
 
-            m_TemporalShader = shaders->GetByName( "SSDTemporalAccumulation" );
+            m_TemporalShader = Runtime::FindShader( "SSDTemporalAccumulation" );
             if ( !m_TemporalShader )
                 return Common::MakeError( "Denoiser: shader SSDTemporalAccumulation not found" );
             const ComputePipelineSpecification temporalSpec{ .Shader    = m_TemporalShader,
@@ -213,7 +213,7 @@ namespace Desert::Graphic::System
                 return Common::MakeError( temporal.GetError() );
             m_TemporalPipeline = temporal.GetValue();
 
-            m_ConvolutionShader = shaders->GetByName( "SSDHistoryConvolution" );
+            m_ConvolutionShader = Runtime::FindShader( "SSDHistoryConvolution" );
             if ( !m_ConvolutionShader )
                 return Common::MakeError( "Denoiser: shader SSDHistoryConvolution not found" );
             const ComputePipelineSpecification convolutionSpec{ .Shader    = m_ConvolutionShader,

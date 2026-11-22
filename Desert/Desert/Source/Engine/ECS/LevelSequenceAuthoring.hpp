@@ -15,7 +15,6 @@
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -27,6 +26,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::ECS
 {

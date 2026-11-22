@@ -13,6 +13,7 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <string_view>
 #include <vector>
 
 // Resource descriptions, handles and externally owned resources of the render graph. Device-free: a
@@ -343,4 +344,27 @@ namespace Desert::Graphic::RDG
     };
 
     inline constexpr uint32_t kMemoryClassCount = static_cast<uint32_t>( MemoryClass::Count );
+
+    struct Allocation; // RDGCompileResult.hpp
+
+    // A graph resource as an exec lambda sees it (PassContext::GetTexture / GetBuffer, PassBindings).
+    struct TextureBinding
+    {
+        uint32_t           Resource = kInvalidResource;
+        std::string_view   Name;
+        const TextureDesc* Desc     = nullptr;
+        ExternalTexture*   External = nullptr; // null for a transient
+        const Allocation*  Memory   = nullptr; // null for an external or extracted texture
+        IPhysicalTexture*  Physical = nullptr; // the backend's image
+    };
+
+    struct BufferBinding
+    {
+        uint32_t          Resource = kInvalidResource;
+        std::string_view  Name;
+        const BufferDesc* Desc     = nullptr;
+        ExternalBuffer*   External = nullptr;
+        const Allocation* Memory   = nullptr;
+        IPhysicalBuffer*  Physical = nullptr;
+    };
 } // namespace Desert::Graphic::RDG

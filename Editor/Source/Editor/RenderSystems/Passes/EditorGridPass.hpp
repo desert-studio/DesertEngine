@@ -1,8 +1,19 @@
 #pragma once
 
-#include <Engine/Core/Scene.hpp>
+#include <memory>
+
 #include <Engine/Graphic/Materials/Debug/MaterialGrid.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+
+namespace Desert::Graphic
+{
+    class GraphicsPipeline;
+} // namespace Desert::Graphic
+
+namespace Desert::Core
+{
+    class Scene;
+} // namespace Desert::Core
 
 namespace Desert::Editor::Render
 {

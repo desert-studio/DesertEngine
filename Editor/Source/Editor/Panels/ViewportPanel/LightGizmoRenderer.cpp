@@ -38,6 +38,34 @@
 #include <functional>
 #include <optional>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/AudioSourceComponent.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/PlayerStartComponent.hpp>
+#include <Engine/ECS/PointLightComponent.hpp>
+#include <Engine/ECS/RectLightComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/SpotLightComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TextComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/ProjectileComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor
 {

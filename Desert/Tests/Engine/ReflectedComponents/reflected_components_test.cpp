@@ -6,7 +6,6 @@
 // through NotifyChanged reaches registry.on_update<T>.
 
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 
@@ -14,6 +13,8 @@
 
 #include <string>
 #include <vector>
+#include <Engine/ECS/PointLightComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
 
 namespace
 {

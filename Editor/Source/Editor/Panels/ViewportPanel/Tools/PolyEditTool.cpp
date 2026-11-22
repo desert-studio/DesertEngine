@@ -7,7 +7,6 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
@@ -22,6 +21,8 @@
 #include <memory>
 #include <optional>
 #include <unordered_set>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

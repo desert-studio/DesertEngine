@@ -14,6 +14,7 @@
 #include <format>
 #include <string>
 #include <vector>
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 
 namespace Desert::Debug
 {

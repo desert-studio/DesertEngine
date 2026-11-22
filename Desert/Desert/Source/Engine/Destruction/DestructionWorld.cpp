@@ -1,5 +1,7 @@
 #include <Engine/Destruction/DestructionWorld.hpp>
 
+#include <PhysicsCore/PhysicsWorld.hpp>
+
 #include <Common/Core/Logger.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>

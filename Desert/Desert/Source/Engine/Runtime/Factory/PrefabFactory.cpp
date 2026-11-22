@@ -1,7 +1,6 @@
 #include "PrefabFactory.hpp"
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
@@ -17,6 +16,14 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/PrefabInstanceComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Runtime::Factory
 {

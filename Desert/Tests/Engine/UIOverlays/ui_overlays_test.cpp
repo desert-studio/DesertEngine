@@ -22,8 +22,6 @@
 //
 // Every one is written so that removing the mechanism reddens it rather than merely changing a number;
 // the mutations that were run are in the report.
-
-#include <Engine/ECS/Components.hpp>
 #include <UI/UICanvasContext.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
@@ -39,6 +37,14 @@
 #include <string>
 #include <vector>
 #include <Common/Json/Document.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UIOverlayComponent.hpp>
+#include <Engine/UI/Ecs/UIOverlayTriggerComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UIPointerEventsComponent.hpp>
 
 // The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
 namespace

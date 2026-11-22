@@ -7,6 +7,7 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -27,7 +28,7 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "Copy" );
+            m_Shader = Runtime::FindShader( "Copy" );
             if ( !m_Shader )
                 return Common::MakeError( "Copy shader not found" );
 

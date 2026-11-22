@@ -5,10 +5,12 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
 #include <format>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/ECS/VolumetricCloudComponent.hpp>
 
 namespace Desert::Editor
 {

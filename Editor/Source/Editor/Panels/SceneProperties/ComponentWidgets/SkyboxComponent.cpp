@@ -14,7 +14,6 @@
 
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
@@ -26,6 +25,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
 
 namespace Desert::Editor
 {

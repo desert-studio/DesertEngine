@@ -1,4 +1,5 @@
 #include "SceneAtmosphere.hpp"
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -9,6 +10,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <utility>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic
 {

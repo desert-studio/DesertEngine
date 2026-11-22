@@ -1,4 +1,5 @@
 #include "EditorToolPreviewPass.hpp"
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <format>
 #include <unordered_map>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Editor::Render
 {

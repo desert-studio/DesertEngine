@@ -8,6 +8,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <Engine/Assets/AssetManager.hpp>
 
 namespace Desert::Assets
 {

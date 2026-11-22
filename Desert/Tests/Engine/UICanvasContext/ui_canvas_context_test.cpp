@@ -22,7 +22,6 @@
 // three of its translation units among the 275 that no suite compiles.
 
 #include <Engine/Animation/Timeline/Hosts.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/KeyInterpolation.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Binding.hpp>
@@ -42,6 +41,19 @@
 #include <optional>
 #include <utility>
 #include <variant>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Graphic/Image.hpp>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UIInputFieldComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutGroupComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UIScreenComponent.hpp>
+#include <Engine/UI/Ecs/UIScreenStackComponent.hpp>
+#include <Engine/UI/Ecs/UIScrollViewComponent.hpp>
 
 // The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
 namespace

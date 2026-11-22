@@ -26,6 +26,7 @@
 #include <utility>
 #include <string_view>
 #include <vector>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 // THE EMISSIVE TRIANGLE LIST ON THE GPU (EmissiveLights.hpp is the list; Common/EmissiveLights.glslh the GPU
 // side; Programs/EmissiveLights/EmissiveLights.shader the passes). Two parts under one root (EmissiveLights.hpp):
@@ -142,10 +143,9 @@ namespace Desert::Graphic::RayTracing
         {
             if ( m_BuildPipeline && m_ReducePipeline && m_MovePipeline )
                 return BOOLSUCCESS;
-            auto* shaders  = Runtime::ResourceRegistry::GetShaderService();
-            m_BuildShader  = shaders->GetByName( "EmissiveLights/Build" );
-            m_ReduceShader = shaders->GetByName( "EmissiveLights/Reduce" );
-            m_MoveShader   = shaders->GetByName( "EmissiveLights/Move" );
+            m_BuildShader  = Runtime::FindShader( "EmissiveLights/Build" );
+            m_ReduceShader = Runtime::FindShader( "EmissiveLights/Reduce" );
+            m_MoveShader   = Runtime::FindShader( "EmissiveLights/Move" );
             if ( !m_BuildShader || !m_ReduceShader || !m_MoveShader )
                 return Common::MakeError( "EmissiveLights: the programs 'EmissiveLights/Build' / "
                                           "'EmissiveLights/Reduce' / 'EmissiveLights/Move' are not registered" );

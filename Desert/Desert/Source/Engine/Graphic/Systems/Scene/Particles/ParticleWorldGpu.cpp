@@ -9,7 +9,6 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LightUnits.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXCurveLUT.hpp>
@@ -26,6 +25,11 @@
 #include <cmath>
 #include <cstdint>
 #include <vector>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
+#include <Engine/VFX/VFXPointSet.hpp>
+#include <Engine/VFX/VFXUserOverride.hpp>
 
 namespace Desert::Graphic::System
 {

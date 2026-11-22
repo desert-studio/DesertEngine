@@ -2,7 +2,6 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/Shader.hpp>
-#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ViewDescriptorSets.hpp>
 
 namespace Desert::Graphic

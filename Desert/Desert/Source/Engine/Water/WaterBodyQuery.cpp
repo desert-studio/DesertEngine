@@ -1,4 +1,5 @@
 #include <Engine/Water/WaterBodyQuery.hpp>
+#include <Engine/Water/GerstnerWaterWaves.hpp>
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
@@ -6,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 namespace Desert::Water
 {

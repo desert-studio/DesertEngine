@@ -2,7 +2,6 @@
 
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 
@@ -10,6 +9,9 @@
 
 #include <format>
 #include <string>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 namespace Desert::Debug
 {

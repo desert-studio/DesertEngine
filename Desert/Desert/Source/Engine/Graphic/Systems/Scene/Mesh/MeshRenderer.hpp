@@ -53,6 +53,7 @@
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/VirtualShadowInvalidation.hpp>
 #include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -637,8 +638,15 @@ namespace Desert::Graphic::System
             // THE FAR CROWD HAND-OFF (WP-FAR-12, VertexAnimationCrowd): non-zero = this record is drawn this frame
             // from its clip's baked vertex animation at its lowest level - the device address of the VAT frame its
             // GpuScene row fetches its posed streams from (the skin cache's layout), so it is neither skinned nor
-            // posed. Set by SelectSkinnedLods; the skin cache leaves such a record alone.
-            uint64_t                    VatAddress  = 0;
+            // posed. Set by SelectSkinnedLods; the skin cache leaves such a record alone. The address is biased to
+            // the baked level's vertex range (VertexAnimationCrowd::FrameAddress), VatVertexCount that range's count.
+            uint64_t                    VatAddress     = 0;
+            uint32_t                    VatVertexCount = 0;
+            // The far figure's minimum screen size (VertexAnimationCrowd::kMinScreenSize): the growth its draw
+            // (VAT or skeletal) gets this frame about MinScreenPivot (the local bounds' bottom centre), 1 = its own size. Set by
+            // SelectSkinnedLods; the GpuScene row's world (SyncGpuScene) carries it to every pass.
+            float                       MinScreenScale = 1.0f;
+            glm::vec3                   MinScreenPivot = glm::vec3( 0.0f );
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };
@@ -1619,18 +1627,7 @@ namespace Desert::Graphic::System
             return view < m_VirtualShadowViews.size() && m_VirtualShadowViews[view] != 0u;
         }
 
-        // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualShadows): what
-        // changed among the casters since the last frame the map was drawn. A static, generic or still instanced
-        // caster and every non-mesh caster (IShadowCaster::AppendVirtualShadowEntries) that was added, removed or
-        // changed hands its old and its new box; a caster that moves by itself (skinned, swaying foliage) hands
-        // its box now and last frame, every frame. StaticCastersChanged: a masked caster's pipeline was still
-        // compiling when the pages were drawn, so the cached pages lack it and every one is dropped.
-        struct VirtualShadowInvalidation
-        {
-            std::vector<VsmInvalidationBox> Boxes;        // the still casters that changed: both layers
-            std::vector<VsmInvalidationBox> MovableBoxes; // every mover instance, now and last frame: merged layer
-            bool                            StaticCastersChanged = false;
-        };
+        // VirtualShadowInvalidation.hpp: what changed among the casters since the map was last drawn.
         // Into the caller's @p result (kept by the caller across frames: no box vectors per frame).
         void CollectVirtualShadowInvalidation( VirtualShadowInvalidation& result );
         // "VSM: Raster L<l>", one attachment-less raster node per clipmap level (RDG PassBuilder::RenderArea over
@@ -4350,6 +4347,12 @@ namespace Desert::Graphic::System
         std::unordered_map<uint32_t, uint64_t>               m_GrassCasterBinsSaid;
         std::unordered_map<uint64_t, GpuInstancedDrawRecord> m_GpuInstancedDraws;
         uint32_t                                             m_GpuInstancedStamp = 0;
+        // THE STAMP IS READ ONCE PER VIEW FRAME (WP-FAR-9 crash): the invalidation version is an atomic a load
+        // completion or an Invalidate bumps from another thread while this view records; dropping the records
+        // mid-frame freed the ones the walk already held (GpuInstancedListBin::By, `own`) and the bins' draws read
+        // a freed record. The first GpuInstancedDrawOf of a view frame compares it, ClearQueues re-arms it; a cell
+        // parked during the frame outlives it (the graveyard keeps frames-in-flight frames).
+        bool m_GpuInstancedStampChecked = false;
         // FPS-CPU2-GRASS, THE WALKS' KEPT STATE (UE FMeshDrawCommand caching + FParallelMeshDrawCommandPass's kept
         // lists; BuildGpuInstancedDraws, BuildGpuInstancedShadowDraws - serial setups, one walk at a time):
         //   - one list's compacted bins (GpuInstancedListBin) and the slots of the open-addressing index over

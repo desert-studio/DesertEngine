@@ -25,8 +25,6 @@
 // ComponentRegistry::InFileOrder), whatever order the serializers were registered in. The run a row names is
 // LOAD order only: where among the hand-written serializers the row is registered, and so read.
 
-#include <Engine/ECS/Components.hpp>
-
 namespace Desert::Core::Serialize
 {
     // Where a run is registered among the hand-written serializers (see ORDER IS NOT FORMAT above: load order

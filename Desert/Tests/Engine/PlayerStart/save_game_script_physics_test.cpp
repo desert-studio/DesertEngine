@@ -2,7 +2,6 @@
 // only its TransformComponent), Lua script properties marked SaveGame are saved per entity UUID + script +
 // property, and a test-only reflected struct carries PROPERTY(SaveGame)'s flag through capture and apply.
 #include <Engine/Core/SaveGame.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
@@ -16,6 +15,13 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
 
 using namespace Desert;
 using namespace Desert::Core;

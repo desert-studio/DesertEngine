@@ -48,7 +48,6 @@
 // 1. Engine Core
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
@@ -166,6 +165,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/World/Landscape/LandscapeGenerator.hpp>
 
 namespace Desert::Editor
 {

@@ -28,6 +28,7 @@
 #include <optional>
 #include <span>
 #include <utility>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -184,7 +185,7 @@ namespace Desert::Graphic::System
             if ( m_Surface == ReflectingSurface::TranslucentFrontLayer )
             {
                 auto frontLayer =
-                     Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", FrontLayerVariant() );
+                     Runtime::AcquireShaderVariant( "SSR", FrontLayerVariant() );
                 if ( !frontLayer )
                     return Common::MakeFormattedError<bool>(
                          "SSR: the front layer's program (SSR, DESERT_REFLECTIONS_FRONT_LAYER) was refused: {}",
@@ -192,7 +193,7 @@ namespace Desert::Graphic::System
                 m_TraceShader = frontLayer.ExtractValue();
             }
             else
-                m_TraceShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
+                m_TraceShader = Runtime::FindShader( "SSR" );
             if ( !m_TraceShader )
                 return Common::MakeError( "SSR shader not found (SSR)" );
 
@@ -313,7 +314,7 @@ namespace Desert::Graphic::System
             // hit-lit (the hit-lit permutation classifies itself and traces from its ray generation).
             if ( !hitLighting && !m_ScreenLegPipeline )
             {
-                auto screenLeg = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                auto screenLeg = Runtime::AcquireShaderVariant(
                      "SSR", ScreenLegVariant( m_Surface ) );
                 if ( !screenLeg )
                     return Common::MakeFormattedError<bool>(
@@ -330,7 +331,7 @@ namespace Desert::Graphic::System
             if ( m_TracedPipeline && pipeline == m_TracedFor && hitLighting == m_TracedHitLit )
                 return BOOLSUCCESS;
             Core::ShaderVariant variant = TracedVariant( pipeline, hitLighting, m_Surface );
-            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
+            auto acquired = Runtime::AcquireShaderVariant( "SSR", variant );
             if ( !acquired )
                 return Common::MakeFormattedError<bool>(
                      "SSR: the traced reflections' program ({}, {}) was refused: {}",
@@ -365,8 +366,7 @@ namespace Desert::Graphic::System
             if ( m_HitLightingPipeline && templates == m_HitLightingTemplates &&
                  m_HitLightingFor == m_TracedVariant.Hash() )
                 return BOOLSUCCESS;
-            auto* shaders = Runtime::ResourceRegistry::GetShaderService();
-            auto  acquired = shaders->AcquireVariant( "SSR/HitLighting", m_TracedVariant );
+            auto  acquired = Runtime::AcquireShaderVariant( "SSR/HitLighting", m_TracedVariant );
             if ( !acquired )
                 return Common::MakeFormattedError<bool>(
                      "SSR: the hit-lit ray generation ('SSR/HitLighting') was refused: {}", acquired.GetError() );
@@ -376,7 +376,7 @@ namespace Desert::Graphic::System
             for ( const std::string& name : templates )
             {
                 const std::string cell = std::format( "{}/RayTracing.Hit", name );
-                auto              hit  = shaders->GetByName( cell );
+                auto              hit  = Runtime::FindShader( cell );
                 if ( !hit || !hit->IsCompiled() )
                     return Common::MakeFormattedError(
                          "SSR: the hit group table names surface template '{}', whose "

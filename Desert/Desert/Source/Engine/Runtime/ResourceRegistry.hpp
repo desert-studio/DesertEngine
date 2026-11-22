@@ -3,14 +3,6 @@
 
 #include <memory>
 
-// Still included, not declared: their callers are files other branches have open right now (inline render passes
-// calling GetShaderService(), PhysicsECSSystem.hpp of the World Partition work) -- BUILD-FAST-2 p2 moves these four
-// includes into those callers once the branches land, and this header includes no service at all.
-#include "Services/Destruction/FractureService.hpp"
-#include "Services/Physics/PhysicsAssetService.hpp"
-#include "Services/Shader/ShaderService.hpp"
-#include "Services/Water/WaterWavesService.hpp"
-
 // Every service is declared, not included (BUILD-FAST-2): this header sits under ECS/System/System.hpp and therefore
 // under Core/Scene.hpp, so the 27 service headers it used to include -- and the materials, view frames, RDG and
 // asset serialisation behind them -- were compiled into ~450 objects, and an edit to any of them rebuilt all of them.

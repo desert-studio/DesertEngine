@@ -4,7 +4,6 @@
 #include "SystemRules.hpp"
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SunPosition.hpp>
@@ -15,6 +14,8 @@
 #include <cstdint>
 
 #include <vector>
+#include <Engine/ECS/TimeOfDayComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::ECS
 {

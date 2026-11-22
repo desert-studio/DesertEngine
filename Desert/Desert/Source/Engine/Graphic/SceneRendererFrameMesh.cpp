@@ -1,3 +1,4 @@
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
@@ -43,6 +44,7 @@
 #include <optional>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
 
 namespace Desert::Graphic
 {

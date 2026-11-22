@@ -61,7 +61,6 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Camera.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>
@@ -77,7 +76,7 @@
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/Deformation/DeformationFieldRenderer.hpp>
 
-#include "Systems/Scene/Mesh/MeshRenderer.hpp"
+#include "Systems/Scene/Mesh/VirtualShadowInvalidation.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
 #include "Systems/Scene/Terrain/TerrainRenderer.hpp"
 #include "Systems/Scene/Water/WaterRenderer.hpp"
@@ -107,7 +106,6 @@
 #include "Systems/Scene/Deferred/SubsurfaceRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/SceneColorHistoryRenderer.hpp"
-#include "Systems/Scene/Particles/ParticleRenderer.hpp"
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
 #include "Systems/Scene/Fog/VolumetricFogRenderer.hpp"
@@ -120,7 +118,6 @@
 
 #include <Engine/Graphic/IRenderSystem.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
-#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
@@ -147,6 +144,14 @@ namespace Desert::Graphic
     {
         class Builder;
     }
+    namespace RayTracing
+    {
+        // EmissiveLightsRenderer.hpp: held by pointer, so this header does not carry the RT emissive list
+        // (and the mesh headers it reads) into every includer (UE: FSceneRenderer keeps its RT state in
+        // forward-declared members).
+        class EmissiveLightsRenderer;
+        class EmissiveTriangleListCache;
+    } // namespace RayTracing
     namespace Render
     {
         struct StaticSceneSnapshot;
@@ -176,6 +181,7 @@ namespace Desert::Graphic
         class LocalExposureRenderer;
         class MeshRenderer;
         class ParticleRenderer;
+        struct ParticleViewEmitterCull;
         class PathTracer;
         class SceneColorHistoryRenderer;
         class SceneDepthResolveRenderer;
@@ -771,19 +777,7 @@ namespace Desert::Graphic
             uint64_t TlasUpdates    = 0;
             uint64_t TlasMovedRows  = 0;
         };
-        [[nodiscard]] EmissiveLightCounters GetEmissiveLightCounters() const
-        {
-            return { .GatherFullRebuilds = m_RayTracingScene.GetSceneGatherCount(),
-                     .GatherMoves        = m_RayTracingScene.GetSceneGatherMoveCount(),
-                     .ListFullRebuilds   = m_EmissiveList.GetBuildCount(),
-                     .ListMoves          = m_EmissiveList.GetMoveCount(),
-                     .GpuFullRebuilds    = m_EmissiveLights.GetStaticRebuildCount(),
-                     .GpuMoves           = m_EmissiveLights.GetStaticMoveCount(),
-                     .GpuMovesRetried    = m_EmissiveLights.GetStaticMoveRetryCount(),
-                     .TlasFullBuilds     = m_RayTracingScene.GetTlasFullBuildCount(),
-                     .TlasUpdates        = m_RayTracingScene.GetTlasUpdateCount(),
-                     .TlasMovedRows      = m_RayTracingScene.GetTlasMovedRowCount() };
-        }
+        [[nodiscard]] EmissiveLightCounters GetEmissiveLightCounters() const;
         // Read back by the editor's own external passes (grid, colliders), which draw INTO this view and
         // therefore must ask this view what it is showing — not a global, or every offscreen preview would
         // inherit the main viewport's flags.
@@ -2277,7 +2271,7 @@ namespace Desert::Graphic
         // The VSM levels' drawn groups (MeshRenderer::SetVirtualShadowGeometry's out-param), kept across frames.
         std::vector<uint8_t>                                      m_VsmDrawnGroups;
         // The VSM's caster invalidation (MeshRenderer::CollectVirtualShadowInvalidation's out-param), kept.
-        System::MeshRenderer::VirtualShadowInvalidation m_VsmInvalidation;
+        System::VirtualShadowInvalidation                         m_VsmInvalidation;
         std::string                                               m_VirtualGeometryLastError;
         // DebugViewState::ForceVirtualGeometryPostCutRefusal as last logged (logged once when it turns on).
         bool  m_VirtualGeometryPostRefusalLogged = false;
@@ -2419,15 +2413,15 @@ namespace Desert::Graphic
         // and whether a hit-lighting request the device cannot run was reported.
         RayTracing::RayTracingHitGroupTable m_ReflectionHitGroups;
         // The scene's emissive triangles as lights, kept on the GPU across frames (AddFrameEmissiveLights).
-        RayTracing::EmissiveLightsRenderer  m_EmissiveLights;
+        std::unique_ptr<RayTracing::EmissiveLightsRenderer> m_EmissiveLights;
         // The CPU list across frames (rebuilt only on a regathered frame or a moved material estimate), and the
         // RT scene's layout serial it was last given (RayTracingSceneRenderer::GetLayoutSerial; ~0: none yet).
-        RayTracing::EmissiveTriangleListCache m_EmissiveList;
+        std::unique_ptr<RayTracing::EmissiveTriangleListCache> m_EmissiveList;
         uint64_t                              m_EmissiveLayoutSerial = ~0ull;
         // The scene-lighting emissive list (AddFrameSceneEmissiveLights): MegaLights' emissive lights, its own GPU
         // part and CPU list and the layout serial it was last given.
-        RayTracing::EmissiveLightsRenderer    m_SceneEmissiveLights;
-        RayTracing::EmissiveTriangleListCache m_SceneEmissiveList;
+        std::unique_ptr<RayTracing::EmissiveLightsRenderer>    m_SceneEmissiveLights;
+        std::unique_ptr<RayTracing::EmissiveTriangleListCache> m_SceneEmissiveList;
         uint64_t                              m_SceneEmissiveLayoutSerial = ~0ull;
         // The absolute frame GatherFrameEmissiveScene last gathered in (~0: none yet).
         uint64_t m_EmissiveGatherFrame = ~0ull;

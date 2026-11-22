@@ -29,6 +29,11 @@
 #include <utility>
 #include <vector>
 #include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::Editor::Commands
 {

@@ -1,11 +1,11 @@
 #pragma once
 
-#include <Engine/ECS/Components.hpp>
-
 #include <glm/glm.hpp>
 
 #include <cstdint>
 #include <vector>
+#include <Engine/Assets/Common.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::ECS
 {

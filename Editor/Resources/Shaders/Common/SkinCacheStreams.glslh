@@ -5,8 +5,11 @@
 // so no raster pass skins a primitive the cache holds (UE FGPUSkinPassthroughVertexFactory).
 //
 // All float, V = the entry's vertex count, the mesh's own vertex order (gl_VertexIndex addresses it unchanged:
-// every draw binds the mesh's vertex buffer at offset 0):
-//   [0, 3V)   current positions   [3V, 6V) previous positions   [6V, 15V) normal, tangent, bitangent
+// every draw binds the mesh's vertex buffer at offset 0), FIVE PLANES of 3 floats a vertex:
+//   [0, 3V) current positions  [3V, 6V) previous positions  [6V, 9V) normals  [9V, 12V) tangents  [12V, 15V) bitangents
+// One stride per plane is what lets streams hold a vertex RANGE [First, First + V) of the mesh (the far crowd's
+// vertex animation, Assets/VertexAnimationDerivedData.hpp, holds the lowest level only): its address is biased by
+// First * 3 floats, and every fetch of a vertex in the range lands in the range's planes.
 // GL_EXT_buffer_reference(_uvec2) is enabled for every stage by the assembler (DShaderParser.cpp AssembleStage):
 // an #extension here would follow declarations, where glslang refuses it.
 #ifndef DESERT_SKIN_CACHE_STREAMS_GLSLH
@@ -40,7 +43,7 @@ vec3 DesertSkinCachePrevPosition( SkinCacheStreams streams, uint vertexCount, ui
 // 0 normal, 1 tangent, 2 bitangent.
 vec3 DesertSkinCacheFrame( SkinCacheStreams streams, uint vertexCount, uint vertex, uint axis )
 {
-    return DesertSkinCacheFetch( streams, vertexCount * 6u + vertex * 9u + axis * 3u );
+    return DesertSkinCacheFetch( streams, vertexCount * ( 6u + axis * 3u ) + vertex * 3u );
 }
 
 #endif

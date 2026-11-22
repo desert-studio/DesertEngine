@@ -9,6 +9,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <format>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic
 {
@@ -70,7 +71,7 @@ namespace Desert::Graphic::System
                 return Common::MakeError( "SceneDepthResolved framebuffer could not be created" );
             m_Resolved->Resize( target->GetFramebufferWidth(), target->GetFramebufferHeight() );
 
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SceneDepthResolve" );
+            m_Shader = Runtime::FindShader( "SceneDepthResolve" );
             if ( !m_Shader )
                 return Common::MakeError( "SceneDepthResolve shader not found" );
 

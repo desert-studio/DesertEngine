@@ -1,8 +1,8 @@
 #pragma once
 
-#include <Engine/ECS/Components.hpp>
-
 #include <entt/entt.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/World/Partition/HiddenByDataLayersComponent.hpp>
 
 namespace Desert::ECS
 {

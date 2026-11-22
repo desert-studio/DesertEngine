@@ -9,6 +9,7 @@
 
 #include <format>
 #include <memory>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic
 {
@@ -46,7 +47,7 @@ namespace Desert::Graphic::System
         {
             if ( m_Pipeline )
                 return BOOLSUCCESS;
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "PopulateSceneDepth" );
+            m_Shader = Runtime::FindShader( "PopulateSceneDepth" );
             if ( !m_Shader )
                 return Common::MakeError( "PopulateSceneDepth shader not found" );
             GraphicsPipelineSpecification pipelineSpec;

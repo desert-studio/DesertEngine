@@ -1,7 +1,6 @@
 // GP5: save games - a slot holds the player pawn's transform and the PROPERTY(SaveGame) fields of every entity, by
 // its UUID, and nothing else (UE: USaveGame + UPROPERTY(SaveGame) + UGameplayStatics' slot functions).
 #include <Engine/Core/SaveGame.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include "../../TestSupport/scratch_dir.hpp"
 
@@ -13,6 +12,11 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <Engine/ECS/PointLightComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
 
 using namespace Desert;
 using namespace Desert::Core;

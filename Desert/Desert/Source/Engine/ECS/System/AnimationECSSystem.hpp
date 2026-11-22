@@ -1,8 +1,6 @@
 #pragma once
 
 #include "System.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 // SELF-CONTAINED, AND IT WAS NOT. `Animation::AnimationLibrary` is used through a pointer and CALLED, and
 // `Mesh`/`SkinnedMesh` are cast between — all three arrived transitively, so this header only compiled
@@ -40,6 +38,18 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/ControlRigComponent.hpp>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/RetargetComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/TwoBoneIKComponent.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
 
 namespace Desert::ECS
 {
@@ -105,8 +115,20 @@ namespace Desert::ECS
             if ( m_AnimationLibrary != nullptr )
                 libraryRevision = m_AnimationLibrary->Revision();
 
-            const auto tickStart = std::chrono::steady_clock::now();
+            // THE WINDOW COUNTS PLAYED TICKS ONLY: an editor-world tick (UpdateAnimationInEditor, Paused) steps
+            // animators too but is no frame of the window, so what it counted is dropped with it - else the
+            // "animated instances" average was every tick's instances over the played frames alone (282.8 for 21).
+            const uint64_t instancesBefore   = m_CostInstances;
+            const uint64_t evaluationsBefore = m_CostEvaluations;
+            const uint64_t bonesBefore       = m_CostBones;
+            const auto     tickStart         = std::chrono::steady_clock::now();
             UpdateEntities( registry, view, gameplaySeconds, libraryRevision );
+            if ( gameplaySeconds <= 0.0F )
+            {
+                m_CostInstances   = instancesBefore;
+                m_CostEvaluations = evaluationsBefore;
+                m_CostBones       = bonesBefore;
+            }
             ReportAnimationCost( std::chrono::steady_clock::now() - tickStart, gameplaySeconds );
         }
 

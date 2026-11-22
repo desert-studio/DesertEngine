@@ -6,13 +6,13 @@
 #include <Editor/Core/Commands/SceneCommands.hpp>
 
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <ImGui/imgui.h>
 
 #include <cstring>
 #include <format>
 #include <string>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

@@ -23,7 +23,6 @@
 #include <Common/Core/Core.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include "Editor/Core/Commands/SceneCommands.hpp"
@@ -69,6 +68,7 @@
 #include "Engine/Assets/Common.hpp"
 #include "Engine/Core/ViewBudget.hpp"
 #include "Engine/Graphic/Renderer.hpp"
+#include <Engine/ECS/TagComponent.hpp>
 
 namespace Desert::Editor
 {

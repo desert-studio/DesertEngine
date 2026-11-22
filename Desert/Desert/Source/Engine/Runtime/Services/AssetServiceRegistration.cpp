@@ -11,7 +11,6 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Geometry/MeshLOD.hpp>
@@ -23,6 +22,9 @@
 #include <string>
 #include <vector>
 #include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Runtime
 {

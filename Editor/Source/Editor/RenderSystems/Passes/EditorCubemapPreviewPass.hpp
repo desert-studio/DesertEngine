@@ -6,6 +6,12 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <functional>
+#include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+
+namespace Desert::Graphic
+{
+    class GraphicsPipeline;
+} // namespace Desert::Graphic
 
 namespace Desert::Editor::Render
 {

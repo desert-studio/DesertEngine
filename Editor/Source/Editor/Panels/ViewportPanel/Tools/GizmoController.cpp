@@ -17,7 +17,6 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/Animator.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 
 #include <ImGuizmo.h>
@@ -29,6 +28,12 @@
 #include <functional>
 #include <vector>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor::Tools
 {

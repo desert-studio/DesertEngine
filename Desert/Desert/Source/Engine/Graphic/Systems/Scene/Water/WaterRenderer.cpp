@@ -32,6 +32,7 @@
 #include <unordered_map>
 #include <vector>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 
 namespace
 {

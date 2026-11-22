@@ -17,6 +17,7 @@
 
 #include <array>
 #include <format>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
 
 namespace Desert::Editor
 {

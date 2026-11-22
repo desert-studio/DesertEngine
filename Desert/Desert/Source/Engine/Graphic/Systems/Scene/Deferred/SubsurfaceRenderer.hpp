@@ -28,6 +28,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -140,8 +141,7 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override
         {
-            auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
-            m_BurleyShader      = shaders->GetByName( "SubsurfaceBurley" );
+            m_BurleyShader      = Runtime::FindShader( "SubsurfaceBurley" );
             if ( !m_BurleyShader )
                 return Common::MakeError( "SubsurfaceBurley shader not found" );
             const auto burley =
@@ -150,7 +150,7 @@ namespace Desert::Graphic::System
                 return Common::MakeError( burley.GetError() );
             m_BurleyPipeline = burley.GetValue();
 
-            m_RecombineShader = shaders->GetByName( "SubsurfaceRecombine" );
+            m_RecombineShader = Runtime::FindShader( "SubsurfaceRecombine" );
             if ( !m_RecombineShader )
                 return Common::MakeError( "SubsurfaceRecombine shader not found" );
             const auto recombine =
@@ -386,15 +386,14 @@ namespace Desert::Graphic::System
             m_TiledBurleyPipeline    = nullptr;
             m_TiledRecombineShader   = nullptr;
             m_TiledRecombinePipeline = nullptr;
-            auto* const shaders      = Runtime::ResourceRegistry::GetShaderService();
-            auto        burley       = shaders->AcquireVariant( "SubsurfaceBurley", TiledVariant() );
+            auto        burley       = Runtime::AcquireShaderVariant( "SubsurfaceBurley", TiledVariant() );
             if ( !burley )
             {
                 LOG_ERROR( "Subsurface: the tiled Burley permutation: {} (the view scatters every texel)",
                            burley.GetError() );
                 return;
             }
-            auto recombine = shaders->AcquireVariant( "SubsurfaceRecombine", TiledVariant() );
+            auto recombine = Runtime::AcquireShaderVariant( "SubsurfaceRecombine", TiledVariant() );
             if ( !recombine )
             {
                 LOG_ERROR( "Subsurface: the tiled Recombine permutation: {} (the view scatters every texel)",

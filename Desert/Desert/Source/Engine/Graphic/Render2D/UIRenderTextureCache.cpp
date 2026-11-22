@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <utility>
 #include <vector>
+#include <PhysicsCore/CollisionProfiles.hpp>
 
 namespace Desert::Graphic::Render2D
 {

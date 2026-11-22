@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Engine/Graphic/Shader.hpp>
-#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 

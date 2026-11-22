@@ -32,12 +32,14 @@
 
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <utility>
 #include <vector>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -527,6 +529,7 @@ namespace Desert::Graphic::System
         // A GPU-instanced draw record whose producer's material instance is gone leaves (its section left the
         // scene or took a new material); the rest are kept across frames (GpuInstancedDrawRecord).
         std::erase_if( m_GpuInstancedDraws, []( const auto& held ) { return held.second.Source.expired(); } );
+        m_GpuInstancedStampChecked = false; // the next view frame compares the material invalidation version again
         // The ISM view culls no pass asked for this frame: their field left the scene or took a new snapshot.
         std::erase_if( m_IsmViewCulls, [this]( const auto& entry )
                        { return entry.second.Generation != m_IsmViewCullGeneration; } );
@@ -2708,10 +2711,14 @@ namespace Desert::Graphic::System
         uint32_t crowdSkeletal = 0;
         uint32_t crowdVat      = 0;
         uint32_t crowdDraws    = 0;
+        uint32_t crowdGrown    = 0;
+        float    crowdMaxScale = 1.0f;
         for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
         {
             data.Lod        = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
-            data.VatAddress = 0;
+            data.VatAddress     = 0;
+            data.VatVertexCount = 0;
+            data.MinScreenScale = 1.0f;
             const auto& lods = data.Mesh->GetSkinnedLODs();
             float       screenSize = Geometry::kLOD0ScreenSize;
             if ( data.LodFeedback )
@@ -2756,11 +2763,36 @@ namespace Desert::Graphic::System
                 const auto* clip =
                      static_cast<const Animation::AnimationClip*>( feedback.VatClip.load( std::memory_order_relaxed ) );
                 if ( clip != nullptr && screenSize < limit )
-                    data.VatAddress =
+                {
+                    const VertexAnimationCrowd::Frame frame =
                          m_Crowd->FrameAddress( *data.Mesh, *clip, feedback.VatTime.load( std::memory_order_relaxed ) );
+                    data.VatAddress     = frame.Address;
+                    data.VatVertexCount = frame.VertexCount;
+                }
             }
             if ( data.LodFeedback )
                 data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
+            // The far figure keeps a readable size (WP-FAR-12D): its true projected size (the LOD metric
+            // without LODDistanceScale) below kMinScreenSize grows its draw about its feet, capped - VAT AND
+            // skeletal alike (WP-FAR-10D). The clamp is about pixels, so it never asks which path draws the
+            // figure: gated on the VAT path, it followed the level index, and Cinematic (LODDistanceScale 0.5)
+            // kept every far figure one level short of the baked lowest one - none went VAT, none was grown, and
+            // the crowd High showed at 300 m vanished into sub-pixel skeletal draws. A follower mesh
+            // (SkinSource) keeps its own size: it is grown with its leader's world or not at all.
+            if ( lodView && m_LODEnabled && data.SkinSource == nullptr && screenSize > 0.0f )
+            {
+                const float trueSize = screenSize * m_LODDistanceScale;
+                if ( trueSize < VertexAnimationCrowd::kMinScreenSize )
+                {
+                    const Common::Math::AABB bounds = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
+                    data.MinScreenScale = std::min( VertexAnimationCrowd::kMinScreenSize / trueSize,
+                                                    VertexAnimationCrowd::kMaxMinScreenScale );
+                    data.MinScreenPivot = glm::vec3( 0.5f * ( bounds.Min.x + bounds.Max.x ), bounds.Min.y,
+                                                     0.5f * ( bounds.Min.z + bounds.Max.z ) );
+                    ++crowdGrown;
+                    crowdMaxScale = std::max( crowdMaxScale, data.MinScreenScale );
+                }
+            }
             if ( data.VatAddress != 0 )
             {
                 ++crowdVat;
@@ -2779,7 +2811,7 @@ namespace Desert::Graphic::System
                       data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
                       lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, screenSize, m_LODDistanceScale );
         }
-        m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws );
+        m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws, crowdGrown, crowdMaxScale );
     }
 
     void MeshRenderer::DeclareCrowdReads( RDG::Builder& graph )
@@ -3128,9 +3160,19 @@ namespace Desert::Graphic::System
         // ranges over vertices nobody skinned this frame - the whole Cinematic crowd vanished at LOD > 0
         // (CINEMATIC-LOD: the CPU chose at distance x 0.5, the GPU at distance x 1). Forced, both agree by
         // construction, every cull view (main, cascades, VSM) included.
+        // A far VAT figure under its minimum screen size (SelectSkinnedLods, WP-FAR-12D) is drawn grown about
+        // its feet: one world for every pass, so its bounds, shadow and velocity follow the drawn figure.
+        const auto drawnWorld = []( const SkinnedMeshRenderData& data ) -> glm::mat4
+        {
+            if ( data.MinScreenScale == 1.0f )
+                return data.Transform;
+            return data.Transform * glm::translate( glm::mat4( 1.0f ), data.MinScreenPivot ) *
+                   glm::scale( glm::mat4( 1.0f ), glm::vec3( data.MinScreenScale ) ) *
+                   glm::translate( glm::mat4( 1.0f ), -data.MinScreenPivot );
+        };
         for ( const auto& data : m_SkinnedQueue )
             skinned.push_back( { .Entity = data.Entity,
-                                 .World  = data.Transform,
+                                 .World  = drawnWorld( data ),
                                  .Bones  = data.BoneMatrices,
                                  .Mesh   = data.Mesh,
                                  .Flags  = Flags::kSkinned | Flags::kMovableCaster |
@@ -3401,7 +3443,7 @@ namespace Desert::Graphic::System
             m_Crowd->UploadInGraph( graph );
             for ( const SkinnedMeshRenderData& data : m_SkinnedQueue )
                 if ( data.VatAddress != 0 && scene.IsValid( data.GpuPrimitive ) )
-                    scene.SetSkinCache( data.GpuPrimitive, data.VatAddress, data.Mesh->GetVertexCount() );
+                    scene.SetSkinCache( data.GpuPrimitive, data.VatAddress, data.VatVertexCount );
         }
         if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
             return uploaded;

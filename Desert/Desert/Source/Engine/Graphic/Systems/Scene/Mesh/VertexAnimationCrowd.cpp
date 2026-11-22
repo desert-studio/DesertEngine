@@ -2,7 +2,7 @@
 
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
-#include <Engine/Animation/Animator.hpp>
+#include <Engine/Assets/VertexAnimationDerivedData.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Graphic/Systems/RayTracing/SkinnedRayTracingGeometry.hpp>
 
@@ -17,13 +17,6 @@
 
 namespace Desert::Graphic::System
 {
-    namespace
-    {
-        // The skin cache's stream layout (RayTracingSkinCache.hpp, Common/SkinCacheStreams.glslh), per vertex
-        // count V: current positions [0, 3V), previous positions [3V, 6V), normal / tangent / bitangent [6V, 15V).
-        constexpr uint64_t kFloatsPerVertex = 15u;
-    } // namespace
-
     VertexAnimationCrowd::VertexAnimationCrowd()  = default;
     VertexAnimationCrowd::~VertexAnimationCrowd() = default;
 
@@ -33,109 +26,72 @@ namespace Desert::Graphic::System
             bake.InUse = false;
     }
 
-    Common::BoolResultStr VertexAnimationCrowd::BakeClip( Bake& bake, const SkinnedMesh& mesh,
+    Common::BoolResultStr VertexAnimationCrowd::LoadClip( Bake& bake, const SkinnedMesh& mesh,
                                                           const Animation::AnimationClip& clip )
     {
-        DESERT_PROFILE_SCOPE( "VertexAnimationCrowd::BakeClip" );
-        const auto& lods = mesh.GetSkinnedLODs();
-        if ( lods.empty() )
-            return Common::MakeError( "the mesh has no skinned levels" );
-        const SkinnedMesh::SkinnedLOD&    lowest   = lods.back();
-        const std::vector<SkinnedVertex>& vertices = mesh.GetVertices();
-        const uint32_t                    count    = mesh.GetVertexCount();
-        if ( static_cast<std::size_t>( lowest.FirstVertex ) + lowest.VertexCount > vertices.size() ||
-             vertices.size() > count )
-            return Common::MakeError(
-                 std::format( "the lowest level's vertices [{}, +{}) are not on the CPU ({} of {})",
-                              lowest.FirstVertex, lowest.VertexCount, vertices.size(), count ) );
-        const double duration = clip.DurationSeconds();
-        if ( !( duration > 0.0 ) )
-            return Common::MakeError( "the clip has no length" );
-        const uint32_t frames =
-             std::max( 1u, static_cast<uint32_t>( std::lround( duration * kBakeFramesPerSecond ) ) );
-
-        Animation::Animator animator( mesh.GetSkeleton() );
-        animator.Play( clip, true );
-
-        const uint64_t slot = static_cast<uint64_t>( count ) * kFloatsPerVertex;
-        bake.Data.assign( slot * frames, 0.0f );
-        for ( uint32_t f = 0; f < frames; ++f )
-        {
-            animator.SetTime( static_cast<float>( f ) / kBakeFramesPerSecond );
-            const std::vector<glm::mat4>& palette = animator.GetPose().Matrices;
-            if ( palette.empty() )
-                return Common::MakeError( std::format( "the clip's frame {} evaluated no pose", f ) );
-            float* const out = bake.Data.data() + slot * f;
-            for ( uint32_t v = lowest.FirstVertex; v < lowest.FirstVertex + lowest.VertexCount; ++v )
-            {
-                const SkinnedVertex& vertex = vertices[v];
-                glm::mat4            skin( 0.0f );
-                for ( std::size_t i = 0; i < SkinnedVertex::MAX_BONE_INFLUENCES; ++i )
-                    if ( vertex.BoneWeights[i] != 0.0f && vertex.BoneIDs[i] < palette.size() )
-                        skin += palette[vertex.BoneIDs[i]] * vertex.BoneWeights[i];
-                const glm::mat3 skin3( skin );
-                const glm::vec3 posed     = glm::vec3( skin * glm::vec4( vertex.StaticVertex.Position, 1.0f ) );
-                const glm::vec3 normal    = skin3 * vertex.StaticVertex.Normal;
-                const glm::vec3 tangent   = skin3 * vertex.StaticVertex.Tangent;
-                const glm::vec3 bitangent = skin3 * vertex.StaticVertex.Bitangent;
-                std::memcpy( out + v * 3u, &posed, sizeof( glm::vec3 ) );
-                float* const frame = out + static_cast<uint64_t>( count ) * 6u + v * 9u;
-                std::memcpy( frame + 0, &normal, sizeof( glm::vec3 ) );
-                std::memcpy( frame + 3, &tangent, sizeof( glm::vec3 ) );
-                std::memcpy( frame + 6, &bitangent, sizeof( glm::vec3 ) );
-            }
-        }
-        // Previous positions: the frame before (the loop's last before frame 0), what the skin cache rotates in.
-        for ( uint32_t f = 0; f < frames; ++f )
-        {
-            const uint32_t     before = ( f + frames - 1u ) % frames;
-            const float* const from   = bake.Data.data() + slot * before + lowest.FirstVertex * 3u;
-            float* const       to =
-                 bake.Data.data() + slot * f + static_cast<uint64_t>( count ) * 3u + lowest.FirstVertex * 3u;
-            std::memcpy( to, from, sizeof( float ) * 3u * lowest.VertexCount );
-        }
-        bake.Frames      = frames;
-        bake.VertexCount = count;
-        bake.SlotBytes   = slot * sizeof( float );
+        DESERT_PROFILE_SCOPE( "VertexAnimationCrowd::LoadClip" );
+        auto loaded = Assets::LoadVertexAnimation(
+             { .Vertices = mesh.GetVertices(), .LODs = mesh.GetSkinnedLODs(), .Skeleton = mesh.GetSkeleton() },
+             clip );
+        if ( !loaded )
+            return Common::MakeError( loaded.GetError() );
+        const auto header = Assets::ReadVertexAnimationHeader( loaded.GetValue().Bytes );
+        if ( !header )
+            return Common::MakeError( header.GetError() );
+        const Assets::VertexAnimationHeader& h = header.GetValue();
+        bake.Frames      = h.Frames;
+        bake.FirstVertex = h.FirstVertex;
+        bake.VertexCount = h.VertexCount;
+        bake.SlotBytes   = static_cast<uint64_t>( h.VertexCount ) * Assets::kVertexAnimationFloatsPerVertex * sizeof( float );
+        bake.Data        = std::move( loaded.ExtractValue().Bytes );
+        bake.Data.erase( 0, sizeof( Assets::VertexAnimationHeader ) );
 
         bake.Buffer = RayTracing::CreateSkinCacheStreams();
         if ( !bake.Buffer )
-            return Common::MakeError( "no device buffer for the bake" );
-        if ( const Common::ResultStr<bool> prepared = bake.Buffer->Prepare( count * frames ); !prepared )
-            return Common::MakeError( std::format( "the bake's buffer was refused: {}", prepared.GetError() ) );
-        if ( bake.Buffer->GetBytes() < bake.Data.size() * sizeof( float ) )
-            return Common::MakeError( std::format( "the bake's buffer holds {} of {} bytes",
-                                                   bake.Buffer->GetBytes(), bake.Data.size() * sizeof( float ) ) );
-        LOG_INFO( "[Crowd] baked clip '{}' for a skinned mesh: {} frames at {} fps of its lowest level ({} of {} "
-                  "vertices, from {}), {:.1f} MB",
-                  clip.AnimationName, frames, kBakeFramesPerSecond, lowest.VertexCount, count, lowest.FirstVertex,
-                  static_cast<double>( bake.Data.size() * sizeof( float ) ) / ( 1024.0 * 1024.0 ) );
+            return Common::MakeError( "no device buffer for the vertex animation" );
+        if ( const Common::ResultStr<bool> prepared = bake.Buffer->Prepare( h.VertexCount * h.Frames ); !prepared )
+            return Common::MakeError( std::format( "the vertex animation's buffer was refused: {}", prepared.GetError() ) );
+        if ( bake.Buffer->GetBytes() < bake.Data.size() )
+            return Common::MakeError( std::format( "the vertex animation's buffer holds {} of {} bytes",
+                                                   bake.Buffer->GetBytes(), bake.Data.size() ) );
+        LOG_INFO( "[Crowd] clip '{}' vertex animation {:016x} {}: {} frames at {} fps of the lowest level ({} vertices "
+                  "from {} of {}), {:.3f} MB",
+                  clip.AnimationName, loaded.GetValue().Key,
+                  loaded.GetValue().DerivedNow ? "derived now into the DDC" : "derived (DDC hit)", h.Frames,
+                  h.FramesPerSecond, h.VertexCount, h.FirstVertex, mesh.GetVertexCount(),
+                  static_cast<double>( bake.Data.size() ) / ( 1024.0 * 1024.0 ) );
         return BOOLSUCCESS;
     }
 
-    uint64_t VertexAnimationCrowd::FrameAddress( const SkinnedMesh& mesh, const Animation::AnimationClip& clip,
-                                                 const float seconds )
+    VertexAnimationCrowd::Frame VertexAnimationCrowd::FrameAddress( const SkinnedMesh&             mesh,
+                                                                    const Animation::AnimationClip& clip,
+                                                                    const float                     seconds )
     {
         const auto [found, fresh] = m_Bakes.try_emplace( { &mesh, &clip } );
         Bake& bake                = found->second;
         if ( fresh )
         {
-            if ( const Common::BoolResultStr baked = BakeClip( bake, mesh, clip ); !baked )
+            if ( const Common::BoolResultStr baked = LoadClip( bake, mesh, clip ); !baked )
             {
-                LOG_ERROR( "[Crowd] clip '{}' cannot be baked: its figures stay skeletal: {}", clip.AnimationName,
-                           baked.GetError() );
+                LOG_ERROR( "[Crowd] clip '{}' has no vertex animation: its figures stay skeletal: {}",
+                           clip.AnimationName, baked.GetError() );
                 bake.Refused = true;
                 bake.Data    = {};
                 bake.Buffer.reset();
             }
         }
         if ( bake.Refused || bake.Buffer == nullptr || bake.Buffer->GetDeviceAddress() == 0 )
-            return 0;
+            return {};
         bake.InUse = true;
-        const auto at =
-             static_cast<int64_t>( std::floor( std::max( seconds, 0.0f ) * kBakeFramesPerSecond + 0.5f ) );
+        const auto at = static_cast<int64_t>(
+             std::floor( std::max( seconds, 0.0f ) * Assets::kVertexAnimationFramesPerSecond + 0.5f ) );
         const uint32_t frame = static_cast<uint32_t>( at % static_cast<int64_t>( bake.Frames ) );
-        return bake.Buffer->GetDeviceAddress() + bake.SlotBytes * frame;
+        // THE RANGE'S BIASED BASE: the streams hold the baked level's vertices only, and the vertex stage fetches
+        // by gl_VertexIndex in the mesh's vertex order (Common/SkinCacheStreams.glslh), so the address names where
+        // vertex 0 would sit - every fetch of [FirstVertex, +VertexCount) lands inside the frame's slot.
+        return { bake.Buffer->GetDeviceAddress() + bake.SlotBytes * frame -
+                      static_cast<uint64_t>( bake.FirstVertex ) * 3u * sizeof( float ),
+                 bake.VertexCount };
     }
 
     RDG::BufferRef VertexAnimationCrowd::RefIn( RDG::Builder& graph, Bake& bake )
@@ -159,7 +115,7 @@ namespace Desert::Graphic::System
             if ( !bake.InUse || bake.Uploaded || bake.Refused )
                 continue;
             const RDG::BufferRef ref = RefIn( graph, bake );
-            graph.QueueBufferUpload( ref, std::as_bytes( std::span( bake.Data ) ) );
+            graph.QueueBufferUpload( ref, std::as_bytes( std::span( bake.Data.data(), bake.Data.size() ) ) );
             bake.Uploaded = true;
             bake.Data     = {};
         }
@@ -172,15 +128,17 @@ namespace Desert::Graphic::System
                 reads.push_back( RefIn( graph, bake ) );
     }
 
-    void VertexAnimationCrowd::Report( const uint32_t skeletal, const uint32_t vat, const uint32_t draws )
+    void VertexAnimationCrowd::Report( const uint32_t skeletal, const uint32_t vat, const uint32_t draws,
+                                       const uint32_t grown, const float maxScale )
     {
-        const uint64_t counts = static_cast<uint64_t>( skeletal ) | ( static_cast<uint64_t>( vat ) << 21u ) |
-                                ( static_cast<uint64_t>( draws ) << 42u );
+        const uint64_t counts = static_cast<uint64_t>( skeletal ) | ( static_cast<uint64_t>( vat ) << 16u ) |
+                                ( static_cast<uint64_t>( draws ) << 32u ) | ( static_cast<uint64_t>( grown ) << 48u );
         if ( counts == m_ReportedCounts && ++m_FramesSinceReport < 60u )
             return;
         m_ReportedCounts    = counts;
         m_FramesSinceReport = 0;
-        LOG_INFO( "[Crowd] skeletal {}, vat {}, draws {}, anim CPU {:.4f} ms", skeletal, vat, draws,
-                  Animation::g_AnimationCpuMsPerFrame.load( std::memory_order_relaxed ) );
+        LOG_INFO( "[Crowd] skeletal {}, vat {}, draws {}, grown to min screen size {} (max x{:.2f}), anim CPU {:.4f} "
+                  "ms",
+                  skeletal, vat, draws, grown, maxScale, Animation::g_AnimationCpuMsPerFrame.load( std::memory_order_relaxed ) );
     }
 } // namespace Desert::Graphic::System

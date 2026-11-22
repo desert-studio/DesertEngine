@@ -3,6 +3,8 @@
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
+#include "Tools/LandscapePaintTool.hpp"
+#include "Tools/LandscapeSculptTool.hpp"
 #include "Tools/MeshToPhysicsTool.hpp"
 #include "RenderMethodsOverlay.hpp"
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -48,7 +50,6 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/SelectionContext.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
@@ -82,6 +83,23 @@
 #include <string_view>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/ControlRigComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UIDropdownComponent.hpp>
+#include <Engine/UI/Ecs/UIInputFieldComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UISliderComponent.hpp>
+#include <Engine/UI/Ecs/UIToggleComponent.hpp>
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
+#include <Engine/VFX/VFXWorld.hpp>
 
 namespace Desert::Editor
 {
@@ -333,6 +351,8 @@ namespace Desert::Editor
 
         m_LightGizmoRenderer = std::make_unique<LightGizmoRenderer>( scene, assetManager, m_UIHelper.get() );
         m_AsyncLoader        = std::make_unique<AsyncMeshLoader>(); // starts the background cook worker
+        m_LandscapeTool      = std::make_unique<Tools::LandscapeSculptTool>();
+        m_LandscapePaintTool = std::make_unique<Tools::LandscapePaintTool>();
 
         s_Live.push_back( this );
     }
@@ -2233,9 +2253,9 @@ namespace Desert::Editor
                      camera->GetViewMatrix(), camera->GetPosition(), width, height );
                 const auto edMode = Core::LandscapeSculptState::Get().Mode;
                 if ( edMode == Core::LandscapeEdMode::Paint )
-                    m_LandscapePaintTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered );
+                    m_LandscapePaintTool->Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered );
                 else if ( edMode == Core::LandscapeEdMode::Sculpt )
-                    m_LandscapeTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered,
+                    m_LandscapeTool->Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered,
                                             ImGui::GetIO().DeltaTime );
             }
         }

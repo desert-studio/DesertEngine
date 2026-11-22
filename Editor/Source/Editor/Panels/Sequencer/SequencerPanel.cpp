@@ -19,7 +19,6 @@
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Animator.hpp>
@@ -60,6 +59,12 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Core/WindowCloseGate.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace
 {

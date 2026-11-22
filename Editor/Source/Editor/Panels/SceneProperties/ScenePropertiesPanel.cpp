@@ -3,7 +3,6 @@
 #include "ComponentEditor.hpp"
 
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -26,6 +25,23 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/PointLightComponent.hpp>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/RectLightComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/SpotLightComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TextComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
 
 namespace Desert::Editor
 {
