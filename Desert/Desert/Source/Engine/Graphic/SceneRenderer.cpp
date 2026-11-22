@@ -1595,6 +1595,11 @@ namespace Desert::Graphic
         // PostProcess.BloomMips (Scalability; High 6 = the former BloomRenderer::kMaxBloomMips).
         m_Systems.Bloom->SetMaxMips(
              static_cast<uint32_t>( m_Quality.As<int>( Common::Scalability::Parameter::BloomMips ) ) );
+        // PostProcess.BloomMethod (Scalability: Convolution at Epic / Cinematic, Gaussian below) and the view's kernel
+        // (UE r.Bloom.Method + BloomConvolutionTexture / BloomConvolutionSize). AddFrameBloom asks PrepareConvolution.
+        m_Systems.Bloom->SetMethod(
+             m_Quality.As<Common::Scalability::BloomMethod>( Common::Scalability::Parameter::BloomMethod ) );
+        m_Systems.Bloom->SetConvolutionKernel( post.BloomConvolutionKernel, post.BloomConvolutionScale );
         m_Systems.Tonemap->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
         m_Systems.Tonemap->SetChromaticBloom( post.EnableBloom ? post.LensDispersion : 0.0f );
         // The lens stage (LENS-POST): the resolved volume's values, applied by the composite.

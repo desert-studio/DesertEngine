@@ -113,7 +113,10 @@ namespace Common::Scalability
         ReflectionMaxSteps,      // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
         DistanceFieldPoolMiB,    // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
         AmbientOcclusionSamples, // GTAO horizon taps per direction (SSAORenderer). 4..32, SSAO.shader kMaxTaps
-        BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
+        BloomMips, // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
+        // The bloom method (UE r.Bloom.Method): Values: BloomMethod (CapabilityCatalog.hpp) - Gaussian below Epic,
+        // Convolution (FFT, the volume's kernel image) at Epic and Cinematic. BloomRenderer::SetMethod.
+        BloomMethod,
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
         ReflectionCaptureSize,  // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
@@ -317,24 +320,24 @@ namespace Common::Scalability
         // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
         // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
         // SP_DOWNSAMPLE_LOG2 / SP_TRACED_TEXELS permutation) and resizes its atlases on a change.
-        ScreenProbeDownsample,            // screen pixels per probe side, 8 / 16 / 32 / 64 (UE
-                                          // r.Lumen.ScreenProbeGather.DownsampleFactor)
-        ScreenProbeTracedTexels,          // traced octahedral texels per probe side, 4..16 (UE
-                                          // r.Lumen.ScreenProbeGather.TracingOctahedronResolution)
-        IrradianceFieldProbesPerFrame,    // ProbeVolume's radiance-cache probes traced per frame (UE
-                                          // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget), read by
-                                          // RadianceCache::MakeRadianceCacheInputs for GIMethod::ProbeVolume
-        ReflectionsHitLighting,           // 0/1: HardwareTraced reflections run hit lighting - the ray
-                                          // tracing pipeline with each hit surface's own material (UE
-                                          // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
-        ScreenProbeAdaptiveAllocation,    // adaptive screen probes per uniform one, percent (UE
-                                          // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
-        ScreenProbeShortRangeAO,          // 0/1: the screen probe gather's own contact AO + bent normal (UE
-                                          // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
-        ScreenProbeSparseStableRays,      // 0/1: a uniform screen probe whose tile's history is settled traces
-                                          // half its texels a frame, a checkerboard alternating per frame, the
-                                          // other half rebuilt from its traced neighbours (FPS-SP-NEAR); 0 = every
-                                          // probe traces every texel
+        ScreenProbeDownsample,         // screen pixels per probe side, 8 / 16 / 32 / 64 (UE
+                                       // r.Lumen.ScreenProbeGather.DownsampleFactor)
+        ScreenProbeTracedTexels,       // traced octahedral texels per probe side, 4..16 (UE
+                                       // r.Lumen.ScreenProbeGather.TracingOctahedronResolution)
+        IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
+                                       // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget), read by
+                                       // RadianceCache::MakeRadianceCacheInputs for GIMethod::ProbeVolume
+        ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
+                                       // tracing pipeline with each hit surface's own material (UE
+                                       // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
+        ScreenProbeAdaptiveAllocation, // adaptive screen probes per uniform one, percent (UE
+                                       // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
+        ScreenProbeShortRangeAO,       // 0/1: the screen probe gather's own contact AO + bent normal (UE
+                                       // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
+        ScreenProbeSparseStableRays,   // 0/1: a uniform screen probe whose tile's history is settled traces
+                                       // half its texels a frame, a checkerboard alternating per frame, the
+                                       // other half rebuilt from its traced neighbours (FPS-SP-NEAR); 0 = every
+                                       // probe traces every texel
         // GI ScreenSpace (System::SSGIRenderer::Settings, read by SceneRenderer::BeginScene; UE r.SSGI.Quality):
         GlobalIlluminationScreenSpaceRays,           // cosine rays per pixel, 1..32
         GlobalIlluminationScreenSpaceSteps,          // HZB walk iterations per ray, 8..128
@@ -410,10 +413,10 @@ namespace Common::Scalability
         // chain as cooked.
         FoliageGrassMeshLodDistanceScalePercent,
         // Render pixels (FPS-GRASS-RASTER-COST; UE / Ghost of Tsushima grass: a blade's vertex count by its screen
-        // size, the LOD of the curve): the projected height of a blade's curve one strip segment stands for. A blade
-        // draws the coarsest strip level (each halves the segments) whose segments still stand at most this tall
-        // on screen - on top of the variety's LodDistance rings, never finer than they are - and a blade whose
-        // projected height falls below half a pixel is culled (it covers no sample). Read by SceneRenderer::
+        // size, the LOD of the curve): the projected height of a blade's curve one strip segment stands for. A
+        // blade draws the coarsest strip level (each halves the segments) whose segments still stand at most this
+        // tall on screen - on top of the variety's LodDistance rings, never finer than they are - and a blade
+        // whose projected height falls below half a pixel is culled (it covers no sample). Read by SceneRenderer::
         // BeginScene -> GrassRenderer::SetQuality -> PlanVariety (GrassParamsGpu::Lod.x / y of a blade) ->
         // GrassCull.shader through GrassFieldShare.glslh GrassBladeCurveLevel, the one bucket the visibility
         // raster, the masked depth prepass, the G-buffer and every cascade draw. 0 = the rings alone. 0..64.
@@ -539,17 +542,17 @@ namespace Common::Scalability
         // "Foliage.GrassVisibilityBuffer": 1 at every level, so only a machine override names it (0 = the A/B and
         // the rollback).
         FoliageGrassVisibilityBuffer,
-        // Landscape runtime virtual texture (UE r.VT.* under sg.TextureQuality, LANDSCAPE-RVT): the landscape layer
-        // blend rendered into 128-texel pages of a virtual square over the queued tiles, sampled by TerrainGBuffer.
-        // Read by SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality.
-        LandscapeVirtualTextureSizeLog2,         // mip0 side of the virtual square in texels, log2. 12..17
-        LandscapeVirtualTexturePoolPages,        // physical atlas side in pages (pool = side^2 pages). 8..64
-        LandscapeVirtualTextureUpdatesPerFrame,  // pages rendered per frame (r.VT.MaxUploadsPerFrame). 8..256
+        // Landscape runtime virtual texture (UE r.VT.* under sg.TextureQuality, LANDSCAPE-RVT): the landscape
+        // layer blend rendered into 128-texel pages of a virtual square over the queued tiles, sampled by
+        // TerrainGBuffer. Read by SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality.
+        LandscapeVirtualTextureSizeLog2,        // mip0 side of the virtual square in texels, log2. 12..17
+        LandscapeVirtualTexturePoolPages,       // physical atlas side in pages (pool = side^2 pages). 8..64
+        LandscapeVirtualTextureUpdatesPerFrame, // pages rendered per frame (r.VT.MaxUploadsPerFrame). 8..256
         // Impostor HLODs (IMPOSTORS-HLOD; UE: an HLOD layer's impostor batches switched by sg.ViewDistanceQuality,
-        // r.HLOD.*): 1 = a far cell built by an Impostor layer draws its octahedral impostor cards, 0 = it draws the
-        // same cell's source meshes instanced (the fallback the Impostor builder emits beside every card). The HLOD
-        // switch picks the variant: Core::WorldStreamer::SetHLODVisible. Key "ViewDistance.HLODImpostors": 1 at
-        // every level, so only a machine override names it (0 = the A/B and the off switch). 0/1
+        // r.HLOD.*): 1 = a far cell built by an Impostor layer draws its octahedral impostor cards, 0 = it draws
+        // the same cell's source meshes instanced (the fallback the Impostor builder emits beside every card). The
+        // HLOD switch picks the variant: Core::WorldStreamer::SetHLODVisible. Key "ViewDistance.HLODImpostors": 1
+        // at every level, so only a machine override names it (0 = the A/B and the off switch). 0/1
         ViewDistanceHLODImpostors,
         // Percent (CINEMATIC-LOD; UE r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale): every mesh's
         // LOD level - static, skinned, and the skinned instance's animation side (SkinnedLodFeedback screen size)

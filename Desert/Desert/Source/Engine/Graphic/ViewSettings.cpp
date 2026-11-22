@@ -65,6 +65,9 @@ namespace Desert::Graphic
         target.AutoExposure        = volume.AutoExposure;
         target.LocalExposureMethod = volume.LocalExposureMethod;
         target.EnableBloom         = volume.EnableBloom;
+        // The convolution kernel is an image: taken whole, like the compensation curve (UE blends the texture by
+        // its weight > 0.5 rule; one image per view is what the spectrum is built from).
+        target.BloomConvolutionKernel = volume.BloomConvolutionKernel;
         target.EnableLensFlare     = volume.EnableLensFlare;
         target.LensFlareGhostCount = volume.LensFlareGhostCount;
         target.SubsurfaceScattering = volume.SubsurfaceScattering;
@@ -132,6 +135,7 @@ namespace Desert::Graphic
         target.BloomThreshold    = Lerp( target.BloomThreshold, volume.BloomThreshold, weight );
         target.BloomIntensity    = Lerp( target.BloomIntensity, volume.BloomIntensity, weight );
         target.LensDispersion    = Lerp( target.LensDispersion, volume.LensDispersion, weight );
+        target.BloomConvolutionScale = Lerp( target.BloomConvolutionScale, volume.BloomConvolutionScale, weight );
         target.DepthOfFieldFocalDistance =
              Lerp( target.DepthOfFieldFocalDistance, volume.DepthOfFieldFocalDistance, weight );
         target.DepthOfFieldFstop = Lerp( target.DepthOfFieldFstop, volume.DepthOfFieldFstop, weight );

@@ -1,0 +1,96 @@
+// Convolution bloom's 1D FFT (UE PostProcessFFTBloom / GPUFastFourierTransform.usf, radix-2 here): one workgroup
+// transforms one line of the spectrum image in shared memory. A line element is a vec4 holding TWO complex values
+// (xy, zw) transformed side by side, so one pass over a line moves two colour channels.
+//
+// THE SPECTRUM IMAGE'S LAYOUT (BloomRenderer, BloomConvolution*.shader): RGBA32F, (2 * N.x) x N.y. Texel (x, y)
+// holds R in .xy and G in .zw; texel (N.x + x, y) holds B in .xy and 0 in .zw. Group g (0 = RG, 1 = B) of a line is
+// therefore at x + g * N.x.
+//
+// The includer declares `layout(...) uniform image2D Spectrum;` and the local size kBloomFFTThreads.
+
+#ifndef BLOOM_FFT_GLSLH
+#define BLOOM_FFT_GLSLH
+
+#define kBloomFFTThreads 256
+#define kBloomFFTMaxLength 1024 // BloomRenderer::kMaxFFTLength: 1024 x vec4 = 16 KiB of shared memory
+
+shared vec4 BloomFFTLine[kBloomFFTMaxLength];
+
+const float kBloomFFTPi = 3.14159265358979323846;
+
+// (a.xy, a.zw) x (w) as complex products, w = one twiddle for both.
+vec4 BloomFFTMulTwiddle( vec4 a, vec2 w )
+{
+    return vec4( a.x * w.x - a.y * w.y, a.x * w.y + a.y * w.x, a.z * w.x - a.w * w.y, a.z * w.y + a.w * w.x );
+}
+
+// (a.xy) x (b.xy) and (a.zw) x (b.zw), each complex.
+vec4 BloomFFTMulPairs( vec4 a, vec4 b )
+{
+    return vec4( a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x, a.z * b.z - a.w * b.w, a.z * b.w + a.w * b.z );
+}
+
+uint BloomFFTReverse( uint i, uint log2Length )
+{
+    return bitfieldReverse( i ) >> ( 32u - log2Length );
+}
+
+ivec2 BloomFFTTexel( uint line, uint i, uint group, uint axis, uint width )
+{
+    // axis 0: a row (line = y, i = x); axis 1: a column (line = x, i = y).
+    return axis == 0u ? ivec2( int( i + group * width ), int( line ) ) : ivec2( int( line + group * width ), int( i ) );
+}
+
+// Loads group @p group of line @p line into shared memory in bit-reversed order (the decimation-in-time input).
+void BloomFFTLoad( uint line, uint group, uint axis, uint lineLength, uint log2Length, uint width )
+{
+    for ( uint i = gl_LocalInvocationID.x; i < lineLength; i += kBloomFFTThreads )
+        BloomFFTLine[BloomFFTReverse( i, log2Length )] = imageLoad( Spectrum, BloomFFTTexel( line, i, group, axis, width ) );
+    barrier();
+}
+
+void BloomFFTStore( uint line, uint group, uint axis, uint lineLength, uint width )
+{
+    for ( uint i = gl_LocalInvocationID.x; i < lineLength; i += kBloomFFTThreads )
+        imageStore( Spectrum, BloomFFTTexel( line, i, group, axis, width ), BloomFFTLine[i] );
+    barrier();
+}
+
+// Natural order -> bit-reversed order, in place (each pair swapped by the one thread owning its smaller index).
+void BloomFFTBitReverse( uint lineLength, uint log2Length )
+{
+    for ( uint i = gl_LocalInvocationID.x; i < lineLength; i += kBloomFFTThreads )
+    {
+        uint r = BloomFFTReverse( i, log2Length );
+        if ( i < r )
+        {
+            vec4 t             = BloomFFTLine[i];
+            BloomFFTLine[i]    = BloomFFTLine[r];
+            BloomFFTLine[r]    = t;
+        }
+    }
+    barrier();
+}
+
+// The radix-2 decimation-in-time butterflies over the bit-reversed line: natural-order spectrum out. @p sign -1 =
+// forward, +1 = inverse (unnormalised: the unpack divides by N.x * N.y once).
+void BloomFFTButterflies( uint lineLength, float sign )
+{
+    for ( uint span = 1u; span < lineLength; span <<= 1u )
+    {
+        for ( uint k = gl_LocalInvocationID.x; k < ( lineLength >> 1u ); k += kBloomFFTThreads )
+        {
+            uint  j     = k & ( span - 1u );
+            uint  i0    = ( ( k - j ) << 1u ) + j;
+            uint  i1    = i0 + span;
+            float angle = sign * kBloomFFTPi * float( j ) / float( span );
+            vec4  a     = BloomFFTLine[i0];
+            vec4  b     = BloomFFTMulTwiddle( BloomFFTLine[i1], vec2( cos( angle ), sin( angle ) ) );
+            BloomFFTLine[i0]  = a + b;
+            BloomFFTLine[i1]  = a - b;
+        }
+        barrier();
+    }
+}
+
+#endif
