@@ -17,10 +17,12 @@
 #define DESERT_VISIBILITY_READ_ONLY // the resolve reads the words (and its vertex stage the tiles), writes none
 #include <Common/VisibilityBuffer.glslh>
 
+#ifndef DESERT_SURFACE_VIRTUAL_GEOMETRY // the VG resolve places through GpuScene's rows (below)
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
     mat4 transforms[];
 };
+#endif
 #ifdef DESERT_SURFACE_INSTANCE_IDS
 // The camera's list of ids (GPU-COST-22, as Vertex_GrassBlade.glslh): a row names a SLOT of it (the raster wrote
 // Visibility.x + its instance index), the slot the blade's row of InstanceTransforms.
@@ -49,6 +51,18 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 };
 // The raster narrowed each strip row to its card's hull: the corners are rebuilt through the same expressions.
 #include <Mesh/Surface/GrassBladeHull.glslh>
+#elif defined( DESERT_SURFACE_VIRTUAL_GEOMETRY )
+// VG-SW-RASTER: the `.VisibilityResolve.Binned.VirtualGeometry` cell (Mesh/Surface/VgVisibilityResolve.glslh): the
+// word's row is a row of the cut's VisibleClusters, resolved through the very tables the hardware raster's
+// `.VirtualGeometry` cell reads (Common/GpuScene.glslh DesertResolveVgDrawOf), its triangle's corners fetched
+// through the cluster's DAG (Common/VirtualGeometry.glslh).
+#define DESERT_GPU_SCENE_PRIMITIVES 1
+#define DESERT_GPU_SCENE_DRAWS 1
+#define DESERT_GPU_SCENE_VIRTUAL_GEOMETRY 1
+#define DESERT_GPU_SCENE_NO_VISIBLE_ROW 1
+#include <Mesh/Surface/VgVisibilityResolve.glslh>
+#include <Common/GpuScene.glslh>
+#include <Mesh/MeshVertexAccess.glslh>
 #else
 // The Instanced path (GRASS-VIS-MESH-1): the mesh grass section's rows and its mesh's buffers.
 #include <Mesh/Surface/GrassMeshVisibility.glslh>
@@ -225,6 +239,103 @@ void main()
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), 0.0,
                         ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u, true,
                         ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u );
+}
+#elif defined( DESERT_SURFACE_VIRTUAL_GEOMETRY )
+// THE VIRTUAL GEOMETRY RESOLVE (VG-SW-RASTER; UE 5 Nanite's FetchNaniteMaterialPixelParameters): a pixel the
+// software raster won ("VirtualGeometry: Software Raster", Programs/VirtualGeometry/SoftwareRaster.shader, word row =
+// VgFirstRow + VisibleClusters row, triangle = the cluster's) and whose material depth is this draw's IndirectGroup's
+// rebuilds the triangle from the cluster through the SAME draw (World = Primitive.LocalToWorld x InstanceToPrimitive
+// x the lod-0 slot's submesh transform, the software raster's matrix) and writes the G-buffer as the hardware
+// raster's `.GBuffer.Binned.VirtualGeometry` cell would have. No wind: the cut never sends a cluster the wind bends
+// to the software raster (it places no wind either), so the rebuild places none.
+void main()
+{
+    float depth;
+    uint  row, triangle;
+    if ( !DesertReadVisibility( ivec2( gl_FragCoord.xy ), depth, row, triangle ) )
+        discard;
+    // Another section's row (grass) or past the SW clusters: never this draw's (the EQUAL test already rejected
+    // it; the bound below guards the tables it indexes).
+    const uint first = DesertVgResolveFirstRow();
+    if ( row < first || row - first >= DesertVgResolveRowCount() ||
+         row - first >= uint( vgRasterVisible.VisibleClusters.length() ) )
+        discard;
+    const DesertVgDraw vg = DesertResolveVgDrawOf( row - first );
+    if ( triangle >= VgClusterTriangleCount( vg.Cluster ) )
+        discard;
+#ifdef DESERT_SURFACE_SAMPLES_MATERIAL
+    // The binned cell's `Material` (SurfaceTypes.glslh g_SurfaceMaterialRow): the draw slot's row, per pixel - a
+    // group's clusters share the pipeline, not the material instance.
+    g_SurfaceMaterialRow = vg.Draw.MaterialRow;
+#endif
+    const mat4 model     = vg.Draw.World;
+    const mat4 prevModel = vg.Draw.PrevWorld;
+    // The normal matrix as the cofactor of the model's 3x3, signed by det (the Instanced resolve's, below).
+    const mat3 linear       = mat3( model );
+    const mat3 cofactor     = mat3( cross( linear[1], linear[2] ), cross( linear[2], linear[0] ),
+                                    cross( linear[0], linear[1] ) );
+    const mat3 normalMatrix = dot( linear[0], cofactor[0] ) < 0.0 ? -cofactor : cofactor;
+    vec3       world[3];
+    vec3       previous[3];
+    vec4       jittered[3];
+    vec3       normal[3];
+    vec3       tangent[3];
+    vec3       bitangent[3];
+    vec2       uv[3];
+    vec2       uv1[3];
+    vec4       colour[3];
+    for ( uint k = 0u; k < 3u; ++k )
+    {
+        const VgMeshVertex vertex = VgFetchMeshVertex( vg.Dag, VgClusterCornerVertex( vg.Dag, vg.Cluster, triangle, k ) );
+        world[int( k )]     = ( model * vec4( vertex.Position, 1.0 ) ).xyz;
+        previous[int( k )]  = ( prevModel * vec4( vertex.Position, 1.0 ) ).xyz;
+        jittered[int( k )]  = cameraUB.JitteredViewProjection * vec4( world[int( k )], 1.0 );
+        normal[int( k )]    = normalize( normalMatrix * vertex.Normal );
+        tangent[int( k )]   = normalize( normalMatrix * vertex.Tangent );
+        bitangent[int( k )] = normalize( normalMatrix * vertex.Bitangent );
+        uv[int( k )]        = DesertMeshTextureUV( vertex.TextureCoord );
+        uv1[int( k )]       = DesertMeshTextureUV( vertex.TexCoord1 );
+        colour[int( k )]    = vertex.Color;
+    }
+
+    // From here the Instanced resolve's body (below), the draw's flags in GpuDriven's layout (a binned cell's).
+    const vec2 ndc   = DesertPixelToJitteredNdc( gl_FragCoord.xy );
+    const vec2 pixel = cameraUB.PixelToNdc.xy;
+    const vec3 b     = VisibilityInside( VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc ) );
+    vec3       dbdx, dbdy;
+    VisibilityBarycentricDerivatives( jittered[0], jittered[1], jittered[2], b, pixel, dbdx, dbdy );
+    const vec2 uv0         = b.x * uv[0] + b.y * uv[1] + b.z * uv[2];
+    g_DesertVisibilityUVdx = dbdx.x * uv[0] + dbdx.y * uv[1] + dbdx.z * uv[2];
+    g_DesertVisibilityUVdy = dbdy.x * uv[0] + dbdy.y * uv[1] + dbdy.z * uv[2];
+    const vec3 position    = b.x * world[0] + b.y * world[1] + b.z * world[2];
+    const vec3 n           = normalize( b.x * normal[0] + b.y * normal[1] + b.z * normal[2] );
+    const vec3 t           = normalize( b.x * tangent[0] + b.y * tangent[1] + b.z * tangent[2] );
+    const vec3 bt          = normalize( b.x * bitangent[0] + b.y * bitangent[1] + b.z * bitangent[2] );
+    g_DesertVisibilityTBNdx = mat3( VisibilityUnitTurn( tangent[0], tangent[1], tangent[2], b, dbdx ),
+                                    VisibilityUnitTurn( bitangent[0], bitangent[1], bitangent[2], b, dbdx ),
+                                    VisibilityUnitTurn( normal[0], normal[1], normal[2], b, dbdx ) );
+    g_DesertVisibilityTBNdy = mat3( VisibilityUnitTurn( tangent[0], tangent[1], tangent[2], b, dbdy ),
+                                    VisibilityUnitTurn( bitangent[0], bitangent[1], bitangent[2], b, dbdy ),
+                                    VisibilityUnitTurn( normal[0], normal[1], normal[2], b, dbdy ) );
+    const vec2 secondUV = b.x * uv1[0] + b.y * uv1[1] + b.z * uv1[2];
+    const vec4 tint     = b.x * colour[0] + b.y * colour[1] + b.z * colour[2];
+    const vec2 s0 = jittered[0].xy / jittered[0].w, s1 = jittered[1].xy / jittered[1].w,
+               s2 = jittered[2].xy / jittered[2].w;
+    const bool frontFacing = ( ( s1.x - s0.x ) * ( s2.y - s0.y ) - ( s2.x - s0.x ) * ( s1.y - s0.y ) ) > 0.0;
+
+    SurfaceInput i = DesertSurfaceInput( position, n, uv0, mat3( t, bt, n ), secondUV, tint, frontFacing );
+#ifdef DESERT_SURFACE_WEATHER
+    i.ObjectScaleUp       = length( mat3( model )[1] );
+    const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#else
+    const SurfaceOutput s = EvaluateSurface( i );
+#endif
+    const vec3  prevPosition = b.x * previous[0] + b.y * previous[1] + b.z * previous[2];
+    const float moved        = prevModel != model ? 1.0 : 0.0;
+    DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
+                        cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), moved,
+                        ( vg.Draw.Flags & DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW ) == 0u, true,
+                        ( vg.Draw.Flags & DESERT_GPU_DRAW_EMISSION_IS_LIGHT ) != 0u );
 }
 #else
 // THE INSTANCED PATH'S RESOLVE (GRASS-VIS-MESH-1; UE 5 Nanite's FetchNaniteMaterialPixelParameters over a mesh's

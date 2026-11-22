@@ -3566,6 +3566,29 @@ namespace Desert::Core::Preprocess
                             result.Passes.push_back( std::move( cell ) );
                         }
                 }
+            // VG-SW-RASTER: the VG visibility resolve of every kSurfaceVirtualGeometryPaths path
+            // (kSurfaceVirtualGeometryResolveCellOf), after every `.VirtualGeometry` cell (the earlier cells'
+            // order is unchanged). No `.Parallax` twin: a parallax template's clusters stay on the hardware raster
+            // (ClusterCut's SW split admits only slots with kDrawSlotSoftwareRaster).
+            if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                for ( const std::string_view path : kSurfaceVirtualGeometryPaths )
+                {
+                    DShaderPass cell;
+                    cell.Name = SurfaceCellName( path, kSurfaceVirtualGeometryResolvePass ) +
+                                std::string( kSurfaceBinnedCellSuffix ) +
+                                std::string( kSurfaceVirtualGeometryCellSuffix );
+                    cell.State = cellState;
+                    for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                        cell.Stages.emplace( stage,
+                                             AssembleSurfaceCellStage(
+                                                  stage, path, kSurfaceVirtualGeometryResolvePass, *surfaceBlock,
+                                                  cellInclude, autoDecls, result.Surface.Blend, shadingModelDefine,
+                                                  result.Surface.ResponsiveAA, opacityMaskFunction, false,
+                                                  heightFunctions, respondsToWeather, true, true ) );
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Passes.push_back( std::move( cell ) );
+                }
         }
 
         // The default program is the top-level stage set; when a shader consists solely of

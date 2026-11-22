@@ -41,7 +41,10 @@ layout( std430, binding = kVgRasterVisibilityBinding ) restrict buffer Visibilit
 // @p first + @p count), else collapsed to one point outside the view (no fragment). Pixel coordinates map to NDC
 // through the renderer's Y-up viewport (VulkanRendererAPI::SetViewportAndScissor: negative height, so framebuffer
 // row y is NDC 1 - 2 y / H), the mapping gl_FragCoord of the fragment stage reads back.
-vec4 DesertVisibilityTilePosition( const uint instance, const uint vertex, const uint first, const uint count )
+// At @p materialDepth: a grass section's own (DesertVisibilityTilePosition below) or a VG material group's
+// (DesertVisibilityVgMaterialDepth, Vertex_Static.glslh / Vertex_Instanced.glslh's VG resolve branch).
+vec4 DesertVisibilityTilePositionAt( const uint instance, const uint vertex, const uint first, const uint count,
+                                     const float materialDepth )
 {
     const vec4  outside = vec4( -2.0, -2.0, 0.0, 1.0 );
     const uvec2 extent  = VisibilityHeader.xy;
@@ -71,8 +74,13 @@ vec4 DesertVisibilityTilePosition( const uint instance, const uint vertex, const
     const uvec2 cell  = uvec2( tile % grid.x, tile / grid.x );
     const vec2  pixel = min( ( vec2( cell ) + corner ) * float( kVisTileSize ), vec2( extent ) );
     const vec2  ndc   = pixel / vec2( extent ) * 2.0 - 1.0;
-    // At the section's material depth (DesertVisibilityMaterialDepth): the resolve tests it EQUAL.
-    return vec4( ndc.x, -ndc.y, DesertVisibilityMaterialDepth( first ), 1.0 );
+    // At the resolve's material depth: it tests it EQUAL.
+    return vec4( ndc.x, -ndc.y, materialDepth, 1.0 );
+}
+
+vec4 DesertVisibilityTilePosition( const uint instance, const uint vertex, const uint first, const uint count )
+{
+    return DesertVisibilityTilePositionAt( instance, vertex, first, count, DesertVisibilityMaterialDepth( first ) );
 }
 
 uint64_t DesertPackVisibility( const float reversedDepth, const uint row, const uint triangle )
