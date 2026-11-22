@@ -13,12 +13,14 @@
 Когда --subject viewport set Camera.FOV 60
 Когда --subject viewport set Camera.Position -8482,0,-400
 Когда --subject viewport set Camera.Direction 0,0,1
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Когда state
-Тогда 1_occluded the building Main C07_08_B01 stands in the centre of the view; state drawBinViews gbuffer: occluded N > 0 (most of the city held back)
+Тогда 1_occluded the building Main C07_08_B01 stands in the centre of the view; state drawBinViews gbuffer: occluded N > 0 (measured 11-22: phase1 24, occluded 2 - the bushes behind the building)
 Когда --subject viewport set Camera.Position -8482,3000,-400
 Когда --subject viewport set Camera.Direction 0,-0.3,1
-Когда advance 3
+Когда advance 2
+Когда advance 1
 Когда state
-Тогда 2_clear over the roof: the city's buildings and bushes are drawn, no hole or missing building; gbuffer occluded drops vs 1_occluded, phase1 rises
+Тогда 2_clear over the roof: the city's buildings and bushes are drawn, no hole or missing building; gbuffer occluded drops vs 1_occluded, phase1 rises (measured: phase1 26, occluded 0)
 Когда run Action "Stop"
