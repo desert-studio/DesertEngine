@@ -12,7 +12,6 @@
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
 
-#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <string>

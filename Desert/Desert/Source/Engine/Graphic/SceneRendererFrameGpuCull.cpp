@@ -7,7 +7,6 @@
 // draws, the deferred main view in two phases around this frame's furthest HZB.
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Frustum.hpp>
-#include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>

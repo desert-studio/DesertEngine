@@ -10,7 +10,6 @@
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/World/Landscape/LandscapeSplines.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>

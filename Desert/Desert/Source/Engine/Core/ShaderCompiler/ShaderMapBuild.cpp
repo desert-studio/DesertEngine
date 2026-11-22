@@ -7,7 +7,6 @@
 #include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
-#include <Common/Core/Core.hpp>
 #include <Common/Core/JobSystem.hpp>
 
 #include <algorithm>

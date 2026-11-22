@@ -37,11 +37,9 @@
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/quaternion.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
 #include <glm/trigonometric.hpp>
 
 #include <algorithm>
@@ -59,12 +57,12 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
-#include <Engine/Core/WindowCloseGate.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/UI/Ecs/UIAnimComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace
 {

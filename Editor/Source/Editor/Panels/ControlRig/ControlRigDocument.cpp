@@ -12,7 +12,6 @@
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
-#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
@@ -26,6 +25,8 @@
 #include <filesystem>
 #include <format>
 #include <functional>
+#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+#include <cstdio>
 
 namespace ed = ax::NodeEditor;
 

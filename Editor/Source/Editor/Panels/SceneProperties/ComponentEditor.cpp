@@ -14,7 +14,6 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
-#include <Editor/Widgets/Controls/Controls.hpp>
 
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>

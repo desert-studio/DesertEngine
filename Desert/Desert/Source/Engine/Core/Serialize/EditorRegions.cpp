@@ -9,7 +9,6 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <format>

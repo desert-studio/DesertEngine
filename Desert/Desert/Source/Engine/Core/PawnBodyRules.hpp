@@ -3,7 +3,6 @@
 // The pure half of Core::DefaultPawnCapsule: which block of a prefab's records is its pawn's body. Its own header
 // so PlayerStart.hpp's many includers do not pay for the JSON tree; compiled in PlayerStartRules.cpp, so a test
 // runs it on records it wrote, with no asset manager behind it.
-#include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 

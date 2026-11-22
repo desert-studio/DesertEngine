@@ -13,7 +13,6 @@
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
-#include <Common/Core/ResultStr.hpp>
 #include <memory>
 #include <string>
 #include <string_view>

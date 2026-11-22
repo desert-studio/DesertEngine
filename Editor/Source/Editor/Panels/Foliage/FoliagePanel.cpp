@@ -21,7 +21,6 @@
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
-#include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Core/Constants.hpp>
@@ -38,8 +37,6 @@
 #include <string_view>
 #include <vector>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
-#include <Engine/ECS/SkinnedMeshComponent.hpp>
-#include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>

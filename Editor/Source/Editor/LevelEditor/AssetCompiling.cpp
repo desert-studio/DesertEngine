@@ -3,7 +3,6 @@
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 
-#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>

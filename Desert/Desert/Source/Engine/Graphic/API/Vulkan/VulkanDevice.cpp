@@ -10,13 +10,11 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp> // GetImageVulkanFormat — engine format -> VkFormat
-#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
 
-#include <Common/Core/Constants.hpp>
 #include <Common/Core/CrashHandler.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>

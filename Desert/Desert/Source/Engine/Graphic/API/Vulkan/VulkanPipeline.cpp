@@ -8,10 +8,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
-#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
-#include <Engine/Graphic/VertexBuffer.hpp>
 #include <Engine/Graphic/Image.hpp>
 
 #include <algorithm>

@@ -2,30 +2,19 @@
 
 #include <entt/entt.hpp>
 
-#include <Common/Core/AssetHandle.hpp>
-#include <Common/Core/UUID.hpp>
 
 #include <cstdint>
-#include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
 #ifndef GLM_ENABLE_EXPERIMENTAL
 #define GLM_ENABLE_EXPERIMENTAL
 #endif
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/quaternion.hpp>
 
-#include <CoreReflection/ReflectionMacros.hpp>
 #include <atomic>
 
-#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/MaterialParamOverride.hpp>
-#include <Engine/ECS/MorphComponent.hpp>
-#include <Engine/ECS/SkinnedMeshComponent.hpp>
-#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::ECS
 {

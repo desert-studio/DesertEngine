@@ -8,7 +8,6 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
-#include <Engine/Graphic/Shader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>

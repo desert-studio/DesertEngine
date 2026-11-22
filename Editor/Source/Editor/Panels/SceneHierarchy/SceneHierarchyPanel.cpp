@@ -19,18 +19,12 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/ECS/FoliageFieldEntities.hpp>
-#include <Engine/Assets/MaterialData.hpp>
-#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>
-#include <Engine/Geometry/DynamicMesh.hpp>
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
@@ -42,12 +36,10 @@
 #include <ImGui/imgui_internal.h>
 
 #include <Common/Core/Constants.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
 #include <filesystem>
 #include <functional>
 #include <cstring>
-#include <Engine/Animation/Timeline/Track.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
@@ -69,6 +61,7 @@
 #include <Engine/Scripting/ScriptComponent.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Partition/DataLayersComponent.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Editor
 {

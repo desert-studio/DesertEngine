@@ -11,7 +11,6 @@
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <bit>

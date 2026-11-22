@@ -6,7 +6,6 @@
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <system_error>

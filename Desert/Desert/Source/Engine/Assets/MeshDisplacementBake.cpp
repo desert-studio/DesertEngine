@@ -15,7 +15,6 @@
 #include <algorithm>
 #include <bit>
 #include <cstring>
-#include <format>
 
 namespace Desert::Assets
 {

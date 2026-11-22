@@ -13,7 +13,6 @@
 #include <Engine/Core/TextTemplate.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
-#include <Common/Core/Logger.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
 #include <chrono>

@@ -31,18 +31,26 @@ namespace Desert::Editor
     // different places of the palette's order. Each walking the disk for itself was the second walk the first
     // one existed to avoid; so the registry takes this census once when a build begins
     // (CommandRegistry::OnBuildBegin) and every provider that lists files reads it.
+    //
+    // TAKEN ON FIRST READ, NOT AT THE BUILD'S START (WQH p2): a control `run` builds only the providers of the group
+    // it names (CommandRegistry::BuildGroup), and the walk (~110 ms on the test project) was paid by every `run`
+    // whether or not one of its providers lists a file. The build's start now only marks the census stale; the
+    // first provider that reads it walks the disk, once per build, the rest share that walk.
     class AssetFileCensus
     {
     public:
-        // Walks the content root (loose files and a mounted .dpak alike, ListFilesRecursive).
-        void                                                    Take();
-        [[nodiscard]] const std::vector<std::filesystem::path>& Files() const
+        // A new build begins: the next Files() walks the content root again.
+        void Invalidate()
         {
-            return m_Files;
+            m_Taken = false;
         }
+        // Walks the content root (loose files and a mounted .dpak alike, ListFilesRecursive) on the first read of
+        // a build.
+        [[nodiscard]] const std::vector<std::filesystem::path>& Files() const;
 
     private:
-        std::vector<std::filesystem::path> m_Files;
+        mutable std::vector<std::filesystem::path> m_Files;
+        mutable bool                               m_Taken = false;
     };
 
     // The Assets groups of the command palette (and the World Partition conversion, the Scene entry the World

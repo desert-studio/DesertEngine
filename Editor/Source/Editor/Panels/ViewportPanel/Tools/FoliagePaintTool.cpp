@@ -33,8 +33,6 @@
 
 #include <ImGui/imgui.h>
 
-#include <glm/gtc/quaternion.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -49,15 +47,12 @@
 #include <string>
 #include <cstdio>
 #include <unordered_map>
-#include <string_view>
 #include <unordered_set>
 #include <vector>
 #include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
-#include <Engine/Core/WindowCloseGate.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
-#include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
@@ -65,7 +60,6 @@
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
-#include <PhysicsCore/CollisionProfiles.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Core/Scene.hpp>
 

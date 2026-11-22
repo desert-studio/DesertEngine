@@ -2,9 +2,6 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 
-#include <ImGui/imgui.h>
-#include <glm/gtc/constants.hpp>
-#include <Engine/Destruction/DestructionField.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor

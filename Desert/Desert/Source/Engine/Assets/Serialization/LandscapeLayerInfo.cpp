@@ -4,13 +4,13 @@
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Assets::Serialization
 {

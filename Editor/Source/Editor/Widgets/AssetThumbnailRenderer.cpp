@@ -30,7 +30,6 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <cmath>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>

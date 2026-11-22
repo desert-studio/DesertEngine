@@ -433,6 +433,20 @@ namespace Desert::Editor
         if ( !m_ControlSocket.IsListening() )
             return;
 
+        // WQH p2: the command index `run` slices by (CommandRegistry::BuildGroup) is learnt from one full Build,
+        // taken once, on the first frame the editor has settled - the boot's cost, never a scenario step's.
+        if ( !m_CommandIndexLearnt && m_FrameQuiescence.Settled() )
+        {
+            m_CommandIndexLearnt = true;
+            const auto                  start = std::chrono::steady_clock::now();
+            std::vector<PaletteCommand> dictionary;
+            m_Commands.Build( dictionary );
+            LOG_INFO( "[Control] command index learnt from the whole dictionary ({} command(s)) in {:.1f} ms; a `run` "
+                      "builds only its group's providers from here on",
+                      dictionary.size(),
+                      std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count() );
+        }
+
         // Camera.Spin / Camera.Glide: the turn and the walk advance once per frame, before any request of this
         // frame is read, so a `profile-dump` taken while they run measures a camera that moved every frame.
         if ( m_CameraSpinDegreesPerFrame != 0.0f || m_CameraGlideCmPerFrame != 0.0f ||
@@ -1227,13 +1241,32 @@ namespace Desert::Editor
                 // once to look the command up and once to run it — would let the two disagree on any
                 // frame where something opened or closed in between, and the command that ran would not
                 // be the command that was found.
-                const auto                        buildStart = std::chrono::steady_clock::now();
+                //
+                // WQH p2: only the GROUP'S providers are built (CommandRegistry::BuildGroup, the index the full
+                // Builds learnt) - the whole dictionary cost ~0.5 s of the request's frame. An address the slice
+                // does not hold is confirmed against the whole dictionary before it is refused, so a refusal's
+                // suggestions and candidate count are the full ones and a group a provider has only just begun to
+                // produce is still found (that Build re-teaches the index).
+                const auto                                 buildStart = std::chrono::steady_clock::now();
                 std::vector<PaletteCommand>                dictionary;
                 std::vector<CommandRegistry::ProviderCost> costs;
-                m_Commands.Build( dictionary, &costs );
+                const Control::CommandAddress              wanted{ request.Group, request.Label };
+                const bool                 sliced   = m_Commands.BuildGroup( request.Group, dictionary, &costs );
+                Control::Resolution        resolved = Control::ResolveCommand( dictionary, wanted );
+                bool whole = !sliced;
+                if ( !resolved.Found )
+                {
+                    whole = true;
+                    if ( sliced )
+                        LOG_INFO( "[Control] run '{}' / '{}': not in the group's slice ({} command(s)); building the "
+                                  "whole dictionary",
+                                  request.Group, request.Label, dictionary.size() );
+                    dictionary.clear();
+                    costs.clear();
+                    m_Commands.Build( dictionary, &costs );
+                    resolved = Control::ResolveCommand( dictionary, wanted );
+                }
                 const auto runStart = std::chrono::steady_clock::now();
-                const Control::CommandAddress     wanted{ request.Group, request.Label };
-                const Control::Resolution         resolved = Control::ResolveCommand( dictionary, wanted );
 
                 if ( !resolved.Found )
                 {
@@ -1251,9 +1284,10 @@ namespace Desert::Editor
                 std::string slowest;
                 for ( std::size_t i = 0; i < std::min<std::size_t>( costs.size(), 3 ); ++i )
                     slowest += std::format( "{}{} {:.1f} ms", i ? ", " : "", costs[i].Owner, costs[i].Ms );
-                LOG_INFO( "[Control] run '{}' / '{}': dictionary of {} command(s) built in {:.1f} ms (slowest: {}), "
+                LOG_INFO( "[Control] run '{}' / '{}': {} of {} command(s) built in {:.1f} ms (slowest: {}), "
                           "the command ran in {:.1f} ms",
-                          request.Group, request.Label, dictionary.size(),
+                          request.Group, request.Label, whole ? "dictionary" : "the group's slice",
+                          dictionary.size(),
                           std::chrono::duration<double, std::milli>( runStart - buildStart ).count(), slowest,
                           std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - runStart )
                                .count() );

@@ -2,11 +2,9 @@
 #include <Editor/Baking/MeshImpostorBaking.hpp>
 #include <Common/Core/Logger.hpp>
 #include "StaticMeshComponent.hpp"
-#include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <ImGui/imgui.h>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
-#include <Engine/Geometry/Mesh.hpp>
 
 #include "MaterialsPanelComponent.hpp"
 
@@ -18,21 +16,14 @@
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <array>
-#include <filesystem>
-#include <system_error>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
-#include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 
 #include <algorithm>
 #include <cfloat>
 #include <format>
-#include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
-#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
-#include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>

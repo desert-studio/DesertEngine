@@ -4,11 +4,11 @@
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
 
 #include <format>
 #include <functional>
 #include <string>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
 
 namespace Desert::Editor

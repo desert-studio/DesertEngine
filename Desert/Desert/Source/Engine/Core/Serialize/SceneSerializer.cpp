@@ -11,7 +11,6 @@
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
-#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -20,13 +19,8 @@
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
-#include <Engine/Core/SceneSettings.hpp>
-#include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
-#include <Common/Core/Units.hpp>
-#include <Common/Content/CanonicalText.hpp>
 
 #include <cmath>
 #include <filesystem>

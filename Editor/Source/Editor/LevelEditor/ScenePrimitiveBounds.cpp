@@ -7,7 +7,6 @@
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
-#include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>

@@ -2,7 +2,6 @@
 
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <unordered_set>

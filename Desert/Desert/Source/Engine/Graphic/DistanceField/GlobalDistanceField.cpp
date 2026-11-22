@@ -6,7 +6,6 @@
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
 
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Graphic/Image.hpp>
@@ -16,7 +15,6 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <array>
@@ -30,6 +28,15 @@
 #include <unordered_set>
 #include <utility>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Common/Core/Memory/Buffer.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 namespace Desert::Graphic::DistanceField
 {

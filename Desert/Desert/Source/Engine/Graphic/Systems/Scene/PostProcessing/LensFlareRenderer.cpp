@@ -5,7 +5,6 @@
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
-#include <glm/gtc/constants.hpp>
 
 #include <algorithm>
 #include <cmath>

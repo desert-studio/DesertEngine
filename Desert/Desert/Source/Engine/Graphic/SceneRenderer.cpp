@@ -34,11 +34,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
-#include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
-#include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
-#include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Graphic/RendererContext.hpp>
 
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -46,19 +42,16 @@
 
 #include <unordered_set>
 #include <mutex>
-#include <Common/Core/Units.hpp>
 #include <Common/Core/Algorithms/ScopeExit.hpp>
 #include <Common/Core/Memory/FrameArena.hpp>
 
 #include <Common/Core/Profiler.hpp>
 
-#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <bit>
 #include <functional>
 #include <initializer_list>
-#include <map>
 #include <memory>
 #include <array>
 #include <optional>
@@ -75,7 +68,6 @@
 #include <Engine/Graphic/Systems/Scene/Debug/DebugDrawRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/WorldParameterTable.hpp>
-#include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 
 #include <cstring>

@@ -12,12 +12,22 @@
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 #include <Editor/Panels/WorldPartition/WorldPartitionPanel.hpp>
 
-#include <Engine/Core/Scene.hpp>
-#include <Common/Core/Logger.hpp>
 
 #include <array>
 #include <format>
+#include <Engine/Core/Scene.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/Core/Serialize/EntityPackages.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/Common.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
+#include <glm/glm.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
+#include <Common/Json/Document.hpp>
+#include <cmath>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <cstdio>
 
 namespace Desert::Editor
 {

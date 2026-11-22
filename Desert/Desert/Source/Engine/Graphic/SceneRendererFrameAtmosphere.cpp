@@ -1,37 +1,15 @@
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
-#include <Common/Core/DevInstruments.hpp>
-#include <Engine/Graphic/ViewTargetFormats.hpp>
-#include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
-#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
-#include <Engine/Graphic/ResourceLedger.hpp>
-#include <Engine/Graphic/RenderConfig.hpp>
-#include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
-#include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
-#include <Engine/Core/Application.hpp>
-#include <Engine/Core/EngineContext.hpp>
 
-#include <Engine/Graphic/ViewBudgetGate.hpp>
 
-#include <mutex>
-#include <Common/Core/Units.hpp>
 
-#include <Common/Core/Profiler.hpp>
 
-#include <glm/glm.hpp>
 
 #include <algorithm>
-#include <functional>
-#include <initializer_list>
-#include <map>
 #include <memory>
-#include <atomic>
-#include <chrono>
 #include <format>
-#include <cmath>
-#include <string>
 #include <string_view>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>

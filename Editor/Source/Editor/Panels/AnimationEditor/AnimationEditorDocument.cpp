@@ -31,7 +31,6 @@
 #include <Engine/Animation/SkeletonReference.hpp>
 #include <Engine/Assets/Mesh/SkeletonReferenceAssets.hpp>
 
-#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
@@ -46,9 +45,7 @@
 #include <cctype>
 #include <filesystem>
 #include <format>
-#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
-#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor
 {

@@ -1,6 +1,5 @@
 #include "SkinnedMeshAsset.hpp"
 #include <Engine/Assets/AssetManager.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
@@ -12,6 +11,7 @@
 #include <Common/Core/PathText.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Assets
 {

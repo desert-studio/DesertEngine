@@ -6,7 +6,6 @@
 #include <Editor/Core/UIProbeRegistry.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Entity.hpp>
 #include <Engine/UI/Ecs/UIIntrospectionEcs.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -15,7 +14,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cinttypes>
 #include <cstdio>
 #include <format>
 #include <Engine/UI/Ecs/UILayoutComponent.hpp>

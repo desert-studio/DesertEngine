@@ -11,12 +11,10 @@
 
 #include <ImGui/imgui.h>
 
-#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <utility>
 #include <Engine/ECS/TagComponent.hpp>
-#include <Engine/ECS/VisibilityComponent.hpp>
 
 namespace Desert::Editor
 {

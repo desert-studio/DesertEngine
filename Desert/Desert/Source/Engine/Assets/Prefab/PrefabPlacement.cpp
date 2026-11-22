@@ -1,6 +1,5 @@
 #include <Engine/Assets/Prefab/PrefabPlacement.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 namespace Desert::Assets
 {

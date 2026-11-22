@@ -8,6 +8,8 @@
 // and `<project>/.thumbnail.png` for the launcher tile. A member of EditorLayer BY VALUE, declared after the
 // SceneWorkspace whose active scene it reads.
 
+#include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // the shot's detached staging (WindowPngWrite)
+
 #include <chrono>
 #include <cstdint>
 #include <future>
@@ -63,8 +65,11 @@ namespace Desert::Editor
             std::string                           Path;
             uint32_t                              Width     = 0;
             uint32_t                              Height    = 0;
+            double                                JoinMs    = 0.0; // on the frame: the render task join
             double                                WaitMs    = 0.0; // on the frame: the device idle wait
-            double                                CollectMs = 0.0; // on the frame: readback + RGBA8 pack
+            double                                CollectMs = 0.0; // on the frame: staging detach (read, pack: worker)
+            // The capture's staging, read by the worker, released by FinishWindowPng.
+            Graphic::API::Vulkan::VulkanSwapChain::CapturedStaging Staging;
             std::chrono::steady_clock::time_point Started;
             std::future<std::string>              Encode;
         };

@@ -7,7 +7,6 @@
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 
 #include <filesystem>

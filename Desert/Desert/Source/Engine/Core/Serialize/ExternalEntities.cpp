@@ -6,7 +6,6 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 #include <format>
 #include <algorithm>

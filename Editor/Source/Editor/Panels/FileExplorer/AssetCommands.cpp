@@ -34,9 +34,14 @@
 
 namespace Desert::Editor
 {
-    void AssetFileCensus::Take()
+    const std::vector<std::filesystem::path>& AssetFileCensus::Files() const
     {
-        m_Files = Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH );
+        if ( !m_Taken )
+        {
+            m_Files = Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH );
+            m_Taken = true;
+        }
+        return m_Files;
     }
 
     AssetCommands::AssetCommands( FileExplorerPanel* const& explorer, WorldPartitionPanel* const& worldPartition,

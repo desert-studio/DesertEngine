@@ -1,5 +1,4 @@
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
-#include <Common/Content/ContentScan.hpp>
 #include "MeshDnD.hpp"
 #include "ImportManager.hpp"
 #include "ImportOptionsDialog.hpp"

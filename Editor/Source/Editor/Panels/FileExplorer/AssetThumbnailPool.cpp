@@ -4,16 +4,13 @@
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailFoliage.hpp>
-#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
-#include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
-#include <Common/Content/ContentScan.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -22,7 +19,6 @@
 #include <cctype>
 #include <system_error>
 #include <utility>
-#include <Engine/Animation/Skeleton.hpp>
 
 namespace Desert::Editor
 {

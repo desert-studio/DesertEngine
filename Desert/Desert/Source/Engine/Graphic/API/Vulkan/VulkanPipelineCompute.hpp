@@ -5,9 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
 
-#include <vulkan/vulkan.hpp>
 
-#include <Common/Core/ResultStr.hpp>
 
 #include <atomic>
 #include <cstddef>

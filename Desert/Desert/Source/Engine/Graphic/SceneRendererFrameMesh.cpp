@@ -2,29 +2,16 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
-#include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
-#include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
-#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
-#include <Engine/Graphic/ResourceLedger.hpp>
-#include <Engine/Graphic/RenderConfig.hpp>
-#include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
-#include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
-#include <Engine/Core/Application.hpp>
-#include <Engine/Core/EngineContext.hpp>
 
-#include <Engine/Graphic/ViewBudgetGate.hpp>
 
-#include <mutex>
-#include <Common/Core/Units.hpp>
 
 #include <Common/Core/Profiler.hpp>
 
-#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <array>
@@ -32,12 +19,7 @@
 #include <functional>
 #include <span>
 #include <initializer_list>
-#include <map>
 #include <memory>
-#include <atomic>
-#include <chrono>
-#include <format>
-#include <cmath>
 #include <string>
 #include <span>
 #include <string_view>

@@ -4,16 +4,13 @@
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
-#include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <algorithm>
 #include <format>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Assets
 {

@@ -4,18 +4,14 @@
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
-#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
-#include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredTileLists.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/View/PathTracedGuides.hpp>
 
-#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <array>
 #include <memory>
-#include <optional>
 #include <string_view>
 #include <vector>
 

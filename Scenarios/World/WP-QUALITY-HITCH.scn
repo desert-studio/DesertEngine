@@ -2,7 +2,7 @@
 # CINEMATIC-LOD. Measured, not guessed: "[Control] long frame N: X ms" names every frame over 250 ms with its
 # serial; `frames 60` + `profile-dump` bracket the 60 frames after the switch ([Hitch] lines, slowest first); the
 # shot line "[Control] wrote the presented frame ... on the frame X ms, PNG encode + write on a worker Y ms" splits
-# a window shot's cost. Scene and camera as CINEMATIC-LOD (the crowd 30-300 m behind the origin figure).
+# a window shot's cost. Pass 2: the three unnamed ~1.25 s frames (935/1696/2256) were each shot's collect frame. Scene and camera as CINEMATIC-LOD (the crowd 30-300 m behind the origin figure).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR11_SkinnedCrowd.desce
 Дано run View "View mode: Lit"
 Дано run Quality "Quality: ViewDistance High"
@@ -18,7 +18,7 @@
 Когда run Quality "Quality: ViewDistance Cinematic"
 Когда frames 60
 Когда profile-dump
-Тогда 1_after_switch Cinematic, same view: the crowd at the horizon present; log: no "[Control] long frame" between the switch and this shot, the 60 frames after the switch with their [Hitch] ms (< 250 ms), this shot's own on-the-frame ms
+Тогда 1_after_switch Cinematic, same view: the crowd at the horizon present; log: no "[Control] long frame" between the switch and this shot except this shot's own collect frame (its "wrote the presented frame" line names it: render task join + device idle + staging readback, the RGBA8 pack and the PNG on a worker), every `run` line "the group's slice ... built in" < 50 ms, the 60 frames after the switch with their [Hitch] ms (< 250 ms)
 Когда frames 30
 Тогда 2_next_shot a second shot after 30 frames: the frame after 1_after_switch's shot is not a long frame (the PNG went to a worker)
 Когда run Action "Stop"

@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <cstring>
 #include <format>
-#include <string_view>
 #include <vector>
 
 namespace Desert::Editor

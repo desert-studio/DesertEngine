@@ -3,10 +3,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <rflcpp/rfl.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Import/TextureDnD.hpp>
-#include <Common/Json/Json.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 
@@ -14,7 +12,6 @@
 
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
-#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Import/CookPaths.hpp>
@@ -31,7 +28,6 @@
 // The reflection rules for glm types and for the .demat schema. Needed HERE because this file now
 // reads a .demat back — it has to recover the material's existing identity so re-cooking one produces
 // the same bytes, and a cook that is not reproducible cannot be compared against a record.
-#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Editor/Panels/Collections/CollectionManifest.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
@@ -49,6 +45,7 @@
 #include <system_error>
 #include <utility>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Editor
 {

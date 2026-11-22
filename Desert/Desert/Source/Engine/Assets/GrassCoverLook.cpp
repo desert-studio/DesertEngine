@@ -4,7 +4,6 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialData.hpp>
-#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/MeshDisplacementBake.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
@@ -13,6 +12,8 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
+#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <glm/glm.hpp>
 
 namespace Desert::Assets
 {

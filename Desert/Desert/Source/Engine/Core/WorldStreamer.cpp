@@ -8,7 +8,6 @@
 #include <Common/Core/Constants.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/ECS/Entity.hpp>

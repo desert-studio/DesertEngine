@@ -1,13 +1,10 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
-#include <Engine/Graphic/RendererAPI.hpp>
-#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
-#include <Common/Core/Constants.hpp>
 
 #include <chrono>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>

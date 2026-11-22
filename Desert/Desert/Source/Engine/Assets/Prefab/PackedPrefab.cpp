@@ -15,7 +15,6 @@
 #include <utility>
 #include <vector>
 
-#include <glm/glm.hpp>
 
 namespace Desert::Assets
 {

@@ -7,9 +7,6 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/Skybox/SkyboxAsset.hpp>
-#include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
-#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>

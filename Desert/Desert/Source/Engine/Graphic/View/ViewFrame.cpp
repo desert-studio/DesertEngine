@@ -2,10 +2,8 @@
 
 #include <Engine/Graphic/API/UpscalerBuild.hpp>
 
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
-#include <cmath>
 #include <string_view>
 
 namespace Desert::Graphic

@@ -1,14 +1,16 @@
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
 
-#include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <algorithm>
 #include <atomic>
 #include <bit>
-#include <format>
 #include <limits>
+#include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
+#include <format>
+#include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 namespace Desert::Graphic::DistanceField
 {

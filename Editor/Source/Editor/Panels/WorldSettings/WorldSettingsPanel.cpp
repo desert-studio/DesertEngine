@@ -5,9 +5,7 @@
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
-#include <Engine/Graphic/Image.hpp>
 
 #include <ImGui/imgui.h>
 

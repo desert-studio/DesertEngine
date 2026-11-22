@@ -2,7 +2,6 @@
 
 #include <Common/Content/AssetRedirector.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 namespace Desert::Core
 {

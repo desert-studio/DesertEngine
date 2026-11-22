@@ -17,13 +17,11 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <iterator>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 namespace Desert::Graphic::API::Vulkan
 {

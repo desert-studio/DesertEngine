@@ -12,7 +12,6 @@
 #include <optional>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
-#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 
 namespace Desert::Libraries
 {

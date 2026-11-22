@@ -18,7 +18,6 @@
 #include <format>
 #include <span>
 
-#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>

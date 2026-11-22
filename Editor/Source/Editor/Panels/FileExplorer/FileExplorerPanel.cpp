@@ -5,64 +5,28 @@
 #define NOMINMAX
 
 #include "FileExplorerPanel.hpp"
-#include <Editor/Platform/DesktopPlatform.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserDragDrop.hpp>
 #include <Editor/Core/SceneOpenRequest.hpp>
-#include <Editor/Panels/Clouds/CloudDocumentOpen.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserImport.hpp>
-#include <Editor/Panels/FileExplorer/ContentBrowserUtils.hpp>
 #include <Editor/Panels/FileExplorer/FileTypeInfo.hpp>
-#include <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
-#include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
-#include <Editor/Core/AssetFileOps.hpp>
-#include <Editor/Core/ContentCreateCommands.hpp>
-#include <Engine/Animation/Timeline/Hosts.hpp>
-#include <Engine/Animation/Timeline/Sequence.hpp>
-#include <Engine/Assets/LevelSequenceAsset.hpp>
-#include <Editor/Core/MaterialAssetUtils.hpp>
-#include <Editor/Core/Commands/AssetMoveCommand.hpp>
-#include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/EditorPreferences.hpp> // the pinned folders live in editor.json (К5)
 #include <Editor/Panels/NodeGraph/NodeGraphPanel.hpp>
-#include <Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp>
 #include "../../Core/EditorResources.hpp"
 
-#include <Editor/Import/ImportOptionsDialog.hpp>
-#include <Editor/Import/TextureDnD.hpp>
-#include <Editor/Import/CookPaths.hpp>
-#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
-#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
-#include <Editor/Panels/FileExplorer/AssetTooltipLayout.hpp>
-#include <cstdio>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Widgets/ThumbnailKey.hpp>
-#include <Editor/Widgets/ThumbnailFoliage.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
-#include <Editor/Import/ImportedMeshAsset.hpp>
-#include <Editor/Core/ThumbnailFreshness.hpp>
-#include <Editor/Widgets/ThumbnailService.hpp>
-#include <Common/Content/ContentScan.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
-#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Editor/Panels/PhysicsAssetEditor/PhysicsAssetEditorDocument.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/MaterialAsset.hpp>
-#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
-#include <Engine/Assets/Mesh/MeshAsset.hpp>
-#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
-#include <Engine/ECS/Entity.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Engine/Core/Scene.hpp>       // GetFinalImage (Capture Thumbnail from viewport)
-#include <Engine/Graphic/Renderer.hpp> // WaitDeviceIdle before readback
 #include <Engine/Graphic/Image.hpp>    // Image2D::ReadPixelsRGBA8
 #include <Common/Core/Events/WindowEvents.hpp>
-#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION lives in Desert.lib; just declare for the capture PNG write.
@@ -72,14 +36,11 @@
 
 #include <algorithm>
 #include <cctype>
-#include <chrono>
 #include <cstdlib>
-#include <Editor/Widgets/ThumbnailEdit.hpp>
 
 #include <filesystem>
 #include <utility>
 #include <format>
-#include <fstream>
 #include <system_error>
 
 namespace Desert::Editor

@@ -16,7 +16,6 @@
 
 #include <ImGui/imgui.h>
 
-#include <algorithm>
 #include <array>
 #include <cfloat>
 #include <filesystem>

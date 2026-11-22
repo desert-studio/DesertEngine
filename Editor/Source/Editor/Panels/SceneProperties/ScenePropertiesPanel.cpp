@@ -3,7 +3,6 @@
 #include "ComponentEditor.hpp"
 
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Engine/ECS/EntityLock.hpp>
@@ -11,18 +10,12 @@
 #include <Editor/Core/EditorResources.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/ThemeManager.hpp>
-#include <Editor/Widgets/Controls/Controls.hpp>
 #include <ImGui/imgui.h>
-#include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
-#include <Engine/Assets/Mesh/MeshAsset.hpp>
-#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 
 #include <filesystem>
 #include <system_error>
-#include <Engine/Core/Scene.hpp>
 #include <Editor/Core/CommandHistory.hpp>
-#include <Engine/Core/EngineContext.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/ECS/CameraComponent.hpp>

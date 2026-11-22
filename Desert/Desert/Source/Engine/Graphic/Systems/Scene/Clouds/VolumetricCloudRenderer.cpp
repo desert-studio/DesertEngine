@@ -17,14 +17,12 @@
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
-#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <glm/gtc/packing.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <array>
 #include <cstring>
 #include <limits>
@@ -36,7 +34,6 @@
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
-#include <PhysicsCore/CollisionProfiles.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace

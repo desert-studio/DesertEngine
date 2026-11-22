@@ -9,9 +9,6 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
-#include <Engine/Core/Camera.hpp>
-#include <Engine/Geometry/Mesh.hpp>
-#include <Engine/Graphic/Materials/Material.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>

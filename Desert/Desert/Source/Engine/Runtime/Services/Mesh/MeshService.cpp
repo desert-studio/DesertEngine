@@ -2,7 +2,6 @@
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
-#include <Engine/Graphic/RendererContext.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>

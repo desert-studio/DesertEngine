@@ -31,11 +31,9 @@
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
-#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 #include <glm/gtc/epsilon.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -52,14 +50,12 @@
 #include <optional>
 #include <cstdint>
 #include <filesystem>
-#include <unordered_map>
 #include <unordered_set>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/LockComponent.hpp>
 #include <Engine/ECS/PrefabComponent.hpp>
 #include <Engine/ECS/PrefabInstanceComponent.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
-#include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>

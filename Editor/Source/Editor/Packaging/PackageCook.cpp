@@ -38,7 +38,6 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/DDCShipRegister.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
-#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/VertexAnimationDerivedData.hpp>

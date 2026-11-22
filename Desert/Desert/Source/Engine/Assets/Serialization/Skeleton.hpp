@@ -5,8 +5,6 @@
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Core/ResultStr.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -18,6 +16,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Assets::Serialization
 {

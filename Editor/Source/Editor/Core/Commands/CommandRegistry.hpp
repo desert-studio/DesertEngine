@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Editor
@@ -49,6 +50,19 @@ namespace Desert::Editor
         };
         void Build( std::vector<PaletteCommand>& out, std::vector<ProviderCost>* costs = nullptr ) const;
 
+        // ONE GROUP'S SLICE OF THE DICTIONARY (WQH p2): the preludes, then only the providers that produced
+        // @p group on the last full Build, in registration order - so the entries, and which of two equal
+        // addresses wins, are the ones a full Build would give. UE's FUICommandList binds a command to its
+        // context once instead of re-enumerating every context per invocation; here the provider -> groups index
+        // is learnt from the full Builds (the palette's, a refused `run`'s). A control `run` rebuilt all ~9200
+        // entries per request (~0.5 s of its frame) to read one.
+        // Returns false and appends nothing when no full Build has seen @p group yet: the caller builds whole
+        // (and that Build teaches the index). A slice that does not hold the wanted label is not proof it is
+        // absent - a provider may have started producing the group since - so a caller refusing an address
+        // confirms against a full Build first.
+        bool BuildGroup( const std::string& group, std::vector<PaletteCommand>& out,
+                         std::vector<ProviderCost>* costs = nullptr ) const;
+
         [[nodiscard]] size_t Size() const
         {
             return m_Providers.size();
@@ -62,5 +76,9 @@ namespace Desert::Editor
         };
         std::vector<Entry>                 m_Providers;
         std::vector<std::function<void()>> m_Preludes;
+        // group -> the providers (indices into m_Providers, ascending) that produced it on the last full Build.
+        mutable std::unordered_map<std::string, std::vector<std::size_t>> m_GroupProviders;
+
+        void RunPreludes( std::vector<ProviderCost>* costs ) const;
     };
 } // namespace Desert::Editor

@@ -1,8 +1,6 @@
 #include "Material.hpp"
-#include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
-#include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
 
 #include <Common/Core/Logger.hpp>

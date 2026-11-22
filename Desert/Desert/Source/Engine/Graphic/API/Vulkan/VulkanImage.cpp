@@ -10,22 +10,18 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUploadRing.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/PixelPack.hpp> // the one packer this and the swapchain readback share
 #include <Engine/Graphic/RenderConfig.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
-#include <Common/Utilities/String.hpp>
 
 #include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <functional>
-#include <mutex>
 #include <unordered_map>
 #include <limits>
 #include <optional>
-#include <thread>
 
 namespace Desert::Graphic::API::Vulkan
 {

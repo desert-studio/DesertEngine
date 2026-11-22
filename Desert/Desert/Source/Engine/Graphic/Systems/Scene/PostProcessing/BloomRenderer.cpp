@@ -5,7 +5,6 @@
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
-#include <glm/glm.hpp>
 #include <algorithm>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
