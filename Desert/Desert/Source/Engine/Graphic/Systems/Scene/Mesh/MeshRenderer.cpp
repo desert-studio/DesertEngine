@@ -2717,6 +2717,7 @@ namespace Desert::Graphic::System
         {
             data.Lod        = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
             data.VatAddress     = 0;
+            data.VatVertexCount = 0;
             data.MinScreenScale = 1.0f;
             const auto& lods = data.Mesh->GetSkinnedLODs();
             float       screenSize = Geometry::kLOD0ScreenSize;
@@ -2762,8 +2763,12 @@ namespace Desert::Graphic::System
                 const auto* clip =
                      static_cast<const Animation::AnimationClip*>( feedback.VatClip.load( std::memory_order_relaxed ) );
                 if ( clip != nullptr && screenSize < limit )
-                    data.VatAddress =
+                {
+                    const VertexAnimationCrowd::Frame frame =
                          m_Crowd->FrameAddress( *data.Mesh, *clip, feedback.VatTime.load( std::memory_order_relaxed ) );
+                    data.VatAddress     = frame.Address;
+                    data.VatVertexCount = frame.VertexCount;
+                }
             }
             if ( data.LodFeedback )
                 data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
@@ -3438,7 +3443,7 @@ namespace Desert::Graphic::System
             m_Crowd->UploadInGraph( graph );
             for ( const SkinnedMeshRenderData& data : m_SkinnedQueue )
                 if ( data.VatAddress != 0 && scene.IsValid( data.GpuPrimitive ) )
-                    scene.SetSkinCache( data.GpuPrimitive, data.VatAddress, data.Mesh->GetVertexCount() );
+                    scene.SetSkinCache( data.GpuPrimitive, data.VatAddress, data.VatVertexCount );
         }
         if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
             return uploaded;

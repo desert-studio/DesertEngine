@@ -73,7 +73,10 @@ Shader "SkinCache"
             const uint count = Dispatch.x;
             const uint cur   = vertex * 3u;
             const uint prev  = count * 3u + vertex * 3u;
-            const uint frame = count * 6u + vertex * 9u;
+            // Normal, tangent, bitangent planes (Common/SkinCacheStreams.glslh).
+            const uint nrm   = count * 6u + vertex * 3u;
+            const uint tng   = count * 9u + vertex * 3u;
+            const uint btg   = count * 12u + vertex * 3u;
             // This invocation alone touches its vertex's slots: read last frame's pose before overwriting it.
             const vec3 previous = Dispatch.z != 0u ? vec3(Streams[cur + 0u], Streams[cur + 1u], Streams[cur + 2u])
                                                      : posed;
@@ -83,15 +86,15 @@ Shader "SkinCache"
             Streams[cur + 0u]  = posed.x;
             Streams[cur + 1u]  = posed.y;
             Streams[cur + 2u]  = posed.z;
-            Streams[frame + 0u] = normal.x;
-            Streams[frame + 1u] = normal.y;
-            Streams[frame + 2u] = normal.z;
-            Streams[frame + 3u] = tangent.x;
-            Streams[frame + 4u] = tangent.y;
-            Streams[frame + 5u] = tangent.z;
-            Streams[frame + 6u] = bitangent.x;
-            Streams[frame + 7u] = bitangent.y;
-            Streams[frame + 8u] = bitangent.z;
+            Streams[nrm + 0u] = normal.x;
+            Streams[nrm + 1u] = normal.y;
+            Streams[nrm + 2u] = normal.z;
+            Streams[tng + 0u] = tangent.x;
+            Streams[tng + 1u] = tangent.y;
+            Streams[tng + 2u] = tangent.z;
+            Streams[btg + 0u] = bitangent.x;
+            Streams[btg + 1u] = bitangent.y;
+            Streams[btg + 2u] = bitangent.z;
         }
     }
 }

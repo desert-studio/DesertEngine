@@ -32,6 +32,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/VertexAnimationDerivedData.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
@@ -240,6 +241,9 @@ namespace Desert::Editor
                    Assets::SetMeshSourceBuilder( &Editor::BuildMeshSourceOnMiss );
                    // A mesh's distance field (UE: built beside the render data on a DDC miss, editor only).
                    Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
+                   // A far crowd's vertex animation missing from the DDC is derived on demand (WP-FAR-12B; the
+                   // package cook derives every pair, a packaged game only loads).
+                   Assets::SetVertexAnimationDeriving( true );
                    // Its surface-cache cards, the same way (UE CARDREPRESENTATION_DERIVEDDATA_VER).
                    Assets::SetMeshCardsBuilder( &Assets::BuildMeshCardsBytes );
                    // A Runtime-displaced mesh's cooked topology (clusters, welds), the same way.
