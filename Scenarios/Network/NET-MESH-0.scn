@@ -8,7 +8,10 @@
 #   otool -L build/Bin/Debug/DesertServer                                     > mesh0_mac_server.otool.txt
 # Тогда [mesh0_mac_server]: the log shows "no device created", the cooked index loaded with its cook hash, 600 steps
 # at 60 Hz and the residency union of one source; the otool list names no Vulkan/MoltenVK/Metal/AppKit/Cocoa.
+# Pass 3 (Тогда [mesh0_core_split]): DesertServer links the module Core (render-free, configure-checked) instead
+# of a source list; the same run gives the same cook hash and 600 steps, otool -L > mesh0_core_split.otool.txt.
 # Regression (here): the client still builds and opens WP_Protocol unchanged (ReadCookedWorld moved to CookedWorld).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state
+# Тогда [mesh0_core_split] (вне редактора): mesh0_core_split.otool.txt без Vulkan/MoltenVK/Metal/AppKit; mesh0_core_split.log: no device created, cook hash ee311acb3b50b349, 600 steps
 Тогда mesh0_editor_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо; без падения и диалога ошибки
