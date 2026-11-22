@@ -15,6 +15,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 // In an anonymous namespace: every suite of the layer links into one runner, and two suites'
 // namespace-scope types of one name would be an ODR violation the linker resolves silently.

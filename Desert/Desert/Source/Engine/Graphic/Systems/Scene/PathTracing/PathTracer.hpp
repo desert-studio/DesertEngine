@@ -45,6 +45,7 @@
 #include <utility>
 #include <vector>
 #include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Graphic::System
 {

@@ -4,6 +4,7 @@
 #include <Common/Core/AssetHandle.hpp>
 
 #include <format>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Assets
 {

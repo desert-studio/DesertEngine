@@ -3,6 +3,7 @@
 
 #include <Common/Json/Json.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Input
 {

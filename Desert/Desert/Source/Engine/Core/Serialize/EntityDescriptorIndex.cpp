@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <system_error>
 #include <unordered_map>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Core::DescriptorIndex
 {

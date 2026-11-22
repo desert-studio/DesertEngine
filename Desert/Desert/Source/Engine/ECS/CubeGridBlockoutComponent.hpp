@@ -5,6 +5,7 @@
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <string>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::ECS
 {

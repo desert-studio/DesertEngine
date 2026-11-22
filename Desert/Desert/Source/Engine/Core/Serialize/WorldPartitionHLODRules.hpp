@@ -86,6 +86,8 @@
 #include <utility>
 #include <vector>
 #include <Common/Core/Core.hpp>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Core::Rules
 {

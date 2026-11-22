@@ -44,6 +44,7 @@
 #include <string>
 #include <iostream>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 using Desert::Assets::EntityData;
 using Desert::Core::Rules::kNoSlot;

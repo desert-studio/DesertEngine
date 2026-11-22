@@ -6,6 +6,7 @@
 
 #include <array>
 #include <format>
+#include <Common/Json/ReadWrite.hpp>
 
 // Common::Json round-trip for the AnimGraph (all plain structs), read STRICTLY: a field missing from a
 // .danimgraph is an error naming its path, never a default filled in behind the reader's back. A field added

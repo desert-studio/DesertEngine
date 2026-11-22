@@ -20,6 +20,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 using Common::UUID;
 using Desert::Assets::EntityData;

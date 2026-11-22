@@ -19,6 +19,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <Common/Json/ReadWrite.hpp>
 
 using namespace Desert::Localization;
 

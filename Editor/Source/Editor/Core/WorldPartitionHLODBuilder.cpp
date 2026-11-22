@@ -35,6 +35,7 @@
 #include <span>
 #include <system_error>
 #include <utility>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Editor
 {

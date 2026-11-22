@@ -7,6 +7,7 @@
 #include <cmath>
 #include <string>
 #include <system_error>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets::Serialization
 {

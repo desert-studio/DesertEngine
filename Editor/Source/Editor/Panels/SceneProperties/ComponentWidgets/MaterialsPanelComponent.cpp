@@ -71,6 +71,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <cstdio>
+#include <Engine/Geometry/SkinnedMesh.hpp>
 
 namespace Desert::Editor
 {

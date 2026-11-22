@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 using Desert::Core::SceneIsAtCurrentVersion;
 using Desert::Core::SceneSerialized;

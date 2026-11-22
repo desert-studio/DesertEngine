@@ -18,6 +18,7 @@
 #include <map>
 #include <fstream>
 #include <optional>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::WorldGen
 {

@@ -76,6 +76,7 @@
 #include <Engine/Runtime/Services/Lights/RectLightLtcService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Core/WorldTime.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Graphic
 {

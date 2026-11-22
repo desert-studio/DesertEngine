@@ -19,6 +19,7 @@
 #include <tuple>
 #include <utility>
 #include <variant>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Migration
 {

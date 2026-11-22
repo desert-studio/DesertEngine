@@ -15,6 +15,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 // Named after the suite: every suite of the layer links into one runner, and two suites'
 // namespace-scope types of one name would be an ODR violation the linker resolves silently. Not an

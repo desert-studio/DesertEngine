@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <Common/Json/ReadWrite.hpp>
 
 // The `.desound` TEXT, apart from the asset: Parse and Write touch no registry and no AssetBase, so the
 // SceneMigrator (which raises Clip paths to Sound GUIDs) compiles this file and not SoundAsset.cpp.

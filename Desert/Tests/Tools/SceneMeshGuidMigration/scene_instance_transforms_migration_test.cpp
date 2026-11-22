@@ -18,6 +18,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Migration = Desert::Migration;
 namespace fs        = std::filesystem;

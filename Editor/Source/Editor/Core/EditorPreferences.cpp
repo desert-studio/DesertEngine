@@ -19,6 +19,7 @@
 #include <optional>
 #include <string_view>
 #include <Common/Core/Serialization/GlmReflection.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Editor
 {

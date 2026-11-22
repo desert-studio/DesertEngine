@@ -10,6 +10,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Reflection
 {

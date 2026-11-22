@@ -164,6 +164,8 @@
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
 #include <Engine/VFX/VFXUserOverride.hpp>
+#include <Common/Json/ReadWrite.hpp>
+#include <Engine/ECS/PostProcessVolumeComponent.hpp>
 
 // Directional light is a CUSTOM entry: the reflected fields PLUS the one direction widget (a sun dial over the
 // entity's Rotation, the light's forward axis -Z, as UE). See MakeDirectionalLightEntry.

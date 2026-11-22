@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <utility>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::HeaderTool
 {

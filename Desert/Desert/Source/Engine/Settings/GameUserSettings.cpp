@@ -16,6 +16,7 @@
 #include <format>
 #include <string_view>
 #include <system_error>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Settings
 {

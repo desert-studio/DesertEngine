@@ -5,6 +5,7 @@
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp>
 
 namespace Desert::Editor
 {

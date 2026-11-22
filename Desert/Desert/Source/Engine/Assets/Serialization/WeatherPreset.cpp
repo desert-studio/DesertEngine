@@ -10,6 +10,7 @@
 #include <string>
 #include <system_error>
 #include <unordered_set>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets::Serialization
 {

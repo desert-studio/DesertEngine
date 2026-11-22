@@ -21,6 +21,8 @@
 #include <Common/Json/Document.hpp>
 
 #include <optional>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace
 {

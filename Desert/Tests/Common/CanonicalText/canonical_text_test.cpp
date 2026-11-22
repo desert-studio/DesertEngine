@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
+#include <Common/Json/ReadWrite.hpp>
 
 namespace fs = std::filesystem;
 using Common::Content::CanonicalJsonText;

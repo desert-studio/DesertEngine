@@ -7,6 +7,7 @@
 #include <format>
 #include <string>
 #include <utility>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Physics
 {

@@ -14,6 +14,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace
 {

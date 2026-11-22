@@ -10,6 +10,7 @@
 #include <iterator>
 #include <limits>
 #include <type_traits>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Common::Scalability
 {

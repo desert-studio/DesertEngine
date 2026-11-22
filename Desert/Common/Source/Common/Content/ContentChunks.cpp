@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_set>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Common::Content
 {

@@ -36,6 +36,7 @@
 #include <string>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace
 {

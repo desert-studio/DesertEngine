@@ -8,6 +8,7 @@
 #include <format>
 #include <optional>
 #include <sstream>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Common::Content
 {

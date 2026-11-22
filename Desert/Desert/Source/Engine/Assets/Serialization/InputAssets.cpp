@@ -10,6 +10,7 @@
 #include <format>
 #include <string>
 #include <Common/Core/Serialization/GlmReflection.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets::Serialization
 {

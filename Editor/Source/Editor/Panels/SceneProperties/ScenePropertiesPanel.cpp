@@ -35,6 +35,7 @@
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
+#include <Engine/ECS/SkyAtmosphereComponent.hpp>
 
 namespace Desert::Editor
 {

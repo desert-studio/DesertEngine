@@ -26,6 +26,7 @@
 #include <vector>
 
 #include <ImGui/imgui.h>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Editor
 {
