@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 // The `collection.json` manifest: its ONE shape, its ONE writer and its ONE reader.
 //

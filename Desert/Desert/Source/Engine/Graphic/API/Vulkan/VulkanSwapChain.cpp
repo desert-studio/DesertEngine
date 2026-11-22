@@ -17,6 +17,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFramebuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
@@ -838,6 +839,40 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<CapturedStaging>(
                  "the surface format changed between recording and collecting." );
         }
+
+        // WQH p3: NO DEVICE IDLE ON THE FRAME (126-282 ms of the shot's frame). The copy rides the frame's command
+        // buffer, already handed to the submit thread (RenderTask::Join); an empty submit carrying a fence of its
+        // own, queued behind it IN QUEUE ORDER, is signalled once everything submitted before it has completed
+        // (vkQueueSubmit with submitCount 0). The reader waits that fence off the frame - UE's
+        // FRHIGPUTextureReadback: the copy is enqueued with a fence and read once IsReady.
+        const auto device = m_LogicalDevice.lock();
+        if ( !device )
+        {
+            ReleaseCapturedStaging( staging );
+            return Common::MakeError<CapturedStaging>( "the logical device is gone; the capture cannot be fenced." );
+        }
+        const VkDevice          vkDevice = device->GetVulkanLogicalDevice();
+        const VkFenceCreateInfo fenceInfo{ .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0 };
+        VkFence                 fence   = VK_NULL_HANDLE;
+        if ( const VkResult created = vkCreateFence( vkDevice, &fenceInfo, nullptr, &fence ); created != VK_SUCCESS )
+        {
+            ReleaseCapturedStaging( staging );
+            return Common::MakeFormattedError<CapturedStaging>( "vkCreateFence for the capture failed: {}",
+                                                                VkResultToString( created ) );
+        }
+        staging.Device       = vkDevice;
+        staging.Ready        = fence;
+        const VkQueue  queue = device->GetGraphicsQueue();
+        const VkResult submitted =
+             VulkanFrameLoop::SubmitOrdered( [&device, queue, fence]() -> VkResult
+                                             { return device->SubmitToQueue( queue, 0, nullptr, fence ); } );
+        if ( submitted != VK_SUCCESS )
+        {
+            (void)NoteIfDeviceLost( submitted, "vkQueueSubmit", __FILE__, __LINE__ );
+            ReleaseCapturedStaging( staging );
+            return Common::MakeFormattedError<CapturedStaging>( "the capture's fence submit failed: {}",
+                                                                VkResultToString( submitted ) );
+        }
         return Common::MakeSuccess( staging );
     }
 
@@ -852,6 +887,17 @@ namespace Desert::Graphic::API::Vulkan
         const std::size_t pixels    = static_cast<std::size_t>( frame.Width ) * frame.Height;
         const std::size_t stagingSz = pixels * Graphic::BytesPerPixel( frame.Source );
 
+        if ( staging.Ready != VK_NULL_HANDLE )
+        {
+            // Off the frame (the shot's worker): the copy has landed once the detach's fence is signalled.
+            const VkResult waited = vkWaitForFences( staging.Device, 1, &staging.Ready, VK_TRUE, UINT64_MAX );
+            if ( waited != VK_SUCCESS )
+            {
+                (void)NoteIfDeviceLost( waited, "vkWaitForFences", __FILE__, __LINE__ );
+                return Common::MakeFormattedError<CapturedFrame>( "waiting the capture's fence failed: {}",
+                                                                  VkResultToString( waited ) );
+            }
+        }
         frame.Raw.resize( stagingSz );
         MappedMemory readback = allocator->MapMemory( static_cast<VmaAllocation>( staging.Allocation ) );
         const auto   read     = readback.ReadInto( frame.Raw.data(), stagingSz );
@@ -863,6 +909,15 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanSwapChain::ReleaseCapturedStaging( CapturedStaging& staging )
     {
+        if ( staging.Ready != VK_NULL_HANDLE )
+        {
+            // Nothing waits it any more (the reader is done or never ran); a fence still pending is waited first,
+            // since destroying one a queue submission refers to is undefined.
+            (void)vkWaitForFences( staging.Device, 1, &staging.Ready, VK_TRUE, UINT64_MAX );
+            vkDestroyFence( staging.Device, staging.Ready, nullptr );
+            staging.Ready  = VK_NULL_HANDLE;
+            staging.Device = VK_NULL_HANDLE;
+        }
         if ( staging.Buffer == VK_NULL_HANDLE )
             return;
         auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )

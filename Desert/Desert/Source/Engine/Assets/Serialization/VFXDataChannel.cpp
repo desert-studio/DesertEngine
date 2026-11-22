@@ -7,6 +7,7 @@
 #include <fstream>
 #include <set>
 #include <sstream>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets::Serialization
 {

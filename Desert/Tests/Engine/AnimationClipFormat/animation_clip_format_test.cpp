@@ -32,6 +32,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Ser      = Desert::Assets::Serialization;
 namespace Anim     = Desert::Animation;

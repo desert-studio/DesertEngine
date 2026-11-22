@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets::Serialization
 {

@@ -15,6 +15,7 @@
 #include <format>
 #include <optional>
 #include <thread>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Editor
 {

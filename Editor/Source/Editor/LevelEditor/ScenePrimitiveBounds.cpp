@@ -17,6 +17,7 @@
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/VFX/VFXComponent.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp>
 
 namespace Desert::Editor
 {

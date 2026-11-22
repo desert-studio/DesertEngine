@@ -17,6 +17,7 @@
 #include <vector>
 #include <string>
 #include <Common/Core/Serialization/GlmReflection.hpp>
+#include <Common/Json/ReadWrite.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 
 namespace Desert::Assets::Serialization

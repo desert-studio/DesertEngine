@@ -12,6 +12,7 @@
 #include <string>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/runner.hpp"
+#include <Common/Json/ReadWrite.hpp>
 
 using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::MaterialData;

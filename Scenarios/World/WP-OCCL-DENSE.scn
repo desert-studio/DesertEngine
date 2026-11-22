@@ -1,0 +1,25 @@
+# WP-OCCL-DENSE (owner 11-22, "speed-up + WP"): the GPU two-phase furthest-HZB instance cull proven on a DENSE
+# occluder (Graphic/GpuDriven/InstanceCulling.hpp, SceneRendererFrameGpuCull.cpp; UE FInstanceCullingContext +
+# HZB two-pass occlusion). WP-FAR-14 saw 2 occluded bushes and phase 2 = 0 because the counts were sampled seconds
+# after the move (a reveal is in phase 2 for ONE frame). Readout: DesertCtl `state` -> views.drawBinViews.gbuffer
+# {phase1, phase2, occluded, phase2Total}; phase2Total sums phase 2 over every counted frame, so its difference
+# across the camera step is exact (GpuDriven::CullPhaseCounts).
+# Scene (asset): Content/Scenes/WP_OcclusionDense.desce - a white wall 1200 x 600 cm at z 1000 and 120 red crates
+# (10 rows x 12, z 2000..4700) behind it. Camera at (0,150,0) looking +Z: the wall hides every crate. Then the
+# camera steps 1500 cm sideways (one frame, a teleport) and turns 19 deg back: every crate is in the open.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_OcclusionDense.desce
+Дано run View "View mode: Lit"
+Когда run Mode "Select mode"
+Когда --subject viewport set Camera.FOV 60
+Когда --subject viewport set Camera.Position 0,150,0
+Когда --subject viewport set Camera.Direction 0,0,1
+Когда frames 30
+Когда state
+Тогда 0_hidden only the white wall and the floor in front of it; no red crate; state gbuffer occluded >= 60 (half of the 120 crates), phase1 small (measured 11-22: phase1 2 (floor+wall), occluded 120, phase2Total 0)
+Когда --subject viewport set Camera.Position 1500,150,0
+Когда --subject viewport set Camera.Direction -0.35,0,1
+Когда frames 1
+Тогда 1_disocclude the frame right after the step: the wall on the right, all 120 red crates drawn, no hole and no missing crate
+Когда frames 10
+Когда state
+Тогда 2_settled the same view 10 frames later, identical crates to 1_disocclude; state gbuffer phase2Total rose vs 0_hidden (phase 2 found the revealed crates in the step frame), occluded near 0 (measured: phase2Total 0 -> 280, phase1 114, occluded 8 = crates hidden by taller crates)

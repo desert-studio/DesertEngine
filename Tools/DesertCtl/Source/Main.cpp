@@ -42,6 +42,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace
 {

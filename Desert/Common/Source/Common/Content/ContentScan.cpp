@@ -25,6 +25,7 @@
 #include <string_view>
 #include <vector>
 #include <cstdio>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Common::Content
 {

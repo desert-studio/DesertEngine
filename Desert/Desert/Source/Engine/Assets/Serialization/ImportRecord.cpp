@@ -14,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets::Serialization
 {

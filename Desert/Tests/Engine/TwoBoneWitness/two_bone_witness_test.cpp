@@ -57,6 +57,7 @@
 #include <string>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
+#include <Common/Json/ReadWrite.hpp>
 
 namespace
 {

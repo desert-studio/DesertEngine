@@ -43,6 +43,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace
 {

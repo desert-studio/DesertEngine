@@ -36,6 +36,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace fs        = std::filesystem;
 namespace Migration = Desert::Migration;

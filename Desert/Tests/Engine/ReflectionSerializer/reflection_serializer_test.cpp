@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <Common/Json/ReadWrite.hpp>
 
 // Exercises the engine's REFLECT()-driven serializer (Desert::Reflection::Serialize/DeserializeReflected) —
 // the single code path every reflected struct (SceneSettings, component data blocks, ...) round-trips

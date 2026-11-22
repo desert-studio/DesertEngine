@@ -28,6 +28,7 @@
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 using namespace Desert;
 

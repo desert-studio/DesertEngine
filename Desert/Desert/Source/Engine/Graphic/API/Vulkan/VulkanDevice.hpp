@@ -13,6 +13,7 @@
 #include <vulkan/vulkan.h>
 
 #include <chrono>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -289,6 +290,10 @@ namespace Desert::Graphic::API::Vulkan
         uint64_t                              m_PersistedPipelineHash  = 0; // of the entry on disk, 0 = none
         // Rewritten during the run, not only at a clean exit, which a crash or a kill never reaches.
         PipelineCacheFile::PersistSchedule    m_PersistSchedule{ std::chrono::seconds( 2 ) };
+        // The in-run write in flight on a JobSystem worker (WQH p3: 200-290 ms of the frame it fell on - the
+        // driver's serialisation and the file write; UE saves its pipeline file cache off the game thread too).
+        // One at a time; joined before the exit write and the cache's destruction.
+        std::future<Common::BoolResultStr>    m_PersistWrite;
         std::string                           m_DeviceName;
         // Made with the device in CreateDevice, released in Destroy before vkDestroyDevice.
         std::unique_ptr<VulkanSamplerCache> m_Samplers;

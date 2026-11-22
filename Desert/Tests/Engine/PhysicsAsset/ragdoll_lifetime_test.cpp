@@ -32,6 +32,7 @@
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/RagdollComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 using namespace Desert::Physics;
 using Desert::Animation::BoneInfo;

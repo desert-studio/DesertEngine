@@ -91,6 +91,12 @@ namespace Desert::Graphic::GpuDriven
                 }
             }
         }
+        for ( CullPhaseViewCount& count : counts )
+        {
+            uint64_t& total = m_Phase2Totals[count.Name];
+            total += count.Phase2;
+            count.Phase2Total = total;
+        }
         m_Last = std::move( counts );
         m_LastError.clear();
     }

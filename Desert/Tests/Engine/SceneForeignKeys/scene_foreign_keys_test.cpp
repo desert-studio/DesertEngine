@@ -37,6 +37,8 @@
 #include <unordered_set>
 #include <vector>
 #include <Common/Json/Document.hpp>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace
 {

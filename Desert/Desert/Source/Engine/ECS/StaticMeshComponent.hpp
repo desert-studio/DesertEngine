@@ -25,7 +25,6 @@
 #include <Engine/ECS/RenderCacheRetire.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
-#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 
 namespace Desert::Geometry
 {

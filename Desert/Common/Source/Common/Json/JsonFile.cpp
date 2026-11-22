@@ -1,7 +1,7 @@
 // The file half of the facade lives in its own translation unit for the reason CanonicalTextFile.cpp gives:
 // it reaches FileSystem, whose object carries the Cocoa file dialogs, and a suite that only turns structs into
 // text must not have to link AppKit for it.
-#include "Json.hpp"
+#include "ReadWrite.hpp"
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Utilities/FileSystem.hpp>

@@ -15,6 +15,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <Common/Json/ReadWrite.hpp>
 
 using namespace Desert::Editor::PreviewEnvironment;
 

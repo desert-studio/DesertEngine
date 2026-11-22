@@ -22,6 +22,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <Common/Json/DocumentStruct.hpp>
 
 // HOW A GI RAY IS TRACED AND LIT — the interface (GI-CACHE-IFACE). Port of UE Lumen's tracing contract:
 // LumenTracingUtils.ush / LumenSoftwareRayTracing.ush (FConeTraceInput, FConeTraceResult: the software path),

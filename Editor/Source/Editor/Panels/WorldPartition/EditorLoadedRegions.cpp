@@ -9,6 +9,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Editor::EditorLoadedRegions
 {

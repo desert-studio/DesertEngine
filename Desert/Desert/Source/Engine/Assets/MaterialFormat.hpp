@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 #include <Common/Core/Serialization/GlmReflection.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets
 {

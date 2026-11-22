@@ -29,6 +29,7 @@
 #include <iostream>
 #include <map>
 #include <ostream>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::WorldGen
 {

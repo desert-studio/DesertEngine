@@ -61,6 +61,8 @@
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/World/Partition/HLODLayerComponent.hpp>
 #include <Engine/World/Partition/LocationVolumeComponent.hpp>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Editor
 {

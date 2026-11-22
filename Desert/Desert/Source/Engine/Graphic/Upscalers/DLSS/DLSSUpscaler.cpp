@@ -27,6 +27,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Graphic
 {

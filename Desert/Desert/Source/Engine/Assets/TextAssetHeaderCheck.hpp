@@ -12,6 +12,7 @@
 #include <string_view>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 // The reader's half of the text asset header: the two refusals every text kind with a header makes, spelled
 // once. The writer's half is StampTextHeader (TextAssetHeaderStamp.hpp).

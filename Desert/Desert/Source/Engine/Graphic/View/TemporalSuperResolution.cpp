@@ -16,6 +16,7 @@
 #include <format>
 #include <set>
 #include <span>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Graphic
 {

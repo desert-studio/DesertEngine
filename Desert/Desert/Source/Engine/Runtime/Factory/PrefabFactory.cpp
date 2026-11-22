@@ -23,6 +23,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Runtime::Factory
 {

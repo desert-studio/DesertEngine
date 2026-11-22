@@ -13,6 +13,8 @@
 #include <iterator>
 #include <cstdlib>
 #include <optional>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Common::Settings
 {

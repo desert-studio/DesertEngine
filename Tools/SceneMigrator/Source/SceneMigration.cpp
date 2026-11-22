@@ -102,6 +102,8 @@
 #include <PhysicsCore/PhysicsTypes.hpp>
 #include <UI/Args/UIButtonArgs.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Migration
 {

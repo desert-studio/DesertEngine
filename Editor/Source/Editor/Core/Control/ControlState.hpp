@@ -96,6 +96,7 @@ namespace Desert::Editor::Control
         uint32_t    Phase1   = 0;
         uint32_t    Phase2   = 0;
         uint32_t    Occluded = 0;
+        uint64_t    Phase2Total = 0; ///< phase 2 finds summed since the renderer started: diff it across a move
     };
 
     // The main view's virtual-geometry cluster cut (SceneRenderer::GetVirtualGeometryCounts, read back a few
@@ -613,6 +614,7 @@ namespace Desert::Editor::Control
                 item["phase1"]          = Num( view.Phase1 );
                 item["phase2"]          = Num( view.Phase2 );
                 item["occluded"]        = Num( view.Occluded );
+                item["phase2Total"]     = Num( static_cast<double>( view.Phase2Total ) );
                 drawBinViews[view.Name] = Common::Json::Value( item );
             }
             views["drawBinViews"] = Common::Json::Value( drawBinViews );

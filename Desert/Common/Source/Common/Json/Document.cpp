@@ -1,4 +1,6 @@
 #include "Document.hpp"
+#include "DocumentStruct.hpp"
+#include "ReadWrite.hpp"
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Core/Logger.hpp>
