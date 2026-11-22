@@ -15,6 +15,9 @@
 #include <Engine/Physics/ColliderComponent.hpp>
 #include <PhysicsCore/PhysicsTypes.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
+#include <Engine/Graphic/RenderPassDeclaration.hpp>
 
 namespace Desert::Editor::Render
 {

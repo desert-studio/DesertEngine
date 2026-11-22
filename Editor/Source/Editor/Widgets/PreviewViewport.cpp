@@ -43,6 +43,9 @@
 #include <Engine/VFX/VFXComponent.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
+#include <Common/Settings/MachineSettings.hpp>
+#include <Engine/Graphic/DebugViewState.hpp>
+#include <Engine/Graphic/PipelineCache.hpp>
 
 namespace Desert::Editor
 {
@@ -215,7 +218,7 @@ namespace Desert::Editor
         // framebuffers are allocated inside Scene::Init() below. Shadows were switched off in this scene
         // outright, and the reason was memory rather than taste: four 2048 cascades are 335 MB of
         // attachments per renderer and this editor allows six live ones. See Graphic::ShadowQuality.
-        m_Renderer        = std::make_unique<Graphic::SceneRenderer>( extent, Graphic::kPreviewViewProfile );
+        m_Renderer        = Graphic::SceneRenderer::Create( extent, Graphic::kPreviewViewProfile );
         m_Scene    = std::make_shared<::Desert::Core::Scene>( "DetailsPreview", m_Renderer.get() );
         const auto inited = m_Scene->Init();
         if ( !inited.IsSuccess() )

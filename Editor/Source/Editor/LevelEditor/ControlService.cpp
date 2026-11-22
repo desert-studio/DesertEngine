@@ -87,6 +87,11 @@
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Common/Json/ReadWrite.hpp>
+#include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
+#include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
+#include <Engine/Graphic/Neural/NeuralRadianceCache.hpp>
 
 namespace Desert::Editor
 {

@@ -119,6 +119,9 @@
 #include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 #include <Engine/World/Partition/HiddenByDataLayersComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
+#include <Engine/ECS/ExponentialHeightFogComponent.hpp>
+#include <Engine/ECS/HeterogeneousVolumeComponent.hpp>
+#include <Engine/ECS/LocalFogVolumeComponent.hpp>
 
 namespace Desert::Core
 {

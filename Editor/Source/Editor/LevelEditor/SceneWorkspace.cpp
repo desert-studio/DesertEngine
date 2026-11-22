@@ -61,7 +61,7 @@ namespace Desert::Editor
     {
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
-        m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
+        m_SceneRenderer = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
         m_ActiveScene   = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
@@ -270,7 +270,7 @@ namespace Desert::Editor
         // Numbered by the id, not by the current count (a closed "Scene 3" must not reappear on a fourth view).
         doc->Name = std::format( "Scene {}", id + 1 ); // the main scene reads as "Scene 1"
 
-        doc->Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
+        doc->Renderer = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
         doc->Scene    = std::make_shared<Desert::Core::Scene>( std::string( doc->Name ), doc->Renderer.get() );
         BuildSceneSystems( *doc->Scene );
         if ( const auto inited = doc->Scene->Init(); !inited.IsSuccess() )
@@ -349,7 +349,7 @@ namespace Desert::Editor
             return;
         }
 
-        auto       renderer  = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
+        auto       renderer  = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
         const auto viewIndex = scene->AddView( renderer.get() );
         if ( !viewIndex )
         {

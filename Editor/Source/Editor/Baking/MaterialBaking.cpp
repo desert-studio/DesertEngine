@@ -386,7 +386,7 @@ namespace Desert::Editor::Baking
             {
                 if ( !m_Renderer )
                 {
-                    m_Renderer = std::make_unique<Graphic::SceneRenderer>(
+                    m_Renderer = Graphic::SceneRenderer::Create(
                          Graphic::ViewExtent{ m_Request.Size, m_Request.Size }, Graphic::kThumbnailViewProfile );
                     // The G-buffer is read texel for texel at the bake size: the project's Render Scale (an
                     // upscaler's internal resolution, 87 % here) would shrink it, so this view renders at 100 %

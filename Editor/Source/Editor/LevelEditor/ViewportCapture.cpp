@@ -29,6 +29,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <cstdio>
+#include <Engine/Graphic/Renderer.hpp>
 
 namespace Desert::Editor
 {

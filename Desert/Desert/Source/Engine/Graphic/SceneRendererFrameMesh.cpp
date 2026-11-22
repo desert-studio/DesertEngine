@@ -2,7 +2,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/SceneRendererImpl.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -67,9 +67,9 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
-                                          const std::span<SystemRasterPass> passes, const bool clearFirst,
-                                          const OverlayTargets& overlay, const bool clearDepth )
+    void SceneRendererImpl::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
+                                              const std::span<SystemRasterPass> passes, const bool clearFirst,
+                                              const OverlayTargets& overlay, const bool clearDepth )
     {
         // @p passes in the given order, each a raster node: its targets are its framebuffer WHOLE (TargetsOf:
         // every colour, the depth, and at MSAA the resolve images), its reads are what its Declare names. The
@@ -103,13 +103,13 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddSystemRaster( RDG::Builder& graph, FrameTextures& textures,
-                                         SystemRasterPass&& pass, const OverlayTargets& overlay )
+    void SceneRendererImpl::AddSystemRaster( RDG::Builder& graph, FrameTextures& textures, SystemRasterPass&& pass,
+                                             const OverlayTargets& overlay )
     {
         AddSystemRasters( graph, textures, std::span<SystemRasterPass>( &pass, 1 ), false, overlay );
     }
 
-    void SceneRenderer::AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures )
     {
         // The sun's cascades (MeshRenderer::ShadowCascadePasses): the static layers that went stale, each clearing
         // its cache (to 1: standard Z); each rebuilt map copied from its cache; the movable casters LOADING the
@@ -131,8 +131,8 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures,
-                                             System::MeshRenderer& mesh )
+    void SceneRendererImpl::AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures,
+                                                 System::MeshRenderer& mesh )
     {
         {
             // The cascade array ImportSceneViewTextures acquired (layer c = cascade c).
@@ -200,7 +200,7 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures )
     {
         // The scene target's opaque raster, one clearing sequence: on the forward path the sky first (it CLEARS
         // colour; the depth is its depth prepass's, LOADED), then the meshes, then the terrain, both LOADING and
@@ -219,7 +219,7 @@ namespace Desert::Graphic
         AddSystemRasters( graph, textures, passes, true, {}, /*clearDepth*/ !forward );
     }
 
-    void SceneRenderer::AddFrameSkyBehindScene( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameSkyBehindScene( RDG::Builder& graph, FrameTextures& textures )
     {
         // THE DEFERRED SKY (UE: the sky after the base pass, where the depth is the far plane): over the scene
         // target LOADED - its depth is the G-buffer's (AddFrameDepthResolve: every opaque draw, the forward
@@ -230,7 +230,7 @@ namespace Desert::Graphic
             AddSystemRaster( graph, textures, sky->SkyBehindScenePass() );
     }
 
-    void SceneRenderer::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )
     {
         // The outlined meshes' mask, cleared every frame so the Jump Flood outline has a fresh input.
         if ( auto* mesh = m_Systems.Mesh.get() )
@@ -240,8 +240,8 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures,
-                                              const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures,
+                                                  const ViewFrame& frame )
     {
         // The translucency of the frame, in draw order - the order of these calls IS the order, there is no
         // numeric placement. The height fog's apply is NOT here: it fogs the OPAQUE scene and ran before the scene
@@ -278,8 +278,8 @@ namespace Desert::Graphic
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
     }
 
-    void SceneRenderer::AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures,
-                                           const RDG::ExtensionPoint point, const OverlayTargets& overlay )
+    void SceneRendererImpl::AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures,
+                                               const RDG::ExtensionPoint point, const OverlayTargets& overlay )
     {
         // Outside a BeginScene/EndScene bracket there is no scene, so no extension passes; without a scene target
         // there is nothing for them to draw over.
@@ -338,9 +338,9 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddPassNode( RDG::Builder& graph, FrameTextures& textures, SystemRasterPass&& pass,
-                                     const RDG::LoadOp& color, const RDG::LoadOp& depth,
-                                     const OverlayTargets& overlay )
+    void SceneRendererImpl::AddPassNode( RDG::Builder& graph, FrameTextures& textures, SystemRasterPass&& pass,
+                                         const RDG::LoadOp& color, const RDG::LoadOp& depth,
+                                         const OverlayTargets& overlay )
     {
         const std::shared_ptr<Framebuffer>& target = pass.TargetFramebuffer;
         // A pass on one layer of a graph depth array declares that layer alone; one on a framebuffer, all of it.
@@ -411,9 +411,9 @@ namespace Desert::Graphic
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
-    void SceneRenderer::AddDisplayOverlayRaster( RDG::Builder& graph, FrameTextures& textures,
-                                                 SystemRasterPass&& pass, const RDG::TextureRef display,
-                                                 const RDG::TextureRef depth, const glm::uvec2 extent )
+    void SceneRendererImpl::AddDisplayOverlayRaster( RDG::Builder& graph, FrameTextures& textures,
+                                                     SystemRasterPass&& pass, const RDG::TextureRef display,
+                                                     const RDG::TextureRef depth, const glm::uvec2 extent )
     {
         if ( !pass.ExecuteFunc || !display.IsValid() )
             return;
@@ -440,7 +440,7 @@ namespace Desert::Graphic
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRendererImpl::AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures )
     {
         // THE FORWARD PATH'S DEPTH PREPASS (UE: the forward renderer's full DepthPass; FDepthPassMeshProcessor):
         // into the scene target's depth ALONE - no colour attachment, no shading. The meshes' node CLEARS it and
@@ -476,8 +476,8 @@ namespace Desert::Graphic
         return depthOnly.Depth;
     }
 
-    void SceneRenderer::AddFrameDecals( RDG::Builder& graph, FrameTextures& textures,
-                                        const RDG::TextureRef sceneDepth )
+    void SceneRendererImpl::AddFrameDecals( RDG::Builder& graph, FrameTextures& textures,
+                                            const RDG::TextureRef sceneDepth )
     {
         // No decal in this view: no node and no DBuffer - the view inputs bind System.Black (transmittance 1),
         // and every G-buffer writer keeps its exact bits (Common/DBuffer.glslh DesertApplyDBuffer).
@@ -519,9 +519,9 @@ namespace Desert::Graphic
         textures.Transients.DBufferC = dbufferC;
     }
 
-    bool SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer*                         meshRenderer,
-                                         const VirtualGeometry::VisibilityBufferFrame& grassVisibility )
+    bool SceneRendererImpl::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
+                                             System::MeshRenderer*                         meshRenderer,
+                                             const VirtualGeometry::VisibilityBufferFrame& grassVisibility )
     {
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer" );
         if ( !targets || meshRenderer == nullptr )
@@ -601,7 +601,8 @@ namespace Desert::Graphic
         // final depth is the nearest fragment in either order and the resolve keeps what lies in front of a blade,
         // so the picture does not move; the meshes' G-buffer and the ground stay one render pass. Only a view
         // whose ground did not prepass (early-Z off, or no ground) and that has no decal keeps the raster after
-        // the base pass (SceneRenderer::OnUpdate): there the depth would lack the ground and the opaque meshes.
+        // the base pass (SceneRendererImpl::OnUpdate): there the depth would lack the ground and the opaque
+        // meshes.
         const bool groundPrepassed   = terrain != nullptr && terrain->PrepassesGBuffer();
         const bool grassBeforeDecals = grassVisibility.IsValid() && ( m_Decals.HasDraws() || groundPrepassed );
         if ( grassBeforeDecals )
@@ -619,8 +620,8 @@ namespace Desert::Graphic
         return grassBeforeDecals;
     }
 
-    void SceneRenderer::AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
-                                                      System::MeshRenderer* meshRenderer )
+    void SceneRendererImpl::AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                                          System::MeshRenderer* meshRenderer )
     {
         // LOAD: "Deferred: GBuffer" and "TerrainGBuffer" wrote it; only the main view's phase-2 bins are drawn.
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer Post-Occlusion" );
@@ -650,10 +651,10 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGBufferPostOcclusionDraws( pass, view ); } );
     }
 
-    void SceneRenderer::AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures,
-                                                 System::MeshRenderer*                         meshRenderer,
-                                                 const VirtualGeometry::VisibilityBufferFrame& visibility,
-                                                 const bool                                    postOcclusion )
+    void SceneRendererImpl::AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures,
+                                                     System::MeshRenderer*                         meshRenderer,
+                                                     const VirtualGeometry::VisibilityBufferFrame& visibility,
+                                                     const bool                                    postOcclusion )
     {
         // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material
         // pass). The raster LOADs the G-buffer's depth (the early-Z's - the ground, the large occluders, the
@@ -765,9 +766,10 @@ namespace Desert::Graphic
              { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
     }
 
-    void SceneRenderer::AddFrameGrassVisibilityResolve( RDG::Builder& graph, FrameTextures& textures,
-                                                        System::MeshRenderer*                         meshRenderer,
-                                                        const VirtualGeometry::VisibilityBufferFrame& visibility )
+    void
+    SceneRendererImpl::AddFrameGrassVisibilityResolve( RDG::Builder& graph, FrameTextures& textures,
+                                                       System::MeshRenderer*                         meshRenderer,
+                                                       const VirtualGeometry::VisibilityBufferFrame& visibility )
     {
         // Two triangles per screen tile per blade section over the camera's list, the tiles that hold none of the
         // section's rows collapsed in its vertex stage (FPS-GRASS-RESOLVE; UE 5 Nanite material tile culling):
@@ -839,9 +841,9 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
-                                                    System::MeshRenderer* meshRenderer, const ViewFrame& frame,
-                                                    const VirtualGeometry::VisibilityBufferFrame& visibility )
+    void SceneRendererImpl::AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                                        System::MeshRenderer* meshRenderer, const ViewFrame& frame,
+                                                        const VirtualGeometry::VisibilityBufferFrame& visibility )
     {
         // GRASS-VIS phase 2 (UE two-phase occlusion): the grass last frame's HZB held back from the camera, tested
         // against this frame's furthest HZB of the phase-1 depth (built by AddFrameDrawBinsPostOcclusion), then
@@ -891,8 +893,8 @@ namespace Desert::Graphic
             AddFrameGrassVisibility( graph, textures, meshRenderer, visibility, true );
     }
 
-    void SceneRenderer::AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer,
-                                                 const ViewFrame& frame, const bool postOcclusion )
+    void SceneRendererImpl::AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer,
+                                                     const ViewFrame& frame, const bool postOcclusion )
     {
         // Called by AddFrameGrassVisibility once the sections are chosen: GrassRenderer sets up only the varieties
         // MeshRenderer draws through the visibility buffer (DrawsGrassVisibilitySection).
@@ -905,7 +907,7 @@ namespace Desert::Graphic
             LOG_ERROR( "[Grass] Blade Setup{}: {}", postOcclusion ? " Post-Occlusion" : "", setup.GetError() );
     }
 
-    void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the
         // graph's "TerrainPass"). LOAD: the meshes' G-buffer node cleared it; the graph merges the two into
@@ -928,8 +930,8 @@ namespace Desert::Graphic
         // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
     }
 
-    void SceneRenderer::AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
-                                                    System::MeshRenderer* meshRenderer )
+    void SceneRendererImpl::AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
+                                                        System::MeshRenderer* meshRenderer )
     {
         // The generic queue's opaque draws are shaded forward over the composite, but the screen passes that run
         // before it (the ray-traced sun trace above all, which reads G-buffer depth + normal) must see them: their
@@ -952,9 +954,10 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer, const RDG::TextureRef sunShadowMask,
-                                         const RDG::TextureRef localShadowMasks )
+    void SceneRendererImpl::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
+                                             System::MeshRenderer* meshRenderer,
+                                             const RDG::TextureRef sunShadowMask,
+                                             const RDG::TextureRef localShadowMasks )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || meshRenderer == nullptr )
@@ -979,8 +982,8 @@ namespace Desert::Graphic
              [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); } );
     }
 
-    void SceneRenderer::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
-                                       System::MeshRenderer* meshRenderer, const FrameFrontLayer& frontLayer )
+    void SceneRendererImpl::AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
+                                           System::MeshRenderer* meshRenderer, const FrameFrontLayer& frontLayer )
     {
         if ( !sceneCopy.IsValid() || meshRenderer == nullptr )
             return;
@@ -1003,8 +1006,8 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
-    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
-                                       const FrameFrontLayer& frontLayer )
+    void SceneRendererImpl::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
+                                           const FrameFrontLayer& frontLayer )
     {
         auto* water = m_Systems.Water.get();
         if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
@@ -1042,7 +1045,7 @@ namespace Desert::Graphic
     }
 
 #if DESERT_DEV_INSTRUMENTS
-    void SceneRenderer::AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* meshRenderer = m_Systems.Mesh.get();
         if ( meshRenderer == nullptr || !meshRenderer->EnsureOverdrawPass() )
@@ -1067,7 +1070,7 @@ namespace Desert::Graphic
              [meshRenderer, overdraw = accum->Colors[0]]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareOverdrawResolve( pass, overdraw ); } );
     }
-    void SceneRenderer::AddFrameVirtualGeometryClusters( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameVirtualGeometryClusters( RDG::Builder& graph, FrameTextures& textures )
     {
         // This frame's cluster cut (AddFrameVirtualGeometry): nothing to draw without one.
         const ViewFrame* view = GetViewFrame();

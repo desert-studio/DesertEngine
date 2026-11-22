@@ -6,6 +6,7 @@
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 #endif
 
 namespace
