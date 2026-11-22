@@ -24,10 +24,13 @@ ARG DEBIAN_FRONTEND=noninteractive
 # GameNetworkingSockets (cmake/ThirdParty/GameNetworkingSockets.cmake, linked statically); ccache for rebuilds.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        clang lld cmake ninja-build ccache git ca-certificates libssl-dev file \
+        clang lld cmake ninja-build ccache git ca-certificates libssl-dev file python3 \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
+# The source trees that are not submodules (optick, meshoptimizer), at the commits ThirdParty/GitDependencies.json
+# pins: the same fetcher and list Setup.sh / Setup.bat run, so the image builds exactly the versions a developer machine builds.
+RUN python3 scripts/FetchGitDependencies.py
 ENV CCACHE_DIR=/ccache
 RUN --mount=type=cache,target=/ccache \
     cmake --preset linux-server-clang -DDESERT_COMPILER_LAUNCHER=ccache \

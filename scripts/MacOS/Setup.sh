@@ -202,54 +202,11 @@ fi
 # ---------------------------------------------------------------------------
 # 3. Third-party sources that are not submodules.
 # ---------------------------------------------------------------------------
-# clone_dep <sentinel-file> <dest-dir> <url> [branch]
-clone_dep() {
-    local sentinel="$1" dir="$2" url="$3" branch="${4:-}"
-    local name="${dir#"$ROOT"/}"
-
-    if [ -f "$sentinel" ]; then
-        echo "--- $name: present"
-        return 0
-    fi
-
-    echo "--- Cloning $name"
-    rm -rf "$dir"
-    if [ -n "$branch" ]; then
-        git clone --branch "$branch" --depth 1 "$url" "$dir" || {
-            fail "git clone $url -> $name"
-            return 1
-        }
-    else
-        git clone --depth 1 "$url" "$dir" || {
-            fail "git clone $url -> $name"
-            return 1
-        }
-    fi
-
-    if [ ! -f "$sentinel" ]; then
-        fail "$name was cloned but ${sentinel#"$ROOT"/} is missing"
-        return 1
-    fi
-    return 0
-}
-
-# Optick profiler sources.
-clone_dep "$ROOT/ThirdParty/optick/src/optick.h" \
-    "$ROOT/ThirdParty/optick" \
-    https://github.com/bombomby/optick.git
-
-# meshoptimizer (mesh simplification / LOD generation), pinned to v1.3 - the version
-# cmake/ThirdParty/MeshOptimizer.cmake checks. A tree holding another version is re-fetched.
-MESHOPT_DIR="$ROOT/ThirdParty/meshoptimizer"
-if [ -f "$MESHOPT_DIR/src/meshoptimizer.h" ] &&
-    ! grep -q "define MESHOPTIMIZER_VERSION 1030" "$MESHOPT_DIR/src/meshoptimizer.h"; then
-    echo "--- ThirdParty/meshoptimizer: not v1.3, re-fetching"
-    rm -rf "$MESHOPT_DIR"
+# optick and meshoptimizer: ThirdParty/GitDependencies.json pins each at a commit; one fetcher serves every
+# platform (Setup.bat and the Linux server image Server/Dockerfile call the same script with the same list).
+if ! python3 "$ROOT/scripts/FetchGitDependencies.py"; then
+    fail "python3 scripts/FetchGitDependencies.py (the [ERROR] line above names the dependency)"
 fi
-clone_dep "$ROOT/ThirdParty/meshoptimizer/src/meshoptimizer.h" \
-    "$ROOT/ThirdParty/meshoptimizer" \
-    https://github.com/zeux/meshoptimizer.git \
-    v1.3
 
 # ---------------------------------------------------------------------------
 # 3b. MoltenVK, the Vulkan-over-Metal ICD, built from source at the commit pinned in
