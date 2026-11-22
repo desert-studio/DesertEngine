@@ -1,4 +1,5 @@
 #include <Engine/Graphic/GpuDriven/IndirectDrawSubmission.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>

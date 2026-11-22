@@ -2,7 +2,6 @@
 
 #include <Common/Content/ImportRecord.hpp>
 #include <Engine/Assets/AssetBase.hpp>
-#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetEvents.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 

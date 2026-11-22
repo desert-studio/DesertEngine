@@ -1,4 +1,5 @@
 #include "ReflectionCaptureRenderer.hpp"
+#include <Engine/Core/Scene.hpp>
 
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/FrameManager.hpp>

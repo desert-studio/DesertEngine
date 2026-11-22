@@ -19,6 +19,11 @@
 #include <unordered_map>
 #include <vector>
 
+namespace Desert::Graphic::Render
+{
+    class RenderCommandBuffer;
+}
+
 namespace Desert
 {
     class DynamicMesh;

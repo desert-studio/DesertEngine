@@ -3,8 +3,6 @@
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Graphic/Texture.hpp>
 
-#include <Engine/Assets/AssetManager.hpp>
-
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>

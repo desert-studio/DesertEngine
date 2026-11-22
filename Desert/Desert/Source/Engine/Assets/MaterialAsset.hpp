@@ -3,8 +3,6 @@
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Graphic/Texture.hpp>
 
-#include <Engine/Assets/AssetManager.hpp>
-
 namespace Desert::Assets
 {
     class MaterialAsset : public AssetBase

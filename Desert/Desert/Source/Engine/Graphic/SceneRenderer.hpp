@@ -61,7 +61,6 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Camera.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>

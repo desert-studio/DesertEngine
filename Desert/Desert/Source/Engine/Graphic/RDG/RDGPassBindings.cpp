@@ -1,4 +1,5 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -697,5 +698,17 @@ namespace Desert::Graphic::RDG
         GiveVector( storage.Textures, m_Textures );
         GiveVector( storage.Buffers, m_Buffers );
         GiveVector( storage.Push, m_PushConstants );
+    }
+
+    OpenBindingBlocks::OpenBindingBlocks( const PassContext& context, const uint32_t first, const size_t count )
+         : m_Base( Slots().Used ), m_Count( count )
+    {
+        ThreadSlots& open = Slots();
+        while ( open.Slots.size() < m_Base + m_Count )
+            open.Slots.push_back( std::make_unique<std::optional<PassBindings>>() );
+        open.Used = m_Base + m_Count;
+        for ( size_t index = 0; index < m_Count; ++index )
+            open.Slots[m_Base + index]->emplace(
+                 context, context.GetBindingBlock( first + static_cast<uint32_t>( index ) ) );
     }
 } // namespace Desert::Graphic::RDG

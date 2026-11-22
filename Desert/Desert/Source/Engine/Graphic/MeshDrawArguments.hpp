@@ -1,13 +1,17 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-#include <Engine/Geometry/Mesh.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
 
 #include <cstdint>
 #include <cstddef>
-#include <format>
 #include <span>
 #include <vector>
+
+namespace Desert
+{
+    class Mesh;
+}
 
 // THE INDIRECT ARGUMENTS OF A MESH DRAW (RendererAPI::RenderMeshIndirect): one record per submesh the draw draws,
 // in RenderMesh's walk order (the hidden-submesh mask skips, the LOD picks the index range). A record is a
@@ -78,34 +82,8 @@ namespace Desert::Graphic
     // Appends to @p words the records of a draw of @p mesh (hidden mask, LOD) whose instances start at
     // @p firstInstance, each with an instance count of 0; returns how many records. Refused when a submesh reads
     // past the index buffer (RenderMesh's check, made here because the GPU never reports it).
-    [[nodiscard]] inline Common::ResultStr<uint32_t>
-    AppendMeshDrawArguments( const Mesh& mesh, const SubmeshMask hiddenSubmeshMask, const uint32_t lodLevel,
-                             const uint32_t firstInstance, std::vector<uint32_t>& words )
-    {
-        // Mesh-relative records: the per-mesh bind puts the geometry at the mesh's own offsets.
-        const auto& geometry   = mesh.GetGeometry();
-        const uint32_t indexCount = geometry.Indices != nullptr ? geometry.IndexCount : 0u;
-        const auto& submeshes   = mesh.GetSubmeshes();
-        uint32_t    records     = 0;
-        for ( size_t si = 0; si < submeshes.size(); ++si )
-        {
-            if ( hiddenSubmeshMask.Hides( si ) )
-                continue;
-            const Submesh& submesh = submeshes[si];
-            if ( indexCount == 0u )
-            {
-                words.insert( words.end(), { submesh.VertexCount, 0u, submesh.VertexOffset, firstInstance, 0u } );
-                ++records;
-                continue;
-            }
-            const SubmeshIndexRange range = SubmeshIndices( submesh, lodLevel );
-            if ( range.First + range.Count > indexCount )
-                return Common::MakeError<uint32_t>(
-                     std::format( "submesh {} reads indices [{}, {}) of a {}-index mesh", si, range.First,
-                                  range.First + range.Count, indexCount ) );
-            words.insert( words.end(), { range.Count, 0u, range.First, submesh.VertexOffset, firstInstance } );
-            ++records;
-        }
-        return Common::MakeSuccess( records );
-    }
+    [[nodiscard]] Common::ResultStr<uint32_t> AppendMeshDrawArguments( const Mesh& mesh,
+                                                                       SubmeshMask hiddenSubmeshMask,
+                                                                       uint32_t lodLevel, uint32_t firstInstance,
+                                                                       std::vector<uint32_t>& words );
 } // namespace Desert::Graphic
