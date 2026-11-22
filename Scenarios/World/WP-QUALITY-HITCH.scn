@@ -18,7 +18,10 @@
 Когда run Quality "Quality: ViewDistance Cinematic"
 Когда frames 60
 Когда profile-dump
-Тогда 1_after_switch Cinematic, same view: the crowd at the horizon present; log: no "[Control] long frame" between the switch and this shot except this shot's own collect frame (its "wrote the presented frame" line names it: render task join + device idle + staging readback, the RGBA8 pack and the PNG on a worker), every `run` line "the group's slice ... built in" < 50 ms, the 60 frames after the switch with their [Hitch] ms (< 250 ms)
+Тогда 1_after_switch Cinematic, same view: the crowd at the horizon present; log: no "[Control] long frame" between the switch and the end; the shot's "wrote the presented frame" line: on the frame < 50 ms (p3: no device wait, the worker waits the copy's fence), every `run` line "the group's slice ... built in" < 50 ms, the 60 frames after the switch with their [Hitch] ms (< 250 ms)
 Когда frames 30
 Тогда 2_next_shot a second shot after 30 frames: the frame after 1_after_switch's shot is not a long frame (the PNG went to a worker)
 Когда run Action "Stop"
+Когда frames 30
+Когда profile-dump
+Тогда 3_after_stop the editor world back after Stop (p3): no "[Control] long frame" after Stop; the [Hitch] lines of the 30 frames after Stop name each frame's top scopes
