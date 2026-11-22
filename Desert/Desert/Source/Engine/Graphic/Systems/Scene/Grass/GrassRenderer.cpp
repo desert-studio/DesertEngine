@@ -1325,6 +1325,10 @@ namespace Desert::Graphic::System
                  b.HullTexels.y > 0.0f )
             {
                 std::copy_n( b.CardHulls.begin(), hullVec4s, gpu.ShapeData.Hull.begin() );
+                // FPS-GRASS-RASTER-2: the one-segment strip's fitted trapezoid per card x class.
+                for ( size_t k = 0u; k < cards * kGrassBladeHullClasses; ++k )
+                    gpu.ShapeData.HullLine[k] =
+                         GrassBladeHullLine( &gpu.ShapeData.Hull[k * kGrassBladeHullBands / 2u] );
                 gpu.ShapeData.HullTexels = glm::vec4( b.HullTexels, 1.0f, 0.0f );
             }
             // The variety's rows of this frame's raster stream (GRASS-VIS): instance i is row VisibilityRow + i
