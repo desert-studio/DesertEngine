@@ -130,8 +130,10 @@ namespace Desert::Net
 
     // ---- gateway -----------------------------------------------------------------------------------------------
 
-    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy, NetLogSink log )
-         : m_Transport( transport ), m_Store( store ), m_Policy( policy ), m_Log( std::move( log ) )
+    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy,
+                      std::uint64_t pawnPrefab, NetLogSink log )
+         : m_Transport( transport ), m_Store( store ), m_Policy( policy ), m_PawnPrefab( pawnPrefab ),
+           m_Log( std::move( log ) )
     {
     }
 
@@ -164,7 +166,15 @@ namespace Desert::Net
         const HelloVerdict verdict = EvaluateHello( hello, policy );
         if ( !verdict.Accepted )
         {
-            m_Log( std::format( "connection {}: refused - {}", connection, RefuseReasonText( verdict.Reason ) ) );
+            // UE PreLogin's ErrorMessage: the reason is logged here and sent to the client, which shows it.
+            m_Log( std::format(
+                 "connection {}: refused - {} (client protocol {}, cook hash {:016x}, token {} bytes, "
+                 "account {}, server id {}, expiry {}; server protocol {}, cook hash {:016x}, id {}, "
+                 "now {})",
+                 connection, RefuseReasonText( verdict.Reason ), verdict.Hello.ProtocolVersion,
+                 verdict.Hello.CookHash, verdict.Hello.Token.size(), verdict.Token.Account, verdict.Token.Server,
+                 verdict.Token.ExpiresUnixSeconds, kProtocolVersion, policy.CookHash, policy.ServerId,
+                 policy.NowUnixSeconds ) );
             m_Transport.Send( connection, EncodeRefuse( verdict.Reason ), ENetLane::Control );
             m_Transport.Close( connection, RefuseCloseCode( verdict.Reason ), RefuseReasonText( verdict.Reason ),
                                true );
@@ -174,9 +184,9 @@ namespace Desert::Net
         peer.Admitted              = true;
         peer.Player                = m_NextPlayer++;
         m_Connections[peer.Player] = connection;
-        m_Transport.Send( connection, EncodeWelcome( m_Policy.CookHash ), ENetLane::Control );
-        m_Log( std::format( "connection {}: admitted as player {} (account {})", connection, peer.Player,
-                            verdict.Token.Account ) );
+        m_Transport.Send( connection, EncodeWelcome( m_Policy.CookHash, m_PawnPrefab ), ENetLane::Control );
+        m_Log( std::format( "connection {}: admitted as player {} (account {}), pawn prefab {:016x}", connection,
+                            peer.Player, verdict.Token.Account, m_PawnPrefab ) );
         // UE's initial replication of the actors already relevant: the pawns of the players already in.
         for ( const PawnState& pawn : m_Store.All() )
             m_Transport.Send( connection, EncodeSpawn( { pawn, false, 0 } ), ENetLane::Rpc );

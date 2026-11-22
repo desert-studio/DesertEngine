@@ -56,8 +56,10 @@ namespace Desert::Net
             const HandshakeAnswer answer = DecodeAnswer( data );
             if ( answer.Kind == HandshakeAnswer::EKind::Welcome )
             {
-                m_State = EState::InSession;
-                m_Log( std::format( "welcomed: server cook hash {:016x}", answer.ServerCookHash ) );
+                m_State      = EState::InSession;
+                m_PawnPrefab = answer.PawnPrefab;
+                m_Log( std::format( "welcomed: server cook hash {:016x}, pawn prefab {:016x}",
+                                    answer.ServerCookHash, answer.PawnPrefab ) );
             }
             else
             {

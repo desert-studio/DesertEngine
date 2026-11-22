@@ -122,7 +122,10 @@ namespace Desert::Net
     class Gateway final : public INetTransportEvents, public IGatewayLink
     {
     public:
-        Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy, NetLogSink log );
+        // @p pawnPrefab: the server GameMode's pawn (UE DefaultPawnClass), named to every admitted client in the
+        // Welcome; never 0.
+        Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy, std::uint64_t pawnPrefab,
+                 NetLogSink log );
         void Bind( ISimLink& sim )
         {
             m_Sim = &sim;
@@ -150,6 +153,7 @@ namespace Desert::Net
         INetTransport&                   m_Transport;
         IReplicationStore&               m_Store;
         HelloPolicy                      m_Policy;
+        std::uint64_t                    m_PawnPrefab = 0;
         NetLogSink                       m_Log;
         ISimLink*                        m_Sim = nullptr;
         std::map<ConnectionId, Peer>     m_Peers;

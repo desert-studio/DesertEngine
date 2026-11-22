@@ -179,13 +179,33 @@ namespace Desert::Core
                  sample ? ToGlm( sample->Position ) : ToGlm( replicated.History.Sample( 1e12 ).Position );
             if ( replicated.Owned )
             {
-                // The own pawn is the one Play spawned: the server's position replaces the PlayerStart's.
-                const entt::entity pawn = scene.GetPlayerPawn();
+                // The own pawn: the one Play spawned from the level's GameMode, at the server's position; a level
+                // that names no pawn (a protocol or streaming-test map) gets the SERVER GameMode's pawn, possessed
+                // here (UE: the client possesses the pawn the server spawned for its controller).
+                entt::entity pawn = scene.GetPlayerPawn();
                 if ( pawn == entt::null || !reg.valid( pawn ) )
                 {
-                    LOG_ERROR( "[Net] the server gave this client pawn {} but Play spawned no pawn to possess",
-                               id );
-                    continue;
+                    const auto own =
+                         SpawnPawnPrefabAt( scene, assets, Assets::AssetHandle( m_Client->PawnPrefab() ),
+                                            glm::translate( glm::mat4( 1.0f ), at ) );
+                    if ( !own )
+                    {
+                        LOG_ERROR( "[Net] own pawn {} (player {}): the server's pawn prefab {:016x}: {}", id,
+                                   replicated.Player, m_Client->PawnPrefab(), own.GetError() );
+                        continue;
+                    }
+                    pawn = own.GetValue().GetHandle();
+                    scene.SetPlayerPawn( pawn );
+                    LOG_INFO( "[Net] the level names no pawn: spawned the server's pawn prefab {:016x} as this "
+                              "player's",
+                              m_Client->PawnPrefab() );
+                }
+                else if ( static_cast<std::uint64_t>( scene.GetSettings().DefaultPawn ) != m_Client->PawnPrefab() )
+                {
+                    LOG_WARN(
+                         "[Net] the level's pawn prefab {:016x} is not the server's {:016x}: the server moves "
+                         "it all the same",
+                         static_cast<std::uint64_t>( scene.GetSettings().DefaultPawn ), m_Client->PawnPrefab() );
                 }
                 reg.emplace_or_replace<ECS::NetRoleComponent>( pawn, ECS::ENetRole::Autonomous, id,
                                                                replicated.Player );
@@ -194,7 +214,8 @@ namespace Desert::Core
                           replicated.Player, at.x, at.y, at.z );
                 continue;
             }
-            const auto spawned = SpawnPawnPrefabAt( scene, assets, glm::translate( glm::mat4( 1.0f ), at ) );
+            const auto spawned = SpawnPawnPrefabAt( scene, assets, Assets::AssetHandle( m_Client->PawnPrefab() ),
+                                                    glm::translate( glm::mat4( 1.0f ), at ) );
             if ( !spawned )
             {
                 LOG_ERROR( "[Net] remote pawn {} (player {}): {}", id, replicated.Player, spawned.GetError() );

@@ -105,6 +105,12 @@ namespace Desert::Core
     // NOT possess it. SpawnDefaultPawn and the GameMode's RestartPlayer (through GameModeSystem) both use it.
     [[nodiscard]] Common::ResultStr<ECS::Entity>
     SpawnPawnPrefabAt( Scene& scene, const Assets::AssetManager& assets, const glm::mat4& spawnAt );
+    // The same for a pawn prefab named by someone other than the level: a network client spawns the pawn the
+    // SERVER's GameMode names in its Welcome (UE: the replicated pawn's class), whatever level it has open.
+    [[nodiscard]] Common::ResultStr<ECS::Entity> SpawnPawnPrefabAt( Scene&                      scene,
+                                                                    const Assets::AssetManager& assets,
+                                                                    Assets::AssetHandle         pawnPrefab,
+                                                                    const glm::mat4&            spawnAt );
 
     // The level's Player Controller prefab (SceneSettings::PlayerController, UE PlayerControllerClass), spawned
     // ONCE per Play and recorded as the scene's player controller: it outlives every pawn, so what it carries -

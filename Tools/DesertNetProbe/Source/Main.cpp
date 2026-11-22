@@ -177,6 +177,7 @@ namespace
         std::uint64_t Account   = 0;
         std::uint64_t ServerId  = 0;
         bool          HasServer = false;
+        std::uint64_t PawnPrefab = 0; // --server: the pawn its Welcome names (an AssetHandle; no game runs here)
         std::int64_t  ExpiresIn = 0;
         bool          HasExpiry = false;
         int           Clients   = 1;
@@ -215,6 +216,8 @@ namespace
                 options.TokenHex = argv[++i];
             else if ( arg == "--account" && hasValue )
                 options.Account = std::strtoull( argv[++i], nullptr, 0 );
+            else if ( arg == "--pawn-prefab" && hasValue )
+                options.PawnPrefab = std::strtoull( argv[++i], nullptr, 0 );
             else if ( arg == "--server-id" && hasValue )
             {
                 options.ServerId  = std::strtoull( argv[++i], nullptr, 0 );
@@ -251,13 +254,14 @@ namespace
              ( !options.IssueToken ||
                ( !options.SecretFile.empty() && options.HasServer && options.HasExpiry ) ) &&
              ( !options.Server || ( !options.Cooked.empty() && !options.SecretFile.empty() && options.HasServer &&
-                                    options.Rpcs > 0 && options.BulkBytes > 0 ) ) &&
+                                    options.PawnPrefab != 0 && options.Rpcs > 0 && options.BulkBytes > 0 ) ) &&
              ( !options.Client ||
                ( !options.Cooked.empty() && !options.Connect.empty() && !options.TokenHex.empty() ) );
         if ( !ok )
         {
             Log( "usage: --issue-token --secret-file F --account A --server-id S --expires-in SECONDS | "
-                 "--server --port P --cooked DIR --server-id S --secret-file F --clients K --refusals R --bulk-mb "
+                 "--server --port P --cooked DIR --server-id S --secret-file F --pawn-prefab H --clients K "
+                 "--refusals R --bulk-mb "
                  "B "
                  "--rpcs N [--lag-ms L --loss PCT --rate-kbps KB] | "
                  "--client --connect IP:P --cooked DIR --token HEX --name N [--lag-ms L --loss PCT --rate-kbps "
@@ -461,7 +465,8 @@ namespace
                  "s)",
                  connection, peer.Address, verdict.Hello.ProtocolVersion, verdict.Hello.CookHash,
                  verdict.Token.Account, verdict.Token.ExpiresUnixSeconds - policy.NowUnixSeconds );
-            m_Transport.Send( connection, EncodeWelcome( m_Options.CookHash ), ENetLane::Control );
+            m_Transport.Send( connection, EncodeWelcome( m_Options.CookHash, m_Options.PawnPrefab ),
+                              ENetLane::Control );
         }
 
         INetTransport&               m_Transport;
@@ -575,7 +580,8 @@ namespace
             if ( answer.Kind == HandshakeAnswer::EKind::Welcome )
             {
                 m_Welcomed = true;
-                Log( "accepted by server (server cook hash {:016x})", answer.ServerCookHash );
+                Log( "accepted by server (server cook hash {:016x}, pawn prefab {:016x})", answer.ServerCookHash,
+                     answer.PawnPrefab );
                 std::vector<std::byte> name( 1 + m_Options.Name.size() );
                 name[0] = static_cast<std::byte>( ESessionMessage::Name );
                 std::memcpy( name.data() + 1, m_Options.Name.data(), m_Options.Name.size() );

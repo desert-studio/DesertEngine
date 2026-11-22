@@ -3,7 +3,8 @@
 // headless at a fixed 60 Hz step.
 //
 //   DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> [--steps <n>]
-//                [--port <p> --server-id <id> --secret-file <hex file> --spawn <x,y,z> [--spawn ...]]
+//                [--port <p> --server-id <id> --secret-file <hex file> --pawn <assets:X.deprefab> --spawn <x,y,z>
+//                ...]
 //
 // --world   the scene whose cooked world (WorldCells::CookedWorldDirectory, `X.dwworld/` beside it) is served;
 //           relative to the project's directory. A scene with no cooked world beside it is refused.
@@ -27,6 +28,7 @@
 
 #include <Projects/WorldPartitionSettings.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
@@ -65,6 +67,7 @@ namespace Desert::Server
             std::uint64_t                serverId = 0;
             std::string                  secretFile;
             std::vector<glm::vec3>       spawns;
+            std::string pawn; // the GameMode's pawn prefab, a stable key (assets:Prefabs/X.deprefab)
         };
 
         constexpr double kStepHz = 60.0;
@@ -73,7 +76,8 @@ namespace Desert::Server
         {
             return "usage: DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> "
                    "[--steps <n>] "
-                   "[--port <p> --server-id <id> --secret-file <file> --spawn <x,y,z> [--spawn ...]]";
+                   "[--port <p> --server-id <id> --secret-file <file> --pawn <assets:...deprefab> --spawn <x,y,z> "
+                   "[--spawn ...]]";
         }
 
         Common::ResultStr<glm::vec3> ParsePoint( std::string_view text, std::string_view flag )
@@ -142,6 +146,8 @@ namespace Desert::Server
                 }
                 else if ( flag == "--secret-file" )
                     options.secretFile = value;
+                else if ( flag == "--pawn" )
+                    options.pawn = value;
                 else if ( flag == "--port" || flag == "--server-id" )
                 {
                     std::uint64_t n  = 0;
@@ -168,9 +174,11 @@ namespace Desert::Server
             }
             if ( options.project.empty() || options.world.empty() || !roleGiven || !sourceGiven )
                 return Common::MakeError<Options>( "--project, --role, --world and --source are required" );
-            if ( options.port && ( options.secretFile.empty() || options.serverId == 0 || options.spawns.empty() ) )
+            if ( options.port && ( options.secretFile.empty() || options.serverId == 0 || options.spawns.empty() ||
+                                   options.pawn.empty() ) )
                 return Common::MakeError<Options>(
-                     "--port needs --server-id, --secret-file and at least one --spawn (where players' pawns start)" );
+                     "--port needs --server-id, --secret-file, --pawn (the prefab every "
+                     "player's pawn is) and at least one --spawn (where pawns start)" );
             return Common::MakeSuccess( std::move( options ) );
         }
 
@@ -253,17 +261,31 @@ namespace Desert::Server
                     LOG_ERROR( "[Server] cannot listen on port {}: {}", *options.port, error );
                     return 7;
                 }
+                // THE SERVER'S GAMEMODE PAWN (UE DefaultPawnClass): named by its stable key, so the handle in the
+                // Welcome is the one every client's registry gives that prefab (AssetHandle::FromKey).
+                const std::filesystem::path pawnPath = Common::AssetHandle::PathForStableKey( options.pawn );
+                if ( !Common::AssetHandle::IsProjectRelativeKey( options.pawn ) ||
+                     pawnPath.extension() != ".deprefab" || !std::filesystem::is_regular_file( pawnPath ) )
+                {
+                    LOG_ERROR( "[Server] --pawn '{}' is not a prefab of this project (looked at '{}')",
+                               options.pawn, pawnPath.string() );
+                    return 7;
+                }
+                const Common::AssetHandle pawnPrefab = Common::AssetHandle::FromKey( options.pawn );
                 store   = std::make_unique<Net::InProcessReplicationStore>();
-                gateway = std::make_unique<Net::Gateway>(
-                     *transport, *store,
-                     Net::HelloPolicy{ server->World().CookHash, options.serverId, secret, 0 }, netLog );
+                gateway                              = std::make_unique<Net::Gateway>(
+                     *transport, *store, Net::HelloPolicy{ server->World().CookHash, options.serverId, secret, 0 },
+                     static_cast<std::uint64_t>( pawnPrefab ), netLog );
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
                 sim = std::make_unique<Net::PawnSimulation>( *store, *gateway, std::move( simSettings ), netLog );
                 gateway->Bind( *sim );
-                LOG_INFO( "[Server] listening on port {} (server id {}, cook hash {:016x}); {} spawn point(s)",
-                          *options.port, options.serverId, server->World().CookHash, options.spawns.size() );
+                LOG_INFO(
+                     "[Server] listening on port {} (server id {}, cook hash {:016x}); {} spawn point(s); pawn {} "
+                     "({:016x})",
+                     *options.port, options.serverId, server->World().CookHash, options.spawns.size(),
+                     options.pawn, static_cast<std::uint64_t>( pawnPrefab ) );
             }
 
             // THE SOURCES: the server's own + every player's pawn (§4.1 - the residency union of all of them).
