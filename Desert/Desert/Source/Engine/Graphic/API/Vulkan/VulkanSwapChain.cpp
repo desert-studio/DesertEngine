@@ -805,68 +805,99 @@ namespace Desert::Graphic::API::Vulkan
     Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::TakeCapturedFrameRGBA8( uint32_t& outWidth,
                                                                                      uint32_t& outHeight )
     {
-        using Bytes = std::vector<uint8_t>;
+        auto detached = DetachCapturedFrame();
+        if ( !detached )
+            return Common::MakeError<std::vector<uint8_t>>( detached.GetError() );
+        CapturedStaging staging = detached.GetValue();
+        auto            raw     = ReadCapturedStaging( staging );
+        ReleaseCapturedStaging( staging );
+        if ( !raw )
+            return Common::MakeError<std::vector<uint8_t>>( raw.GetError() );
+        auto packed = PackCapturedFrame( raw.GetValue() );
+        if ( packed )
+        {
+            outWidth  = raw.GetValue().Width;
+            outHeight = raw.GetValue().Height;
+        }
+        return packed;
+    }
 
+    Common::ResultStr<VulkanSwapChain::CapturedStaging> VulkanSwapChain::DetachCapturedFrame()
+    {
         if ( !HasPendingCapture() )
-            return Common::MakeError<Bytes>( "no frame capture was recorded for this frame." );
+            return Common::MakeError<CapturedStaging>( "no frame capture was recorded for this frame." );
 
+        CapturedStaging staging{ .Buffer     = m_CaptureStaging,
+                                 .Allocation = m_CaptureAllocation,
+                                 .Width      = m_CaptureWidth,
+                                 .Height     = m_CaptureHeight };
+        m_CaptureStaging    = VK_NULL_HANDLE;
+        m_CaptureAllocation = nullptr;
+        if ( !SurfaceLayout( m_ColorFormat, staging.Source ) )
+        {
+            ReleaseCapturedStaging( staging );
+            return Common::MakeError<CapturedStaging>(
+                 "the surface format changed between recording and collecting." );
+        }
+        return Common::MakeSuccess( staging );
+    }
+
+    Common::ResultStr<VulkanSwapChain::CapturedFrame>
+    VulkanSwapChain::ReadCapturedStaging( const CapturedStaging& staging )
+    {
         auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                                ->GetVulkanAllocator()
                                .get();
 
-        // Released whatever happens below. A capture that failed and leaked its staging buffer would cost
-        // a full frame of device memory per attempt, and the attempts are what a client retries.
-        const auto release = [&]()
-        {
-            allocator->RT_DestroyBuffer( m_CaptureStaging, static_cast<VmaAllocation>( m_CaptureAllocation ) );
-            m_CaptureStaging    = VK_NULL_HANDLE;
-            m_CaptureAllocation = nullptr;
-        };
+        CapturedFrame     frame{ .Width = staging.Width, .Height = staging.Height, .Source = staging.Source };
+        const std::size_t pixels    = static_cast<std::size_t>( frame.Width ) * frame.Height;
+        const std::size_t stagingSz = pixels * Graphic::BytesPerPixel( frame.Source );
 
-        Graphic::PackedPixelSource source{};
-        if ( !SurfaceLayout( m_ColorFormat, source ) )
-        {
-            release();
-            return Common::MakeError<Bytes>( "the surface format changed between recording and collecting." );
-        }
+        frame.Raw.resize( stagingSz );
+        MappedMemory readback = allocator->MapMemory( static_cast<VmaAllocation>( staging.Allocation ) );
+        const auto   read     = readback.ReadInto( frame.Raw.data(), stagingSz );
+        readback.Unmap();
+        if ( !read.IsSuccess() )
+            return Common::MakeFormattedError<CapturedFrame>( "the capture staging buffer: {}", read.GetError() );
+        return Common::MakeSuccess( std::move( frame ) );
+    }
 
-        const uint32_t    w         = m_CaptureWidth;
-        const uint32_t    h         = m_CaptureHeight;
-        const std::size_t pixels    = static_cast<std::size_t>( w ) * h;
-        const std::size_t stagingSz = pixels * Graphic::BytesPerPixel( source );
+    void VulkanSwapChain::ReleaseCapturedStaging( CapturedStaging& staging )
+    {
+        if ( staging.Buffer == VK_NULL_HANDLE )
+            return;
+        auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                               ->GetVulkanAllocator()
+                               .get();
+        allocator->RT_DestroyBuffer( staging.Buffer, static_cast<VmaAllocation>( staging.Allocation ) );
+        staging.Buffer     = VK_NULL_HANDLE;
+        staging.Allocation = nullptr;
+    }
 
-        Bytes raw( stagingSz );
-        {
-            MappedMemory readback = allocator->MapMemory( static_cast<VmaAllocation>( m_CaptureAllocation ) );
-            const auto   read     = readback.ReadInto( raw.data(), stagingSz );
-            if ( !read.IsSuccess() )
-            {
-                readback.Unmap();
-                release();
-                return Common::MakeFormattedError<Bytes>( "the capture staging buffer: {}", read.GetError() );
-            }
-        }
-        release();
+    Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::PackCapturedFrame( const CapturedFrame& frame )
+    {
+        using Bytes = std::vector<uint8_t>;
 
-        if ( source == Graphic::PackedPixelSource::RGBA16F_ScRGB )
+        const std::size_t pixels = static_cast<std::size_t>( frame.Width ) * frame.Height;
+        if ( frame.Source == Graphic::PackedPixelSource::RGBA16F_ScRGB )
         {
             // The brightest value the swapchain held, in paper-white units. On a capture frame the editor draws
             // the SDR rendition (Graphic::SdrCaptureRenditionRequested; <= 1); the HDR peak of the same frame is
             // the tonemap's HDR rendition's ("[Display] HDR rendition of the captured frame"). Above 1 here
             // means a capture whose requester never asked for the rendition: the PNG clips those highlights.
-            const Graphic::ScRGBPeak peak = Graphic::FindScRGBPeak( raw.data(), raw.size(), pixels );
+            const Graphic::ScRGBPeak peak = Graphic::FindScRGBPeak( frame.Raw.data(), frame.Raw.size(), pixels );
             LOG_INFO( "[Display] capture of the scRGB swapchain (SDR rendition {}): peak {:.3f} x paper white "
                       "({:.0f} nits) at "
                       "pixel ({}, {}) of {}x{}",
                       Graphic::SdrCaptureRenditionRequested() ? "requested" : "NOT requested", peak.Value,
-                      peak.Value * Graphic::CurrentDisplayOutput().PaperWhiteNits, peak.Pixel % w, peak.Pixel / w,
-                      w, h );
+                      peak.Value * Graphic::CurrentDisplayOutput().PaperWhiteNits, peak.Pixel % frame.Width,
+                      peak.Pixel / frame.Width, frame.Width, frame.Height );
         }
-        Bytes out = Graphic::PackToRGBA8( raw.data(), raw.size(), pixels, source );
+        Bytes out = Graphic::PackToRGBA8( frame.Raw.data(), frame.Raw.size(), pixels, frame.Source );
         if ( out.size() != pixels * 4u )
         {
             return Common::MakeFormattedError<Bytes>( "the capture packed to {} bytes, expected {}x{}x4 = {}.",
-                                                      out.size(), w, h, pixels * 4u );
+                                                      out.size(), frame.Width, frame.Height, pixels * 4u );
         }
 
         // ALPHA IS FORCED OPAQUE, and that is a statement about the source rather than a cosmetic touch.
@@ -876,9 +907,6 @@ namespace Desert::Graphic::API::Vulkan
         // every viewer and reads as "the editor drew nothing".
         for ( std::size_t i = 0; i < pixels; ++i )
             out[i * 4u + 3u] = 255u;
-
-        outWidth  = w;
-        outHeight = h;
         return Common::MakeSuccess( std::move( out ) );
     }
 
@@ -894,6 +922,23 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::TakeCapturedFrameRGBA8( uint32_t&, uint32_t& )
+    {
+        return Common::MakeError<std::vector<uint8_t>>( "frame capture is not compiled into a Shipping build." );
+    }
+
+    Common::ResultStr<VulkanSwapChain::CapturedStaging> VulkanSwapChain::DetachCapturedFrame()
+    {
+        return Common::MakeError<CapturedStaging>( "frame capture is not compiled into a Shipping build." );
+    }
+
+    Common::ResultStr<VulkanSwapChain::CapturedFrame> VulkanSwapChain::ReadCapturedStaging( const CapturedStaging& )
+    {
+        return Common::MakeError<CapturedFrame>( "frame capture is not compiled into a Shipping build." );
+    }
+
+    void VulkanSwapChain::ReleaseCapturedStaging( CapturedStaging& ) {}
+
+    Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::PackCapturedFrame( const CapturedFrame& )
     {
         return Common::MakeError<std::vector<uint8_t>>( "frame capture is not compiled into a Shipping build." );
     }

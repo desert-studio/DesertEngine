@@ -69,7 +69,7 @@ namespace Desert::Editor
         DockLayout&     dock      = m_Modules.Dock;
 
         using Out = std::vector<PaletteCommand>;
-        m_Commands.OnBuildBegin( [this] { m_AssetFiles.Take(); } );
+        m_Commands.OnBuildBegin( [this] { m_AssetFiles.Invalidate(); } );
         m_Commands.Register( "Panels", [&dock]( Out& out ) { dock.AppendPanelCommands( out ); } );
         m_Commands.Register( "Debug (crash)", []( Out& out ) { AppendCrashCommand( out ); } );
         m_Commands.Register( "Assets (selection)",
