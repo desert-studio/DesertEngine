@@ -7,15 +7,9 @@
 # Readout (editor.log): "[PackageCook] VertexAnimation CesiumMan.skmesh x clip '...' <key> derived: lowest level N
 # vertices ..." and the summary "vertex animations D derived / C cached"; then at 300 m
 # "[Crowd] clip '...' vertex animation <same key> derived (DDC hit)" (never "derived now") and "[Crowd] ... vat N".
-Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR12_SkinnedCrowd.desce
+# The cook runs on Starter (no skinned figure in view), so the editor cannot derive the entry before the cook does;
+# far_300 is then Scenarios/World/WP-FAR-12B.scn run after this one (its log: the same key, "derived (DDC hit)").
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
 Дано run View "View mode: Lit"
-Дано run Quality "Quality: ViewDistance High"
 Когда run Build "Package Game"
-Тогда cook_log the cook log names "[PackageCook] VertexAnimation CesiumMan.skmesh x clip ... derived" with the key the editor prints below; no device created by the cook
-Когда run Mode "Select mode"
-Когда run Action "Play from Here"
-Когда --subject viewport set Camera.FOV 90
-Когда --subject viewport set Camera.Position 0,0,30000
-Когда --subject viewport set Camera.Direction 0,0,-1
-Когда advance 2
-Тогда far_300 at 300 m the far figures walk; log: "[Crowd] ... vertex animation <cook's key> derived (DDC hit)", vat N > 0
+Тогда cook_log the cook log names "[PackageCook] VertexAnimation CesiumMan.skmesh x clip ... derived" (key 56db830243168811, the key the editor prints); summary "vertex animations 1 derived"; no device created by the cook
