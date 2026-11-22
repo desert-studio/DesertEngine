@@ -1858,3 +1858,15 @@ jobs:
             echo "DesertServer without arguments exited 0; expected its usage error" >&2
             exit 1
           fi
+
+      # The image itself, for the scenario mesh0_linux_server off any machine with Docker:
+      #   gh run download <run> -n desert-server-image && gunzip -c desert-server.tar.gz | docker load
+      - name: Save the image
+        run: docker save desert-server | gzip -1 > desert-server.tar.gz
+
+      - name: Upload the image
+        uses: actions/upload-artifact@v4
+        with:
+          name: desert-server-image
+          path: desert-server.tar.gz
+          retention-days: 14

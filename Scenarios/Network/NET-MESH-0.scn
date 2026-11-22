@@ -14,6 +14,9 @@
 # Pass 4 (Тогда [mesh0_linux_server]): the Linux server image, built by Server/Dockerfile (preset linux-server-clang,
 # DESERT_SERVER_ONLY: no Vulkan SDK, no editor/player/tools) from a context with submodules dereferenced:
 #   docker build --platform linux/amd64 -f Server/Dockerfile -t desert-server <context>
+# Pass 5: the image comes from CI (job server-linux; optick/meshoptimizer fetched in the image at the commits
+# ThirdParty/GitDependencies.json pins, scripts/FetchGitDependencies.py), not a local build:
+#   gh run download <run> -n desert-server-image && gunzip -c desert-server.tar.gz | docker load
 #   docker run --platform linux/amd64 -v <repo>/Projects/Desert:/project:ro -v <scratch>/world:/world
 #        desert-server --project /project/Desert.deproj --role all --world /world/WP_Protocol.desce
 #        --source 0,0,0 --steps 600                                            > mesh0_linux_server.log

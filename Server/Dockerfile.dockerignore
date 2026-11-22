@@ -8,6 +8,7 @@
 !BuildScripts
 !scripts/GenVersion.sh
 !scripts/Dev/ccache_launcher.sh
+!scripts/FetchGitDependencies.py
 !Desert
 !Tools
 !Server
