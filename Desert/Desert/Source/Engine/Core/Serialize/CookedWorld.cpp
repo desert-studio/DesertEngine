@@ -1,4 +1,5 @@
 #include <Engine/Core/Serialize/CookedWorld.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 
 #include <Common/Content/ContentChunks.hpp>
 #include <Common/Json/Json.hpp>

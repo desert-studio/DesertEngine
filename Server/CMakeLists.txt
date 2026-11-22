@@ -35,6 +35,7 @@ set(_server_engine_sources
     "${_engine}/World/Landscape/LandscapeData.cpp"
     "${_engine}/World/Landscape/LandscapeEditCache.cpp"
     "${_engine}/World/Landscape/LandscapeEditLayers.cpp"
+    "${_engine}/World/Landscape/LandscapeEditLayerStack.cpp"
     "${_engine}/World/Landscape/LandscapeLayout.cpp"
     "${_engine}/World/Landscape/LandscapePaint.cpp"
     "${_engine}/World/Landscape/LandscapeSplines.cpp")
