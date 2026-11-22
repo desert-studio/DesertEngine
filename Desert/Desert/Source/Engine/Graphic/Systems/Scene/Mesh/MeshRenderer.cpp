@@ -2768,8 +2768,13 @@ namespace Desert::Graphic::System
             if ( data.LodFeedback )
                 data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
             // The far figure keeps a readable size (WP-FAR-12D): its true projected size (the LOD metric
-            // without LODDistanceScale) below kMinScreenSize grows the VAT draw about its feet, capped.
-            if ( data.VatAddress != 0 && screenSize > 0.0f )
+            // without LODDistanceScale) below kMinScreenSize grows its draw about its feet, capped - VAT AND
+            // skeletal alike (WP-FAR-10D). The clamp is about pixels, so it never asks which path draws the
+            // figure: gated on the VAT path, it followed the level index, and Cinematic (LODDistanceScale 0.5)
+            // kept every far figure one level short of the baked lowest one - none went VAT, none was grown, and
+            // the crowd High showed at 300 m vanished into sub-pixel skeletal draws. A follower mesh
+            // (SkinSource) keeps its own size: it is grown with its leader's world or not at all.
+            if ( lodView && m_LODEnabled && data.SkinSource == nullptr && screenSize > 0.0f )
             {
                 const float trueSize = screenSize * m_LODDistanceScale;
                 if ( trueSize < VertexAnimationCrowd::kMinScreenSize )

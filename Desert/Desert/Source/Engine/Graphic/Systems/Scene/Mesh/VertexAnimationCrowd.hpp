@@ -56,9 +56,10 @@ namespace Desert::Graphic::System
         // LODDistanceScale removed - the clamp is about pixels, not about the level picked) falls below
         // kMinScreenSize is drawn grown about its feet to that size, in every pass of the frame (one world per
         // row: its cull bounds, shadow and velocity agree). Capped at kMaxMinScreenScale: past the distance the
-        // cap reaches, the figure shrinks again with distance, as the far draw fades out toward its cull. Near
-        // figures (skeletal, or VAT above the size) are drawn at their own size - silhouettes up close and in a
-        // scope's narrow FOV (which raises the true size) are the authored ones.
+        // cap reaches, the figure shrinks again with distance, as the far draw fades out toward its cull. The
+        // clamp applies to VAT and skeletal records alike (WP-FAR-10D: a quality level that keeps a figure
+        // skeletal must not make it vanish). Figures above the size are drawn at their own size - silhouettes
+        // up close and in a scope's narrow FOV (which raises the true size) are the authored ones.
         static constexpr float kMinScreenSize     = 0.012f;
         static constexpr float kMaxMinScreenScale = 6.0f;
 
