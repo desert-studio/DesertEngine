@@ -7,12 +7,17 @@
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
 
 #include <Destruction/Public/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructionFieldComponents.hpp>
 
 namespace Desert::Core::Serialize::Generated
 {
     void RegisterComponents_Destruction( [[maybe_unused]] ComponentRegistrar& r )
     {
+        r.Add( ReflectedMemberBlock<::Desert::ECS::AnchorFieldComponent, decltype( ::Desert::ECS::AnchorFieldComponent::Data )>{ "AnchorField", "AnchorFieldData", &::Desert::ECS::AnchorFieldComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
         r.Add( ReflectedMemberBlock<::Desert::ECS::DestructibleComponent, decltype( ::Desert::ECS::DestructibleComponent::Data )>{ "Destructible", "DestructibleData", &::Desert::ECS::DestructibleComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::KillFieldComponent, decltype( ::Desert::ECS::KillFieldComponent::Data )>{ "KillField", "KillFieldData", &::Desert::ECS::KillFieldComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::RadialImpulseFieldComponent, decltype( ::Desert::ECS::RadialImpulseFieldComponent::Data )>{ "RadialImpulseField", "RadialImpulseFieldData", &::Desert::ECS::RadialImpulseFieldComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::StrainFieldComponent, decltype( ::Desert::ECS::StrainFieldComponent::Data )>{ "StrainField", "StrainFieldData", &::Desert::ECS::StrainFieldComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
     }
 } // namespace Desert::Core::Serialize::Generated
 // NOLINTEND

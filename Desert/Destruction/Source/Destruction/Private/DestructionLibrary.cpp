@@ -26,7 +26,7 @@ namespace Desert::ECS
             return -1;
         }
         const auto*                    physics = context->World->FindSystem<PhysicsECSSystem>();
-        Destruction::DestructionWorld* world   = FindDestructionWorld( physics );
+        Destruction::DestructionWorld* world   = Destruction::FindDestructionWorld( physics );
         if ( world == nullptr )
         {
             LOG_ERROR(

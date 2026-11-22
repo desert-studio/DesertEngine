@@ -6,6 +6,7 @@
 // Destruction's fracture pieces are the first (Destruction/Public/FracturePieceDraw.hpp).
 
 #include <Engine/Assets/Common.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
 #include <entt/entt.hpp>

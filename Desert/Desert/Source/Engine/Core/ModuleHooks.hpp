@@ -6,6 +6,8 @@
 
 #include <entt/entt.hpp>
 
+#include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <vector>
 
@@ -29,11 +31,19 @@ namespace Desert::Core
     /// A module's component pools, prepared before the first parallel group (Scene's registry setup).
     using RegistryPrepare = void ( * )( entt::registry& registry );
 
+    /// A module's asset type named by a stored reference (AssetResolver): the asset created at @p file, not read.
+    struct AssetAnnouncer
+    {
+        const char* Type = "";
+        std::uint64_t ( *Announce )( Assets::AssetManager& assets, const std::filesystem::path& file ) = nullptr;
+    };
+
     struct ModuleHookLists
     {
         std::vector<ModuleService>   Services;
         std::vector<AssetRootWalker> AssetRoots;
         std::vector<RegistryPrepare> Prepares;
+        std::vector<AssetAnnouncer>  AssetTypes;
     };
 
     inline ModuleHookLists& ModuleHooks()

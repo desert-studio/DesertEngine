@@ -6,6 +6,8 @@
 #include <Destruction/Public/FracturePieceDraw.hpp>
 #include <Destruction/Public/FracturePreviewComponent.hpp>
 #include <Destruction/Public/FractureService.hpp>
+#include <Destruction/Public/FractureAsset.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRootSet.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
@@ -113,6 +115,16 @@ namespace Desert::Destruction
              { []( const std::weak_ptr<Assets::AssetManager>& assets )
                { Runtime::GetFractureService()->BindAssetManager( assets ); },
                []() { Runtime::GetFractureService()->Clear(); } } );
+        // A destructible's rest collection (DestructibleData::Fracture), announced by the scene's reference: the
+        // asset's constructor adopts the handle its envelope GUID names, so FractureService's row is this handle.
+        hooks.AssetTypes.push_back(
+             { "FractureAsset", []( Assets::AssetManager& m, const std::filesystem::path& full ) -> std::uint64_t
+               {
+                   auto a = m.FindByPath<Assets::FractureAsset>( full );
+                   if ( !a )
+                       a = m.CreateAsset<Assets::FractureAsset>( full, /*loadAfterCreate=*/false );
+                   return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+               } } );
         // A `.dfrac` is named only by the destructibles built from it: without this root the sweep after the scene
         // load unloads it under FractureService, and Play finds a fracture with no nodes (UE: the component's
         // RestCollection is a hard reference).

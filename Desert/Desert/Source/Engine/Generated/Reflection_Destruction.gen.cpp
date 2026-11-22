@@ -16,6 +16,8 @@
 #include <vector>
 
 #include <Destruction/Public/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructionFieldComponents.hpp>
+#include <Destruction/Public/DestructionLibrary.hpp>
 
 namespace Desert::Reflection::Generated
 {
@@ -51,6 +53,52 @@ void RegisterReflection_Destruction()
                     .Event( ::Desert::Reflection::MakeEvent<T::OnBreak>( "OnBreak", "DestructibleData", std::array<::Desert::Reflection::ParamSpelling, 5>{ ::Desert::Reflection::ParamSpelling{ "node", "int32_t" }, ::Desert::Reflection::ParamSpelling{ "position", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "velocity", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "massKg", "float" }, ::Desert::Reflection::ParamSpelling{ "pieceCount", "int32_t" }, }, ::Desert::Reflection::EventMetadata{ .Category = "Destructible", .Tooltip = "A group of pieces broke off (UE OnChaosBreakEvent): its first fracture node, its world centre of mass in cm, its velocity in cm/s, its mass in kg and how many pieces." } ) )
                     .Event( ::Desert::Reflection::MakeEvent<T::OnCollision>( "OnCollision", "DestructibleData", std::array<::Desert::Reflection::ParamSpelling, 6>{ ::Desert::Reflection::ParamSpelling{ "node", "int32_t" }, ::Desert::Reflection::ParamSpelling{ "position", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "normal", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "impulse", "float" }, ::Desert::Reflection::ParamSpelling{ "velocity", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "massKg", "float" }, }, ::Desert::Reflection::EventMetadata{ .Category = "Destructible", .Tooltip = "A contact on the pieces at or above Collision Event Min Impulse (UE OnChaosPhysicsCollision): the unit touched, the world contact point in cm, the normal out of the piece, the normal impulse in kg*cm/s, the piece's velocity in cm/s and mass in kg." } ) )
                     .Event( ::Desert::Reflection::MakeEvent<T::OnRemoved>( "OnRemoved", "DestructibleData", std::array<::Desert::Reflection::ParamSpelling, 4>{ ::Desert::Reflection::ParamSpelling{ "node", "int32_t" }, ::Desert::Reflection::ParamSpelling{ "position", "glm::vec3" }, ::Desert::Reflection::ParamSpelling{ "massKg", "float" }, ::Desert::Reflection::ParamSpelling{ "pieceCount", "int32_t" }, }, ::Desert::Reflection::EventMetadata{ .Category = "Destructible", .Tooltip = "A piece left the simulation, asleep long enough or killed by a field (UE OnChaosRemovalEvent): its fracture node, its world centre of mass in cm, its mass in kg and how many pieces." } ) )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::RadialImpulseFieldData;
+        TypeBuilder( "RadialImpulseFieldData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Magnitude", .Type = FieldType::Float, .Offset = offsetof( T, Magnitude ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Magnitude )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Magnitude", .Category = "Field", .Tooltip = "The impulse at the centre; the falloff takes it to zero at the radius. Its length is also the strain a piece inside reads, against the piece's Damage Threshold.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e8f, .Units = "kg*cm/s", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .Tooltip = "Pieces whose centre of mass is farther than this are not touched.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "Falloff", .Type = FieldType::Enum, .Offset = offsetof( T, Falloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Falloff )>(), .TypeName = "Destruction::FieldFalloff", .Meta = PropertyMetadata{ .DisplayName = "Falloff", .Category = "Field", .Tooltip = "How the magnitude goes from the centre to the radius (UE Falloff Type).", }, .EnumValues = { EnumValue{ "None", 0 }, EnumValue{ "Linear", 1 }, EnumValue{ "Squared", 2 }, EnumValue{ "Inverse", 3 }, EnumValue{ "Logarithmic", 4 }, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::StrainFieldData;
+        TypeBuilder( "StrainFieldData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Magnitude", .Type = FieldType::Float, .Offset = offsetof( T, Magnitude ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Magnitude )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Magnitude", .Category = "Field", .Tooltip = "The strain at the centre; a piece breaks off where the strain it reads reaches its Damage Threshold.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e8f, .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "Falloff", .Type = FieldType::Enum, .Offset = offsetof( T, Falloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Falloff )>(), .TypeName = "Destruction::FieldFalloff", .Meta = PropertyMetadata{ .DisplayName = "Falloff", .Category = "Field", .Tooltip = "How the magnitude goes from the centre to the radius (UE Falloff Type).", }, .EnumValues = { EnumValue{ "None", 0 }, EnumValue{ "Linear", 1 }, EnumValue{ "Squared", 2 }, EnumValue{ "Inverse", 3 }, EnumValue{ "Logarithmic", 4 }, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::KillFieldData;
+        TypeBuilder( "KillFieldData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, .Summary = true, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::AnchorFieldData;
+        TypeBuilder( "AnchorFieldData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Extent", .Type = FieldType::Vec3, .Offset = offsetof( T, Extent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Extent )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Extent", .Category = "Field", .Tooltip = "The box's full size along the entity's own axes, before the entity's scale.", .IsLength = true, .Summary = true, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::DestructionLibrary;
+        TypeBuilder( "DestructionLibrary", sizeof( T ) )
+            .ScriptName( "Destruction" )
+#ifndef DESERT_REFLECTION_DATA_ONLY
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ApplyField>( "ApplyField", "DestructionLibrary", "int", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Fires every field component of the entity once into the played scene's destruction world; returns how many bodies and pieces they acted on, -1 (logged) when it cannot (not playing, no field component).", .ScriptName = "applyField", .ScriptMethod = false } ) )
+#endif
             .WithDefault<T>()
             .Register();
     }
