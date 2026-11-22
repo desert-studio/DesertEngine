@@ -63,8 +63,9 @@ namespace Desert::Editor
             std::string                           Path;
             uint32_t                              Width     = 0;
             uint32_t                              Height    = 0;
+            double                                JoinMs    = 0.0; // on the frame: the render task join
             double                                WaitMs    = 0.0; // on the frame: the device idle wait
-            double                                CollectMs = 0.0; // on the frame: readback + RGBA8 pack
+            double                                CollectMs = 0.0; // on the frame: staging readback (pack: worker)
             std::chrono::steady_clock::time_point Started;
             std::future<std::string>              Encode;
         };

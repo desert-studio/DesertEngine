@@ -252,6 +252,8 @@ namespace Desert::Editor
         uint64_t m_FrameIndex = 0;
         // ServiceChannel has begun a frame: the next one advances m_FrameIndex.
         bool m_FrameBuildBegun = false;
+        // The command registry's group index has been learnt from one full Build (ServiceChannel, WQH p2).
+        bool m_CommandIndexLearnt = false;
 
         // A `quit` the channel asked for. Honoured after its reply has actually gone out, so the last
         // answer is not lost to the exit — a client that never hears "ok" cannot tell a clean shutdown

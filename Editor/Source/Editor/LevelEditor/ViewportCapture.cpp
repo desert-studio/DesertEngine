@@ -334,8 +334,10 @@ namespace Desert::Editor
         // has gone out. The copy is recorded on the render task, behind the frame's interface (see there): the
         // frame's jobs - the copy, the submit, the present - are joined first, so the error and the staging
         // buffer read below are the ones that job left (UE: FlushRenderingCommands before a screenshot is read).
+        const auto joinStart = std::chrono::steady_clock::now();
         ::Desert::Engine::RenderTask::Get().Join();
-        const WindowCaptureRecord record = WindowRecord();
+        const auto                joinEnd = std::chrono::steady_clock::now();
+        const WindowCaptureRecord record  = WindowRecord();
         if ( record.Frame != frame )
         {
             outError = std::format( "frame {} was judged without a capture of its own (the last one recorded is "
@@ -374,20 +376,22 @@ namespace Desert::Editor
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
         const auto readbackStart = std::chrono::steady_clock::now();
 
-        uint32_t width  = 0;
-        uint32_t height = 0;
-        auto     pixels = swapChain->TakeCapturedFrameRGBA8( width, height );
+        // Only the copy out of the staging is the frame's; the RGBA8 pack (~0.85 s of a 4112x2580 window, WQH p2)
+        // is the worker's, ahead of the encode.
+        auto captured = swapChain->TakeCapturedFrameRaw();
         {
-            // Collected: TakeCapturedFrameRGBA8 releases the staging on every path. A return above leaves the copy
+            // Collected: TakeCapturedFrameRaw releases the staging on every path. A return above leaves the copy
             // in flight, and the frame's announcement discards it (ControlService::OnFramePresented).
             const std::scoped_lock lock( m_WindowRecordLock );
             m_WindowRecord.InFlight = false;
         }
-        if ( !pixels )
+        if ( !captured )
         {
-            outError = pixels.GetError();
+            outError = captured.GetError();
             return false;
         }
+        const uint32_t width  = captured.GetValue().Width;
+        const uint32_t height = captured.GetValue().Height;
 
         // WQH (11-22): the PNG encode of a 4112x2580 window was the whole frame's cost - seconds on the game
         // thread, the "worst frame" the profiler showed after every scenario step that took a shot. The bytes
@@ -396,12 +400,16 @@ namespace Desert::Editor
         out.Width     = width;
         out.Height    = height;
         out.Started   = std::chrono::steady_clock::now();
+        out.JoinMs    = std::chrono::duration<double, std::milli>( joinEnd - joinStart ).count();
         out.WaitMs    = std::chrono::duration<double, std::milli>( readbackStart - collectStart ).count();
         out.CollectMs = std::chrono::duration<double, std::milli>( out.Started - readbackStart ).count();
         out.Encode    = Common::JobSystem::Get().Async(
-             [path, width, height, rgba = std::move( pixels.GetValue() )]() noexcept -> std::string
+             [path, width, height, raw = std::move( captured.GetValue() )]() noexcept -> std::string
              {
-                 if ( WritePngRGBA8( path, width, height, rgba.data() ) )
+                 const auto rgba = Graphic::API::Vulkan::VulkanSwapChain::PackCapturedFrame( raw );
+                 if ( !rgba )
+                     return rgba.GetError();
+                 if ( WritePngRGBA8( path, width, height, rgba.GetValue().data() ) )
                      return {};
                  return std::format( "stb_image_write refused to write '{}'.", path );
              } );
@@ -418,10 +426,10 @@ namespace Desert::Editor
         const double encodeMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.Started ).count();
         LOG_INFO( "[Control] wrote the presented frame (editor and interface) -> {} ({}x{}); on the frame "
-                  "{:.1f} ms (device idle wait {:.1f} ms, readback + RGBA8 pack {:.1f} ms), PNG encode + write on a "
-                  "worker {:.1f} ms",
-                  write.Path, write.Width, write.Height, write.WaitMs + write.CollectMs, write.WaitMs,
-                  write.CollectMs, encodeMs );
+                  "{:.1f} ms (render task join {:.1f} ms, device idle wait {:.1f} ms, staging readback {:.1f} ms), RGBA8 "
+                  "pack + PNG encode + write on a worker {:.1f} ms",
+                  write.Path, write.Width, write.Height, write.JoinMs + write.WaitMs + write.CollectMs,
+                  write.JoinMs, write.WaitMs, write.CollectMs, encodeMs );
         return {};
     }
 

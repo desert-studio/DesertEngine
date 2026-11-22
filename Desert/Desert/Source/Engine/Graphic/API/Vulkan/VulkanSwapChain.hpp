@@ -8,6 +8,7 @@
 
 #include <Engine/Graphic/SwapChain.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/PixelPack.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 
@@ -140,6 +141,26 @@ namespace Desert::Graphic::API::Vulkan
         /// so a failed capture cannot leak one per attempt.
         [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
         TakeCapturedFrameRGBA8( uint32_t& outWidth, uint32_t& outHeight ) override;
+
+        /// A collected capture as the surface held it: the staging bytes, before the RGBA8 pack.
+        struct CapturedFrame
+        {
+            std::vector<uint8_t>       Raw;
+            uint32_t                   Width  = 0;
+            uint32_t                   Height = 0;
+            Graphic::PackedPixelSource Source{};
+        };
+
+        /// TakeCapturedFrameRGBA8's FRAME half (WQH p2): map, copy out, release the staging - the device must be
+        /// idle, so it belongs to the frame. The pack (PackCapturedFrame) touches no device state and goes to a
+        /// worker: on a 4112x2580 window it was ~0.85 s of the shot's frame (UE: FImageWriteQueue converts and
+        /// encodes off the game thread; only the readback is the frame's).
+        [[nodiscard]] Common::ResultStr<CapturedFrame> TakeCapturedFrameRaw();
+
+        /// The pack half, on any thread: tightly packed 8-bit RGBA, alpha forced opaque (the surface is
+        /// VK_COMPOSITE_ALPHA_OPAQUE; nothing is obliged to leave alpha meaningful).
+        [[nodiscard]] static Common::ResultStr<std::vector<uint8_t>>
+        PackCapturedFrame( const CapturedFrame& frame );
 
         [[nodiscard]] std::shared_ptr<::Desert::Graphic::Framebuffer> GetCompositeFramebuffer() const
         {
