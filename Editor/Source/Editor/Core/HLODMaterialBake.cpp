@@ -25,6 +25,7 @@
 #include <limits>
 #include <utility>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Editor
 {

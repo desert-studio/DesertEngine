@@ -27,6 +27,7 @@
 #include <string>
 #include <unordered_set>
 #include <utility>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Core::WorldCells
 {

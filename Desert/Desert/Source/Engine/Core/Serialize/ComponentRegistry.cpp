@@ -92,6 +92,8 @@
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
 #include <UI/Args/UIImageArgs.hpp>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Core::Serialize
 {

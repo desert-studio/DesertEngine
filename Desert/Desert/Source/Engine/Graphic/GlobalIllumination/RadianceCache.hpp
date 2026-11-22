@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <Common/Json/DocumentStruct.hpp>
 
 // THE WORLD RADIANCE CACHE — the interface (GI-CACHE-IFACE). Port of UE Lumen's radiance cache:
 // LumenRadianceCache.h (FRadianceCacheInputs, FRadianceCacheInterpolationParameters), LumenRadianceCache.cpp /

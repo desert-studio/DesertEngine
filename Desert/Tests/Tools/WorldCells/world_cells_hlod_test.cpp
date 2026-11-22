@@ -38,6 +38,8 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 using Desert::Assets::EntityData;
 using Desert::Core::SceneSerialized;

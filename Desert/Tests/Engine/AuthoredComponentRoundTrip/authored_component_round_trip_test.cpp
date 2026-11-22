@@ -34,6 +34,7 @@
 #include <Engine/ECS/SocketAttachmentComponent.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace ECS = Desert::ECS;
 

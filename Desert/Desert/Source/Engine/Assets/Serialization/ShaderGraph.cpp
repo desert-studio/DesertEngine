@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <format>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets::Serialization::ShaderGraph
 {

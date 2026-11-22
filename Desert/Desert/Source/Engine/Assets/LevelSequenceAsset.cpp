@@ -10,6 +10,7 @@
 #include <Common/Json/Json.hpp>
 
 #include <filesystem>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets
 {

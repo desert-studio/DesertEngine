@@ -148,6 +148,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Core::Rules
 {

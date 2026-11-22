@@ -15,6 +15,7 @@
 
 #include <format>
 #include <memory>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Graphic::QualityBoot
 {

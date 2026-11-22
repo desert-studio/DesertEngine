@@ -18,6 +18,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace
 {

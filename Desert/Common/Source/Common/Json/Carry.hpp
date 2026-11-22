@@ -14,7 +14,7 @@
 // same document); the saver writes its typed tree with the typed writer, parses that as a TextDocument and
 // merges the loaded one onto it (MergeCarried); the result is written canonically once.
 
-#include <Common/Json/Json.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 #include <functional>
 #include <memory>

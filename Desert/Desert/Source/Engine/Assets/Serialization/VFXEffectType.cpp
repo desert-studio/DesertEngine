@@ -3,6 +3,7 @@
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Json/Json.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets::Serialization
 {

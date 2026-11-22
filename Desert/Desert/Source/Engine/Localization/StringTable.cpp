@@ -7,6 +7,7 @@
 #include <Common/Json/Template.hpp>
 
 #include <unordered_set>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Localization
 {

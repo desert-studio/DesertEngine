@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 TEST( SceneDependenciesRule, AMeshAMaterialAndASoundAreExactlyTheirThreeGuids )
 {

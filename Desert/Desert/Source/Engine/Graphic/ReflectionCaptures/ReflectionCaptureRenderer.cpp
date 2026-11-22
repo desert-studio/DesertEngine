@@ -30,6 +30,7 @@
 #include <Engine/ECS/SpotLightComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace
 {

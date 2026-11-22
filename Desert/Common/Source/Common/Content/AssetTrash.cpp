@@ -15,6 +15,7 @@
 #include <iterator>
 #include <ranges>
 #include <set>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Common::Content
 {

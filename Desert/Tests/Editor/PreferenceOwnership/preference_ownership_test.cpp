@@ -85,6 +85,7 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 using Desert::Editor::EditorPreferences;
 using Desert::Editor::Core::ApplyViewportModes;

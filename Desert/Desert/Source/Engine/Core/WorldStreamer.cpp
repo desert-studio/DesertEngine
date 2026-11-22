@@ -38,6 +38,8 @@
 #include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
+#include <Common/Json/ReadWrite.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Core
 {

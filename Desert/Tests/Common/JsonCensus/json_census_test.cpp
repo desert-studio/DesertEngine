@@ -19,6 +19,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace fs = std::filesystem;
 
@@ -226,7 +227,7 @@ TEST( JsonCensus, JsonIsSpokenOnlyThroughTheFacade )
         users.insert( rel );
         EXPECT_TRUE( registered.contains( rel ) )
              << rel << " talks JSON directly (rfl::json / rfl::Generic / yyjson_ / hand-built JSON). Go through "
-             << "Common/Json/Json.hpp (Json::Read/Write/ReadFile/WriteFileAtomic).";
+             << "Common/Json/ReadWrite.hpp (Json::Read/Write/ReadFile/WriteFileAtomic).";
     }
 
     for ( const Row& row : rows )

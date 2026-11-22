@@ -47,6 +47,7 @@
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {

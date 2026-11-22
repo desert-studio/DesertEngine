@@ -75,6 +75,7 @@
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/runner.hpp"
+#include <Common/Json/ReadWrite.hpp>
 
 using Desert::Assets::MaterialData;
 

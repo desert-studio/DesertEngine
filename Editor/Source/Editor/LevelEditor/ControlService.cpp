@@ -86,6 +86,7 @@
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Editor
 {

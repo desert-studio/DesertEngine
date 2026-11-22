@@ -57,6 +57,7 @@
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
 #include "../../TestSupport/runner.hpp"
+#include <Common/Json/ReadWrite.hpp>
 
 namespace
 {

@@ -6,7 +6,6 @@
 #include <rflcpp/rfl/ExtraFields.hpp>
 #include <rflcpp/rfl/Generic.hpp>
 #include <rflcpp/rfl/NoExtraFields.hpp>
-#include <rflcpp/rfl/json.hpp>
 #include <rflcpp/rfl/named_tuple_t.hpp>
 
 #include <cstdint>
@@ -19,10 +18,10 @@
 #include <vector>
 
 // THE ONE DOOR BETWEEN A STRUCT AND JSON (JS1a, owner decision 2026-09-25). Every JSON protocol of the
-// project maps a plain struct to text through compile-time reflection (reflect-cpp); this header is the only
-// place that names rfl::json, so the options every file is read with live in ONE spot instead of being
-// re-chosen at each of a hundred call sites. The JsonCensus suite refuses rfl::json / rfl::Generic / yyjson_
-// anywhere else that is not a migrator or a named row of its exception register.
+// project maps a plain struct to text through compile-time reflection (reflect-cpp); this header and its
+// ReadWrite.hpp are the only place that name rfl::json, so the options every file is read with live in ONE spot
+// instead of being re-chosen at each of a hundred call sites. The JsonCensus suite refuses rfl::json /
+// rfl::Generic / yyjson_ anywhere else that is not a migrator or a named row of its exception register.
 //
 // THE PROJECT OPTIONS, and why (owner decision 2026-10-07: no per-type leniency, the reader itself decides — the
 // way UE fills a property the archive does not state from the class default object):
@@ -118,55 +117,13 @@ namespace Common::Json
     template <IsPartial T>
     inline constexpr std::string_view PartialReason = DesertJsonPartialReason( static_cast<const T*>( nullptr ) );
 
-    // NO CATCH: rfl is used through its Result API only. rfl::json::read answers a text that is not JSON with
-    // an error, and its Parser::read is noexcept - it turns a Reflector's or a custom constructor's throw into
-    // an rfl::Error itself (rfl/parsing/Parser_default.hpp). What a `catch ( const std::exception& )` here
-    // could still see is bad_alloc, which is not a read error to report but the end of the process.
-    template <typename T>
-    ResultStr<T> Read( std::string_view json ) noexcept
-    {
-        auto parsed = [&]
-        {
-            if constexpr ( IsPartial<T> )
-                return rfl::json::read<T, rfl::DefaultIfMissing>( json );
-            else
-                return rfl::json::read<T, rfl::DefaultIfMissing, rfl::NoExtraFields>( json );
-        }();
-        if ( !parsed )
-            return MakeError<T>( Detail::DescribeReadError( parsed.error().what() ) );
-        return MakeSuccess( std::move( parsed.value() ) );
-    }
-
-    template <typename T>
-    std::string Write( const T& value )
-    {
-        return rfl::json::write( value );
-    }
-
     // The top-level members of a JSON object in file order, each value re-written compactly — for a caller
     // that has to compare two documents key by key without knowing their struct (which settings changed,
     // which keys another build added).
     ResultStr<std::vector<std::pair<std::string, std::string>>> ObjectMembers( std::string_view json ) noexcept;
 
-    template <typename T>
-    ResultStr<T> ReadFile( const std::filesystem::path& file )
-    {
-        const auto text = Detail::ReadFileText( file );
-        if ( !text )
-            return MakeError<T>( text.GetError() );
-        auto parsed = Read<T>( text.GetValue() );
-        if ( !parsed )
-            return MakeError<T>( file.string() + ": " + parsed.GetError() );
-        return parsed;
-    }
-
-    // Canonical layout, then the atomic replace (temporary file renamed over the target): a failure refuses
-    // with the file named and leaves the file on disk as it was.
-    template <typename T>
-    BoolResultStr WriteFileAtomic( const std::filesystem::path& file, const T& value )
-    {
-        return Detail::WriteTextAtomic( file, Write( value ) );
-    }
+    // Read, Write, ReadFile and WriteFileAtomic live in Common/Json/ReadWrite.hpp: the one header that names
+    // rfl::json (yyjson and the whole reflect-cpp parser), included only by a file that reads or writes text.
 } // namespace Common::Json
 
 // A MARK, NOT A SCHEMA (owner decision 2026-09-25: functions for reading and writing, no field-listing

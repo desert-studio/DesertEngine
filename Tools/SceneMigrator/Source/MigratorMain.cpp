@@ -99,6 +99,7 @@
 #include <optional>
 #include <span>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace
 {

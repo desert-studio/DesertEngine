@@ -33,6 +33,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Editor::ImportOptions
 {

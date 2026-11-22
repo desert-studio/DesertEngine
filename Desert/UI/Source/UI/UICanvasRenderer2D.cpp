@@ -28,6 +28,7 @@
 #include <limits>
 #include <unordered_map>
 #include <vector>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::UI
 {

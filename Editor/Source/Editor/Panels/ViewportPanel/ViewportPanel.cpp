@@ -100,6 +100,7 @@
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
+#include <Common/Json/DocumentStruct.hpp>
 
 namespace Desert::Editor
 {

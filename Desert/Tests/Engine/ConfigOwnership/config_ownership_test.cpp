@@ -175,6 +175,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 using Desert::Reflection::FieldInfo;
 using Desert::Reflection::ReflectionRegistry;

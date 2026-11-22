@@ -36,6 +36,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 using Desert::Editor::Control::EditorQuiescence;
 using Desert::Editor::Control::EditorSnapshot;

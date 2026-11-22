@@ -1,4 +1,5 @@
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Assets
 {

@@ -42,6 +42,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/VFX/VFXComponent.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/ECS/PostProcessVolumeComponent.hpp>
 
 namespace Desert::Editor
 {

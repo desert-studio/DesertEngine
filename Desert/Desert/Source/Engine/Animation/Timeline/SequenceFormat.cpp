@@ -31,6 +31,7 @@
 #include <tuple>
 #include <variant>
 #include <vector>
+#include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Animation::Timeline::Format
 {
