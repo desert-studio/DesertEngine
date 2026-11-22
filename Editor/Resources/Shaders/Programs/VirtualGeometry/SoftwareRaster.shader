@@ -3,7 +3,7 @@ Shader "SoftwareRaster"
 {
     // "VirtualGeometry: Software Raster" (Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.cpp
     // AddSoftwareRaster; UE 5 Shaders/Private/Nanite/NaniteRasterizer.usf MicropolyRasterize + RasterizeTri): the
-    // cluster cut's SW clusters (VisibleClusters[0, RasterArgs.SwCount), ClusterCut.shader RastersInSoftware) drawn
+    // cluster cut's SW clusters (VisibleClusters[SwFirst, SwCount), ClusterCut.shader RastersInSoftware) drawn
     // into the view's visibility buffer (Common/VisibilityBuffer.glslh's layout: a 16-byte header with the extent,
     // then one uint64 word per pixel) by 64-bit atomicMax of (reversed-Z depth bits << 32 | payload), payload =
     // (Params.x + the VisibleClusters row) << kVisTriangleBits | triangle - Graphic::VirtualGeometry::PackVisibility.
@@ -202,7 +202,9 @@ Shader "SoftwareRaster"
             const uint count = min( RasterArgs.SwCount, Params.y );
             // Uniform per workgroup: the bound and the row are the same for every lane, so the whole workgroup
             // reaches the barriers in RasterCluster.
-            for ( uint row = gl_WorkGroupID.x; row < count; row += gl_NumWorkGroups.x )
+            // This cut's SW rows [SwFirst, SwCount): a post cut appends after the main cut's in the shared list
+            // (GpuClusterRasterArgs::SwFirst; 0 for a main cut), its rows' words still Params.x + the row.
+            for ( uint row = RasterArgs.SwFirst + gl_WorkGroupID.x; row < count; row += gl_NumWorkGroups.x )
                 RasterCluster( row );
         }
     }

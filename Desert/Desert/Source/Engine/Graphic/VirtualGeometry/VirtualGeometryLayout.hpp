@@ -146,8 +146,16 @@ namespace Desert::Graphic::VirtualGeometry
         // 44 rows the cut took from the visible list, SW + HW: a cluster takes one before it picks a raster, so
         // SwCount + HwDraw[1] never pass the capacity and the two ends never meet (ClusterCut.shader EmitCluster).
         uint32_t Emitted = 0;
+        // 48 / 52 VG-SW-RASTER (UE Nanite: the post pass appends to the main pass's VisibleClusters): the first SW
+        // row and the first HW counter value of THIS cut. A main cut starts both lists empty (0); the post cut
+        // continues the main cut's counters in the same list (ClusterCut.shader WriteDispatchArgs sets them from
+        // the copied counts), so its SW raster reads VisibleClusters[SwFirst, SwCount) and its raster binning the
+        // HW counters [HwFirst, HwDraw[1]).
+        uint32_t SwFirst = 0;
+        uint32_t HwFirst = 0;
+        uint32_t Pad[2]{ 0u, 0u };
     };
-    static_assert( sizeof( GpuClusterRasterArgs ) == 48, "std430 twin in Common/VirtualGeometry.glslh" );
+    static_assert( sizeof( GpuClusterRasterArgs ) == 64, "std430 twin in Common/VirtualGeometry.glslh" );
 
     // THE VISIBILITY BUFFER WORD: one uint64 per pixel in a storage BUFFER (shaderBufferInt64Atomics, Vulkan 1.2;
     // a storage image of R64_UINT needs VK_EXT_shader_image_atomic_int64, which MoltenVK does not expose).

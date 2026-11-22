@@ -156,6 +156,10 @@ struct VgRasterArgs
     // VG_RASTER_BIN_GROUP_SIZE ) workgroups, counted by the cut as it emits (ClusterCut.shader EmitCluster).
     uint BinDispatch[3];
     uint Emitted;       // 44 rows taken from the visible list, SW + HW (never past the capacity)
+    uint SwFirst;       // 48 this cut's first SW row (post cut: the main cut's SwCount; VisibleClusters shared)
+    uint HwFirst;       // 52 this cut's first HW counter value (post cut: the main cut's HwDraw[1])
+    uint Pad0;          // 56
+    uint Pad1;          // 60
 };
 
 // VgVisibleCluster.Flags (VirtualGeometryLayout.hpp VisibleClusterFlags): drawn by SoftwareRaster.shader.

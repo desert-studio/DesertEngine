@@ -2854,6 +2854,35 @@ namespace Desert::Graphic
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Grass" );
             AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
+            // VG-SW-RASTER (UE Nanite: one SW raster per pass into the same VisBuffer64): the post cut's SW
+            // clusters, appended to the main cut's VisibleClusters (AddFrameVirtualGeometryPostOcclusion), into the
+            // same words at the same row base, before "Grass: Visibility Classify" reads them; their depth reaches
+            // the G-buffer through "Grass: Visibility Depth Post-Occlusion" and their material through the VG
+            // resolve, whose rows [VgFirstRow, + VgRowCount) already span the whole shared list.
+            if ( grassVisibility.HasVirtualGeometryRows() && m_FrameVirtualGeometry &&
+                 m_FrameVirtualGeometry->PostRasterArgs.IsValid() && m_FrameDrawBins && m_VirtualGeometry &&
+                 meshRenderer != nullptr && m_FrameVirtualGeometry->Pass < GpuDriven::kMeshPassCount )
+            {
+                const FrameDrawBins&        bins = *m_FrameDrawBins;
+                const FrameVirtualGeometry& cut  = *m_FrameVirtualGeometry;
+                if ( const ViewFrame* const view = GetViewFrame(); view != nullptr )
+                {
+                    VirtualGeometry::ClusterCullResult culled;
+                    culled.VisibleClusters = cut.VisibleClusters;
+                    culled.RasterArgs      = cut.PostRasterArgs;
+                    culled.VisibleCapacity = cut.VisibleCapacity;
+                    const Common::BoolResultStr sw = m_VirtualGeometry->AddSoftwareRaster(
+                         graph, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
+                         bins.Upload.Passes[cut.Pass], bins.Upload.SubmeshTransforms, culled, grassVisibility.Words,
+                         view->JitteredViewProjection, grassVisibility.VgFirstRow, true );
+                    if ( !sw && sw.GetError() != m_VirtualGeometryLastError )
+                    {
+                        LOG_ERROR( "[SceneRenderer] {}: {}; the post cut's SW clusters are not drawn this frame",
+                                   m_ViewResources.GetName(), sw.GetError() );
+                        m_VirtualGeometryLastError = sw.GetError();
+                    }
+                }
+            }
             if ( grassVisibility.IsValid() )
                 AddFrameGrassVisibilityResolve( graph, textures, meshRenderer, grassVisibility );
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Forward depth + normal" );

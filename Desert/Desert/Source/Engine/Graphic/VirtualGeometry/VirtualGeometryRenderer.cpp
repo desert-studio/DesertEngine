@@ -299,6 +299,16 @@ namespace Desert::Graphic::VirtualGeometry
         // The visible list: the caller's exact bound, capped by the dispatch's budget (kMaxVisibleClustersPerCut,
         // UE MaxVisibleClusters). A cluster past it is counted (ClusterCutStatus::VisibleOverflow), not emitted.
         const uint32_t visibleCapacity = std::min( candidates.VisibleCapacity, kMaxVisibleClustersPerCut );
+        // The post cut appends to the main cut's list (ClusterCandidates::MainVisibleClusters / MainRasterArgs),
+        // whose capacity the caller hands as VisibleCapacity (the main cut's, already within the budget).
+        if ( post && ( !candidates.MainVisibleClusters.IsValid() || !candidates.MainRasterArgs.IsValid() ) )
+            return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: the post phase has no main cut's "
+                                              "VisibleClusters / RasterArgs to append to" );
+        if ( post && visibleCapacity != candidates.VisibleCapacity )
+            return Common::MakeError<Result>(
+                 std::format( "VirtualGeometry: Cluster Cut: the post phase's visible capacity {} passes the "
+                              "budget {}, so it is not the main cut's list",
+                              candidates.VisibleCapacity, kMaxVisibleClustersPerCut ) );
         if ( const Common::BoolResultStr ready = m_Programs->ClusterCut.Ensure(
                   kClusterCutShader, "Editor/Resources/Shaders/Programs/VirtualGeometry/ClusterCut.shader" );
              !ready )
@@ -348,13 +358,27 @@ namespace Desert::Graphic::VirtualGeometry
         b.CandidateCount    = candidates.Count;
         b.Views             = Upload( graph, "VirtualGeometry.CutViews", Bytes( rows ) );
         b.ViewLods          = Upload( graph, "VirtualGeometry.CutViewLods", Bytes( lods ) );
-        b.Visible           = graph.CreateBuffer(
-             RDG::BufferDesc{ .Bytes = uint64_t{ visibleCapacity } * sizeof( GpuVisibleCluster ) },
-             "VirtualGeometry.VisibleClusters" );
-        // HwDraw: kClusterMaxTriangles * 3 vertices per HW cluster instance, instances counted by the cut.
-        GpuClusterRasterArgs args;
-        args.HwDraw[0] = Geometry::kClusterMaxTriangles * 3u;
-        b.RasterArgs   = Upload( graph, "VirtualGeometry.RasterArgs", std::as_bytes( std::span( &args, 1 ) ) );
+        if ( post )
+        {
+            // VG-SW-RASTER: the main cut's list, and a copy of its counters - the post cut continues them
+            // (ClusterCut.shader WriteDispatchArgs: SwFirst / HwFirst from the copied counts, its own dispatches
+            // emptied), the main cut's own RasterArgs stay what its raster binning, SW raster and readback read.
+            b.Visible    = candidates.MainVisibleClusters;
+            b.RasterArgs = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( GpuClusterRasterArgs ) },
+                                               "VirtualGeometry.RasterArgsPost" );
+            graph.AddCopyBufferPass( candidates.MainRasterArgs, 0u, b.RasterArgs, 0u,
+                                     sizeof( GpuClusterRasterArgs ) );
+        }
+        else
+        {
+            b.Visible = graph.CreateBuffer(
+                 RDG::BufferDesc{ .Bytes = uint64_t{ visibleCapacity } * sizeof( GpuVisibleCluster ) },
+                 "VirtualGeometry.VisibleClusters" );
+            // HwDraw: kClusterMaxTriangles * 3 vertices per HW cluster instance, instances counted by the cut.
+            GpuClusterRasterArgs args;
+            args.HwDraw[0] = Geometry::kClusterMaxTriangles * 3u;
+            b.RasterArgs   = Upload( graph, "VirtualGeometry.RasterArgs", std::as_bytes( std::span( &args, 1 ) ) );
+        }
         const ClusterCutStatus status{};
         b.Status = Upload( graph, "VirtualGeometry.CutStatus", std::as_bytes( std::span( &status, 1 ) ) );
         const std::vector<uint32_t> zeros( 4u, 0u );
@@ -683,15 +707,19 @@ namespace Desert::Graphic::VirtualGeometry
             std::memcpy( &raster, args.data(), sizeof( raster ) );
             ClusterCutStatus cut;
             std::memcpy( &cut, status.data(), sizeof( cut ) );
+            // This cut's own rows: a post cut's counters continue the main cut's (GpuClusterRasterArgs::SwFirst /
+            // HwFirst, 0 for every other cut).
+            const uint32_t hwClusters = raster.HwDraw[1] - raster.HwFirst;
+            const uint32_t swClusters = raster.SwCount - raster.SwFirst;
             if ( entry.Kind == ClusterCutKind::Main )
             {
-                count.ClustersVisible = raster.HwDraw[1];
+                count.ClustersVisible = hwClusters;
                 count.Status          = cut;
             }
             if ( entry.Kind == ClusterCutKind::Main || entry.Kind == ClusterCutKind::PostOcclusion )
             {
-                count.HwClusters += raster.HwDraw[1];
-                count.SwClusters += raster.SwCount;
+                count.HwClusters += hwClusters;
+                count.SwClusters += swClusters;
             }
 
             // Drawn: the GroupArgs instance counts of the groups the pass drew.

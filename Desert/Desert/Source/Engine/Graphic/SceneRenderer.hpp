@@ -1584,6 +1584,12 @@ namespace Desert::Graphic
         // post pass): the main cut's carry ("Cluster Cut Post") against this frame's furthest HZB, drawn by the
         // GBuffer post-occlusion pass. Nothing when the main cut tested no HZB.
         void AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame );
+        // VG-SW-RASTER: whether this frame's main view splits its clusters HW/SW - the view can keep a visibility
+        // buffer this frame (the deferred G-buffer path, a device with 64-bit buffer atomics, the buffer's
+        // programs loaded, and, when the grass shares the buffer, its rows not overflowing: the VG rows follow
+        // them). AddFrameVirtualGeometry records it in FrameVirtualGeometry::SoftwareRaster; the post cut splits
+        // by that record (one decision per frame for both phases).
+        [[nodiscard]] bool VirtualGeometrySwRasterOn() const;
         // VIRT-GEOM step 16 (AddFrameVirtualSunShadow, between the page passes and "VSM: Raster"): the virtual
         // shadow map's clipmap levels as cut views - one instance cull over the levels (kVsmPageMask, the level's
         // drawn-page mask) appending only VG candidates, then per level a "Cluster Cut" at the level's texel
@@ -2291,6 +2297,10 @@ namespace Desert::Graphic
             // keeps a visibility buffer even without grass on it, its SW rows rastered, depth-written and
             // resolved.
             bool SoftwareRaster = false;
+            // VG-SW-RASTER: the post cut's counters (its ClusterCullResult::RasterArgs; it appends to
+            // VisibleClusters above, GpuClusterRasterArgs::SwFirst / HwFirst): "VirtualGeometry: Software Raster
+            // Post" reads its SW rows from them. Invalid when no post cut ran.
+            RDG::BufferRef PostRasterArgs;
         };
         std::optional<FrameVirtualGeometry> m_FrameVirtualGeometry;
         uint32_t                            m_VirtualGeometryInstances = 0; // this frame's VG candidate instances

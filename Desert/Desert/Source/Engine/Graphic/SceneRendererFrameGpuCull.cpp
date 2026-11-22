@@ -896,15 +896,10 @@ namespace Desert::Graphic
         const SceneResources::DirectionalShadowViews shadows = meshes->DirectionalShadows();
         const SceneResources::DirectionalShadowView& sun     = shadows[SceneResources::kDirectionalShadowSun];
         // VG-SW-RASTER: the main view (cut view 0) splits HW/SW when the view can keep a visibility buffer this
-        // frame - the deferred G-buffer path, a device with 64-bit buffer atomics (SupportsVisibilityBuffer64),
-        // the buffer's programs loaded, and, when the grass shares the buffer, its rows not overflowing (the VG
-        // rows follow them) - with or without grass on it (R2: SceneRenderer.cpp makes the frame for either). The
-        // SW raster writes nowhere else. Cascades and the post phase stay HW (SwRasterMaxEdgePixels 0).
-        const bool swRaster =
-             m_VirtualGeometrySoftwareRaster &&
-             EngineContext::GetInstance().GetCapabilities().SupportsVisibilityBuffer64 &&
-             m_GrassVisibility.IsInitialized() && m_RenderPath == Core::RenderPath::Deferred && m_GBuffer &&
-             !( m_GrassVisibilityBuffer && m_Systems.Grass && m_Systems.Grass->VisibilityRowsOverflow() );
+        // frame (VirtualGeometrySwRasterOn), with or without grass on it (R2: SceneRenderer.cpp makes the frame for
+        // either); its post cut splits the same way (AddFrameVirtualGeometryPostOcclusion). The SW raster writes
+        // nowhere else. Cascades stay HW (SwRasterMaxEdgePixels 0).
+        const bool swRaster = VirtualGeometrySwRasterOn();
         const auto viewOf = [&]( const size_t v ) -> Common::ResultStr<VirtualGeometry::ClusterCullView>
         {
             using Result = VirtualGeometry::ClusterCullView;
@@ -1007,6 +1002,16 @@ namespace Desert::Graphic
             m_VirtualGeometryLastError.clear();
     }
 
+    bool SceneRenderer::VirtualGeometrySwRasterOn() const
+    {
+        // SupportsVisibilityBuffer64: 64-bit buffer atomics; the VG rows follow the grass's when it shares the
+        // buffer, so its rows must not overflow.
+        return m_VirtualGeometrySoftwareRaster &&
+               EngineContext::GetInstance().GetCapabilities().SupportsVisibilityBuffer64 &&
+               m_GrassVisibility.IsInitialized() && m_RenderPath == Core::RenderPath::Deferred && m_GBuffer &&
+               !( m_GrassVisibilityBuffer && m_Systems.Grass && m_Systems.Grass->VisibilityRowsOverflow() );
+    }
+
     void SceneRenderer::AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame )
     {
         auto* meshes = m_Systems.Mesh.get();
@@ -1016,27 +1021,35 @@ namespace Desert::Graphic
             return; // the main cut tested no HZB (FrameDrawBins::ClusterMainTestsHzb false): nothing was held back
         const FrameDrawBins& bins = *m_FrameDrawBins;
         // The main phase's carry, re-cut against this frame's HZB (AddFrameDrawBinsPostOcclusion set the main
-        // view's Hzb) with the main cut's view.
+        // view's Hzb) with the main cut's view, appended to the main cut's VisibleClusters (UE Nanite: main and
+        // post pass share one list) so the visibility resolve maps every SW row of either phase through it.
         const VirtualGeometry::ClusterCandidates candidates{
-             .Rows            = m_FrameVirtualGeometry->OccludedCandidates,
-             .Count           = m_FrameVirtualGeometry->OccludedCount,
-             .Capacity        = m_FrameVirtualGeometry->VisibleCapacity,
-             .VisibleCapacity = m_FrameVirtualGeometry->VisibleCapacity,
-             .Layout          = VirtualGeometry::ClusterCandidateLayout::PostCarry,
-             .CutViews        = 1u };
+             .Rows                = m_FrameVirtualGeometry->OccludedCandidates,
+             .Count               = m_FrameVirtualGeometry->OccludedCount,
+             .Capacity            = m_FrameVirtualGeometry->VisibleCapacity,
+             .VisibleCapacity     = m_FrameVirtualGeometry->VisibleCapacity,
+             .Layout              = VirtualGeometry::ClusterCandidateLayout::PostCarry,
+             .CutViews            = 1u,
+             .MainVisibleClusters = m_FrameVirtualGeometry->VisibleClusters,
+             .MainRasterArgs      = m_FrameVirtualGeometry->RasterArgs };
         const VirtualGeometry::VirtualMeshBuffers vgMeshes =
              VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+        // The main cut's HW/SW split decision of this frame (FrameVirtualGeometry::SoftwareRaster).
         const VirtualGeometry::ClusterCullView view{
              .Instance         = bins.Views.front(),
              .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
              .Lod              = VirtualGeometry::ClusterLodMeasure::Perspective( frame.Split.Render.Height,
-                                                                                  bins.Views.front().View.LodProjection ) };
+                                                                                  bins.Views.front().View.LodProjection ),
+             .SwRasterMaxEdgePixels =
+                  m_FrameVirtualGeometry->SoftwareRaster ? VirtualGeometry::kSwRasterMaxEdgePixels : 0.0f };
         const auto post = AddVirtualGeometryCut(
              graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes,
              VirtualGeometryCutInput{
                   .Scene = bins.Scene, .Upload = bins.Upload, .Meshes = vgMeshes, .NeutralHzb = bins.NeutralHzb },
              candidates, view, 0u, bins.ViewKeys.front(), GpuDriven::CullPhase::PostOcclusion,
              VirtualGeometry::ClusterCutKind::PostOcclusion );
+        if ( post )
+            m_FrameVirtualGeometry->PostRasterArgs = post.GetValue().RasterArgs;
         // Unreachable by the two-pass decision (FrameDrawBins::ClusterMainTestsHzb accepts the post cut before the
         // main cut carries anything): a refusal here is a broken contract between the two, said as an error.
         if ( !post && post.GetError() != m_VirtualGeometryLastError )

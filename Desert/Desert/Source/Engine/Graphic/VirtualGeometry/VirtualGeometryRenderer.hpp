@@ -54,7 +54,10 @@ namespace Desert::Graphic::RDG
 //                         ViewProjection (a carried child: one workgroup, its subtree; carried clusters: 64 per
 //                         workgroup, one per thread - UE batches the post pass's clusters), raster-binned and
 //                         drawn by the GBuffer post-occlusion pass (MeshRenderer::SetFrameVirtualGeometry,
-//                         CullPhase::PostOcclusion).
+//                         CullPhase::PostOcclusion). Its clusters APPEND to the main cut's VisibleClusters (UE
+//                         Nanite: one list for both passes; ClusterCandidates::MainVisibleClusters, counters in a
+//                         copy of the main cut's RasterArgs from GpuClusterRasterArgs::SwFirst / HwFirst), its SW
+//                         clusters rastered by "VirtualGeometry: Software Raster Post" into the same words.
 //  6. shadow cascades     one cut + raster binning per drawn cascade view (its own dispatch: one RasterBins per
 //                         view), LOD by the cascade's OWN texel (ClusterLodMeasure::Orthographic of its world size
 //                         per texel; UE: shadow LOD by the shadow view's resolution), no HZB (cascades do not
@@ -129,6 +132,14 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t               VisibleCapacity = 0;
         ClusterCandidateLayout Layout          = ClusterCandidateLayout::PerCutView;
         uint32_t               CutViews        = 0; // PerCutView: regions (every candidate's View is below it)
+        // PostCarry (VG-SW-RASTER; UE Nanite: main and post pass share one VisibleClusters list, the post pass
+        // appending after the main pass's SW and HW rows): the MAIN cut's ClusterCullResult::VisibleClusters /
+        // RasterArgs. The post cut writes into that list (VisibleCapacity = the main cut's) and counts in a copy
+        // of those counters (GpuClusterRasterArgs::SwFirst / HwFirst mark where its own rows begin), so every
+        // reader of a row - the HW raster's Rows, the SW raster's word payload, the visibility resolve and
+        // material depth - names the one list. Required for PostCarry, unused for PerCutView.
+        RDG::BufferRef MainVisibleClusters;
+        RDG::BufferRef MainRasterArgs;
     };
 
     // What one phase leaves for the rasters, per dispatch of all views.
@@ -202,7 +213,7 @@ namespace Desert::Graphic::VirtualGeometry
                           uint32_t countViews = 0u ) const;
 
         // Step 7: "VirtualGeometry: Software Raster" (Programs/VirtualGeometry/SoftwareRaster.shader) of @p
-        // culled's SW clusters (VisibleClusters[0, RasterArgs.SwCount), indirect from RasterArgs.SwDispatch) into
+        // culled's SW clusters (VisibleClusters[SwFirst, SwCount), indirect from RasterArgs.SwDispatch) into
         // @p visibilityWords (Common/VisibilityBuffer.glslh, the view's extent in its header) through
         // @p viewProjection (the main view's JITTERED matrix, the HW raster's). A row's word payload is
         // (@p rowBase + its VisibleClusters row) << kVisTriangleBits | triangle: @p rowBase places the cut's rows

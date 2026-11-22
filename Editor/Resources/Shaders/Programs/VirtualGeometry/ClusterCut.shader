@@ -324,7 +324,8 @@ Shader "ClusterCut"
                 const uint s = atomicAdd( RasterArgs.SwCount, 1u );
                 // One SoftwareRaster.shader workgroup per SW cluster up to the dispatch limit every device grants
                 // (maxComputeWorkGroupCount[0] >= 65535); past it the workgroups stride over the rest.
-                if ( s < VG_SW_RASTER_MAX_GROUPS )
+                // A post cut continues the main cut's list (RasterArgs.SwFirst): its own workgroups count from there.
+                if ( s - RasterArgs.SwFirst < VG_SW_RASTER_MAX_GROUPS )
                     atomicAdd( RasterArgs.SwDispatch[0], 1u );
                 Visible[s]   = VgVisibleCluster( f.Instance, cluster, f.View, flags | VG_VISIBLE_SOFTWARE );
                 return;
@@ -332,7 +333,8 @@ Shader "ClusterCut"
             const uint i = atomicAdd( RasterArgs.HwDraw[1], 1u );
             // Raster Binning's indirect dispatch: every HW row is taken exactly once (Emitted bounds them), so the
             // row opening a workgroup counts it: ceil( rows / group ).
-            if ( i % VG_RASTER_BIN_GROUP_SIZE == 0u )
+            // A post cut's counter continues the main cut's (RasterArgs.HwFirst): its own rows open its workgroups.
+            if ( ( i - RasterArgs.HwFirst ) % VG_RASTER_BIN_GROUP_SIZE == 0u )
                 atomicAdd( RasterArgs.BinDispatch[0], 1u );
             Visible[Params.y - 1u - i] = VgVisibleCluster( f.Instance, cluster, f.View, flags );
         }
@@ -615,7 +617,16 @@ Shader "ClusterCut"
                 layers = Params3.y;
             }
             else
+            {
                 groups = min( CandidateCounts[0], Params.w ) + ( min( CandidateCounts[1], Params.w ) + 63u ) / 64u;
+                // VG-SW-RASTER (UE Nanite: the post pass appends to the main pass's VisibleClusters): RasterArgs is
+                // a copy of the main cut's counters (VirtualGeometryRenderer::AddClusterCull), so this cut's rows
+                // follow the main cut's from both ends of the shared list; its own dispatches start empty.
+                RasterArgs.SwFirst        = RasterArgs.SwCount;
+                RasterArgs.HwFirst        = RasterArgs.HwDraw[1];
+                RasterArgs.SwDispatch[0]  = 0u;
+                RasterArgs.BinDispatch[0] = 0u;
+            }
             DispatchX         = max( min( groups, 65535u ), 1u );
             DispatchY         = groups == 0u ? 1u : ( groups + 65534u ) / 65535u;
             DispatchZ         = groups == 0u ? 0u : layers;
