@@ -1,0 +1,24 @@
+# WP-HLOD-V13 (owner 11-22, "speed-up + WP"): world format went 12 -> 13 in 108be0b53 (IMPOSTORS-HLOD-4) and the
+# committed HLOD folders stayed v12, so Play ran WITHOUT HLODs ("'HLODs.dhlod' is world format version 12; this build
+# reads 13 only. Re-cook it."). As in UE (HLOD builder commandlet re-run on a format/settings change, stale data refused
+# loudly), the data is rebuilt, not read as v12: WP_Protocol here through Build HLODs; WP23_Regions and
+# WP21_PrefabSpan_{Near,Far} through `--run=WorldPartitionBuilder --builder=HLODs` (WP-BUILDER-CMDLET.scn).
+# Check after the run: editor.log has NO "runs WITHOUT HLODs" and NO "world format version 12".
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Build HLODs"
+Дано wait-idle 2400
+Дано set 1003 CameraData.Far 800000
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда --subject viewport set Camera.Position 0,40000,-60000
+Когда --subject viewport set Camera.Direction 0,-0.6,1
+Когда advance 2
+Когда advance 1
+Тогда 1_far_hlod high over the city looking far: far cells drawn by HLOD (buildings stand as HLOD blocks to the edge, no empty ground where buildings stand); editor.log has NO "runs WITHOUT HLODs"
+Когда run Action "Stop"
