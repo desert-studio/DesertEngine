@@ -4,6 +4,7 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>
+#include <map>
 #include <span>
 #include <string>
 #include <vector>
@@ -30,6 +31,11 @@ namespace Desert::Graphic::GpuDriven
         // In view, held back by its phase-1 HZB and not found visible in this frame's: what the occlusion took
         // out (Phase1 + Phase2 + Occluded = the frustum-only count).
         uint32_t Occluded = 0;
+        // Phase 2 finds of this view summed over every frame counted since the renderer started (WP-OCCL-DENSE):
+        // a disocclusion shows in phase 2 for ONE frame and the readback lands slots-in-flight late, so a reader
+        // that samples Phase2 seconds after a camera move misses it; the difference of this total across the move
+        // is exact (UE: an accumulated stat counter, not a sampled one).
+        uint64_t Phase2Total = 0;
     };
 
     // One cull dispatch of the frame whose views are counted: its carry's Visibility words, a name per view in the
@@ -70,6 +76,8 @@ namespace Desert::Graphic::GpuDriven
 
         std::vector<Slot>               m_Slots;
         std::vector<CullPhaseViewCount> m_Last;
+        // CullPhaseViewCount::Phase2Total per view name; Forget() keeps it (a frame without bins adds nothing).
+        std::map<std::string, uint64_t, std::less<>> m_Phase2Totals;
         std::string                     m_LastError; // logged once per message
     };
 } // namespace Desert::Graphic::GpuDriven
