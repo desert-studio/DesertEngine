@@ -524,6 +524,10 @@ namespace Desert::Graphic::System
             // UE bCastContactShadow: pushed with the G-buffer draw (PrimitiveFlags) into the shading word.
             bool                   CastContactShadow        = true;
             int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
+            // WP-FAR-12F: the card side of an impostor pair (StaticSceneSection::ImpostorCard). A flat billboard
+            // stands in for the mesh in raster only; it never enters the ray tracing scene (UE excludes the
+            // impostor LOD from RT), RayTracingGather skips it.
+            bool ImpostorCard = false;
         };
 
         // WHAT A RECORD'S MotionRecord::Content READS OF ITS MESH (SyncGpuScene): the mesh, its submesh list and

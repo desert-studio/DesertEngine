@@ -188,10 +188,13 @@ namespace Desert::Graphic::RayTracing
             rowIndex[row] = rows.size();
             rows.push_back( { mesh, world, row, castShadows, kind, { section } } );
         };
+        // An impostor card (WP-FAR-12F) is a raster-only stand-in: a flat billboard in the TLAS would reflect and
+        // shadow as a plane. UE excludes the impostor LOD from ray tracing the same way.
         for ( const MeshRenderer::StaticMeshRenderData& data : inputs.Static )
-            add( data.Mesh, data.Transform, data.GpuInstance,
-                 SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ), data.CastShadows,
-                 RayTracingPrimitiveKind::Static );
+            if ( !data.ImpostorCard )
+                add( data.Mesh, data.Transform, data.GpuInstance,
+                     SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ), data.CastShadows,
+                     RayTracingPrimitiveKind::Static );
         // A generic record's material is its own program (a per-slot data-driven material, or a shader override
         // with no slot material): opaque, unless the record carries its own hit group with an alpha test (3D
         // text's glyph coverage, RayTracingProgramHit) - then its segments are non-opaque and their hits run that

@@ -281,6 +281,7 @@ namespace Desert::Graphic::System
         data.ReceiveShadows           = section.ReceiveShadows;
         data.CastContactShadow        = section.CastContactShadow;
         data.TranslucencySortPriority = section.TranslucencySortPriority;
+        data.ImpostorCard                         = section.ImpostorCard;
     }
 
     void MeshRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot&                  scene,
