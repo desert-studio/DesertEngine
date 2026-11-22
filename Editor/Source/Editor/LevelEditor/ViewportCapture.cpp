@@ -376,11 +376,12 @@ namespace Desert::Editor
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
         const auto readbackStart = std::chrono::steady_clock::now();
 
-        // Only the copy out of the staging is the frame's; the RGBA8 pack (~0.85 s of a 4112x2580 window, WQH p2)
-        // is the worker's, ahead of the encode.
-        auto captured = swapChain->TakeCapturedFrameRaw();
+        // Only the device wait is the frame's (WQH p2): the staging is detached here and the worker reads it out
+        // (~0.3-0.6 s of a 4112x2580 window: readback memory reads slowly on the CPU), packs it to RGBA8 (~0.85 s)
+        // and encodes it; the staging is released on the game thread once the worker is done (FinishWindowPng).
+        auto captured = swapChain->DetachCapturedFrame();
         {
-            // Collected: TakeCapturedFrameRaw releases the staging on every path. A return above leaves the copy
+            // Collected: DetachCapturedFrame takes or releases the staging on every path. A return above leaves the copy
             // in flight, and the frame's announcement discards it (ControlService::OnFramePresented).
             const std::scoped_lock lock( m_WindowRecordLock );
             m_WindowRecord.InFlight = false;
@@ -392,6 +393,7 @@ namespace Desert::Editor
         }
         const uint32_t width  = captured.GetValue().Width;
         const uint32_t height = captured.GetValue().Height;
+        out.Staging           = captured.GetValue();
 
         // WQH (11-22): the PNG encode of a 4112x2580 window was the whole frame's cost - seconds on the game
         // thread, the "worst frame" the profiler showed after every scenario step that took a shot. The bytes
@@ -404,9 +406,13 @@ namespace Desert::Editor
         out.WaitMs    = std::chrono::duration<double, std::milli>( readbackStart - collectStart ).count();
         out.CollectMs = std::chrono::duration<double, std::milli>( out.Started - readbackStart ).count();
         out.Encode    = Common::JobSystem::Get().Async(
-             [path, width, height, raw = std::move( captured.GetValue() )]() noexcept -> std::string
+             [path, width, height, staging = out.Staging]() noexcept -> std::string
              {
-                 const auto rgba = Graphic::API::Vulkan::VulkanSwapChain::PackCapturedFrame( raw );
+                 using Graphic::API::Vulkan::VulkanSwapChain;
+                 const auto raw = VulkanSwapChain::ReadCapturedStaging( staging );
+                 if ( !raw )
+                     return raw.GetError();
+                 const auto rgba = VulkanSwapChain::PackCapturedFrame( raw.GetValue() );
                  if ( !rgba )
                      return rgba.GetError();
                  if ( WritePngRGBA8( path, width, height, rgba.GetValue().data() ) )
@@ -421,13 +427,15 @@ namespace Desert::Editor
     std::string ViewportCapture::FinishWindowPng( WindowPngWrite& write ) const
     {
         std::string error = write.Encode.get();
+        // The worker is done reading the staging: it goes to the allocator's deferred deletion.
+        Graphic::API::Vulkan::VulkanSwapChain::ReleaseCapturedStaging( write.Staging );
         if ( !error.empty() )
             return error;
         const double encodeMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.Started ).count();
         LOG_INFO( "[Control] wrote the presented frame (editor and interface) -> {} ({}x{}); on the frame "
-                  "{:.1f} ms (render task join {:.1f} ms, device idle wait {:.1f} ms, staging readback {:.1f} ms), RGBA8 "
-                  "pack + PNG encode + write on a worker {:.1f} ms",
+                  "{:.1f} ms (render task join {:.1f} ms, device idle wait {:.1f} ms, staging detach {:.1f} ms), staging "
+                  "read + RGBA8 pack + PNG encode + write on a worker {:.1f} ms",
                   write.Path, write.Width, write.Height, write.JoinMs + write.WaitMs + write.CollectMs,
                   write.JoinMs, write.WaitMs, write.CollectMs, encodeMs );
         return {};

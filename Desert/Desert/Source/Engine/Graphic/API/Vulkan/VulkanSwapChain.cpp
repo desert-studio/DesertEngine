@@ -805,7 +805,12 @@ namespace Desert::Graphic::API::Vulkan
     Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::TakeCapturedFrameRGBA8( uint32_t& outWidth,
                                                                                      uint32_t& outHeight )
     {
-        auto raw = TakeCapturedFrameRaw();
+        auto detached = DetachCapturedFrame();
+        if ( !detached )
+            return Common::MakeError<std::vector<uint8_t>>( detached.GetError() );
+        CapturedStaging staging = detached.GetValue();
+        auto            raw     = ReadCapturedStaging( staging );
+        ReleaseCapturedStaging( staging );
         if ( !raw )
             return Common::MakeError<std::vector<uint8_t>>( raw.GetError() );
         auto packed = PackCapturedFrame( raw.GetValue() );
@@ -817,45 +822,56 @@ namespace Desert::Graphic::API::Vulkan
         return packed;
     }
 
-    Common::ResultStr<VulkanSwapChain::CapturedFrame> VulkanSwapChain::TakeCapturedFrameRaw()
+    Common::ResultStr<VulkanSwapChain::CapturedStaging> VulkanSwapChain::DetachCapturedFrame()
     {
         if ( !HasPendingCapture() )
-            return Common::MakeError<CapturedFrame>( "no frame capture was recorded for this frame." );
+            return Common::MakeError<CapturedStaging>( "no frame capture was recorded for this frame." );
 
+        CapturedStaging staging{ .Buffer     = m_CaptureStaging,
+                                 .Allocation = m_CaptureAllocation,
+                                 .Width      = m_CaptureWidth,
+                                 .Height     = m_CaptureHeight };
+        m_CaptureStaging    = VK_NULL_HANDLE;
+        m_CaptureAllocation = nullptr;
+        if ( !SurfaceLayout( m_ColorFormat, staging.Source ) )
+        {
+            ReleaseCapturedStaging( staging );
+            return Common::MakeError<CapturedStaging>(
+                 "the surface format changed between recording and collecting." );
+        }
+        return Common::MakeSuccess( staging );
+    }
+
+    Common::ResultStr<VulkanSwapChain::CapturedFrame>
+    VulkanSwapChain::ReadCapturedStaging( const CapturedStaging& staging )
+    {
         auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                                ->GetVulkanAllocator()
                                .get();
 
-        const auto release = [&]()
-        {
-            allocator->RT_DestroyBuffer( m_CaptureStaging, static_cast<VmaAllocation>( m_CaptureAllocation ) );
-            m_CaptureStaging    = VK_NULL_HANDLE;
-            m_CaptureAllocation = nullptr;
-        };
-
-        CapturedFrame frame{ .Width = m_CaptureWidth, .Height = m_CaptureHeight };
-        if ( !SurfaceLayout( m_ColorFormat, frame.Source ) )
-        {
-            release();
-            return Common::MakeError<CapturedFrame>( "the surface format changed between recording and collecting." );
-        }
-
+        CapturedFrame     frame{ .Width = staging.Width, .Height = staging.Height, .Source = staging.Source };
         const std::size_t pixels    = static_cast<std::size_t>( frame.Width ) * frame.Height;
         const std::size_t stagingSz = pixels * Graphic::BytesPerPixel( frame.Source );
 
         frame.Raw.resize( stagingSz );
-        {
-            MappedMemory readback = allocator->MapMemory( static_cast<VmaAllocation>( m_CaptureAllocation ) );
-            const auto   read     = readback.ReadInto( frame.Raw.data(), stagingSz );
-            if ( !read.IsSuccess() )
-            {
-                readback.Unmap();
-                release();
-                return Common::MakeFormattedError<CapturedFrame>( "the capture staging buffer: {}", read.GetError() );
-            }
-        }
-        release();
+        MappedMemory readback = allocator->MapMemory( static_cast<VmaAllocation>( staging.Allocation ) );
+        const auto   read     = readback.ReadInto( frame.Raw.data(), stagingSz );
+        readback.Unmap();
+        if ( !read.IsSuccess() )
+            return Common::MakeFormattedError<CapturedFrame>( "the capture staging buffer: {}", read.GetError() );
         return Common::MakeSuccess( std::move( frame ) );
+    }
+
+    void VulkanSwapChain::ReleaseCapturedStaging( CapturedStaging& staging )
+    {
+        if ( staging.Buffer == VK_NULL_HANDLE )
+            return;
+        auto* allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                               ->GetVulkanAllocator()
+                               .get();
+        allocator->RT_DestroyBuffer( staging.Buffer, static_cast<VmaAllocation>( staging.Allocation ) );
+        staging.Buffer     = VK_NULL_HANDLE;
+        staging.Allocation = nullptr;
     }
 
     Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::PackCapturedFrame( const CapturedFrame& frame )
@@ -910,10 +926,17 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeError<std::vector<uint8_t>>( "frame capture is not compiled into a Shipping build." );
     }
 
-    Common::ResultStr<VulkanSwapChain::CapturedFrame> VulkanSwapChain::TakeCapturedFrameRaw()
+    Common::ResultStr<VulkanSwapChain::CapturedStaging> VulkanSwapChain::DetachCapturedFrame()
+    {
+        return Common::MakeError<CapturedStaging>( "frame capture is not compiled into a Shipping build." );
+    }
+
+    Common::ResultStr<VulkanSwapChain::CapturedFrame> VulkanSwapChain::ReadCapturedStaging( const CapturedStaging& )
     {
         return Common::MakeError<CapturedFrame>( "frame capture is not compiled into a Shipping build." );
     }
+
+    void VulkanSwapChain::ReleaseCapturedStaging( CapturedStaging& ) {}
 
     Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::PackCapturedFrame( const CapturedFrame& )
     {

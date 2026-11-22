@@ -151,11 +151,28 @@ namespace Desert::Graphic::API::Vulkan
             Graphic::PackedPixelSource Source{};
         };
 
-        /// TakeCapturedFrameRGBA8's FRAME half (WQH p2): map, copy out, release the staging - the device must be
-        /// idle, so it belongs to the frame. The pack (PackCapturedFrame) touches no device state and goes to a
-        /// worker: on a 4112x2580 window it was ~0.85 s of the shot's frame (UE: FImageWriteQueue converts and
-        /// encodes off the game thread; only the readback is the frame's).
-        [[nodiscard]] Common::ResultStr<CapturedFrame> TakeCapturedFrameRaw();
+        /// A recorded capture's staging buffer, handed out of the swapchain (WQH p2): ownership moves to the caller,
+        /// and the swapchain can record the next capture at once.
+        struct CapturedStaging
+        {
+            VkBuffer                   Buffer     = VK_NULL_HANDLE;
+            void*                      Allocation = nullptr; // VmaAllocation
+            uint32_t                   Width      = 0;
+            uint32_t                   Height     = 0;
+            Graphic::PackedPixelSource Source{};
+        };
+
+        /// TakeCapturedFrameRGBA8 in three halves, so only the first is the frame's (WQH p2). On a 4112x2580
+        /// window the copy out of the staging (~0.3-0.6 s: the readback memory reads slowly on the CPU) and the
+        /// RGBA8 pack (~0.85 s) were the shot's frame (UE: FRHIGPUTextureReadback is read and FImageWriteQueue
+        /// converts and encodes off the game thread). Detach: on the frame, after the device is idle - takes the
+        /// staging out of the swapchain, touches no memory.
+        [[nodiscard]] Common::ResultStr<CapturedStaging> DetachCapturedFrame();
+        /// Read: on any thread - maps, invalidates and copies the staging out. The buffer must stay alive.
+        [[nodiscard]] static Common::ResultStr<CapturedFrame> ReadCapturedStaging( const CapturedStaging& staging );
+        /// Release: on the game thread once nothing reads it - the staging goes to the allocator's deferred
+        /// deletion. Idempotent.
+        static void ReleaseCapturedStaging( CapturedStaging& staging );
 
         /// The pack half, on any thread: tightly packed 8-bit RGBA, alpha forced opaque (the surface is
         /// VK_COMPOSITE_ALPHA_OPAQUE; nothing is obliged to leave alpha meaningful).
