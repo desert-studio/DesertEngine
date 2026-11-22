@@ -17,7 +17,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
-#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 // "Shadows: Ray Traced Sun" (UE RayTracingShadows.cpp + FScreenShadowMaskTexture): ShadowMethod::HardwareTraced
 // for the sun. Every G-buffer pixel traces ray-query visibility over the view's TLAS
@@ -98,7 +98,7 @@ namespace Desert::Graphic::System
     public:
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "RayTracedSunShadow" );
+            m_Shader = Runtime::FindShader( "RayTracedSunShadow" );
             if ( !m_Shader )
                 return Common::MakeError( "Shadows: Ray Traced Sun: shader RayTracedSunShadow not found" );
             const auto pipeline =

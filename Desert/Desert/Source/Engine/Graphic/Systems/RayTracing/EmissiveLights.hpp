@@ -19,6 +19,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <Engine/Graphic/IndexBuffer.hpp>
+#include <Engine/Graphic/VertexBuffer.hpp>
 
 // THE SCENE'S EMISSIVE TRIANGLES AS LIGHTS (UE 5.8 Path Tracer emissive mesh light sampling; NVIDIA RTXDI: the
 // emissive triangles of the scene in the one light list its samplers draw from). ONE list for every consumer -

@@ -17,6 +17,7 @@
 #include <bit>
 #include <format>
 #include <string_view>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -61,14 +62,14 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "HZB" );
+            m_Shader = Runtime::FindShader( "HZB" );
             if ( !m_Shader )
                 return Common::MakeError( "HZB shader not found" );
             const auto pipeline = ComputePipeline::Create( { .Shader = m_Shader, .DebugName = "HZB" } );
             if ( !pipeline )
                 return Common::MakeError( pipeline.GetError() );
             m_Pipeline = pipeline.GetValue();
-            m_SinglePassShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "HZBSinglePass" );
+            m_SinglePassShader = Runtime::FindShader( "HZBSinglePass" );
             if ( !m_SinglePassShader )
                 return Common::MakeError( "HZBSinglePass shader not found" );
             const auto singlePass =

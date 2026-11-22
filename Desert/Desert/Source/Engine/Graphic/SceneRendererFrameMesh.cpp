@@ -43,6 +43,7 @@
 #include <optional>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
 
 namespace Desert::Graphic
 {

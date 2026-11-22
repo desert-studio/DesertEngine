@@ -1,4 +1,7 @@
 #include "ShaderService.hpp"
+#include "ShaderLookup.hpp"
+
+#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Settings/Scalability.hpp>
@@ -762,4 +765,24 @@ namespace Desert::Runtime
         return names;
     }
 
+    std::shared_ptr<Graphic::Shader> FindShader( const std::string& name )
+    {
+        return ResourceRegistry::GetShaderService()->GetByName( name );
+    }
+
+    Common::ResultStr<std::shared_ptr<Graphic::Shader>> AcquireShaderVariant( const std::string&            name,
+                                                                              const Graphic::ShaderVariant& variant )
+    {
+        return ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
+    }
+
+    std::uint64_t ShaderProgramGeneration( const std::string& name )
+    {
+        return ResourceRegistry::GetShaderService()->ProgramGeneration( name );
+    }
+
+    bool ClaimShaderRefusalReport( const std::string& name, const Graphic::ShaderVariant& variant )
+    {
+        return ResourceRegistry::GetShaderService()->ClaimRefusalReport( name, variant );
+    }
 } // namespace Desert::Runtime

@@ -11,6 +11,7 @@
 #include <cmath>
 #include <format>
 #include <unordered_map>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Editor::Render
 {

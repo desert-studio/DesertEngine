@@ -17,7 +17,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -51,7 +51,7 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override
         {
-            const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "BloomDownsample" );
+            const auto shader = Runtime::FindShader( "BloomDownsample" );
             if ( !shader )
                 return Common::MakeError( "BackdropBlurRenderer: missing compute shader 'BloomDownsample'" );
 

@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {

@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <Engine/Graphic/GeometryPool.hpp>
 
 namespace Desert
 {

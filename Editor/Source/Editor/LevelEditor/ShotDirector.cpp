@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <Engine/Graphic/SceneRenderer.hpp>
 
 namespace Desert::Editor
 {

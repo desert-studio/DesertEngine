@@ -85,6 +85,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
+#include <Engine/VFX/VFXWorld.hpp>
 
 namespace Desert::Editor
 {

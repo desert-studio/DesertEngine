@@ -44,6 +44,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -495,14 +496,13 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override
         {
-            auto* shaders = Runtime::ResourceRegistry::GetShaderService();
-            m_TraceShader = shaders->GetByName( "PathTracer/PathTracing" );
+            m_TraceShader = Runtime::FindShader( "PathTracer/PathTracing" );
             if ( !m_TraceShader || !m_TraceShader->IsCompiled() )
                 return Common::MakeError(
                      "PathTracer: the ray generation 'PathTracer/PathTracing' did not compile or "
                      "is not registered on this device" );
-            m_SkyPrepareShader = shaders->GetByName( "PathTracerSky/Prepare" );
-            m_SkyReduceShader  = shaders->GetByName( "PathTracerSky/Reduce" );
+            m_SkyPrepareShader = Runtime::FindShader( "PathTracerSky/Prepare" );
+            m_SkyReduceShader  = Runtime::FindShader( "PathTracerSky/Reduce" );
             if ( !m_SkyPrepareShader || !m_SkyReduceShader )
                 return Common::MakeError( "PathTracer: the sky programs 'PathTracerSky/Prepare' / "
                                           "'PathTracerSky/Reduce' are not registered" );
@@ -517,7 +517,7 @@ namespace Desert::Graphic::System
             m_SkyPreparePipeline = prepare.GetValue();
             m_SkyReducePipeline  = reduce.GetValue();
 
-            m_LightGridShader = shaders->GetByName( "PathTracerLightGrid/Build" );
+            m_LightGridShader = Runtime::FindShader( "PathTracerLightGrid/Build" );
             if ( !m_LightGridShader )
                 return Common::MakeError( "PathTracer: the light grid program 'PathTracerLightGrid/Build' is not "
                                           "registered" );
@@ -532,7 +532,7 @@ namespace Desert::Graphic::System
                     &m_DenoiseFilter, &m_DenoiseRemodulate, &m_DenoiseOidnPack, &m_DenoiseOidnUnpack } )
             {
                 const std::string name = std::format( "PathTracerDenoise/{}", program->Name );
-                program->PassShader    = shaders->GetByName( name );
+                program->PassShader    = Runtime::FindShader( name );
                 if ( !program->PassShader )
                     return Common::MakeFormattedError( "PathTracer: the denoiser program '{}' is not registered",
                                                        name );
@@ -544,7 +544,7 @@ namespace Desert::Graphic::System
                 program->PassPipeline = pipeline.GetValue();
             }
 
-            m_ResolveShader = shaders->GetByName( "PathTracerResolve" );
+            m_ResolveShader = Runtime::FindShader( "PathTracerResolve" );
             if ( !m_ResolveShader )
                 return Common::MakeError( "PathTracer: the resolve 'PathTracerResolve' is not registered" );
             GraphicsPipelineSpecification spec;
@@ -569,13 +569,12 @@ namespace Desert::Graphic::System
         {
             if ( m_TracePipeline && templates == m_PipelineTemplates )
                 return BOOLSUCCESS;
-            auto*                           shaders = Runtime::ResourceRegistry::GetShaderService();
             RayTracingPipelineSpecification spec{
                  .Program = m_TraceShader, .HitGroups = {}, .DebugName = "PathTracer" };
             for ( const std::string& name : templates )
             {
                 const std::string cell = std::format( "{}/RayTracing.Hit", name );
-                auto              hit  = shaders->GetByName( cell );
+                auto              hit  = Runtime::FindShader( cell );
                 if ( !hit || !hit->IsCompiled() )
                     return Common::MakeFormattedError(
                          "PathTracer: the hit group table names surface template '{}', "
@@ -636,13 +635,12 @@ namespace Desert::Graphic::System
         // CacheInputs as they are this frame (after EnsurePipeline: the hit groups are m_PipelineTemplates').
         [[nodiscard]] CacheInputs CurrentCacheInputs() const
         {
-            const Runtime::ShaderService* shaders = Runtime::ResourceRegistry::GetShaderService();
             CacheInputs inputs{ .ForcedPath = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath };
             for ( const char* program : Engine::Neural::NeuralRadianceCache::kPrograms )
-                inputs.Cache.push_back( { program, shaders->ProgramGeneration( program ) } );
-            inputs.Trace.push_back( { kTraceProgram, shaders->ProgramGeneration( kTraceProgram ) } );
+                inputs.Cache.push_back( { program, Runtime::ShaderProgramGeneration( program ) } );
+            inputs.Trace.push_back( { kTraceProgram, Runtime::ShaderProgramGeneration( kTraceProgram ) } );
             for ( const std::string& surfaceTemplate : m_PipelineTemplates )
-                inputs.Trace.push_back( { surfaceTemplate, shaders->ProgramGeneration( surfaceTemplate ) } );
+                inputs.Trace.push_back( { surfaceTemplate, Runtime::ShaderProgramGeneration( surfaceTemplate ) } );
             return inputs;
         }
 
@@ -667,10 +665,9 @@ namespace Desert::Graphic::System
             }
             if ( m_TracePipelineNrc && m_PipelineTemplatesNrc == m_PipelineTemplates )
                 return BOOLSUCCESS;
-            auto*                 shaders = Runtime::ResourceRegistry::GetShaderService();
             Core::ShaderVariant   variant;
             variant.Defines = { "PATH_TRACING_NRC=1" };
-            auto                  acquired      = shaders->AcquireVariant( kTraceProgram, variant );
+            auto                  acquired      = Runtime::AcquireShaderVariant( kTraceProgram, variant );
             if ( !acquired )
             {
                 m_CacheShaderRefusal =
@@ -684,7 +681,7 @@ namespace Desert::Graphic::System
                  .Program = m_TraceShaderNrc, .HitGroups = {}, .DebugName = "PathTracerNrc" };
             for ( const std::string& name : m_PipelineTemplates )
             {
-                auto hit = shaders->GetByName( std::format( "{}/RayTracing.Hit", name ) );
+                auto hit = Runtime::FindShader( std::format( "{}/RayTracing.Hit", name ) );
                 if ( !hit || !hit->IsCompiled() )
                     return Common::MakeFormattedError(
                          "PathTracer: the hit group of surface template '{}' is not compiled", name );
@@ -728,7 +725,7 @@ namespace Desert::Graphic::System
                  .Reason = reason, .Shader = std::exchange( m_CacheShaderRefusal, {} ), .Inputs = inputs };
             bool report = false;
             if ( m_CacheRefusal->Shader )
-                report = Runtime::ResourceRegistry::GetShaderService()->ClaimRefusalReport(
+                report = Runtime::ClaimShaderRefusalReport(
                      m_CacheRefusal->Shader->Program, m_CacheRefusal->Shader->Variant );
             else
                 report = !m_RetriedCacheRefusal || m_RetriedCacheRefusal->Reason != reason;
