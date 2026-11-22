@@ -1,4 +1,5 @@
 #include "EditorGridPass.hpp"
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>

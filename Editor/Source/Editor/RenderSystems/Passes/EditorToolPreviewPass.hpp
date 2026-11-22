@@ -1,12 +1,21 @@
 #pragma once
 
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
+
+namespace Desert::Graphic
+{
+    class GraphicsPipeline;
+} // namespace Desert::Graphic
+
+namespace Desert::Core
+{
+    class Scene;
+} // namespace Desert::Core
 
 namespace Desert::Editor::Render
 {

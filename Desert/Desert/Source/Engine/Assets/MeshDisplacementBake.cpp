@@ -66,6 +66,12 @@ namespace Desert::Assets
                     return Common::MakeFormattedError<MaterialChain>(
                          "material '{}' has no resolved template, so its Height is unknown",
                          asset->GetMetadata().Filepath.generic_string() );
+                // The template is found by handle, not loaded: its text is read only once it is resident.
+                if ( const auto loaded = shader->EnsureLoaded( manager ); !loaded )
+                    return Common::MakeFormattedError<MaterialChain>(
+                         "template '{}' of material '{}' could not be read: {}",
+                         shader->GetMetadata().Filepath.generic_string(),
+                         asset->GetMetadata().Filepath.generic_string(), loaded.GetError() );
                 auto meta = Core::Preprocess::ShaderPreprocess::ParseProgramMetaForPass(
                      shader->GetShaderContent(), shader->GetMetadata().Filepath.parent_path(), "" );
                 if ( !meta.IsSuccess() )

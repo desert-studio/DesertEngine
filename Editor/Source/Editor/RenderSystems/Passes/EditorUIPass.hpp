@@ -1,15 +1,25 @@
 #pragma once
 
+#include <memory>
+
 #include <UI/Retained/RetainedCanvasResources.hpp>
 #include <UI/Retained/WidgetGallery.hpp>
 #include <UI/Retained/WidgetTree.hpp>
 #include <Engine/UI/Ecs/RegistryUICanvasResources.hpp>
-#include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <UI/UICanvasContext.hpp>
 #include <UI/UICanvasRenderer2D.hpp>
+
+namespace Desert::Assets
+{
+    class AssetManager;
+} // namespace Desert::Assets
+
+namespace Desert::Core
+{
+    class Scene;
+} // namespace Desert::Core
 
 namespace Desert::Editor::Render
 {

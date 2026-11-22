@@ -1,4 +1,5 @@
 #include "SkinnedMeshAsset.hpp"
+#include <Engine/Assets/AssetManager.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>

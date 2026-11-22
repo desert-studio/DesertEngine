@@ -1,4 +1,6 @@
 #include <Editor/Core/ShotOptions.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Scene.hpp>
 #include "EditorUIPass.hpp"
 
 #include <Engine/Graphic/Renderer.hpp>

@@ -14,7 +14,8 @@
 #include <optional>
 #include <span>
 #include <vector>
-#include <Engine/Graphic/VertexBuffer.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
+#include <Engine/Graphic/VertexBufferLayout.hpp>
 
 #include <Common/Core/Memory/Buffer.hpp>
 

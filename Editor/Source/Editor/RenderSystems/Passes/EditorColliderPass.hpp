@@ -1,12 +1,23 @@
 #pragma once
 
-#include <Engine/Core/Scene.hpp>
+#include <memory>
+
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 
 #include <cstdint>
 #include <span>
 #include <vector>
 #include <Engine/Physics/ColliderComponent.hpp>
+
+namespace Desert::Graphic
+{
+    class GraphicsPipeline;
+} // namespace Desert::Graphic
+
+namespace Desert::Core
+{
+    class Scene;
+} // namespace Desert::Core
 
 namespace Desert::ECS
 {

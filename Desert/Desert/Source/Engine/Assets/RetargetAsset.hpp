@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetBase.hpp>
-#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetDependency.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 
