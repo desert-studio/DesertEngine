@@ -1,4 +1,5 @@
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/JobSystem.hpp> // the in-run pipeline cache write runs on a worker
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp> // WaitIdle drains the submit thread
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 #include <Common/Settings/MachineSettings.hpp>
@@ -538,6 +539,10 @@ namespace Desert::Graphic::API::Vulkan
 
             if ( m_PipelineCache != VK_NULL_HANDLE )
             {
+                // The in-run write on a worker finishes first: it reads this cache and owns the hash.
+                if ( m_PersistWrite.valid() )
+                    if ( const auto inRun = m_PersistWrite.get(); !inRun )
+                        LOG_WARN( "[PipelineCache] not written: {}", inRun.GetError() );
                 // The pipelines built since the last in-run write (PersistPipelineCache is throttled).
                 if ( const auto written = WritePipelineCache(); !written )
                     LOG_WARN( "[PipelineCache] not written at exit: {}", written.GetError() );
@@ -741,11 +746,23 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanLogicalDevice::PersistPipelineCache()
     {
+        // OFF THE FRAME (WQH p3): vkGetPipelineCacheData of a warm cache plus the atomic file write were 200-290 ms
+        // of the frame they fell on (the frame after Stop, among others). The frame only asks whether a write is
+        // due and hands it to a worker; the cache is internally synchronised, so pipelines keep building meanwhile
+        // (a partial read is the VK_INCOMPLETE case WritePipelineCache already takes). The previous write's
+        // failure is reported here, one frame late.
+        Common::BoolResultStr previous = Common::MakeSuccess( true );
+        if ( m_PersistWrite.valid() )
+        {
+            if ( m_PersistWrite.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+                return Common::MakeSuccess( true ); // still writing: the schedule is asked again next frame
+            previous = m_PersistWrite.get();
+        }
         const uint64_t built =
              Core::ReadShaderPhaseTimes().Calls[static_cast<size_t>( Core::ShaderPhase::PipelineCreate )];
-        if ( !m_PersistSchedule.Due( built, std::chrono::steady_clock::now() ) )
-            return Common::MakeSuccess( true );
-        return WritePipelineCache();
+        if ( m_PersistSchedule.Due( built, std::chrono::steady_clock::now() ) )
+            m_PersistWrite = Common::JobSystem::Get().Async( [this]() noexcept { return WritePipelineCache(); } );
+        return previous;
     }
 
     Common::BoolResultStr VulkanLogicalDevice::WritePipelineCache()
