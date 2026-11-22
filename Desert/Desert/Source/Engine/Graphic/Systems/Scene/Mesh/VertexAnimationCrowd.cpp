@@ -172,15 +172,17 @@ namespace Desert::Graphic::System
                 reads.push_back( RefIn( graph, bake ) );
     }
 
-    void VertexAnimationCrowd::Report( const uint32_t skeletal, const uint32_t vat, const uint32_t draws )
+    void VertexAnimationCrowd::Report( const uint32_t skeletal, const uint32_t vat, const uint32_t draws,
+                                       const uint32_t grown, const float maxScale )
     {
-        const uint64_t counts = static_cast<uint64_t>( skeletal ) | ( static_cast<uint64_t>( vat ) << 21u ) |
-                                ( static_cast<uint64_t>( draws ) << 42u );
+        const uint64_t counts = static_cast<uint64_t>( skeletal ) | ( static_cast<uint64_t>( vat ) << 16u ) |
+                                ( static_cast<uint64_t>( draws ) << 32u ) | ( static_cast<uint64_t>( grown ) << 48u );
         if ( counts == m_ReportedCounts && ++m_FramesSinceReport < 60u )
             return;
         m_ReportedCounts    = counts;
         m_FramesSinceReport = 0;
-        LOG_INFO( "[Crowd] skeletal {}, vat {}, draws {}, anim CPU {:.4f} ms", skeletal, vat, draws,
-                  Animation::g_AnimationCpuMsPerFrame.load( std::memory_order_relaxed ) );
+        LOG_INFO( "[Crowd] skeletal {}, vat {}, draws {}, grown to min screen size {} (max x{:.2f}), anim CPU {:.4f} "
+                  "ms",
+                  skeletal, vat, draws, grown, maxScale, Animation::g_AnimationCpuMsPerFrame.load( std::memory_order_relaxed ) );
     }
 } // namespace Desert::Graphic::System
