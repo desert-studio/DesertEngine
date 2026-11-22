@@ -160,15 +160,21 @@ namespace Desert::Graphic::API::Vulkan
             uint32_t                   Width      = 0;
             uint32_t                   Height     = 0;
             Graphic::PackedPixelSource Source{};
+            /// Signalled once the GPU has run everything queued before the detach - the frame that recorded the
+            /// copy included (WQH p3; UE: FRHIGPUTextureReadback's fence, IsReady). Read waits it; Release destroys it.
+            VkDevice Device = VK_NULL_HANDLE;
+            VkFence  Ready  = VK_NULL_HANDLE;
         };
 
         /// TakeCapturedFrameRGBA8 in three halves, so only the first is the frame's (WQH p2). On a 4112x2580
         /// window the copy out of the staging (~0.3-0.6 s: the readback memory reads slowly on the CPU) and the
         /// RGBA8 pack (~0.85 s) were the shot's frame (UE: FRHIGPUTextureReadback is read and FImageWriteQueue
-        /// converts and encodes off the game thread). Detach: on the frame, after the device is idle - takes the
-        /// staging out of the swapchain, touches no memory.
+        /// converts and encodes off the game thread). Detach: on the frame, after the render task handed the frame to
+        /// the submit thread - takes the staging out of the swapchain and queues a fence behind the frame (an empty
+        /// submit, in queue order); it waits for no GPU work and touches no memory.
         [[nodiscard]] Common::ResultStr<CapturedStaging> DetachCapturedFrame();
-        /// Read: on any thread - maps, invalidates and copies the staging out. The buffer must stay alive.
+        /// Read: on any thread - waits the detach's fence (the copy has landed), then maps, invalidates and copies
+        /// the staging out. The buffer must stay alive.
         [[nodiscard]] static Common::ResultStr<CapturedFrame> ReadCapturedStaging( const CapturedStaging& staging );
         /// Release: on the game thread once nothing reads it - the staging goes to the allocator's deferred
         /// deletion. Idempotent.
