@@ -102,8 +102,29 @@ namespace Desert
             positions.reserve( vertices.size() );
             for ( const SkinnedVertex& vertex : vertices )
                 positions.push_back( vertex.StaticVertex );
+            // Where the levels come from, stated once per build: the cook's chain (the .skmesh's baked LODs, the
+            // derived data) or generated here for sections no cook decided (a procedural or pre-cook mesh).
+            std::size_t cookedSections = 0, cookedLevels = 0;
+            for ( const Submesh& submesh : chain.Submeshes )
+                if ( submesh.LodChainCooked )
+                {
+                    ++cookedSections;
+                    cookedLevels = std::max( cookedLevels, submesh.BakedLODs.size() );
+                }
             chain.GpuIndices = Geometry::BuildLODIndexBuffer( positions, indices, chain.Submeshes,
                                                               Geometry::UnbakedLODChain() );
+            if ( cookedSections == chain.Submeshes.size() )
+            {
+                LOG_INFO( "[SkinnedLOD] {} vertices: LOD chain loaded from the cooked derived data ({} section(s), "
+                          "{} generated level(s) + LOD 0); nothing reduced at load",
+                          vertices.size(), cookedSections, cookedLevels );
+            }
+            else
+            {
+                LOG_INFO( "[SkinnedLOD] {} vertices: {} of {} section(s) have no cooked chain - their LODs were "
+                          "GENERATED AT LOAD (re-import the mesh to cook them)",
+                          vertices.size(), chain.Submeshes.size() - cookedSections, chain.Submeshes.size() );
+            }
             for ( Submesh& submesh : chain.Submeshes )
                 std::vector<std::vector<Index>>().swap( submesh.BakedLODs );
 
