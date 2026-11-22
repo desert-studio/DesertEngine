@@ -134,8 +134,8 @@ namespace Desert::Net
                      IsReliableLane( lane ) ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable;
                 message->m_idxLane = static_cast<uint16>( lane );
                 int64 result       = 0;
-                // SendMessages takes ownership of the message whatever the outcome.
-                m_Sockets->SendMessages( 1, &message, &result );
+                // bDeleteFailedMessages: the library owns the message whatever the outcome.
+                m_Sockets->SendMessages( 1, &message, &result, true );
                 if ( result > 0 )
                 {
                     return ESendResult::Sent;
