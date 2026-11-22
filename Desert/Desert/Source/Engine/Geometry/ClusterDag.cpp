@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -49,6 +50,9 @@ namespace Desert::Geometry
             uint32_t              VertexCount = 0;
             Bounds                Lod{};
             uint32_t              Level = 0;
+            // The group whose simplification made it (its index in the build's group list = Groups); none at
+            // level 0. ClusterDag::Generators.
+            uint32_t Generator = kClusterHierarchyNone;
         };
 
         struct BuiltGroup
@@ -642,8 +646,12 @@ namespace Desert::Geometry
 
                 std::vector<uint32_t> made;
                 Clusterize( mesh, simplified, level + 1, clusters, made );
+                const auto generator = static_cast<uint32_t>( groups.size() ); // this group's row in Groups
                 for ( uint32_t id : made )
-                    clusters[id].Lod = group.Lod; // the generating group's sphere + error
+                {
+                    clusters[id].Lod       = group.Lod; // the generating group's sphere + error
+                    clusters[id].Generator = generator;
+                }
                 next.insert( next.end(), made.begin(), made.end() );
                 groups.push_back( std::move( group ) );
             }
@@ -722,13 +730,20 @@ namespace Desert::Geometry
                     group.BoxMax[a] = std::max( group.BoxMax[a], record.BoxMax[a] );
                 }
                 dag.Clusters.push_back( record );
+                dag.Generators.push_back( c.Generator );
             }
             dag.Groups.push_back( group );
         }
         dag.Hierarchy = BuildHierarchy( dag );
-        LOG_INFO( "[ClusterDag] {} triangles -> {} clusters, {} groups, {} levels, {} hierarchy nodes",
+        if ( const Common::BoolResultStr paged = PaginateClusterDag( dag ); !paged )
+            return Common::MakeFormattedError<ClusterDagBuild>( "cluster DAG: {}", paged.GetError() );
+        LOG_INFO( "[ClusterDag] {} triangles -> {} clusters, {} groups, {} levels, {} hierarchy nodes, {} pages "
+                  "({} root, {} root words)",
                   triangles.size() / 3, dag.Clusters.size(), dag.Groups.size(), dag.LevelCount,
-                  dag.Hierarchy.size() );
+                  dag.Hierarchy.size(), dag.Pages.size(),
+                  std::ranges::count_if( dag.Pages, []( const ClusterPageRecord& p )
+                                         { return ( p.Flags & kClusterPageRoot ) != 0; } ),
+                  RootPageWords( dag ).size() );
         ClusterDagBuild build;
         build.Dag                = std::move( dag );
         build.AddedVertexSources = std::move( growing.Sources );
@@ -738,6 +753,198 @@ namespace Desert::Geometry
             LOG_INFO( "[ClusterDag] preserve area: {} boundary vertices added to {}",
                       build.AddedVertexSources.size(), vertexCount );
         return Common::MakeSuccess( std::move( build ) );
+    }
+
+    namespace
+    {
+        [[nodiscard]] bool IsRootPage( const ClusterPageRecord& page )
+        {
+            return ( page.Flags & kClusterPageRoot ) != 0;
+        }
+        [[nodiscard]] bool IsTerminal( const ClusterGroupRecord& group )
+        {
+            return group.ParentLodError >= kClusterRootError;
+        }
+        [[nodiscard]] uint64_t PageWords( const ClusterPageRecord& page )
+        {
+            return uint64_t{ page.VertexRefCount } + page.TriangleCount;
+        }
+    } // namespace
+
+    Common::BoolResultStr PaginateClusterDag( ClusterDag& dag )
+    {
+        if ( dag.Generators.size() != dag.Clusters.size() )
+            return Common::MakeError( std::format( "cluster pages: {} generators for {} clusters",
+                                                   dag.Generators.size(), dag.Clusters.size() ) );
+        // Groups in storage order: a page closes at a level change, a terminal / non-terminal change, or when
+        // the next group's words would pass kClusterPageMaxWords.
+        std::vector<ClusterPageRecord> pages;
+        uint32_t                       nextRef = 0, nextTriangle = 0;
+        for ( uint32_t g = 0; g < dag.Groups.size(); ++g )
+        {
+            const ClusterGroupRecord& group = dag.Groups[g];
+            if ( g > 0 && group.Level < dag.Groups[g - 1].Level )
+                return Common::MakeError(
+                     std::format( "cluster pages: group {} (level {}) follows a level-{} group: not stored level "
+                                  "by level",
+                                  g, group.Level, dag.Groups[g - 1].Level ) );
+            if ( uint64_t{ group.FirstCluster } + group.ClusterCount > dag.Clusters.size() )
+                return Common::MakeError( std::format( "cluster pages: group {} names clusters past {}", g,
+                                                       dag.Clusters.size() ) );
+            uint32_t refs = 0, triangles = 0;
+            for ( uint32_t c = group.FirstCluster; c < group.FirstCluster + group.ClusterCount; ++c )
+            {
+                const ClusterRecord& cluster = dag.Clusters[c];
+                if ( cluster.FirstVertexRef != nextRef + refs || cluster.FirstTriangle != nextTriangle + triangles )
+                    return Common::MakeError(
+                         std::format( "cluster pages: cluster {} of group {} does not continue its group's words",
+                                      c, g ) );
+                refs += cluster.VertexCount;
+                triangles += cluster.TriangleCount;
+            }
+            const bool               terminal = IsTerminal( group );
+            const ClusterPageRecord* open     = pages.empty() ? nullptr : &pages.back();
+            if ( open == nullptr || open->Level != group.Level || IsRootPage( *open ) != terminal ||
+                 PageWords( *open ) + refs + triangles > kClusterPageMaxWords )
+                pages.push_back( ClusterPageRecord{ .FirstGroup     = g,
+                                                    .GroupCount     = 0,
+                                                    .FirstVertexRef = nextRef,
+                                                    .VertexRefCount = 0,
+                                                    .FirstTriangle  = nextTriangle,
+                                                    .TriangleCount  = 0,
+                                                    .Level          = group.Level,
+                                                    .Flags          = terminal ? kClusterPageRoot : 0u } );
+            ClusterPageRecord& page = pages.back();
+            ++page.GroupCount;
+            page.VertexRefCount += refs;
+            page.TriangleCount += triangles;
+            nextRef += refs;
+            nextTriangle += triangles;
+        }
+        if ( nextRef != dag.VertexRefs.size() || nextTriangle != dag.Triangles.size() )
+            return Common::MakeError(
+                 std::format( "cluster pages: the groups hold {} refs / {} triangles of the DAG's {} / {}", nextRef,
+                              nextTriangle, dag.VertexRefs.size(), dag.Triangles.size() ) );
+
+        // (b) the coarsest whole levels join the root set while every root word together fits the budget.
+        uint64_t rootWords = 0;
+        for ( const ClusterPageRecord& page : pages )
+            if ( IsRootPage( page ) )
+                rootWords += PageWords( page );
+        for ( uint32_t level = dag.LevelCount; level-- > 0; )
+        {
+            uint64_t levelWords = 0;
+            for ( const ClusterPageRecord& page : pages )
+                if ( page.Level == level && !IsRootPage( page ) )
+                    levelWords += PageWords( page );
+            if ( rootWords + levelWords > kClusterRootPageMaxWords )
+                break;
+            for ( ClusterPageRecord& page : pages )
+                if ( page.Level == level )
+                    page.Flags |= kClusterPageRoot;
+            rootWords += levelWords;
+        }
+        dag.Pages = std::move( pages );
+        return ValidateClusterPages( dag );
+    }
+
+    Common::BoolResultStr ValidateClusterPages( const ClusterDag& dag )
+    {
+        if ( dag.Generators.size() != dag.Clusters.size() )
+            return Common::MakeError( std::format( "cluster pages: {} generators for {} clusters",
+                                                   dag.Generators.size(), dag.Clusters.size() ) );
+        if ( dag.Pages.empty() )
+            return Common::MakeError( "cluster pages: the DAG has no page (cooked before VG-STREAMING)" );
+        std::vector<uint32_t> pageOfGroup( dag.Groups.size(), 0u );
+        uint32_t              nextGroup = 0, nextRef = 0, nextTriangle = 0;
+        bool                  anyRoot   = false;
+        for ( uint32_t p = 0; p < dag.Pages.size(); ++p )
+        {
+            const ClusterPageRecord& page = dag.Pages[p];
+            if ( page.FirstGroup != nextGroup || page.GroupCount == 0 ||
+                 uint64_t{ page.FirstGroup } + page.GroupCount > dag.Groups.size() ||
+                 page.FirstVertexRef != nextRef || page.FirstTriangle != nextTriangle ||
+                 PageWords( page ) > kClusterPageMaxWords || ( page.Flags & ~kClusterPageRoot ) != 0 )
+                return Common::MakeError( std::format(
+                     "cluster pages: page {} (groups [{}, +{}), refs from {}, triangles from {}, {} words, flags "
+                     "{:#x}) does not continue the previous page or passes the caps",
+                     p, page.FirstGroup, page.GroupCount, page.FirstVertexRef, page.FirstTriangle,
+                     PageWords( page ), page.Flags ) );
+            uint32_t refs = 0, triangles = 0;
+            for ( uint32_t g = page.FirstGroup; g < page.FirstGroup + page.GroupCount; ++g )
+            {
+                const ClusterGroupRecord& group = dag.Groups[g];
+                if ( group.Level != page.Level || ( IsTerminal( group ) && !IsRootPage( page ) ) ||
+                     uint64_t{ group.FirstCluster } + group.ClusterCount > dag.Clusters.size() )
+                    return Common::MakeError(
+                         std::format( "cluster pages: group {} (level {}{}) does not belong in page {} (level {}{})",
+                                      g, group.Level, IsTerminal( group ) ? ", terminal" : "", p, page.Level,
+                                      IsRootPage( page ) ? ", root" : "" ) );
+                pageOfGroup[g] = p;
+                for ( uint32_t c = group.FirstCluster; c < group.FirstCluster + group.ClusterCount; ++c )
+                {
+                    const ClusterRecord& cluster = dag.Clusters[c];
+                    if ( cluster.Group != g || cluster.FirstVertexRef != nextRef + refs ||
+                         cluster.FirstTriangle != nextTriangle + triangles )
+                        return Common::MakeError( std::format(
+                             "cluster pages: cluster {} does not continue page {}'s words", c, p ) );
+                    refs += cluster.VertexCount;
+                    triangles += cluster.TriangleCount;
+                }
+            }
+            if ( refs != page.VertexRefCount || triangles != page.TriangleCount )
+                return Common::MakeError(
+                     std::format( "cluster pages: page {} states {} refs / {} triangles, its groups hold {} / {}", p,
+                                  page.VertexRefCount, page.TriangleCount, refs, triangles ) );
+            nextGroup += page.GroupCount;
+            nextRef += refs;
+            nextTriangle += triangles;
+            anyRoot = anyRoot || IsRootPage( page );
+        }
+        if ( nextGroup != dag.Groups.size() || nextRef != dag.VertexRefs.size() ||
+             nextTriangle != dag.Triangles.size() )
+            return Common::MakeError( std::format(
+                 "cluster pages: the pages cover {} groups / {} refs / {} triangles of {} / {} / {}", nextGroup,
+                 nextRef, nextTriangle, dag.Groups.size(), dag.VertexRefs.size(), dag.Triangles.size() ) );
+        if ( !anyRoot )
+            return Common::MakeError( "cluster pages: no root page" );
+        for ( uint32_t c = 0; c < dag.Clusters.size(); ++c )
+        {
+            const ClusterRecord& cluster   = dag.Clusters[c];
+            const uint32_t       generator = dag.Generators[c];
+            if ( cluster.Level == 0 )
+            {
+                if ( generator != kClusterHierarchyNone )
+                    return Common::MakeError(
+                         std::format( "cluster pages: level-0 cluster {} names generator {}", c, generator ) );
+                continue;
+            }
+            if ( generator >= dag.Groups.size() || dag.Groups[generator].Level + 1u != cluster.Level )
+                return Common::MakeError( std::format(
+                     "cluster pages: level-{} cluster {} names generator {} (not a group one level below)",
+                     cluster.Level, c, generator ) );
+            // Closed upwards: the generator's page depends on this cluster's page.
+            if ( IsRootPage( dag.Pages[pageOfGroup[generator]] ) &&
+                 !IsRootPage( dag.Pages[pageOfGroup[cluster.Group]] ) )
+                return Common::MakeError(
+                     std::format( "cluster pages: root page {} depends on streamed page {} (cluster {})",
+                                  pageOfGroup[generator], pageOfGroup[cluster.Group], c ) );
+        }
+        return BOOLSUCCESS;
+    }
+
+    std::vector<uint32_t> RootPageWords( const ClusterDag& dag )
+    {
+        std::vector<uint32_t> words;
+        for ( const ClusterPageRecord& page : dag.Pages )
+            if ( IsRootPage( page ) )
+                words.insert( words.end(), dag.VertexRefs.begin() + page.FirstVertexRef,
+                              dag.VertexRefs.begin() + page.FirstVertexRef + page.VertexRefCount );
+        for ( const ClusterPageRecord& page : dag.Pages )
+            if ( IsRootPage( page ) )
+                words.insert( words.end(), dag.Triangles.begin() + page.FirstTriangle,
+                              dag.Triangles.begin() + page.FirstTriangle + page.TriangleCount );
+        return words;
     }
 
     std::vector<uint32_t> CutClusterDag( const ClusterDag& dag, float relativeError, float boundsRadius )
