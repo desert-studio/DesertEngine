@@ -21,12 +21,7 @@
 // a title needs the AssetManager. This one is included by the documents that draw a title and by nothing
 // else.
 
-#include <Engine/Assets/Common.hpp>
-
-namespace Desert::Assets
-{
-    class AssetManager;
-} // namespace Desert::Assets
+#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
 #include <string>

@@ -7,6 +7,12 @@
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <Engine/Assets/Common.hpp>
+
+namespace Desert::Assets
+{
+    class AssetManager;
+} // namespace Desert::Assets
 
 namespace Desert::Editor
 {

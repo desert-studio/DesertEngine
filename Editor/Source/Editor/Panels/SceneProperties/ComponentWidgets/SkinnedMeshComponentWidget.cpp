@@ -27,6 +27,8 @@
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor
 {

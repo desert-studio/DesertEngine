@@ -1,5 +1,6 @@
 #include "FractureService.hpp"
 
+#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 
 #include <Common/Core/Logger.hpp>
