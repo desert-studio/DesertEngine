@@ -2755,19 +2755,34 @@ namespace Desert::Graphic
                 // The VG rows follow the grass's when the grass shares the buffer, else they start at 0.
                 const auto rowBase =
                      grassOnVisibility ? static_cast<uint32_t>( m_Systems.Grass->VisibilityRows() ) : 0u;
-                if ( view != nullptr )
+                if ( view != nullptr && cut.Pass < GpuDriven::kMeshPassCount )
                 {
+                    const auto vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+                    const GpuDriven::PassDrawBuffers& passSlots = bins.Upload.Passes[cut.Pass];
+                    const GpuDriven::PassDrawTable&   passTable =
+                         meshRenderer->GetDrawCommandCache()->Passes()[cut.Pass];
                     const Common::BoolResultStr sw = m_VirtualGeometry->AddSoftwareRaster(
-                         graph, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
-                         bins.Upload.Passes[cut.Pass], bins.Upload.SubmeshTransforms, culled, grassVisibility.Words,
-                         view->JitteredViewProjection, rowBase, false );
+                         graph, bins.Scene, vgMeshes, passSlots, bins.Upload.SubmeshTransforms, culled,
+                         grassVisibility.Words, view->JitteredViewProjection, rowBase, false );
                     // R2: the frame now carries VG rows - its depth, classify, material depth and the VG resolve
-                    // run for them with or without a grass section (SceneRendererFrameMesh.cpp).
+                    // run for them with or without a grass section (SceneRendererFrameMesh.cpp); R1: the tables
+                    // "Grass: Visibility Material Depth" walks from a VG row to its IndirectGroup.
                     if ( sw )
                     {
                         grassVisibility.VgFirstRow        = rowBase;
                         grassVisibility.VgRowCount        = cut.VisibleCapacity;
                         grassVisibility.VgVisibleClusters = cut.VisibleClusters;
+                        grassVisibility.VgGroups          = {
+                                      .Instances      = bins.Scene.Instances,
+                                      .PrimitiveDraws = passSlots.PrimitiveDraws,
+                                      .DrawSlots      = passSlots.DrawSlots,
+                                      .Bins           = passSlots.Bins,
+                                      .Clusters       = vgMeshes.Clusters,
+                                      .Dags           = vgMeshes.Dags,
+                                      .PrimitiveRows  = static_cast<uint32_t>( passTable.PrimitiveDraws.size() ),
+                                      .DrawSlotRows   = static_cast<uint32_t>( passTable.DrawSlots.size() ),
+                                      .BinRows        = static_cast<uint32_t>( passTable.Bins.size() ),
+                                      .GroupCount     = static_cast<uint32_t>( passTable.Groups.size() ) };
                     }
                     if ( !sw && sw.GetError() != m_VirtualGeometryLastError )
                     {
