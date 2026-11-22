@@ -5,7 +5,6 @@
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Assets/AssetManager.hpp>

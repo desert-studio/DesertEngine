@@ -6,7 +6,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/ViewMemory.hpp>
 
 #include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewRenderGate.hpp>
@@ -21,6 +21,12 @@
 #include <Engine/ECS/MaterialComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/Animation/Animator.hpp>
+
+// The preview's renderer is owned behind a pointer and seen by declaration only (UE: FSceneRenderer).
+namespace Desert::Graphic
+{
+    class SceneRenderer;
+} // namespace Desert::Graphic
 
 namespace Desert::Core
 {

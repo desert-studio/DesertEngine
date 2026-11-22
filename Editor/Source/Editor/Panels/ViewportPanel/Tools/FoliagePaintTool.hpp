@@ -2,7 +2,12 @@
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/Common.hpp>
+
+namespace Desert::Assets
+{
+    class AssetManager;
+} // namespace Desert::Assets
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Common/Core/Math/Ray.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>

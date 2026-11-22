@@ -9,7 +9,6 @@
 
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 
 #include <glm/glm.hpp>
@@ -17,6 +16,11 @@
 #include <span>
 #include <string>
 #include <vector>
+
+namespace Desert::Core
+{
+    class Scene;
+} // namespace Desert::Core
 
 namespace Desert::Editor
 {

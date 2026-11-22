@@ -10,6 +10,7 @@
 #include <Engine/ECS/SpotLightComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor
 {

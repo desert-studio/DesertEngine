@@ -1,4 +1,5 @@
 #include "AssetThumbnailRenderer.hpp"
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Editor/Widgets/ThumbnailSlots.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>

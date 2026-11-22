@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/FractureAsset.hpp>
 
@@ -9,6 +8,11 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+
+namespace Desert::Assets
+{
+    class AssetManager;
+} // namespace Desert::Assets
 
 namespace Desert::Runtime
 {

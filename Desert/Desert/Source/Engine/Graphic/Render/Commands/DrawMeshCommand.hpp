@@ -1,14 +1,16 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-// The renderer itself: every Execute below calls a method on it, and RenderCommand.hpp only
-// forward-declares the type (see the note there on the include cycle that cost).
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <glm/mat4x4.hpp>
-#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+#include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/StaticSceneSnapshot.hpp>
 #include <Engine/Graphic/Render/InstancedSceneSnapshot.hpp>
+
+namespace Desert
+{
+    class Mesh;
+}
 
 namespace Desert::Graphic::Render
 {
@@ -56,29 +58,9 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Prepare() override
-        {
-            if ( Mesh != nullptr )
-                SceneRenderer::PrepareMesh( *Mesh );
-        }
+        void Prepare() override;
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            if ( MaterialSlots && renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
-                renderer.SubmitMesh( Mesh, MaterialSlots, Transform,
-                                     { .Entity                   = Entity,
-                                       .MotionPart               = MotionPart,
-                                       .SectionSlot              = SectionSlot,
-                                       .BoneMatrices             = {},
-                                       .Outlined                 = Outlined,
-                                       .HiddenSubmeshes          = HiddenSubmeshes,
-                                       .ForcedLOD                = ForcedLOD,
-                                       .LODBias                  = LODBias,
-                                       .CastShadows              = CastShadows,
-                                       .ReceiveShadows           = ReceiveShadows,
-                                       .CastContactShadow        = CastContactShadow,
-                                       .TranslucencySortPriority = TranslucencySortPriority } );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 
     // THE RETAINED STATIC SCENE (CPU-SCENE-DELTA; UE FScene: primitives added once, updated by their changes).
@@ -97,25 +79,9 @@ namespace Desert::Graphic::Render
         // The fence's intake for every section's mesh (an edited DynamicMesh's upload), as DrawStaticMeshCommand.
         // Only when some mesh was marked stale since this snapshot was last prepared (Mesh::GetStaleEpoch; read
         // before the walk, so an edit during it walks again next time): a still scene reads no section.
-        void Prepare() override
-        {
-            if ( !Scene )
-                return;
-            const uint64_t epoch = Desert::Mesh::GetStaleEpoch();
-            if ( Scene->PreparedStaleEpoch == epoch )
-                return;
-            Scene->PreparedStaleEpoch = epoch;
-            for ( const auto& chunk : Scene->Chunks )
-                for ( const StaticSceneSection& section : chunk->Sections )
-                    if ( section.Mesh != nullptr )
-                        SceneRenderer::PrepareMesh( *section.Mesh );
-        }
+        void Prepare() override;
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            if ( Scene )
-                renderer.SubmitStaticScene( *Scene );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 
     // THE RETAINED ISM LIST (UE: an instanced static mesh is a retained proxy with cached mesh draw commands).
@@ -136,23 +102,8 @@ namespace Desert::Graphic::Render
 
         // The fence's intake for every row's mesh (an edited DynamicMesh's upload), as DrawStaticSceneCommand's:
         // only when some mesh was marked stale since this snapshot was last prepared.
-        void Prepare() override
-        {
-            if ( !Scene )
-                return;
-            const uint64_t epoch = Desert::Mesh::GetStaleEpoch();
-            if ( Scene->PreparedStaleEpoch == epoch )
-                return;
-            Scene->PreparedStaleEpoch = epoch;
-            for ( const InstancedSceneRow& row : Scene->Rows )
-                if ( row.Mesh != nullptr )
-                    SceneRenderer::PrepareMesh( *row.Mesh );
-        }
+        void Prepare() override;
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            if ( Scene && Frame )
-                renderer.SubmitInstancedScene( *Scene, *Frame );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render
