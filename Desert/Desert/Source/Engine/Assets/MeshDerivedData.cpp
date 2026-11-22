@@ -81,6 +81,11 @@ namespace Desert::Assets
         return Common::DDC::MakeKey( deriver, sourceHash, image.data(), image.size() );
     }
 
+    uint64_t SkinnedMeshBuildKey( const uint64_t sourceHash, const MeshImportSettings& settings )
+    {
+        return MeshDerivedDataKey( sourceHash, MeshBuildSettings{ settings }, kSkinnedMeshDeriver );
+    }
+
     uint64_t MeshAssetDerivedDataKey( const MeshSourceAsset& asset )
     {
         return MeshDerivedDataKey( MeshSourceHash( asset.Source ), MeshBuildSettings{ asset.Import.Settings } );

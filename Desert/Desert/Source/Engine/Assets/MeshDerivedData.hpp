@@ -81,6 +81,16 @@ namespace Desert::Assets
     // mode does not change the geometry that the displacement topology (keyed from this) is built from.
     [[nodiscard]] uint64_t SkinnedMeshRenderDataKey( std::string_view meshBinaryBytes );
 
+    // THE SKINNED MESH'S BUILD KEY (WP-FAR-10C; UE: a skeletal mesh's render data is keyed by the source, its build
+    // settings and FSkeletalMeshBuilder's version, so a builder change re-derives it and never ships stale). A
+    // .skmesh is Content written by the import, but its GPU order and LOD chain come from the static mesh's builder
+    // steps (OptimizeSectionsForGpu, BakeMeshLODs at the import's LodChain): the import record states this key
+    // (ImportRecordData::RenderDataKey), and a record stating another - an older builder, another chain - is a stale
+    // .skmesh (ImportManager's freshness), re-derived by the Reimport, refused by a cook.
+    inline constexpr Common::DDC::Deriver kSkinnedMeshDeriver{
+         "SkeletalMesh", ".skmesh", { 0x7D21C4A95E3B0F68ULL, 0xB4106E2FD83A97C5ULL } };
+    [[nodiscard]] uint64_t SkinnedMeshBuildKey( uint64_t sourceHash, const MeshImportSettings& settings );
+
     // The MeshBinary container bytes of the asset's render data (EncodeMeshBinary's output).
     using MeshPlatformDataBuilder = std::function<Common::ResultStr<std::string>( const MeshSourceAsset& asset )>;
     void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder );
