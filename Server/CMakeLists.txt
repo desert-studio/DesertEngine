@@ -31,6 +31,13 @@ set(_server_engine_sources
     "${_engine}/Assets/Prefab/PrefabOverrides.cpp"
     "${_engine}/Assets/Serialization/FoliageType.cpp"
     "${_engine}/Scripting/ScriptSchema.cpp"
+    # the server-realm Luau runtime (NET-ARCH §7): script components' declarations are read through the SAME loader
+    # as the editor's (LuauScriptSchema.cpp), and server scripts run on it
+    "${_engine}/Scripting/Luau/LuauScriptSchema.cpp"
+    "${_engine}/Scripting/Luau/LuauRuntime.cpp"
+    "${_engine}/Scripting/Luau/LuauBinder.cpp"
+    "${_engine}/Scripting/Luau/LuauDebugger.cpp"
+    "${_engine}/Scripting/Luau/LuauProperties.cpp"
     "${_engine}/World/Landscape/LandscapeBrush.cpp"
     "${_engine}/World/Landscape/LandscapeData.cpp"
     "${_engine}/World/Landscape/LandscapeEditCache.cpp"
@@ -60,6 +67,7 @@ desert_external_includes(DesertServer
     "${DESERT_ROOT}/ThirdParty"
     "${DESERT_ROOT}/ThirdParty/entt/include"
     "${DESERT_ROOT}/ThirdParty/luau"
+    "${DESERT_ROOT}/ThirdParty/luau/CodeGen/include"
     "${DESERT_ROOT}/ThirdParty/luau/Common/include")
 desert_config_platform_defines(DesertServer)
 
@@ -69,5 +77,6 @@ set(_server_libs "")
 foreach(name IN LISTS _server_modules)
     list(APPEND _server_libs ${DESERT_MODULE_${name}_LIBRARIES})
 endforeach()
-target_link_libraries(DesertServer PRIVATE ${_server_libs} ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
+target_link_libraries(DesertServer PRIVATE ${_server_libs}
+    LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
 desert_link_mimalloc(DesertServer)
