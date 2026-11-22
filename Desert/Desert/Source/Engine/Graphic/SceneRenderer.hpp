@@ -888,8 +888,6 @@ namespace Desert::Graphic
         // to hide authoring aids during gameplay.
         virtual bool IsScenePlaying() const = 0;
 
-        virtual std::shared_ptr<Texture> GetTexture( const std::string& name ) = 0;
-
         // BY CONST REFERENCE, because the caller is a RECORDED COMMAND that is replayed once per view
         // of the scene (Scene::OnUpdate). An rvalue parameter invited the recorder to hand its only copy
         // away on the first view, and the second view then got a moved-from light.

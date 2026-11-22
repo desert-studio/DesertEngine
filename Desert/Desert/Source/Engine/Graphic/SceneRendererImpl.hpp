@@ -411,7 +411,6 @@ namespace Desert::Graphic
         {
             return m_ScenePlaying;
         }
-        std::shared_ptr<Texture>           GetTexture( const std::string& name ) override;
         void                               AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
                                                           const LocalLightShadowSettings&           shadow,
                                                           const System::LightFunctionProxy&         function ) override;
