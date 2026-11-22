@@ -2283,6 +2283,10 @@ namespace Desert::Graphic
             // the main cut tested no HZB.
             RDG::BufferRef OccludedCandidates;
             RDG::BufferRef OccludedCount;
+            // VG-SW-RASTER R2: the main cut split HW/SW this frame (AddFrameVirtualGeometry's gate): the view then
+            // keeps a visibility buffer even without grass on it, its SW rows rastered, depth-written and
+            // resolved.
+            bool SoftwareRaster = false;
         };
         std::optional<FrameVirtualGeometry> m_FrameVirtualGeometry;
         uint32_t                            m_VirtualGeometryInstances = 0; // this frame's VG candidate instances

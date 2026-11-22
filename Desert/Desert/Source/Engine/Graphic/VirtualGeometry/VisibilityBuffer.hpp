@@ -49,10 +49,20 @@ namespace Desert::Graphic::VirtualGeometry
         RDG::BufferRef Sections;    // count + the sections' first rows (VisibilityMaterialDepth.shader)
         uint32_t       Width  = 0;
         uint32_t       Height = 0;
+        // VG-SW-RASTER: the rows the virtual geometry's SW clusters own, [VgFirstRow, VgFirstRow + VgRowCount)
+        // (row - VgFirstRow = the cut's VisibleClusters row), set once "VirtualGeometry: Software Raster" was
+        // added after the clear; 0 rows = no VG word this frame.
+        uint32_t       VgFirstRow = 0;
+        uint32_t       VgRowCount = 0;
+        RDG::BufferRef VgVisibleClusters; // the main cut's VisibleClusters (VgVisibleCluster rows)
 
         [[nodiscard]] bool IsValid() const
         {
             return Words.IsValid() && ResolveArgs.IsValid();
+        }
+        [[nodiscard]] bool HasVirtualGeometryRows() const
+        {
+            return VgRowCount != 0u && VgVisibleClusters.IsValid();
         }
     };
 

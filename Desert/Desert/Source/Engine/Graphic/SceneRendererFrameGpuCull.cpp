@@ -6,6 +6,7 @@
 // The DRAW BINS (AddFrameDrawBins, AddFrameDrawBinsPostOcclusion): the same cull feeding the passes' indirect
 // draws, the deferred main view in two phases around this frame's furthest HZB.
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -894,12 +895,16 @@ namespace Desert::Graphic
              .Scene = bins.Scene, .Upload = bins.Upload, .Meshes = vgMeshes, .NeutralHzb = bins.NeutralHzb };
         const SceneResources::DirectionalShadowViews shadows = meshes->DirectionalShadows();
         const SceneResources::DirectionalShadowView& sun     = shadows[SceneResources::kDirectionalShadowSun];
-        // VG-SW-RASTER: the main view (cut view 0) splits HW/SW only when its visibility buffer will exist this
-        // frame (the deferred G-buffer path with the grass visibility buffer, rows not overflowing) - the SW
-        // raster writes nowhere else. Cascades and the post phase stay HW (SwRasterMaxEdgePixels 0).
-        const bool swRaster = m_VirtualGeometrySoftwareRaster && m_GrassVisibilityBuffer &&
-                              m_RenderPath == Core::RenderPath::Deferred && m_GBuffer && m_Systems.Grass &&
-                              !m_Systems.Grass->VisibilityRowsOverflow();
+        // VG-SW-RASTER: the main view (cut view 0) splits HW/SW when the view can keep a visibility buffer this
+        // frame - the deferred G-buffer path, a device with 64-bit buffer atomics (SupportsVisibilityBuffer64),
+        // the buffer's programs loaded, and, when the grass shares the buffer, its rows not overflowing (the VG
+        // rows follow them) - with or without grass on it (R2: SceneRenderer.cpp makes the frame for either). The
+        // SW raster writes nowhere else. Cascades and the post phase stay HW (SwRasterMaxEdgePixels 0).
+        const bool swRaster =
+             m_VirtualGeometrySoftwareRaster &&
+             EngineContext::GetInstance().GetCapabilities().SupportsVisibilityBuffer64 &&
+             m_GrassVisibility.IsInitialized() && m_RenderPath == Core::RenderPath::Deferred && m_GBuffer &&
+             !( m_GrassVisibilityBuffer && m_Systems.Grass && m_Systems.Grass->VisibilityRowsOverflow() );
         const auto viewOf = [&]( const size_t v ) -> Common::ResultStr<VirtualGeometry::ClusterCullView>
         {
             using Result = VirtualGeometry::ClusterCullView;
@@ -995,7 +1000,8 @@ namespace Desert::Graphic
                                                            .VisibleCapacity    = culled.GetValue().VisibleCapacity,
                                                            .Pass               = pass,
                                                            .OccludedCandidates = culled.GetValue().OccludedCandidates,
-                                                           .OccludedCount      = culled.GetValue().OccludedCount };
+                                                           .OccludedCount      = culled.GetValue().OccludedCount,
+                                                           .SoftwareRaster     = swRaster };
         m_VirtualGeometryInstances = bins.VgInstances;
         if ( cascadesCut )
             m_VirtualGeometryLastError.clear();

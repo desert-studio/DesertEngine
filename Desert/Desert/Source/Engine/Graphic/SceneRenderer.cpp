@@ -2718,10 +2718,16 @@ namespace Desert::Graphic
                            "visibility-buffer rows than a visibility word addresses (32 - kVisTriangleBits bits)",
                            m_ViewResources.GetName() );
             m_GrassVisibilityRowsOverflow = m_GrassVisibilityBuffer && rowsOverflow;
-            if ( m_GrassVisibilityBuffer && !rowsOverflow && meshRenderer != nullptr )
+            // VG-SW-RASTER R2: the view keeps the buffer for the grass, for the VG's SW clusters, or for both; the
+            // grass's sections join it only when the grass draws through it (an empty span: no grass section).
+            const bool grassOnVisibility = m_GrassVisibilityBuffer && !rowsOverflow;
+            const bool vgOnVisibility    = m_FrameVirtualGeometry && m_FrameVirtualGeometry->SoftwareRaster;
+            if ( ( grassOnVisibility || vgOnVisibility ) && meshRenderer != nullptr )
             {
-                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height,
-                                                        m_Systems.Grass->VisibilitySectionFirstRows() );
+                auto made =
+                     m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height,
+                                                 grassOnVisibility ? m_Systems.Grass->VisibilitySectionFirstRows()
+                                                                   : std::span<const uint32_t>{} );
                 if ( made )
                 {
                     grassVisibility = made.GetValue();
@@ -2737,8 +2743,7 @@ namespace Desert::Graphic
             // VG-SW-RASTER: the main cut's SW clusters (AddFrameVirtualGeometry split them only when this view
             // keeps a visibility buffer) atomic-maxed into the same words after their clear, their rows past
             // every grass row (GrassRenderer::VisibilityRows), so the grass's depth pass and HZB see them.
-            if ( grassVisibility.IsValid() && m_FrameVirtualGeometry && m_FrameDrawBins && m_VirtualGeometry &&
-                 m_VirtualGeometrySoftwareRaster )
+            if ( grassVisibility.IsValid() && vgOnVisibility && m_FrameDrawBins && m_VirtualGeometry )
             {
                 const FrameDrawBins&        bins = *m_FrameDrawBins;
                 const FrameVirtualGeometry& cut  = *m_FrameVirtualGeometry;
@@ -2747,13 +2752,23 @@ namespace Desert::Graphic
                 culled.VisibleClusters = cut.VisibleClusters;
                 culled.RasterArgs      = cut.RasterArgs;
                 culled.VisibleCapacity = cut.VisibleCapacity;
-                const auto rowBase     = static_cast<uint32_t>( m_Systems.Grass->VisibilityRows() );
+                // The VG rows follow the grass's when the grass shares the buffer, else they start at 0.
+                const auto rowBase =
+                     grassOnVisibility ? static_cast<uint32_t>( m_Systems.Grass->VisibilityRows() ) : 0u;
                 if ( view != nullptr )
                 {
                     const Common::BoolResultStr sw = m_VirtualGeometry->AddSoftwareRaster(
                          graph, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
                          bins.Upload.Passes[cut.Pass], bins.Upload.SubmeshTransforms, culled, grassVisibility.Words,
                          view->JitteredViewProjection, rowBase, false );
+                    // R2: the frame now carries VG rows - its depth, classify, material depth and the VG resolve
+                    // run for them with or without a grass section (SceneRendererFrameMesh.cpp).
+                    if ( sw )
+                    {
+                        grassVisibility.VgFirstRow        = rowBase;
+                        grassVisibility.VgRowCount        = cut.VisibleCapacity;
+                        grassVisibility.VgVisibleClusters = cut.VisibleClusters;
+                    }
                     if ( !sw && sw.GetError() != m_VirtualGeometryLastError )
                     {
                         LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), sw.GetError() );
@@ -2773,7 +2788,9 @@ namespace Desert::Graphic
                 earlyZ = Common::Scalability::EarlyZPassMode::All;
             if ( meshRenderer != nullptr )
             {
-                meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
+                // The grass's sections leave the G-buffer path only when the grass itself chose the buffer: a
+                // frame made for the VG's SW rows alone keeps every blade on its cells (R2).
+                meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() && grassOnVisibility );
                 // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
                 meshRenderer->SetEarlyZPass( earlyZ );
                 // UE r.MinScreenRadiusForDepthPrepass: the large opaque occluders written before the masked
