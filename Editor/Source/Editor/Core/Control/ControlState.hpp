@@ -89,12 +89,14 @@ namespace Desert::Editor::Control
     };
 
     // One view the GPU-culled draw bins served (SceneRenderer::GetDrawBinPhaseCounts, read back a few frames
-    // late): the instances drawn in occlusion phase 1 (last frame's HZB) and phase 2 (this frame's HZB).
+    // late): the instances drawn in occlusion phase 1 (last frame's HZB) and phase 2 (this frame's HZB), and the
+    // in-view instances neither phase drew - what the HZB occlusion took out (WP-FAR-14).
     struct DrawBinViewSnapshot
     {
         std::string Name; ///< gbuffer / forward (the main view), shadowCascade<c>
-        uint32_t    Phase1 = 0;
-        uint32_t    Phase2 = 0;
+        uint32_t    Phase1   = 0;
+        uint32_t    Phase2   = 0;
+        uint32_t    Occluded = 0;
     };
 
     // The main view's virtual-geometry cluster cut (SceneRenderer::GetVirtualGeometryCounts, read back a few
@@ -611,6 +613,7 @@ namespace Desert::Editor::Control
                 Common::Json::Object item;
                 item["phase1"]          = Num( view.Phase1 );
                 item["phase2"]          = Num( view.Phase2 );
+                item["occluded"]        = Num( view.Occluded );
                 drawBinViews[view.Name] = Common::Json::Value( item );
             }
             views["drawBinViews"] = Common::Json::Value( drawBinViews );
