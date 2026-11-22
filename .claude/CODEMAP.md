@@ -183,7 +183,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Platform/MacOS` — 1 files, 20 lines
 - `Project` — 2 files, 23 lines
 - `Settings` — 16 files, 5,441 lines: AntiAliasingPreset, ApplyReport, BenchmarkCacheKey, BenchmarkPass, BenchmarkReference, BenchmarkResult, CapabilityCatalog, DisplaySettings, Fallback, GroupLevel, GroupLevels, MachineSettings, … (+14)
-- `Utilities` — 28 files, 6,015 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, FootprintBreakdown, … (+13)
+- `Utilities` — 28 files, 6,031 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, FootprintBreakdown, … (+13)
 
 ## Editor — `Editor/Source/Editor`
 - `Baking` — 2 files, 907 lines: FlattenedMaterial, MaterialBake, MaterialBakeRequest
