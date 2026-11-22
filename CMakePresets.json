@@ -45,6 +45,22 @@
       }
     },
     {
+      "name": "linux-server-clang",
+      "displayName": "Linux x86-64, clang, Ninja: the dedicated server only (Server/Dockerfile, CI server-linux)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "DESERT_WITH_TESTS": "OFF",
+        "DESERT_SERVER_ONLY": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
       "name": "windows-msvc-ninja-unity",
       "displayName": "Windows x64, MSVC, Ninja, unity files (CI)",
       "inherits": "windows-msvc-ninja",
@@ -62,6 +78,12 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "linux-server-clang-release",
+      "configurePreset": "linux-server-clang",
+      "configuration": "Release",
+      "targets": [ "DesertServer" ]
+    },
     {
       "name": "windows-msvc-ninja-debug",
       "configurePreset": "windows-msvc-ninja",

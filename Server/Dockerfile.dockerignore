@@ -1,0 +1,25 @@
+# The context of Server/Dockerfile (BuildKit reads <Dockerfile>.dockerignore): only what the server-only configure and
+# the DesertServer build read. Everything else (content, docs, frames, the .git history, build trees) stays out.
+*
+!CMakeLists.txt
+!CMakePresets.json
+!VERSION
+!cmake
+!BuildScripts
+!scripts/GenVersion.sh
+!scripts/Dev/ccache_launcher.sh
+!Desert
+!Tools
+!Server
+!ThirdParty
+# Configured by the vendored-library list (cmake/ThirdParty/Assimp.cmake), never built for the server.
+!Editor/ThirdParty/assimp
+# A layout header shared with the shaders (LandscapeData.cpp); headers only.
+!Editor/Resources/Shaders
+# Render-only and Windows-only vendored trees the Linux server configure never opens.
+ThirdParty/FidelityFX-SDK
+ThirdParty/NVRHI
+ThirdParty/lightweightvk
+ThirdParty/sol2
+**/.git
+Desert/Tests

@@ -56,7 +56,11 @@ elseif(IS_DIRECTORY "/usr/local/vulkan")
     set(DESERT_VULKAN_INCLUDE "/usr/local/vulkan/include")
     set(DESERT_VULKAN_LIB "/usr/local/vulkan/lib")
 endif()
-if(NOT DESERT_VULKAN_INCLUDE)
+if(NOT DESERT_VULKAN_INCLUDE AND DESERT_SERVER_ONLY)
+    # The dedicated server compiles no render code (module Core is RENDER_FREE, cmake/DesertModules.cmake checks
+    # it), so its build has no Vulkan SDK; the render modules are declared but never built.
+    message(STATUS "[Vulkan] none: DESERT_SERVER_ONLY builds no render module")
+elseif(NOT DESERT_VULKAN_INCLUDE)
     message(FATAL_ERROR
         "Vulkan SDK not found.\n"
         "  macOS:   run scripts/MacOS/Setup.sh (Homebrew vulkan-headers + vulkan-loader + molten-vk +\n"
@@ -65,7 +69,9 @@ if(NOT DESERT_VULKAN_INCLUDE)
         "           VULKAN_SDK. A headers-only install is not enough: the engine links shaderc*.lib\n"
         "           out of the SDK's Lib directory (SPIRV-Cross is vendored).")
 endif()
-message(STATUS "[Vulkan] SDK include: ${DESERT_VULKAN_INCLUDE}")
+if(DESERT_VULKAN_INCLUDE)
+    message(STATUS "[Vulkan] SDK include: ${DESERT_VULKAN_INCLUDE}")
+endif()
 
 # DESERT_DESERTSPECIFIC_LIBRARIES: the vendored SPIRV-Cross, then the Vulkan loader and shaderc. Debug links the
 # SDK's `d` archives on Windows; Release AND Shipping link the plain ones.
@@ -94,7 +100,6 @@ set(DESERT_COMMONSPECIFIC_LIBRARIES ReflectCpp)
 
 # deps.DesertSpecific.IncludeDir, sorted by key (byte order: upper case before lower case).
 set(DESERT_DESERTSPECIFIC_INCLUDE_DIRS
-    "${DESERT_VULKAN_INCLUDE}"                                  # Vulkan
     "${_tp}"                                                    # base
     "${_tp}/embree/include"                                     # embree
     "${DESERT_ROOT}/BuildScripts/ThirdParty/EmbreeConfig/include/embree4" # embree_config
@@ -103,10 +108,16 @@ set(DESERT_DESERTSPECIFIC_INCLUDE_DIRS
     "${_tp}/lua"                                                # lua
     "${_tp}/meshoptimizer/src"                                  # meshoptimizer
     "${_tp}/OpenSubdiv"                                         # opensubdiv
-    "${DESERT_VULKAN_INCLUDE}/shaderc"                          # shaderc
     "${_tp}/SPIRV-Cross"                                        # spirv_cross (vendored, included flat: <spirv_glsl.hpp>)
     "${_tp}/stb/include"                                        # stb
     "${_tp}/VulkanAllocator")                                   # vkallocator
+# The Vulkan SDK first, as before the vendored roots; shaderc keeps its place after OpenSubdiv. A server-only build
+# has no SDK (DESERT_SERVER_ONLY) and lists neither.
+if(DESERT_VULKAN_INCLUDE)
+    list(INSERT DESERT_DESERTSPECIFIC_INCLUDE_DIRS 0 "${DESERT_VULKAN_INCLUDE}")             # Vulkan
+    list(FIND DESERT_DESERTSPECIFIC_INCLUDE_DIRS "${_tp}/SPIRV-Cross" _spirv_cross_at)
+    list(INSERT DESERT_DESERTSPECIFIC_INCLUDE_DIRS ${_spirv_cross_at} "${DESERT_VULKAN_INCLUDE}/shaderc") # shaderc
+endif()
 
 # deps.TestSpecific. GoogleTest is the vendored project on Windows and Homebrew's gtest elsewhere.
 if(DESERT_IS_WINDOWS)

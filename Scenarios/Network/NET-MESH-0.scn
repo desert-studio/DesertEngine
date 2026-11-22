@@ -11,7 +11,15 @@
 # Pass 3 (Тогда [mesh0_core_split]): DesertServer links the module Core (render-free, configure-checked) instead
 # of a source list; the same run gives the same cook hash and 600 steps, otool -L > mesh0_core_split.otool.txt.
 # Regression (here): the client still builds and opens WP_Protocol unchanged (ReadCookedWorld moved to CookedWorld).
+# Pass 4 (Тогда [mesh0_linux_server]): the Linux server image, built by Server/Dockerfile (preset linux-server-clang,
+# DESERT_SERVER_ONLY: no Vulkan SDK, no editor/player/tools) from a context with submodules dereferenced:
+#   docker build --platform linux/amd64 -f Server/Dockerfile -t desert-server <context>
+#   docker run --platform linux/amd64 -v <repo>/Projects/Desert:/project:ro -v <scratch>/world:/world
+#        desert-server --project /project/Desert.deproj --role all --world /world/WP_Protocol.desce
+#        --source 0,0,0 --steps 600                                            > mesh0_linux_server.log
+#   docker run --platform linux/amd64 --entrypoint file desert-server /opt/desert/DesertServer >> the same log
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state
 # Тогда [mesh0_core_split] (вне редактора): mesh0_core_split.otool.txt без Vulkan/MoltenVK/Metal/AppKit; mesh0_core_split.log: no device created, cook hash ee311acb3b50b349, 600 steps
 Тогда mesh0_editor_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо; без падения и диалога ошибки
+# Тогда [mesh0_linux_server] (вне редактора, Docker linux/amd64): mesh0_linux_server.log: no device created, cook hash ee311acb3b50b349 (или пересобранный, названный), 600 steps at 60 Hz со средним шагом; file: ELF 64-bit x86-64; Editor и DesertServer на Mac собираются
