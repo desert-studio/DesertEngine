@@ -4,21 +4,21 @@
 # (Graphic/GpuDriven/InstanceCulling.hpp, SceneRendererFrameGpuCull.cpp). No CPU occlusion path.
 # Readout: DesertCtl `state` -> views.drawBinViews[] {name, phase1, phase2, occluded} (GpuDriven::CullPhaseCounts),
 # kept by the player as line_NNN_state.txt.
-# Occluder: building "Main C07_08_B01" (cube x9 x21 x11 at -8482,-454,1613); the camera stands just before its
-# -Z face, FOV 40, looking +Z across the city (buildings, bushes, HLOD beyond it).
+# Occluder: building "Main C07_08_B01" (cube x9 x21 x11 at -8482,-454,1613); the camera stands before its -Z face,
+# FOV 60, looking +Z across the city (buildings, bushes beyond it); then it rises above the roofs, same heading.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
-Когда --subject viewport set Camera.FOV 40
-Когда --subject viewport set Camera.Position -8482,-300,413
+Когда --subject viewport set Camera.FOV 60
+Когда --subject viewport set Camera.Position -8482,0,-400
 Когда --subject viewport set Camera.Direction 0,0,1
-Когда advance 1
+Когда advance 3
 Когда state
-Тогда 1_occluded the building face fills the view; state drawBinViews gbuffer: occluded N > 0 (most of the city held back)
-Когда --subject viewport set Camera.Position -8482,3000,413
-Когда --subject viewport set Camera.Direction 0,-0.15,1
-Когда advance 1
+Тогда 1_occluded the building Main C07_08_B01 stands in the centre of the view; state drawBinViews gbuffer: occluded N > 0 (most of the city held back)
+Когда --subject viewport set Camera.Position -8482,3000,-400
+Когда --subject viewport set Camera.Direction 0,-0.3,1
+Когда advance 3
 Когда state
 Тогда 2_clear over the roof: the city's buildings and bushes are drawn, no hole or missing building; gbuffer occluded drops vs 1_occluded, phase1 rises
 Когда run Action "Stop"
