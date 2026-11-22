@@ -19,11 +19,13 @@
 // tree (UE r.Water.WaterMesh.GPUQuadTree).
 
 #include <Engine/Core/Frustum.hpp>
+#include <Engine/Water/WaterRiver.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -38,6 +40,9 @@ namespace Desert::Water
         /// Where two footprints overlap, the higher priority owns the tiles (Water::WaterBodyPriority: a river
         /// over an ocean); equal priorities keep the first body that covers a node whole.
         int32_t Priority = 0;
+        /// A river's baked flow (null for an ocean): the body owns only the leaf tiles its ribbon (bank mask)
+        /// touches, not its whole footprint box (UE draws a river along its spline, not over its bounds).
+        std::shared_ptr<const RiverFlowField> Ribbon;
     };
 
     /// The zone the tree covers (ECS::WaterZoneData, placed at the zone entity).
@@ -149,6 +154,10 @@ namespace Desert::Water
             float      SurfaceY  = 0.0f;
             uint32_t   BodyIndex = 0;
             int32_t    Priority  = 0;
+            // A ribbon's leaves (WaterQuadTreeBody::Ribbon): the summed-area table of the leaves it touches over
+            // [Min, Max], (Max - Min + 1) per side, so a node's owned-leaf count is four reads. Empty = all.
+            std::vector<int32_t>  LeafSums;
+            [[nodiscard]] int32_t CountLeaves( glm::ivec2 lo, glm::ivec2 hi ) const noexcept;
         };
 
         // The body a node's tiles are drawn as.
@@ -183,6 +192,8 @@ namespace Desert::Water
         };
 
         [[nodiscard]] Coverage Classify( const Node& node, TileOwner& owner ) const;
+        // Fills @p range.LeafSums from the ribbon's bank mask; false when no in-bank texel lies inside the range.
+        [[nodiscard]] bool BuildRibbonLeaves( const RiverFlowField& flow, TileRange& range ) const noexcept;
         [[nodiscard]] Common::Math::AABB NodeBox( const Node& node, const Traversal& t ) const;
         [[nodiscard]] bool               Visible( const Node& node, const Traversal& t ) const;
         // Bit i: Visible( Child( node, i ) ), the four tested at once (Frustum::Intersects4).

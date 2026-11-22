@@ -48,10 +48,57 @@ namespace Desert::Water
             range.SurfaceY  = body.SurfaceY;
             range.BodyIndex = static_cast<uint32_t>( bodyIndex );
             range.Priority  = body.Priority;
-            m_Bodies.push_back( range );
+            if ( body.Ribbon != nullptr && !BuildRibbonLeaves( *body.Ribbon, range ) )
+                continue; // no in-bank texel inside the zone
+            m_Bodies.push_back( std::move( range ) );
             m_MinSurfaceY = std::min( m_MinSurfaceY, body.SurfaceY );
             m_MaxSurfaceY = std::max( m_MaxSurfaceY, body.SurfaceY );
         }
+    }
+
+    bool WaterQuadTree::BuildRibbonLeaves( const RiverFlowField& flow, TileRange& range ) const noexcept
+    {
+        // Every leaf one of the ribbon's in-bank flow texels lies in (texels of kRiverFlowCmPerTexel are far
+        // finer than a leaf, so no touched leaf is missed).
+        const glm::ivec2     span  = range.Max - range.Min;
+        const auto           sx    = static_cast<size_t>( span.x );
+        const auto           sy    = static_cast<size_t>( span.y );
+        const size_t         width = sx + 1u;
+        std::vector<uint8_t> touched( sx * sy, 0u );
+        const glm::vec2      step = flow.Extent / glm::vec2( glm::max( flow.Size, glm::uvec2( 1u ) ) );
+        for ( uint32_t z = 0; z < flow.Size.y; ++z )
+            for ( uint32_t x = 0; x < flow.Size.x; ++x )
+            {
+                if ( flow.Texels[static_cast<size_t>( z ) * flow.Size.x + x].z < 0.5f )
+                    continue;
+                const glm::vec2  centre = flow.Min + ( glm::vec2( x, z ) + 0.5f ) * step;
+                const glm::ivec2 leaf =
+                     glm::ivec2( glm::floor( ( centre - m_RootMin ) / m_LeafSize ) ) - range.Min;
+                if ( leaf.x < 0 || leaf.y < 0 || leaf.x >= span.x || leaf.y >= span.y )
+                    continue;
+                touched[static_cast<size_t>( leaf.y ) * sx + static_cast<size_t>( leaf.x )] = 1u;
+            }
+        range.LeafSums.assign( width * ( sy + 1u ), 0 );
+        for ( size_t y = 0; y < sy; ++y )
+            for ( size_t x = 0; x < sx; ++x )
+                range.LeafSums[( y + 1u ) * width + x + 1u] =
+                     touched[y * sx + x] + range.LeafSums[y * width + x + 1u] +
+                     range.LeafSums[( y + 1u ) * width + x] - range.LeafSums[y * width + x];
+        return range.LeafSums.back() > 0;
+    }
+
+    int32_t WaterQuadTree::TileRange::CountLeaves( const glm::ivec2 lo, const glm::ivec2 hi ) const noexcept
+    {
+        const glm::ivec2 a = glm::clamp( lo, Min, Max ) - Min;
+        const glm::ivec2 b = glm::clamp( hi, Min, Max ) - Min;
+        if ( a.x >= b.x || a.y >= b.y )
+            return 0;
+        if ( LeafSums.empty() )
+            return ( b.x - a.x ) * ( b.y - a.y );
+        const auto width = static_cast<size_t>( Max.x - Min.x ) + 1u;
+        const auto at    = [&]( const int32_t x, const int32_t y )
+        { return LeafSums[static_cast<size_t>( y ) * width + static_cast<size_t>( x )]; };
+        return at( b.x, b.y ) - at( a.x, b.y ) - at( b.x, a.y ) + at( a.x, a.y );
     }
 
     float WaterQuadTree::GetLODDistance( const int32_t lodLevel, const float lodScale )
@@ -151,10 +198,16 @@ namespace Desert::Water
         {
             if ( lo.x >= body.Max.x || lo.y >= body.Max.y || hi.x <= body.Min.x || hi.y <= body.Min.y )
                 continue;
+            // A ribbon touches a node only through a leaf it owns and covers it only when it owns every leaf.
+            const int32_t owned = body.LeafSums.empty() ? -1 : body.CountLeaves( lo, hi );
+            if ( owned == 0 )
+                continue;
             if ( touching == nullptr || body.Priority > touching->Priority )
                 touching = &body;
-            if ( lo.x >= body.Min.x && lo.y >= body.Min.y && hi.x <= body.Max.x && hi.y <= body.Max.y &&
-                 ( covering == nullptr || body.Priority > covering->Priority ) )
+            const bool inside =
+                 lo.x >= body.Min.x && lo.y >= body.Min.y && hi.x <= body.Max.x && hi.y <= body.Max.y;
+            const bool whole = inside && ( owned < 0 || owned == ( hi.x - lo.x ) * ( hi.y - lo.y ) );
+            if ( whole && ( covering == nullptr || body.Priority > covering->Priority ) )
                 covering = &body;
         }
         if ( touching == nullptr )

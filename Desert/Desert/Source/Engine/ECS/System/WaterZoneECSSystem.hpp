@@ -64,6 +64,22 @@ namespace Desert::ECS
                 return Water::WaterQuadTreeBody{
                      .FootprintMin = centre - half, .FootprintMax = centre + half, .SurfaceY = location.y };
             };
+            // A river's bake input and key (0 for an ocean): the rows re-bake a river only when its key changed.
+            const auto riverInput = [&view]( const entt::entity entity )
+            {
+                const WaterBodyData& data = view.get<WaterBodyComponent>( entity ).Data;
+                return Water::RiverBakeInput{ .LocalPoints = RiverPointsOf( data ),
+                                              .Origin    = view.get<TransformComponent>( entity ).GetTranslation(),
+                                              .Width     = data.RiverWidth,
+                                              .FlowSpeed = data.RiverFlowSpeed,
+                                              .FlowPeriod = data.RiverFlowPeriod };
+            };
+            const auto riverKey = [&view, &riverInput]( const entt::entity entity ) -> uint64_t
+            {
+                if ( view.get<WaterBodyComponent>( entity ).Data.Type != Water::WaterBodyType::River )
+                    return 0u;
+                return Water::RiverBakeKey( riverInput( entity ) ) | 1u; // never 0 for a river
+            };
             bool   same    = m_Bodies != nullptr;
             size_t visible = 0;
             for ( const entt::entity entity : view )
@@ -79,15 +95,21 @@ namespace Desert::ECS
                     same = false;
                     break;
                 }
-                const WaterBodyData&           data = view.get<WaterBodyComponent>( entity ).Data;
-                const Water::WaterQuadTreeBody body = footprint( entity );
-                const glm::vec3& location = view.get<TransformComponent>( entity ).GetTranslation();
-                same = body.FootprintMin == rows.Footprints[i].FootprintMin &&
-                       body.FootprintMax == rows.Footprints[i].FootprintMax &&
-                       body.SurfaceY == rows.Footprints[i].SurfaceY && data.WaterMaterial == rows.Materials[i] &&
+                const WaterBodyData& data     = view.get<WaterBodyComponent>( entity ).Data;
+                const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
+                same = data.Type == rows.Types[i] && data.WaterMaterial == rows.Materials[i] &&
                        data.WaterWaves == rows.Waves[i] &&
                        glm::vec2( location.x, location.z ) == rows.WaveOrigins[i] &&
                        data.TargetWaveMaskDepth == rows.WaveMaskDepths[i];
+                if ( same && data.Type == Water::WaterBodyType::River )
+                    same = riverKey( entity ) == rows.RiverKeys[i]; // the footprint follows from the bake
+                else if ( same )
+                {
+                    const Water::WaterQuadTreeBody body = footprint( entity );
+                    same                                = body.FootprintMin == rows.Footprints[i].FootprintMin &&
+                           body.FootprintMax == rows.Footprints[i].FootprintMax &&
+                           body.SurfaceY == rows.Footprints[i].SurfaceY;
+                }
             }
             if ( !same || visible != m_Bodies->Footprints.size() )
             {
@@ -98,7 +120,30 @@ namespace Desert::ECS
                         continue;
                     const WaterBodyData& data     = view.get<WaterBodyComponent>( entity ).Data;
                     const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
-                    rows->Footprints.push_back( footprint( entity ) );
+                    Water::WaterQuadTreeBody body     = footprint( entity );
+                    std::shared_ptr<const Water::RiverFlowField> flow;
+                    const uint64_t                               key = riverKey( entity );
+                    if ( key != 0u )
+                    {
+                        // The last rows' bake of the same river is reused; a changed river is baked here, once.
+                        if ( m_Bodies != nullptr )
+                            for ( size_t k = 0; k < m_Bodies->RiverKeys.size() && flow == nullptr; ++k )
+                                if ( m_Bodies->RiverKeys[k] == key )
+                                    flow = m_Bodies->Flows[k];
+                        if ( flow == nullptr )
+                            flow = Water::BakeRiver( riverInput( entity ) );
+                        // A river is drawn over its ribbon at its mean level, over every ocean it crosses.
+                        body = Water::WaterQuadTreeBody{
+                             .FootprintMin = flow->Min,
+                             .FootprintMax = flow->Size.x != 0u ? flow->Min + flow->Extent : flow->Min - 1.0f,
+                             .SurfaceY     = flow->SurfaceY,
+                             .Priority     = Water::WaterBodyPriority( data.Type ),
+                             .Ribbon       = flow };
+                    }
+                    rows->Footprints.push_back( std::move( body ) );
+                    rows->Types.push_back( data.Type );
+                    rows->Flows.push_back( std::move( flow ) );
+                    rows->RiverKeys.push_back( key );
                     rows->Materials.push_back( data.WaterMaterial );
                     rows->Waves.push_back( data.WaterWaves );
                     rows->WaveOrigins.emplace_back( location.x, location.z );
