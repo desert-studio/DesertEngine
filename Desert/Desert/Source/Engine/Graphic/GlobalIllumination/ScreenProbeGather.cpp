@@ -1358,19 +1358,14 @@ namespace Desert::Graphic::GlobalIllumination
         m_MissCounts.AddFrame( graph, m_FrameIndex, missReasons );
 #endif
 
-        // THE UNCOVERED PIXELS, A PASS OF THEIR OWN ON THE ASYNC QUEUE (FPS-SP-COMPOSITE-WAIT,
-        // FPS-GFX-TO-ASYNC-2; ScreenProbeIntegrate.shader SP_INTEGRATE_UNCOVERED; UE r.Lumen.ScreenProbeGather
-        // .AsyncCompute runs the whole gather there): the pixels no probe holds read the world radiance cache.
-        // They read the placement's index and probes, the G-buffer, the short-range AO and the cache (finished
-        // above) - none of the trace legs' or the filter's output - so they are not on the tail of the integrate
-        // the composite waits for (0.765 ms 'RDG Wait .. before Deferred: Composite (Simple Tiles)', FIELD_Barn
-        // TURN scn-1121-182810, when they were merged into it). On the graphics queue (FPS-SP-COMPOSITE-WAIT) they
-        // cost the longer queue 0.395 ms and cut the async chain in two: the integrates that skip their pixels
-        // forked after them, a graphics resubmit each frame (FIELD_Barn TURN scn-1121-214723: graphics ~8.8 ms
-        // against async ~4.8 ms). Declared on the async queue the chain is one run: the mask is a same-queue
-        // edge, the composite's one join stays where the graph's edges put it (ScheduleIntoAsyncWindows fills
-        // its window). The pass records its pixels in a two-word-a-tile mask, by which the integrates below skip
-        // them: disjoint pixels, the same values, the same picture. Every tile's words are written each frame (no
+        // THE UNCOVERED PIXELS, ON THE GRAPHICS QUEUE (FPS-SP-COMPOSITE-WAIT; ScreenProbeIntegrate.shader
+        // SP_INTEGRATE_UNCOVERED): the pixels no probe holds read the world radiance cache. They read the
+        // placement's index and probes, the G-buffer, the short-range AO and the cache (finished above) - none of
+        // the trace legs' or the filter's output - so they run while the async queue traces, not at the tail of
+        // the integrate the composite waited for (0.765 ms 'RDG Wait .. before Deferred: Composite (Simple
+        // Tiles)', FIELD_Barn TURN scn-1121-182810; the merged uncovered phase was ~0.2 ms of the integrate's
+        // 0.658). The pass records its pixels in a two-word-a-tile mask, by which the integrates below skip them:
+        // disjoint pixels, the same values, the same picture. Every tile's words are written each frame (no
         // reset).
         using IntegrateSlots = ScreenProbeGatherIntegrateShaderParameters;
         const glm::uvec2     integrateTiles( DivideRoundUp( inputs.Extent.x, 8u ),
@@ -1382,7 +1377,7 @@ namespace Desert::Graphic::GlobalIllumination
         {
             ComputePipeline* const pipeline = m_Pipelines[IntegrateUncovered].get();
             graph.AddPass(
-                 "ScreenProbes: Integrate Uncovered", kAsyncPass,
+                 "ScreenProbes: Integrate Uncovered", kGraphicsPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block =

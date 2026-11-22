@@ -2602,8 +2602,8 @@ namespace Desert::Graphic
         if ( worldList )
         {
             using Stage = System::SSRRenderer::TraceStage;
-            // FPS-SSR-FARFIELD, FPS-GFX-TO-ASYNC-2: the software legs of both surfaces run on the async pipe
-            // (SSRRenderer::WorldStagePassFlags), the hardware tracer's ray query on Graphics.
+            // FPS-SSR-FARFIELD: the front layer's software legs run on the async pipe (SSRRenderer::
+            // WorldStagePassFlags), the opaque surface's on Graphics.
             const RDG::PassFlags worldFlags = ssr.WorldStagePassFlags( *worldList );
             const auto addWorldPass = [&]( const char* const name, const Stage stage, const RDG::BufferRef args )
             {
