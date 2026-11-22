@@ -8,7 +8,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 
-#include <vulkan/vulkan.h>
 
 #include <ImGui/backends/imgui_impl_vulkan.h>
 

@@ -19,11 +19,9 @@
 // a flight at 1000 cm/s covers 16.67 cm per frame no matter how slow the frame was, and two runs of the
 // same flight visit the same positions on the same frame numbers. Frame times are WALL milliseconds.
 
-#include <Common/Core/ResultStr.hpp>
 #include <Editor/Core/TextList.hpp>
 #include <Engine/Core/TextTemplate.hpp>
 
-#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <cctype>

@@ -50,7 +50,6 @@
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include <Editor/Core/Rigging/RigBuilder.hpp>
-#include <Editor/Core/Selection/SelectionManager.hpp>
 #include <algorithm> // std::sort (scene list)
 #include <format>
 #include <functional>

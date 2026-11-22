@@ -127,9 +127,6 @@
 // macros and ninety-odd component definitions — including it here would make this file exactly as
 // unreachable by a test as SceneSerializer.cpp is, which is the thing the split exists to prevent.
 // ComposeLocal below states the same composition; the suite pins it against hand-worked numbers.
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm> // std::max — MSVC does not get it transitively (scripts/CI/StandardIncludes.py)

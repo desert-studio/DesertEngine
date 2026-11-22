@@ -5,6 +5,9 @@
 #include "FieldProperty.hpp"
 #include <Engine/ShaderResources/BufferFillKind.hpp>
 #include <Engine/ShaderResources/UniformBuffer.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 namespace Desert::Graphic
 {

@@ -10,7 +10,6 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Json/Json.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -18,7 +17,6 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
-#include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
@@ -34,7 +32,6 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace Desert::Editor::ImportOptions

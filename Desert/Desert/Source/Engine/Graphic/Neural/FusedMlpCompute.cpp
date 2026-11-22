@@ -4,7 +4,6 @@
 #include <Common/Json/Template.hpp>
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
-#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>

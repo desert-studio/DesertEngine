@@ -3,7 +3,6 @@
 #include <Engine/ECS/Entity.hpp>
 
 #include <glm/gtc/quaternion.hpp>
-#include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
 #include <array>

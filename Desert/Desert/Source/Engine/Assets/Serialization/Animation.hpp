@@ -5,8 +5,6 @@
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Core/ResultStr.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>
 
@@ -18,10 +16,8 @@
 #include <string_view>
 #include <vector>
 #include <string>
-#include <glm/glm.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/quaternion.hpp>
-#include <glm/gtx/compatibility.hpp>
 
 namespace Desert::Assets::Serialization
 {

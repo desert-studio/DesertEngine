@@ -1,7 +1,6 @@
 #include <Engine/Libraries/SaveGameLibrary.hpp>
 
 #include <Engine/Core/SaveGame.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Reflection/FunctionThunk.hpp>
 

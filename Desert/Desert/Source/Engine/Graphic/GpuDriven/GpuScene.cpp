@@ -2,7 +2,6 @@
 
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
-#include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -15,7 +14,6 @@
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <Common/Core/Core.hpp>
-#include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <array>

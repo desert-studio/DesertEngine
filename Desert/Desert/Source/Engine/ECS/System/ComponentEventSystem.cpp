@@ -9,7 +9,6 @@
 
 #include <Common/Core/Logger.hpp>
 
-#include <array>
 #include <span>
 #include <Engine/Physics/RigidBodyComponent.hpp>
 

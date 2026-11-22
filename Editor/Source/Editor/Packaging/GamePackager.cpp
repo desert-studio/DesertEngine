@@ -3,7 +3,6 @@
 #include "PackageTarget.hpp"
 #include "PackagedContentTrees.hpp"
 
-#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
@@ -14,7 +13,6 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Json.hpp>
-#include <Common/Project/ProjectFormat.hpp>
 #include <Common/Settings/ProductName.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -22,7 +20,6 @@
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Common/Content/ImportRecord.hpp>
 

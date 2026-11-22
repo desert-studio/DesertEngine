@@ -1,7 +1,5 @@
 #pragma once
 
-#include <array>
-#include <unordered_map>
 
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
@@ -9,7 +7,6 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 
-#include <vulkan/vulkan.hpp>
 
 #include <atomic>
 #include <optional>

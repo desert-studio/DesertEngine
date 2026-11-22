@@ -4,14 +4,11 @@
 
 #include <Common/Content/TextAssetHeader.hpp>
 
-#include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
-#include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/Prefab/PrefabRuntimeBehavior.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Animation/RootMotionMode.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>
 #include <Common/Json/Template.hpp>
@@ -24,7 +21,7 @@
 #include <vector>
 #include <string>
 #include <array>
-#include <glm/glm.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Assets
 {

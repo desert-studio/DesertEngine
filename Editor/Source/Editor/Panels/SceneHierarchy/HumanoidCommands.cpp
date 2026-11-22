@@ -1,12 +1,8 @@
 #include "HumanoidCommands.hpp"
 
 #include <Editor/Core/CommandPalette.hpp>
-#include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Common/Core/Constants.hpp>
-#include <Common/Core/Core.hpp>
 #include <filesystem>
-#include <format>
 #include <string>
 #include <vector>
 #include <Engine/Geometry/ProceduralCharacterFactory.hpp>

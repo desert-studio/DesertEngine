@@ -5,7 +5,6 @@
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <string>
-#include <utility>
 
 namespace Desert::ECS
 {

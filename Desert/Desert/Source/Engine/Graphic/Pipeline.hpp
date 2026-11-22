@@ -17,7 +17,6 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/VertexBufferLayout.hpp>
 
-#include <Common/Core/Memory/Buffer.hpp>
 
 // For NO_DISCARD and BOOLSUCCESS on the compute-pipeline rule below. Not implicit: this header is
 // reached by translation units that never include Core.hpp on their own — the same reason

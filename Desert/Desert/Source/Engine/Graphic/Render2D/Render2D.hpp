@@ -6,10 +6,8 @@
 #include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
-#include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
-#include <glm/glm.hpp>
 
 #include <memory>
 #include <unordered_map>

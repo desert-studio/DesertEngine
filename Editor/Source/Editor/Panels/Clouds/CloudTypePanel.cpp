@@ -16,7 +16,6 @@
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -25,7 +24,6 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
-#include <Editor/Core/AssetPickerRows.hpp>
 #include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
 
 namespace Desert::Editor

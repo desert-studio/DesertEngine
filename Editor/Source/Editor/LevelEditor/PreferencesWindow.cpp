@@ -4,9 +4,14 @@
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 
 #include <Engine/Core/Camera.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <ImGui/imgui.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Common/Core/TemplateHelpers.hpp>
+#include <cstdio>
+#include <Engine/Graphic/Shader.hpp>
 
 namespace Desert::Editor
 {

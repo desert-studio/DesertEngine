@@ -6,7 +6,6 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
 
-#include <vulkan/vulkan.h>
 
 #include <atomic>
 #include <memory>

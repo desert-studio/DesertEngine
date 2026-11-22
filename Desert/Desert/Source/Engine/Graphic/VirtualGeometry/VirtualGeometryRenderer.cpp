@@ -16,7 +16,6 @@
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstring>
 #include <format>

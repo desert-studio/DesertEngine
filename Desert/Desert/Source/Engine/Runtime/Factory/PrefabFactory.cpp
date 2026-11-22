@@ -20,8 +20,6 @@
 #include <Engine/ECS/PrefabComponent.hpp>
 #include <Engine/ECS/PrefabInstanceComponent.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
-#include <Engine/ECS/SkinnedMeshComponent.hpp>
-#include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/Core/Scene.hpp>

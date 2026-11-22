@@ -1,16 +1,12 @@
 #include "AssimpImporter.hpp"
-#include "../TextureImporter.hpp"
 #include "SourceAlphaMode.hpp"
 #include "SourceMaterialAdapter.hpp"
 #include "EmbeddedSourceTexture.hpp"
-#include "SourceTexturePath.hpp"
 #include "VertexStreams.hpp"
 
-#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <algorithm>
 #include <limits>
-#include <new>
 #include <type_traits>
 #include <functional>
 #include <optional>
@@ -24,14 +20,11 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
-#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Geometry/MikkTangents.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
-#include <Engine/Assets/Serialization/Animation.hpp>
 
 #include <Common/Core/Logger.hpp>
-#include <Common/Core/UUID.hpp>
 #include <Common/Core/Constants.hpp>
 
 #include <Engine/Animation/Skeleton.hpp>

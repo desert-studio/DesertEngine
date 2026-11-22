@@ -1,6 +1,5 @@
 #include "Editor/LevelEditor/EditorStartup.hpp"
 
-#include "Editor/Import/CookPaths.hpp"
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Import/MeshDeriver.hpp"
 #include "Editor/Import/TextureImporter.hpp"
@@ -39,10 +38,8 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneAssetRoots.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
-#include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>

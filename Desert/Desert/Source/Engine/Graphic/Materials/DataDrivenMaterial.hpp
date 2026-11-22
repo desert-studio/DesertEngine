@@ -11,7 +11,6 @@
 
 #include <Engine/Graphic/Materials/MaterialProperty.hpp> // NextMaterialRevision
 
-#include <glm/glm.hpp>
 
 #include <cstring>
 #include <mutex>

@@ -9,7 +9,6 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
-#include <Engine/Graphic/Image.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 

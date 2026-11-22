@@ -1,14 +1,10 @@
-#include <variant>
 #include "TextureImporter.hpp"
 
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
-#include "CookPaths.hpp"
-#include "CookedJsonWrite.hpp"
 
-#include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include "TextureIntentFile.hpp"
 #include <Engine/Assets/TextureSourceAsset.hpp>
@@ -16,7 +12,6 @@
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Common/Utilities/PakFile.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
 #include <Editor/Import/DdsSource.hpp>
 
@@ -31,7 +26,6 @@
 #include <cstring>
 
 #include <stb_image/stb_image.h>
-#include <openexr.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -43,6 +37,12 @@
 #include <cmath>
 
 #include <Common/Core/Constants.hpp>
+#include <variant>
+#include "CookPaths.hpp"
+#include "CookedJsonWrite.hpp"
+#include <Common/Core/Serialization/GlmReflection.hpp>
+#include <Common/Utilities/PakFile.hpp>
+#include <openexr.h>
 
 namespace Desert::Editor
 {

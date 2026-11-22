@@ -14,7 +14,6 @@
 #include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 
-#include <Common/Core/ResultStr.hpp>
 
 #include <array>
 #include <cstdint>

@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <format>
 
 namespace Desert::Graphic
 {

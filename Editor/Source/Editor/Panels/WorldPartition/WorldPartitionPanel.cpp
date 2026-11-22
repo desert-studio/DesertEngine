@@ -27,7 +27,6 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
-#include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -54,7 +53,6 @@
 #include <format>
 #include <numbers>
 #include <optional>
-#include <system_error>
 #include <span>
 #include <string_view>
 #include <unordered_set>

@@ -4,9 +4,7 @@
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
-#include <Common/Core/ResultStr.hpp>
 
-#include <glm/glm.hpp>
 
 #include <array>
 #include <cstddef>
@@ -14,8 +12,6 @@
 #include <cstring>
 #include <span>
 #include <string_view>
-#include <utility>
-#include <vector>
 
     namespace DrawPushFieldsDetail
     {

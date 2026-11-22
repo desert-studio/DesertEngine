@@ -1,6 +1,5 @@
 #include "ComponentWidgetRegistry.hpp"
 
-#include <Editor/Core/AssetOpen.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>

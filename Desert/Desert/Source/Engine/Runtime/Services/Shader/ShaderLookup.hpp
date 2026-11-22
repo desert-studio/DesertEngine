@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 #include <cstdint>

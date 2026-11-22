@@ -5,11 +5,9 @@
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
-#include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 
-#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Common/Core/JobSystem.hpp>

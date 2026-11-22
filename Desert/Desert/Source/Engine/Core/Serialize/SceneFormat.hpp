@@ -1,20 +1,15 @@
 #pragma once
 
-#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 
 #include <Common/Json/Carry.hpp>
-#include <Common/Json/Document.hpp>
 
-#include <Common/Core/ResultStr.hpp>
 
-#include <glm/glm.hpp>
 
 #include <array>
-#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>

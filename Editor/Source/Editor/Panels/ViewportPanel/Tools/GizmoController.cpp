@@ -17,11 +17,8 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/Animator.hpp>
-#include <Engine/ECS/EntityLock.hpp>
 
 #include <ImGuizmo.h>
-#include <glm/gtx/matrix_decompose.hpp>
-#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <cmath>

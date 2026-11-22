@@ -13,7 +13,6 @@
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/DrawPushFields.hpp>
-#include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/Frustum.hpp>
@@ -21,7 +20,6 @@
 #include <Engine/Water/GerstnerWaterWaves.hpp>
 #include <Common/Core/Profiler.hpp>
 
-#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <format>

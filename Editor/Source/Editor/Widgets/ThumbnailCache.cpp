@@ -5,9 +5,7 @@
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
 #include <Common/Content/DerivedDataCache.hpp>
-#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>

@@ -11,7 +11,6 @@
 
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Editor/Panels/PanelContext.hpp>
 #include <Editor/Core/AssetOpen.hpp>
 
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
@@ -37,7 +36,6 @@
 #include <memory>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
-#include <Engine/ECS/MorphComponent.hpp>
 
 namespace ed = ax::NodeEditor;
 

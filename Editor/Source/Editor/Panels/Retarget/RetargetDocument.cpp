@@ -30,7 +30,6 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
-#include <Engine/ECS/MorphComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 
 namespace Desert::Editor

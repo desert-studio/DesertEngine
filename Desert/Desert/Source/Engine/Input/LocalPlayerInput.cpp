@@ -9,7 +9,6 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
 
-#include <algorithm>
 #include <filesystem>
 #include <utility>
 #include <Engine/Input/EnhancedInputPlayerComponent.hpp>

@@ -1,4 +1,3 @@
-#include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include "ShaderCompiler.hpp"
 #include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
@@ -9,8 +8,6 @@
 
 #include <shaderc/shaderc.hpp>
 #include <Common/Core/Core.hpp>
-#include <Common/Core/Constants.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
 
 #include <chrono>
@@ -19,7 +16,6 @@
 #include <future>
 #include <mutex>
 #include <unordered_map>
-#include <fstream>
 #include <optional>
 
 namespace Desert::Core

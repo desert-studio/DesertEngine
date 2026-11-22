@@ -26,7 +26,6 @@
 #include <Editor/Panels/PanelContext.hpp>
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
 #include <Editor/Core/AssetPickerRows.hpp>
-#include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Widgets/AssetFieldOpen.hpp>

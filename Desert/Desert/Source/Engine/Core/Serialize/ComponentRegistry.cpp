@@ -13,14 +13,12 @@
 #include <Common/Json/Document.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
 #include <cstring>
 #include <format>
 #include <array>
 #include <optional>
 #include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRefSerialization.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -63,17 +61,14 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
-#include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
-#include <limits>
 #include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/Icon/IconService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/Runtime/Services/Video/VideoService.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
-#include <Engine/Core/WindowCloseGate.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/FolderComponent.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
@@ -87,8 +82,6 @@
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/TextComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
-#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
-#include <Engine/Graphic/Shader.hpp>
 #include <Engine/Scripting/ScriptComponent.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 #include <Engine/UI/Ecs/UIAnimComponent.hpp>

@@ -5,7 +5,6 @@
 #include <Engine/Core/TextTemplate.hpp>
 
 #include <Common/Core/Logger.hpp>
-#include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/AudioSourceComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>

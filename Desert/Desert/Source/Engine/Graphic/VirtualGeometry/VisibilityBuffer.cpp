@@ -11,7 +11,6 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
-#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <array>

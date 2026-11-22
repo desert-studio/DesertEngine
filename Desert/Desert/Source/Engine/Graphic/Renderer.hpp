@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Engine/Graphic/RendererContext.hpp>
 #include <span>
 #include <string_view>
 #include <Common/Core/Memory/CommandBuffer.hpp>
@@ -10,8 +9,6 @@
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Graphic/MeshGeometry.hpp>
 #include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/DefaultTextures.hpp>
-#include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/ProceduralIndexedRange.hpp>

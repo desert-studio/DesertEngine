@@ -41,7 +41,6 @@
 #include <chrono>
 #include <filesystem>
 #include <format>
-#include <string_view>
 #include <utility>
 #include <Engine/ECS/UUIDComponent.hpp>
 

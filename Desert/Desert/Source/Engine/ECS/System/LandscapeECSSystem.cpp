@@ -1,5 +1,4 @@
 #include "LandscapeECSSystem.hpp"
-#include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/LandscapeTileImage.hpp>

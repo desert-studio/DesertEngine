@@ -2,17 +2,13 @@
 
 #include <span>
 
-#include <Common/Core/ResultStr.hpp>
 
-#include <Engine/ShaderResources/ViewCopiedBlock.hpp>
 
 #include <Engine/Graphic/ViewDescriptorSets.hpp>
 
 #include <Engine/Graphic/Materials/MaterialBackend.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 
-#include <vulkan/vulkan.hpp>
 
 #include <array>
 #include <cstdint>

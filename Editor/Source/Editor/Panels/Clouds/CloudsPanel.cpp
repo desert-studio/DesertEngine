@@ -19,13 +19,10 @@
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
-#include <Engine/Graphic/Clouds/CloudPayload.hpp>
-#include <Engine/Graphic/Shader.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
-#include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
 

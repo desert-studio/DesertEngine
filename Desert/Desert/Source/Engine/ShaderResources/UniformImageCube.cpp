@@ -1,10 +1,8 @@
 #include <Engine/ShaderResources/UniformImageCube.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 
 #include <Engine/ShaderResources/API/Vulkan/VulkanUniformImageCube.hpp>
 
-#include <numeric>
 
 namespace Desert::ShaderResources
 {

@@ -24,7 +24,6 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
-#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/System/DestructionFields.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
@@ -36,6 +35,26 @@
 #include <Engine/ECS/PlayerStartComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
+#include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/Common.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
+#include <glm/glm.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
+#include <Common/Json/Document.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <optional>
+#include <utility>
+#include <vector>
+#include <Common/Core/TemplateHelpers.hpp>
+#include <Common/Core/Memory/Buffer.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+#include <cstdio>
 
 namespace Desert::Editor
 {

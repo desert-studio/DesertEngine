@@ -7,11 +7,8 @@
 
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
-#include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/SkinnedMesh.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <ImGui/imgui.h>
 

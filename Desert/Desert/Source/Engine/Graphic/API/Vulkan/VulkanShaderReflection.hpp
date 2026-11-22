@@ -16,15 +16,17 @@
 #include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderResource.hpp>
-#include <Engine/Graphic/VertexBuffer.hpp>
 
 // The vendored SPIRV-Cross (ThirdParty/SPIRV-Cross), flat: <spirv_cross/...> would resolve to the Vulkan SDK's
 // copy.
-#include <spirv_glsl.hpp>
 
 #include <optional>
 #include <string>
 #include <vector>
+#include <Engine/Graphic/VertexBuffer.hpp>
+#include <spirv_glsl.hpp>
+#include <glm/glm.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 namespace Desert::Graphic::API::Vulkan::ShaderReflection
 {

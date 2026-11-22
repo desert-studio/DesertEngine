@@ -1,7 +1,6 @@
 #include <Engine/Assets/SparseVolumeAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
-#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
 
 #include <fstream>

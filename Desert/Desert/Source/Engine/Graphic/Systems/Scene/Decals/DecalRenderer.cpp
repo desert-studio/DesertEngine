@@ -7,7 +7,6 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
-#include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>

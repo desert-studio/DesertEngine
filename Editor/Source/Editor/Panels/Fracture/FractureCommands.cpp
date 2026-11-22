@@ -18,7 +18,6 @@
 #include <format>
 #include <functional>
 #include <string>
-#include <system_error>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor

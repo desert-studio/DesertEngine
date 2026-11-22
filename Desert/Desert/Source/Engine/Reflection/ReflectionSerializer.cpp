@@ -11,7 +11,6 @@
 #include <string>
 #include <vector>
 
-#include <glm/glm.hpp>
 
 namespace Desert::Reflection
 {

@@ -12,7 +12,6 @@
 #include <Common/Core/Logger.hpp>
 
 #include <format>
-#include <glm/gtc/matrix_transform.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 

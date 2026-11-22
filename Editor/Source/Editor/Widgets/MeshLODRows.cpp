@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <Engine/Core/Camera.hpp>
+#include <glm/glm.hpp>
 
 namespace Desert::Editor::MeshLODRows
 {

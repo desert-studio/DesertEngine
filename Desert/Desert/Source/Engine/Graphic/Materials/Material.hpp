@@ -9,7 +9,6 @@
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/FieldProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/TProperty.hpp>
-#include <Common/Core/TemplateHelpers.hpp>
 
 #include "MaterialInstance.hpp"
 

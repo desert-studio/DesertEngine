@@ -2,9 +2,7 @@
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
-#include <Engine/Animation/Skeleton.hpp>
 
-#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <cmath>
@@ -14,6 +12,7 @@
 #include <unordered_set>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Assets::Serialization
 {

@@ -26,9 +26,10 @@
 #include <vector>
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/AssetEditorFrame.hpp"
-#include "Engine/Assets/AssetManager.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Engine/Core/ViewBudget.hpp"
+#include "Engine/Assets/AssetManager.hpp"
+#include <cstdio>
 
 namespace Desert::Editor
 {
