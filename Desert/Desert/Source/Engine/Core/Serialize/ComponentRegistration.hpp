@@ -196,11 +196,12 @@ namespace Desert::Core::Serialize
     const std::vector<ModuleComponent>& ModuleComponents();
 
     // THE EXECUTABLE'S COMPONENT PROVIDER (UE: the modules an executable links register their component classes at
-    // StartupModule; the dedicated server links fewer modules and so knows fewer classes). This registry is Core's,
-    // compiled into the render-free server too, so it names no module's rows and no hand-written serializer: the
-    // executable's top module installs them. Engine installs every module's generated rows and its hand-written
-    // serializers (Engine/Core/Serialize/EngineComponentProvider.cpp); DesertServer installs the rows of Core's
-    // closure (Server/Source/ServerComponents.cpp). One provider per process; the registry is built on first use.
+    // StartupModule; the dedicated server links fewer modules and so knows fewer classes). This registry is
+    // Core's, compiled into the render-free server too, so it names no module's rows and no hand-written
+    // serializer: the executable's top module installs them. Engine installs every module's generated rows and its
+    // hand-written serializers (Engine/Core/Serialize/EngineComponentProvider.cpp); DesertServer installs the rows
+    // of Core's closure (Server/Source/ServerComponents.cpp). One provider per process; the registry is built on
+    // first use.
     struct ComponentProvider
     {
         // Every linked module's generated rows (Engine/Generated/Components.gen.cpp's shape).

@@ -12,7 +12,8 @@
 //   * reflected blocks are registered by their own module (Engine/Generated/Components_<Module>.gen.cpp,
 //     ComponentRegistration.hpp) and read here through ModuleComponents();
 //   * hand-written blocks live by subject in *ComponentSerializers.cpp (BuiltinComponentSerializers.hpp), ordered
-//     by Engine's provider (EngineComponentProvider.cpp): this file is Core's and names neither (the server links it);
+//     by Engine's provider (EngineComponentProvider.cpp): this file is Core's and names neither (the server links
+//     it);
 //   * the AssetResolver is AssetResolver.cpp.
 
 namespace Desert::Core::Serialize
