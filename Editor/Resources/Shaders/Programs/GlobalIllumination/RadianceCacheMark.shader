@@ -52,6 +52,11 @@ Shader "RadianceCacheMark"
         #define RC_MARK_LEVELS         3u
         #define RC_MARK_NONE           0xFFFFFFFFu
         shared uint s_Key[RC_MARK_LEVELS][64];
+        // FPS-RADIANCE-CACHE-BRDF: the group's readers' normals as BRDF bins (RadianceCacheBrdfBin), ORed into every
+        // coverage entry the group stamps (RC_ENTRY_BRDF_BINS, Select's supersampling). One mask for the group's
+        // 16x16 pixels: a cell is written by one thread of the group for all its readers (the de-duplication below),
+        // and a superset only supersamples a square more.
+        shared uint s_Bins[2];
 
         uint MarkKey( vec3 p, vec3 N, vec3 V, uint clipmap )
         {
@@ -262,6 +267,9 @@ Shader "RadianceCacheMark"
             if ( pointThread < MarkPointHeader.x * 6u )
                 MarkPointAxis( MarkPointsData[pointThread / 6u].xyz, pointThread % 6u );
 
+            if ( gl_LocalInvocationIndex < 2u )
+                s_Bins[gl_LocalInvocationIndex] = 0u;
+            barrier();
             for ( uint level = 0u; level < RC_MARK_LEVELS; ++level )
                 s_Key[level][gl_LocalInvocationIndex] = RC_MARK_NONE;
             const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( FrameIndex & 1u, ( FrameIndex >> 1 ) & 1u );
@@ -279,6 +287,8 @@ Shader "RadianceCacheMark"
                 const uvec2 ends   = MarkDitherEnds( p );
                 const uint  fine   = ends.x;
                 const uint  coarse = ends.y;
+                const uint  bin    = RadianceCacheBrdfBin( N );
+                atomicOr( s_Bins[bin / 32u], 1u << ( bin % 32u ) );
                 if ( fine < radianceCache.shape.x )
                     s_Key[RC_MARK_LEVEL_FINE][gl_LocalInvocationIndex] = MarkKey( p, N, V, fine );
                 if ( coarse != fine && coarse < radianceCache.shape.x )
@@ -306,7 +316,8 @@ Shader "RadianceCacheMark"
             const uint x = gl_LocalInvocationID.x;
             const uint y = gl_LocalInvocationID.y;
             const uint t = gl_LocalInvocationIndex;
-            const int  grid = int( radianceCache.shape.y );
+            const int   grid = int( radianceCache.shape.y );
+            const uvec2 bins = uvec2( s_Bins[0], s_Bins[1] );
             for ( uint level = 0u; level < RC_MARK_LEVELS; ++level )
             {
                 const uint key = s_Key[level][t];
@@ -362,6 +373,17 @@ Shader "RadianceCacheMark"
                     const uvec3 m     = uvec3( MarkSelect( wrapLo, wrapHi, up ) );
                     const uint  entry = m.x + clipmap * radianceCache.shape.y + width * ( m.y + radianceCache.shape.y * m.z );
                     radianceCacheLastUsed[RadianceCacheStampIndex( entry, kind )] = FrameIndex;
+                    // The read directions (RC_ENTRY_BRDF_BINS): only the coverage's (a fallback-only probe traces
+                    // at a quarter, unsupersampled), and only the bits the entry lacks (a read is cheaper than an
+                    // atomic, and a surface's bins are set from its first frame until its probe's next trace).
+                    if ( kind == RC_STAMP_COVERAGE )
+                    {
+                        const uint w = RadianceCacheStampIndex( entry, RC_ENTRY_BRDF_BINS );
+                        if ( ( radianceCacheLastUsed[w] & bins.x ) != bins.x )
+                            atomicOr( radianceCacheLastUsed[w], bins.x );
+                        if ( ( radianceCacheLastUsed[w + 1u] & bins.y ) != bins.y )
+                            atomicOr( radianceCacheLastUsed[w + 1u], bins.y );
+                    }
                 }
             }
         }

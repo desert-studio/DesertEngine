@@ -273,6 +273,8 @@ Shader "RadianceCacheAllocate"
                 radianceCacheIndirection[entry] = RADIANCE_CACHE_INVALID_PROBE;
                 radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )] = 0u;
                 radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] = 0u;
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_ENTRY_BRDF_BINS )]      = 0u;
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_ENTRY_BRDF_BINS ) + 1u] = 0u;
                 if ( entry < MaxProbes )
                     radianceCacheFreeList[1u + entry] = int( entry );
                 if ( entry == 0u )

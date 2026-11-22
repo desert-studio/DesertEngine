@@ -19,16 +19,46 @@ Buffer(1) RadianceCacheIndirectionUB
 // that interpolates this clipmap's cells itself - and the last frame the FALLBACK stamped it (RadianceCacheMark: the
 // clipmap past a pixel's coarse end, read only while the coverage's own cells are untraced). Allocate ranks a new
 // probe by which of the two stamped it this frame; Mark's free part (RadianceCacheMark.shader) frees by the later of
-// the two.
+// the two. Two more words per entry (RC_ENTRY_BRDF_BINS, FPS-RADIANCE-CACHE-BRDF): the READ DIRECTIONS - a 64-bit
+// mask of the 8x8 octahedral bins (RadianceCacheBrdfBin) of the normals of the coverage readers that stamped the
+// entry since its probe was last traced. Mark ORs them in; Select reads and clears them when it lists the probe and
+// supersamples the squares those normals face (UE's probe BRDF and SupersampleTileBRDFThreshold); the Reset clears
+// them. A freed entry keeps its bins (Mark's free runs beside this frame's stamps, so clearing there could drop them):
+// the entry's next probe traces their squares once more, and its first trace clears them.
 Buffer(2) RadianceCacheLastUsedUB
 {
     uint radianceCacheLastUsed[];
 };
-#define RC_STAMP_COVERAGE 0u
-#define RC_STAMP_FALLBACK 1u
+#define RC_STAMP_COVERAGE  0u
+#define RC_STAMP_FALLBACK  1u
+#define RC_ENTRY_BRDF_BINS 2u // two words: bins 0..31, 32..63
+#define RC_ENTRY_WORDS     4u // WorldRadianceCache.cpp kLastUsedEntryWords
 uint RadianceCacheStampIndex( uint entry, uint kind )
 {
-    return entry * 2u + kind;
+    return entry * RC_ENTRY_WORDS + kind;
+}
+// The octahedral bin of a reader's normal @p N: 8x8 bins over RadianceCacheOctEncode's square, bin = y * 8 + x.
+#define RC_BRDF_BINS_SIDE 8u
+uint RadianceCacheBrdfBin( vec3 N )
+{
+    const uvec2 b = min( uvec2( ( RadianceCacheOctEncode( N ) * 0.5 + 0.5 ) * float( RC_BRDF_BINS_SIDE ) ),
+                         uvec2( RC_BRDF_BINS_SIDE - 1u ) );
+    return b.y * RC_BRDF_BINS_SIDE + b.x;
+}
+// The normal at the centre of bin @p bin.
+vec3 RadianceCacheBrdfBinNormal( uint bin )
+{
+    const vec2 o = ( vec2( bin % RC_BRDF_BINS_SIDE, bin / RC_BRDF_BINS_SIDE ) + 0.5 ) / float( RC_BRDF_BINS_SIDE );
+    return RadianceCacheOctDecode( o * 2.0 - 1.0 );
+}
+// A 64-bit mask (x = bits 0..31, y = 32..63) with bit @p i set, and whether @p mask has bit @p i.
+uvec2 RadianceCacheMaskBit( uint i )
+{
+    return i < 32u ? uvec2( 1u << i, 0u ) : uvec2( 0u, 1u << ( i - 32u ) );
+}
+bool RadianceCacheMaskHas( uvec2 mask, uint i )
+{
+    return ( ( i < 32u ? mask.x >> i : mask.y >> ( i - 32u ) ) & 1u ) != 0u;
 }
 Buffer(3) RadianceCacheProbesUB
 {
@@ -69,24 +99,64 @@ Buffer(5) RadianceCacheScheduleUB
 #define RC_SCHEDULE_TILES       ( RC_SCHEDULE_STATS + RC_STAT_WORDS )
 #define RC_SCHEDULE_SELECT_DONE ( RC_SCHEDULE_TILES + 1u )
 #define RC_SCHEDULE_LIST        ( RC_SCHEDULE_SELECT_DONE + 1u ) // WorldRadianceCache.cpp kScheduleHeaderWords
-// THE TRACE TILES (UE GenerateProbeTraceTiles, LumenRadianceCache.usf): one word per 8x8 square of traced texels of a
-// listed probe, after the budget's list - the probe's slot, whether it traces at half resolution
-// (RADIANCE_CACHE_TRACE_TILE_DOWNSAMPLED: one ray per 2x2 texels) and the square's index in its traced resolution.
-// Trace runs one group per word, so a half-resolution probe launches only the quarter of the squares it traces.
+// THE TRACE TILES (UE GenerateProbeTraceTiles, LumenRadianceCache.usf): one word per 8x8 tile of RAYS of a listed
+// probe, after the budget's list. A tile traces at one of three LEVELS (FPS-RADIANCE-CACHE-BRDF, UE's trace tile
+// levels): FULL - one ray per atlas texel, an 8x8 SQUARE of the probe's texels (the supersampled squares) -, HALF - one
+// ray per 2x2 texels, 2x2 squares (the base of a near probe) - and QUARTER - one ray per 4x4 texels, 4x4 squares (a
+// probe past the downsample distance, or read only as the fallback). A HALF tile carries the 2x2 squares it skips
+// (RADIANCE_CACHE_TRACE_TILE_SKIP: bit (y * 2 + x) for its square (x, y)) because FULL tiles of the same probe trace
+// them; every texel of a listed probe is written by exactly one tile. Word: the tile's index in its level's grid of
+// tiles (bits 0..5), the skipped squares (6..9), the level (10..11), the probe's slot (12..31).
 uint RadianceCacheTraceTileList( uint budget )
 {
     return RC_SCHEDULE_LIST + budget;
 }
-#define RADIANCE_CACHE_TRACE_TILE_MASK        0x3Fu // the square's index: up to 8x8 squares (ProbeResolution <= 64)
-#define RADIANCE_CACHE_TRACE_TILE_DOWNSAMPLED 0x40u
-uint RadianceCacheTraceTileWord( uint probe, bool downsampled, uint tile )
+#define RADIANCE_CACHE_TRACE_LEVEL_FULL    0u
+#define RADIANCE_CACHE_TRACE_LEVEL_HALF    1u
+#define RADIANCE_CACHE_TRACE_LEVEL_QUARTER 2u
+#define RADIANCE_CACHE_TRACE_TILE_MASK     0x3Fu // the tile's index: up to 8x8 squares (ProbeResolution <= 64)
+#define RADIANCE_CACHE_TRACE_TILE_SKIP_SHIFT  6u
+#define RADIANCE_CACHE_TRACE_TILE_LEVEL_SHIFT 10u
+#define RADIANCE_CACHE_TRACE_TILE_PROBE_SHIFT 12u // WorldRadianceCache.cpp kMaxTraceTileProbes
+uint RadianceCacheTraceTileWord( uint probe, uint level, uint skip, uint tile )
 {
-    return ( probe << 7 ) | ( downsampled ? RADIANCE_CACHE_TRACE_TILE_DOWNSAMPLED : 0u ) | tile;
+    return ( probe << RADIANCE_CACHE_TRACE_TILE_PROBE_SHIFT ) | ( level << RADIANCE_CACHE_TRACE_TILE_LEVEL_SHIFT ) |
+           ( skip << RADIANCE_CACHE_TRACE_TILE_SKIP_SHIFT ) | tile;
 }
-// The traced resolution of a probe of @p res texels a side: res, or half of it (rounded up) when downsampled.
-uint RadianceCacheTraceResolution( uint res, bool downsampled )
+// The traced resolution of a probe of @p res texels a side at @p level: res, half or a quarter of it (rounded up).
+uint RadianceCacheTraceResolution( uint res, uint level )
 {
-    return downsampled ? ( res + 1u ) / 2u : res;
+    const uint stride = 1u << level;
+    return ( res + stride - 1u ) / stride;
+}
+// The 8x8 tiles a side of a probe of @p res texels a side at @p level.
+uint RadianceCacheTraceTilesPerSide( uint res, uint level )
+{
+    return ( RadianceCacheTraceResolution( res, level ) + 7u ) / 8u;
+}
+// HALF tile @p h (of @p halves a side) covers the squares (2x + i, 2y + j) of a probe of @p squares a side: the 4-bit
+// mask (bit j * 2 + i) of those the probe has (an edge tile of an odd square count has fewer).
+uint RadianceCacheHalfTileSquares( uint h, uint halves, uint squares )
+{
+    const uvec2 first = uvec2( h % halves, h / halves ) * 2u;
+    uint        mask  = 0u;
+    for ( uint q = 0u; q < 4u; ++q )
+        if ( first.x + ( q & 1u ) < squares && first.y + ( q >> 1 ) < squares )
+            mask |= 1u << q;
+    return mask;
+}
+// ... and of those, the squares supersampled in @p super (bit y * squares + x): the ones the HALF tile skips.
+uint RadianceCacheHalfTileSkip( uvec2 super, uint h, uint halves, uint squares )
+{
+    const uvec2 first = uvec2( h % halves, h / halves ) * 2u;
+    uint        skip  = 0u;
+    for ( uint q = 0u; q < 4u; ++q )
+    {
+        const uvec2 s = first + uvec2( q & 1u, q >> 1 );
+        if ( s.x < squares && s.y < squares && RadianceCacheMaskHas( super, s.y * squares + s.x ) )
+            skip |= 1u << q;
+    }
+    return skip;
 }
 // The words Select writes to RadianceCache.UpdateCounts, in this order (GlobalIllumination::RadianceCacheUpdateCounts,
 // WorldRadianceCache.hpp).

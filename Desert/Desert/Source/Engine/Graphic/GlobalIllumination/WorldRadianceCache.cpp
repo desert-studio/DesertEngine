@@ -81,6 +81,14 @@ namespace Desert::Graphic::GlobalIllumination
         // budget's probes fill the GPU instead of leaving one group per probe to walk its res^2 rays in series,
         // and a warp's rays are neighbours in direction (FPS-RC-TRACE).
         constexpr uint32_t kTraceTileSide = 8;
+        // FPS-RADIANCE-CACHE-BRDF: a trace tile word holds the probe's slot above bit 12 and its tile index in 6 bits
+        // (RadianceCacheTraceTileWord, Common/RadianceCacheState.glslh): at most 2^20 probe slots and 8x8 full-
+        // resolution squares a probe.
+        constexpr uint32_t kMaxTraceTileProbes      = 1u << 20u;
+        constexpr uint32_t kMaxTraceProbeResolution = 64;
+        // RadianceCache.LastUsed's words per indirection entry (RC_ENTRY_WORDS): the coverage's and the fallback's
+        // stamps, then the entry's readers' BRDF bins (two words, RC_ENTRY_BRDF_BINS).
+        constexpr uint32_t kLastUsedEntryWords = 4;
         // RadianceCacheFilter.shader sizes its thread layout for at most RC_FILTER_DEPTH_OUTPUTS (64) depth and
         // RC_FILTER_IRRADIANCE_OUTPUTS (36) irradiance texels a probe (FPS-RC-DIRTY s2).
         static_assert( RadianceCache::kDepthProbeResolution * RadianceCache::kDepthProbeResolution <= 64u );
@@ -102,7 +110,7 @@ namespace Desert::Graphic::GlobalIllumination
         // The "[RadianceCache] traced X of budget Y, full update Z" line: once per this many updates of a view.
         constexpr uint32_t kCountsLogFrames = 60;
         // The schedule: the header, the trace list (@p traced probes) and their trace tiles (at most @p traceTiles a
-        // probe, a full-resolution one's; RadianceCacheTraceTileList).
+        // probe: every square supersampled and every HALF tile beside them; RadianceCacheTraceTileList).
         constexpr uint32_t ScheduleEntries( const uint32_t traced, const uint32_t traceTiles )
         {
             return kScheduleHeaderWords + traced + traced * traceTiles;
@@ -204,9 +212,10 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t maxProbes = RadianceCache::MaxProbes( shape );
         m_Indirection =
              ShaderResources::StorageBuffer::Create( "RadianceCache.Indirection", entries * 4u, 1, true );
-        // Two stamps per entry, the coverage's and the fallback's (RadianceCacheStampIndex of
-        // Common/RadianceCacheState.glslh).
-        m_LastUsed = ShaderResources::StorageBuffer::Create( "RadianceCache.LastUsed", entries * 8u, 2, true );
+        // Two stamps per entry, the coverage's and the fallback's, and its readers' BRDF bins (RadianceCacheStampIndex
+        // of Common/RadianceCacheState.glslh).
+        m_LastUsed = ShaderResources::StorageBuffer::Create( "RadianceCache.LastUsed",
+                                                             entries * kLastUsedEntryWords * 4u, 2, true );
         m_Probes   = ShaderResources::StorageBuffer::Create(
              "RadianceCache.Probes",
              maxProbes * static_cast<uint32_t>( sizeof( RadianceCache::RadianceCacheProbePayload ) ), 3, true );
@@ -298,6 +307,12 @@ namespace Desert::Graphic::GlobalIllumination
         if ( shape.ProbeResolution == 0 || shape.ProbesPerFrame == 0 )
             return Common::MakeError<RadianceCacheFrame>(
                  "radiance cache: the quality gives no probe resolution or budget" );
+        if ( shape.ProbeResolution > kMaxTraceProbeResolution ||
+             RadianceCache::MaxProbes( shape ) > kMaxTraceTileProbes )
+            return Common::MakeFormattedError<RadianceCacheFrame>(
+                 "radiance cache: probe resolution {} or {} probe slots exceed the trace tile word ({}, {})",
+                 shape.ProbeResolution, RadianceCache::MaxProbes( shape ), kMaxTraceProbeResolution,
+                 kMaxTraceTileProbes );
         if ( shape.GridResolution > kMarkKeyMaxGrid || shape.Clipmaps > kMarkKeyMaxClipmaps )
             return Common::MakeFormattedError<RadianceCacheFrame>(
                  "radiance cache: grid {} x {} clipmaps exceeds the Mark key ({} x {})", shape.GridResolution,
@@ -373,10 +388,12 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::BufferRef markPointsBuffer = graph.CreateBuffer(
              RDG::BufferDesc{ markPoints.size() * sizeof( glm::vec4 ) }, "RadianceCache.MarkPoints" );
         graph.QueueBufferUpload( markPointsBuffer, std::as_bytes( std::span( markPoints ) ) );
-        // Trace: one group per 8x8 square of a probe's traced texels; a full-resolution probe's squares are the most
-        // a probe lists.
-        const uint32_t       traceTilesPerSide = DivideRoundUp( shape.ProbeResolution, kTraceTileSide );
-        const uint32_t       traceTiles        = traceTilesPerSide * traceTilesPerSide;
+        // Trace: one group per trace tile, 8x8 rays (RadianceCacheSelect.shader). A probe lists at most its full-
+        // resolution squares and its HALF tiles (one ray per 2x2 texels) beside them.
+        const uint32_t       squaresPerSide    = DivideRoundUp( shape.ProbeResolution, kTraceTileSide );
+        const uint32_t       halvesPerSide     =
+             DivideRoundUp( DivideRoundUp( shape.ProbeResolution, 2u ), kTraceTileSide );
+        const uint32_t       traceTiles        = squaresPerSide * squaresPerSide + halvesPerSide * halvesPerSide;
         const RDG::BufferRef schedule          = graph.CreateBuffer(
              RDG::BufferDesc{ ScheduleEntries( traced, traceTiles ) * 4ull }, "RadianceCache.Schedule" );
         graph.QueueStaticBufferUpload( schedule, std::as_bytes( std::span( kScheduleHeaderZero ) ) );
@@ -385,7 +402,7 @@ namespace Desert::Graphic::GlobalIllumination
              RDG::BufferDesc{ RadianceCacheUpdateCounts::kWords * 4ull }, "RadianceCache.UpdateCounts" );
         // FPS-RC-COST: Trace's and Filter's indirect arguments, written by Select's last group from the lists it made
         // (RadianceCacheSelect.shader): a frame listing fewer probes than the budget (the refresh gate, a full
-        // update's MaxProbes) launches no group past them, and a downsampled probe only the squares it traces.
+        // update's MaxProbes) launches no group past them, and a probe only the tiles of the levels it traces.
         const RDG::BufferRef dispatchArgs =
              graph.CreateBuffer( RDG::BufferDesc{ 6u * sizeof( uint32_t ) }, "RadianceCache.DispatchArgs" );
 

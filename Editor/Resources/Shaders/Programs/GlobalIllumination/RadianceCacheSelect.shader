@@ -7,10 +7,10 @@
 //           come. The new probes of the coverage rank above the fallback's (RC_PRIORITY_*), so the fallback is traced
 //           from the remainder. FPS-RC-BUDGET: the age buckets (an event-less refresh) take at most RefreshBudget of
 //           what the events leave.
-//   TILES   each listed probe's 8x8 squares of traced texels go to the trace tile list (RadianceCacheTraceTileList):
-//           all of them at full resolution, a quarter of them for a DOWNSAMPLED probe - one ray per 2x2 texels -,
-//           which Trace then launches no group for (FPS-RADIANCE-CACHE: every probe launched a full probe's squares
-//           and a downsampled one ended three of four of its groups at once).
+//   TILES   each listed probe's trace tiles go to the trace tile list (RadianceCacheTraceTileList, UE
+//           GenerateProbeTraceTiles; FPS-RADIANCE-CACHE-BRDF): a near probe traces at HALF resolution, and only the
+//           squares its readers' BRDF faces are SUPERSAMPLED to full resolution; a far or fallback-only probe traces
+//           at a QUARTER. Trace launches one group per tile, so no group traces a ray nobody needs at that rate.
 //   PLACE   each listed probe is moved out of geometry by the tracer (GIMoveOutOfGeometry; not in UE: a world-grid
 //           probe inside a wall would see only the wall's back faces; DDGI relocates its probes the same way) - up to
 //           a quarter cell of free space around the probe, at most 0.45 cell from the cell centre per axis (the probe
@@ -52,13 +52,23 @@ Shader "RadianceCacheSelect"
             GIFrame giFrame;
         };
 
-        // DOWNSAMPLED PROBES (UE r.Lumen.RadianceCache.DownsampleDistanceFromCamera, GenerateProbeTraceTiles in
-        // LumenRadianceCache.usf): a probe whose cell centre is further than this from the camera, cm, traces at half
-        // its resolution - one ray per 2x2 texels, jittered over all four, written to each of them with its own
-        // history - so it costs a quarter of a near probe's rays. Its converged radiance is the 2x2 box of the
-        // full-resolution one; the irradiance and moments (Filter) integrate the same. A probe crossing the distance
-        // keeps its atlas texels: only the next traces' rays change.
-        #define RC_TRACE_DOWNSAMPLE_DISTANCE 4000.0
+        // THE TRACE LEVELS (UE GenerateProbeTraceTiles, LumenRadianceCache.usf; RADIANCE_CACHE_TRACE_LEVEL_*). A lower
+        // level's ray is jittered over its block of texels and written to each of them with its own history, so the
+        // converged radiance is the block's box of the full-resolution one; the irradiance and moments (Filter)
+        // integrate the same, and a probe changing level keeps its atlas texels - only the next traces' rays change.
+        //   QUARTER  a probe whose cell centre is further than RC_TRACE_DOWNSAMPLE_DISTANCE from the camera, cm (UE
+        //            r.Lumen.RadianceCache.DownsampleDistanceFromCamera), or that only the fallback read this frame
+        //            (a stand-in while its coverage's cells are untraced; no texel of it is read up close).
+        //   HALF     every other probe: UE's base trace resolution, half the probe's.
+        //   FULL     a square of a HALF probe nearer than RC_TRACE_SUPERSAMPLE_DISTANCE (UE
+        //            SupersampleDistanceFromCamera) whose centre direction a reader's normal faces by more than
+        //            RC_TRACE_SUPERSAMPLE_BRDF_THRESHOLD (UE SupersampleTileBRDFThreshold: the reader's cosine lobe,
+        //            the diffuse BRDF its screen probes' rays and its radiance reads follow, at the square's centre).
+        //            The readers' normals are the entry's BRDF bins (RC_ENTRY_BRDF_BINS, Mark), each taken at its
+        //            bin's centre; UE projects them to an SH per probe instead and evaluates it at the tile centre.
+        #define RC_TRACE_DOWNSAMPLE_DISTANCE        4000.0
+        #define RC_TRACE_SUPERSAMPLE_DISTANCE       2000.0
+        #define RC_TRACE_SUPERSAMPLE_BRDF_THRESHOLD 0.1
         // A trace tile row of Trace's indirect dispatch (x); y = the rows (a full update's tiles pass 65535).
         #define RC_TRACE_TILE_ROW 1024u
 
@@ -179,22 +189,69 @@ Shader "RadianceCacheSelect"
             const uint slot   = s_ListBase + listLocal;
             const bool listed = traced && slot < budget;
 
-            // The listed probe's traced resolution: half (downsampled) past the distance, or when only the fallback
-            // read it this frame - a cell the reads interpolate only while their own clipmap's cells are untraced
-            // (RadianceCacheRadianceAt), so its far-field radiance stands in for a few frames and no texel of it is
-            // read up close; full otherwise.
-            vec3 centre      = vec3( 0.0 );
-            uint clipmap     = 0u;
-            bool downsampled = false;
-            uint tiles       = 0u;
+            // The listed probe's trace level (RC_TRACE_* above) and, for a HALF probe, its supersampled squares.
+            const uint res     = radianceCache.shape.z;
+            const uint squares = RadianceCacheTraceTilesPerSide( res, RADIANCE_CACHE_TRACE_LEVEL_FULL );
+            const uint halves  = RadianceCacheTraceTilesPerSide( res, RADIANCE_CACHE_TRACE_LEVEL_HALF );
+            vec3       centre  = vec3( 0.0 );
+            uint       clipmap = 0u;
+            uint       level   = RADIANCE_CACHE_TRACE_LEVEL_QUARTER;
+            uvec2      supersampled = uvec2( 0u ); // bit y * squares + x: the squares traced at FULL
+            uint       tiles   = 0u;
             if ( listed )
             {
-                const ivec4 cell = radianceCacheProbes[probe].cell;
-                clipmap          = uint( cell.w );
-                centre           = RadianceCacheWorldCellCentre( radianceCache, cell.xyz, clipmap );
-                downsampled      = !covered || distance( giFrame.camera.xyz, centre ) > RC_TRACE_DOWNSAMPLE_DISTANCE;
-                const uint side  = ( RadianceCacheTraceResolution( radianceCache.shape.z, downsampled ) + 7u ) / 8u;
-                tiles            = side * side;
+                const ivec4 cell     = radianceCacheProbes[probe].cell;
+                clipmap              = uint( cell.w );
+                centre               = RadianceCacheWorldCellCentre( radianceCache, cell.xyz, clipmap );
+                const float toCamera = distance( giFrame.camera.xyz, centre );
+                // The read directions since the last trace: this trace answers them, the next collects its own.
+                const uint  entry    = RadianceCacheIndirectionIndex( radianceCache, cell.xyz, clipmap );
+                const uint  binsWord = RadianceCacheStampIndex( entry, RC_ENTRY_BRDF_BINS );
+                uvec2       bins     = uvec2( radianceCacheLastUsed[binsWord], radianceCacheLastUsed[binsWord + 1u] );
+                if ( any( notEqual( bins, uvec2( 0u ) ) ) )
+                {
+                    radianceCacheLastUsed[binsWord]      = 0u;
+                    radianceCacheLastUsed[binsWord + 1u] = 0u;
+                }
+                if ( covered && toCamera <= RC_TRACE_DOWNSAMPLE_DISTANCE )
+                {
+                    level = RADIANCE_CACHE_TRACE_LEVEL_HALF;
+                    if ( toCamera > RC_TRACE_SUPERSAMPLE_DISTANCE )
+                        bins = uvec2( 0u );
+                    // Each reader normal's bin against each square's centre direction (only the bins set: a
+                    // surface's readers fill a few).
+                    for ( uint word = 0u; word < 2u; ++word )
+                    {
+                        uint remaining = bins[word];
+                        while ( remaining != 0u )
+                        {
+                            const uint bit = uint( findLSB( remaining ) );
+                            remaining &= remaining - 1u;
+                            const vec3 N = RadianceCacheBrdfBinNormal( word * 32u + bit );
+                            for ( uint s = 0u; s < squares * squares; ++s )
+                            {
+                                // The square's centre texel (an edge square is cut at the probe's edge).
+                                const uvec2 lo = uvec2( s % squares, s / squares ) * 8u;
+                                const vec2  c  = ( vec2( lo ) + 0.5 * vec2( min( uvec2( 8u ), uvec2( res ) - lo ) ) ) /
+                                               float( res );
+                                if ( dot( N, RadianceCacheOctDecode( c * 2.0 - 1.0 ) ) >
+                                     RC_TRACE_SUPERSAMPLE_BRDF_THRESHOLD )
+                                    supersampled |= RadianceCacheMaskBit( s );
+                            }
+                        }
+                    }
+                    // A FULL tile per supersampled square, a HALF tile per 2x2 squares not all supersampled.
+                    tiles = bitCount( supersampled.x ) + bitCount( supersampled.y );
+                    for ( uint h = 0u; h < halves * halves; ++h )
+                        if ( RadianceCacheHalfTileSkip( supersampled, h, halves, squares ) !=
+                             RadianceCacheHalfTileSquares( h, halves, squares ) )
+                            ++tiles;
+                }
+                else
+                {
+                    const uint side = RadianceCacheTraceTilesPerSide( res, RADIANCE_CACHE_TRACE_LEVEL_QUARTER );
+                    tiles           = side * side;
+                }
             }
             uint tileLocal = 0u;
             if ( tiles != 0u )
@@ -206,9 +263,28 @@ Shader "RadianceCacheSelect"
             if ( listed )
             {
                 radianceCacheSchedule[RC_SCHEDULE_LIST + slot] = probe;
-                const uint first = RadianceCacheTraceTileList( budget ) + s_TileBase + tileLocal;
-                for ( uint tile = 0u; tile < tiles; ++tile )
-                    radianceCacheSchedule[first + tile] = RadianceCacheTraceTileWord( probe, downsampled, tile );
+                uint word = RadianceCacheTraceTileList( budget ) + s_TileBase + tileLocal;
+                if ( level == RADIANCE_CACHE_TRACE_LEVEL_HALF )
+                {
+                    // The same tiles, in the order counted: the HALF ones, then the FULL squares.
+                    for ( uint h = 0u; h < halves * halves; ++h )
+                    {
+                        const uint skip = RadianceCacheHalfTileSkip( supersampled, h, halves, squares );
+                        if ( skip != RadianceCacheHalfTileSquares( h, halves, squares ) )
+                            radianceCacheSchedule[word++] =
+                                 RadianceCacheTraceTileWord( probe, RADIANCE_CACHE_TRACE_LEVEL_HALF, skip, h );
+                    }
+                    for ( uint s = 0u; s < squares * squares; ++s )
+                        if ( RadianceCacheMaskHas( supersampled, s ) )
+                            radianceCacheSchedule[word++] =
+                                 RadianceCacheTraceTileWord( probe, RADIANCE_CACHE_TRACE_LEVEL_FULL, 0u, s );
+                }
+                else
+                {
+                    for ( uint tile = 0u; tile < tiles; ++tile )
+                        radianceCacheSchedule[word++] =
+                             RadianceCacheTraceTileWord( probe, RADIANCE_CACHE_TRACE_LEVEL_QUARTER, 0u, tile );
+                }
             }
 
             // The last group done (its count, and every group's before it, final): Trace's and Filter's arguments.
