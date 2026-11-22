@@ -72,18 +72,22 @@ void main()
     // grid point is a particle of still water, the body's Gerstner sum carries it to its place at this instant. The
     // same function the CPU floats things on (Common/GerstnerWave.glslh).
     const float time     = cameraUB.Time;
-    const vec2  plane    = WaterWavePlane( restPos.xz );
+    // The tile's body's wave set (WaterTileRow.Body.z; -1 = a flat body: a river, a still lake).
+    const int   waveSet  = WaterWaveSetOf( t.Body.z );
+    const vec2  plane    = WaterWavePlane( waveSet, restPos.xz );
+    // The FFT cascades' distance fade is judged from the still particle, as the fragment judges it (WaterViewDistance).
+    const float viewDist = WaterViewDistance( restPos.xz, restPos.y, observer );
     // Damped over the shallows by the ground beneath (UE TargetWaveMaskDepth): a swell dies onto the beach instead
     // of running up it at full height.
-    // A body drawn without the frame's waves (a river, a flat lake: WaterTileRow.Body.z = 0) stays still.
-    const float atten    = WaterWaveAttenuation( restPos.xz, restPos.y ) * t.Body.z;
-    const vec3  offset   = WaterWavesDisplacement( plane, time ) * atten;
+    // A body drawn without waves (a river, a flat lake: WaterTileRow.Body.z = 0) stays still.
+    const float atten    = waveSet >= 0 ? WaterWaveAttenuation( restPos.xz, restPos.y ) : 0.0;
+    const vec3  offset   = WaterWavesDisplacement( waveSet, plane, time, viewDist ) * atten;
     const vec4  worldPos = vec4( restPos.xyz + offset, 1.0 );
 
     // The displaced surface's frame: Y up turned onto the wave normal; tangent along +X, bitangent along -Z
     // (right-handed with the normal, the UV's v running with -Z), so a tangent-space ripple map reads as it does on
     // a plane mesh.
-    const vec3 N = normalize( mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( plane, time ), atten ) );
+    const vec3 N = normalize( mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( waveSet, plane, time, viewDist ), atten ) );
     const vec3 T = normalize( vec3( N.y, -N.x, 0.0 ) );
     const vec3 B = normalize( cross( N, T ) );
     v_Surface.WorldPosition = worldPos.xyz;
@@ -94,13 +98,13 @@ void main()
     v_Surface.UV1           = restPos.xz;
     // r = the particle's height above the still level (cm), g = that level (cm), b = 1 on a river's tile (the
     // fragment clips it to the banks, WaterOutsideBank).
-    // a = the tile's wave scale (the fragment's foam reads the same waves).
+    // a = the tile's WaterTileRow.Body.z, 1 + its wave set (the fragment's normal and foam read the same set).
     v_Surface.VertexColor   = vec4( offset.y, restPos.y, t.Body.y, t.Body.z );
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN           = mat3( T, B, N );
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the particle's place last frame is the
     // same sum one frame earlier (UE's water writes velocity from the previous frame's waves).
-    const vec4 prevPos    = vec4( restPos.xyz + WaterWavesPreviousDisplacement( plane, cameraUB.PrevTime ) * atten, 1.0 );
+    const vec4 prevPos    = vec4( restPos.xyz + WaterWavesPreviousDisplacement( waveSet, plane, cameraUB.PrevTime, viewDist ) * atten, 1.0 );
 #ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip        = cameraUB.ViewProjection * worldPos;
 #endif

@@ -4,20 +4,26 @@ Shader "WaterFFTFinalize"
     Compute
     {
         // THE OCEAN'S CASCADES AS THE WATER MESH READS THEM (WATER-RIVERS-FFT): the two inverse-transformed packed
-        // spectra (WaterFFT.shader, rows then columns) unpacked into one 256 x 1536 half of a persistent rgba16f
-        // atlas of 256 x 3072 texels (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture); the rows below are
+        // spectra (WaterFFT.shader, rows then columns) unpacked into one 256 x 1792 half of a persistent rgba16f
+        // atlas of 256 x 3584 texels (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture); the rows below are
         // relative to that half (Params.Shape.z):
         //   rows [256 c, 256 c + 256),       cascade c: xyz = the displacement (lambda Dx, Dy, lambda Dz), cm;
         //                                               w = lambda dDx/dz (the Jacobian's cross term);
         //   rows [256 (3 + c), 256 (4 + c)), cascade c: xy = the height's slopes (dDy/dx, dDy/dz),
         //                                               zw = lambda dDx/dx, lambda dDz/dz.
-        // The water sums the cascades and forms the normal and the Jacobian from the sums (Tessendorf 2001 sec. 3.4:
-        // J = (1 + Jxx)(1 + Jzz) - Jxz^2), so the whitecaps come from where the summed sea folds.
+        //   rows [256 * 6, 256 * 7),         THE FOAM HISTORY: xyz = cascade 0..2's compression max(1 - J_c, 0),
+        //                                               kept as the max of now and the previous half's decayed
+        //                                               by Params.Foam.x (the accumulate-and-decay foam buffer of
+        //                                               AAA FFT oceans; written by the z = 0 invocation alone, so
+        //                                               no two invocations store one texel); w unused.
+        // The water sums the cascades and forms the normal from the sums (Tessendorf 2001 sec. 3.4); its whitecaps
+        // read the history band, so the foam trails behind the crest that folded.
         #include <Water/WaterFFT.glslh>
 
         layout(binding = 0, rgba32f) restrict readonly uniform image2DArray WaterFFTResultA;
         layout(binding = 1, rgba32f) restrict readonly uniform image2DArray WaterFFTResultB;
-        layout(binding = 2, rgba16f) restrict writeonly uniform image2D WaterFFTWaves;
+        // Read and written: the previous half's foam band is read, this half's bands written (disjoint texels).
+        layout(binding = 2, rgba16f) restrict uniform image2D WaterFFTWaves;
 
         Buffer(3) WaterFFTParamsBuffer
         {
@@ -45,6 +51,28 @@ Shader "WaterFFTFinalize"
                        vec4(lambda * a.x, a.y, lambda * a.z, lambda * a.w));
             imageStore(WaterFFTWaves, ivec2(id.x, id.y + (base + WATER_FFT_CASCADES + id.z) * WATER_FFT_SIZE),
                        vec4(b.x, b.y, lambda * b.z, lambda * b.w));
+
+            // THE FOAM HISTORY, one texel for the three cascades: each cascade's own Jacobian
+            // J_c = (1 + lambda dDx/dx)(1 + lambda dDz/dz) - (lambda dDx/dz)^2 over its own (periodic) patch.
+            if (id.z != 0)
+                return;
+            vec3 compression = vec3(0.0);
+            for (int c = 0; c < WATER_FFT_CASCADES; ++c)
+            {
+                const vec4  ac = imageLoad(WaterFFTResultA, ivec3(id.xy, c)) * flip;
+                const vec4  bc = imageLoad(WaterFFTResultB, ivec3(id.xy, c)) * flip;
+                const float jc = (1.0 + lambda * bc.z) * (1.0 + lambda * bc.w) - lambda * ac.w * lambda * ac.w;
+                compression[c] = max(1.0 - jc, 0.0);
+            }
+            vec3 kept = vec3(0.0);
+            if (Params.Foam.y > 0.5)
+            {
+                const int previous = int(Params.Foam.y - 0.5);
+                kept = imageLoad(WaterFFTWaves, ivec2(id.x, id.y + (previous + WATER_FFT_FOAM) * WATER_FFT_SIZE)).xyz *
+                       Params.Foam.x;
+            }
+            imageStore(WaterFFTWaves, ivec2(id.x, id.y + (base + WATER_FFT_FOAM) * WATER_FFT_SIZE),
+                       vec4(max(kept, compression), 0.0));
         }
     }
 }

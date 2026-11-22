@@ -98,8 +98,9 @@ namespace Desert::Graphic::System
         {
             return m_FFTInitial;
         }
-        // The persistent two-frame waves atlas (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture): N x 12 N
-        // RGBA16F, this frame's half written by AddWavePasses, the other half the previous frame's (the velocity).
+        // The persistent two-frame waves atlas (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture): N x 14 N
+        // RGBA16F, this frame's half written by AddWavePasses, the other half the previous frame's (the velocity,
+        // and the foam history the new half's foam band decays from).
         [[nodiscard]] const std::shared_ptr<Image2D>& GetFFTWaves() const
         {
             return m_FFTWaves;
@@ -282,7 +283,7 @@ namespace Desert::Graphic::System
             VirtualLocalDoesNotBuild,
             NoFrontLayerCell,
             FrontLayerDoesNotBuild,
-            MixedWaves,
+            TooManyWaveSets,
             NoWavesService,
             WavesRefused,
             TooManyWaves,
@@ -341,6 +342,11 @@ namespace Desert::Graphic::System
         int32_t m_FFTPreviousHalf = 0;
         double  m_FFTFlipTime     = 0.0;
         bool    m_FFTFlipped      = false;
+        // THE FOAM HISTORY's lane of this flip (WaterFFTParams::Foam, AddWavePasses): the share of the previous
+        // half's foam kept, exp(-dt / FFT.FoamDecaySeconds) over the time since the last flip, and whether there
+        // is a previous half to keep it from (false on the first frame of a sea).
+        float m_FFTFoamKeep    = 0.0f;
+        bool  m_FFTFoamHistory = false;
         // The waves recorded into a graph this frame (RecordedWaves), reset by PrepareFrame.
         RDG::TextureRef     m_FrameWavesTexture;
         const RDG::Builder* m_FrameWavesGraph = nullptr;

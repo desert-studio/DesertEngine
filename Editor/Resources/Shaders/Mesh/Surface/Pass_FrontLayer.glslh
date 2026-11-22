@@ -30,13 +30,22 @@ layout( location = 1 ) out vec4 oFrontLayerVelocity;
 
 void main()
 {
-    const SurfaceInput i =
+    SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN, v_Surface.UV1,
                               DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
 #ifdef DESERT_SURFACE_PATH_WaterMesh
     // A river's tile past its banks is no water (Pass_SingleLayerWater clips it the same way).
     if ( WaterOutsideBank( i.WorldPosition.xz, i.VertexColor.b ) )
         discard;
+    // The FFT ocean's normal per pixel, as Pass_SingleLayerWater shades with (WaterPixelWaveFrame): the trace
+    // starts from the normal the water mirrors with.
+    mat3 waveTBN;
+    if ( WaterPixelWaveFrame( i.UV1, i.VertexColor, i.CameraPosition, i.Time, waveTBN ) )
+    {
+        const float facing = gl_FrontFacing ? 1.0 : -1.0; // DesertSurfaceInput's two-sided turn
+        i.TBN              = waveTBN * facing;
+        i.Normal           = i.TBN[2];
+    }
 #endif
     const SurfaceOutput s = EvaluateSurface( i );
     // UE clips a zero-opacity texel out of the front layer: nothing is seen there to reflect from.
