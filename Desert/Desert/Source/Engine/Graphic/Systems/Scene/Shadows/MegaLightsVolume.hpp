@@ -26,6 +26,7 @@
 #include <memory>
 #include <span>
 #include <string_view>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 // THE MEGALIGHTS TRANSLUCENCY VOLUME (UE 5.5 MegaLights' volume + TranslucencyLightingVolume; Shadows Stochastic):
 // the surfaces that have no G-buffer pixel - the forward meshes and the translucent ones - take their local lights
@@ -366,7 +367,7 @@ namespace Desert::Graphic::System
             if ( !m_ProgramErrors[source].empty() )
                 return Common::MakeError( m_ProgramErrors[source] );
             const std::string_view name = kShaderNames[source];
-            program.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) );
+            program.Shader = Runtime::FindShader( std::string( name ) );
             if ( !program.Shader )
             {
                 m_ProgramErrors[source] = std::format( "MegaLights: Volume: shader {} not found", name );

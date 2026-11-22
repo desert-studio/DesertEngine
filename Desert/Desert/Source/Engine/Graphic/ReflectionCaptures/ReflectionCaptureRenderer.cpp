@@ -29,6 +29,7 @@
 #include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/SpotLightComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace
 {

@@ -9,7 +9,7 @@
 
 #include <map>
 #include <utility>
-#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -35,7 +35,7 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "VelocityView" );
+            m_Shader = Runtime::FindShader( "VelocityView" );
             if ( !m_Shader )
                 return Common::MakeError( "VelocityView shader not found" );
             return BOOLSUCCESS;

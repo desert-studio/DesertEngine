@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include <vector>
+#include <Engine/Assets/Common.hpp>
 
 namespace Desert::Editor::Tools
 {

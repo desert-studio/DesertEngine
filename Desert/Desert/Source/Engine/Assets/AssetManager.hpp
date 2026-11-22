@@ -2,7 +2,6 @@
 
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/Mesh/MeshAsset.hpp>
 
 #include <algorithm>
 #include <cstdint>

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <unordered_map>
+#include <Engine/Graphic/GeometryPool.hpp>
 
 namespace Desert
 {

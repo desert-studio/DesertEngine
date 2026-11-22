@@ -107,7 +107,6 @@
 #include "Systems/Scene/Deferred/SubsurfaceRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/SceneColorHistoryRenderer.hpp"
-#include "Systems/Scene/Particles/ParticleRenderer.hpp"
 #include "Systems/Scene/Clouds/VolumetricCloudRenderer.hpp"
 #include "Systems/Scene/Fog/HeightFogRenderer.hpp"
 #include "Systems/Scene/Fog/VolumetricFogRenderer.hpp"
@@ -176,6 +175,7 @@ namespace Desert::Graphic
         class LocalExposureRenderer;
         class MeshRenderer;
         class ParticleRenderer;
+        struct ParticleViewEmitterCull;
         class PathTracer;
         class SceneColorHistoryRenderer;
         class SceneDepthResolveRenderer;

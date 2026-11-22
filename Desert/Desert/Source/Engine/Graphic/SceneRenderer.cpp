@@ -1,3 +1,4 @@
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>

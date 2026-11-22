@@ -1,9 +1,7 @@
 #pragma once
 
 #include <Common/Core/Math/AABB.hpp>
-#include <Engine/Graphic/GeometryPool.hpp>
-#include <Engine/Graphic/IndexBuffer.hpp>
-#include <Engine/Graphic/VertexBuffer.hpp>
+#include <Engine/Graphic/MeshGeometry.hpp>
 #include "Errors/MeshError.hpp"
 #include "MeshTypes.hpp"
 #include <Engine/Geometry/DisplacementTessellation.hpp>
@@ -333,27 +331,7 @@ namespace Desert
         // Uploads the staged data into a new pool allocation (the previous one released on the frame rule) and
         // drops the staged copy once it landed. Nothing staged: the geometry already on the GPU stands (a twin
         // built over GPU-written buffers, or a mesh whose staged copy already landed); refused when there is none.
-        [[nodiscard]] Common::BoolResultWithCodes<MeshError> UploadStagedGeometry()
-        {
-            if ( !m_Staged )
-            {
-                if ( m_Geometry.IsResident() )
-                    return Common::MakeSuccessWithCodes<bool, MeshError>( true );
-                return Common::MakeErrorWithCodes<bool, MeshError>(
-                     { MeshError::GpuUploadFailed },
-                     "mesh geometry uploaded again after its host copy was released" );
-            }
-            const bool authored = !m_StagedStreams.empty();
-            auto       uploaded = Graphic::GeometryPool::Get().RT_Upload(
-                 m_StagedArena, m_StagedVertices, m_StagedStreams, m_StagedIndices, m_StagedClusterWords );
-            if ( !uploaded.IsSuccess() )
-                return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
-                                                                    uploaded.GetError() );
-            AdoptPoolAllocation( uploaded.ExtractValue(), authored );
-            m_Staged = false;
-            ReleaseStagedHostCopy();
-            return Common::MakeSuccessWithCodes<bool, MeshError>( true );
-        }
+        [[nodiscard]] Common::BoolResultWithCodes<MeshError> UploadStagedGeometry(); // Mesh.cpp (the pool)
         // THE LANDED HOST COPY IS FREED ON A WORKER (UE FDeferredCleanupInterface / the async loading thread
         // destroying streamed data, never the game thread): an HLOD mesh's staged copy is tens of MB, and freeing
         // it here was ~86 % of the 25 ms its commit took on the game thread (WP-OPT-SPIKE-CAUSE profile: four
@@ -375,11 +353,7 @@ namespace Desert
                                                    Common::JobPriority::Background );
         }
         // The mesh now draws from @p allocation (shared by a copy of the mesh, as its buffers were).
-        void AdoptPoolAllocation( Graphic::GeometryPoolAllocation allocation, const bool authoredStreams )
-        {
-            m_PoolAllocation = std::make_shared<Graphic::GeometryPoolAllocation>( std::move( allocation ) );
-            m_Geometry       = Graphic::GeometryPool::Get().Describe( *m_PoolAllocation, authoredStreams );
-        }
+        void AdoptPoolAllocation( Graphic::GeometryPoolAllocation allocation, bool authoredStreams ); // Mesh.cpp
         // Drops the GPU geometry (the pool span released on the frame rule).
         void ReleaseGeometry()
         {

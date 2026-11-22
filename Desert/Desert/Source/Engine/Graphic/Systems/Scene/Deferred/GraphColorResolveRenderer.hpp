@@ -13,7 +13,7 @@
 #include <format>
 #include <map>
 #include <memory>
-#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
 
 namespace Desert::Graphic
 {
@@ -57,7 +57,7 @@ namespace Desert::Graphic::System
         {
             m_Pipelines.clear();
             m_Material.reset();
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "GraphColorResolve" );
+            m_Shader = Runtime::FindShader( "GraphColorResolve" );
             if ( !m_Shader )
                 return Common::MakeError( "GraphColorResolve shader not found" );
             for ( const Core::Formats::ImageFormat format : kFormats )

@@ -1,0 +1,10 @@
+# BUILD-MOD-4: EditorPCH.hpp names no engine header; SceneWorkspace.hpp forward-declares SceneRenderer; the
+# header-only passes resolve programs through Runtime/Services/Shader/ShaderLookup.hpp; AssetManager.hpp no longer
+# includes MeshAsset.hpp; Geometry/Mesh.hpp holds Graphic/MeshGeometry.hpp, the pool calls moved to Mesh.cpp.
+# Fanout measured outside the editor (ninja -t deps, Debug; DesertEngine-scratch/BUILD-MOD-4/timings.txt):
+#   ShaderService.hpp, RDGBuilder.hpp, Core/Scene.hpp, AssetManager.hpp, Geometry/Mesh.hpp, ShaderDataType.hpp.
+# Regression (here): meshes upload through the out-of-line pool calls, passes find their shaders through the
+# lookup -> WP_Protocol opens and draws as on dev, no load refusal.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо на месте; без падения и диалога ошибки; в editor.log нет отказа загрузки и отказа шейдера

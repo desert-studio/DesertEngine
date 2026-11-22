@@ -86,6 +86,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <Common/Core/Core.hpp>
 
 namespace Desert::Core::Rules
 {

@@ -13,6 +13,7 @@
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/Physics/ColliderComponent.hpp>
 #include <PhysicsCore/PhysicsTypes.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Editor::Render
 {

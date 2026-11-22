@@ -44,6 +44,7 @@
 #include <optional>
 #include <tuple>
 #include <unordered_set>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
 {
