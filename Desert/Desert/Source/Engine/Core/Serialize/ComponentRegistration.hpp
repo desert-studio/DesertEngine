@@ -25,6 +25,7 @@
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -194,9 +195,29 @@ namespace Desert::Core::Serialize
     // then ordered by key — the order the single generated list had, so load order within a run is unchanged.
     const std::vector<ModuleComponent>& ModuleComponents();
 
+    // THE EXECUTABLE'S COMPONENT PROVIDER (UE: the modules an executable links register their component classes at
+    // StartupModule; the dedicated server links fewer modules and so knows fewer classes). This registry is
+    // Core's, compiled into the render-free server too, so it names no module's rows and no hand-written
+    // serializer: the executable's top module installs them. Engine installs every module's generated rows and its
+    // hand-written serializers (Engine/Core/Serialize/EngineComponentProvider.cpp); DesertServer installs the rows
+    // of Core's closure (Server/Source/ServerComponents.cpp). One provider per process; the registry is built on
+    // first use.
+    struct ComponentProvider
+    {
+        // Every linked module's generated rows (Engine/Generated/Components.gen.cpp's shape).
+        void ( *RegisterRows )( ComponentRegistrar& registrar ) = nullptr;
+        // The registry in load order: the hand-written serializers interleaved with @p rows run by run. Null: the
+        // rows alone, in key order.
+        void ( *Order )( std::span<const ModuleComponent> rows, std::vector<ComponentSerializer>& out ) = nullptr;
+    };
+
+    /// Installs the process's provider, before the first ComponentRegistry::Get / ModuleComponents. A second,
+    /// different provider, or one after the registry was built, is refused loudly (nothing is registered twice).
+    void InstallComponentProvider( const ComponentProvider& provider );
+
     namespace Generated
     {
-        // Engine/Generated/Components.gen.cpp.
+        // Engine/Generated/Components.gen.cpp (Engine's provider calls it; Core does not).
         void RegisterModuleComponents( ComponentRegistrar& registrar );
     } // namespace Generated
 } // namespace Desert::Core::Serialize

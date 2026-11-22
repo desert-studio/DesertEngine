@@ -1,6 +1,6 @@
 #include "ComponentRegistry.hpp"
 
-#include <Engine/Core/Serialize/BuiltinComponentSerializers.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
 
 #include <algorithm>
@@ -11,17 +11,62 @@
 // recompiled it. Now:
 //   * reflected blocks are registered by their own module (Engine/Generated/Components_<Module>.gen.cpp,
 //     ComponentRegistration.hpp) and read here through ModuleComponents();
-//   * hand-written blocks live by subject in *ComponentSerializers.cpp (BuiltinComponentSerializers.hpp);
+//   * hand-written blocks live by subject in *ComponentSerializers.cpp (BuiltinComponentSerializers.hpp), ordered
+//     by Engine's provider (EngineComponentProvider.cpp): this file is Core's and names neither (the server links
+//     it);
 //   * the AssetResolver is AssetResolver.cpp.
 
 namespace Desert::Core::Serialize
 {
+    namespace
+    {
+        struct ProviderSlot
+        {
+            ComponentProvider Provider;
+            bool              Installed = false;
+            bool              Read      = false; // the registry (or ModuleComponents) was built from it
+        };
+
+        ProviderSlot& Slot()
+        {
+            static ProviderSlot slot;
+            return slot;
+        }
+
+        const ComponentProvider& ReadProvider()
+        {
+            ProviderSlot& slot = Slot();
+            if ( !slot.Installed )
+                LOG_ERROR( "[Components] no component provider is installed: the registry knows no component (the "
+                           "executable's top module installs one, InstallComponentProvider)" );
+            slot.Read = true;
+            return slot.Provider;
+        }
+    } // namespace
+
+    void InstallComponentProvider( const ComponentProvider& provider )
+    {
+        ProviderSlot& slot = Slot();
+        if ( slot.Installed && slot.Provider.RegisterRows == provider.RegisterRows &&
+             slot.Provider.Order == provider.Order )
+            return; // the same provider again (its module's anchor and its static registration both install it)
+        if ( slot.Installed || slot.Read )
+        {
+            LOG_ERROR( "[Components] a component provider is installed {}: refused",
+                       slot.Read ? "after the registry was built" : "twice" );
+            return;
+        }
+        slot.Provider  = provider;
+        slot.Installed = true;
+    }
+
     const std::vector<ModuleComponent>& ModuleComponents()
     {
         static const std::vector<ModuleComponent> rows = []
         {
             ComponentRegistrar registrar;
-            Generated::RegisterModuleComponents( registrar );
+            if ( const ComponentProvider& provider = ReadProvider(); provider.RegisterRows != nullptr )
+                provider.RegisterRows( registrar );
             std::vector<ModuleComponent> all = registrar.Take();
             // Key order: the order the one generated list had, so a run registers its rows as it always did.
             std::stable_sort( all.begin(), all.end(), []( const ModuleComponent& a, const ModuleComponent& b )
@@ -53,55 +98,17 @@ namespace Desert::Core::Serialize
 
     void ComponentRegistry::RegisterBuiltins()
     {
-        std::vector<ComponentSerializer> builtins;
-        const auto                       flush = [this, &builtins]
+        const std::vector<ModuleComponent>& rows     = ModuleComponents();
+        const ComponentProvider&            provider = ReadProvider();
+        if ( provider.Order == nullptr )
         {
-            for ( ComponentSerializer& s : builtins )
-                Register( std::move( s ) );
-            builtins.clear();
-        };
-        // ---- Reflected data blocks: every module's generated rows (COMPONENT markers), run by run ----
-        const auto registerRun = [this, &flush]( ReflectedBlockRun run )
-        {
-            flush();
-            for ( const ModuleComponent& row : ModuleComponents() )
-                if ( row.Run == run )
-                    Register( row.Serializer );
-        };
-
-        Builtins::AddMeshSerializers( builtins );
-        Builtins::AddActorSerializers( builtins );
-        registerRun( ReflectedBlockRun::ActorsAndUI );
-        Builtins::AddUIRenderTextureSerializer( builtins );
-        registerRun( ReflectedBlockRun::UIAfterRenderTexture );
-        Builtins::AddEditorAndSequenceSerializers( builtins );
-        Builtins::AddFoliageSerializers( builtins );
-
-        // ---- Hand-mapped authored blocks (no reflected Data; see AuthoredComponentIO.hpp) ----
-        // U13. Five components with a full Details editor and no row in this table: everything the
-        // artist typed into them was discarded by the next load, and by every Ctrl+C, every delete-undo,
-        // every prefab instancing and every Play/Stop, because all of those are this same registry.
-        // Desert/Tests/Engine/ComponentPersistence now derives "is authored in Details" from the editor's
-        // own registration source and refuses to let a sixth one exist. No version bump: an added key is
-        // what ForeignKeys is for, and no scene in this repository carries these blocks yet — nothing
-        // ever wrote one. (Projectile, the fifth, is a reflected block now: ProjectileData.)
-        Builtins::AddAuthoredSerializers( builtins );
-
-        // ---- Landscape (LS-3) ----
-        // The root is its frame and nothing else; the tile loads its heights from the file it names
-        // (MakeLandscapeTile above). No version bump: two new block keys, and no scene carried them before.
-        builtins.push_back( Builtins::MakeLandscapeRoot() );
-        registerRun( ReflectedBlockRun::Landscape );
-        builtins.push_back( Builtins::MakeLandscapeTile() );
-        // One entity per spline (UE ALandscapeSplineActor), its root named by id; scene v76 moved the root's
-        // Splines here (Tools/SceneMigrator, MigrateLandscapeSplineEntitiesV75ToV76).
-        builtins.push_back( Builtins::MakeLandscapeSpline() );
-
-        // ---- Skybox, sky, fog, post-process, clouds: one row each in ReflectedComponentBlocks.hpp ----
-        registerRun( ReflectedBlockRun::SkyAndAtmosphere );
-
-        // ---- Script (manual: .lua path + exposed-property values) ----
-        builtins.push_back( Builtins::MakeScript() );
-        flush();
+            for ( const ModuleComponent& row : rows )
+                Register( row.Serializer );
+            return;
+        }
+        std::vector<ComponentSerializer> ordered;
+        provider.Order( rows, ordered );
+        for ( ComponentSerializer& s : ordered )
+            Register( std::move( s ) );
     }
 } // namespace Desert::Core::Serialize
