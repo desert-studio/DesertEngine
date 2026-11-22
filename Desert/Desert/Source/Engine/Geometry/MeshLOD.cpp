@@ -6,9 +6,12 @@
 #include <meshoptimizer.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <limits>
+#include <string>
 #include <vector>
 
 namespace Desert::Geometry
@@ -56,6 +59,58 @@ namespace Desert::Geometry
         float LODHalfDiagonal( const LODComponent& part )
         {
             return 0.5f * glm::length( part.Max - part.Min );
+        }
+
+        // THE SILHOUETTE A LEVEL KEEPS, measured (UE: a reduction's MaxDeviation is the distance the reduced
+        // surface lies from the source, not the quadric's estimate). meshopt's error is a QUADRIC distance - the
+        // distance to the planes of the collapsed triangles - and a collapse that slides a limb's end along its own
+        // side planes costs it nothing: a figure folded to a quarter of its height reported 0.09 of the extent
+        // (CesiumMan LOD 6, WP-FAR-12C). The support distance in kLODSilhouetteDirectionCount directions (every
+        // face, edge and corner direction of a cube) is the outline the level can no longer reach: how far its
+        // convex outline lies inside the source's - a lower bound on the true deviation that sees exactly the
+        // loss the quadric does not (a limb or the head pulled in).
+        inline constexpr std::size_t kLODSilhouetteDirectionCount = 26;
+
+        std::array<glm::vec3, kLODSilhouetteDirectionCount> LODSilhouetteDirections()
+        {
+            std::array<glm::vec3, kLODSilhouetteDirectionCount> directions{};
+            std::size_t                                         next = 0;
+            for ( int x = -1; x <= 1; ++x )
+                for ( int y = -1; y <= 1; ++y )
+                    for ( int z = -1; z <= 1; ++z )
+                        if ( x != 0 || y != 0 || z != 0 )
+                            directions[next++] = glm::normalize(
+                                 glm::vec3( static_cast<float>( x ), static_cast<float>( y ), static_cast<float>( z ) ) );
+            return directions;
+        }
+
+        // The support of the vertices @p indices names, in every silhouette direction.
+        std::array<float, kLODSilhouetteDirectionCount> LODSupport( const float*                  positions,
+                                                                    const std::vector<uint32_t>& indices )
+        {
+            static const std::array<glm::vec3, kLODSilhouetteDirectionCount> directions = LODSilhouetteDirections();
+            std::array<float, kLODSilhouetteDirectionCount> support;
+            support.fill( -std::numeric_limits<float>::max() );
+            for ( const uint32_t v : indices )
+            {
+                const glm::vec3 p = LODPosition( positions, v );
+                for ( std::size_t d = 0; d < kLODSilhouetteDirectionCount; ++d )
+                    support[d] = std::max( support[d], glm::dot( p, directions[d] ) );
+            }
+            return support;
+        }
+
+        // How far, relative to @p extent, the outline of @p level lies inside @p source's (0 = nothing lost).
+        float LODSilhouetteLoss( const std::array<float, kLODSilhouetteDirectionCount>& source,
+                                 const float* positions, const std::vector<uint32_t>& level, const float extent )
+        {
+            if ( level.empty() || !( extent > 0.0f ) )
+                return std::numeric_limits<float>::max();
+            const auto kept = LODSupport( positions, level );
+            float      loss = 0.0f;
+            for ( std::size_t d = 0; d < kLODSilhouetteDirectionCount; ++d )
+                loss = std::max( loss, source[d] - kept[d] );
+            return loss / extent;
         }
     } // namespace
 
@@ -148,6 +203,8 @@ namespace Desert::Geometry
         const std::size_t     totalTris  = localTris.size();
         const std::size_t     solidTris  = solidFlat.size() / 3;
         std::size_t           prevCount  = flat.size(); // each level must strictly decrease
+        std::size_t           prevSolid  = solidTris;   // the solid triangles of the last level kept
+        const auto            solidSupport = LODSupport( positions, solidFlat );
         float                 screenSize = kLOD0ScreenSize;
         for ( std::size_t level = 0; level < targets.size(); ++level )
         {
@@ -162,16 +219,67 @@ namespace Desert::Geometry
 
             std::vector<uint32_t> out;
             float                 error = 0.0f;
+            float                 silhouette = 0.0f;
             if ( solidTris > 0 )
             {
-                const auto  solidTarget = static_cast<std::size_t>( static_cast<double>( solidTris ) * share );
-                const float ratio = ( static_cast<float>( solidTarget ) + 0.5f ) / static_cast<float>( solidTris );
-                auto lod = SimplifyMesh( positions, vertexCount, solidFlat, ratio, errorBudget, attributes );
+                // The level's MEASURED error: the larger of the quadric deviation and the outline it lost.
+                const auto reduce = [&]( const std::size_t triangles, float& measured )
+                {
+                    const float ratio = ( static_cast<float>( triangles ) + 0.5f ) / static_cast<float>( solidTris );
+                    auto lod = SimplifyMesh( positions, vertexCount, solidFlat, std::min( ratio, 1.0f ), errorBudget,
+                                             attributes );
+                    measured = LODSilhouetteLoss( solidSupport, positions, lod.Indices, extent );
+                    return lod;
+                };
+                const auto solidTarget = static_cast<std::size_t>( static_cast<double>( solidTris ) * share );
+                auto       lod         = reduce( solidTarget, silhouette );
                 if ( !lod.StopReason.empty() )
                     LOG_INFO( "[MeshLOD] LOD {}: solid parts stopped at {} of target {} tris: {}", level + 1,
                               lod.Indices.size() / 3, solidTarget, lod.StopReason );
-                out   = std::move( lod.Indices );
-                error = lod.Error;
+                // A LEVEL STOPS SHORT OF ITS TARGET RATHER THAN EXCEED ITS BUDGET (UE: a level exists only while
+                // its deviation fits a pixel at the screen size it is drawn at): when the outline it lost is over
+                // the budget, the fewest triangles between the target and the last kept level whose outline fits
+                // (bisection; meshopt's count is monotone in the target). None fits - the level is not made
+                // (empty = the previous level is drawn on), the next, coarser one tries again with its own,
+                // larger budget.
+                if ( silhouette > errorBudget )
+                {
+                    std::size_t   fails = solidTarget, fits = prevSolid;
+                    SimplifyResult best;
+                    float         bestSilhouette = 0.0f;
+                    bool          found          = false;
+                    while ( fits > fails + 1 )
+                    {
+                        const std::size_t mid = fails + ( fits - fails ) / 2;
+                        float             measured = 0.0f;
+                        auto              trial    = reduce( mid, measured );
+                        if ( measured <= errorBudget && trial.Indices.size() / 3 < prevSolid )
+                        {
+                            fits           = mid;
+                            best           = std::move( trial );
+                            bestSilhouette = measured;
+                            found          = true;
+                        }
+                        else
+                            fails = mid;
+                    }
+                    LOG_INFO( "[MeshLOD] LOD {}: target {} tris lost {:.4f} of the extent of its outline (budget "
+                              "{:.4f}); {}",
+                              level + 1, solidTarget, silhouette, errorBudget,
+                              found ? std::format( "kept {} tris, outline loss {:.4f}", best.Indices.size() / 3,
+                                                   bestSilhouette )
+                                    : std::string( "no level fits - not made" ) );
+                    if ( !found )
+                    {
+                        levels.emplace_back();
+                        continue;
+                    }
+                    lod        = std::move( best );
+                    silhouette = bestSilhouette;
+                }
+                out       = std::move( lod.Indices );
+                error     = lod.Error;
+                prevSolid = out.size() / 3;
             }
 
             // ELEMENTS (UE Nanite Preserve Area's selection; a discrete level adds no vertex, so no inflation):
@@ -200,9 +308,10 @@ namespace Desert::Geometry
             }
             const double keptAreaPercent = elementArea > 0.0 ? 100.0 * keptArea / elementArea : 0.0;
 
-            LOG_INFO( "[MeshLOD] LOD {}: target {} tris, result {} of {} tris, solid deviation {:.4f} of the extent "
-                      "(budget {:.4f} at screen size {:.4f}); {} of {} elements kept ({:.1f} % of their area){}",
-                      level + 1, targets[level], out.size() / 3, totalTris, error, errorBudget, screenSize,
+            LOG_INFO( "[MeshLOD] LOD {}: target {} tris, result {} of {} tris, solid deviation {:.4f} of the extent, "
+                      "outline loss {:.4f} (budget {:.4f} at screen size {:.4f}); {} of {} elements kept ({:.1f} % of their "
+                      "area){}",
+                      level + 1, targets[level], out.size() / 3, totalTris, error, silhouette, errorBudget, screenSize,
                       keptElements, elements.size(), keptAreaPercent, attributes ? "" : " (positions only)" );
             std::vector<Index> tris;
             if ( out.size() >= 3 && out.size() < prevCount )
