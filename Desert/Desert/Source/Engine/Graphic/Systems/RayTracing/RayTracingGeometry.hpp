@@ -3,6 +3,7 @@
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -18,8 +19,9 @@ namespace Desert::Graphic
 // THE BLAS BUILD INPUT OF A STATIC MESH (UE FRayTracingGeometryInitializer + its segments), device-free. One
 // geometry per submesh, all reading the mesh's ONE vertex buffer and ONE index buffer — the same buffers the
 // raster draw binds (MeshBufferUsage gives them the build-input usage where the device has acceleration
-// structures). LOD 0 only: a ray sees the full-detail surface whatever LOD the raster picked (UE does the same for
-// static meshes). The Vulkan object (VkAccelerationStructureGeometryTrianglesDataKHR +
+// structures). LOD 0 unless the key names a coarser RT-LOD (RayTracingSubmeshMasks::Lod: ISM / foliage instances
+// far enough that a coarser level's measured error is below the ray-tracing threshold, RayTracingFoliage.hpp;
+// UE: the ray-tracing LOD of a static mesh / Nanite fallback). The Vulkan object (VkAccelerationStructureGeometryTrianglesDataKHR +
 // VkAccelerationStructureBuildRangeInfoKHR per entry) is a mapping of this and nothing more.
 namespace Desert::Graphic::RayTracing
 {
@@ -72,6 +74,10 @@ namespace Desert::Graphic::RayTracing
     {
         uint64_t Hidden    = 0; // bit i = submesh i has no segment (MeshComponent::HiddenSubmeshes, other slots)
         uint64_t NonOpaque = 0; // bit i = submesh i's segment runs the alpha test (its section material is Masked)
+        // RT-FOLIAGE-BLAS: the level of detail the segments are cut from (RayTracingLodRange per submesh). 0 = the
+        // full-detail surface, the mesh's own BLAS; a coarser level is a variant shared by every instance that
+        // selected it (RayTracingFoliage.hpp), so the key of every BLAS cache carries it with the masks.
+        uint8_t Lod = 0;
 
         bool operator==( const RayTracingSubmeshMasks& ) const = default;
     };
@@ -83,6 +89,20 @@ namespace Desert::Graphic::RayTracing
     {
         const uint32_t indexCount = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
         return indexCount / 3u > 0 && submesh.VertexCount > 0;
+    }
+
+    // THE INDEX RANGE A BLAS AT LEVEL @p lod CUTS FROM @p submesh: LODs[lod] clamped to the submesh's coarsest level,
+    // and below that the finest level that still holds a triangle - so a submesh with a LOD-0 segment has one at
+    // every level, and a hit's geometry index maps to the same record whatever level the BLAS was built at. A
+    // submesh with no LOD chain (procedural) answers its own range at every level.
+    [[nodiscard]] inline LODRange RayTracingLodRange( const Submesh& submesh, const uint32_t lod )
+    {
+        if ( submesh.LODs.empty() )
+            return LODRange{ submesh.IndexOffset, submesh.IndexCount };
+        std::size_t level = std::min<std::size_t>( lod, submesh.LODs.size() - 1u );
+        while ( level > 0u && submesh.LODs[level].IndexCount / 3u == 0u )
+            --level;
+        return submesh.LODs[level];
     }
 
     // Every submesh with at least one triangle at LOD 0 that @p hiddenSubmeshes does not hide, in submesh order
@@ -115,9 +135,9 @@ namespace Desert::Graphic::RayTracing
             const Submesh& submesh = submeshes[index];
             if ( IsSubmeshHidden( masks.Hidden, index ) || !HasRayTracingSegment( submesh ) )
                 continue;
-            const uint32_t indexOffset = submesh.LODs.empty() ? submesh.IndexOffset : submesh.LODs[0].IndexOffset;
-            const uint32_t indexCount  = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
-            const uint32_t triangles   = indexCount / 3u;
+            const LODRange range       = RayTracingLodRange( submesh, masks.Lod );
+            const uint32_t indexOffset = range.IndexOffset;
+            const uint32_t triangles   = range.IndexCount / 3u;
 
             RayTracingGeometrySegment segment;
             segment.VertexFormat    = RayTracingVertexFormat::Float3;

@@ -34,8 +34,8 @@ namespace Desert::Graphic::RayTracing
         const Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>> built = m_Build( mesh, masks );
         if ( !built )
             return Common::MakeFormattedError<const RayTracingGeometryResource*>(
-                 "the BLAS variant hiding submeshes {:#x}, non-opaque {:#x} could not be built: {}", masks.Hidden,
-                 masks.NonOpaque, built.GetError() );
+                 "the BLAS variant hiding submeshes {:#x}, non-opaque {:#x} at RT-LOD {} could not be built: {}",
+                 masks.Hidden, masks.NonOpaque, masks.Lod, built.GetError() );
         variant.Geometry = built.GetValue();
         return Common::MakeSuccess( static_cast<const RayTracingGeometryResource*>( variant.Geometry.get() ) );
     }

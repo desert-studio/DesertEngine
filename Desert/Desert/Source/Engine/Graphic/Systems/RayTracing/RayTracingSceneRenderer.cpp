@@ -506,7 +506,8 @@ namespace Desert::Graphic::RayTracing
 
     Common::BoolResultStr RayTracingSceneRenderer::AddPasses(
          RDG::Builder& graph, bool required, const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
-         const glm::vec3& viewOrigin, const float drawDistanceScale, const RayTracingExternalPrimitives& external )
+         const glm::vec3& viewOrigin, const float drawDistanceScale, const RayTracingExternalPrimitives& external,
+         const RDG::BufferRef windCamera )
     {
         // m_Instances, m_SceneRows and m_Metadata are kept across frames: a frame whose primitives only moved
         // patches them (THE TLAS FOLLOWS THE CHANGE STREAM in the header).
@@ -532,7 +533,8 @@ namespace Desert::Graphic::RayTracing
 
         m_DynamicBlas.clear();
         m_DynamicBuilds.clear();
-        const RayTracingGatherInputs inputs   = GatherInputsOf( meshes, viewOrigin, drawDistanceScale );
+        RayTracingGatherInputs inputs = GatherInputsOf( meshes, viewOrigin, drawDistanceScale );
+        inputs.FoliageLod             = &m_FoliageLod; // a TLAS gather picks each ISM instance's RT-LOD
         const GpuDriven::GpuScene*   scene    = meshes.GetGpuScene();
         bool                         relisted = !m_ListValid; // the instance list is laid out anew this frame
         {
@@ -566,12 +568,14 @@ namespace Desert::Graphic::RayTracing
                 // Everything the raster queued, frustum-independent (RayTracingGather.hpp).
                 DESERT_PROFILE_SCOPE( "RayTracingScene: TlasGather" );
                 GatherRayTracingPrimitives( inputs, &cache.GetVariants(), m_Gather );
+                m_FoliageLod.EndGather();
                 m_GatherSceneCount   = m_Gather.Primitives.size();
                 m_GatherSceneRecords = m_Gather.SegmentRecords.size();
                 m_DynamicPrimitives.clear();
                 for ( std::size_t p = 0; p < m_Gather.Primitives.size(); ++p )
                     if ( m_Gather.Primitives[p].Kind == RayTracingPrimitiveKind::Skinned ||
-                         m_Gather.Primitives[p].ProceduralMesh != nullptr )
+                         m_Gather.Primitives[p].ProceduralMesh != nullptr ||
+                         m_Gather.Primitives[p].Wind.MeshPtr != nullptr )
                         m_DynamicPrimitives.push_back( static_cast<uint32_t>( p ) );
                 m_GatherHasBlas = true;
                 relisted        = true;
@@ -600,6 +604,28 @@ namespace Desert::Graphic::RayTracing
                       graph, m_Gather.Primitives, cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
                  !procedural )
                 return procedural;
+            // Swaying foliage: its own wind BLAS, refit from the raster's wind within the frame's budget, else the
+            // rest-pose BLAS of its RT-LOD (RayTracingFoliage.hpp). Then what the view traces of the foliage.
+            m_FoliageStats = {};
+            if ( const Common::BoolResultStr wind = cache.GetFoliageWind().AddPasses(
+                      graph, meshes, m_Gather.Primitives, m_DynamicPrimitives, windCamera, viewOrigin,
+                      cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas, m_FoliageStats );
+                 !wind )
+                return wind;
+            CountRayTracingFoliage( m_Gather.Primitives, m_FoliageStats );
+            if ( m_FoliageStats != m_LoggedFoliage )
+            {
+                m_LoggedFoliage = m_FoliageStats;
+                LOG_INFO( "[RT] foliage BLAS: unique {} for {} instances ({} at an RT-LOD past 0), {:.2f} MiB vs "
+                          "LOD0 {:.2f} MiB; refit {} + built {} + shared {} / budget {}, rest pose {} of {} "
+                          "swaying, wind BLAS {:.2f} MiB",
+                          m_FoliageStats.Unique, m_FoliageStats.Instances, m_FoliageStats.Lowered,
+                          static_cast<double>( m_FoliageStats.SharedBytes ) / ( 1024.0 * 1024.0 ),
+                          static_cast<double>( m_FoliageStats.Lod0Bytes ) / ( 1024.0 * 1024.0 ),
+                          m_FoliageStats.Refit, m_FoliageStats.Built, m_FoliageStats.Shared, m_FoliageStats.Budget,
+                          m_FoliageStats.RestPose, m_FoliageStats.Swaying,
+                          static_cast<double>( m_FoliageStats.WindBytes ) / ( 1024.0 * 1024.0 ) );
+            }
         }
         // Primitives other renderers produced (landscape tiles), after the skinned ones (firstSkinned above counts
         // from the end): their BLAS requests join the same pass, and their BLASes built in an earlier frame are

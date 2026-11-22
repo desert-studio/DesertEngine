@@ -162,6 +162,18 @@ namespace Desert::Graphic::RayTracing
         // procedural cache builds its (mesh, Submeshes) BLAS in "RayTracingScene.DynamicGeometry" and fills
         // Geometry (RayTracingProceduralGeometry.hpp). Instanced rows keep Kind Instanced.
         const Mesh* ProceduralMesh = nullptr;
+        // RT-FOLIAGE-BLAS: a swaying ISM / foliage instance (its field's InstanceWind sways; RayTracingFoliage.hpp):
+        // its mesh, the shared rest-pose BLAS of its RT-LOD and its key {entity, component instance}.
+        // RayTracingFoliageWind points Geometry at the instance's own wind BLAS within the frame's refit budget, at
+        // Rest past it. MeshPtr null: the instance does not sway (Geometry is final).
+        struct WindSource
+        {
+            const Mesh* MeshPtr  = nullptr;
+            const void* Rest     = nullptr;
+            uint32_t    Entity   = 0;
+            uint32_t    Instance = 0;
+        };
+        WindSource Wind;
         // The mesh asset the primitive draws (a static row's, an ISM instance's), the identity the surface cache
         // keys an instance by with World (SurfaceCacheScene::PlacementKey): the hardware tracer's hit -> cards.
         // Null where the cache holds no such instance (skinned, landscape).

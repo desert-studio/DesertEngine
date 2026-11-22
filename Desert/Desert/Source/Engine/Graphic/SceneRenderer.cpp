@@ -1,3 +1,4 @@
+#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
@@ -2429,8 +2430,21 @@ namespace Desert::Graphic
                 tlas = Common::MakeError(
                      std::string( "OnUpdate ran outside BeginScene/EndScene: no scene ray-tracing cache" ) );
             else
+            {
+                // RT-FOLIAGE-BLAS: the view's camera block (gust, local wind), what the swaying foliage's wind
+                // BLASes are evaluated with - the block the raster's instanced vertex stage reads.
+                RDG::BufferRef windCamera;
+                if ( required )
+                {
+                    const ShaderProtocols::Camera windBlock = ShaderProtocols::MakeCameraUB( frame );
+                    windCamera = graph.CreateBuffer( RDG::BufferDesc{ sizeof( windBlock ) },
+                                                     "RayTracingScene.FoliageWind.CameraUB" );
+                    graph.QueueBufferUpload(
+                         windCamera, std::as_bytes( std::span<const ShaderProtocols::Camera>( &windBlock, 1 ) ) );
+                }
                 tlas = m_RayTracingScene.AddPasses( graph, required, *meshes, *m_FrameRayTracingCache, viewOrigin,
-                                                    lensScale, external );
+                                                    lensScale, external, windCamera );
+            }
             for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
             {
                 LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}",
