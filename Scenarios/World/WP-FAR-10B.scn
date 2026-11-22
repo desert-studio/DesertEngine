@@ -1,0 +1,20 @@
+# WP-FAR-10B: a skinned mesh's LOD chain comes from its cooked derived data (the .skmesh's baked LODs, made at
+# import by the mesh's own MeshImportSettings::LodChain) and begins each level at the mesh's own screen sizes
+# (its import record's LodScreenSize - UE USkeletalMesh LODInfo ScreenSize), not the static auto table.
+# Readout: editor.log "[SkinnedLOD] N vertices: LOD chain loaded from the cooked derived data" (never "GENERATED
+# AT LOAD"), "[SkinnedLOD] entity E: LOD l/n ... screen size X", "[SkinnedLOD] anim CPU ... N animated instances".
+# Scene: CesiumMan at the origin + 20 copies 30-300 m behind it (WP_FAR11_SkinnedCrowd) = 21 instances.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR11_SkinnedCrowd.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,6000
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 2
+Тогда high_60 at 60 m under High the origin figure is walking at full-looking detail; log: its [SkinnedLOD] LOD finer than 5, the chain "loaded from the cooked derived data"
+Когда --subject viewport set Camera.Position 0,0,30000
+Когда advance 3
+Тогда far11_readout at 300 m the figures are a few pixels; log: every "[SkinnedLOD] anim CPU" line counts 21.0 animated instances
+Когда run Action "Stop"
