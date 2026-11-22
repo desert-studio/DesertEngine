@@ -639,8 +639,8 @@ namespace Desert::Graphic::System
             // GpuScene row fetches its posed streams from (the skin cache's layout), so it is neither skinned nor
             // posed. Set by SelectSkinnedLods; the skin cache leaves such a record alone.
             uint64_t                    VatAddress  = 0;
-            // The far figure's minimum screen size (VertexAnimationCrowd::kMinScreenSize): the growth its VAT draw
-            // gets this frame about MinScreenPivot (the local bounds' bottom centre), 1 = its own size. Set by
+            // The far figure's minimum screen size (VertexAnimationCrowd::kMinScreenSize): the growth its draw
+            // (VAT or skeletal) gets this frame about MinScreenPivot (the local bounds' bottom centre), 1 = its own size. Set by
             // SelectSkinnedLods; the GpuScene row's world (SyncGpuScene) carries it to every pass.
             float                       MinScreenScale = 1.0f;
             glm::vec3                   MinScreenPivot = glm::vec3( 0.0f );
