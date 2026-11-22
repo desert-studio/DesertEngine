@@ -100,5 +100,11 @@ namespace Desert::Editor
         bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
         // --flight: one row per frame of Play, written as the CSV when the capture ends.
         Flight::FlightLog m_FlightLog;
+        // --flight: every timed frame's wall ms so far, the median a hitch is measured against (LogFlightHitch).
+        std::vector<double> m_FlightFrameMs;
+        /// --flight: a frame over kHitchFactor x the flight's median so far is printed as a [Hitch] line with its
+        /// largest self rows and the frame thread's unnamed time (UE `stat hitches`). The profiler publishes a
+        /// one-frame window during a capture, so the window's own hitch list never sees a spike.
+        void LogFlightHitch( uint32_t frame, double frameMs );
     };
 } // namespace Desert::Editor
