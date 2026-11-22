@@ -15,6 +15,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <Engine/Assets/AssetManager.hpp>
 
 namespace Desert::Runtime
 {

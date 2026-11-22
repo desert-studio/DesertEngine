@@ -65,6 +65,7 @@
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor
 {

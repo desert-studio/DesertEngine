@@ -1,9 +1,14 @@
 #pragma once
 
 #include <Engine/Core/Camera.hpp>
-#include <Engine/Core/Scene.hpp>
 
 #include <glm/glm.hpp>
+
+namespace Desert::Core
+{
+    class Scene; // Scene.hpp: the .cpp that walks the scene includes it
+    struct RaycastHit;
+} // namespace Desert::Core
 
 namespace Desert::Editor::Tools
 {

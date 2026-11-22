@@ -46,6 +46,7 @@
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor::Tools
 {

@@ -7,7 +7,6 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Animation/Rig/ControlManipulator.hpp>
 #include <ImGui/imgui.h>
@@ -16,6 +15,11 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+namespace Desert::Core
+{
+    class Scene; // Scene.hpp: the .cpp that walks the scene includes it
+} // namespace Desert::Core
 
 namespace Desert::Editor
 {

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/Serialize/SceneLoadPhases.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -15,8 +14,14 @@
 #include <vector>
 #include <string_view>
 
+namespace Desert::Assets
+{
+    class AssetManager;
+} // namespace Desert::Assets
+
 namespace Desert::Core
 {
+    class Scene; // Scene.hpp: SceneSerializer.cpp walks it
     struct LoadableScene;
 
     class SceneSerializer

@@ -1,12 +1,17 @@
 #pragma once
 
 #include <Engine/Assets/AssetBase.hpp>
-#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetEvents.hpp>
 
 #include <Engine/Animation/AnimationClip.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+
+namespace Desert::Assets
+{
+    class AssetManager; // AssetManager.hpp: the .cpp that resolves through the registry includes it
+} // namespace Desert::Assets
 
 namespace Desert::Assets
 {

@@ -1,4 +1,5 @@
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 
 #include <Common/Core/DevInstruments.hpp>
 

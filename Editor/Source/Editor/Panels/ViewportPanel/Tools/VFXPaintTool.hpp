@@ -9,7 +9,6 @@
 #include <Common/Core/Math/Ray.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
-#include <Engine/Core/Scene.hpp>
 
 #include <glm/glm.hpp>
 
@@ -17,6 +16,11 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+namespace Desert::Core
+{
+    class Scene; // Scene.hpp: the .cpp that walks the scene includes it
+} // namespace Desert::Core
 
 namespace Desert::Editor
 {
