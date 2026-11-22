@@ -5,6 +5,10 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
+#include <Engine/Graphic/RenderPassDeclaration.hpp>
+#include <Engine/Graphic/RenderPass.hpp>
 
 namespace Desert::Editor::Render
 {

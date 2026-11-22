@@ -22,6 +22,7 @@
 #include <Engine/Physics/CharacterControllerComponent.hpp>
 #include <Engine/UI/Ecs/UIAnimComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 
 namespace Desert::Core
 {

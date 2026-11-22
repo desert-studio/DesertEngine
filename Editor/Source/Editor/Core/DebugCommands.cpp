@@ -10,6 +10,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 
 #include <memory>
+#include <Engine/VFX/VFXWorld.hpp>
 
 namespace Desert::Editor
 {

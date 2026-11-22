@@ -14,6 +14,7 @@
 #include <format>
 #include <string>
 #include <vector>
+#include <Engine/Core/Camera.hpp>
 
 namespace Desert::Editor::MeshLODRows
 {

@@ -24,7 +24,7 @@
 #include "EditorHLODs.hpp"
 
 #include <Engine/Core/Serialize/EditorRegions.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 #include <Common/Core/ResultStr.hpp>

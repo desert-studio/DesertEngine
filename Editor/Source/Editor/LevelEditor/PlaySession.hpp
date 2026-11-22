@@ -8,6 +8,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"

@@ -1,3 +1,4 @@
+#include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>

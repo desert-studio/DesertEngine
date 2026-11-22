@@ -31,6 +31,7 @@
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 
 namespace Desert::Core
 {

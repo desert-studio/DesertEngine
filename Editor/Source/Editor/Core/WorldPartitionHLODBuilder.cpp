@@ -6,6 +6,7 @@
 // adapted: the HLOD actors are rows of BuiltHLODIndex saved beside the world (WorldCells.hpp), the hash is
 // WorldCells::HLODBuildChecksum, and the landscape BaseColor bake runs over editor frames (LandscapeHLODBake).
 
+#include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include "WorldPartitionHLODBuilder.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>

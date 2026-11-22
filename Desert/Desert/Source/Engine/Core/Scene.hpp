@@ -1,61 +1,108 @@
 #pragma once
 
-#include <Engine/Core/GameMode.hpp>
-#include <Engine/Graphic/Image.hpp>
-#include <Engine/Graphic/RenderPass.hpp>
-#include <Engine/Graphic/ExtensionPass.hpp>
-
-#include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Core/Profiler.hpp>
+// WHAT THIS HEADER INCLUDES IS WHAT A SCENE IS MADE OF, NOT WHAT IT OWNS (BUILD-MOD-3; UE UWorld.h forward-declares
+// its subsystems and holds the feature worlds by pointer). The registry, the entity index, the view list and the
+// render-state feeds are by value; every feature world (effects, weather, deformation, debug draw, extension
+// passes, settings, the loaded file's state) is held through a pointer to a forward-declared type and defined in
+// its own header, which a caller that uses it includes itself. A world type added here by value puts its header
+// into every object that names a Scene (~380 of them).
 #include <Common/Core/Core.hpp>
-#include <Engine/Core/Camera.hpp>
-
-#include "SceneSettings.hpp"
-#include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/Core/Serialize/EntityPackages.hpp>
-#include "SceneEntityIndex.hpp"
-#include "SceneViewList.hpp"
-
-#include <mutex>
-#include <unordered_set>
-#include "WorldTime.hpp"
-#include "DebugDraw.hpp"
-#if DESERT_DEV_INSTRUMENTS
-#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
-#endif
-#include "SceneGeneration.hpp"
-
+#include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Subsystems/WorldSubsystems.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
-#include <Engine/World/Deformation/DeformationWorld.hpp>
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/UUID.hpp>
-#include <glm/glm.hpp>
-#include <Common/Json/Carry.hpp>
-#include <cstdint>
-#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
+#include <Engine/Core/SceneEntityIndex.hpp>
+#include <Engine/Core/SceneGeneration.hpp>
+#include <Engine/Core/SceneViewList.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/HierarchyRevision.hpp>
 #include <Engine/ECS/RenderStateDelta.hpp>
-#include <Engine/ECS/System/System.hpp>
-#include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
+
 #include <entt/entt.hpp>
+#include <glm/glm.hpp>
+
+#include <array>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
-#include <Engine/Core/WorldParameterInstance.hpp>
-#include <Engine/Core/WeatherState.hpp>
-
+#include <span>
 #include <string>
 #include <unordered_map>
-#include <array>
-#include <span>
+#include <unordered_set>
 #include <vector>
-#include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+
+namespace Common::Content
+{
+    struct TextAssetHeaderSerialized;
+}
+
+namespace Common::Json
+{
+    class TextDocument;
+}
+
+namespace Desert::Assets
+{
+    class AssetManager;
+}
+
+namespace Desert::ECS
+{
+    class System;
+}
+
+namespace Desert::VFX
+{
+    class VFXWorld;
+}
+
+namespace Desert::World
+{
+    class DeformationWorld;
+}
+
+namespace Desert::Debug
+{
+    class GameplayDebugger;
+}
+
+namespace Desert::Graphic::RDG
+{
+    template <typename Pass>
+    class ExtensionRegistry;
+}
+
+namespace Desert::Graphic::Render
+{
+    class RenderCommandBuffer;
+}
+
+namespace Desert::Graphic
+{
+    class Image2D;
+    class Framebuffer;
+    struct ExtensionPass;
+    using ExtensionPassRegistry = RDG::ExtensionRegistry<ExtensionPass>;
+}
+
+namespace Desert::Core
+{
+    class Camera;
+    class DebugDrawWorld;
+    class EntityPackages;
+    class GameMode;
+    class WeatherState;
+    class WorldParameterInstance;
+    class WorldTime;
+    struct SceneSettings;
+    struct WorldPartitionSerialized;
+}
 
 namespace Desert::Graphic::RayTracing
 {
@@ -158,11 +205,11 @@ namespace Desert::Core
         // this scene simulates from (plan 02 §3.3-1). Ticked by OnUpdate.
         [[nodiscard]] VFX::VFXWorld& GetVFXWorld()
         {
-            return m_VFXWorld;
+            return *m_VFXWorld;
         }
         [[nodiscard]] const VFX::VFXWorld& GetVFXWorld() const
         {
-            return m_VFXWorld;
+            return *m_VFXWorld;
         }
 
         template <typename T>
@@ -319,15 +366,9 @@ namespace Desert::Core
 
         // The .desce's text header as loaded (or as last stamped by a save): it carries the scene's GUID,
         // which is the scene's identity and is kept from save to save - never re-derived.
-        [[nodiscard]] const std::optional<Common::Content::TextAssetHeaderSerialized>& GetAssetHeader() const
-        {
-            return m_AssetHeader;
-        }
+        [[nodiscard]] const std::optional<Common::Content::TextAssetHeaderSerialized>& GetAssetHeader() const;
 
-        void SetAssetHeader( std::optional<Common::Content::TextAssetHeaderSerialized> header )
-        {
-            m_AssetHeader = std::move( header );
-        }
+        void SetAssetHeader( std::optional<Common::Content::TextAssetHeaderSerialized> header );
 
         [[nodiscard]] std::optional<std::reference_wrapper<const ECS::Entity>>
         FindEntityByID( const Common::UUID& uuid ) const;
@@ -389,24 +430,7 @@ namespace Desert::Core
         // without the reset an effect would enter Play mid-loop at whatever age the editor preview reached, and a
         // burst at SpawnTime 0 would not fire until the loop came round. Back to Edit the preview starts over
         // too (the restored world is a new one).
-        void SetState( SceneState state )
-        {
-            if ( m_State == SceneState::Edit && state == SceneState::Play )
-            {
-                m_WorldTime.Reset();
-                m_VFXWorld.Reset();
-            }
-            else if ( m_State != SceneState::Edit && state == SceneState::Edit )
-                m_VFXWorld.Reset();
-            m_State = state;
-            if ( state == SceneState::Edit )
-                m_Simulating = false; // a simulation ends with the session it ran in
-            m_Subsystems.SetPlaying( state != SceneState::Edit );
-            if ( state != SceneState::Paused )
-            {
-                m_SingleFramePending = false; // a step belongs to the pause it was asked in
-            }
-        }
+        void SetState( SceneState state );
         [[nodiscard]] bool IsPlaying() const
         {
             return m_State == SceneState::Play;
@@ -416,11 +440,11 @@ namespace Desert::Core
         // this scene's picture. Ticked once per frame at the top of OnUpdate.
         [[nodiscard]] WorldTime& GetWorldTime()
         {
-            return m_WorldTime;
+            return *m_WorldTime;
         }
         [[nodiscard]] const WorldTime& GetWorldTime() const
         {
-            return m_WorldTime;
+            return *m_WorldTime;
         }
 
         // The world's instance of its collection (UE's UMaterialParameterCollectionInstance, Engine/Core/
@@ -429,21 +453,21 @@ namespace Desert::Core
         // first, and the Luau library calls it before a set/get so a script's first frame finds the parameters.
         [[nodiscard]] WorldParameterInstance& GetWorldParameters()
         {
-            return m_WorldParameters;
+            return *m_WorldParameters;
         }
         [[nodiscard]] const WorldParameterInstance& GetWorldParameters() const
         {
-            return m_WorldParameters;
+            return *m_WorldParameters;
         }
         // The world's deformation service (DEFORM-FIELD, Engine/World/Deformation): the contact log every
         // deformation field of this world reads (World.deform submits into it).
         [[nodiscard]] World::DeformationWorld& GetDeformation()
         {
-            return m_Deformation;
+            return *m_Deformation;
         }
         [[nodiscard]] const World::DeformationWorld& GetDeformation() const
         {
-            return m_Deformation;
+            return *m_Deformation;
         }
         // Adopts (or keeps) the named collection. Refused with the reason when the collection cannot be read;
         // the instance then holds no parameters, so no material reads a stale value.
@@ -454,7 +478,7 @@ namespace Desert::Core
         // camera into the world parameters, the cloud layer's Coverage, the fog's density and the zones' wind.
         [[nodiscard]] WeatherState& GetWeather()
         {
-            return m_Weather;
+            return *m_Weather;
         }
 
         // The editor viewport's Realtime toggle (UE's viewport "Realtime"): while editing, whether the
@@ -510,11 +534,11 @@ namespace Desert::Core
         // The game rules of this played world (Core/GameMode.hpp): death and restart of the player's pawn.
         [[nodiscard]] GameMode& GetGameMode()
         {
-            return m_GameMode;
+            return *m_GameMode;
         }
         [[nodiscard]] const GameMode& GetGameMode() const
         {
-            return m_GameMode;
+            return *m_GameMode;
         }
         // Play from Here: the editor camera is an allowed last-resort view target (and ONLY then).
         void SetPlayFromHere( bool fromHere )
@@ -560,12 +584,12 @@ namespace Desert::Core
 
         [[nodiscard]] SceneSettings& GetSettings()
         {
-            return m_Settings;
+            return *m_Settings;
         }
 
         [[nodiscard]] const SceneSettings& GetSettings() const
         {
-            return m_Settings;
+            return *m_Settings;
         }
 
         // THE FILE THIS SCENE WAS LOADED FROM, AS IT WAS PARSED — kept for one purpose and read at one
@@ -580,14 +604,8 @@ namespace Desert::Core
         //
         // Empty for a scene that was never loaded from a file (File → New), which makes the merge the
         // identity and costs a new scene nothing.
-        [[nodiscard]] const std::optional<Common::Json::TextDocument>& GetLoadedDocument() const
-        {
-            return m_LoadedDocument;
-        }
-        void SetLoadedDocument( Common::Json::TextDocument document )
-        {
-            m_LoadedDocument = std::move( document );
-        }
+        [[nodiscard]] const std::optional<Common::Json::TextDocument>& GetLoadedDocument() const;
+        void SetLoadedDocument( Common::Json::TextDocument document );
 
         // WHICH ENTITIES DIFFER FROM THEIR FILES (WP17, EntityPackages.hpp): stamped by the editor's recorded
         // edits, baselined by the open and by every save, read by SceneSerializer::SaveToFile. Shared so an
@@ -601,19 +619,13 @@ namespace Desert::Core
         // write, an editor system, an import's rebind, a script) calls this, or a save of a partitioned world
         // skips the entity's file and the change is lost. A Debug save refuses an entity that differs from its
         // file without a mark (EntityPackages.hpp, CleanCheck). Recorded edits stamp through CommandHistory.
-        void MarkModified( Common::UUID id ) const
-        {
-            m_Packages->MarkModified( id );
-        }
+        void MarkModified( Common::UUID id ) const;
 
         // MarkModified for `root` and every entity below it (a recursive toggle: lock, unpack).
         void MarkModifiedSubtree( ECS::Entity root ) const;
 
         // An edit outside the history whose entities cannot be named: the next save writes the whole world.
-        void MarkModifiedAll() const
-        {
-            m_Packages->TouchAll();
-        }
+        void MarkModifiedAll() const;
 
         // WHETHER THIS WORLD IS PARTITIONED, AND WITH WHAT — held on the live scene, which is what makes
         // it editable at all.
@@ -628,14 +640,8 @@ namespace Desert::Core
         //
         // Absent = this world is not partitioned (SceneSerialized::WorldPartition says the same thing on
         // disk, and this is that field in memory — one value, one place).
-        [[nodiscard]] const std::optional<WorldPartitionSerialized>& GetWorldPartition() const
-        {
-            return m_WorldPartition;
-        }
-        void SetWorldPartition( std::optional<WorldPartitionSerialized> partition )
-        {
-            m_WorldPartition = std::move( partition );
-        }
+        [[nodiscard]] const std::optional<WorldPartitionSerialized>& GetWorldPartition() const;
+        void SetWorldPartition( std::optional<WorldPartitionSerialized> partition );
 
         // The engine's ONE "save this scene" entry point — and therefore the one that has to answer
         // whether the save happened. It used to return void into a void (SceneSerializer::SaveToFile),
@@ -660,11 +666,11 @@ namespace Desert::Core
         // of OnUpdate, before the systems that draw into it.
         [[nodiscard]] DebugDrawWorld& GetDebugDraw()
         {
-            return m_DebugDraw;
+            return *m_DebugDraw;
         }
         [[nodiscard]] const DebugDrawWorld& GetDebugDraw() const
         {
-            return m_DebugDraw;
+            return *m_DebugDraw;
         }
 #if DESERT_DEV_INSTRUMENTS
         // THE SCENE'S GAMEPLAY DEBUGGER (UE: the local player's gameplay debugger replicator): the ` overlay about
@@ -672,17 +678,17 @@ namespace Desert::Core
         // in); draws into GetDebugDraw. Not in a player's build.
         [[nodiscard]] Debug::GameplayDebugger& GetGameplayDebugger()
         {
-            return m_GameplayDebugger;
+            return *m_GameplayDebugger;
         }
         [[nodiscard]] const Debug::GameplayDebugger& GetGameplayDebugger() const
         {
-            return m_GameplayDebugger;
+            return *m_GameplayDebugger;
         }
 #endif
 
         [[nodiscard]] const Graphic::ExtensionPassRegistry& GetExtensionPasses() const
         {
-            return m_ExtensionPasses;
+            return *m_ExtensionPasses;
         }
 
         // THE SCENE'S REFLECTION CAPTURES (UE: FScene's FReflectionEnvironmentSceneData): one set, rendered once
@@ -932,15 +938,15 @@ namespace Desert::Core
         // The extension passes the editor registered: the ONE place they live. Each view's renderer reads them at
         // BeginScene and adds them at their points while it builds its frame, so a view opened later has them
         // and a renderer bound to another scene has that scene's, with nothing to replay or drop.
-        Graphic::ExtensionPassRegistry m_ExtensionPasses;
+        std::unique_ptr<Graphic::ExtensionPassRegistry> m_ExtensionPasses;
 
         // See GetLedgerInstance. Declared BEFORE the members it is handed to.
         Graphic::ResourceOwnerInstance m_LedgerInstance = Graphic::ResourceOwnerInstance::NewScene();
         // See GetDebugDraw.
-        DebugDrawWorld m_DebugDraw;
+        std::unique_ptr<DebugDrawWorld> m_DebugDraw;
 #if DESERT_DEV_INSTRUMENTS
         // See GetGameplayDebugger.
-        Debug::GameplayDebugger m_GameplayDebugger;
+        std::unique_ptr<Debug::GameplayDebugger> m_GameplayDebugger;
 #endif
 
         // See GetReflectionCaptures. Never null: made by both constructors.
@@ -971,15 +977,15 @@ namespace Desert::Core
         mutable uint32_t              m_ViewportWidth  = 1280;
         mutable uint32_t              m_ViewportHeight = 720;
         SceneState                    m_State = SceneState::Edit;
-        WorldTime                     m_WorldTime;
-        WorldParameterInstance        m_WorldParameters;
-        World::DeformationWorld       m_Deformation;
-        WeatherState                  m_Weather;
+        std::unique_ptr<WorldTime> m_WorldTime;
+        std::unique_ptr<WorldParameterInstance> m_WorldParameters;
+        std::unique_ptr<World::DeformationWorld> m_Deformation;
+        std::unique_ptr<WeatherState> m_Weather;
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
         entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
         entt::entity                  m_PlayerController   = entt::null; // see SetPlayerController
-        GameMode                      m_GameMode;                        // see GetGameMode
+        std::unique_ptr<GameMode> m_GameMode;                        // see GetGameMode
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
         uint64_t                      m_Generation         = NextSceneGeneration(); // see GetGeneration
         bool                          m_PlayFromHere   = false;
@@ -1006,18 +1012,17 @@ namespace Desert::Core
         struct FrameRendererInfos;
         std::unique_ptr<FrameRendererInfos> m_FrameRendererInfos;
 
-        SceneSettings m_Settings;
+        std::unique_ptr<SceneSettings> m_Settings;
         std::string   m_SceneName;
-        std::optional<Common::Content::TextAssetHeaderSerialized> m_AssetHeader;
-        // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
-        // build cannot name.
-        std::optional<Common::Json::TextDocument> m_LoadedDocument;
-        // See Packages().
-        std::shared_ptr<EntityPackages> m_Packages = std::make_shared<EntityPackages>();
-        // See GetWorldPartition().
-        std::optional<WorldPartitionSerialized> m_WorldPartition;
+        // See Packages(). Made by both constructors.
+        std::shared_ptr<EntityPackages> m_Packages;
+        // THE FILE THIS WORLD CAME FROM: its text header (GetAssetHeader), the parsed document the saver merges onto
+        // (GetLoadedDocument) and the partition block (GetWorldPartition). Defined in Scene.cpp, so the scene format
+        // stays out of this header. Never null: made by both constructors.
+        struct FileState;
+        std::unique_ptr<FileState> m_File;
 
-        VFX::VFXWorld m_VFXWorld; // see GetVFXWorld
+        std::unique_ptr<VFX::VFXWorld> m_VFXWorld; // see GetVFXWorld; never null: made by both constructors
 
         Common::WorldSubsystems<Scene> m_Subsystems{ *this };
     };

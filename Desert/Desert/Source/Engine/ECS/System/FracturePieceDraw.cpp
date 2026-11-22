@@ -23,6 +23,7 @@
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Graphic/Render/RenderCommandBuffer.hpp>
 
 namespace Desert::ECS
 {

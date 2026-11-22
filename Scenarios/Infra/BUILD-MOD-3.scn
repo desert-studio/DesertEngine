@@ -1,0 +1,9 @@
+# BUILD-MOD-3: Core/Scene.hpp forward-declares its feature worlds (VFXWorld, ExtensionPass, WorldPartition state)
+# and owns them by unique_ptr; the WorldPartition block left SceneFormat.hpp (WorldPartitionFormat.hpp).
+# Fanout measured outside the editor (ninja -t deps, Debug; DesertEngine-scratch/BUILD-MOD-3/timings.txt):
+#   Core/Scene.hpp, Serialize/SceneFormat.hpp, VFX/VFXClock.hpp, RDG/RDGBuilder.hpp — before/after.
+# Regression (here): the scene loads through the new owners -> WP_Protocol opens and draws as on dev,
+# its VFX emitters and destructibles are present, no load refusal.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо, эмиттеры VFX и разрушаемые на месте; без падения и диалога ошибки; в editor.log нет отказа загрузки

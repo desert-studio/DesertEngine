@@ -33,6 +33,11 @@
 #include <span>
 #include <vector>
 
+namespace Desert::Core
+{
+    struct SceneSerialized;
+}
+
 namespace Desert::Assets
 {
     class AssetManager;

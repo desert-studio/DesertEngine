@@ -98,6 +98,8 @@
 #include <Engine/UI/Ecs/UILayoutComponent.hpp>
 #include <Engine/UI/Ecs/UISliderComponent.hpp>
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
+#include <Engine/VFX/VFXWorld.hpp>
 
 namespace Desert::Editor
 {

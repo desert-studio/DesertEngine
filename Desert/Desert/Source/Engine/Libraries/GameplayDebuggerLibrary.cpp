@@ -5,6 +5,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Libraries/ScriptWorld.hpp>
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 
 namespace Desert::Libraries
 {
