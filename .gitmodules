@@ -58,3 +58,9 @@
 [submodule "ThirdParty/mimalloc"]
 	path = ThirdParty/mimalloc
 	url = https://github.com/microsoft/mimalloc
+[submodule "ThirdParty/GameNetworkingSockets"]
+	path = ThirdParty/GameNetworkingSockets
+	url = https://github.com/ValveSoftware/GameNetworkingSockets.git
+[submodule "ThirdParty/protobuf"]
+	path = ThirdParty/protobuf
+	url = https://github.com/protocolbuffers/protobuf.git
