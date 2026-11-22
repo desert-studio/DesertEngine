@@ -348,6 +348,12 @@ namespace Desert::Graphic::System
             Assets::AssetHandle                           Material = Assets::AssetHandle::Null();
             MaterialStamp                                 Stamp;
             std::shared_ptr<const Water::WaterInfoGround> Ground;
+            std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;      // the frame's rivers
+            glm::vec2                                     InfoMin{ 0.0f };     // WaterInfo square
+            float                                         InfoExtent = 0.0f;
+            uint32_t                                      InfoSize   = 0u;
+            std::vector<Assets::AssetHandle>              Materials;           // distinct body materials
+            std::vector<std::vector<glm::vec4>>           Bodies;              // per zone, per body lane
             glm::mat4                                     View{ 1.0f };
             glm::mat4                                     Projection{ 1.0f };
             glm::vec3                                     Observer{ 0.0f };
@@ -361,5 +367,6 @@ namespace Desert::Graphic::System
         Water::WaterTraversalBuffers m_Traversal;
         std::vector<std::byte>       m_Upload;
         std::vector<std::byte>       m_Push;
+        std::vector<glm::vec4>       m_Rows; // material rows of every body material, one upload
     };
 } // namespace Desert::Graphic::System
