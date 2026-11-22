@@ -57,7 +57,7 @@ namespace Desert::Core
 
         // The view's ground-plane basis, as PhysicsECSSystem resolves a character's MoveInput (one rule: a pawn
         // walks where its camera looks, whether its movement runs here or on the server).
-        void ViewBasis( const Scene& scene, glm::vec3& forward, glm::vec3& right )
+        void NetMoveBasisOfView( const Scene& scene, glm::vec3& forward, glm::vec3& right )
         {
             forward = { 0.0f, 0.0f, -1.0f };
             right   = { 1.0f, 0.0f, 0.0f };
@@ -278,7 +278,7 @@ namespace Desert::Core
             return glm::vec3( 0.0f );
         const glm::vec2 intent = reg.get<ECS::CharacterControllerComponent>( pawn ).MoveInput;
         glm::vec3       forward, right;
-        ViewBasis( scene, forward, right );
+        NetMoveBasisOfView( scene, forward, right );
         return forward * intent.y + right * intent.x;
     }
 
