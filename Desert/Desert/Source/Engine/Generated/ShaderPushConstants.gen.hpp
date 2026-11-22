@@ -311,6 +311,29 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( GlobalDistanceFieldView, InverseViewProjection ) == 0u, "GlobalDistanceFieldView::InverseViewProjection: std430 offset" );
     static_assert( offsetof( GlobalDistanceFieldView, Levels ) == 64u, "GlobalDistanceFieldView::Levels: std430 offset" );
 
+    // Programs/DistanceField/GlobalDistanceFieldVoxelLighting.shader (Compute)
+    struct GlobalDistanceFieldVoxelLighting
+    {
+        glm::vec4 Level0{};
+        glm::vec4 Level1{};
+        glm::vec4 Level2{};
+        glm::vec4 Level3{};
+        glm::vec4 OccupiedMin{};
+        glm::vec4 OccupiedMax{};
+        glm::vec4 SunL{};
+        glm::vec4 Light1L{};
+    };
+    static_assert( sizeof( GlobalDistanceFieldVoxelLighting ) == 128u, "GlobalDistanceFieldVoxelLighting: std430 push block size" );
+    template <> inline constexpr bool IsBlock<GlobalDistanceFieldVoxelLighting> = true;
+    static_assert( offsetof( GlobalDistanceFieldVoxelLighting, Level0 ) == 0u, "GlobalDistanceFieldVoxelLighting::Level0: std430 offset" );
+    static_assert( offsetof( GlobalDistanceFieldVoxelLighting, Level1 ) == 16u, "GlobalDistanceFieldVoxelLighting::Level1: std430 offset" );
+    static_assert( offsetof( GlobalDistanceFieldVoxelLighting, Level2 ) == 32u, "GlobalDistanceFieldVoxelLighting::Level2: std430 offset" );
+    static_assert( offsetof( GlobalDistanceFieldVoxelLighting, Level3 ) == 48u, "GlobalDistanceFieldVoxelLighting::Level3: std430 offset" );
+    static_assert( offsetof( GlobalDistanceFieldVoxelLighting, OccupiedMin ) == 64u, "GlobalDistanceFieldVoxelLighting::OccupiedMin: std430 offset" );
+    static_assert( offsetof( GlobalDistanceFieldVoxelLighting, OccupiedMax ) == 80u, "GlobalDistanceFieldVoxelLighting::OccupiedMax: std430 offset" );
+    static_assert( offsetof( GlobalDistanceFieldVoxelLighting, SunL ) == 96u, "GlobalDistanceFieldVoxelLighting::SunL: std430 offset" );
+    static_assert( offsetof( GlobalDistanceFieldVoxelLighting, Light1L ) == 112u, "GlobalDistanceFieldVoxelLighting::Light1L: std430 offset" );
+
     // Programs/Grass/GrassBladeRayTracingVertices.shader (Compute)
     struct GrassBladeRayTracingVertices
     {
@@ -894,8 +917,9 @@ namespace Desert::Graphic::ShaderPush
         std::uint32_t LightingFrame{};
         std::uint32_t MarkFallback{};
         std::uint32_t RefreshMinFrames{};
+        std::uint32_t RefreshBudget{};
     };
-    static_assert( sizeof( RadianceCachePush ) == 44u, "RadianceCachePush: std430 push block size" );
+    static_assert( sizeof( RadianceCachePush ) == 48u, "RadianceCachePush: std430 push block size" );
     template <> inline constexpr bool IsBlock<RadianceCachePush> = true;
     static_assert( offsetof( RadianceCachePush, FrameIndex ) == 0u, "RadianceCachePush::FrameIndex: std430 offset" );
     static_assert( offsetof( RadianceCachePush, Reset ) == 4u, "RadianceCachePush::Reset: std430 offset" );
@@ -908,6 +932,7 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( RadianceCachePush, LightingFrame ) == 32u, "RadianceCachePush::LightingFrame: std430 offset" );
     static_assert( offsetof( RadianceCachePush, MarkFallback ) == 36u, "RadianceCachePush::MarkFallback: std430 offset" );
     static_assert( offsetof( RadianceCachePush, RefreshMinFrames ) == 40u, "RadianceCachePush::RefreshMinFrames: std430 offset" );
+    static_assert( offsetof( RadianceCachePush, RefreshBudget ) == 44u, "RadianceCachePush::RefreshBudget: std430 offset" );
 
     // Programs/VirtualGeometry/RasterBinning.shader (Compute)
     struct RasterBinning

@@ -41,7 +41,7 @@
  * switching by a named call have to be the same operation, because there is only one.
  */
 
-#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/BoneTransform.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -56,6 +56,7 @@
 namespace Desert::Animation
 {
     class Skeleton;
+    class ComponentPose; // Pose.hpp
 
     /// What one of a control's parent slots points at.
     enum class ControlSpaceKind : uint8_t

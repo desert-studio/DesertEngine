@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Pose.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -407,9 +408,19 @@ namespace Desert::Editor
         m_Driver   = Driver::Explicit;
         // An explicit transaction is opened BEFORE the edit it brackets, so the live buffer is the true
         // before. The edge-driven one overrides it with the baseline (Observe).
-        m_PoseBefore = animator != nullptr ? animator->GetAuthoringPose() : Animation::LocalPose{};
+        *m_PoseBefore = animator != nullptr ? animator->GetAuthoringPose() : Animation::LocalPose{};
         return Common::MakeSuccess( true );
     }
+
+    SequenceEditTransaction::SequenceEditTransaction()
+        : m_PoseBefore( std::make_unique<Animation::LocalPose>() )
+        , m_Baseline( std::make_unique<Animation::LocalPose>() )
+    {
+    }
+
+    SequenceEditTransaction::~SequenceEditTransaction() = default;
+    SequenceEditTransaction::SequenceEditTransaction( SequenceEditTransaction&& ) noexcept = default;
+    SequenceEditTransaction& SequenceEditTransaction::operator=( SequenceEditTransaction&& ) noexcept = default;
 
     void SequenceEditTransaction::Cancel()
     {
@@ -417,7 +428,7 @@ namespace Desert::Editor
         m_Owner      = SequenceOwner{};
         m_Animator   = nullptr;
         m_Before     = Timeline::Sequence{};
-        m_PoseBefore = Animation::LocalPose{};
+        *m_PoseBefore = Animation::LocalPose{};
     }
 
     Common::ResultStr<uint32_t> SequenceEditTransaction::End() noexcept
@@ -477,14 +488,14 @@ namespace Desert::Editor
             const Animation::LocalPose&   poseAfter = m_Animator->GetAuthoringPose();
             SequenceEditCommand::PoseEdit edit;
             edit.Animator       = m_Animator;
-            edit.SizeBefore     = m_PoseBefore.Size();
+            edit.SizeBefore     = m_PoseBefore->Size();
             edit.SizeAfter      = poseAfter.Size();
             const size_t common = std::min( edit.SizeBefore, edit.SizeAfter );
             for ( size_t i = 0; i < common; ++i )
             {
-                if ( !SameStoredValue( m_PoseBefore[i], poseAfter[i] ) )
+                if ( !SameStoredValue( (*m_PoseBefore)[i], poseAfter[i] ) )
                 {
-                    edit.Bones.push_back( { static_cast<uint32_t>( i ), m_PoseBefore[i], poseAfter[i] } );
+                    edit.Bones.push_back( { static_cast<uint32_t>( i ), (*m_PoseBefore)[i], poseAfter[i] } );
                 }
             }
             poseChanged = !edit.Bones.empty() || edit.SizeBefore != edit.SizeAfter;
@@ -533,9 +544,9 @@ namespace Desert::Editor
             }
             m_Driver = Driver::Edge; // `Begin` marks it Explicit; this is the one caller that owns the edge
             if ( animator != nullptr && m_BaselineValid &&
-                 m_Baseline.Size() == animator->GetAuthoringPose().Size() )
+                 m_Baseline->Size() == animator->GetAuthoringPose().Size() )
             {
-                m_PoseBefore = m_Baseline;
+                *m_PoseBefore = *m_Baseline;
             }
         }
 
@@ -544,7 +555,7 @@ namespace Desert::Editor
             m_BaselineValid = animator != nullptr;
             if ( animator != nullptr )
             {
-                m_Baseline = animator->GetAuthoringPose();
+                *m_Baseline = animator->GetAuthoringPose();
             }
         }
         return Common::MakeSuccess( pushed );
