@@ -2,7 +2,7 @@
 
 #include <unordered_map>
 #include <Engine/Assets/AssetBase.hpp>
-#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetEvents.hpp>
 #include <Engine/ECS/Entity.hpp>
 
@@ -16,6 +16,11 @@
 #include <string_view>
 #include <vector>
 #include <Engine/ECS/TransformComponent.hpp>
+
+namespace Desert::Assets
+{
+    class AssetManager; // AssetManager.hpp: the .cpp that resolves through the registry includes it
+} // namespace Desert::Assets
 
 namespace Desert::Core
 {

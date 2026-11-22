@@ -18,6 +18,7 @@
 #include <utility>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 
 namespace Desert::Runtime
 {

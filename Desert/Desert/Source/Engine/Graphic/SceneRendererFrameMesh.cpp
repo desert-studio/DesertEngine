@@ -1,3 +1,4 @@
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>

@@ -5,7 +5,7 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
-#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetRootPin.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
@@ -17,6 +17,11 @@
 #include <span>
 #include <vector>
 #include <unordered_set>
+
+namespace Desert::Assets
+{
+    class AssetManager; // AssetManager.hpp: the .cpp that resolves through the registry includes it
+} // namespace Desert::Assets
 
 namespace Desert::Assets
 {

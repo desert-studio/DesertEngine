@@ -53,6 +53,7 @@
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/VirtualShadowInvalidation.hpp>
 #include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -1626,18 +1627,7 @@ namespace Desert::Graphic::System
             return view < m_VirtualShadowViews.size() && m_VirtualShadowViews[view] != 0u;
         }
 
-        // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualShadows): what
-        // changed among the casters since the last frame the map was drawn. A static, generic or still instanced
-        // caster and every non-mesh caster (IShadowCaster::AppendVirtualShadowEntries) that was added, removed or
-        // changed hands its old and its new box; a caster that moves by itself (skinned, swaying foliage) hands
-        // its box now and last frame, every frame. StaticCastersChanged: a masked caster's pipeline was still
-        // compiling when the pages were drawn, so the cached pages lack it and every one is dropped.
-        struct VirtualShadowInvalidation
-        {
-            std::vector<VsmInvalidationBox> Boxes;        // the still casters that changed: both layers
-            std::vector<VsmInvalidationBox> MovableBoxes; // every mover instance, now and last frame: merged layer
-            bool                            StaticCastersChanged = false;
-        };
+        // VirtualShadowInvalidation.hpp: what changed among the casters since the map was last drawn.
         // Into the caller's @p result (kept by the caller across frames: no box vectors per frame).
         void CollectVirtualShadowInvalidation( VirtualShadowInvalidation& result );
         // "VSM: Raster L<l>", one attachment-less raster node per clipmap level (RDG PassBuilder::RenderArea over

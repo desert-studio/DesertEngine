@@ -2,7 +2,7 @@
 
 #include <Engine/Graphic/GpuBatch.hpp>
 
-#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetRef.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
@@ -20,6 +20,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+namespace Desert::Assets
+{
+    class AssetManager; // AssetManager.hpp: the .cpp that resolves through the registry includes it
+} // namespace Desert::Assets
 
 namespace Desert::Runtime
 {

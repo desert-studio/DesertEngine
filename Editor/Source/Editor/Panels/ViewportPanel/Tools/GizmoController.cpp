@@ -33,6 +33,7 @@
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor::Tools
 {

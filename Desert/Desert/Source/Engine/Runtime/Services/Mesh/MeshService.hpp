@@ -2,7 +2,7 @@
 
 #include <Engine/Geometry/Mesh.hpp>
 
-#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -15,6 +15,11 @@
 #include <mutex>
 #include <shared_mutex>
 #include <span>
+
+namespace Desert::Assets
+{
+    class AssetManager; // AssetManager.hpp: the .cpp that resolves through the registry includes it
+} // namespace Desert::Assets
 
 namespace Desert::Runtime
 {
