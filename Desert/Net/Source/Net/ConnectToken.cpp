@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <format>
+#include <fstream>
 
 #if defined( _WIN32 )
 #include <windows.h>
@@ -138,5 +139,40 @@ namespace Desert::Net
         return static_cast<std::uint64_t>( std::chrono::duration_cast<std::chrono::seconds>(
                                                 std::chrono::system_clock::now().time_since_epoch() )
                                                 .count() );
+    }
+
+    std::vector<std::byte> ReadTokenSecretFile( const std::string& path, std::string& error )
+    {
+        std::ifstream file( path );
+        std::string   text;
+        if ( !file || !( file >> text ) )
+        {
+            error = std::format( "secret file '{}' cannot be read", path );
+            return {};
+        }
+        const auto nibble = []( char c ) -> int
+        {
+            if ( c >= '0' && c <= '9' )
+                return c - '0';
+            if ( c >= 'a' && c <= 'f' )
+                return c - 'a' + 10;
+            if ( c >= 'A' && c <= 'F' )
+                return c - 'A' + 10;
+            return -1;
+        };
+        std::vector<std::byte> bytes;
+        bool                   hex = text.size() % 2 == 0;
+        for ( std::size_t i = 0; hex && i < text.size(); i += 2 )
+        {
+            const int hi = nibble( text[i] ), lo = nibble( text[i + 1] );
+            hex          = hi >= 0 && lo >= 0;
+            bytes.push_back( static_cast<std::byte>( ( hi << 4 ) | ( lo & 0xF ) ) );
+        }
+        if ( !hex || bytes.size() < kMinTokenSecretSize )
+        {
+            error = std::format( "secret file '{}' must hold at least {} bytes as hex", path, kMinTokenSecretSize );
+            return {};
+        }
+        return bytes;
     }
 } // namespace Desert::Net

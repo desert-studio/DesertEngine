@@ -3,18 +3,24 @@
 // headless at a fixed 60 Hz step.
 //
 //   DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> [--steps <n>]
+//                [--port <p> --server-id <id> --secret-file <hex file> --spawn <x,y,z> [--spawn ...]]
 //
 // --world   the scene whose cooked world (WorldCells::CookedWorldDirectory, `X.dwworld/` beside it) is served;
 //           relative to the project's directory. A scene with no cooked world beside it is refused.
 // --source  one server-side streaming source, world cm (NET-ARCH §4.1: an NPC schedule or a script's
 //           RequestStreaming; players are sources from NET-1).
 // --steps   steps to run, then exit 0 (a scenario's run); without it the server runs until killed.
+// --port    listen for clients (NET-1): the gateway admits a connection whose Hello carries a token signed with
+//           --secret-file for --server-id and the served world's cook hash, and the sim spawns a pawn for it at
+//           the next --spawn point; every pawn is a streaming source of the residency union (NET-ARCH §4.1).
 
 #if !DESERT_SERVER
 #error "DesertServer is compiled only by its own target (Server/CMakeLists.txt), which defines DESERT_SERVER"
 #endif
 
 #include "ServerWorld.hpp"
+
+#include <Net/MeshOfOne.hpp>
 
 #include <ToolMain.hpp>
 #include <ToolProject.hpp>
@@ -55,6 +61,10 @@ namespace Desert::Server
             std::string                  world;
             glm::vec3                    source{ 0.0f };
             std::optional<std::uint64_t> steps;
+            std::optional<std::uint16_t> port;
+            std::uint64_t                serverId = 0;
+            std::string                  secretFile;
+            std::vector<glm::vec3>       spawns;
         };
 
         constexpr double kStepHz = 60.0;
@@ -62,10 +72,11 @@ namespace Desert::Server
         std::string Usage()
         {
             return "usage: DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> "
-                   "[--steps <n>]";
+                   "[--steps <n>] "
+                   "[--port <p> --server-id <id> --secret-file <file> --spawn <x,y,z> [--spawn ...]]";
         }
 
-        Common::ResultStr<glm::vec3> ParsePoint( std::string_view text )
+        Common::ResultStr<glm::vec3> ParsePoint( std::string_view text, std::string_view flag )
         {
             glm::vec3   point{};
             std::size_t at = 0;
@@ -84,7 +95,7 @@ namespace Desert::Server
                     taken = 0;
                 }
                 if ( end == std::string_view::npos || taken == 0 || taken != part.size() )
-                    return Common::MakeError<glm::vec3>( std::format( "--source '{}' is not x,y,z in cm", text ) );
+                    return Common::MakeError<glm::vec3>( std::format( "{} '{}' is not x,y,z in cm", flag, text ) );
                 at = end + 1;
             }
             return Common::MakeSuccess( point );
@@ -116,11 +127,32 @@ namespace Desert::Server
                 }
                 else if ( flag == "--source" )
                 {
-                    auto point = ParsePoint( value );
+                    auto point = ParsePoint( value, flag );
                     if ( !point )
                         return Common::MakeError<Options>( point.GetError() );
                     options.source = point.GetValue();
                     sourceGiven    = true;
+                }
+                else if ( flag == "--spawn" )
+                {
+                    auto point = ParsePoint( value, flag );
+                    if ( !point )
+                        return Common::MakeError<Options>( point.GetError() );
+                    options.spawns.push_back( point.GetValue() );
+                }
+                else if ( flag == "--secret-file" )
+                    options.secretFile = value;
+                else if ( flag == "--port" || flag == "--server-id" )
+                {
+                    std::uint64_t n  = 0;
+                    const auto    at = std::from_chars( value.data(), value.data() + value.size(), n );
+                    if ( at.ec != std::errc() || at.ptr != value.data() + value.size() ||
+                         ( flag == "--port" && ( n == 0 || n > 65535 ) ) )
+                        return Common::MakeError<Options>( std::format( "{} '{}' is not a valid number", flag, value ) );
+                    if ( flag == "--port" )
+                        options.port = static_cast<std::uint16_t>( n );
+                    else
+                        options.serverId = n;
                 }
                 else if ( flag == "--steps" )
                 {
@@ -136,6 +168,9 @@ namespace Desert::Server
             }
             if ( options.project.empty() || options.world.empty() || !roleGiven || !sourceGiven )
                 return Common::MakeError<Options>( "--project, --role, --world and --source are required" );
+            if ( options.port && ( options.secretFile.empty() || options.serverId == 0 || options.spawns.empty() ) )
+                return Common::MakeError<Options>(
+                     "--port needs --server-id, --secret-file and at least one --spawn (where players' pawns start)" );
             return Common::MakeSuccess( std::move( options ) );
         }
 
@@ -195,13 +230,81 @@ namespace Desert::Server
             }
             std::unique_ptr<ServerWorld> server = begun.ExtractValue();
 
-            Core::Rules::StreamingSource source;
-            source.Position = options.source;
-            const std::vector<Core::Rules::StreamingSource> sources{ source };
-            LOG_INFO(
-                 "[Server] stepping at {:.0f} Hz, {} source(s): server source at ({:.0f}, {:.0f}, {:.0f}) cm{}",
-                 kStepHz, sources.size(), source.Position.x, source.Position.y, source.Position.z,
-                 options.steps ? std::format( ", {} step(s)", *options.steps ) : std::string( ", until killed" ) );
+            // THE MESH OF ONE (NET-ARCH §2M.2): gateway + sim + store in this process, behind the interfaces the
+            // split roles of NET-MESH-1 keep.
+            const Net::NetLogSink netLog = []( std::string_view line ) { LOG_INFO( "[Net] {}", line ); };
+            std::vector<std::byte>                     secret;
+            std::unique_ptr<Net::INetTransport>        transport;
+            std::unique_ptr<Net::InProcessReplicationStore> store;
+            std::unique_ptr<Net::Gateway>              gateway;
+            std::unique_ptr<Net::PawnSimulation>       sim;
+            if ( options.port )
+            {
+                std::string error;
+                secret = Net::ReadTokenSecretFile( options.secretFile, error );
+                if ( secret.empty() )
+                {
+                    LOG_ERROR( "[Server] {}", error );
+                    return 7;
+                }
+                transport = Net::CreateGnsTransport( netLog );
+                if ( !transport || !transport->Listen( *options.port, error ) )
+                {
+                    LOG_ERROR( "[Server] cannot listen on port {}: {}", *options.port, error );
+                    return 7;
+                }
+                store   = std::make_unique<Net::InProcessReplicationStore>();
+                gateway = std::make_unique<Net::Gateway>(
+                     *transport, *store,
+                     Net::HelloPolicy{ server->World().CookHash, options.serverId, secret, 0 }, netLog );
+                Net::PawnSimulation::Settings simSettings;
+                for ( const glm::vec3& spawn : options.spawns )
+                    simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
+                sim = std::make_unique<Net::PawnSimulation>( *store, *gateway, std::move( simSettings ), netLog );
+                gateway->Bind( *sim );
+                LOG_INFO( "[Server] listening on port {} (server id {}, cook hash {:016x}); {} spawn point(s)",
+                          *options.port, options.serverId, server->World().CookHash, options.spawns.size() );
+            }
+
+            // THE SOURCES: the server's own + every player's pawn (§4.1 - the residency union of all of them).
+            Core::Rules::StreamingSource serverSource;
+            serverSource.Position = options.source;
+            std::vector<Core::Rules::StreamingSource> sources{ serverSource };
+            std::vector<std::string>                  sourceNames{ std::format(
+                 "server ({:.0f}, {:.0f}, {:.0f})", serverSource.Position.x, serverSource.Position.y,
+                 serverSource.Position.z ) };
+            const auto gatherSources = [&]
+            {
+                sources.resize( 1 );
+                sourceNames.resize( 1 );
+                if ( !sim )
+                    return;
+                for ( const Net::PawnSimulation::Source& player : sim->Sources() )
+                {
+                    Core::Rules::StreamingSource source;
+                    source.Position = { player.Position.X, player.Position.Y, player.Position.Z };
+                    sources.push_back( source );
+                    sourceNames.push_back( std::format( "player {} account {} ({:.0f}, {:.0f}, {:.0f})", player.Player,
+                                                        player.Account, player.Position.X, player.Position.Y,
+                                                        player.Position.Z ) );
+                }
+            };
+            const auto logUnion = [&]( std::string_view why )
+            {
+                const std::vector<ResidentCell> cells = server->ResidentCells();
+                std::string                     names, listed;
+                for ( const ResidentCell& cell : cells )
+                    names += std::format( "{}{} ({})", names.empty() ? "" : ", ", cell.Name, cell.Records );
+                for ( const std::string& name : sourceNames )
+                    listed += std::format( "{}{}", listed.empty() ? "" : "; ", name );
+                LOG_INFO( "[Server] residency union ({}) of {} source(s) [{}]: {} always-loaded unit(s) + {} "
+                          "cell(s) activated, {} cell record(s) held: {}",
+                          why, sources.size(), listed, server->AlwaysLoadedUnits(), cells.size(),
+                          server->HeldCellRecords(), names.empty() ? std::string( "none" ) : names );
+            };
+            LOG_INFO( "[Server] stepping at {:.0f} Hz, server source at ({:.0f}, {:.0f}, {:.0f}) cm{}", kStepHz,
+                      serverSource.Position.x, serverSource.Position.y, serverSource.Position.z,
+                      options.steps ? std::format( ", {} step(s)", *options.steps ) : std::string( ", until killed" ) );
 
             // THE FIXED STEP: step n runs at n / 60 s of server time, started on the wall clock's tick for it
             // (a step that overruns starts the next one at once; the clock does not drift with the work).
@@ -215,8 +318,17 @@ namespace Desert::Server
             {
                 std::this_thread::sleep_until( started +
                                                std::chrono::duration_cast<Clock::duration>( period * step ) );
-                const Clock::time_point begin  = Clock::now();
-                auto                    ticked = server->Step( sources, static_cast<double>( step ) / kStepHz );
+                const Clock::time_point begin = Clock::now();
+                if ( transport )
+                {
+                    transport->Poll( *gateway );
+                    sim->Step( 1.0 / kStepHz );
+                    if ( step % Net::kSnapshotEverySteps == 0 )
+                        gateway->SendSnapshots( static_cast<std::uint32_t>( step ) );
+                }
+                const std::size_t playersBefore = sources.size() - 1;
+                gatherSources();
+                auto ticked = server->Step( sources, static_cast<double>( step ) / kStepHz );
                 if ( !ticked )
                 {
                     LOG_ERROR( "[Server] step {}: {}", step, ticked.GetError() );
@@ -227,6 +339,11 @@ namespace Desert::Server
                 totalMs += ms;
                 activated += ticked.GetValue().UnitsActivated;
                 deactivated += ticked.GetValue().UnitsDeactivated;
+                // The union is logged when a player joins or leaves and every 5 s while players are in.
+                if ( sources.size() - 1 != playersBefore )
+                    logUnion( std::format( "step {}: {} player(s)", step, sources.size() - 1 ) );
+                else if ( sources.size() > 1 && step % 300 == 0 )
+                    logUnion( std::format( "step {}", step ) );
             }
             const double wall = std::chrono::duration<double>( Clock::now() - started ).count();
             LOG_INFO( "[Server] {} step(s) at {:.0f} Hz: {:.2f} s of server time in {:.2f} s wall; step {:.3f} ms "
@@ -234,15 +351,7 @@ namespace Desert::Server
                       step, kStepHz, static_cast<double>( step ) / kStepHz, wall, step ? totalMs / step : 0.0,
                       worstMs, activated, deactivated, server->LoadsInFlight() );
 
-            const std::vector<ResidentCell> cells = server->ResidentCells();
-            std::string                     names;
-            for ( const ResidentCell& cell : cells )
-                names += std::format( "{}{} ({})", names.empty() ? "" : ", ", cell.Name, cell.Records );
-            LOG_INFO(
-                 "[Server] residency union of {} source(s): {} always-loaded unit(s) + {} cell(s) activated, {} "
-                 "cell record(s) held: {}",
-                 sources.size(), server->AlwaysLoadedUnits(), cells.size(), server->HeldCellRecords(),
-                 names.empty() ? std::string( "none" ) : names );
+            logUnion( "final" );
             return 0;
         }
     } // namespace

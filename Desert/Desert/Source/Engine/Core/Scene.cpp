@@ -708,9 +708,10 @@ namespace Desert::Core
 
         // (1) The pawn's own camera: root first, then its subtree depth-first in child order.
         entt::entity pawnCamera = entt::null;
-        if ( m_PlayerPawn != entt::null && m_Registry.valid( m_PlayerPawn ) )
+        const entt::entity playerPawn = GetPlayerPawn();
+        if ( playerPawn != entt::null && m_Registry.valid( playerPawn ) )
         {
-            std::vector<entt::entity> stack{ m_PlayerPawn };
+            std::vector<entt::entity> stack{ playerPawn };
             while ( !stack.empty() && pawnCamera == entt::null )
             {
                 const entt::entity e = stack.back();
@@ -734,7 +735,7 @@ namespace Desert::Core
         }
 
         const auto choice = ChooseViewTarget( { .Level               = m_SceneName,
-                                                .PawnSpawned         = m_PlayerPawn != entt::null,
+                                                .PawnSpawned         = playerPawn != entt::null,
                                                 .PawnHasCamera       = pawnCamera != entt::null,
                                                 .AutoActivateCameras = autoNames,
                                                 .PlayFromHere        = m_PlayFromHere } );
@@ -1776,9 +1777,8 @@ namespace Desert::Core
         // (its pipelines are released at once, not queued): parked until those frames retired (OnUpdate collects).
         m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );
         m_SurfaceCache     = std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance );
-        m_PlayerPawn   = entt::null;
+        m_Players.clear();
         m_ViewTarget   = entt::null;
-        m_PlayerController = entt::null;
         m_GameMode->Reset();
         m_PlayFromHere = false;
         m_Simulating   = false;

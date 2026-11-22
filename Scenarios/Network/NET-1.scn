@@ -1,20 +1,19 @@
-# NET-1 pass 2: GNS lanes behind INetTransport (Control / Rpc / Bulk / State) + the connect token in the Hello
-# (NET-ARCH §8: {account, server, expiry} signed HMAC-SHA256 with the server secret) + the cook hash read from a
-# cooked world directory (Core::CookHashOf of World.dwindex), not a literal.
-# The network half runs outside the editor: Tools/DesertNetProbe on loopback, every process at 75 ms one-way send
-# lag (150 ms RTT) and 2 % send loss, send rate 1 MB/s; the cooked world is NET-MESH-0's WP_Protocol cook
-# (<scratch>/NET-MESH-0/world/WP_Protocol.dwworld). Runner: <scratch>/NET-1/run_net1b.sh; logs <scratch>/NET-1/logs.
-#   DesertNetProbe --issue-token --secret-file S --account 1 --server-id 7 --expires-in 600   (A, valid)
-#   DesertNetProbe --issue-token --secret-file S --account 2 --server-id 7 --expires-in -60   (B, expired)
-#   DesertNetProbe --issue-token --secret-file FORGED --account 3 --server-id 7 --expires-in 600 (C, other key)
-#   DesertNetProbe --server --port 27021 --cooked W --server-id 7 --secret-file S --clients 1 --refusals 2
-#        --bulk-mb 8 --rpcs 200 --lag-ms 75 --loss 2 --rate-kbps 1024
-#   DesertNetProbe --client --connect 127.0.0.1:27021 --cooked W --token <A|B|C> --name A|B|C --lag-ms 75 --loss 2
-# Тогда [net1b_lanes_token] server.log: "cook hash ee311acb3b50b349" (or the re-cooked one) read from W; client A
-#   accepted (account 1); clientA.log: "bulk 8388608/8388608 bytes in order" and "rpc 200/200" with p95 < 400 ms
-#   while the bulk lane was still filling; server.log + clientB.log "token expired", server.log + clientC.log
-#   "token invalid"; exit codes A 0, B 2, C 2, server 0.
-# The editor is untouched by this pass, but the tree must still build and open the WP world.
+# NET-1 pass 3: two clients see each other - N players in the Scene (Scene::GetPlayers, [0] = local), the mesh of
+# one in DesertServer (Desert/Net MeshOfOne: Gateway + PawnSimulation + InProcessReplicationStore behind
+# IGatewayLink / ISimLink / IReplicationStore), a pawn spawned per admitted connection (Spawn on the Rpc lane),
+# 30 Hz transform snapshots on the State lane with the per-connection input ack, client interpolation 100 ms behind
+# the server clock; input -> server only (numbered steps, last 3 per message, client InputRing dropped to the ack -
+# NET-4 replays from it). The clients of this pass are headless players (DesertNetProbe --bot, the same
+# ReplicationClient the engine's net driver will run); the editor windows are the next pass (REMAINDER).
+# Runner: <scratch>/NET-1/run_net1c.sh, logs <scratch>/NET-1/logs/net1c; loopback, 75 ms one-way lag, 2 % loss.
+#   DesertServer --project Projects/Desert/Desert.deproj --role all --world <WP_Protocol copy> --source 0,0,0
+#        --port 27031 --server-id 7 --secret-file S --spawn 0,0,0 --spawn 0,0,400 --steps 900
+#   DesertNetProbe --bot --connect 127.0.0.1:27031 --cooked W --token A --name A --seconds 12 --walk-cm 2000 --dir 1,0,0
+#   DesertNetProbe --bot --connect 127.0.0.1:27031 --cooked W --token B --name B --seconds 12
+# Тогда [net1_two_clients] server.log: "no device created"; "admitted as player 1" and "player 2"; a residency
+#   union line listing "server", "player 1 account 1" and "player 2 account 2" sources. clientB.log: "FINAL remote
+#   pawn ... moved" 2000..2120 cm for A's pawn (no prediction: inputs in flight for one RTT keep it walking, <= RTT x 600 cm/s) and "FINAL own pawn ... moved 0 cm" at B's spawn (0,0,400);
+#   clientA.log: own pawn moved 2000 cm, "unacked inputs" stays small (< 20); exits A 0, B 0, server 0.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state
 Тогда 0_wp_protocol WP_Protocol opens as in dev: landscape, town, sky; no crash or error dialog; no load refusal in editor.log

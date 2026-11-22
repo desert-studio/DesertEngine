@@ -17,6 +17,10 @@
 
 #include <Engine/Core/Serialize/CookHash.hpp>
 
+#include <Net/ReplicationClient.hpp>
+
+#include <cmath>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -667,10 +671,159 @@ namespace
         std::printf( "%s\n", ToHex( bytes ).c_str() );
         return 0;
     }
+
+    // A HEADLESS PLAYER (NET-1 scenario net1_two_clients; NET-ARCH §9 NET-10's bot client): the same
+    // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step.
+    //   --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir x,y,z]
+    //         [--lag-ms L --loss P]
+    // Walks its own pawn D cm along dir (server-authoritative: it stops when the SERVER's position of its pawn has
+    // moved D cm), then idles; logs its own pawn and every remote pawn (interpolated) twice a second and a final
+    // line per pawn with its displacement from where this client first saw it.
+    int RunBot( int argc, char** argv )
+    {
+        std::string connect, cooked, tokenHex, name = "bot";
+        double      seconds = 10.0, walkCm = 0.0;
+        NetVec3     dir{ 1.f, 0.f, 0.f };
+        NetSimulator simulator;
+        for ( int i = 1; i < argc; ++i )
+        {
+            const std::string arg      = argv[i];
+            const bool        hasValue = i + 1 < argc;
+            if ( arg == "--bot" )
+                continue;
+            if ( !hasValue )
+            {
+                Log( "'{}' needs a value", arg );
+                return 1;
+            }
+            const std::string value = argv[++i];
+            if ( arg == "--connect" )
+                connect = value;
+            else if ( arg == "--cooked" )
+                cooked = value;
+            else if ( arg == "--token" )
+                tokenHex = value;
+            else if ( arg == "--name" )
+                name = value;
+            else if ( arg == "--seconds" )
+                seconds = std::atof( value.c_str() );
+            else if ( arg == "--walk-cm" )
+                walkCm = std::atof( value.c_str() );
+            else if ( arg == "--lag-ms" )
+                simulator.SendLagMs = std::atoi( value.c_str() );
+            else if ( arg == "--loss" )
+                simulator.SendLossPercent = static_cast<float>( std::atof( value.c_str() ) );
+            else if ( arg == "--dir" )
+            {
+                if ( std::sscanf( value.c_str(), "%f,%f,%f", &dir.X, &dir.Y, &dir.Z ) != 3 )
+                {
+                    Log( "--dir '{}' is not x,y,z", value );
+                    return 1;
+                }
+            }
+            else
+            {
+                Log( "unknown argument '{}'", arg );
+                return 1;
+            }
+        }
+        const auto token = FromHex( tokenHex );
+        if ( connect.empty() || cooked.empty() || !token || seconds <= 0.0 )
+        {
+            Log( "usage: --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir "
+                 "x,y,z] [--lag-ms L --loss P]" );
+            return 1;
+        }
+        const std::optional<std::uint64_t> cookHash = ReadCookHash( cooked );
+        if ( !cookHash )
+            return 1;
+        const std::string tag = name;
+        const NetLogSink  log = [tag]( std::string_view line ) { Log( "[{}] {}", tag, line ); };
+        std::unique_ptr<INetTransport> transport = CreateGnsTransport( log );
+        std::string                    error;
+        if ( !transport || !transport->SetSimulator( simulator, error ) )
+        {
+            Log( "[{}] transport: {}", name, error );
+            return 1;
+        }
+        ReplicationClient client( *transport, { kProtocolVersion, *cookHash, *token }, log );
+        if ( !client.Connect( connect, error ) )
+        {
+            Log( "[{}] connect {}: {}", name, connect, error );
+            return 1;
+        }
+
+        const auto distance = []( const NetVec3& a, const NetVec3& b )
+        { return std::sqrt( ( a.X - b.X ) * ( a.X - b.X ) + ( a.Y - b.Y ) * ( a.Y - b.Y ) + ( a.Z - b.Z ) * ( a.Z - b.Z ) ); };
+        std::map<NetId, NetVec3> firstSeen;
+        bool                     walking = walkCm > 0.0;
+        const auto               start   = std::chrono::steady_clock::now();
+        const auto               period  = std::chrono::duration<double>( 1.0 / kNetStepHz );
+        std::uint64_t            step    = 0;
+        double                   nextLog = 0.5;
+        for ( ;; ++step )
+        {
+            std::this_thread::sleep_until( start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                                        period * static_cast<double>( step ) ) );
+            const double now = std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+            if ( now >= seconds )
+                break;
+            client.Poll();
+            if ( client.State() == ReplicationClient::EState::Closed )
+            {
+                Log( "[{}] session closed: {}", name, client.CloseReason() );
+                return 2;
+            }
+            for ( const auto& [id, pawn] : client.Pawns() )
+                if ( !firstSeen.contains( id ) )
+                    if ( const auto sample = client.Sample( id ) )
+                        firstSeen[id] = sample->Position;
+            // The SERVER's newest position of the own pawn (the snapshot, not the interpolated one) ends the walk.
+            if ( walking && client.OwnPawn() != kInvalidNetId && firstSeen.contains( client.OwnPawn() ) )
+            {
+                const auto& own = client.Pawns().at( client.OwnPawn() );
+                const PawnState newest = own.History.Sample( 1e12 );
+                if ( distance( newest.Position, firstSeen[client.OwnPawn()] ) >= walkCm )
+                {
+                    walking = false;
+                    Log( "[{}] walked {:.0f} cm (server position): stopping at step {}", name, walkCm, step );
+                }
+            }
+            client.SendInput( walking ? dir : NetVec3{}, 0.f );
+            if ( now >= nextLog )
+            {
+                nextLog += 0.5;
+                std::string line;
+                for ( const auto& [id, pawn] : client.Pawns() )
+                    if ( const auto sample = client.Sample( id ) )
+                        line += std::format( " {}{}=({:.0f},{:.0f},{:.0f})", id, pawn.Owned ? "*" : "",
+                                             sample->Position.X, sample->Position.Y, sample->Position.Z );
+                Log( "[{}] t={:.1f}s pawns{} ; unacked inputs {}, ack step {}", name, now,
+                     line.empty() ? std::string( " none" ) : line, client.PendingInputs(),
+                     client.LastAck() ? std::to_string( *client.LastAck() ) : std::string( "none" ) );
+            }
+        }
+        int result = client.State() == ReplicationClient::EState::InSession ? 0 : 2;
+        for ( const auto& [id, pawn] : client.Pawns() )
+        {
+            const auto sample = client.Sample( id );
+            if ( !sample || !firstSeen.contains( id ) )
+                continue;
+            Log( "[{}] FINAL {} pawn net id {} (player {}) at ({:.0f}, {:.0f}, {:.0f}) cm, moved {:.0f} cm from where "
+                 "this client first saw it",
+                 name, pawn.Owned ? "own" : "remote", id, pawn.Player, sample->Position.X, sample->Position.Y,
+                 sample->Position.Z, distance( sample->Position, firstSeen[id] ) );
+        }
+        Log( "[{}] {} pawn(s) replicated; exit {}", name, client.Pawns().size(), result );
+        return result;
+    }
 } // namespace
 
 int main( int argc, char** argv )
 {
+    for ( int i = 1; i < argc; ++i )
+        if ( std::strcmp( argv[i], "--bot" ) == 0 )
+            return RunBot( argc, argv );
     std::optional<Options> options = ParseOptions( argc, argv );
     if ( !options )
         return 1;
