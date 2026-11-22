@@ -71,7 +71,29 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningGroupViewCounts );
         };
 
+        // The slot names of Programs/VirtualGeometry/SoftwareRaster.shader.
+        struct SoftwareRasterShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterPrimitives );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterInstances );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterPrimitiveDraws );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterDrawSlots );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterSubmeshTransforms );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterDags );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterClusters );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterVisibleClusters );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterArgs );
+            DESERT_SHADER_PARAMETER( StorageBuffer, SoftwareRasterVisibility );
+        };
+
         constexpr const char* kClusterCutShader = "ClusterCut"; // Programs/VirtualGeometry/ClusterCut.shader
+        constexpr const char* kSoftwareRasterShader =
+             "SoftwareRaster"; // Programs/VirtualGeometry/SoftwareRaster.shader
+        // SoftwareRaster.shader LocalSize: one thread per triangle (and per vertex) of a cluster.
+        static_assert( Geometry::kClusterMaxTriangles == 128u && Geometry::kClusterMaxVertices <= 128u,
+                       "SoftwareRaster.shader LocalSize(128) and its shared vertices" );
+        constexpr uint64_t kSwDispatchOffset = offsetof( GpuClusterRasterArgs, SwDispatch );
+        static_assert( kSwDispatchOffset == 0u, "Common/VirtualGeometry.glslh VgRasterArgs" );
         constexpr const char* kRasterBinningShader =
              "RasterBinning"; // Programs/VirtualGeometry/RasterBinning.shader
         constexpr uint32_t kBinStepCount   = 0u;
@@ -126,6 +148,7 @@ namespace Desert::Graphic::VirtualGeometry
 
         Program ClusterCut;
         Program RasterBinning;
+        Program SoftwareRaster;
     };
 
     VirtualGeometryRenderer::VirtualGeometryRenderer() : m_Programs( std::make_unique<Programs>() )
@@ -499,6 +522,67 @@ namespace Desert::Graphic::VirtualGeometry
 
     // --- ClusterCutCounts ------------------------------------------------------------------------------------
 
+    Common::BoolResultStr VirtualGeometryRenderer::AddSoftwareRaster(
+         RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene, const VirtualMeshBuffers& meshes,
+         const GpuDriven::PassDrawBuffers& passSlots, const RDG::BufferRef submeshTransforms,
+         const ClusterCullResult& culled, const RDG::BufferRef visibilityWords, const glm::mat4& viewProjection,
+         const uint32_t rowBase, const bool postOcclusion ) const
+    {
+        if ( !visibilityWords.IsValid() )
+            return Common::MakeError( "VirtualGeometry: Software Raster: the view has no visibility buffer" );
+        if ( !culled.VisibleClusters.IsValid() || !culled.RasterArgs.IsValid() || culled.VisibleCapacity == 0u )
+            return Common::MakeError( "VirtualGeometry: Software Raster: no cluster cut to raster" );
+        if ( !passSlots.PrimitiveDraws.IsValid() || !passSlots.DrawSlots.IsValid() || !submeshTransforms.IsValid() )
+            return Common::MakeError( "VirtualGeometry: Software Raster: the pass's draw tables are not uploaded" );
+        if ( !meshes.Dags.IsValid() || !meshes.Clusters.IsValid() )
+            return Common::MakeError( "VirtualGeometry: Software Raster: the VirtualMeshTable has no tables" );
+        // Every row the cut may write must fit the word's payload (kVisClusterBits).
+        if ( uint64_t{ rowBase } + culled.VisibleCapacity > kMaxVisibleClusters )
+            return Common::MakeError(
+                 std::format( "VirtualGeometry: Software Raster: rows [{}, +{}) pass the visibility word's {} rows",
+                              rowBase, culled.VisibleCapacity, kMaxVisibleClusters ) );
+        if ( const Common::BoolResultStr ready = m_Programs->SoftwareRaster.Ensure(
+                  kSoftwareRasterShader, "Editor/Resources/Shaders/Programs/VirtualGeometry/SoftwareRaster.shader" );
+             !ready )
+            return Common::MakeError( std::format( "VirtualGeometry: Software Raster: {}", ready.GetError() ) );
+
+        using P                          = SoftwareRasterShaderParameters;
+        const Programs::Program& program = m_Programs->SoftwareRaster;
+        const ShaderPush::SoftwareRaster push{ .ViewProjection = viewProjection,
+                                               .Params = glm::uvec4( rowBase, culled.VisibleCapacity, 0u, 0u ) };
+        graph.AddPass(
+             postOcclusion ? "VirtualGeometry: Software Raster Post" : "VirtualGeometry: Software Raster",
+             RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& builder )
+             {
+                 constexpr auto R   = RDG::Access::StorageRead;
+                 constexpr auto W   = RDG::Access::StorageWrite;
+                 auto           blk = builder.Bindings( program.Layout.Get( program.Shader ),
+                                                        Renderer::GetPipelineRouteFill( *program.Pipeline ) );
+                 blk.Storage( P::SoftwareRasterPrimitives, scene.Primitives, R )
+                      .Storage( P::SoftwareRasterInstances, scene.Instances, R )
+                      .Storage( P::SoftwareRasterPrimitiveDraws, passSlots.PrimitiveDraws, R )
+                      .Storage( P::SoftwareRasterDrawSlots, passSlots.DrawSlots, R )
+                      .Storage( P::SoftwareRasterSubmeshTransforms, submeshTransforms, R )
+                      .Storage( P::SoftwareRasterDags, meshes.Dags, R )
+                      .Storage( P::SoftwareRasterClusters, meshes.Clusters, R )
+                      .Storage( P::SoftwareRasterVisibleClusters, culled.VisibleClusters, R )
+                      .Storage( P::SoftwareRasterArgs, culled.RasterArgs, R )
+                      .Storage( P::SoftwareRasterVisibility, visibilityWords, W )
+                      .PushConstants<ShaderPush::SoftwareRaster>();
+                 // The same buffer as the storage read above: one read state (RDGCompile.cpp, the read merge).
+                 builder.Read( culled.RasterArgs, RDG::Access::IndirectArgs );
+             },
+             [pipeline = program.Pipeline, push,
+              rasterArgs = culled.RasterArgs]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( push );
+                 return Renderer::DispatchComputeIndirect( bindings, *pipeline, rasterArgs, kSwDispatchOffset );
+             } );
+        return BOOLSUCCESS;
+    }
+
     void ClusterCutCounts::BeginFrame( const uint64_t frameIndex )
     {
         const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
@@ -604,6 +688,11 @@ namespace Desert::Graphic::VirtualGeometry
                 count.ClustersVisible = raster.HwDraw[1];
                 count.Status          = cut;
             }
+            if ( entry.Kind == ClusterCutKind::Main || entry.Kind == ClusterCutKind::PostOcclusion )
+            {
+                count.HwClusters += raster.HwDraw[1];
+                count.SwClusters += raster.SwCount;
+            }
 
             // Drawn: the GroupArgs instance counts of the groups the pass drew.
             uint64_t drawn = 0;
@@ -680,6 +769,12 @@ namespace Desert::Graphic::VirtualGeometry
         // m_Last's level storage becomes the next Count's working half; this count's moves in.
         m_CountLevels.swap( m_Last.VsmClustersDrawn );
         m_Last = std::move( count );
+        // VG-SW-RASTER: the first frame whose main view drew a SW cluster, once per renderer.
+        if ( !m_RasterLogged && m_Last.SwClusters != 0u )
+        {
+            LOG_INFO( "[VG] raster hw={} sw={}", m_Last.HwClusters, m_Last.SwClusters );
+            m_RasterLogged = true;
+        }
         if ( !message.empty() && message != m_LastError )
             LOG_ERROR( "[VirtualGeometry] Cluster Cut: {}", message );
         m_LastError = std::move( message );
