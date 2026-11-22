@@ -1,13 +1,15 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-// The renderer itself: every Execute below calls a method on it, and RenderCommand.hpp only
-// forward-declares the type (see the note there on the include cycle that cost).
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 
-#include <glm/mat4x4.hpp>
-#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+#include <glm/mat4x4.hpp>
+
+
+namespace Desert
+{
+    class Mesh;
+}
 
 namespace Desert::Graphic
 {
@@ -51,18 +53,8 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Prepare() override
-        {
-            if ( Mesh != nullptr )
-                SceneRenderer::PrepareMesh( *Mesh );
-        }
+        void Prepare() override;
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
-                return;
-            renderer.SubmitSlotMaterialMesh( Entity, Mesh, Transform, SlotMaterial, VisibleSubmeshMask, Outlined,
-                                             CastShadows, MotionPart );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

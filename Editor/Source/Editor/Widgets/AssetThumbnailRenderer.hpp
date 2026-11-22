@@ -4,7 +4,6 @@
 
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Assets/Common.hpp>
@@ -16,6 +15,14 @@
 #include <future>
 #include <memory>
 #include <string>
+
+// The thumbnail's renderer is owned behind a pointer: the editor sees SceneRenderer by declaration only
+// (as UE's editor modules see FSceneRenderer), so a renderer header edit does not rebuild every widget.
+namespace Desert::Graphic
+{
+    class SceneRenderer;
+    class ImageReadback;
+} // namespace Desert::Graphic
 
 namespace Desert::Core
 {

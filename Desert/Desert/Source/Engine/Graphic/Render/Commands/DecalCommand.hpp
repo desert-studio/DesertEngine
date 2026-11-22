@@ -1,9 +1,6 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-// The renderer itself: every Execute below calls a method on it, and RenderCommand.hpp only
-// forward-declares the type (see the note there on the include cycle that cost).
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Decals/DecalRenderer.hpp>
 
 namespace Desert::Graphic::Render
@@ -17,11 +14,6 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            // COPIED, NOT MOVED: a scene with several views replays the same recorded command into each view's
-            // renderer (SpotLightCommand.hpp says why a moved-from payload is a decal missing from one view).
-            renderer.AddDecal( Decal );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

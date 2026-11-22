@@ -1,9 +1,6 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-// The renderer itself: every Execute below calls a method on it, and RenderCommand.hpp only
-// forward-declares the type (see the note there on the include cycle that cost).
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
@@ -15,7 +12,6 @@
 #include <string>
 #include <utility>
 
-#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Graphic::Render
 {
@@ -109,35 +105,8 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Prepare() override
-        {
-            if ( Mesh != nullptr )
-                SceneRenderer::PrepareMesh( *Mesh );
-        }
+        void Prepare() override;
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            if ( !renderer.IsWithinMaxDrawDistance( Mesh, Transform, MaxDrawDistance ) )
-                return;
-            const Graphic::MaterialOverrides*                overrides  = &Overrides;
-            const Graphic::RayTracing::RayTracingProgramHit* rayHit     = &RayHit;
-            const std::string*                               shaderName = &ShaderName;
-            // 0: the values are this command's own (hashed by the renderer); else the params' revision.
-            SceneRenderer::GenericValuesRevision revision{};
-            if ( Params != nullptr )
-            {
-                overrides         = &Params->Overrides;
-                rayHit            = &Params->RayHit;
-                revision.Revision = Params->Revision;
-                if ( !Params->ShaderName.empty() )
-                {
-                    shaderName             = &Params->ShaderName;
-                    revision.HasShaderName = true;
-                }
-            }
-            renderer.SubmitGenericMesh( Entity, Mesh, Transform, *shaderName, *overrides, Outlined, DirectTexture,
-                                        DirectTextureSampler, CastShadows, VisibleInRayTracing, *rayHit,
-                                        revision );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

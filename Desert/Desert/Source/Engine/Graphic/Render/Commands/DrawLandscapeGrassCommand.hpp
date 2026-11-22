@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 
 #include <memory>
@@ -22,9 +21,6 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            renderer.SubmitLandscapeGrass( *Draw ); // by reference: read until EndScene; the command outlives it
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

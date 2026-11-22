@@ -1,5 +1,6 @@
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
