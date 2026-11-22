@@ -1,4 +1,5 @@
 #include "TranslucencyLightingVolume.hpp"
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>

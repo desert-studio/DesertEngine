@@ -8,6 +8,11 @@
 #include <functional>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 
+namespace Desert::Graphic
+{
+    class GraphicsPipeline;
+} // namespace Desert::Graphic
+
 namespace Desert::Editor::Render
 {
     // The Material Editor preview's cubemap presenter: a Debug-phase external pass that ray-traces a

@@ -1,4 +1,5 @@
 #include "EditorToolPreviewPass.hpp"
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>

@@ -1,4 +1,5 @@
 #include "SceneAtmosphere.hpp"
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>

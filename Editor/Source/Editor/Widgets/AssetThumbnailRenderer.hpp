@@ -6,7 +6,6 @@
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Core/Camera.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Assets/Common.hpp>
 
@@ -17,6 +16,11 @@
 #include <future>
 #include <memory>
 #include <string>
+
+namespace Desert::Core
+{
+    class Scene;
+} // namespace Desert::Core
 
 namespace Desert::Assets
 {
