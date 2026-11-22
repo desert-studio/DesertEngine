@@ -2269,6 +2269,9 @@ namespace Desert::Graphic
         // DebugViewState::ForceVirtualGeometryPostCutRefusal as last logged (logged once when it turns on).
         bool  m_VirtualGeometryPostRefusalLogged = false;
         float m_VirtualGeometryMaxPixelsPerEdge  = 1.0f;
+        // Scalability VirtualGeometry.SoftwareRaster (VG-SW-RASTER): the main cut hands small clusters to the
+        // compute raster when the view also has its visibility buffer (AddFrameVirtualGeometry).
+        bool m_VirtualGeometrySoftwareRaster = false;
         // This frame's cut (reset by AddFrameVirtualGeometry): what the vg_clusters view draws.
         struct FrameVirtualGeometry
         {

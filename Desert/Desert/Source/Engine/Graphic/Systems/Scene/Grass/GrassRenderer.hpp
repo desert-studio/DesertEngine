@@ -287,6 +287,12 @@ namespace Desert::Graphic::System
         {
             return m_VisibilityRows > kGrassVisibilityMaxRows;
         }
+        // The raster-stream rows the last AddFrame handed out: another raster of the same visibility buffer (the
+        // virtual geometry's SW raster, VG-SW-RASTER) numbers its rows from here.
+        [[nodiscard]] uint64_t VisibilityRows() const noexcept
+        {
+            return m_VisibilityRows;
+        }
 
         // FPS-GRASS-RESOLVE: the first raster-stream row of every section (blade variety, mesh section) the last
         // AddFrame handed rows to, ascending - the sections' table "Grass: Visibility Material Depth" maps a

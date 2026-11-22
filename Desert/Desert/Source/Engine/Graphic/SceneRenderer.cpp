@@ -1316,6 +1316,7 @@ namespace Desert::Graphic
         m_VirtualGeometryMaxPixelsPerEdge =
              static_cast<float>( quality.As<int>( Parameter::ViewDistanceVirtualGeometryMaxPixelsPerEdge ) ) /
              10.0f;
+        m_VirtualGeometrySoftwareRaster = quality.As<int>( Parameter::VirtualGeometrySoftwareRaster ) != 0;
         m_DisplacementDicingRate = quality.As<int>( Parameter::DisplacementDicingRate );
         m_DisplacementPoolMiB    = static_cast<uint32_t>( quality.As<int>( Parameter::DisplacementPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
@@ -2731,6 +2732,33 @@ namespace Desert::Graphic
                     m_GrassVisibilityError = made.GetError();
                     LOG_ERROR( "[SceneRenderer] {}: the grass draws through the G-buffer: {}",
                                m_ViewResources.GetName(), m_GrassVisibilityError );
+                }
+            }
+            // VG-SW-RASTER: the main cut's SW clusters (AddFrameVirtualGeometry split them only when this view
+            // keeps a visibility buffer) atomic-maxed into the same words after their clear, their rows past
+            // every grass row (GrassRenderer::VisibilityRows), so the grass's depth pass and HZB see them.
+            if ( grassVisibility.IsValid() && m_FrameVirtualGeometry && m_FrameDrawBins && m_VirtualGeometry &&
+                 m_VirtualGeometrySoftwareRaster )
+            {
+                const FrameDrawBins&        bins = *m_FrameDrawBins;
+                const FrameVirtualGeometry& cut  = *m_FrameVirtualGeometry;
+                const ViewFrame* const      view = GetViewFrame();
+                VirtualGeometry::ClusterCullResult culled;
+                culled.VisibleClusters = cut.VisibleClusters;
+                culled.RasterArgs      = cut.RasterArgs;
+                culled.VisibleCapacity = cut.VisibleCapacity;
+                const auto rowBase     = static_cast<uint32_t>( m_Systems.Grass->VisibilityRows() );
+                if ( view != nullptr )
+                {
+                    const Common::BoolResultStr sw = m_VirtualGeometry->AddSoftwareRaster(
+                         graph, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
+                         bins.Upload.Passes[cut.Pass], bins.Upload.SubmeshTransforms, culled, grassVisibility.Words,
+                         view->JitteredViewProjection, rowBase, false );
+                    if ( !sw && sw.GetError() != m_VirtualGeometryLastError )
+                    {
+                        LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), sw.GetError() );
+                        m_VirtualGeometryLastError = sw.GetError();
+                    }
                 }
             }
             // THE MESHES' EARLY-Z MODE (UE r.EarlyZPass; RenderPipeline.EarlyZPass, default Masked). UE DBuffer

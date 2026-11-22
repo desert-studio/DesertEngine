@@ -894,6 +894,12 @@ namespace Desert::Graphic
              .Scene = bins.Scene, .Upload = bins.Upload, .Meshes = vgMeshes, .NeutralHzb = bins.NeutralHzb };
         const SceneResources::DirectionalShadowViews shadows = meshes->DirectionalShadows();
         const SceneResources::DirectionalShadowView& sun     = shadows[SceneResources::kDirectionalShadowSun];
+        // VG-SW-RASTER: the main view (cut view 0) splits HW/SW only when its visibility buffer will exist this
+        // frame (the deferred G-buffer path with the grass visibility buffer, rows not overflowing) - the SW
+        // raster writes nowhere else. Cascades and the post phase stay HW (SwRasterMaxEdgePixels 0).
+        const bool swRaster = m_VirtualGeometrySoftwareRaster && m_GrassVisibilityBuffer &&
+                              m_RenderPath == Core::RenderPath::Deferred && m_GBuffer && m_Systems.Grass &&
+                              !m_Systems.Grass->VisibilityRowsOverflow();
         const auto viewOf = [&]( const size_t v ) -> Common::ResultStr<VirtualGeometry::ClusterCullView>
         {
             using Result = VirtualGeometry::ClusterCullView;
@@ -902,7 +908,8 @@ namespace Desert::Graphic
                      Result{ .Instance         = bins.Views[v],
                              .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
                              .Lod              = VirtualGeometry::ClusterLodMeasure::Perspective(
-                                  frame.Split.Render.Height, bins.Views[v].View.LodProjection ) } );
+                                  frame.Split.Render.Height, bins.Views[v].View.LodProjection ),
+                             .SwRasterMaxEdgePixels = swRaster ? VirtualGeometry::kSwRasterMaxEdgePixels : 0.0f } );
             // A cut cascade layer's view key (AddFrameDrawBins): its static layer kDirectionalShadowSun x
             // kMaxCascades + its cascade, its movable layer MeshRenderer::CascadeMovableView of that; both select
             // LOD by the cascade's texels. Any other key on a cut view is a broken marking.

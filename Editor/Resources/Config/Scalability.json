@@ -84,8 +84,11 @@
             "High": {
                 "ViewDistance.DisplacementPoolMiB": 256
             },
-            "Epic": {},
+            "Epic": {
+                "VirtualGeometry.SoftwareRaster": 1
+            },
             "Cinematic": {
+                "VirtualGeometry.SoftwareRaster": 1,
                 "ViewDistance.LODDistanceScalePercent": 50,
                 "ViewDistance.VirtualGeometryMaxPixelsPerEdge": 5,
                 "ViewDistance.DisplacementDicingRate": 1,
