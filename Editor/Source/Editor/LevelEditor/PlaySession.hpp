@@ -9,6 +9,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
+#include <Engine/Net/ClientNetDriver.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/PlayWorldTravel.hpp"
@@ -113,6 +114,8 @@ namespace Desert::Editor
         std::optional<Desert::Core::EntityPackages>  m_EditPackages; // the edit world's, from Play to Stop
         bool                                         m_PendingStop = false;
         std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;
+        // Play as a network client (--connect): the session with the server, for the whole Play.
+        std::unique_ptr<Desert::Core::ClientNetDriver> m_NetClient;
         double                                       m_WorldStreamClock = 0.0; // seconds of Play, for retries
     };
 } // namespace Desert::Editor

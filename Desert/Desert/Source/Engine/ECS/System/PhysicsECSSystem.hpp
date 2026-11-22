@@ -55,6 +55,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Net/NetRoleComponent.hpp>
 #include <Engine/Physics/ColliderComponent.hpp>
 #include <Engine/Physics/RigidBodyComponent.hpp>
 #include <Engine/Core/SceneSettings.hpp>
@@ -288,7 +289,8 @@ namespace Desert::ECS
             for ( auto entity : characters )
             {
                 const auto& cc = characters.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
+                // A replicated pawn's transform is the network's (ClientNetDriver writes it before the systems).
+                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter || registry.has<NetRoleComponent>( entity ) )
                     continue;
                 SetLocalTranslation( registry, entity,
                                      m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter ) );
@@ -677,7 +679,9 @@ namespace Desert::ECS
             for ( auto entity : characters )
             {
                 auto& cc = characters.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
+                // A replicated pawn moves on the server (UE: a client's simulated / autonomous proxy without
+                // prediction); its body follows the network's transform instead (NET-4 predicts the own one here).
+                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter || registry.has<NetRoleComponent>( entity ) )
                     continue;
 
                 // World move intent from the script's camera-relative one (y = forward, x = right); the model
