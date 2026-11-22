@@ -171,14 +171,18 @@ namespace Desert::Core
     }
 
     // THE SERVER'S PAWN PREFAB, LOADED BEFORE ANY PAWN IS SPAWNED. The Welcome names it by handle; the open level
-    // references only its own assets, so a pawn the level does not name is not registered yet. The handle is resolved
-    // to its file through the content registry (handle -> stable key, no type and no prior registration needed) and
-    // registered + loaded here, once per session - UE's client loads the GameMode's DefaultPawnClass the same way.
+    // references only its own assets, so a pawn the level does not name is not registered yet. The handle is
+    // resolved to its file through the content registry (handle -> stable key, no type and no prior registration
+    // needed) and registered + loaded here, once per session - UE's client loads the GameMode's DefaultPawnClass
+    // the same way.
     void ClientNetDriver::LoadPawnPrefab( Assets::AssetManager& assets )
     {
         const Assets::AssetHandle handle( m_Client->PawnPrefab() );
         if ( assets.FindByHandle<Assets::PrefabAsset>( handle ) )
+        {
+            m_PawnPrefab = handle;
             return;
+        }
         const std::string key = Assets::ContentRegistry::KeyForHandle( m_Client->PawnPrefab() );
         if ( key.empty() )
         {
@@ -186,20 +190,18 @@ namespace Desert::Core
                        m_Client->PawnPrefab() );
             return;
         }
-        const std::filesystem::path path = Common::AssetHandle::PathForStableKey( key );
+        const std::filesystem::path path   = Common::AssetHandle::PathForStableKey( key );
         const auto                  prefab = assets.CreateAsset<Assets::PrefabAsset>( path );
         if ( !prefab || !prefab->IsReadyForUse() )
         {
             LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load", m_Client->PawnPrefab(), key );
             return;
         }
-        if ( !assets.FindByHandle<Assets::PrefabAsset>( handle ) )
-        {
-            LOG_ERROR( "[Net] the server's pawn prefab {:016x} loaded from '{}' under another handle",
-                       m_Client->PawnPrefab(), key );
-            return;
-        }
-        LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}')", m_Client->PawnPrefab(), key );
+        // The Welcome's number is the path-derived one; a prefab that declares its own identity is registered under
+        // that, so the spawns below name the asset by the handle it was registered with.
+        m_PawnPrefab = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
+        LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}', handle {:016x} here)", m_Client->PawnPrefab(),
+                  key, static_cast<std::uint64_t>( m_PawnPrefab ) );
     }
 
     void ClientNetDriver::ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets )
@@ -224,7 +226,7 @@ namespace Desert::Core
                 if ( pawn == entt::null || !reg.valid( pawn ) )
                 {
                     const auto own =
-                         SpawnPawnPrefabAt( scene, assets, Assets::AssetHandle( m_Client->PawnPrefab() ),
+                         SpawnPawnPrefabAt( scene, assets, m_PawnPrefab,
                                             glm::translate( glm::mat4( 1.0f ), at ) );
                     if ( !own )
                     {
@@ -238,7 +240,7 @@ namespace Desert::Core
                               "player's",
                               m_Client->PawnPrefab() );
                 }
-                else if ( static_cast<std::uint64_t>( scene.GetSettings().DefaultPawn ) != m_Client->PawnPrefab() )
+                else if ( scene.GetSettings().DefaultPawn != m_PawnPrefab )
                 {
                     LOG_WARN(
                          "[Net] the level's pawn prefab {:016x} is not the server's {:016x}: the server moves "
@@ -252,7 +254,7 @@ namespace Desert::Core
                           replicated.Player, at.x, at.y, at.z );
                 continue;
             }
-            const auto spawned = SpawnPawnPrefabAt( scene, assets, Assets::AssetHandle( m_Client->PawnPrefab() ),
+            const auto spawned = SpawnPawnPrefabAt( scene, assets, m_PawnPrefab,
                                                     glm::translate( glm::mat4( 1.0f ), at ) );
             if ( !spawned )
             {
