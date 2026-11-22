@@ -165,4 +165,44 @@ float RESTIRRandom( ivec2 texel, uint frameIndex, uint use )
            ( 1.0 / 4294967296.0 );
 }
 
+#define RESTIR_PI 3.14159265358979
+
+// THE PASSES' PARAMETERS ("ReSTIRParamsUB"). std430 — must match GlobalIllumination::ReSTIRParamsPayload
+// (ReSTIRGather.hpp). 80 bytes.
+struct ReSTIRParams {
+    uvec4 extent;   // xy = the reservoir extent, z = the spatial samples, w = RESTIR_FLAG_*
+    uvec4 frame;    // x = the frame index (the reservoir pixel's jitter, the random sequence)
+    vec4  tuning;   // x = temporal M cap, y = spatial radius (reservoir texels), z = depth tolerance, w = normal cos
+    vec4  jitter;   // xy = this frame's NDC jitter, zw = last frame's (the temporal reprojection)
+    vec4  rayClamp; // x = the largest radiance a ray carries (absolute; ScreenProbeParams.rayClamp.x)
+};
+// ReSTIRParams.extent.w — must match GlobalIllumination::kReSTIRFlag* (ReSTIRGather.hpp).
+#define RESTIR_FLAG_PREVIOUS_VALID 1u // the view's previous reservoirs are last frame's, of this extent
+
+// A cosine-distributed direction about @p n (pdf = cos / pi) from two uniform numbers.
+vec3 RESTIRCosineDirection( vec3 n, vec2 xi )
+{
+    const float phi = 2.0 * RESTIR_PI * xi.x;
+    const float r   = sqrt( xi.y );
+    const vec3  t   = normalize( abs( n.z ) < 0.999 ? cross( vec3( 0.0, 0.0, 1.0 ), n ) : cross( vec3( 1.0, 0.0, 0.0 ), n ) );
+    const vec3  b   = cross( n, t );
+    return normalize( t * ( r * cos( phi ) ) + b * ( r * sin( phi ) ) + n * sqrt( max( 1.0 - xi.y, 0.0 ) ) );
+}
+
+// UE ClampMaxRayIntensity: a ray's radiance scaled so its largest channel stays under @p maxRadiance (the same
+// rule as Common/ScreenProbes.glslh SPClampRayRadiance, the screen probes' rays).
+vec3 RESTIRClampRadiance( vec3 radiance, float maxRadiance )
+{
+    const float largest = max( radiance.r, max( radiance.g, radiance.b ) );
+    return largest > maxRadiance ? radiance * ( maxRadiance / largest ) : radiance;
+}
+
+// The GGX distribution (Trowbridge-Reitz) at @p nDotH for @p roughness (perceptual; alpha = roughness²).
+float RESTIRGGX( float nDotH, float roughness )
+{
+    const float a2 = roughness * roughness * roughness * roughness;
+    const float d  = nDotH * nDotH * ( a2 - 1.0 ) + 1.0;
+    return a2 / max( RESTIR_PI * d * d, 1e-8 );
+}
+
 #endif // RESTIR_GI_GLSLH

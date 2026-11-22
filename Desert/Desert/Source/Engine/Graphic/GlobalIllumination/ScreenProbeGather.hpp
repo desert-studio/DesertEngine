@@ -3,6 +3,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
+#include <Engine/Graphic/GlobalIllumination/ReSTIRGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
@@ -535,6 +536,8 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t                                m_AtlasProbesRow    = 0;
         uint32_t                                m_ImageTracedTexels = 0;
         uint32_t                                m_FrameIndex = 0;
+        // The ReSTIR final gather (ScreenProbeGatherInputs::ReSTIR): its programs and frame sequence.
+        ReSTIRGather m_ReSTIR;
 #if DESERT_DEV_INSTRUMENTS
         ScreenProbeMissCounts   m_MissCounts;
         ScreenProbeCensusCounts m_Census;
