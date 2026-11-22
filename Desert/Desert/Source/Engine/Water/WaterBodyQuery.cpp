@@ -14,7 +14,12 @@ namespace Desert::Water
     bool WaterBodyCovers( const WaterBodyState& body, const glm::vec3& point )
     {
         const glm::vec2 half = body.Extents * 0.5f;
-        return std::abs( point.x - body.Location.x ) <= half.x && std::abs( point.z - body.Location.z ) <= half.y;
+        if ( std::abs( point.x - body.Location.x ) > half.x || std::abs( point.z - body.Location.z ) > half.y )
+            return false;
+        // A river is its ribbon, not its box: the baked bank mask (a river without a bake covers nothing).
+        if ( body.Type == WaterBodyType::River )
+            return body.Flow != nullptr && SampleRiverFlow( *body.Flow, glm::vec2( point.x, point.z ) ).z > 0.5f;
+        return true;
     }
 
     std::optional<float> GroundHeightAt( std::span<const World::Landscape::LandscapeRayTile> ground, float x,

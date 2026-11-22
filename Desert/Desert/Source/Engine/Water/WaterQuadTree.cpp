@@ -35,8 +35,9 @@ namespace Desert::Water
         const glm::vec2 zoneMax = m_RootMin + extent;
         m_MinSurfaceY           = std::numeric_limits<float>::max();
         m_MaxSurfaceY           = std::numeric_limits<float>::lowest();
-        for ( const WaterQuadTreeBody& body : bodies )
+        for ( size_t bodyIndex = 0; bodyIndex < bodies.size(); ++bodyIndex )
         {
+            const WaterQuadTreeBody& body = bodies[bodyIndex];
             const glm::vec2 lo = glm::max( body.FootprintMin, m_RootMin );
             const glm::vec2 hi = glm::min( body.FootprintMax, zoneMax );
             if ( lo.x >= hi.x || lo.y >= hi.y )
@@ -44,7 +45,9 @@ namespace Desert::Water
             TileRange range;
             range.Min      = glm::ivec2( glm::floor( ( lo - m_RootMin ) / m_LeafSize ) );
             range.Max      = glm::min( glm::ivec2( glm::ceil( ( hi - m_RootMin ) / m_LeafSize ) ), extentInTiles );
-            range.SurfaceY = body.SurfaceY;
+            range.SurfaceY  = body.SurfaceY;
+            range.BodyIndex = static_cast<uint32_t>( bodyIndex );
+            range.Priority  = body.Priority;
             m_Bodies.push_back( range );
             m_MinSurfaceY = std::min( m_MinSurfaceY, body.SurfaceY );
             m_MaxSurfaceY = std::max( m_MaxSurfaceY, body.SurfaceY );
@@ -135,25 +138,34 @@ namespace Desert::Water
         return buffers.Tiles;
     }
 
-    WaterQuadTree::Coverage WaterQuadTree::Classify( const Node& node, float& surfaceY ) const
+    // A node is Complete when one body covers it whole and no body of a higher priority touches it (a river
+    // inside an ocean splits the ocean's node down to the river's leaves). A partial node - and so a leaf - is
+    // drawn as the highest-priority body touching it, the first of equals.
+    WaterQuadTree::Coverage WaterQuadTree::Classify( const Node& node, TileOwner& owner ) const
     {
-        const glm::ivec2 lo  = node.Tile;
-        const glm::ivec2 hi  = node.Tile + glm::ivec2( 1 << node.Level );
-        bool             any = false;
+        const glm::ivec2 lo       = node.Tile;
+        const glm::ivec2 hi       = node.Tile + glm::ivec2( 1 << node.Level );
+        const TileRange* touching = nullptr; // the highest priority touching the node
+        const TileRange* covering = nullptr; // the highest priority covering it whole
         for ( const TileRange& body : m_Bodies )
         {
             if ( lo.x >= body.Max.x || lo.y >= body.Max.y || hi.x <= body.Min.x || hi.y <= body.Min.y )
                 continue;
-            if ( lo.x >= body.Min.x && lo.y >= body.Min.y && hi.x <= body.Max.x && hi.y <= body.Max.y )
-            {
-                surfaceY = body.SurfaceY;
-                return Coverage::Complete;
-            }
-            if ( !any )
-                surfaceY = body.SurfaceY;
-            any = true;
+            if ( touching == nullptr || body.Priority > touching->Priority )
+                touching = &body;
+            if ( lo.x >= body.Min.x && lo.y >= body.Min.y && hi.x <= body.Max.x && hi.y <= body.Max.y &&
+                 ( covering == nullptr || body.Priority > covering->Priority ) )
+                covering = &body;
         }
-        return any ? Coverage::Partial : Coverage::Empty;
+        if ( touching == nullptr )
+            return Coverage::Empty;
+        if ( covering != nullptr && covering->Priority >= touching->Priority )
+        {
+            owner = TileOwner{ covering->SurfaceY, covering->BodyIndex };
+            return Coverage::Complete;
+        }
+        owner = TileOwner{ touching->SurfaceY, touching->BodyIndex };
+        return Coverage::Partial;
     }
 
     Common::Math::AABB WaterQuadTree::NodeBox( const Node& node, const Traversal& t ) const
@@ -203,8 +215,8 @@ namespace Desert::Water
     // root with the deepest LOD and descends one level per LOD.
     void WaterQuadTree::SelectLOD( const Node& node, const int32_t lodLevel, const Traversal& t ) const
     {
-        float          surfaceY = 0.0f;
-        const Coverage coverage = Classify( node, surfaceY );
+        TileOwner      owner;
+        const Coverage coverage = Classify( node, owner );
         if ( coverage == Coverage::Empty ) // visibility: the caller's (the root's, or VisibleChildren)
             return;
 
@@ -217,7 +229,7 @@ namespace Desert::Water
         {
             if ( coverage == Coverage::Complete )
             {
-                AddNodeForRender( node, surfaceY, 1, lodLevel + 1, t );
+                AddNodeForRender( node, owner, 1, lodLevel + 1, t );
             }
             else
             {
@@ -232,7 +244,7 @@ namespace Desert::Water
         // The finest LOD: a leaf is always whole.
         if ( lodLevel == 0 )
         {
-            AddNodeForRender( node, surfaceY, 0, 0, t );
+            AddNodeForRender( node, owner, 0, 0, t );
             return;
         }
 
@@ -241,7 +253,7 @@ namespace Desert::Water
         {
             if ( coverage == Coverage::Complete )
             {
-                AddNodeForRender( node, surfaceY, 0, lodLevel, t );
+                AddNodeForRender( node, owner, 0, lodLevel, t );
             }
             else
             {
@@ -264,13 +276,13 @@ namespace Desert::Water
     void WaterQuadTree::SelectLODRefinement( const Node& node, const int32_t densityLevel, const int32_t lodLevel,
                                              const Traversal& t ) const
     {
-        float          surfaceY = 0.0f;
-        const Coverage coverage = Classify( node, surfaceY );
+        TileOwner      owner;
+        const Coverage coverage = Classify( node, owner );
         if ( coverage == Coverage::Empty ) // visibility: the caller's (the root's, or VisibleChildren)
             return;
         if ( coverage == Coverage::Complete || node.Level == 0 )
         {
-            AddNodeForRender( node, surfaceY, densityLevel, lodLevel, t );
+            AddNodeForRender( node, owner, densityLevel, lodLevel, t );
             return;
         }
         const uint32_t visible = VisibleChildren( node, t );
@@ -280,7 +292,7 @@ namespace Desert::Water
     }
 
     // UE FNode::AddNodeForRender (WaterQuadTree.cpp:11-100).
-    void WaterQuadTree::AddNodeForRender( const Node& node, const float surfaceY, const int32_t densityLevel,
+    void WaterQuadTree::AddNodeForRender( const Node& node, const TileOwner& owner, const int32_t densityLevel,
                                           const int32_t lodLevel, const Traversal& t ) const
     {
         const auto span = static_cast<float>( 1 << node.Level );
@@ -288,7 +300,8 @@ namespace Desert::Water
         WaterTileInstance tile;
         tile.Corner       = glm::vec2( node.Tile ) * m_LeafSize;
         tile.Size         = span * m_LeafSize;
-        tile.SurfaceY     = surfaceY;
+        tile.SurfaceY     = owner.SurfaceY;
+        tile.BodyIndex    = owner.BodyIndex;
         tile.LODLevel     = lodLevel;
         tile.DensityIndex = std::min( densityLevel, m_DensityCount - 1 );
         // Only a tile that is not the sparsest grid can morph (there is no grid to morph to); one that is not the

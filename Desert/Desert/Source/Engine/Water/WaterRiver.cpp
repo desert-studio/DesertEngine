@@ -3,6 +3,7 @@
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 
@@ -108,6 +109,18 @@ namespace Desert::Water
         return box;
     }
 
+    glm::vec4 SampleRiverFlow( const RiverFlowField& field, const glm::vec2 xz ) noexcept
+    {
+        if ( field.Size.x == 0u || field.Size.y == 0u || field.Texels.empty() )
+            return glm::vec4( 0.0f );
+        const glm::vec2 uv = ( xz - field.Min ) / field.Extent;
+        if ( !( uv.x >= 0.0f && uv.x < 1.0f && uv.y >= 0.0f && uv.y < 1.0f ) )
+            return glm::vec4( 0.0f );
+        const auto x = std::min( static_cast<uint32_t>( uv.x * static_cast<float>( field.Size.x ) ), field.Size.x - 1u );
+        const auto z = std::min( static_cast<uint32_t>( uv.y * static_cast<float>( field.Size.y ) ), field.Size.y - 1u );
+        return field.Texels[static_cast<size_t>( z ) * field.Size.x + x];
+    }
+
     RiverFlowField BakeRiverFlow( const std::span<const glm::vec3> points, const float width,
                                   const float flowSpeed, const float flowPeriod, const float cmPerTexel ) noexcept
     {
@@ -175,5 +188,34 @@ namespace Desert::Water
                 }
         }
         return field;
+    }
+
+    uint64_t RiverBakeKey( const RiverBakeInput& input ) noexcept
+    {
+        uint64_t   key = 1469598103934665603ull;
+        const auto mix = [&key]( const float v ) { key = ( key ^ std::bit_cast<uint32_t>( v ) ) * 1099511628211ull; };
+        mix( input.Origin.x );
+        mix( input.Origin.y );
+        mix( input.Origin.z );
+        mix( input.Width );
+        mix( input.FlowSpeed );
+        mix( input.FlowPeriod );
+        key = ( key ^ input.LocalPoints.size() ) * 1099511628211ull;
+        for ( const glm::vec3& p : input.LocalPoints )
+        {
+            mix( p.x );
+            mix( p.y );
+            mix( p.z );
+        }
+        return key;
+    }
+
+    std::shared_ptr<const RiverFlowField> BakeRiver( const RiverBakeInput& input ) noexcept
+    {
+        std::vector<glm::vec3> world( input.LocalPoints.begin(), input.LocalPoints.end() );
+        for ( glm::vec3& p : world )
+            p += input.Origin;
+        return std::make_shared<const RiverFlowField>(
+             BakeRiverFlow( world, input.Width, input.FlowSpeed, input.FlowPeriod, kRiverFlowCmPerTexel ) );
     }
 } // namespace Desert::Water

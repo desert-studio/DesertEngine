@@ -59,6 +59,27 @@ namespace Desert::ECS
             body.Location            = transform->GetTranslation();
             body.Extents             = data.OceanExtents;
             body.TargetWaveMaskDepth = data.TargetWaveMaskDepth;
+            body.Type                = data.Type;
+            if ( data.Type == Water::WaterBodyType::River )
+            {
+                // A river is its ribbon: its footprint's centre at its mean level, its bounds the extents.
+                const Water::RiverBakeInput input{ .LocalPoints = RiverPointsOf( data ),
+                                                   .Origin      = body.Location,
+                                                   .Width       = data.RiverWidth,
+                                                   .FlowSpeed   = data.RiverFlowSpeed,
+                                                   .FlowPeriod  = data.RiverFlowPeriod };
+                RiverBake&                  bake = m_Rivers[entity];
+                const uint64_t              key  = Water::RiverBakeKey( input );
+                if ( bake.Flow == nullptr || bake.Key != key )
+                    bake = RiverBake{ key, Water::BakeRiver( input ) };
+                const Water::RiverFlowField& flow = *bake.Flow;
+                if ( flow.Size.x == 0u )
+                    continue; // fewer than two points or no width: no water yet
+                body.Location = glm::vec3( flow.Min.x + 0.5f * flow.Extent.x, flow.SurfaceY,
+                                           flow.Min.y + 0.5f * flow.Extent.y );
+                body.Extents  = flow.Extent;
+                body.Flow     = bake.Flow;
+            }
 
             // No wave set is a flat ocean (UE HasWaves() false), not an error.
             if ( data.WaterWaves != Assets::AssetHandle::Null() )
@@ -84,6 +105,7 @@ namespace Desert::ECS
     void WaterBodyGather::Reset()
     {
         m_Refused.clear();
+        m_Rivers.clear();
         m_Members.clear();
         m_Bodies.clear();
         m_BuiltFor      = nullptr;

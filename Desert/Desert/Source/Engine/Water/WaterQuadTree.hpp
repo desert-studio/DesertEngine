@@ -35,6 +35,9 @@ namespace Desert::Water
         glm::vec2 FootprintMin{ 0.0f };
         glm::vec2 FootprintMax{ 0.0f };
         float     SurfaceY = 0.0f;
+        /// Where two footprints overlap, the higher priority owns the tiles (Water::WaterBodyPriority: a river
+        /// over an ocean); equal priorities keep the first body that covers a node whole.
+        int32_t Priority = 0;
     };
 
     /// The zone the tree covers (ECS::WaterZoneData, placed at the zone entity).
@@ -57,6 +60,9 @@ namespace Desert::Water
         glm::vec2 Corner{ 0.0f };
         float     Size          = 0.0f;
         float     SurfaceY      = 0.0f;
+        /// The body that owns the tile: its index in the bodies the tree was built from (the renderer's per-tile
+        /// material, waves and flow row).
+        uint32_t  BodyIndex     = 0;
         int32_t   LODLevel      = 0;
         int32_t   DensityIndex  = 0;
         bool      ShouldMorph   = false;
@@ -140,7 +146,16 @@ namespace Desert::Water
         {
             glm::ivec2 Min{ 0 };
             glm::ivec2 Max{ 0 };
-            float      SurfaceY = 0.0f;
+            float      SurfaceY  = 0.0f;
+            uint32_t   BodyIndex = 0;
+            int32_t    Priority  = 0;
+        };
+
+        // The body a node's tiles are drawn as.
+        struct TileOwner
+        {
+            float    SurfaceY  = 0.0f;
+            uint32_t BodyIndex = 0;
         };
 
         // A node: its level (leaf = 0) and first leaf tile; it spans 2^Level tiles per side.
@@ -167,7 +182,7 @@ namespace Desert::Water
             std::vector<WaterTileInstance>* Output = nullptr;
         };
 
-        [[nodiscard]] Coverage Classify( const Node& node, float& surfaceY ) const;
+        [[nodiscard]] Coverage Classify( const Node& node, TileOwner& owner ) const;
         [[nodiscard]] Common::Math::AABB NodeBox( const Node& node, const Traversal& t ) const;
         [[nodiscard]] bool               Visible( const Node& node, const Traversal& t ) const;
         // Bit i: Visible( Child( node, i ) ), the four tested at once (Frustum::Intersects4).
@@ -178,7 +193,7 @@ namespace Desert::Water
         void SelectLOD( const Node& node, int32_t lodLevel, const Traversal& t ) const;
         void SelectLODRefinement( const Node& node, int32_t densityLevel, int32_t lodLevel,
                                   const Traversal& t ) const;
-        void AddNodeForRender( const Node& node, float surfaceY, int32_t densityLevel, int32_t lodLevel,
+        void AddNodeForRender( const Node& node, const TileOwner& owner, int32_t densityLevel, int32_t lodLevel,
                                const Traversal& t ) const;
 
         glm::vec2              m_RootMin{ 0.0f };

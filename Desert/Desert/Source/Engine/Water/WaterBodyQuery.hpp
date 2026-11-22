@@ -11,6 +11,7 @@
 // the physics step (UE's FSolverSafeWaterBodyData), not a UObject; UE's LWC tile is the body's WaveOrigin, its
 // own location. Ocean only: lakes and rivers take their shape and depth from a spline (W-9, W-10).
 
+#include <Engine/Water/WaterRiver.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
 #include <glm/vec2.hpp>
@@ -44,6 +45,11 @@ namespace Desert::Water
         std::shared_ptr<const std::vector<GerstnerWave>> Waves;
         /// Depth at which the waves have died to e^-2 (UE TargetWaveMaskDepth, its default).
         float TargetWaveMaskDepth = 2048.0f;
+        /// Ocean or River (UE AWaterBodyOcean / AWaterBodyRiver). A river's Location is its footprint's centre at
+        /// its mean level, Extents its footprint, and it covers only where its baked bank mask is set.
+        WaterBodyType Type = WaterBodyType::Ocean;
+        /// A river's baked flow (null for an ocean): the bank mask the queries clip to and the current they read.
+        std::shared_ptr<const RiverFlowField> Flow;
     };
 
     struct WaterQueryResult

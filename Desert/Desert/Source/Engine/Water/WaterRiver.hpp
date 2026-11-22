@@ -14,6 +14,7 @@
 #include <glm/vec4.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -71,6 +72,30 @@ namespace Desert::Water
 
     /// Bakes @p points (already in world space) into a flow field of about @p cmPerTexel (clamped so neither side
     /// exceeds kRiverFlowMaxSize). An empty field (Size 0) for fewer than two points or a non-positive width.
+    /// The field's texel nearest @p xz (world XZ, cm); zero outside the field or for an empty one.
+    [[nodiscard]] glm::vec4 SampleRiverFlow( const RiverFlowField& field, glm::vec2 xz ) noexcept;
+
     [[nodiscard]] RiverFlowField BakeRiverFlow( std::span<const glm::vec3> points, float width, float flowSpeed,
                                                 float flowPeriod, float cmPerTexel ) noexcept;
+
+    /// One river body as the ECS authors it (ECS::WaterBodyData + the entity's location): what a bake reads.
+    struct RiverBakeInput
+    {
+        std::span<const glm::vec3> LocalPoints; // relative to Origin
+        glm::vec3                  Origin{ 0.0f };
+        float                      Width      = 800.0f;
+        float                      FlowSpeed  = 150.0f;
+        float                      FlowPeriod = 1.0f;
+    };
+
+    /// The texel size every river is baked at, cm (BakeRiverFlow coarsens it for a river longer than
+    /// kRiverFlowMaxSize texels).
+    inline constexpr float kRiverFlowCmPerTexel = 50.0f;
+
+    /// A hash of everything a bake reads: equal keys = the same field, so a caller re-bakes only on a change.
+    [[nodiscard]] uint64_t RiverBakeKey( const RiverBakeInput& input ) noexcept;
+
+    /// The world-space bake of @p input at kRiverFlowCmPerTexel; an empty field (Size 0) for a river that cannot
+    /// be drawn (fewer than two points, a non-positive width).
+    [[nodiscard]] std::shared_ptr<const RiverFlowField> BakeRiver( const RiverBakeInput& input ) noexcept;
 } // namespace Desert::Water
