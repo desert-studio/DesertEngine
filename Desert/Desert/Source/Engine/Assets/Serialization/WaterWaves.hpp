@@ -8,6 +8,7 @@
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Water/GerstnerWaterWaves.hpp>
+#include <Engine/Water/FFTOceanSpectrum.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -52,12 +53,19 @@ namespace Desert::Assets::Serialization
 
         Water::GerstnerWaveGenerator Generator;
 
+        // WATER-RIVERS-FFT: added with defaults (a file without them is the Gerstner set it always was; the
+        // reader is DefaultIfMissing, so no version step). FFT: the Tessendorf / JONSWAP ocean drawn at the FFT
+        // tier; Generator stays the set's surface below that tier and for the CPU's queries.
+        Water::WaterWaveSource        Source = Water::WaterWaveSource::Gerstner;
+        Water::FFTOceanSpectrumParams FFT;
+
         [[nodiscard]] bool operator==( const WaterWavesData& ) const = default;
     };
 
     /// Rejects what the generator cannot honour, naming the field and the value: NumWaves outside
     /// [1, kWaterWavesMaxNumWaves], a non-finite number, a negative or inverted wavelength / amplitude range,
-    /// a negative falloff or spread, Randomness or a steepness outside [0, 1].
+    /// a negative falloff or spread, Randomness or a steepness outside [0, 1]; an FFT block the spectrum cannot
+    /// honour (Water::FFTOceanSpectrumParamsProblem), checked whatever the Source so a switch cannot expose it.
     Common::BoolResultStr ValidateWaterWavesData( const WaterWavesData& data );
 
     /// Parses a `.dwaves`. A file without a header, of another version or kind, that states any Dependencies

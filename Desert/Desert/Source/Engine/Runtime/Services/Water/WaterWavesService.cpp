@@ -3,6 +3,7 @@
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Water/GerstnerWaterWaves.hpp>
+#include <Engine/Water/FFTOceanSpectrum.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -42,6 +43,13 @@ namespace Desert::Runtime
             return;
         }
         m_Ready[handle] = std::make_shared<const std::vector<Water::GerstnerWave>>( std::move( waves ) );
+
+        // An FFT set's ocean: its h0 cascades are a pure function of the FFT block and its seed, built here once
+        // (3 x 256^2 texels) and uploaded once by the water renderer; the parse already refused a block the
+        // spectrum cannot honour.
+        if ( asset->GetData().Source == Water::WaterWaveSource::FFT )
+            m_Spectra[handle] =
+                 std::make_shared<const Water::FFTOceanSpectrum>( Water::BuildFFTOceanSpectrum( asset->GetData().FFT ) );
     }
 
     void WaterWavesService::Request( const Assets::AssetHandle& handle )
@@ -92,10 +100,22 @@ namespace Desert::Runtime
         return Common::MakeSuccess( found->second );
     }
 
+    Common::ResultStr<WaterWavesService::Spectrum> WaterWavesService::GetSpectrum( const Assets::AssetHandle& handle )
+    {
+        Request( handle );
+        if ( const auto failed = m_Failed.find( handle ); failed != m_Failed.end() )
+            return Common::MakeError<Spectrum>( failed->second );
+        const auto found = m_Spectra.find( handle );
+        if ( found == m_Spectra.end() )
+            return Common::MakeSuccess( Spectrum{} );
+        return Common::MakeSuccess( found->second );
+    }
+
     void WaterWavesService::Clear()
     {
         m_Requests.clear();
         m_Ready.clear();
+        m_Spectra.clear();
         m_Failed.clear();
     }
 } // namespace Desert::Runtime
