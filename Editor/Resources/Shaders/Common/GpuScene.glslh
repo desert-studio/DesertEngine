@@ -161,6 +161,11 @@ struct GpuDrawSlot
 // GpuDriven::kDrawSlotEmissionIsLight: the slot's material has Emissive Lights Scene on (its emission is a MegaLights
 // light source); the resolved draw carries it as DESERT_GPU_DRAW_EMISSION_IS_LIGHT.
 #define DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT 2u
+// GpuDriven::kDrawSlotSoftwareRaster: the slot's cell neither clips nor culls front faces, so its small virtual
+// geometry clusters may go to the compute raster (ClusterCut.shader, Programs/VirtualGeometry/SoftwareRaster.shader).
+#define DESERT_GPU_DRAW_SLOT_SOFTWARE_RASTER 4u
+// GpuDriven::kDrawSlotTwoSided: the slot's cell culls no face (the compute raster keeps both windings).
+#define DESERT_GPU_DRAW_SLOT_TWO_SIDED 8u
 
 // Per bin of a pass (pass x pipeline x mesh x submesh x LOD). 32 bytes.
 struct GpuDrawBin

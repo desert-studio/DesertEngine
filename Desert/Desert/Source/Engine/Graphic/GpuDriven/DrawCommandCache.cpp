@@ -463,6 +463,16 @@ namespace Desert::Graphic::GpuDriven
                         }
                         if ( record->EmissionIsLight[passIndex][si] != 0u )
                             slot.Flags |= kDrawSlotEmissionIsLight;
+                        // VG-SW-RASTER: what the compute raster draws exactly as this cell would - no pixel clip,
+                        // back faces culled or none (SoftwareRaster.shader's two cull rules).
+                        const CullMode cull = pipeline->GetSpecification().CullMode;
+                        if ( record->DitheredLod[passIndex][si] == 0u &&
+                             ( cull == CullMode::Back || cull == CullMode::None ) )
+                        {
+                            slot.Flags |= kDrawSlotSoftwareRaster;
+                            if ( cull == CullMode::None )
+                                slot.Flags |= kDrawSlotTwoSided;
+                        }
                     }
                     table.DrawSlots.push_back( slot );
                 }

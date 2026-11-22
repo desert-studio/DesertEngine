@@ -204,6 +204,14 @@ namespace Desert::Graphic::GpuDriven
     // The slot's material has Emissive Lights Scene on (its emission is a MegaLights light source): the binned
     // G-buffer cell marks the shading word's EMISSION_IS_LIGHT (GLSL DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT).
     inline constexpr uint32_t kDrawSlotEmissionIsLight = 1u << 1;
+    // VG-SW-RASTER (UE Nanite's fixed-function SW raster bin): the slot's cell draws what
+    // Programs/VirtualGeometry/SoftwareRaster.shader draws - no per-pixel clip (not kDrawSlotDitheredLod) and a cull
+    // mode of Back or None - so the cluster cut may hand the slot's small clusters to the compute raster
+    // (ClusterCut.shader RastersInSoftware). GLSL DESERT_GPU_DRAW_SLOT_SOFTWARE_RASTER.
+    inline constexpr uint32_t kDrawSlotSoftwareRaster = 1u << 2;
+    // The slot's cell culls no face (CullMode::None): the compute raster keeps both windings
+    // (GLSL DESERT_GPU_DRAW_SLOT_TWO_SIDED).
+    inline constexpr uint32_t kDrawSlotTwoSided = 1u << 3;
     static_assert( sizeof( GpuDrawSlot ) == 16, "std430 twin in Common/GpuScene.glslh" );
     static_assert( offsetof( GpuDrawSlot, SubmeshTransform ) == 8, "Common/GpuScene.glslh" );
 

@@ -59,7 +59,14 @@ namespace Desert::Graphic::RDG
 //                         view), LOD by the cascade's OWN texel (ClusterLodMeasure::Orthographic of its world size
 //                         per texel; UE: shadow LOD by the shadow view's resolution), no HZB (cascades do not
 //                         occlusion-cull), drawn in each cascade's static layer.
-// NOT YET: the SW raster of sub-pixel triangles (visibility buffer).
+//  7. SW raster          VG-SW-RASTER (UE Nanite: the cull's HW/SW split + the compute raster into VisBuffer64): a
+//                         view with ClusterCullView::SwRasterMaxEdgePixels > 0 hands its small clusters to
+//                         "VirtualGeometry: Software Raster" (AddSoftwareRaster), one workgroup per cluster, one
+//                         thread per triangle, 64-bit atomicMax of (reversed-Z depth | row, triangle) into the
+//                         view's visibility buffer (VisibilityBuffer.hpp; the grass's, rows past its rows), whose
+//                         depth reaches the G-buffer depth through "Visibility Depth" and whose material the
+//                         visibility resolve shades (VG rows: REMAINDER VG-SW-RASTER).
+
 namespace Desert::Graphic::VirtualGeometry
 {
     // How a view measures a world length L (cm) in ITS OWN pixels for the cut's LOD (UE GetProjectedEdgeScales;
@@ -92,6 +99,11 @@ namespace Desert::Graphic::VirtualGeometry
         // view's LOD scale, VIEW-LOD-FOV), in the view's own pixels (Lod).
         float             MaxPixelsPerEdge = 1.0f;
         ClusterLodMeasure Lod{};
+        // VG-SW-RASTER (UE r.Nanite.MinPixelsPerEdgeHW): a cluster whose MaxEdgeLength projects below this many
+        // of the view's pixels is drawn by the compute raster into the view's visibility buffer
+        // (AddSoftwareRaster) when its draw slot allows it (GpuDriven::kDrawSlotSoftwareRaster); 0 = every cluster
+        // HW. Only a perspective view with a visibility buffer sets it (kSwRasterMaxEdgePixels).
+        float SwRasterMaxEdgePixels = 0.0f;
     };
 
     // The cluster cull's input: the VG candidates InstanceCulling appended (GpuClusterCandidate::View indexes the
@@ -189,6 +201,20 @@ namespace Desert::Graphic::VirtualGeometry
                           const GpuDriven::PassDrawBuffers& passSlots, const ClusterCullResult& culled,
                           uint32_t countViews = 0u ) const;
 
+        // Step 7: "VirtualGeometry: Software Raster" (Programs/VirtualGeometry/SoftwareRaster.shader) of @p
+        // culled's SW clusters (VisibleClusters[0, RasterArgs.SwCount), indirect from RasterArgs.SwDispatch) into
+        // @p visibilityWords (Common/VisibilityBuffer.glslh, the view's extent in its header) through
+        // @p viewProjection (the main view's JITTERED matrix, the HW raster's). A row's word payload is
+        // (@p rowBase + its VisibleClusters row) << kVisTriangleBits | triangle: @p rowBase places the cut's rows
+        // past every other raster's rows of the same buffer. The world transform is the pass's lod-0 slot of the
+        // cluster's DAG submesh (the cut's). Refused: no visibility buffer, rows past kMaxVisibleClusters.
+        [[nodiscard]] Common::BoolResultStr
+        AddSoftwareRaster( RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene,
+                           const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawBuffers& passSlots,
+                           RDG::BufferRef submeshTransforms, const ClusterCullResult& culled,
+                           RDG::BufferRef visibilityWords, const glm::mat4& viewProjection, uint32_t rowBase,
+                           bool postOcclusion ) const;
+
         struct Programs;
 
     private:
@@ -217,6 +243,9 @@ namespace Desert::Graphic::VirtualGeometry
     struct ClusterCutCount
     {
         uint32_t ClustersVisible = 0; // the main view's main phase: RasterArgs.HwDraw[1]
+        // VG-SW-RASTER: the main view's clusters per raster, main + post phase (RasterArgs.HwDraw[1] / SwCount).
+        uint32_t HwClusters = 0;
+        uint32_t SwClusters = 0;
         // What the rasters DREW: per cut, the sum of RasterBins::GroupArgs instanceCount over the groups the mesh
         // pass drew (a group with no `.VirtualGeometry` pipeline draws none of the clusters binned into it).
         uint32_t ClustersDrawn       = 0; // the main view: main + post phase
@@ -290,5 +319,6 @@ namespace Desert::Graphic::VirtualGeometry
         std::vector<uint64_t> m_LevelSums;
         std::vector<uint32_t> m_CountLevels;
         std::string       m_LastError; // logged once per message
+        bool              m_RasterLogged = false; // "[VG] raster hw=N sw=M": once, the first frame with SW
     };
 } // namespace Desert::Graphic::VirtualGeometry

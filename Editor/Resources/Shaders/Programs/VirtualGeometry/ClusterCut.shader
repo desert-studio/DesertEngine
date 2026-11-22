@@ -19,8 +19,15 @@ Shader "ClusterCut"
     //          to tau or less (an accepted group is listed; after the traversal the workgroup tests the listed
     //          groups' clusters one a lane, 32 lanes a group - UE's cluster batches, not one lane's loop). Both tests call VgProjectedError on bit-identical (sphere, error) pairs, so a group
     //          and the clusters generated from it never both draw nor both hide (no crack).
-    //          Drawn clusters are HW clusters (no SW raster yet): VisibleClusters[capacity - 1 - i], counted in
-    //          RasterArgs.HwDraw[1] (GpuClusterRasterArgs, the UE layout: SW from the front, HW from the back);
+    //          A drawn cluster takes one row of the visible list (RasterArgs.Emitted, at most the capacity), then
+    //          goes to ONE raster (UE NaniteClusterCulling.usf bUseHW, r.Nanite.MinPixelsPerEdgeHW): SOFTWARE when
+    //          the view allows it (ViewLods.w = the edge threshold in pixels, 0 = every cluster HW), its
+    //          MaxEdgeLength projects below that threshold, its draw slot allows it (DESERT_GPU_DRAW_SLOT_
+    //          SOFTWARE_RASTER: no pixel clip, no front-face cull), its primitive does not sway (the compute
+    //          raster has no wind) and its box lies wholly in front of the near plane (the compute raster does not clip) -
+    //          VisibleClusters[i], counted in RasterArgs.SwCount and SwDispatch[0] (one SoftwareRaster.shader
+    //          workgroup each); else HARDWARE - VisibleClusters[capacity - 1 - i], counted in RasterArgs.HwDraw[1]
+    //          (GpuClusterRasterArgs, the UE layout: SW from the front, HW from the back), and
     //          RasterArgs.BinDispatch[0] counts their Raster Binning workgroups (one per VG_RASTER_BIN_GROUP_SIZE).
     //          A dispatch serves the cut views [Params3.x, Params3.x + Params3.y) of one mesh pass (the main view;
     //          one shadow cascade), workgroup Z = the view. LOD in the view's own pixels (ViewLods.z = 1: an
@@ -94,7 +101,8 @@ Shader "ClusterCut"
         };
         ReadBuffer(10) ClusterCutViewLods
         {
-            vec4 ViewLods[]; // per view: x = lodScale, y = tau (pixels per edge), z = 1 orthographic (ClusterLodMeasure)
+            vec4 ViewLods[]; // per view: x = lodScale, y = tau (pixels per edge), z = 1 orthographic (ClusterLodMeasure),
+                             // w = the SW raster's edge threshold in pixels (0 = every cluster HW)
         };
         ReadBuffer(11) ClusterCutCandidateCount
         {
@@ -196,6 +204,8 @@ Shader "ClusterCut"
             vec3  Origin;
             float LodScale;
             float Tau;
+            float SwEdgePixels; // ViewLods.w: a cluster whose MaxEdgeLength projects below it is SW (0 = none)
+            uint  SlotFlags;    // the draw slot's DESERT_GPU_DRAW_SLOT_* (SOFTWARE_RASTER: the cell allows SW)
             bool  Orthographic; // LOD in texels of an orthographic view (no distance)
             uint  Instance;
             uint  Dag;
@@ -270,22 +280,61 @@ Shader "ClusterCut"
             return true;
         }
 
-        void EmitCluster( CutFrame f, uint cluster )
+        // THE HW/SW SPLIT (UE NaniteClusterCulling.usf: bUseHW = MaxEdgeLength x scale projected >=
+        // r.Nanite.MinPixelsPerEdgeHW, or the cluster crosses the near plane). The projection is VgProjectedError's
+        // (the nearest point of the cluster's box sphere; a view inside it gets 3e38, so HW). The near test is
+        // exact: every corner of the world box in front of the near plane (reversed Z: clip.z <= clip.w) and at
+        // positive w, through the view's unjittered ViewProjection (the jitter moves no point across the plane).
+        bool RastersInSoftware( CutFrame f, GpuCullView view, VgCluster row )
         {
-            const uint i = atomicAdd( RasterArgs.HwDraw[1], 1u );
-            if ( i >= Params.y )
+            if ( f.SwEdgePixels <= 0.0 || f.Orthographic || f.WindPad > 0.0 ||
+                 ( f.SlotFlags & DESERT_GPU_DRAW_SLOT_SOFTWARE_RASTER ) == 0u )
+                return false;
+            const vec4 sphere = vec4( row.BoxCenter.xyz, length( row.BoxExtent.xyz ) );
+            if ( VgProjectedError( sphere, row.BoxExtent.w, f.World, f.WorldScale, f.Origin, f.LodScale, false ) >=
+                 f.SwEdgePixels )
+                return false;
+            for ( uint corner = 0u; corner < 8u; ++corner )
             {
-                atomicAdd( RasterArgs.HwDraw[1], 0xFFFFFFFFu ); // net count stays the capacity
+                const vec3 sign  = vec3( ( corner & 1u ) != 0u ? 1.0 : -1.0, ( corner & 2u ) != 0u ? 1.0 : -1.0,
+                                         ( corner & 4u ) != 0u ? 1.0 : -1.0 );
+                const vec4 world = f.World * vec4( row.BoxCenter.xyz + sign * row.BoxExtent.xyz, 1.0 );
+                const vec4 clip  = view.ViewProjection * world;
+                if ( clip.w <= 0.0 || clip.z > clip.w )
+                    return false;
+            }
+            return true;
+        }
+
+        void EmitCluster( CutFrame f, uint cluster, bool software )
+        {
+            // One row of the shared list first: SW rows from the front and HW rows from the back never meet while
+            // their sum stays within the capacity.
+            const uint emitted = atomicAdd( RasterArgs.Emitted, 1u );
+            if ( emitted >= Params.y )
+            {
+                atomicAdd( RasterArgs.Emitted, 0xFFFFFFFFu ); // net count stays the capacity
                 atomicAdd( VisibleOverflow, 1u );
                 atomicMin( VisibleOverflowDag, f.Dag );
                 return;
             }
-            // Raster Binning's indirect dispatch: every row below the capacity is taken exactly once (an overflow
-            // only repeats rows at or past it), so the row opening a workgroup counts it: ceil( rows / group ).
+            const uint flags = f.RestPose ? DESERT_GPU_VISIBLE_REST_POSE : 0u;
+            if ( software )
+            {
+                const uint s = atomicAdd( RasterArgs.SwCount, 1u );
+                // One SoftwareRaster.shader workgroup per SW cluster up to the dispatch limit every device grants
+                // (maxComputeWorkGroupCount[0] >= 65535); past it the workgroups stride over the rest.
+                if ( s < VG_SW_RASTER_MAX_GROUPS )
+                    atomicAdd( RasterArgs.SwDispatch[0], 1u );
+                Visible[s]   = VgVisibleCluster( f.Instance, cluster, f.View, flags | VG_VISIBLE_SOFTWARE );
+                return;
+            }
+            const uint i = atomicAdd( RasterArgs.HwDraw[1], 1u );
+            // Raster Binning's indirect dispatch: every HW row is taken exactly once (Emitted bounds them), so the
+            // row opening a workgroup counts it: ceil( rows / group ).
             if ( i % VG_RASTER_BIN_GROUP_SIZE == 0u )
                 atomicAdd( RasterArgs.BinDispatch[0], 1u );
-            Visible[Params.y - 1u - i] =
-                 VgVisibleCluster( f.Instance, cluster, f.View, f.RestPose ? DESERT_GPU_VISIBLE_REST_POSE : 0u );
+            Visible[Params.y - 1u - i] = VgVisibleCluster( f.Instance, cluster, f.View, flags );
         }
 
         // One cluster of a leaf group, by its own LodError.
@@ -297,7 +346,7 @@ Shader "ClusterCut"
                 return;
             if ( !BoxVisible( f, view, row.BoxCenter.xyz, row.BoxExtent.xyz, 1u, VG_POST_CLUSTER | cluster ) )
                 return;
-            EmitCluster( f, cluster );
+            EmitCluster( f, cluster, RastersInSoftware( f, view, row ) );
         }
 
         // A leaf child's group cut on this thread alone (the post phase's carried clusters, a full group list).
@@ -419,6 +468,8 @@ Shader "ClusterCut"
             f.Origin       = view.LodOrigin.xyz;
             f.LodScale     = ViewLods[localView].x;
             f.Tau          = ViewLods[localView].y;
+            f.SwEdgePixels = ViewLods[localView].w;
+            f.SlotFlags    = DrawSlots[slot].Flags;
             f.Orthographic = ViewLods[localView].z != 0.0;
             f.Instance     = candidate.Instance;
             f.Dag          = candidate.Dag;

@@ -130,7 +130,9 @@ namespace Desert::Graphic::VirtualGeometry
     // The rasters' indirect arguments, written by the cluster cull. HwDraw is a VkDrawIndirectCommand: vertexCount
     // = kClusterMaxTriangles * 3, instanceCount = HW clusters; the vertex shader reads triangle gl_VertexIndex / 3
     // of VisibleClusters[capacity - 1 - gl_InstanceIndex] and emits a NaN position past TriangleCount (UE's
-    // non-mesh-shader HW path). SwDispatch is a VkDispatchIndirectCommand: one workgroup per SW cluster.
+    // non-mesh-shader HW path). SwDispatch is a VkDispatchIndirectCommand: one SoftwareRaster.shader workgroup per SW
+    // cluster up to kSwRasterMaxGroups (the workgroups stride over the rest); SwCount = the SW clusters,
+    // VisibleClusters[0, SwCount).
     struct GpuClusterRasterArgs
     {
         uint32_t SwDispatch[3]{ 0u, 1u, 1u }; // 0
@@ -141,7 +143,9 @@ namespace Desert::Graphic::VirtualGeometry
         // VG_RASTER_BIN_GROUP_SIZE HW clusters, counted by the cut as it emits (ClusterCut.shader EmitCluster),
         // so an empty or small view bins nothing or little.
         uint32_t BinDispatch[3]{ 0u, 1u, 1u };
-        uint32_t BinPad = 0; // 44
+        // 44 rows the cut took from the visible list, SW + HW: a cluster takes one before it picks a raster, so
+        // SwCount + HwDraw[1] never pass the capacity and the two ends never meet (ClusterCut.shader EmitCluster).
+        uint32_t Emitted = 0;
     };
     static_assert( sizeof( GpuClusterRasterArgs ) == 48, "std430 twin in Common/VirtualGeometry.glslh" );
 
@@ -171,4 +175,7 @@ namespace Desert::Graphic::VirtualGeometry
     // The HW/SW split (UE r.Nanite.MinPixelsPerEdgeHW = 32): a cluster whose MaxEdgeLength projects below this
     // many pixels goes to the compute raster.
     inline constexpr float kSwRasterMaxEdgePixels = 32.0f;
+    // SoftwareRaster.shader's indirect X bound (GLSL VG_SW_RASTER_MAX_GROUPS; maxComputeWorkGroupCount[0] is at
+    // least 65535 on every Vulkan device).
+    inline constexpr uint32_t kSwRasterMaxGroups = 65535u;
 } // namespace Desert::Graphic::VirtualGeometry

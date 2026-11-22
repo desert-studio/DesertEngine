@@ -306,8 +306,15 @@ namespace Desert::Graphic::VirtualGeometry
             rows.push_back( row );
             // In the view's own pixels (ClusterLodMeasure): perspective length x lodScale / d, orthographic
             // length x lodScale (a cascade's texels).
+            // w: the SW raster's edge threshold (ClusterCut.shader RastersInSoftware); an orthographic view
+            // never rasters in software (its LOD has no distance, the split's projection needs one).
+            if ( view.SwRasterMaxEdgePixels < 0.0f ||
+                 ( view.SwRasterMaxEdgePixels > 0.0f && view.Lod.Orthographic ) )
+                return Common::MakeError<Result>( std::format(
+                     "VirtualGeometry: Cluster Cut: view {} asks the SW raster below {} pixels per edge ({})", v,
+                     view.SwRasterMaxEdgePixels, view.Lod.Orthographic ? "orthographic" : "negative" ) );
             lods.emplace_back( view.Lod.LodScale, view.MaxPixelsPerEdge, view.Lod.Orthographic ? 1.0f : 0.0f,
-                               0.0f );
+                               view.SwRasterMaxEdgePixels );
         }
 
         CutBinds b;
