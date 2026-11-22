@@ -15,7 +15,26 @@
 #include <type_traits>
 #include <vector>
 
+#include <Engine/VFX/VFXComponent.hpp>
 #include <Engine/VFX/VFXLibrary.hpp>
+#include <Engine/VFX/VFXPointSet.hpp>
+#include <Engine/VFX/VFXUserOverride.hpp>
+
+namespace Desert::Reflection
+{
+template <>
+struct ReflectedStruct<::Desert::ECS::VFXPointSet>
+{
+    static constexpr const char* Name = "VFXPointSet";
+    static constexpr auto Members = std::tuple{ StructMember{ "Name", &::Desert::ECS::VFXPointSet::Name }, StructMember{ "Points", &::Desert::ECS::VFXPointSet::Points }, };
+};
+template <>
+struct ReflectedStruct<::Desert::ECS::VFXUserOverride>
+{
+    static constexpr const char* Name = "VFXUserOverride";
+    static constexpr auto Members = std::tuple{ StructMember{ "Name", &::Desert::ECS::VFXUserOverride::Name }, StructMember{ "Value", &::Desert::ECS::VFXUserOverride::Value }, };
+};
+} // namespace Desert::Reflection
 
 namespace Desert::Reflection::Generated
 {
@@ -25,6 +44,17 @@ void RegisterReflection_VFX()
 {
     using namespace ::Desert::Reflection;
     {
+        using T = ::Desert::ECS::VFXComponentData;
+        TypeBuilder( "VFXComponentData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "System", .Type = FieldType::AssetHandle, .Offset = offsetof( T, System ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::System )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "System", .Category = "VFX", .Tooltip = "The .dfx effect this entity plays", .IsAsset = true, .AssetType = "VFXSystemAsset", } } )
+                    .Field( FieldInfo{ .Name = "AutoActivate", .Type = FieldType::Bool, .Offset = offsetof( T, AutoActivate ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoActivate )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Auto Activate", .Category = "VFX", } } )
+                    .Field( FieldInfo{ .Name = "Overrides", .Type = FieldType::Struct, .Offset = offsetof( T, Overrides ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Overrides )>(), .TypeName = "std::vector<VFXUserOverride>", .Meta = PropertyMetadata{ .DisplayName = "User Parameters", .Category = "VFX", .Tooltip = "This placement's values for the system's User parameters", .Hidden = true, }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::Overrides )>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::Overrides )>, .ElementType = FieldType::Struct, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::Overrides )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::Overrides )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::Overrides )>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::Overrides )> } )
+                    .Field( FieldInfo{ .Name = "PointSets", .Type = FieldType::Struct, .Offset = offsetof( T, PointSets ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PointSets )>(), .TypeName = "std::vector<VFXPointSet>", .Meta = PropertyMetadata{ .DisplayName = "Point Sets", .Category = "VFX", .Tooltip = "The point sets painted for this placement (VFX Paint mode)", .Hidden = true, }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::PointSets )>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::PointSets )>, .ElementType = FieldType::Struct, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::PointSets )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::PointSets )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::PointSets )>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::PointSets )> } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::VFX::VFXLibrary;
         TypeBuilder( "VFXLibrary", sizeof( T ) )
             .ScriptName( "VFX" )
@@ -33,6 +63,24 @@ void RegisterReflection_VFX()
                     .Function( ::Desert::Reflection::MakeFunction<&T::WriteChannel>( "WriteChannel", "VFXLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 2>{ ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "entries", "const std::vector<Reflection::Value::Map>&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Appends one entry per record for this frame; true when every field was written.", .ScriptName = "writeChannel", .ScriptMethod = false } ) )
                     .Function( ::Desert::Reflection::MakeFunction<&T::SetVariable>( "SetVariable", "VFXLibrary", "bool", std::array<::Desert::Reflection::ParamSpelling, 3>{ ::Desert::Reflection::ParamSpelling{ "entity", "ECS::Entity" }, ::Desert::Reflection::ParamSpelling{ "name", "const std::string&" }, ::Desert::Reflection::ParamSpelling{ "value", "const Reflection::Value&" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Sets this VFX entity's own value of a User parameter of its system; false (logged) when the entity has no VFX, the system has no such parameter or the type differs.", .ScriptName = "setVariable", .ScriptMethod = false } ) )
 #endif
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::VFXPointSet;
+        TypeBuilder( "VFXPointSet", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Name", .Type = FieldType::String, .Offset = offsetof( T, Name ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Name )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Name", .Tooltip = "What a PointSet.<name> stack binding reads", } } )
+                    .Field( FieldInfo{ .Name = "Points", .Type = FieldType::Struct, .Offset = offsetof( T, Points ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Points )>(), .TypeName = "std::vector<glm::vec4>", .Meta = PropertyMetadata{ .DisplayName = "Points", .Tooltip = "xyz local position (cm), w weight", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::VFXUserOverride;
+        TypeBuilder( "VFXUserOverride", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Name", .Type = FieldType::String, .Offset = offsetof( T, Name ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Name )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Name", .Tooltip = "The system's User parameter, without the \"User.\" prefix", } } )
+                    .Field( FieldInfo{ .Name = "Value", .Type = FieldType::Vec4, .Offset = offsetof( T, Value ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Value )>(), .TypeName = "glm::vec4", .Meta = PropertyMetadata{ .DisplayName = "Value", .Tooltip = "Packed like the parameter's Default: its components first", } } )
             .WithDefault<T>()
             .Register();
     }
