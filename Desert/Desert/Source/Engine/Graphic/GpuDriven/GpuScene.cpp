@@ -436,7 +436,7 @@ namespace Desert::Graphic::GpuDriven
         const glm::vec3    centre = ( desc.LocalBoundsMin + desc.LocalBoundsMax ) * 0.5f;
         const glm::vec3    extent = ( desc.LocalBoundsMax - desc.LocalBoundsMin ) * 0.5f;
         row.LocalBoundsCenter     = glm::vec4( centre, desc.BoundsPad );
-        row.LocalBoundsExtent     = glm::vec4( extent, 0.0f );
+        row.LocalBoundsExtent     = glm::vec4( extent, desc.ImpostorSwitchSize );
         row.LodBias               = desc.LodBias;
         row.ForcedLod             = desc.ForcedLod;
         row.Flags                 = desc.Flags;

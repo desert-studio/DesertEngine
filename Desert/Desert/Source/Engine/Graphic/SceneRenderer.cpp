@@ -4763,16 +4763,34 @@ namespace Desert::Graphic
                 if ( section.MaxDrawDistance > 0.0f && lodView.has_value() &&
                      !IsWithinDrawDistance( *lodView, section.Transform, local, section.MaxDrawDistance ) )
                     continue;
+                bool rayTracingOnly = false;
                 if ( section.ImpostorScreenSize > 0.0f )
                 {
-                    // One side of the pair per view: the card below the switch size, the source at or above.
+                    // THE DITHERED SWITCH'S CPU UNION (WP-FAR-12F): the side either temporal sample draws (the card
+                    // below the switch size, the source at or above; LOD off: the source) is queued; the GPU cull's
+                    // ImpostorGate (InstanceCull.shader) fades the pair between the samples. While the samples
+                    // disagree the chunk is walked again each frame, until the fade settles on one side.
                     const std::array<float, 2> switchSizes{ Geometry::kLOD0ScreenSize, section.ImpostorScreenSize };
-                    const bool                 far =
-                         impostorView.has_value() &&
-                         Geometry::SelectLODFromBounds( section.Transform, section.ImpostorBounds, *impostorView,
-                                                        switchSizes, -1, 0 ) == 1u;
-                    if ( far != section.ImpostorCard )
-                        continue;
+                    const uint32_t             side  = section.ImpostorCard ? 1u : 0u;
+                    bool                       drawn = !section.ImpostorCard;
+                    if ( impostorView.has_value() )
+                    {
+                        Geometry::LODView at = *impostorView;
+                        at.Temporal          = m_Systems.Mesh->GetViewTemporalLOD();
+                        const Geometry::LODMask mask = Geometry::SelectDitheredLODFromBounds(
+                             section.Transform, section.ImpostorBounds, at, switchSizes, -1, 0 );
+                        drawn = mask.Levels[0] == side || mask.Levels[1] == side;
+                        if ( mask.IsDithered() )
+                            held.Pending = true;
+                    }
+                    if ( !drawn )
+                    {
+                        // The card leaves; the source stays queued for the ray tracing scene alone (the TLAS holds
+                        // the source at every distance, never the card - RayTracingGather).
+                        if ( section.ImpostorCard )
+                            continue;
+                        rayTracingOnly = true;
+                    }
                 }
                 if ( demandAsked )
                 {
@@ -4787,7 +4805,8 @@ namespace Desert::Graphic
                 held.Admitted.push_back( { .Chunk        = c,
                                            .Section      = s,
                                            .ForcedLOD    = LODPreviewFor( section.Entity, section.ForcedLOD ),
-                                           .MeshRevision = mesh->GetRenderRevision() } );
+                                           .MeshRevision   = mesh->GetRenderRevision(),
+                                           .RayTracingOnly = rayTracingOnly } );
             }
             FoldMaterialDemand( held.Demand );
         };

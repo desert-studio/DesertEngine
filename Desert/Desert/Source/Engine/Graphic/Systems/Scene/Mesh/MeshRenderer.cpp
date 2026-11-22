@@ -282,6 +282,19 @@ namespace Desert::Graphic::System
         data.CastContactShadow        = section.CastContactShadow;
         data.TranslucencySortPriority = section.TranslucencySortPriority;
         data.ImpostorCard                         = section.ImpostorCard;
+        data.RayTracingOnly                       = admitted.RayTracingOnly;
+        if ( section.ImpostorScreenSize > 0.0f )
+        {
+            data.ImpostorSource = !section.ImpostorCard;
+            // A screen size is proportional to the bounds radius: the card's own (smaller) bounds cross the same
+            // distance at the source size scaled by radius(card) / radius(source).
+            const float sourceRadius =
+                 glm::length( ( section.ImpostorBounds.Max - section.ImpostorBounds.Min ) * 0.5f );
+            const float ownRadius   = glm::length( ( section.LocalBounds.Max - section.LocalBounds.Min ) * 0.5f );
+            data.ImpostorSwitchSize = !section.ImpostorCard ? section.ImpostorScreenSize
+                                      : sourceRadius > 0.0f ? section.ImpostorScreenSize * ownRadius / sourceRadius
+                                                            : 0.0f;
+        }
     }
 
     void MeshRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot&                  scene,
@@ -3065,19 +3078,27 @@ namespace Desert::Graphic::System
                 flags |= StaticWalkColumns::kMasked;
             if ( shading.Translucent )
                 flags |= StaticWalkColumns::kTranslucent;
+            // A ray-tracing-only impostor source (StaticMeshRenderData::RayTracingOnly) has no raster walk at all:
+            // no slot draw (opaque / translucent / front layer), no shadow caster - its card draws in its place.
+            if ( data.RayTracingOnly )
+                flags = 0u;
             columns.Meshes.push_back( data.Mesh );
             columns.Hidden.push_back( data.HiddenSubmeshes );
             columns.Instances.push_back( shading.Instance );
             columns.Surfaces.push_back( shading.Surface );
             columns.Flags.push_back( flags );
-            const MotionRecord record{ .Entity    = data.Entity,
-                                       .Part      = data.MotionPart,
-                                       .World     = data.Transform,
-                                       .Mesh      = data.Mesh,
-                                       .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
-                                       .ForcedLod = data.ForcedLOD,
-                                       .LodBias   = data.LODBias,
-                                       .Content   = staticContent( data, shading ) };
+            const MotionRecord record{
+                 .Entity = data.Entity,
+                 .Part   = data.MotionPart,
+                 .World  = data.Transform,
+                 .Mesh   = data.Mesh,
+                 .Flags  = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                          ( data.ImpostorSource ? GpuDriven::PrimitiveFlags::kImpostorSource : 0u ) |
+                          ( data.ImpostorCard ? GpuDriven::PrimitiveFlags::kImpostorCard : 0u ),
+                 .ForcedLod          = data.ForcedLOD,
+                 .LodBias            = data.LODBias,
+                 .ImpostorSwitchSize = data.ImpostorSwitchSize,
+                 .Content            = staticContent( data, shading ) };
             if ( si < retained ) // keyed by its entity's persistent slot (GpuSceneRegistry::SyncStatic)
             {
                 const Render::StaticSceneAdmission& admitted = m_RetainedAdmissions[si];
@@ -3105,7 +3126,7 @@ namespace Desert::Graphic::System
         {
             return a.Entity == b.Entity && a.Part == b.Part && a.World == b.World && a.Mesh == b.Mesh &&
                    a.Flags == b.Flags && a.ForcedLod == b.ForcedLod && a.LodBias == b.LodBias &&
-                   a.Content == b.Content;
+                   a.ImpostorSwitchSize == b.ImpostorSwitchSize && a.Content == b.Content;
         };
         // A record whose Content is a function of the words SubmitGenericMesh compares (and its mesh key): a
         // per-slot draw, or one whose values, hit and shader name are a producer-kept revision with no direct

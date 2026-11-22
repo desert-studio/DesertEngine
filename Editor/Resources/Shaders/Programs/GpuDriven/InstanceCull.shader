@@ -320,6 +320,39 @@ Shader "InstanceCull"
             return SelectLod( view, primitive, world, emptyBounds, view.LodTemporalOrigins[1].xyz );
         }
 
+        // THE IMPOSTOR SWITCH (WP-FAR-12F; UE ImpostorBaker's card LOD + DitheredLODTransition), the CPU twin
+        // InstanceCullValidation.cpp ImpostorGate. A pair is two primitives: the source mesh
+        // (DESERT_GPU_PRIMITIVE_IMPOSTOR_SOURCE) drawn NEAR and its card (_IMPOSTOR_CARD) drawn FAR of the switch
+        // screen size LocalBoundsExtent.w (each row's own, scaled to its bounds, MeshRenderer::FillRetainedStatic), so
+        // both sides cross at the same distance. Bit 0: the side is drawn at the older temporal sample
+        // (LodTemporalOrigins[0]), bit 1: at the newer ([1]); a view without kLodDither measures LodOrigin twice
+        // (0 or 3). 3 = drawn steady (every row that is not a pair), 0 = culled, 1 = fading out, 2 = fading in.
+        // LOD off, no bounds or no size: the source draws, the card does not (never both, never neither).
+        uint ImpostorGate( GpuCullView view, GpuScenePrimitive primitive, mat4 world, bool emptyBounds )
+        {
+            const bool card   = ( primitive.Flags & DESERT_GPU_PRIMITIVE_IMPOSTOR_CARD ) != 0u;
+            const bool source = ( primitive.Flags & DESERT_GPU_PRIMITIVE_IMPOSTOR_SOURCE ) != 0u;
+            if ( !card && !source )
+                return 3u;
+            const float halfSize = 0.5 * primitive.LocalBoundsExtent.w;
+            if ( ( view.Flags & DESERT_GPU_CULL_VIEW_LOD_DISABLED ) != 0u || emptyBounds || halfSize <= 0.0 )
+                return card ? 0u : 3u;
+            const bool dither  = ( view.Flags & DESERT_GPU_CULL_VIEW_LOD_DITHER ) != 0u;
+            const vec3 origin0 = dither ? view.LodTemporalOrigins[0].xyz : view.LodOrigin.xyz;
+            const vec3 origin1 = dither ? view.LodTemporalOrigins[1].xyz : view.LodOrigin.xyz;
+            const bool far0 =
+                halfSize * halfSize > BoundsScreenRadiusSq( view, primitive, world, origin0, view.LodDistanceScale );
+            const bool far1 =
+                halfSize * halfSize > BoundsScreenRadiusSq( view, primitive, world, origin1, view.LodDistanceScale );
+            return ( far0 == card ? 1u : 0u ) | ( far1 == card ? 2u : 0u );
+        }
+
+        // The impostor side's dither tag for its gate (ImpostorGate): 1 fades out, 2 fades in, 0 / 3 draw steady.
+        uint ImpostorFade( uint gate )
+        {
+            return gate == 1u ? DESERT_GPU_VISIBLE_LOD_FADE_OUT : gate == 2u ? DESERT_GPU_VISIBLE_LOD_FADE_IN : 0u;
+        }
+
         void EmitEntry( uint localView, uint instanceRow, uint slot, uint bits )
         {
             const uint bin   = DrawSlots[slot].Bin;
@@ -372,7 +405,10 @@ Shader "InstanceCull"
         // submesh whose slots at both levels clip (DESERT_GPU_DRAW_SLOT_DITHERED_LOD) draws both, tagged for
         // Mesh/Surface/LODTransition.glslh; every other draws @p lod alone. A bin's Capacity counts every
         // instance of the primitive once per slot (DrawCommandCache), so the second entry always has its room.
-        void EmitToBins( uint localView, uint instanceRow, uint primitiveRow, uint lod, uint older, bool restPose )
+        // @p impostorFade (ImpostorFade): an impostor side inside its switch band draws @p lod alone, its clipping
+        // slots tagged with the fade, the rest WHOLE - an opaque side never leaves a hole for its partner.
+        void EmitToBins( uint localView, uint instanceRow, uint primitiveRow, uint lod, uint older, bool restPose,
+                         uint impostorFade )
         {
             if ( primitiveRow >= Params2.z )
                 return;
@@ -390,6 +426,14 @@ Shader "InstanceCull"
                 const uint slot = pd.FirstDrawSlot + level * pd.SubmeshCount + s;
                 if ( DrawSlots[slot].Bin == DESERT_GPU_INVALID_INDEX )
                     continue;
+                if ( impostorFade != 0u )
+                {
+                    EmitEntry( localView, instanceRow, slot,
+                               pose | ( ( DrawSlots[slot].Flags & DESERT_GPU_DRAW_SLOT_DITHERED_LOD ) != 0u
+                                            ? impostorFade
+                                            : 0u ) );
+                    continue;
+                }
                 const uint olderSlot = pd.FirstDrawSlot + olderLevel * pd.SubmeshCount + s;
                 if ( olderLevel != level && DrawSlots[olderSlot].Bin != DESERT_GPU_INVALID_INDEX &&
                      ( DrawSlots[slot].Flags & DrawSlots[olderSlot].Flags &
@@ -550,6 +594,14 @@ Shader "InstanceCull"
             vec3       boxMin;
             vec3       boxMax;
             const bool empty = WorldBox( primitive, instance, world, restPose, boxMin, boxMax );
+            // The impostor pair's side this view does not draw at either temporal sample (ImpostorGate).
+            const uint gate = ImpostorGate( view, primitive, world, empty );
+            if ( gate == 0u )
+            {
+                Visibility[cell] = 0u;
+                return;
+            }
+            const uint impostorFade = ImpostorFade( gate );
             if ( !empty )
             {
                 bool inside = GpuCull_FrustumIntersects( view, boxMin, boxMax );
@@ -571,7 +623,8 @@ Shader "InstanceCull"
             // where it returns (the content hash, below, sees it gone), never kept half-dithered. An opaque caster
             // switches level at once and stays cached (its new level changes the hash once).
             const bool moves   = ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) != 0u && !restPose;
-            const bool movable = moves || DrawsLodDithered( instance.Primitive, lod, older );
+            // An impostor side inside its switch band fades dithered too.
+            const bool movable = moves || DrawsLodDithered( instance.Primitive, lod, older ) || impostorFade != 0u;
             if ( ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER ) != 0u && movable ) ||
                  ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER ) != 0u && !movable ) )
             {
@@ -615,7 +668,7 @@ Shader "InstanceCull"
                 return;
             }
             Visibility[cell] = word;
-            EmitToBins( localView, instanceRow, instance.Primitive, lod, older, restPose );
+            EmitToBins( localView, instanceRow, instance.Primitive, lod, older, restPose, impostorFade );
         }
 
         void CullPostOcclusion()
@@ -641,10 +694,14 @@ Shader "InstanceCull"
             if ( Params2.w != 0u && GpuCull_IsOccludedByHzb( GpuCullHzbTexture, PointClampSampler, view, view.ViewProjection, boxMin, boxMax ) )
                 return;
             const uint cell = entry.View * Params.y + entry.Instance;
+            // CullMain queued only a drawn side: the same gate, its bounds known (an occluded entry had a box).
+            const uint gate = ImpostorGate( view, primitive, world, false );
+            if ( gate == 0u )
+                return;
             uint       older;
             const uint lod  = SelectLodMask( view, primitive, world, false, older );
             atomicOr( Visibility[cell], DESERT_GPU_CULL_VISIBILITY_POST_VISIBLE );
-            EmitToBins( localView, entry.Instance, instance.Primitive, lod, older, restPose );
+            EmitToBins( localView, entry.Instance, instance.Primitive, lod, older, restPose, ImpostorFade( gate ) );
         }
 
         void WriteDispatchArgs()

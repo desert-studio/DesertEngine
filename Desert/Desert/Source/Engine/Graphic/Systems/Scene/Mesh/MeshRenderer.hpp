@@ -528,6 +528,18 @@ namespace Desert::Graphic::System
             // stands in for the mesh in raster only; it never enters the ray tracing scene (UE excludes the
             // impostor LOD from RT), RayTracingGather skips it.
             bool ImpostorCard = false;
+            // WP-FAR-12F: the source side of an impostor pair (StaticSceneSection::ImpostorScreenSize > 0, not the
+            // card). Its GpuScene row carries kImpostorSource; the card's kImpostorCard.
+            bool ImpostorSource = false;
+            // The pair's switch screen size measured on THIS side's own row bounds (GpuScenePrimitive::
+            // LocalBoundsExtent.w): the source's ImpostorScreenSize; the card's scaled by its bounds radius over the
+            // source's, so both sides cross the switch at the same distance. 0 = not a pair.
+            float ImpostorSwitchSize = 0.0f;
+            // WP-FAR-12F (StaticSceneAdmission::RayTracingOnly): an impostor source this view draws as its card. It
+            // keeps its GpuScene row and enters the ray tracing gather (the TLAS holds the source at every
+            // distance); raster never draws it - no slot walk (StaticWalkColumns::kHasSlots clear), no shadow
+            // caster row, and the GPU cull's ImpostorGate culls its row.
+            bool RayTracingOnly = false;
         };
 
         // WHAT A RECORD'S MotionRecord::Content READS OF ITS MESH (SyncGpuScene): the mesh, its submesh list and
@@ -986,6 +998,12 @@ namespace Desert::Graphic::System
         void SetViewTemporalLOD( const Geometry::LODTemporalSamples& temporalLod )
         {
             m_ViewTemporalLOD = temporalLod;
+        }
+        // The same samples for the impostor switch's admission (SceneRenderer::SubmitStaticScene): a side either
+        // sample draws is queued, so the cull's ImpostorGate always finds both sides of a fading pair.
+        [[nodiscard]] const Geometry::LODTemporalSamples& GetViewTemporalLOD() const noexcept
+        {
+            return m_ViewTemporalLOD;
         }
         // The scene view's air (SceneRenderer::SetWindGust and BeginScene's SelectLocalWind, ViewFrame::WindGust /
         // LocalWind): the light cameras of the casters carry it (WriteLightCamera), so a swaying caster's shadow
