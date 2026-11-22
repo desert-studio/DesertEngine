@@ -3378,9 +3378,10 @@ namespace Desert::Graphic::System
         // follows the chunks and the instances the views can take, not the field. GRASS-CULL-COST-4 (UE foliage
         // culling): the two levels are two dispatches - the chunk pass appends the chunks a view met to the met
         // chunks' list and grows its indirect dispatch, the instance pass runs one group per met chunk, a lane per
-        // record. FPS-GRASS-CULL-2: the instance pass folded back into the chunk pass - each subgroup culls its met
-        // chunks' records compacted across them (GrassCull CullSubgroupRecords), so no list of met chunks or work
-        // items is written and read back, and the async chain is the tile pass and the cull.
+        // record. FPS-GRASS-CULL-2: the instance pass folded back into the chunk pass, so no list of met chunks or
+        // work items is written and read back, and the async chain is the tile pass and the cull. FPS-GRASS-CULL:
+        // the cull runs a workgroup per chunk of the tiles the tile pass kept and a lane per record (GrassCull
+        // CameraCull), the chunk's tests uniform across the group - no subgroup loops over many chunks' records.
         if ( m_FrameTable && cullRows != 0u )
         {
             RDG::BufferDesc dispatchDesc;
@@ -3504,8 +3505,8 @@ namespace Desert::Graphic::System
                  },
                  [this, cull, tilesBuffer = m_FrameTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     // GrassCull kTilesPerGroup tiles per group: the dispatch the tile pass grew (TileCommand, one
-                     // group at least).
+                     // GrassCull kChunkGroupsPerTile groups per tile: the dispatch the tile pass grew
+                     // (TileCommand, one group at least).
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( cull );
                      return Renderer::DispatchComputeIndirect( bindings, *m_Cull, tilesBuffer, 0u );
