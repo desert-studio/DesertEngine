@@ -23,6 +23,7 @@
 #include <Engine/World/Partition/DataLayersComponent.hpp>
 #include <Engine/World/Partition/HLODLayerComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 
 namespace Desert::Editor
 {

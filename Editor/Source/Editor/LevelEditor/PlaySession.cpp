@@ -35,6 +35,7 @@
 #include <format>
 #include <Engine/ECS/PlayerStartComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 
 namespace Desert::Editor
 {

@@ -701,21 +701,8 @@ namespace Desert::Core::Rules
     // WorldPartition block does (SceneFormat.hpp: "a world is partitioned or it is not, and this is never an
     // engine mode"). For any other scene this returns nullopt WITHOUT TOUCHING @p world — the scene plays with
     // every entity it had in Edit, exactly as before streaming existed.
-    [[nodiscard]] inline Common::ResultStr<std::optional<ResidencyExecutor>>
+    [[nodiscard]] Common::ResultStr<std::optional<ResidencyExecutor>>
     BeginWorldStreaming( const SceneSerialized& scene, const AssetBoundsSource& bounds,
                          const ResidencySettings& settings, std::span<const StreamingSource> sources,
-                         ResidencyWorld& world, const ScriptReferenceSource& scripts = {} )
-    {
-        if ( !scene.WorldPartition.has_value() )
-            return Common::MakeSuccess( std::optional<ResidencyExecutor>() );
-        WorldPartitionPlan plan = PlanWorldPartition( scene.Entities, *scene.WorldPartition, bounds, scripts );
-        // Play names what the planner refused exactly as the cook does (ReportPlanIssues).
-        ReportPlanIssues( plan, scene.SceneName );
-        auto begun = ResidencyExecutor::Begin( std::move( plan ), *scene.WorldPartition, scene.Entities, settings,
-                                               sources, world );
-        if ( !begun.IsSuccess() )
-            return Common::MakeError<std::optional<ResidencyExecutor>>( "'" + scene.SceneName +
-                                                                        "': " + begun.GetError() );
-        return Common::MakeSuccess( std::optional<ResidencyExecutor>( begun.ExtractValue() ) );
-    }
+                         ResidencyWorld& world, const ScriptReferenceSource& scripts = {} );
 } // namespace Desert::Core::Rules

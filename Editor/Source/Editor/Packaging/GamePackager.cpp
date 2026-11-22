@@ -57,6 +57,7 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include <Engine/Core/Serialize/PrefabExpansion.hpp>
 
 namespace Desert::Editor
 {
