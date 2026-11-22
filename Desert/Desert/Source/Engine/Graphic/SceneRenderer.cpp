@@ -4652,6 +4652,7 @@ namespace Desert::Graphic
                                       .MorphWeights             = extra.MorphWeights,
                                       .MorphRevision            = extra.MorphRevision,
                                       .LodFeedback              = extra.LodFeedback,
+                                      .Leader                   = extra.Leader,
                                       .Outlined                 = extra.Outlined,
                                       .HiddenSubmeshes          = extra.HiddenSubmeshes,
                                       .ForcedLOD                = LODPreviewFor( extra.Entity, extra.ForcedLOD ),

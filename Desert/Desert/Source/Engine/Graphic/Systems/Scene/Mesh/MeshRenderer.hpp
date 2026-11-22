@@ -21,6 +21,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -466,6 +467,8 @@ namespace Desert::Graphic::System
         // Skinned only: the animated instance's LOD / update-rate feedback (Animation::SkinnedLodFeedback), null
         // for an unanimated one.
         std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
+        // Skinned only: a follower mesh's leader (Animation::LeaderPoseLink, UE LeaderPoseComponent).
+        Animation::LeaderPoseLink Leader;
 
         bool     Outlined        = false;
         uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -659,10 +662,15 @@ namespace Desert::Graphic::System
             uint64_t                    VatAddress     = 0;
             uint32_t                    VatVertexCount = 0;
             // The far figure's minimum screen size (VertexAnimationCrowd::kMinScreenSize): the growth its draw
-            // (VAT or skeletal) gets this frame about MinScreenPivot (the local bounds' bottom centre), 1 = its own size. Set by
+            // (VAT or skeletal) gets this frame about MinScreenPivot, 1 = its own size. The pivot is a WORLD point:
+            // the figure's feet (its local bounds' bottom centre through Transform) - for a follower, its LEADER'S
+            // feet, and the scale is the leader's, so clothing grows with the body it is worn on. Set by
             // SelectSkinnedLods; the GpuScene row's world (SyncGpuScene) carries it to every pass.
             float                       MinScreenScale = 1.0f;
             glm::vec3                   MinScreenPivot = glm::vec3( 0.0f );
+            // A follower mesh's leader (UE LeaderPoseComponent, Animation::LeaderPoseLink): its growth is not
+            // decided from its own bounds but taken from the leader's record in this queue (SelectSkinnedLods).
+            Animation::LeaderPoseLink   Leader;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };
@@ -3964,6 +3972,9 @@ namespace Desert::Graphic::System
         // another level logs "[SkinnedLOD]" with that level's skin work (vertices, bones, influences).
         std::unordered_map<uint32_t, uint32_t> m_SkinnedLodReported;
         bool                                   m_SkinnedLodNoCameraReported = false;
+        // SelectSkinnedLods' scratch: each leader's record in m_SkinnedQueue by its entity, filled only on a frame
+        // that queues a follower (reused, no per-frame allocation once grown).
+        std::unordered_map<uint32_t, uint32_t> m_ScratchSkinnedLeaders;
         // Picks every queued skinned record's Lod from the frozen main view and logs a change (WP-FAR-10).
         void SelectSkinnedLods();
         // The far crowd (WP-FAR-12): baked vertex animations and the skeletal <-> VAT hand-off.
