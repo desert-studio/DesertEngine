@@ -6,6 +6,7 @@
 #include <Engine/Core/HLODImpostor.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -102,7 +103,7 @@ namespace Desert::Editor::Baking
         if ( !loadable )
             return Common::MakeError( std::format( "Bake Impostor: {}", loadable.GetError() ) );
 
-        const Reflection::AssetResolver resolver = ::Desert::Core::MakeAssetResolver( assets );
+        const Reflection::AssetResolver resolver = ::Desert::Core::Serialize::MakeAssetResolver( assets );
         HLODApproximateBakeCell         cell;
         cell.Impostor  = ::Desert::Core::HLODImpostorSettings{};
         cell.Parts     = { PartOf( mesh, resolver ) };
@@ -154,7 +155,7 @@ namespace Desert::Editor::Baking
             LOG_WARN( "Bake Impostor: '{}' was baked but the entity is gone from the active scene", running.Name );
             return;
         }
-        const Reflection::AssetResolver resolver = ::Desert::Core::MakeAssetResolver( assets );
+        const Reflection::AssetResolver resolver = ::Desert::Core::Serialize::MakeAssetResolver( assets );
         const uint64_t                  cardMesh =
              Reflection::ResolveGuidRef( resolver, stored.MeshGuid.value_or( "" ), stored.MeshPath.value_or( "" ),
                                          "StaticMeshAsset", "Bake Impostor card mesh" );
