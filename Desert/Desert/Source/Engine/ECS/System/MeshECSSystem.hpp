@@ -16,6 +16,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
 #include <Engine/Graphic/Render/Commands/DrawSkinnedMeshCommand.hpp>
@@ -243,12 +244,32 @@ namespace Desert::ECS
                          const Animation::Animator* animator = nullptr;
                          // The animated pose's LOD / update-rate feedback (null on the bind pose: it is whole).
                          std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback;
-                         if ( !bindPreview )
-                             if ( const auto* anim = registry.try_get<AnimationComponent>( entity );
-                                  anim != nullptr && anim->Animator && !anim->Animator->GetPose().Matrices.empty() )
+                         // A FOLLOWER MESH (ModularCharacter AttachFollowerMesh; UE SetLeaderPoseComponent)
+                         // evaluates no animation of its own: it is skinned with its LEADER'S pose, index for
+                         // index (the skeletons match, AttachFollowerMesh refuses any other), and its draw names
+                         // the leader so the renderer draws it at the leader's level, path and size
+                         // (SelectSkinnedLods). The feedback stays the leader's: one animated instance, one
+                         // feedback. A link to a leader no longer alive draws the follower as a mesh of its own.
+                         Animation::LeaderPoseLink leaderLink;
+                         entt::entity              poseEntity = entity;
+                         if ( const auto* link = registry.try_get<Animation::LeaderPoseLink>( entity );
+                              link != nullptr && link->Follows() )
+                         {
+                             const auto leader = static_cast<entt::entity>( *link->LeaderEntity );
+                             if ( leader != entity && registry.valid( leader ) )
                              {
-                                 animator    = anim->Animator.get();
-                                 lodFeedback = anim->LodFeedback;
+                                 leaderLink = *link;
+                                 poseEntity = leader;
+                             }
+                         }
+                         if ( !bindPreview )
+                             if ( const auto* anim = registry.try_get<AnimationComponent>( poseEntity );
+                                  anim != nullptr && anim->Animator &&
+                                  !anim->Animator->GetPose().Matrices.empty() )
+                             {
+                                 animator = anim->Animator.get();
+                                 if ( !leaderLink.Follows() )
+                                     lodFeedback = anim->LodFeedback;
                              }
                          // THE POSE IS COPIED ONCE PER PUBLISHED POSE (UE: a skeletal proxy's bone buffer is
                          // updated on a new pose only): a still or paused character re-records the same co-owned
@@ -306,7 +327,7 @@ namespace Desert::ECS
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, palette.Current,
                               std::move( morphWeights ), morphRevision, isSelected, mesh.GetCastShadows(),
-                              std::move( lodFeedback ) );
+                              std::move( lodFeedback ), leaderLink );
                      } );
                 // A character no longer drawn (destroyed, hidden, no mesh) gives its buffers back.
                 std::erase_if( m_BonePalettes,

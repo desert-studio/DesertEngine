@@ -2727,15 +2727,15 @@ namespace Desert::Graphic::System
         uint32_t crowdDraws    = 0;
         uint32_t crowdGrown    = 0;
         float    crowdMaxScale = 1.0f;
-        bool     followers     = false;
-        for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+        // A RECORD DECIDES ITS OWN FRAME: its level, its hand-off to the baked crowd and its minimum screen size,
+        // from its own bounds and its own animation's feedback. Returns the screen size it priced itself at.
+        const auto decide = [&]( SkinnedMeshRenderData& data ) -> float
         {
-            data.Lod        = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
+            data.Lod            = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
             data.VatAddress     = 0;
             data.VatVertexCount = 0;
             data.MinScreenScale = 1.0f;
-            followers           = followers || data.Leader.Follows();
-            const auto& lods = data.Mesh->GetSkinnedLODs();
+            const auto& lods       = data.Mesh->GetSkinnedLODs();
             float       screenSize = Geometry::kLOD0ScreenSize;
             if ( data.LodFeedback )
             {
@@ -2763,10 +2763,7 @@ namespace Desert::Graphic::System
                 data.Lod = std::max( data.Lod, feedback.EvaluatedLod.load( std::memory_order_relaxed ) );
             }
             if ( lods.empty() )
-            {
-                ++crowdSkeletal;
-                continue;
-            }
+                return screenSize;
             data.Lod                     = std::min<uint32_t>( data.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
             // The hand-off, by the WP-FAR-10 metric (FOV-aware screen size; a view drawing LOD 0 keeps everyone
             // skeletal), hysteresis on the way back; only from the lowest level, the one the bake is made of.
@@ -2794,8 +2791,9 @@ namespace Desert::Graphic::System
             // figure: gated on the VAT path, it followed the level index, and Cinematic (LODDistanceScale 0.5)
             // kept every far figure one level short of the baked lowest one - none went VAT, none was grown, and
             // the crowd High showed at 300 m vanished into sub-pixel skeletal draws. A displaced twin (SkinSource)
-            // is tessellated from LOD 0 and keeps its size; a follower mesh (Leader) is grown with its leader
-            // below, never by its own bounds (its sleeve alone would grow about its own feet and leave the body).
+            // is tessellated from LOD 0 and keeps its size; a follower mesh (Leader) whose leader is queued is
+            // grown with it (inherit, below), never by its own bounds (its sleeve alone would grow about its own
+            // feet and leave the body).
             if ( lodView && m_LODEnabled && data.SkinSource == nullptr && !data.Leader.Follows() && screenSize > 0.0f )
             {
                 const float trueSize = screenSize * m_LODDistanceScale;
@@ -2805,13 +2803,71 @@ namespace Desert::Graphic::System
                     data.MinScreenScale = std::min( VertexAnimationCrowd::kMinScreenSize / trueSize,
                                                     VertexAnimationCrowd::kMaxMinScreenScale );
                     // The feet in world space: the growth is uniform, so about this point it is the same matrix
-                    // in the figure's frame and in the world's - and a follower can share it (below).
+                    // in the figure's frame and in the world's - and a follower can share it (inherit).
                     data.MinScreenPivot = glm::vec3(
                          data.Transform * glm::vec4( 0.5f * ( bounds.Min.x + bounds.Max.x ), bounds.Min.y,
                                                      0.5f * ( bounds.Min.z + bounds.Max.z ), 1.0f ) );
-                    ++crowdGrown;
-                    crowdMaxScale = std::max( crowdMaxScale, data.MinScreenScale );
                 }
+            }
+            return screenSize;
+        };
+        // THE FOLLOWER TAKES ITS LEADER'S FRAME (UE USkinnedMeshComponent::SetLeaderPoseComponent: the follower
+        // draws the leader's PredictedLODLevel, clamped to its own levels, and is placed with the leader): the
+        // level, the hand-off to the baked crowd and the growth about the leader's feet - all decided above from
+        // the leader's record, the one source of truth - so the clothing on a far body is the body's size, the
+        // body's level and the body's path (skeletal / VAT) in every pass. Nothing is decided from the
+        // follower's own bounds: one figure, one decision.
+        const auto inherit = [&]( SkinnedMeshRenderData& data, const SkinnedMeshRenderData& lead )
+        {
+            data.VatAddress     = 0;
+            data.VatVertexCount = 0;
+            data.MinScreenScale = lead.MinScreenScale;
+            data.MinScreenPivot = lead.MinScreenPivot;
+            data.Lod            = lead.Lod;
+            const auto& lods    = data.Mesh->GetSkinnedLODs();
+            if ( !lods.empty() )
+            {
+                // The leader's level, clamped to the follower's own (a jacket with fewer levels than the body
+                // sits at its coarsest one), as UE clamps the leader's level to the follower's LOD count.
+                data.Lod = std::min<uint32_t>( lead.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
+                // A leader played from the baked crowd plays its follower from the same clip at the same time,
+                // from the follower's own bake of its lowest level (the level every bake is made of): the
+                // leader's animation and skin cache leave the figure alone, so the follower must too.
+                if ( lead.VatAddress != 0 && lead.LodFeedback && data.SkinSource == nullptr )
+                {
+                    const Animation::SkinnedLodFeedback& feedback = *lead.LodFeedback;
+                    const auto*                          clip     = static_cast<const Animation::AnimationClip*>(
+                         feedback.VatClip.load( std::memory_order_relaxed ) );
+                    if ( clip != nullptr )
+                    {
+                        const VertexAnimationCrowd::Frame frame =
+                             m_Crowd->FrameAddress( *data.Mesh, *clip, feedback.VatTime.load( std::memory_order_relaxed ) );
+                        if ( frame.Address != 0 )
+                        {
+                            data.Lod            = static_cast<uint32_t>( lods.size() - 1u );
+                            data.VatAddress     = frame.Address;
+                            data.VatVertexCount = frame.VertexCount;
+                        }
+                    }
+                }
+            }
+            if ( data.LodFeedback )
+                data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
+        };
+        // The frame's tally and the level's report, once per record after every decision is final.
+        const auto account = [&]( const SkinnedMeshRenderData& data, const float screenSize,
+                                  const std::optional<uint32_t> leader )
+        {
+            const auto& lods = data.Mesh->GetSkinnedLODs();
+            if ( lods.empty() )
+            {
+                ++crowdSkeletal;
+                return;
+            }
+            if ( data.MinScreenScale != 1.0f )
+            {
+                ++crowdGrown;
+                crowdMaxScale = std::max( crowdMaxScale, data.MinScreenScale );
             }
             if ( data.VatAddress != 0 )
             {
@@ -2822,20 +2878,37 @@ namespace Desert::Graphic::System
                 ++crowdSkeletal;
             const auto [reported, fresh] = m_SkinnedLodReported.try_emplace( data.Entity, data.Lod );
             if ( !fresh && reported->second == data.Lod )
-                continue;
+                return;
             reported->second                    = data.Lod;
             const SkinnedMesh::SkinnedLOD& lod  = data.Mesh->GetSkinnedLOD( data.Lod );
             const SkinnedMesh::SkinnedLOD& full = lods.front();
+            if ( leader )
+            {
+                LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, {} "
+                          "influences, the level of its leader {}{}",
+                          data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
+                          lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, *leader,
+                          data.VatAddress != 0 ? " (vertex animation)" : "" );
+                return;
+            }
             LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, {} "
                       "influences, screen size {:.4f}, LODDistanceScale {}",
                       data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
                       lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, screenSize, m_LODDistanceScale );
+        };
+        // The leaders first (every record that is not a follower), then the followers from their leaders'
+        // final records. A follower whose leader is not queued this frame (hidden, culled out of the submit)
+        // decides its own frame, at its own size - as UE draws a follower whose leader has no render state.
+        bool followers = false;
+        for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+        {
+            if ( data.Leader.Follows() )
+            {
+                followers = true;
+                continue;
+            }
+            account( data, decide( data ), std::nullopt );
         }
-        // THE FOLLOWERS TAKE THEIR LEADER'S GROWTH (UE SetLeaderPoseComponent: the follower inherits the leader's
-        // transform and LOD decisions): the leader's scale about the leader's feet, both decided above from the
-        // leader's own bounds - the one source of truth - so the clothing drawn on a grown far body is the body's
-        // size, on it, in every pass (its row's world: bounds, shadow, velocity). A follower whose leader is not
-        // queued this frame (hidden, culled out of the submit) is drawn at its own size, as its leader would be.
         if ( followers )
         {
             m_ScratchSkinnedLeaders.clear();
@@ -2848,10 +2921,12 @@ namespace Desert::Graphic::System
                     continue;
                 const auto leader = m_ScratchSkinnedLeaders.find( *data.Leader.LeaderEntity );
                 if ( leader == m_ScratchSkinnedLeaders.end() )
+                {
+                    account( data, decide( data ), std::nullopt );
                     continue;
-                const SkinnedMeshRenderData& lead = m_SkinnedQueue[leader->second];
-                data.MinScreenScale               = lead.MinScreenScale;
-                data.MinScreenPivot               = lead.MinScreenPivot;
+                }
+                inherit( data, m_SkinnedQueue[leader->second] );
+                account( data, 0.0f, data.Leader.LeaderEntity );
             }
         }
         m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws, crowdGrown, crowdMaxScale );

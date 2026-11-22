@@ -668,8 +668,9 @@ namespace Desert::Graphic::System
             // SelectSkinnedLods; the GpuScene row's world (SyncGpuScene) carries it to every pass.
             float                       MinScreenScale = 1.0f;
             glm::vec3                   MinScreenPivot = glm::vec3( 0.0f );
-            // A follower mesh's leader (UE LeaderPoseComponent, Animation::LeaderPoseLink): its growth is not
-            // decided from its own bounds but taken from the leader's record in this queue (SelectSkinnedLods).
+            // A follower mesh's leader (UE LeaderPoseComponent, Animation::LeaderPoseLink): its level (clamped
+            // to its own), VAT hand-off and growth are not decided from its own bounds but taken from the leader's
+            // record in this queue (SelectSkinnedLods).
             Animation::LeaderPoseLink   Leader;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
