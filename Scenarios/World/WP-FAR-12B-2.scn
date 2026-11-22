@@ -1,0 +1,15 @@
+# WP-FAR-12B-2: the PACKAGE COOK derives the far crowd's vertex animation (UE: derived data never needs the RHI -
+# FSkeletalMeshLODModel is CPU data). PackageCook CookVertexAnimations builds every .skmesh x .anim on one skeleton
+# GUID from SkinnedLODModel (Engine/Geometry/SkinnedLODModel.hpp, the chain the SkinnedMesh constructor uploads),
+# no device created.
+# Before the run: the DDC bucket DerivedDataCache/Buckets/VertexAnimation of the project is emptied (the CesiumMan x
+# walk entry gone).
+# Readout (editor.log): "[PackageCook] VertexAnimation CesiumMan.skmesh x clip '...' <key> derived: lowest level N
+# vertices ..." and the summary "vertex animations D derived / C cached"; then at 300 m
+# "[Crowd] clip '...' vertex animation <same key> derived (DDC hit)" (never "derived now") and "[Crowd] ... vat N".
+# The cook runs on Starter (no skinned figure in view), so the editor cannot derive the entry before the cook does;
+# far_300 is then Scenarios/World/WP-FAR-12B.scn run after this one (its log: the same key, "derived (DDC hit)").
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
+Дано run View "View mode: Lit"
+Когда run Build "Package Game"
+Тогда cook_log the cook log names "[PackageCook] VertexAnimation CesiumMan.skmesh x clip ... derived" (key 56db830243168811, the key the editor prints); summary "vertex animations 1 derived"; no device created by the cook

@@ -22,6 +22,8 @@ namespace Desert::Editor
         size_t TexturesCached  = 0; // already cooked from the same source bytes by the same rules
         size_t MeshesCooked    = 0; // static meshes whose envelope + render data are in the DDC after this pass
         size_t MeshFieldsCooked = 0; // of those, the ones whose distance field + cards are in the DDC too
+        size_t VertexAnimationsDerived = 0; // skinned mesh x clip vertex animations derived into the DDC this pass
+        size_t VertexAnimationsCached  = 0; // already in the DDC under the key the runtime asks for
         size_t Failures        = 0; // parse/compile/bake failures (each logged where it happened)
         // Artifacts that were produced and then did NOT reach the disk. Counted apart from Failures
         // because they mean something different: a compile failure is content that is already broken

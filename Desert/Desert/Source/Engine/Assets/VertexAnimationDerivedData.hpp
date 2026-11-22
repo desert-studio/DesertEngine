@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Geometry/SkinnedLODModel.hpp>
+
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -7,14 +9,11 @@
 #include <string>
 #include <string_view>
 
-namespace Desert
-{
-    class SkinnedMesh;
-}
 namespace Desert::Animation
 {
     class AnimationClip;
-}
+    class Skeleton;
+} // namespace Desert::Animation
 
 namespace Desert::Assets
 {
@@ -39,8 +38,9 @@ namespace Desert::Assets
      * WHERE IT IS BUILT: the editor derives a miss into the DDC (SetVertexAnimationDeriving, EditorStartup), and
      * the package ships the whole bucket (DDCShipRegister.hpp). A packaged game registers nothing: it only loads,
      * and a miss is an error (the figure stays skeletal), never a runtime bake. The cook does not yet derive every
-     * pair itself: the lowest level's vertex range is assembled only by SkinnedMesh's constructor, which needs a
-     * device the cook does not have (WP-FAR-12B REMAINDER).
+     * pair itself (PackageCook CookVertexAnimations, every .skmesh x .anim on one skeleton): it reads the CPU
+     * chain (SkinnedLODModel, UE FSkeletalMeshLODModel) the SkinnedMesh constructor uploads, so the cook needs no
+     * device and keys exactly what the editor keys.
      */
     inline constexpr Common::DDC::Deriver kVertexAnimationDeriver{
          "VertexAnimation", ".devat", { 0x3C9E57A1D2864B0FULL, 0x8A61F0C4B75E2D93ULL } };
@@ -60,11 +60,21 @@ namespace Desert::Assets
     static_assert( sizeof( VertexAnimationHeader ) == 24 );
     inline constexpr uint64_t kVertexAnimationFloatsPerVertex = 15u;
 
-    [[nodiscard]] Common::ResultStr<uint64_t> VertexAnimationKey( const SkinnedMesh&              mesh,
+    // WHAT THE BAKE READS OF A SKINNED MESH, device-free: its CPU vertices (every level's range), its levels and
+    // its rig. The editor passes a SkinnedMesh's (GetVertices / GetSkinnedLODs / GetSkeleton), the cook a
+    // SkinnedLODModel built from the .skmesh - the same chain, so the same key.
+    struct VertexAnimationSource
+    {
+        const std::vector<SkinnedVertex>& Vertices;
+        const std::vector<SkinnedLOD>&    LODs;
+        const Animation::Skeleton&        Skeleton;
+    };
+
+    [[nodiscard]] Common::ResultStr<uint64_t> VertexAnimationKey( const VertexAnimationSource&    mesh,
                                                                   const Animation::AnimationClip& clip );
 
     // The entry's bytes (header + slots), built on the CPU from the mesh's vertices, rig and the clip.
-    [[nodiscard]] Common::ResultStr<std::string> BuildVertexAnimation( const SkinnedMesh&              mesh,
+    [[nodiscard]] Common::ResultStr<std::string> BuildVertexAnimation( const VertexAnimationSource&    mesh,
                                                                        const Animation::AnimationClip& clip );
 
     // The header of @p bytes, refused when the bytes are not a whole entry of this version.
@@ -81,5 +91,5 @@ namespace Desert::Assets
     };
     // The DDC entry for the pair; on a miss, derived and Put where deriving is allowed, an error otherwise.
     [[nodiscard]] Common::ResultStr<LoadedVertexAnimation>
-    LoadVertexAnimation( const SkinnedMesh& mesh, const Animation::AnimationClip& clip );
+    LoadVertexAnimation( const VertexAnimationSource& mesh, const Animation::AnimationClip& clip );
 } // namespace Desert::Assets
