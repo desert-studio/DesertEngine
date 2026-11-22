@@ -57,6 +57,8 @@ namespace Desert::Editor
                 streamMs = scope.TotalMs;
         }
         m_FlightLog.TimeLast( profiler.LastFrameMs(), gpuMs, streamMs );
+        if ( m_Shots.Frame() > Flight::kWarmupFrames )
+            LogFlightHitch( m_Shots.Frame() - 1, profiler.LastFrameMs() );
 
         Flight::FrameRow row;
         row.Frame = m_Shots.Frame();
@@ -82,6 +84,37 @@ namespace Desert::Editor
         }
         row.AssetGpuBytes = Graphic::ResourceLedger::Take().BytesForOwner( Graphic::ResourceOwner::AssetService );
         m_FlightLog.Append( std::move( row ) );
+    }
+
+    void ProfilerWindow::LogFlightHitch( const uint32_t frame, const double frameMs )
+    {
+        m_FlightFrameMs.push_back( frameMs );
+        std::vector<double> sorted = m_FlightFrameMs;
+        const auto          mid    = sorted.begin() + static_cast<std::ptrdiff_t>( sorted.size() / 2 );
+        std::nth_element( sorted.begin(), mid, sorted.end() );
+        const double medianMs = *mid;
+        if ( sorted.size() < 2 || frameMs <= Common::Profiling::kHitchFactor * medianMs )
+            return;
+
+        const Common::Profiling::Profiler&                 profiler = Common::Profiling::Profiler::Get();
+        std::vector<const Common::Profiling::ScopeResult*> rows;
+        for ( const Common::Profiling::ScopeResult& scope : profiler.LastFrame() )
+            if ( scope.SelfMs > 0.0 )
+                rows.push_back( &scope );
+        const std::size_t topCount = std::min<std::size_t>( rows.size(), Common::Profiling::kHitchTopScopes );
+        std::partial_sort( rows.begin(), rows.begin() + static_cast<std::ptrdiff_t>( topCount ), rows.end(),
+                           []( const auto* a, const auto* b ) { return a->SelfMs > b->SelfMs; } );
+        std::string top;
+        for ( std::size_t i = 0; i < topCount; ++i )
+            top += std::format( "{}{} {:.3f}", i == 0 ? "" : ", ", std::string_view( rows[i]->Name ),
+                                rows[i]->SelfMs );
+        // The frame thread's time outside every scope it opened: a hitch whose excess lands here and not in a
+        // row was spent where nothing is instrumented, or with the thread not running at all.
+        const double unnamedMs = std::max( 0.0, frameMs - profiler.LastFrameNamedMs() );
+        LOG_INFO( "[Hitch] flight frame {}: {:.3f} ms = {:.2f}x flight median {:.3f} ms; frame thread unnamed "
+                  "{:.3f} ms; "
+                  "top self: {}",
+                  frame, frameMs, frameMs / medianMs, medianMs, unnamedMs, top );
     }
 
     bool ProfilerWindow::FinishFlight()
