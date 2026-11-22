@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Destruction/FractureEdit.hpp>
+#include <Destruction/Public/FractureEdit.hpp>
 
 #include <entt/entt.hpp>
 #include <memory>

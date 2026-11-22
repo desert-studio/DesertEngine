@@ -41,7 +41,6 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/FracturePreviewComponent.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -81,7 +80,7 @@
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
-#include <Engine/ECS/DestructionFieldComponents.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Serialize/EngineComponentProvider.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
@@ -529,6 +528,7 @@ namespace Desert::Core
     {
         // Engine's component serializers (Core's registry): this reference links the provider in.
         Serialize::LinkEngineComponentProvider();
+        StartupEngineModules();
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
     }
@@ -562,6 +562,7 @@ namespace Desert::Core
     {
         // Engine's component serializers (Core's registry): this reference links the provider in.
         Serialize::LinkEngineComponentProvider();
+        StartupEngineModules();
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
 
@@ -1466,12 +1467,10 @@ namespace Desert::Core
         r.prepare<ECS::WaterBodyComponent>();
         r.prepare<ECS::RagdollComponent>();
         r.prepare<ECS::WaterZoneComponent>();
-        // The editor's Fracture preview: viewed by FracturePieceDraw inside MeshECSSystem's parallel group.
-        r.prepare<ECS::FracturePreviewComponent>();
-        r.prepare<ECS::RadialImpulseFieldComponent>();
-        r.prepare<ECS::StrainFieldComponent>();
-        r.prepare<ECS::KillFieldComponent>();
-        r.prepare<ECS::AnchorFieldComponent>();
+        // The feature modules' pools (Destruction: the Fracture preview, viewed by its stand-in draw inside
+        // MeshECSSystem's parallel group, and the field components).
+        for ( const RegistryPrepare prepare : ModuleHooks().Prepares )
+            prepare( r );
         r.prepare<ECS::CharacterControllerComponent>();
         r.prepare<ECS::SpringArmComponent>();
         r.prepare<ECS::PlayerStartComponent>();

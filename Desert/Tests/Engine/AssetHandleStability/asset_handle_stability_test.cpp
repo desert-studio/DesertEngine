@@ -51,7 +51,7 @@
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>
-#include <Engine/Assets/FractureAsset.hpp>
+#include <Destruction/Public/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/SoundAsset.hpp>

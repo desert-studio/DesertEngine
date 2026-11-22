@@ -1,3 +1,4 @@
+#include <Destruction/Public/DestructionModule.hpp>
 #include "Editor/LevelEditor/PlaySession.hpp"
 #include "Editor/Panels/WorldPartition/EditorHLODs.hpp"
 
@@ -24,8 +25,8 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
-#include <Engine/ECS/DestructionFieldComponents.hpp>
-#include <Engine/ECS/System/DestructionFields.hpp>
+#include <Destruction/Public/DestructionFieldComponents.hpp>
+#include <Destruction/Public/DestructionFields.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <ImGui/imgui.h>
 
@@ -740,7 +741,7 @@ namespace Desert::Editor
                            return PaletteCommandOutcome( false, "that field no longer exists." );
                        const auto*                    physics = scene->FindSystem<ECS::PhysicsECSSystem>();
                        Destruction::DestructionWorld* world =
-                            physics != nullptr ? physics->GetDestructionWorld() : nullptr;
+                            Destruction::FindDestructionWorld( physics );
                        if ( world == nullptr )
                            return PaletteCommandOutcome(
                                 false, "fields fire in Play or Simulate: the scene has no destruction world." );

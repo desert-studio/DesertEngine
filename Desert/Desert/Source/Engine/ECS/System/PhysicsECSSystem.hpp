@@ -6,7 +6,7 @@
 #include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/KinematicBodies.hpp>
-#include <Engine/ECS/System/DestructibleLifetime.hpp>
+#include <Engine/ECS/System/PhysicsSceneFeature.hpp>
 #include <Engine/ECS/System/WaterBodyGather.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
@@ -14,10 +14,10 @@
 #include <Engine/ECS/System/FoliageCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
+#include <Engine/ECS/ComponentEventFacts.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
 #include <Common/Core/Constants.hpp>
-#include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Water/WaterBodyQuery.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
@@ -46,7 +46,6 @@
 #include <string>
 #include <vector>
 #include <type_traits>
-#include <Engine/Runtime/Services/Destruction/FractureService.hpp>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
 #include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
@@ -147,8 +146,7 @@ namespace Desert::ECS
                         queue->Events.clear();
                     m_Landscape.reset();
                     m_Foliage.reset();
-                    m_Destructibles.reset();
-                    m_Destruction.reset();
+                    m_Features.clear(); // their bodies go back into the world before it goes
                     m_Water.reset();
                     m_WaterGather.Reset();
                     m_World->Shutdown();
@@ -178,8 +176,9 @@ namespace Desert::ECS
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Foliage   = std::make_unique<FoliageCollision>( *m_World );
-                m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
-                m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
+                // The feature modules' parts of the scene (destruction's objects, ...), one each per Play.
+                for ( const PhysicsSceneFeatureFactory make : PhysicsSceneFeatures() )
+                    m_Features.push_back( make( *m_World ) );
                 m_Ragdolls      = std::make_unique<RagdollLifetime>( *m_World );
                 // The wave clock starts with the Play, at zero (UE: the water subsystem's time of a new world).
                 m_Water = std::make_unique<Water::WaterSubsystem>();
@@ -199,7 +198,8 @@ namespace Desert::ECS
                 return; // Paused (and not stepping): bodies exist but time is frozen.
 
             // The events of this frame's steps are readable until the next frame's physics.
-            m_Destruction->ClearEvents();
+            for ( const auto& feature : m_Features )
+                feature->BeginFrame();
             // The water the step's bodies are in: this frame's bodies over this frame's ground. The body list is
             // retained (WaterBodyGather: re-walked only when a body is added, patched or removed) and its values
             // read every frame, so a moved or edited body is the water at once; nothing is allocated in a steady
@@ -274,13 +274,19 @@ namespace Desert::ECS
             }
             m_Ragdolls->WriteBackAfterStep( registry );
             // At Impact destructibles hit hard enough are sent to be cut around the hit (DST-RUNTIME).
-            m_Destructibles->CutOnImpact( registry );
-            // Every simulated destructible's piece poses from its bodies (DST-06), what its pieces draw at.
-            m_Destructibles->WritePoses( registry );
+            // The feature modules write their state back (destructibles: cut on impact, piece poses).
+            for ( const auto& feature : m_Features )
+                feature->AfterStep( registry );
             PublishEvents( registry );
-            // The steps' breaks, collisions and removals are destruction's own news, published by its owner into
-            // its own queue; the Gameplay Framework (ComponentEventSystem, ScriptSystem) hands them on.
-            m_Destructibles->PublishEvents( registry );
+            // The features' own news (destruction's breaks, collisions, removals), published by their owners; the
+            // Gameplay Framework (ComponentEventSystem, ScriptSystem) hands them on (ComponentEventFacts.hpp).
+            {
+                auto& facts = registry.ctx_or_set<ComponentEventFactQueue>();
+                facts.Facts.clear();
+                for ( const auto& feature : m_Features )
+                    feature->PublishEvents( registry );
+                ++facts.Publication;
+            }
 
             auto bodies = registry.view<TransformComponent, RigidBodyComponent, ColliderComponent>();
             WriteBackMovingBodies( registry, bodies );
@@ -410,8 +416,6 @@ namespace Desert::ECS
             return Common::MakeError<Result>( "the entity's StaticMesh has no mesh assigned" );
         }
 
-        /// The scene's destruction world while Play runs, null in Edit: what a field entity fires into
-        /// (ECS::FireDestructionField), from the Sequencer or from gameplay.
         /// The scene's physics world while Play runs, null in Edit: what moves a body the game teleports
         /// (Core::LoadGameFromSlot restoring a pawn) so the next step does not put it back.
         [[nodiscard]] Physics::PhysicsWorld* GetPhysicsWorld() const
@@ -419,9 +423,15 @@ namespace Desert::ECS
             return m_World.get();
         }
 
-        [[nodiscard]] Destruction::DestructionWorld* GetDestructionWorld() const
+        /// The feature module's part of the scene while Play runs, null in Edit or when the module is not linked
+        /// (Destruction: DestructionPhysicsFeature, what a field entity fires into).
+        template <class TFeature>
+        [[nodiscard]] TFeature* FindFeature() const
         {
-            return m_Destruction.get();
+            for ( const auto& feature : m_Features )
+                if ( auto* found = dynamic_cast<TFeature*>( feature.get() ) )
+                    return found;
+            return nullptr;
         }
 
         /// The scene's water while Play runs, null in Edit: what buoyancy, swimming and scripts query
@@ -465,17 +475,9 @@ namespace Desert::ECS
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
             m_Foliage->Attach( registry );
-            m_Destructibles->Attach( registry );
             m_Ragdolls->Attach( registry );
-            m_Destructibles->Sync(
-                 registry, []( const Assets::AssetHandle& fracture )
-                 { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); },
-                 []( const Assets::AssetHandle& mesh )
-                 {
-                     // The file a run-time fracture cuts (DST-RUNTIME): the static mesh asset the entity draws.
-                     const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh );
-                     return asset ? asset->GetMetadata().Filepath : std::filesystem::path();
-                 } );
+            for ( const auto& feature : m_Features )
+                feature->Sync( registry );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
             m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
             // One static body per foliage field whose type collides (FOLIAGE-COLLISION), streamed with its cell.
@@ -706,10 +708,8 @@ namespace Desert::ECS
         // Same rule: the landscape's heightfield bodies live in m_World.
         std::unique_ptr<LandscapeCollision> m_Landscape;
         std::unique_ptr<FoliageCollision>   m_Foliage;
-        // Same rule: the scene's destructibles are bodies in m_World, advanced by its fixed step.
-        std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
-        // Same rule, one level down: the destructible entities' objects live in m_Destruction.
-        std::unique_ptr<DestructibleLifetime> m_Destructibles;
+        // Same rule: the feature modules' bodies (destructibles) live in m_World, advanced by its fixed step.
+        std::vector<std::unique_ptr<IPhysicsSceneFeature>> m_Features;
         // The water bodies, ground and wave clock of this Play; null in Edit.
         std::unique_ptr<Water::WaterSubsystem> m_Water;
         // Refuses a body whose wave set cannot be read, once per entity per Play.

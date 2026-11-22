@@ -1,8 +1,7 @@
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
 
 #include <Engine/ECS/ComponentEvents.hpp>
-#include <Engine/ECS/DestructibleComponent.hpp>
-#include <Engine/ECS/DestructionEvents.hpp>
+#include <Engine/ECS/ComponentEventFacts.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/Reflection/FunctionThunk.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
@@ -73,30 +72,15 @@ namespace Desert::ECS
             return calls;
         }
 
-        std::size_t DeliverDestruction( const DestructionEventQueue& queue, const ComponentEvents& events )
+        std::size_t DeliverFacts( const ComponentEventFactQueue& queue, const ComponentEvents& events )
         {
-            const Reflection::EventInfo* broke    = RequireEvent( "DestructibleData", "OnBreak" );
-            const Reflection::EventInfo* collided = RequireEvent( "DestructibleData", "OnCollision" );
-            const Reflection::EventInfo* removed  = RequireEvent( "DestructibleData", "OnRemoved" );
-            if ( broke == nullptr || collided == nullptr || removed == nullptr )
-                return 0;
             std::size_t calls = 0;
-            for ( const DestructibleBreakEvent& fact : queue.Breaks )
-                if ( events.IsBound( fact.Self, *broke ) )
-                    calls += Fire( events, fact.Self, *broke,
-                                   Reflection::EventPayload<DestructibleData::OnBreak>(
-                                        fact.Node, fact.Position, fact.Velocity, fact.MassKg, fact.PieceCount ) );
-            for ( const DestructibleCollisionEvent& fact : queue.Collisions )
-                if ( events.IsBound( fact.Self, *collided ) )
-                    calls += Fire(
-                         events, fact.Self, *collided,
-                         Reflection::EventPayload<DestructibleData::OnCollision>(
-                              fact.Node, fact.Position, fact.Normal, fact.Impulse, fact.Velocity, fact.MassKg ) );
-            for ( const DestructibleRemovalEvent& fact : queue.Removals )
-                if ( events.IsBound( fact.Self, *removed ) )
-                    calls += Fire( events, fact.Self, *removed,
-                                   Reflection::EventPayload<DestructibleData::OnRemoved>(
-                                        fact.Node, fact.Position, fact.MassKg, fact.PieceCount ) );
+            for ( const ComponentEventFact& fact : queue.Facts )
+            {
+                const Reflection::EventInfo* event = RequireEvent( fact.Data, fact.Event );
+                if ( event != nullptr && events.IsBound( fact.Self, *event ) )
+                    calls += Fire( events, fact.Self, *event, fact.Args );
+            }
             return calls;
         }
     } // namespace
@@ -104,15 +88,15 @@ namespace Desert::ECS
     std::size_t DeliverComponentEvents( entt::registry& registry, ComponentEventCursor& cursor )
     {
         const auto* contacts    = registry.try_ctx<PhysicsEventQueue>();
-        const auto* breaks      = registry.try_ctx<DestructionEventQueue>();
+        const auto* breaks      = registry.try_ctx<ComponentEventFactQueue>();
         const bool  newContacts = contacts != nullptr && contacts->Publication != cursor.Physics;
-        const bool  newBreaks   = breaks != nullptr && breaks->Publication != cursor.Destruction;
+        const bool  newBreaks   = breaks != nullptr && breaks->Publication != cursor.Facts;
         // Advanced whether or not anybody listens: a batch published while nobody listened is not news to a
         // listener that subscribes later.
         if ( contacts != nullptr )
             cursor.Physics = contacts->Publication;
         if ( breaks != nullptr )
-            cursor.Destruction = breaks->Publication;
+            cursor.Facts = breaks->Publication;
 
         auto* events = registry.try_ctx<ComponentEvents>();
         if ( events == nullptr || events->Empty() || ( !newContacts && !newBreaks ) )
@@ -123,7 +107,7 @@ namespace Desert::ECS
         if ( newContacts )
             calls += DeliverContacts( *contacts, *events );
         if ( newBreaks )
-            calls += DeliverDestruction( *breaks, *events );
+            calls += DeliverFacts( *breaks, *events );
         return calls;
     }
 } // namespace Desert::ECS

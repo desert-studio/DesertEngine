@@ -2,8 +2,8 @@
 // preview Explode offset) and with which material per submesh (Engine/Destruction/FracturePieces.hpp), and the
 // census that no second mesh renderer was added for them.
 
-#include <Engine/Destruction/FractureEdit.hpp>
-#include <Engine/Destruction/FracturePieces.hpp>
+#include <Destruction/Public/FractureEdit.hpp>
+#include <Destruction/Public/FracturePieces.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
@@ -13,7 +13,8 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <vector>
+#include <vector>
+
 
 namespace
 {

@@ -6,7 +6,7 @@
 
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
 
-#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructibleComponent.hpp>
 
 namespace Desert::Core::Serialize::Generated
 {

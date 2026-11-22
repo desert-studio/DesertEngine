@@ -1,7 +1,7 @@
 #pragma once
 
 // THE GAMEPLAY FRAMEWORK DELIVERS THE FACTS. Physics reports contacts (PhysicsEventQueue) and destruction reports
-// breaks, collisions and removals (DestructionEventQueue) as facts named by entity; this system turns each fact
+// breaks, collisions and removals (ComponentEventFactQueue, any feature module's facts) as facts named by entity; this system turns each fact
 // into the EVENT of the component it happened to — RigidBodyData::OnHit / OnBeginOverlap / OnEndOverlap,
 // DestructibleData::OnBreak / OnCollision / OnRemoved —
 // and calls whoever subscribed to that entity (ComponentEvents). UE: UPrimitiveComponent::DispatchBlockingHit ->
@@ -22,7 +22,7 @@ namespace Desert::ECS
     struct ComponentEventCursor
     {
         std::uint64_t Physics     = 0;
-        std::uint64_t Destruction = 0;
+        std::uint64_t Facts       = 0; // ComponentEventFactQueue (feature modules' facts)
     };
 
     /// Delivers the batches published since @p cursor to the subscribers of @p registry's ComponentEvents and

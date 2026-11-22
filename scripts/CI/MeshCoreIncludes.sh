@@ -14,7 +14,7 @@ set -u
 cd "$(dirname "$0")/../.." || exit 2
 
 G=Desert/Desert/Source/Engine/Geometry
-D=Desert/Desert/Source/Engine/Destruction
+D=Desert/Destruction/Source/Destruction
 C=Desert/Desert/Source/Engine/Core
 # path | reason
 ALLOW=(
@@ -59,9 +59,9 @@ ALLOW=(
     "$C/HLODApproximate.cpp|HLOD MeshApproximate layer: drives the ported voxel wrap, simplifier and AABB tree to capture BaseColor/Normal/ORM"
     "$C/HLODImpostor.hpp|HLOD impostor: the card mesh is built as a DynamicMesh3"
     "$C/HLODImpostor.cpp|HLOD impostor: ray-casts the source through the ported MeshAABBTree3"
-    "$D/FractureBake.hpp|fracture operation (UE PlanarCut's place): BakeFracture takes the source as a DynamicMesh3"
-    "$D/FractureBake.cpp|fracture operation: builds cell meshes with attribute overlays, Intersect-cuts them (MeshBoolean) and splits islands (MeshConnectedComponents)"
-    "$D/RuntimeFracture.hpp|fracture operation at run time: BakeRuntimeFracture takes the source as a DynamicMesh3 and the sources are DynamicMesh3 makers"
+    "$D/Public/FractureBake.hpp|fracture operation (UE PlanarCut's place): BakeFracture takes the source as a DynamicMesh3"
+    "$D/Private/FractureBake.cpp|fracture operation: builds cell meshes with attribute overlays, Intersect-cuts them (MeshBoolean) and splits islands (MeshConnectedComponents)"
+    "$D/Public/RuntimeFracture.hpp|fracture operation at run time: BakeRuntimeFracture takes the source as a DynamicMesh3 and the sources are DynamicMesh3 makers"
 )
 
 status=0

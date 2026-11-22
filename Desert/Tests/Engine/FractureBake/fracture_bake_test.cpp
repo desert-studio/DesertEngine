@@ -2,8 +2,8 @@
 // volumes sum to its volume), every piece is closed, the seed decides the bake bit for bit, the methods yield
 // the counts their geometry implies, and the file reads back to exactly what was written.
 
-#include <Engine/Destruction/FractureBake.hpp>
-#include <Engine/Destruction/FractureFormat.hpp>
+#include <Destruction/Public/FractureBake.hpp>
+#include <Destruction/Public/FractureFormat.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/MeshCore/VectorUtil.hpp>
 

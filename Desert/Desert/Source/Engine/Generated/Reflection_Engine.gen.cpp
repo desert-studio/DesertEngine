@@ -26,7 +26,6 @@
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
-#include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
@@ -45,7 +44,6 @@
 #include <Engine/ECS/SpringArmComponent.hpp>
 #include <Engine/ECS/StaticLightingSettings.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
-#include <Engine/ECS/System/DestructionLibrary.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>

@@ -15,7 +15,7 @@
 #include <type_traits>
 #include <vector>
 
-#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructibleComponent.hpp>
 
 namespace Desert::Reflection::Generated
 {

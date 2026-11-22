@@ -1,9 +1,9 @@
 // DST-02: the Fracture mode's command layer (Engine/Destruction/FractureEdit.hpp, FractureAsset::WriteStep) —
 // what the editor's Generate, level list, interior material and Explode slider do, without a window.
 
-#include <Engine/Assets/FractureAsset.hpp>
-#include <Engine/Destruction/FractureEdit.hpp>
-#include <Engine/Destruction/FractureFormat.hpp>
+#include <Destruction/Public/FractureAsset.hpp>
+#include <Destruction/Public/FractureEdit.hpp>
+#include <Destruction/Public/FractureFormat.hpp>
 #include <Engine/Geometry/MeshCore/VectorUtil.hpp>
 
 #include <gtest/gtest.h>
