@@ -236,7 +236,7 @@ namespace Desert::Player
         // allocation, too).
         const auto window         = EngineContext::GetInstance().GetWindow();
         const auto [viewW, viewH] = GameViewExtent( window->GetWidth(), window->GetHeight(), true );
-        m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ viewW, viewH } );
+        m_SceneRenderer           = Graphic::SceneRenderer::Create( Graphic::ViewExtent{ viewW, viewH } );
         m_Scene = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
     }
 

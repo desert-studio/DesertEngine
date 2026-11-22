@@ -101,6 +101,7 @@
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Common/Json/DocumentStruct.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
 namespace Desert::Editor
 {

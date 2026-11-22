@@ -3,11 +3,12 @@
 // THE CODEGEN'S ELEMENT ACCESSORS OF A std::vector FIELD (FieldInfo::ContainerSize / Resize / Get / Set).
 //
 // A vector cannot be walked through `Offset` alone — its element type is a compile-time fact — so, exactly as
-// for its JSON halves (WriteContainer/ReadContainer in ReflectionSerializer.hpp), DesertHeaderTool instantiates
+// for its JSON halves (WriteContainer/ReadContainer in ContainerSerializer.hpp), DesertHeaderTool instantiates
 // these per field with `decltype( T::field )`. An element travels as a Value of its kind through the same
 // ValueTraits a FUNCTION(...) parameter does (FunctionThunk.hpp): one C++ <-> Value rule for every caller. A
 // 64-bit asset handle is stored as `std::uint64_t` (a UInt Value), as the serializer stores it.
 
+#include <Engine/Reflection/ContainerSerializer.hpp>
 #include <Engine/Reflection/FunctionThunk.hpp>
 #include <Engine/Reflection/Value.hpp>
 

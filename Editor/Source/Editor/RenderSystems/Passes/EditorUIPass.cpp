@@ -20,6 +20,10 @@
 #include <Common/Core/Logger.hpp>
 
 #include <optional>
+#include <Engine/Graphic/ExtensionPass.hpp>
+#include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
+#include <Engine/Graphic/RenderPassDeclaration.hpp>
+#include <Engine/Core/Camera.hpp>
 
 namespace Desert::Editor::Render
 {

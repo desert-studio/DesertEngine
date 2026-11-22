@@ -5,6 +5,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
+#include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>

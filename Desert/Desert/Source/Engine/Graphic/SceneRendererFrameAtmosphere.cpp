@@ -1,5 +1,5 @@
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/SceneRendererImpl.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
@@ -25,7 +25,7 @@ namespace Desert::Graphic
     // The claiming view's Debug / Light readbacks of the finished tick: after BOTH chains.
     static void AddParticleReadbacks( RDG::Builder& graph, System::ParticleRenderer& renderer );
 
-    void SceneRenderer::AddFrameParticlesSimulate( RDG::Builder& graph )
+    void SceneRendererImpl::AddFrameParticlesSimulate( RDG::Builder& graph )
     {
         // The world's particle pool (VFX-07): the frame's fixed VFX steps (the scene's VFXWorld; no timestep is
         // read here) as Compute nodes outside any render pass, BEFORE the billboard draw. "Particles: Compact 0"
@@ -106,7 +106,7 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameParticlesPostOpaque( RDG::Builder& graph, const RDG::TextureRef sceneDepth )
+    void SceneRendererImpl::AddFrameParticlesPostOpaque( RDG::Builder& graph, const RDG::TextureRef sceneDepth )
     {
         // UE Niagara PostOpaqueRender: the emitters whose stack reads the scene (depth collision) simulate after
         // the opaque scene's depth is resolved, then this view's sort of their forward draws (current half); the
@@ -151,7 +151,7 @@ namespace Desert::Graphic
                  { return particles->LightReadback( context ); } );
     }
 
-    void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )
     {
         // The cloud layer's shadow on the world. HERE, and not beside the cloud march at the other end of the
         // frame, because its readers are the lit passes (the deferred Composite, the forward meshes and terrain),
@@ -170,7 +170,7 @@ namespace Desert::Graphic
         textures.Transients.CloudShadowMap = textures.Import( clouds->GetShadowMap(), "Clouds.ShadowMap" );
     }
 
-    void SceneRenderer::AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures )
     {
         // A path-traced frame draws no screen clouds, but the layer's sky-occlusion volume is an input of the sky
         // capture that marches the clouds into the environment the paths read (PathTracerSky "Prepare"): without
@@ -183,7 +183,7 @@ namespace Desert::Graphic
         clouds->SettleSkyOcclusionNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
     }
 
-    void SceneRenderer::AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* sky = m_Systems.Skybox.get();
         if ( sky == nullptr )
@@ -198,7 +198,7 @@ namespace Desert::Graphic
         sky->AddSkyCapturePasses( graph, textures );
     }
 
-    void SceneRenderer::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* sky = m_Systems.Skybox.get();
         if ( sky != nullptr )
@@ -208,7 +208,7 @@ namespace Desert::Graphic
                                                  GetCloudShadowInput() ) ) );
     }
 
-    System::VolumetricFogSunInput SceneRenderer::GatherVolumeSunInput( const float scale ) const
+    System::VolumetricFogSunInput SceneRendererImpl::GatherVolumeSunInput( const float scale ) const
     {
         // The sun exactly as the surfaces receive it: DirLights[0] after the atmosphere's transmittance
         // (BeginScene), times @p scale, shadowed by the same cascades.
@@ -243,8 +243,8 @@ namespace Desert::Graphic
         return sun;
     }
 
-    void SceneRenderer::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
-                                               const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
+                                                   const ViewFrame& frame )
     {
         auto* volume = m_Systems.VolumetricFog.get();
         if ( volume == nullptr )
@@ -271,8 +271,8 @@ namespace Desert::Graphic
                                                     heterogeneousShadow ) );
     }
 
-    void SceneRenderer::AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
-                                                            const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
+                                                                const ViewFrame& frame )
     {
         auto* volume    = m_Systems.TranslucencyLightingVolume.get();
         auto* particles = m_Systems.Particle.get();
@@ -293,8 +293,8 @@ namespace Desert::Graphic
                  std::shared_ptr<Image>( lit ), System::TranslucencyLightingVolumeRenderer::kVolumeName );
     }
 
-    void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
-                                           const OpaqueFogFroxels froxels )
+    void SceneRendererImpl::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures,
+                                               const ViewFrame& frame, const OpaqueFogFroxels froxels )
     {
         AddFrameSceneDepthResolve( graph, textures );
         if ( froxels == OpaqueFogFroxels::AddHere )
@@ -302,7 +302,7 @@ namespace Desert::Graphic
         AddFrameAtmosphericFog( graph, textures );
     }
 
-    void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRendererImpl::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
     {
         auto* fog = m_Systems.HeightFog.get();
         auto* volume = m_Systems.VolumetricFog.get();
@@ -344,8 +344,8 @@ namespace Desert::Graphic
             t.FogVolume = textures.Import( fallback3D, "HeightFog.VolumetricFogFallback" );
     }
 
-    void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,
+                                                      const ViewFrame& frame )
     {
         auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
