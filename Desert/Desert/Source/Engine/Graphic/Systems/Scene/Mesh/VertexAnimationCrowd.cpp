@@ -30,7 +30,9 @@ namespace Desert::Graphic::System
                                                           const Animation::AnimationClip& clip )
     {
         DESERT_PROFILE_SCOPE( "VertexAnimationCrowd::LoadClip" );
-        auto loaded = Assets::LoadVertexAnimation( mesh, clip );
+        auto loaded = Assets::LoadVertexAnimation(
+             { .Vertices = mesh.GetVertices(), .LODs = mesh.GetSkinnedLODs(), .Skeleton = mesh.GetSkeleton() },
+             clip );
         if ( !loaded )
             return Common::MakeError( loaded.GetError() );
         const auto header = Assets::ReadVertexAnimationHeader( loaded.GetValue().Bytes );

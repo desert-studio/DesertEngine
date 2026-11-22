@@ -37,7 +37,12 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/DDCShipRegister.hpp>
+#include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+#include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Assets/VertexAnimationDerivedData.hpp>
+#include <Engine/Geometry/SkinnedLODModel.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
@@ -698,6 +703,106 @@ namespace Desert::Editor
             }
         }
 
+        // THE COOK DERIVES THE FAR CROWD'S VERTEX ANIMATION (WP-FAR-12B; UE: derived data is built by the cooker,
+        // never by the RHI - FSkeletalMeshLODModel is CPU data). A packaged game only loads the VertexAnimation
+        // bucket (a miss is an error, the figure stays skeletal), so every pair a crowd can play is derived here:
+        // every `.skmesh` x every `.anim` naming the SAME skeleton GUID (the pair an AnimationComponent can bind).
+        // The mesh's level chain is SkinnedLODModel - the very CPU chain the SkinnedMesh constructor uploads - so
+        // the key is the one the editor and the game ask for, and no device is created.
+        void CookVertexAnimations( CookStats& stats )
+        {
+            Assets::SetVertexAnimationDeriving( true );
+            const auto manager = std::make_shared<Assets::AssetManager>();
+
+            std::vector<fs::path> meshPaths, clipPaths;
+            for ( const auto& p :
+                  Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ) )
+            {
+                if ( p.extension() == ".skmesh" )
+                    meshPaths.push_back( p );
+                else if ( p.extension() == ".anim" )
+                    clipPaths.push_back( p );
+            }
+            std::sort( meshPaths.begin(), meshPaths.end() );
+            std::sort( clipPaths.begin(), clipPaths.end() );
+
+            std::vector<std::shared_ptr<Assets::AnimationAsset>> clips;
+            for ( const fs::path& path : clipPaths )
+            {
+                auto clip = manager->CreateAsset<Assets::AnimationAsset>( path, false );
+                if ( !clip )
+                {
+                    LOG_ERROR( "[PackageCook] clip '{}' is not an animation asset", path.string() );
+                    ++stats.Failures;
+                    continue;
+                }
+                if ( const auto loaded = clip->EnsureLoaded( *manager ); !loaded )
+                {
+                    LOG_ERROR( "[PackageCook] clip '{}' could not be read for the vertex animation cook: {}",
+                               path.string(), loaded.GetError() );
+                    ++stats.Failures;
+                    continue;
+                }
+                clips.push_back( std::move( clip ) );
+            }
+
+            for ( const fs::path& path : meshPaths )
+            {
+                auto mesh = manager->CreateAsset<Assets::SkinnedMeshAsset>( path, false );
+                if ( !mesh )
+                {
+                    LOG_ERROR( "[PackageCook] '{}' is not a skinned mesh asset", path.string() );
+                    ++stats.Failures;
+                    continue;
+                }
+                if ( const auto loaded = mesh->EnsureLoaded( *manager ); !loaded )
+                {
+                    LOG_ERROR(
+                         "[PackageCook] skinned mesh '{}' could not be read for the vertex animation cook: {}",
+                         path.string(), loaded.GetError() );
+                    ++stats.Failures;
+                    continue;
+                }
+                const auto                       skeletonAsset = mesh->GetSkeletonDependency().Cached.lock();
+                const Animation::Skeleton* const skeleton = skeletonAsset ? skeletonAsset->GetSkeleton() : nullptr;
+                if ( !skeleton )
+                {
+                    LOG_ERROR(
+                         "[PackageCook] skinned mesh '{}': its skeleton {} is not resident, no vertex animation "
+                         "is cooked for it",
+                         path.string(), Common::Content::AssetGuidToText( mesh->GetSkeleton() ) );
+                    ++stats.Failures;
+                    continue;
+                }
+                const SkinnedLODModel model =
+                     BuildSkinnedLODModel( mesh->GetVertices(), mesh->GetIndices(), mesh->GetSubmeshes(),
+                                           mesh->GetVertexStreams(), mesh->GetMorphTargets() );
+                const Assets::VertexAnimationSource source{
+                     .Vertices = model.Vertices, .LODs = model.LODs, .Skeleton = *skeleton };
+                for ( const auto& clip : clips )
+                {
+                    if ( clip->GetSkeleton() != mesh->GetSkeleton() )
+                        continue;
+                    const auto derived = Assets::LoadVertexAnimation( source, clip->GetClip() );
+                    if ( !derived )
+                    {
+                        LOG_ERROR( "[PackageCook] VertexAnimation {} x {}: not cooked: {}", path.string(),
+                                   clip->GetMetadata().Filepath.string(), derived.GetError() );
+                        ++stats.Failures;
+                        continue;
+                    }
+                    const auto& lowest = model.LODs.back();
+                    LOG_INFO( "[PackageCook] VertexAnimation {} x clip '{}' {:016x} {}: lowest level {} vertices "
+                              "from {}, {:.3f} MB",
+                              path.filename().string(), clip->GetClip().AnimationName, derived.GetValue().Key,
+                              derived.GetValue().DerivedNow ? "derived" : "cached (DDC hit)", lowest.VertexCount,
+                              lowest.FirstVertex, static_cast<double>( derived.GetValue().Bytes.size() ) / 1.0e6 );
+                    ++( derived.GetValue().DerivedNow ? stats.VertexAnimationsDerived
+                                                      : stats.VertexAnimationsCached );
+                }
+            }
+        }
+
         // Copies the DDC buckets a game reads into the cooked tree under the key the runtime asks for:
         // Saved/Cooked/<Platform>/Cooked/Buckets/... is packed as "Cooked/Buckets/...", which is
         // DDC::PackagedPath of the loose entry — the one lookup a packaged DDC reader falls back to.
@@ -774,16 +879,18 @@ namespace Desert::Editor
         CookIcons( stats );
         CookTextures( stats );
         CookMeshes( stats );
+        CookVertexAnimations( stats );
         StageCookedEntries( stats );
 
         LOG_INFO( "[PackageCook] shaders {} compiled / {} cached, fonts {} baked / {} cached, icons {} "
                   "baked / {} cached, textures {} cooked / {} cached, static meshes {} cooked ({} with distance "
                   "field + "
-                  "cards), {} failure(s), {} "
+                  "cards), vertex animations {} derived / {} cached, {} failure(s), {} "
                   "unwritten",
                   stats.ShadersCompiled, stats.ShadersCached, stats.FontsBaked, stats.FontsCached,
                   stats.IconsBaked, stats.IconsCached, stats.TexturesCooked, stats.TexturesCached,
-                  stats.MeshesCooked, stats.MeshFieldsCooked, stats.Failures, stats.StoreFailures );
+                  stats.MeshesCooked, stats.MeshFieldsCooked, stats.VertexAnimationsDerived,
+                  stats.VertexAnimationsCached, stats.Failures, stats.StoreFailures );
         if ( stats.StoreFailures > 0 )
         {
             // Loud on its own line: this one is never normal, and a package built over it ships a

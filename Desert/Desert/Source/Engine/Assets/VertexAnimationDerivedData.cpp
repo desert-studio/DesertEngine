@@ -7,7 +7,6 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -33,22 +32,23 @@ namespace Desert::Assets
             uint32_t VertexCount = 0;
         };
 
-        Common::ResultStr<BakedRange> LowestRange( const SkinnedMesh& mesh )
+        Common::ResultStr<BakedRange> LowestRange( const VertexAnimationSource& mesh )
         {
-            const auto& lods = mesh.GetSkinnedLODs();
+            const auto& lods = mesh.LODs;
             if ( lods.empty() )
                 return Common::MakeError<BakedRange>( "the mesh has no skinned levels" );
-            const SkinnedMesh::SkinnedLOD& lowest = lods.back();
-            if ( static_cast<std::size_t>( lowest.FirstVertex ) + lowest.VertexCount > mesh.GetVertices().size() ||
+            const SkinnedLOD& lowest = lods.back();
+            if ( static_cast<std::size_t>( lowest.FirstVertex ) + lowest.VertexCount > mesh.Vertices.size() ||
                  lowest.VertexCount == 0 )
                 return Common::MakeError<BakedRange>(
                      std::format( "the lowest level's vertices [{}, +{}) are not on the CPU ({} there)",
-                                  lowest.FirstVertex, lowest.VertexCount, mesh.GetVertices().size() ) );
+                                  lowest.FirstVertex, lowest.VertexCount, mesh.Vertices.size() ) );
             return Common::MakeSuccess( BakedRange{ lowest.FirstVertex, lowest.VertexCount } );
         }
     } // namespace
 
-    Common::ResultStr<uint64_t> VertexAnimationKey( const SkinnedMesh& mesh, const Animation::AnimationClip& clip )
+    Common::ResultStr<uint64_t> VertexAnimationKey( const VertexAnimationSource&    mesh,
+                                                    const Animation::AnimationClip& clip )
     {
         const auto range = LowestRange( mesh );
         if ( !range )
@@ -60,7 +60,7 @@ namespace Desert::Assets
             return Common::MakeError<uint64_t>( "the clip has no length" );
         const uint32_t frames =
              std::max( 1u, static_cast<uint32_t>( std::lround( duration * kVertexAnimationFramesPerSecond ) ) );
-        Animation::Animator animator( mesh.GetSkeleton() );
+        Animation::Animator animator( mesh.Skeleton );
         animator.Play( clip, true );
         uint64_t clipHash = frames;
         for ( uint32_t f = 0; f < frames; ++f )
@@ -72,19 +72,18 @@ namespace Desert::Assets
             clipHash = Common::Utils::PakContentHash( pair.data(), sizeof( pair ) );
         }
 
-        const SkinnedVertex* const    first   = mesh.GetVertices().data() + range.GetValue().FirstVertex;
+        const SkinnedVertex* const    first   = mesh.Vertices.data() + range.GetValue().FirstVertex;
         const std::array<uint64_t, 5> payload = {
              Common::Utils::PakContentHash( first, sizeof( SkinnedVertex ) * range.GetValue().VertexCount ),
              ( static_cast<uint64_t>( range.GetValue().FirstVertex ) << 32u ) | range.GetValue().VertexCount,
-             mesh.GetSkeleton().GetContentSignature(),
-             clipHash, VertexAnimationHeader{}.Version };
+             mesh.Skeleton.GetContentSignature(), clipHash, VertexAnimationHeader{}.Version };
         const uint64_t payloadHash = Common::Utils::PakContentHash( payload.data(), sizeof( payload ) );
         const float    settings    = kVertexAnimationFramesPerSecond;
         return Common::MakeSuccess(
              Common::DDC::MakeKey( kVertexAnimationDeriver, payloadHash, &settings, sizeof( settings ) ) );
     }
 
-    Common::ResultStr<std::string> BuildVertexAnimation( const SkinnedMesh&              mesh,
+    Common::ResultStr<std::string> BuildVertexAnimation( const VertexAnimationSource&    mesh,
                                                          const Animation::AnimationClip& clip )
     {
         DESERT_PROFILE_SCOPE( "BuildVertexAnimation" );
@@ -104,9 +103,9 @@ namespace Desert::Assets
         const uint64_t slot = n * kVertexAnimationFloatsPerVertex;
 
         std::vector<float>  data( slot * header.Frames, 0.0f );
-        Animation::Animator animator( mesh.GetSkeleton() );
+        Animation::Animator animator( mesh.Skeleton );
         animator.Play( clip, true );
-        const std::vector<SkinnedVertex>& vertices = mesh.GetVertices();
+        const std::vector<SkinnedVertex>& vertices = mesh.Vertices;
         for ( uint32_t f = 0; f < header.Frames; ++f )
         {
             animator.SetTime( static_cast<float>( f ) / kVertexAnimationFramesPerSecond );
@@ -172,7 +171,7 @@ namespace Desert::Assets
         g_Deriving.store( deriving, std::memory_order_relaxed );
     }
 
-    Common::ResultStr<LoadedVertexAnimation> LoadVertexAnimation( const SkinnedMesh&              mesh,
+    Common::ResultStr<LoadedVertexAnimation> LoadVertexAnimation( const VertexAnimationSource&    mesh,
                                                                   const Animation::AnimationClip& clip )
     {
         const auto key = VertexAnimationKey( mesh, clip );
