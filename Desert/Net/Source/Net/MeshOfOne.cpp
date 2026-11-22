@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <string_view>
 
 namespace Desert::Net
 {

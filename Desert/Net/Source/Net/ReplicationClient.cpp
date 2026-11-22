@@ -2,6 +2,7 @@
 
 #include <format>
 #include <utility>
+#include <string_view>
 
 namespace Desert::Net
 {

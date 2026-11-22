@@ -30,7 +30,7 @@ namespace Desert::Core
             return value >= 0.0f ? 1.0f : -1.0f;
         }
 
-        [[nodiscard]] uint8_t UnitToByte( float value )
+        [[nodiscard]] uint8_t ImpostorUnitToByte( float value )
         {
             return static_cast<uint8_t>( std::clamp( std::lround( value * 255.0f ), 0L, 255L ) );
         }
@@ -241,12 +241,12 @@ namespace Desert::Core
                     const glm::vec3 unit = glm::normalize( normal );
                     std::memcpy( &out.BaseColor[texel * 4], &photo.BaseColorMetallic[pixel * 4], 3 );
                     out.BaseColor[texel * 4 + 3]   = 255;
-                    out.NormalDepth[texel * 4 + 0] = UnitToByte( unit.x * 0.5f + 0.5f );
-                    out.NormalDepth[texel * 4 + 1] = UnitToByte( unit.y * 0.5f + 0.5f );
-                    out.NormalDepth[texel * 4 + 2] = UnitToByte( unit.z * 0.5f + 0.5f );
-                    out.NormalDepth[texel * 4 + 3] = UnitToByte( depth );
-                    out.ORM[texel * 4 + 0]         = UnitToByte( photo.Occlusion[pixel] );
-                    out.ORM[texel * 4 + 1]         = UnitToByte( nr.w );
+                    out.NormalDepth[texel * 4 + 0] = ImpostorUnitToByte( unit.x * 0.5f + 0.5f );
+                    out.NormalDepth[texel * 4 + 1] = ImpostorUnitToByte( unit.y * 0.5f + 0.5f );
+                    out.NormalDepth[texel * 4 + 2] = ImpostorUnitToByte( unit.z * 0.5f + 0.5f );
+                    out.NormalDepth[texel * 4 + 3] = ImpostorUnitToByte( depth );
+                    out.ORM[texel * 4 + 0]         = ImpostorUnitToByte( photo.Occlusion[pixel] );
+                    out.ORM[texel * 4 + 1]         = ImpostorUnitToByte( nr.w );
                     out.ORM[texel * 4 + 2]         = photo.BaseColorMetallic[pixel * 4 + 3];
                     out.ORM[texel * 4 + 3]         = 255;
                     filled[texel]                  = 1;

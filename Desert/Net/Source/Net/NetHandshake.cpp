@@ -1,6 +1,9 @@
 #include "Net/NetHandshake.hpp"
 
 #include "Net/NetTransport.hpp"
+#include <cstdint>
+#include <string_view>
+#include <vector>
 
 namespace Desert::Net
 {

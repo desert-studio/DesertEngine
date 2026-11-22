@@ -10,6 +10,10 @@
 #else
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <array>
+#include <cstdint>
+#include <string>
+#include <vector>
 #endif
 
 namespace Desert::Net

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/Entity.hpp>
+#include <string>
 
 namespace Desert::Core { class Scene; }
 

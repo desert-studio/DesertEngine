@@ -35,6 +35,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <memory>
 
 using namespace Desert::Net;
 

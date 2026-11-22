@@ -18,6 +18,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <string_view>
 
 namespace Desert::Net
 {
