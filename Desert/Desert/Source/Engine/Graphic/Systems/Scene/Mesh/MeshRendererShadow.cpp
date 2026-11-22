@@ -184,6 +184,7 @@ namespace Desert::Graphic::System
         {
             farShadow.Fitted = false;
             farShadow.Redraw = false;
+            farShadow.Scroll = false;
         }
 
         // The slots held are kept (SetupShadowPass allocates each at the new budget).
@@ -466,6 +467,7 @@ namespace Desert::Graphic::System
         {
             farShadow.Fitted = false;
             farShadow.Redraw = false;
+            farShadow.Scroll = false;
         }
         // This frame's cache plan, cleared with the count and for the same reason: an early return below leaves no
         // cascade with work (MapHasMovable is the map's state, not the frame's, and survives).
@@ -2164,11 +2166,14 @@ namespace Desert::Graphic::System
         // revision, placement, hidden state, section and material, instances kept by the cull distance, a masked
         // caster entering or leaving a dithered LOD transition) and the landscape tiles in the box (their maps'
         // revisions). Outside the key: a fresh cascade array (AcquireCascadeMaps), a rebudget or a dropped light
-        // (Key reset) and a masked caster still compiling (BuildShadowCascadeDraws resets the Key).
+        // (Key reset) and a masked caster still compiling (BuildShadowCascadeDraws resets the Key). A key changed
+        // by TexelOrigin alone (a recentre step) SCROLLS instead of redrawing (FarShadowState::Scroll, below).
         for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
         {
             FarShadowState& farShadow = m_FarShadow[slot];
             farShadow.Redraw          = false;
+            farShadow.Scroll          = false;
+            farShadow.StripCount      = 0u;
             if ( !farShadow.Fitted || !m_DirectionalShadow[slot].CastShadows || m_DirectionalShadow[slot].Fitted == 0u )
                 continue;
             const uint32_t v = kFarShadowViewBase + slot;
@@ -2180,40 +2185,84 @@ namespace Desert::Graphic::System
                 farShadow.Key.reset();
                 continue;
             }
-            CascadeMovers           movers;
-            bool                    windSplit = false;
-            SignatureHash           key;
-            std::optional<uint64_t> newKey;
-            key.Add( farShadow.Fit.TexelOrigin.x );
-            key.Add( farShadow.Fit.TexelOrigin.y );
-            key.Add( farShadow.Fit.WorldPerTexel );
-            key.Add( farShadow.Fit.DepthOrigin );
-            key.Add( farShadow.Fit.DepthRange );
-            key.Add( m_DirectionalShadow[slot].Travel.x );
-            key.Add( m_DirectionalShadow[slot].Travel.y );
-            key.Add( m_DirectionalShadow[slot].Travel.z );
-            key.Add( CascadeStaticSignature( v, m_CascadeCasterVP[v], false, movers, windSplit ) );
-            const char* unkeyed = movers.Unkeyed;
-            for ( const auto& weak : m_ShadowCasters )
+            // The key of the map placed at @p texelOrigin and drawn with @p casterVP (this frame's fit otherwise);
+            // nullopt, with the reason in @p unkeyed, when a gather or a caster cannot be keyed.
+            const auto farKey = [&]( const glm::ivec2 texelOrigin, const glm::mat4& casterVP,
+                                     const char*& unkeyed ) -> std::optional<uint64_t>
             {
-                const auto caster = weak.lock();
-                if ( !caster || unkeyed != nullptr )
-                    continue;
-                const std::optional<uint64_t> held = caster->CascadeShadowContent( v, m_CascadeCasterVP[v] );
-                if ( !held )
-                    unkeyed = "a non-mesh caster that cannot tell its content apart (CascadeShadowContent)";
-                else
-                    key.Add( *held );
+                CascadeMovers movers;
+                bool          windSplit = false;
+                SignatureHash key;
+                key.Add( texelOrigin.x );
+                key.Add( texelOrigin.y );
+                key.Add( farShadow.Fit.WorldPerTexel );
+                key.Add( farShadow.Fit.DepthOrigin );
+                key.Add( farShadow.Fit.DepthRange );
+                key.Add( m_DirectionalShadow[slot].Travel.x );
+                key.Add( m_DirectionalShadow[slot].Travel.y );
+                key.Add( m_DirectionalShadow[slot].Travel.z );
+                key.Add( CascadeStaticSignature( v, casterVP, false, movers, windSplit ) );
+                unkeyed = movers.Unkeyed;
+                for ( const auto& weak : m_ShadowCasters )
+                {
+                    const auto caster = weak.lock();
+                    if ( !caster || unkeyed != nullptr )
+                        continue;
+                    const std::optional<uint64_t> held = caster->CascadeShadowContent( v, casterVP );
+                    if ( !held )
+                        unkeyed = "a non-mesh caster that cannot tell its content apart (CascadeShadowContent)";
+                    else
+                        key.Add( *held );
+                }
+                key.Add( m_CascadeCasterBias[v] );
+                if ( unkeyed != nullptr )
+                    return std::nullopt;
+                return key.Value;
+            };
+            // THE SCROLL (FPS-FAR-SHADOW-SCROLL; UE's CSM scrolling, the cascades' rule above): a keyed layer
+            // whose map only recentred - a step of kFarShadowRecentreSteps walked - holds the right depth for
+            // every texel its new box shares with the old one, shifted by the step's texels, as long as the old
+            // box still holds what the layer was drawn with. Asked by the same key at the drawn placement: the
+            // drawn TexelOrigin and caster matrix with this frame's reach, depth placement, sun, bias and casters
+            // equals the drawn Key only when none of those changed (a new sun, bias, depth quantum or a content
+            // change anywhere in the old box keeps the whole redraw). The drawn box is asked FIRST:
+            // CascadeStaticSignature keeps the static part of the last caster matrix it was asked with
+            // (SCENE-CACHE-4), and this frame's box is the one the next frame asks again.
+            bool       drawnHolds = false;
+            glm::ivec2 shift( 0 );
+            if ( farShadow.Key && farShadow.DrawnTexelOrigin &&
+                 *farShadow.DrawnTexelOrigin != farShadow.Fit.TexelOrigin )
+            {
+                const glm::ivec2 drawn = *farShadow.DrawnTexelOrigin;
+                const glm::ivec2 now   = farShadow.Fit.TexelOrigin;
+                // CascadePlacement::ShiftTo: x runs with light-space x, y against it (the negative-height
+                // viewport).
+                shift = glm::ivec2( drawn.x - now.x, now.y - drawn.y );
+                if ( CascadeScrollOverlaps( shift, m_Shadow.ShadowMapSize ) )
+                {
+                    const char*                   drawnUnkeyed = nullptr;
+                    const std::optional<uint64_t> drawnKey =
+                         farKey( drawn, farShadow.DrawnCasterVP, drawnUnkeyed );
+                    drawnHolds = drawnKey && *drawnKey == *farShadow.Key;
+                }
             }
-            key.Add( m_CascadeCasterBias[v] );
-            if ( unkeyed == nullptr )
-                newKey = key.Value;
+            const char*                   unkeyed = nullptr;
+            const std::optional<uint64_t> newKey =
+                 farKey( farShadow.Fit.TexelOrigin, m_CascadeCasterVP[v], unkeyed );
             if ( unkeyed != farShadow.Unkeyed && unkeyed != nullptr )
                 LOG_WARN( "[Shadows] far cascade of shadow slot {} is not cached - redrawn every frame: {}", slot,
                           unkeyed );
             farShadow.Unkeyed    = unkeyed;
             farShadow.Redraw     = !newKey || !farShadow.Key || *farShadow.Key != *newKey;
             farShadow.PendingKey = newKey;
+            // Shifted, its uncovered strips drawn: only when this frame's box is keyed too (it becomes the Key).
+            if ( farShadow.Redraw && newKey && drawnHolds )
+            {
+                farShadow.Scroll     = true;
+                farShadow.Shift      = shift;
+                farShadow.StripCount = CascadeScrollStrips( shift, m_Shadow.ShadowMapSize, m_CascadeCasterVP[v],
+                                                            farShadow.Strips, farShadow.StripRects );
+            }
         }
 
         m_CascadeKeySnapshots.clear();
@@ -2632,6 +2681,14 @@ namespace Desert::Graphic::System
              ( m_CascadeCache[c].Scroll || m_CascadeCache[c].Patch ) )
             for ( uint32_t s = 0; s < m_CascadeCache[c].StripCount && stripCount < strips.size(); ++s )
                 strips[stripCount++] = CascadeCasterFrustum( m_CascadeCache[c].Strips[s] );
+        // A scrolled FAR cascade the same (PlanCascadeCache's FarShadowState::Scroll): only its uncovered strips.
+        if ( layer == ShadowCasterLayer::Static && IsFarShadowView( c ) &&
+             m_FarShadow[c - kFarShadowViewBase].Scroll )
+        {
+            const FarShadowState& farShadow = m_FarShadow[c - kFarShadowViewBase];
+            for ( uint32_t s = 0; s < farShadow.StripCount && stripCount < strips.size(); ++s )
+                strips[stripCount++] = CascadeCasterFrustum( farShadow.Strips[s] );
+        }
         const auto inView = [&cascadeFrustum, &strips, stripCount]( const Common::Math::AABB& box )
         {
             if ( !IsVisibleInView( cascadeFrustum, box ) )
@@ -3614,6 +3671,8 @@ namespace Desert::Graphic::System
             // (no key: whichever of this and PlanCascadeCache runs last, the layer is redrawn).
             FarShadowState& farShadow = m_FarShadow[slot];
             farShadow.Key.reset();
+            farShadow.DrawnTexelOrigin.reset();
+            farShadow.Scroll = false; // a fresh layer holds nothing to shift: drawn whole
             if ( farShadow.Fitted && light.CastShadows && fitted > 0u )
                 farShadow.Redraw = true;
         }
@@ -3855,52 +3914,94 @@ namespace Desert::Graphic::System
         return frame;
     }
 
-    std::vector<SystemRasterPass> MeshRenderer::FarShadowPasses( const RDG::TextureRef maps )
+    MeshRenderer::FarShadowFrame MeshRenderer::FarShadowPasses( const RDG::TextureRef maps )
     {
         // UE's far shadow cascade: each slot's far layer of the cascade array (FarShadowLayer), its STATIC casters
-        // drawn straight into the layer with the cascades' pancaked pipelines (CasterPipelinesOf), cleared to the
-        // far plane first (1, standard Z: AddSystemRasters clears a layer's first node). Only a layer whose key
-        // changed (PlanCascadeCache) or that a fresh array emptied (AcquireCascadeMaps) is drawn; the rest keep
-        // the depth they were drawn with.
-        std::vector<SystemRasterPass> passes;
+        // drawn straight into the layer with the cascades' pancaked pipelines (CasterPipelinesOf). Only a layer
+        // whose key changed (PlanCascadeCache) or that a fresh array emptied (AcquireCascadeMaps) is drawn; the
+        // rest keep the depth they were drawn with. A layer drawn whole is cleared to the far plane first (1,
+        // standard Z: AddSystemRasters clears a layer's first node); a SCROLLED one (FarShadowState::Scroll, UE's
+        // CSM scrolling) is shifted by the frame build (FarShadowFrame::Scrolls) and its pass LOADS it and draws
+        // only the casters reaching the uncovered strips, under each strip's scissor (FPS-FAR-SHADOW-SCROLL).
+        FarShadowFrame frame;
         if ( !m_ShadowPipeline || !maps.IsValid() || !HasFarShadow( m_Shadow ) )
-            return passes;
+            return frame;
         for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
         {
             FarShadowState& farShadow = m_FarShadow[slot];
             if ( !farShadow.Redraw || !farShadow.Fitted )
                 continue;
-            // Drawn now: the layer holds this frame's content (a masked caster still compiling resets it again,
-            // BuildShadowCascadeDraws).
-            farShadow.Key            = farShadow.PendingKey;
-            const uint32_t   v = kFarShadowViewBase + slot;
-            SystemRasterPass pass{
-                 .Name        = std::format( "MeshShadowFar{}", slot ),
-                 .ExecuteFunc = [this, slot, v]( RDG::PassContext& context,
+            const uint32_t v = kFarShadowViewBase + slot;
+            // Drawn now: the layer holds this frame's content (a masked caster still compiling resets the Key
+            // again, BuildShadowCascadeDraws), placed where this frame's fit put it - the placement the next
+            // scroll shifts from. An unkeyed layer is redrawn whole every frame: no placement to scroll from.
+            farShadow.Key = farShadow.PendingKey;
+            if ( farShadow.PendingKey )
+                farShadow.DrawnTexelOrigin = farShadow.Fit.TexelOrigin;
+            else
+                farShadow.DrawnTexelOrigin.reset();
+            farShadow.DrawnCasterVP  = m_CascadeCasterVP[v];
+            const bool        scroll = farShadow.Scroll;
+            const std::string name   = std::format( "MeshShadowFar{}", slot );
+            SystemRasterPass  pass{
+                  .Name        = name,
+                  .ExecuteFunc = [this, slot, v]( RDG::PassContext& context,
                                                  const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
+                     // A SCROLLED layer fills only its strips (the cascades' static pass, ShadowCascadePasses):
+                     // the rest is the shifted copy. One strip: the culled mesh draw under its scissor; two: that
+                     // one draw holds the casters of both and is recorded once at the whole map's raster (a caster
+                     // reaching a strip and the kept part writes there the depth the copy already holds).
+                     const FarShadowState& state    = m_FarShadow[slot];
+                     const uint32_t        strips   = state.Scroll ? std::min( state.StripCount, 2u ) : 0u;
+                     auto&                 renderer = Renderer::GetInstance();
+                     const auto            scissor  = [&renderer]( const glm::uvec4& rect ) {
+                         renderer.SetScissor( static_cast<int32_t>( rect.x ), static_cast<int32_t>( rect.y ),
+                                                           rect.z, rect.w );
+                     };
+                     if ( strips == 1u )
+                         scissor( state.StripRects[0] );
                      if ( auto drawn = m_FarShadowDraws[slot].Record( context ); !drawn.IsSuccess() )
                          return drawn;
-                     // The non-mesh casters (the landscape) into the same pass, so the layer holds everyone's depth.
+                     // The non-mesh casters (the landscape) into the same pass, so the layer holds everyone's
+                     // depth; a scrolled layer's one strip a call, under its scissor, culled by the strip's
+                     // matrix.
                      for ( const auto& [weak, firstBlock] : m_FarShadowCasters[slot] )
                      {
                          const auto caster = weak.lock();
                          if ( !caster )
                              continue; // gone since the setup: its draws went with it
-                         if ( auto cast = caster->RecordShadowView( context, v, firstBlock, m_CascadeCasterVP[v],
-                                                                    m_CascadeCasterBias[v], {} );
-                              !cast.IsSuccess() )
-                             return cast;
+                         if ( strips == 0u )
+                         {
+                             if ( auto cast = caster->RecordShadowView(
+                                       context, v, firstBlock, m_CascadeCasterVP[v], m_CascadeCasterBias[v], {} );
+                                  !cast.IsSuccess() )
+                                 return cast;
+                             continue;
+                         }
+                         for ( uint32_t s = 0; s < strips; ++s )
+                         {
+                             scissor( state.StripRects[s] );
+                             const std::span<const glm::mat4> region( &state.Strips[s], 1u );
+                             if ( auto cast =
+                                       caster->RecordShadowView( context, v, firstBlock, m_CascadeCasterVP[v],
+                                                                  m_CascadeCasterBias[v], region );
+                                  !cast.IsSuccess() )
+                                 return cast;
+                         }
                      }
+                     // The render pass's own scissor back (the whole layer, SetViewportAndScissor).
+                     if ( strips > 0u )
+                         renderer.SetScissor( 0, 0, m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
                      return BOOLSUCCESS;
                  },
-                 .TargetDepthArray = maps,
-                 .TargetLayer      = FarShadowLayer( slot ),
-                 .ClearDepth       = 1.0f };
+                  .TargetDepthArray = maps,
+                  .TargetLayer      = FarShadowLayer( slot ) };
             pass.Declare = [this, slot, v]( RenderPassDeclaration& declared, const FrameGraphRefs& )
             {
                 m_FarShadowDraws[slot].Clear();
                 m_FarShadowCasters[slot].clear();
+                // A scrolled layer's draws are culled by its strips (BuildShadowCascadeDraws reads Scroll).
                 BuildShadowCascadeDraws( v, m_FarShadowDraws[slot], ShadowCasterLayer::Static );
                 m_FarShadowDraws[slot].Declare( declared, std::nullopt );
                 for ( const RDG::BufferRef& streams : m_SkinCacheReads )
@@ -3916,9 +4017,23 @@ namespace Desert::Graphic::System
                     }
                 }
             };
-            passes.push_back( std::move( pass ) );
+            if ( scroll )
+            {
+                // The strip pass keeps the layer's pass name (MeshShadowFar<slot>), the copies are named after it.
+                frame.Scrolls.push_back( { .Layer   = FarShadowLayer( slot ),
+                                           .Shift   = farShadow.Shift,
+                                           .MapSize = m_Shadow.ShadowMapSize,
+                                           .Format  = ViewTargetFormats::kShadowDepth,
+                                           .Name    = name } );
+                frame.ScrollPasses.push_back( std::move( pass ) );
+            }
+            else
+            {
+                pass.ClearDepth = 1.0f;
+                frame.RedrawPasses.push_back( std::move( pass ) );
+            }
         }
-        return passes;
+        return frame;
     }
 
 } // namespace Desert::Graphic::System

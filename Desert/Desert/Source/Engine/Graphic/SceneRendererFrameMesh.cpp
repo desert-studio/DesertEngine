@@ -209,9 +209,44 @@ namespace Desert::Graphic
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
             // Each light's FAR CASCADE (UE's far shadow cascade), past the cascades in the same array: a layer
-            // whose static casters or placement changed is cleared and drawn again; the rest keep their depth.
-            std::vector<SystemRasterPass> farShadow = mesh.FarShadowPasses( maps );
-            AddSystemRasters( graph, textures, farShadow, true );
+            // whose static casters, sun, bias or depth placement changed is cleared and drawn again; the rest keep
+            // their depth.
+            System::MeshRenderer::FarShadowFrame farShadow = mesh.FarShadowPasses( maps );
+            AddSystemRasters( graph, textures, farShadow.RedrawPasses, true );
+            // A far layer whose map only recentred (UE's CSM scrolling, FPS-FAR-SHADOW-SCROLL): copied out to a
+            // scratch of the map's size (a layer cannot be copied onto itself shifted - its source and destination
+            // texels overlap) and back in shifted, the uncovered texels at the far plane (1, standard Z); its
+            // strip pass then LOADS the layer and draws the uncovered strips only.
+            for ( const auto& scroll : farShadow.Scrolls )
+            {
+                const RDG::TextureRef scratch = graph.CreateTexture(
+                     RDG::TextureDesc{ .Size   = { .Width = scroll.MapSize, .Height = scroll.MapSize },
+                                       .Format = scroll.Format },
+                     scroll.Name + ".ScrollScratch" );
+                graph.AddPass(
+                     scroll.Name + ".ToScratch", RDG::PassFlags::Copy,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Read( maps, RDG::Access::CopySrc, RDG::SubresourceRange::Layer( scroll.Layer ) );
+                         pass.Write( scratch, RDG::Access::CopyDst );
+                     },
+                     [scratch, maps, layer = scroll.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return Renderer::CopyGraphLayerToDepth( context, maps, layer, scratch ); } );
+                graph.AddPass(
+                     scroll.Name + ".Scroll", RDG::PassFlags::Copy,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Read( scratch, RDG::Access::CopySrc );
+                         pass.Write( maps, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( scroll.Layer ) );
+                     },
+                     [scratch, maps, layer = scroll.Layer,
+                      shift = scroll.Shift]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                         return Renderer::ScrollGraphDepthIntoLayer( context, scratch, maps, layer, shift.x,
+                                                                     shift.y, 1.0f );
+                     } );
+            }
+            // ...its strips drawn over the shifted layer: LOAD, no clear may wipe the copy.
+            AddSystemRasters( graph, textures, farShadow.ScrollPasses, false );
         }
     }
 
