@@ -34,6 +34,9 @@ namespace Desert::ECS
         void ( *Remove )( entt::registry&, entt::entity ) = nullptr; // no-op when absent
         void ( *NotifyChanged )( entt::registry&,
                                  entt::entity )           = nullptr; // registry.patch<T>: fires on_update<T>
+        // registry.prepare<T>: the pool exists before the first parallel system group (Scene::PrepareComponentPools
+        // runs it for every row, so a module's component needs no line in the engine's list).
+        void ( *Prepare )( entt::registry& ) = nullptr;
 
         // The reflected type of Data; null only when the registry has not been populated (no reflection linked).
         [[nodiscard]] const Reflection::TypeInfo* Type() const;

@@ -1,7 +1,7 @@
 #include "SaveGame.hpp"
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
+#include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Projects/ProjectContext.hpp>
@@ -53,40 +53,27 @@ namespace Desert::Core
             return root;
         }
 
-        // The block's reflected struct inside its component: a member (Camera's Data) or the whole component.
-        template <class Row, class Component>
-        auto* BlockData( const Row& row, Component& component )
-        {
-            using Whole = Serialize::ReflectedWholeBlock<typename Row::Component>;
-            if constexpr ( std::is_same_v<Row, Whole> )
-                return &component;
-            else
-                return &( component.*row.Member );
-        }
-
         // {"<Key>": {"Type": "<reflected type>", "Fields": {...CaptureSaveGameFields}} - a block with no flagged
         // field is not written at all.
         Json::Object CaptureBlocks( const entt::registry& registry, entt::entity entity,
                                     const ReflectedTypeLookup& types )
         {
             Json::Object blocks;
-            Serialize::ForEachReflectedComponentBlock(
-                 [&]( const auto& row )
-                 {
-                     using Row       = std::remove_cvref_t<decltype( row )>;
-                     using Component = typename Row::Component;
-                     if ( !registry.template has<Component>( entity ) )
-                         return;
-                     const Reflection::TypeInfo* type = types( row.TypeName );
-                     if ( type == nullptr )
-                         return;
-                     const Component&   component = registry.template get<Component>( entity );
-                     const Json::Object fields    = CaptureSaveGameFields( *type, BlockData( row, component ) );
-                     if ( fields.size() == 0 )
-                         return;
-                     blocks[row.Key] = Json::Value(
-                          Json::ObjectBuilder{}.Set( "Type", type->Name ).Set( "Fields", fields ).Build() );
-                 } );
+            // Has and Data only read the registry; the accessor table is shared with scripts, which write.
+            auto& reg = const_cast<entt::registry&>( registry );
+            for ( const ECS::ReflectedComponent& row : ECS::AllReflectedComponents() )
+            {
+                if ( !row.Has( reg, entity ) )
+                    continue;
+                const Reflection::TypeInfo* type = types( std::string( row.TypeName ) );
+                if ( type == nullptr )
+                    continue;
+                const Json::Object fields = CaptureSaveGameFields( *type, row.Data( reg, entity ) );
+                if ( fields.size() == 0 )
+                    continue;
+                blocks[std::string( row.Name )] =
+                     Json::Value( Json::ObjectBuilder{}.Set( "Type", type->Name ).Set( "Fields", fields ).Build() );
+            }
             return blocks;
         }
 
@@ -340,37 +327,32 @@ namespace Desert::Core
                           const std::string& label, const ReflectedTypeLookup& types, SaveGameLoadReport& report )
         {
             std::unordered_set<std::string> known;
-            Serialize::ForEachReflectedComponentBlock(
-                 [&]( const auto& row )
-                 {
-                     using Row       = std::remove_cvref_t<decltype( row )>;
-                     using Component = typename Row::Component;
-                     known.insert( row.Key );
-                     const auto saved = blocks.Find( row.Key );
-                     if ( !saved )
-                         return;
-                     if ( !registry.template has<Component>( entity ) )
-                     {
-                         report.Problems.push_back( std::format(
-                              "{}: component '{}' is no longer on the entity; its saved fields were skipped",
-                              label, row.Key ) );
-                         return;
-                     }
-                     const Reflection::TypeInfo* type = types( row.TypeName );
-                     if ( type == nullptr )
-                     {
-                         report.Problems.push_back(
-                              std::format( "{}: component '{}': reflected type '{}' is not registered; skipped",
-                                           label, row.Key, row.TypeName ) );
-                         return;
-                     }
-                     const auto fields = saved->Find( "Fields" );
-                     if ( !fields )
-                         return;
-                     Component& component = registry.template get<Component>( entity );
-                     ApplySaveGameFields( *type, BlockData( row, component ), *fields,
-                                          std::format( "{}: {}", label, row.Key ), report );
-                 } );
+            for ( const ECS::ReflectedComponent& row : ECS::AllReflectedComponents() )
+            {
+                const std::string key( row.Name );
+                known.insert( key );
+                const auto saved = blocks.Find( key );
+                if ( !saved )
+                    continue;
+                if ( !row.Has( registry, entity ) )
+                {
+                    report.Problems.push_back( std::format(
+                         "{}: component '{}' is no longer on the entity; its saved fields were skipped", label, key ) );
+                    continue;
+                }
+                const Reflection::TypeInfo* type = types( std::string( row.TypeName ) );
+                if ( type == nullptr )
+                {
+                    report.Problems.push_back( std::format(
+                         "{}: component '{}': reflected type '{}' is not registered; skipped", label, key, row.TypeName ) );
+                    continue;
+                }
+                const auto fields = saved->Find( "Fields" );
+                if ( !fields )
+                    continue;
+                ApplySaveGameFields( *type, row.Data( registry, entity ), *fields, std::format( "{}: {}", label, key ),
+                                     report );
+            }
             blocks.ForEachMember(
                  [&]( std::string_view key, const Json::Node& )
                  {
