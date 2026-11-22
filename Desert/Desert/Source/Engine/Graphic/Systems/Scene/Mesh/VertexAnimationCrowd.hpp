@@ -50,6 +50,17 @@ namespace Desert::Graphic::System
         static constexpr float kVatScreenSize       = 0.03f;
         static constexpr float kSkeletalScreenSize  = 0.04f;
         static constexpr float kBakeFramesPerSecond = 30.0f;
+        // THE FAR FIGURE'S MINIMUM SCREEN SIZE (WP-FAR-12D; UE City Sample crowds / impostors keep a far figure
+        // readable down to its cull distance instead of letting it rasterise to a sub-pixel dot): a VAT record
+        // whose TRUE projected size (the FOV-aware bounding-sphere diameter as a fraction of the view's height,
+        // LODDistanceScale removed - the clamp is about pixels, not about the level picked) falls below
+        // kMinScreenSize is drawn grown about its feet to that size, in every pass of the frame (one world per
+        // row: its cull bounds, shadow and velocity agree). Capped at kMaxMinScreenScale: past the distance the
+        // cap reaches, the figure shrinks again with distance, as the far draw fades out toward its cull. Near
+        // figures (skeletal, or VAT above the size) are drawn at their own size - silhouettes up close and in a
+        // scope's narrow FOV (which raises the true size) are the authored ones.
+        static constexpr float kMinScreenSize     = 0.012f;
+        static constexpr float kMaxMinScreenScale = 6.0f;
 
         VertexAnimationCrowd();
         ~VertexAnimationCrowd();
@@ -66,8 +77,9 @@ namespace Desert::Graphic::System
         void UploadInGraph( RDG::Builder& graph );
         // The view's readers: every bake in use this frame, StorageRead where the skin cache's streams are read.
         void DeclareReads( RDG::Builder& graph, std::vector<RDG::BufferRef>& reads );
-        // `[Crowd] skeletal N, vat M, draws D, anim CPU X ms`: on a change of the counts, and every 60 frames.
-        void Report( uint32_t skeletal, uint32_t vat, uint32_t draws );
+        // `[Crowd] skeletal N, vat M, draws D, grown to min screen size G (max xS), anim CPU X ms`: on a change of
+        // the counts, and every 60 frames.
+        void Report( uint32_t skeletal, uint32_t vat, uint32_t draws, uint32_t grown, float maxScale );
 
     private:
         struct Bake

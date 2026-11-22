@@ -32,6 +32,7 @@
 
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <utility>
 #include <vector>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
@@ -2710,10 +2711,13 @@ namespace Desert::Graphic::System
         uint32_t crowdSkeletal = 0;
         uint32_t crowdVat      = 0;
         uint32_t crowdDraws    = 0;
+        uint32_t crowdGrown    = 0;
+        float    crowdMaxScale = 1.0f;
         for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
         {
             data.Lod        = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
-            data.VatAddress = 0;
+            data.VatAddress     = 0;
+            data.MinScreenScale = 1.0f;
             const auto& lods = data.Mesh->GetSkinnedLODs();
             float       screenSize = Geometry::kLOD0ScreenSize;
             if ( data.LodFeedback )
@@ -2763,6 +2767,22 @@ namespace Desert::Graphic::System
             }
             if ( data.LodFeedback )
                 data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
+            // The far figure keeps a readable size (WP-FAR-12D): its true projected size (the LOD metric
+            // without LODDistanceScale) below kMinScreenSize grows the VAT draw about its feet, capped.
+            if ( data.VatAddress != 0 && screenSize > 0.0f )
+            {
+                const float trueSize = screenSize * m_LODDistanceScale;
+                if ( trueSize < VertexAnimationCrowd::kMinScreenSize )
+                {
+                    const Common::Math::AABB bounds = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
+                    data.MinScreenScale = std::min( VertexAnimationCrowd::kMinScreenSize / trueSize,
+                                                    VertexAnimationCrowd::kMaxMinScreenScale );
+                    data.MinScreenPivot = glm::vec3( 0.5f * ( bounds.Min.x + bounds.Max.x ), bounds.Min.y,
+                                                     0.5f * ( bounds.Min.z + bounds.Max.z ) );
+                    ++crowdGrown;
+                    crowdMaxScale = std::max( crowdMaxScale, data.MinScreenScale );
+                }
+            }
             if ( data.VatAddress != 0 )
             {
                 ++crowdVat;
@@ -2781,7 +2801,7 @@ namespace Desert::Graphic::System
                       data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
                       lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, screenSize, m_LODDistanceScale );
         }
-        m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws );
+        m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws, crowdGrown, crowdMaxScale );
     }
 
     void MeshRenderer::DeclareCrowdReads( RDG::Builder& graph )
@@ -3130,9 +3150,19 @@ namespace Desert::Graphic::System
         // ranges over vertices nobody skinned this frame - the whole Cinematic crowd vanished at LOD > 0
         // (CINEMATIC-LOD: the CPU chose at distance x 0.5, the GPU at distance x 1). Forced, both agree by
         // construction, every cull view (main, cascades, VSM) included.
+        // A far VAT figure under its minimum screen size (SelectSkinnedLods, WP-FAR-12D) is drawn grown about
+        // its feet: one world for every pass, so its bounds, shadow and velocity follow the drawn figure.
+        const auto drawnWorld = []( const SkinnedMeshRenderData& data ) -> glm::mat4
+        {
+            if ( data.MinScreenScale == 1.0f )
+                return data.Transform;
+            return data.Transform * glm::translate( glm::mat4( 1.0f ), data.MinScreenPivot ) *
+                   glm::scale( glm::mat4( 1.0f ), glm::vec3( data.MinScreenScale ) ) *
+                   glm::translate( glm::mat4( 1.0f ), -data.MinScreenPivot );
+        };
         for ( const auto& data : m_SkinnedQueue )
             skinned.push_back( { .Entity = data.Entity,
-                                 .World  = data.Transform,
+                                 .World  = drawnWorld( data ),
                                  .Bones  = data.BoneMatrices,
                                  .Mesh   = data.Mesh,
                                  .Flags  = Flags::kSkinned | Flags::kMovableCaster |
