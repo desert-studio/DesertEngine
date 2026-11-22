@@ -115,9 +115,10 @@ namespace Desert
                                                               Geometry::UnbakedLODChain() );
             if ( cookedSections == chain.Submeshes.size() )
             {
-                LOG_INFO( "[SkinnedLOD] {} vertices: LOD chain loaded from the cooked derived data ({} section(s), "
-                          "{} generated level(s) + LOD 0); nothing reduced at load",
-                          vertices.size(), cookedSections, cookedLevels );
+                LOG_INFO(
+                     "[SkinnedLOD] {} vertices: LOD chain loaded from the cooked derived data ({} section(s), "
+                     "{} generated level(s) + LOD 0); nothing reduced at load",
+                     vertices.size(), cookedSections, cookedLevels );
             }
             else
             {

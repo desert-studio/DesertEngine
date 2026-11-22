@@ -645,8 +645,9 @@ namespace Desert::Editor
         Desert::Assets::Serialization::MeshAssetData data       = dataIn;
         const std::filesystem::path                  cookedPath = SkinnedAssetPath( sourcePath, ".skmesh" );
         // A COOKED MESH STATES ITS LOD CHAIN (GPU-COST-10): each section's chain is the LODs it carries - the ones
-        // BakeMeshLODs made at the import's LodChain (LodPolicy Generate), none with LodPolicy None - stated, never
-        // left for a load to generate (SubmeshData::LodChainCooked; SkinnedMeshAsset::LoadFromFile keeps them).
+        // BakeMeshLODs made at the import's LodChain (LodPolicy Generate), none with LodPolicy None - stated,
+        // never left for a load to generate (SubmeshData::LodChainCooked; SkinnedMeshAsset::LoadFromFile keeps
+        // them).
         for ( Desert::Assets::Serialization::SubmeshData& section : data.Submeshes )
             section.LodChainCooked = true;
 
