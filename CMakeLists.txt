@@ -108,6 +108,8 @@ add_subdirectory(Tools/DesertNetProbe)
 
 add_subdirectory(Editor)
 add_subdirectory(Runtime)
+# The dedicated headless server (NET-ARCH §6): render-free, no Apple framework, Linux-ready.
+add_subdirectory(Server)
 
 # Per-source rules (vendored warnings off, Debug runtime checks, unity opt-outs) once every target exists.
 cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL desert_finalize_targets)

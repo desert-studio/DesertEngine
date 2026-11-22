@@ -149,31 +149,6 @@ namespace Desert::Core
             return std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count();
         }
 
-        // A cooked file's bytes through the VFS, so a pak and a loose directory read the same way. Called on
-        // JobSystem workers; a pak read opens its own stream (PakFile.cpp), so it is safe there. A file the
-        // packager shipped in an on-demand region chunk (WP23) mounts that chunk first — once, thread-safe; with
-        // no chunks registered (editor, loose cooked files) the mount does nothing.
-        using RegionChunks = std::shared_ptr<const std::map<std::string, std::string>>;
-        WorldCells::FileReader VfsReader( std::string directory, RegionChunks regions )
-        {
-            return [directory = std::move( directory ), regions = std::move( regions )](
-                        std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
-            {
-                const std::string path = directory + std::string( name );
-                if ( regions )
-                    if ( const auto chunk = regions->find( std::string( name ) ); chunk != regions->end() )
-                        if ( auto mounted = Common::Content::MountChunkOnDemand( chunk->second ); !mounted )
-                            return Common::MakeError<std::vector<unsigned char>>( "cooked world file '" + path +
-                                                                                  "' (chunk '" + chunk->second +
-                                                                                  "'): " + mounted.GetError() );
-                auto read = Common::Utils::FileSystem::ReadByteFileContent( path );
-                if ( !read )
-                    return Common::MakeError<std::vector<unsigned char>>( "cooked world file '" + path +
-                                                                          "': " + read.GetError() );
-                return Common::MakeSuccess( read.ExtractValue() );
-            };
-        }
-
         // A cooked world's cells - its world cells or its HLOD cells (WP-FAR-8) - holding each loaded cell's
         // region chunk while the cell is loaded (WP23): the chunk unmounts when the last loaded cell of its region
         // goes.
@@ -183,7 +158,7 @@ namespace Desert::Core
             RegionChunkCellSource( std::shared_ptr<const WorldCells::WorldIndex> index, std::string directory,
                                    RegionChunks regions, WorldCells::UnitSet set )
                  : m_Index( std::move( index ) ), m_Regions( regions ), m_Set( set ),
-                   m_Cooked( *m_Index, VfsReader( std::move( directory ), std::move( regions ) ), set )
+                   m_Cooked( *m_Index, CookedFileReader( std::move( directory ), std::move( regions ) ), set )
             {
             }
 
@@ -221,49 +196,6 @@ namespace Desert::Core
             WorldCells::CookedCellSource                  m_Cooked;
         };
     } // namespace
-
-    Common::ResultStr<std::optional<CookedWorldStart>> ReadCookedWorld( const std::string& scenePath )
-    {
-        using Result = std::optional<CookedWorldStart>;
-        CookedWorldStart world;
-        world.Directory             = WorldCells::CookedWorldDirectory( scenePath );
-        const std::string indexPath = world.Directory + std::string( WorldCells::kIndexFileName );
-        if ( !Common::Utils::FileSystem::Exists( indexPath ) )
-            return Common::MakeSuccess( Result() );
-
-        // The index ships in the world's Shared chunk, mounted at start: read before any region is known.
-        auto bytes = VfsReader( world.Directory, nullptr )( WorldCells::kIndexFileName );
-        if ( !bytes )
-            return Common::MakeError<Result>( bytes.GetError() );
-        auto index = WorldCells::ReadWorldIndex( indexPath, bytes.GetValue() );
-        if ( !index )
-            return Common::MakeError<Result>( index.GetError() );
-        world.Index = std::make_shared<WorldCells::WorldIndex>( index.ExtractValue() );
-
-        auto layout = WorldCells::ChunkLayoutOf( *world.Index, world.Directory );
-        if ( !layout )
-            return Common::MakeError<Result>( indexPath + ": " + layout.GetError() );
-        if ( layout.GetValue().has_value() )
-        {
-            auto regions = std::make_shared<std::map<std::string, std::string>>();
-            for ( const auto& [file, chunk] : layout.GetValue()->FileChunk )
-                if ( chunk != layout.GetValue()->Shared )
-                    regions->emplace( file, chunk );
-            world.RegionChunkOfFile = std::move( regions );
-        }
-        const WorldCells::FileReader reader = VfsReader( world.Directory, world.RegionChunkOfFile );
-
-        auto indexed = WorldCells::PlanFromIndex( *world.Index );
-        if ( !indexed )
-            return Common::MakeError<Result>( indexPath + ": " + indexed.GetError() );
-        world.Indexed = indexed.ExtractValue();
-
-        auto alwaysLoaded = WorldCells::AssembleAlwaysLoaded( *world.Index, reader );
-        if ( !alwaysLoaded )
-            return Common::MakeError<Result>( alwaysLoaded.GetError() );
-        world.AlwaysLoadedJson = Common::Json::Write( alwaysLoaded.GetValue() );
-        return Common::MakeSuccess( Result( std::move( world ) ) );
-    }
 
     WorldStreamer::WorldStreamer( Scene& scene, Assets::AssetManager& assets, std::string sceneName )
          : m_Scene( &scene ), m_Assets( &assets ), m_SceneName( std::move( sceneName ) )
@@ -654,7 +586,7 @@ namespace Desert::Core
         {
             // Every HLOD file is read now, on this thread: no layer is spatially loaded, so every HLOD stands in
             // for its cell from the first frame to the last.
-            const WorldCells::FileReader      reader = VfsReader( world.Directory, world.RegionChunkOfFile );
+            const WorldCells::FileReader      reader = CookedFileReader( world.Directory, world.RegionChunkOfFile );
             std::vector<CellHLOD>             hlods;
             std::vector<Rules::HLODExclusion> holes;
             for ( std::size_t hlod = 0; hlod < world.Index->HLODs.size(); ++hlod )
