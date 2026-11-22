@@ -2791,6 +2791,13 @@ namespace Desert::Graphic
                     }
                 }
             }
+            // VG-SW-RASTER: the post cut splits HW/SW by FrameVirtualGeometry::SoftwareRaster
+            // (AddFrameVirtualGeometryPostOcclusion); without the main SW raster's rows in the visibility buffer
+            // (refused above, logged) no "Software Raster Post" runs, so the post cut keeps every cluster on the
+            // hardware raster instead of handing clusters to a raster that never comes.
+            if ( m_FrameVirtualGeometry && m_FrameVirtualGeometry->SoftwareRaster &&
+                 !grassVisibility.HasVirtualGeometryRows() )
+                m_FrameVirtualGeometry->SoftwareRaster = false;
             // THE MESHES' EARLY-Z MODE (UE r.EarlyZPass; RenderPipeline.EarlyZPass, default Masked). UE DBuffer
             // decals force the full early-Z (r.EarlyZPass 2 when r.DBuffer is on): "Deferred: Decals" runs between
             // the prepass and the base pass and reconstructs every receiver from that depth, so a frame with a

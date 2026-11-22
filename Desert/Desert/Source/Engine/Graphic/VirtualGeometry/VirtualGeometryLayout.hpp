@@ -156,6 +156,18 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t Pad[2]{ 0u, 0u };
     };
     static_assert( sizeof( GpuClusterRasterArgs ) == 64, "std430 twin in Common/VirtualGeometry.glslh" );
+    // Every reader (ClusterCut / RasterBinning / SoftwareRaster .shader) takes VgRasterArgs from that one glslh;
+    // the indirect offsets (SwDispatch 0, HwDraw 16, BinDispatch 32) are also consumed by vkCmd*Indirect.
+    static_assert( offsetof( GpuClusterRasterArgs, SwDispatch ) == 0,
+                   "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, SwCount ) == 12, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, HwDraw ) == 16, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, BinDispatch ) == 32,
+                   "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, Emitted ) == 44, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, SwFirst ) == 48, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, HwFirst ) == 52, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, Pad ) == 56, "Common/VirtualGeometry.glslh VgRasterArgs" );
 
     // THE VISIBILITY BUFFER WORD: one uint64 per pixel in a storage BUFFER (shaderBufferInt64Atomics, Vulkan 1.2;
     // a storage image of R64_UINT needs VK_EXT_shader_image_atomic_int64, which MoltenVK does not expose).
