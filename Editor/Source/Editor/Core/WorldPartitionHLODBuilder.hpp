@@ -50,6 +50,12 @@ namespace Desert::Assets
 
 namespace Desert::Editor
 {
+    // THE ONE WRITER OF AN IMPOSTOR CARD (Build HLODs and the per-mesh Bake Impostor, MeshImpostorBaking): the
+    // baked cell's card mesh stored as `HLODMesh_<hash>.stmesh` in `dir`, answered as the block that draws it
+    // (MeshGuid/MeshPath + its one M_I material slot).
+    [[nodiscard]] Common::ResultStr<::Desert::Assets::InstancedStaticMeshComponentSer>
+    StoreBakedImpostorCard( const HLODApproximateBaked& baked, const std::filesystem::path& dir );
+
     struct HLODBuildOptions
     {
         // UE's Build HLODs with -ForceBuild: every row is rebuilt, whatever its checksum says.

@@ -93,7 +93,12 @@ namespace Desert::Graphic::Render
         uint32_t Section                                         = 0; // into StaticSceneChunk::Sections
         int      ForcedLOD                                       = -1;
         uint64_t MeshRevision                                    = 0;
-        bool     operator==( const StaticSceneAdmission& ) const = default;
+        // WP-FAR-12F: the SOURCE side of an impostor pair that this view draws as its card at both temporal
+        // samples. Still queued, for the ray tracing scene alone (UE keeps the source mesh in the TLAS at every
+        // distance; the card never enters it): raster skips it (MeshRenderer: no slot walk, no shadow caster row),
+        // and the GPU cull's ImpostorGate culls its row in every view.
+        bool RayTracingOnly                                      = false;
+        bool operator==( const StaticSceneAdmission& ) const     = default;
     };
 
     // ONE VIEW'S ADMISSION OF THE RETAINED STATIC SCENE, KEPT ACROSS FRAMES (UE FScene: per-frame work only over

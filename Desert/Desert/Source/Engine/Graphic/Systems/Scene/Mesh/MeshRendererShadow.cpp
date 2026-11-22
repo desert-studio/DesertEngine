@@ -877,7 +877,7 @@ namespace Desert::Graphic::System
                 {
                     m_StaticSnapshot.WorldBounds[i] =
                          worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
-                    if ( rd.CastShadows )
+                    if ( rd.CastShadows && !rd.RayTracingOnly ) // its card casts the raster shadow
                         setup.Statics[i].WorldBounds = m_StaticSnapshot.WorldBounds[i];
                 }
                 m_StaticSnapshot.WorldLanes.PushBack( m_StaticSnapshot.WorldBounds[i] );

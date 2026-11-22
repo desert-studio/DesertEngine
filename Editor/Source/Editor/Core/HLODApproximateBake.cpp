@@ -442,7 +442,9 @@ namespace Desert::Editor
         if ( !ormPng )
             return Common::MakeError( ormPng.GetError() );
 
-        const std::filesystem::path dir       = ::Desert::Core::WorldCells::BuiltHLODDirectory( m_ScenePath );
+        const std::filesystem::path dir       = cell.OutputDir.empty()
+                                                     ? ::Desert::Core::WorldCells::BuiltHLODDirectory( m_ScenePath )
+                                                     : cell.OutputDir;
         const std::string           name      = CellName( cell );
         const std::filesystem::path texFile   = dir / ( "T_" + name + "_BaseColor.detex" );
         const std::filesystem::path depthFile = dir / ( "T_" + name + "_NormalDepth.detex" );
