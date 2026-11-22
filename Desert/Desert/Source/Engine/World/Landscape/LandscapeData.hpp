@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/World/Landscape/LandscapeFrame.hpp>
+#include <Engine/World/Landscape/LandscapeLayerLimits.hpp>
 
 #include <glm/vec3.hpp>
 
@@ -111,23 +112,6 @@ namespace Desert::World::Landscape
         Water,   ///< WaterZoneECSSystem: the WaterInfo ground (the zone's bottom seen from above, UE WaterInfo).
     };
     inline constexpr size_t kLandscapeDirtyConsumerCount = 5u;
-
-    /// How many weightmap layers one tile carries — owner decision O3 of the landscape programme (up to eight
-    /// paint layers). A ninth is refused by name (AddWeightLayer, SetWeightLayers, DecodeLandscapeTile), never
-    /// dropped.
-    inline constexpr uint32_t kLandscapeMaxWeightLayers = 8u;
-
-    /// Layers per weightmap texture: UE packs a component's layers four to an RGBA8 texture and adds a
-    /// texture as a fifth layer is allocated (FWeightmapLayerAllocationInfo::WeightmapTextureIndex/Channel).
-    /// Layer i of a tile lives in page i / 4, channel i % 4 (LandscapeWeightmapTexels).
-    inline constexpr uint32_t kLandscapeWeightmapChannels = 4u;
-
-    /// Weightmap textures a tile of @p layers layers needs: 0 for none, 1 for 1..4, 2 for 5..8.
-    constexpr uint32_t LandscapeWeightmapPageCount( size_t layers )
-    {
-        return static_cast<uint32_t>( ( layers + kLandscapeWeightmapChannels - 1u ) /
-                                      kLandscapeWeightmapChannels );
-    }
 
     /// Longest weight-layer name a tile blob carries. Exists because the length comes from a file.
     inline constexpr uint32_t kLandscapeMaxWeightLayerName = 64u;

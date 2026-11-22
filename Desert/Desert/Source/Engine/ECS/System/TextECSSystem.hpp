@@ -17,7 +17,6 @@
 #include <Engine/ECS/RenderCacheRetire.hpp>
 #include <Engine/ECS/TextComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
-#include <PhysicsCore/PhysicsWorld.hpp>
 
 namespace Desert::ECS
 {

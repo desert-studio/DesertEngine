@@ -3,7 +3,10 @@
 
 #include <algorithm>
 #include <vector>
+#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 namespace Desert::ECS
 {

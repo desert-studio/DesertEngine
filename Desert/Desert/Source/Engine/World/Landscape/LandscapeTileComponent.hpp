@@ -19,10 +19,53 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+
+namespace Desert::World::Landscape
+{
+    class LandscapeTileData;
+}
 
 namespace Desert::ECS
 {
+    // THE LOADED HEIGHTS OF ONE TILE, OWNED BY VALUE, HELD OUT OF LINE (UE: ULandscapeComponent keeps its
+    // heightfield behind a pointer — the texture / FLandscapeComponentDerivedData — so the component's
+    // header never pulls the data's). Copy is a deep copy and move steals, exactly as the
+    // std::optional<LandscapeTileData> it replaces, so the component keeps its value semantics; every member
+    // that touches the data is out of line (LandscapeTileComponent.cpp), so a translation unit that only
+    // names the component never needs LandscapeData.hpp. One that reads the samples includes it itself.
+    class LandscapeTileHeights
+    {
+    public:
+        using Data = World::Landscape::LandscapeTileData;
+
+        LandscapeTileHeights() noexcept = default;
+        LandscapeTileHeights( std::nullopt_t ) noexcept {}
+        LandscapeTileHeights( const LandscapeTileHeights& other );
+        LandscapeTileHeights( LandscapeTileHeights&& other ) noexcept = default;
+        ~LandscapeTileHeights();
+
+        LandscapeTileHeights& operator=( const LandscapeTileHeights& other );
+        LandscapeTileHeights& operator=( LandscapeTileHeights&& other ) noexcept;
+        LandscapeTileHeights& operator=( std::nullopt_t ) noexcept;
+        LandscapeTileHeights& operator=( Data&& data );
+        LandscapeTileHeights& operator=( const Data& data );
+        LandscapeTileHeights& operator=( std::optional<Data>&& data );
+
+        bool has_value() const noexcept { return m_Data != nullptr; }
+        explicit operator bool() const noexcept { return m_Data != nullptr; }
+        void reset() noexcept;
+
+        Data&       operator*() noexcept { return *m_Data; }
+        const Data& operator*() const noexcept { return *m_Data; }
+        Data*       operator->() noexcept { return m_Data.get(); }
+        const Data* operator->() const noexcept { return m_Data.get(); }
+        Data&       value() noexcept { return *m_Data; }
+        const Data& value() const noexcept { return *m_Data; }
+
+    private:
+        std::unique_ptr<Data> m_Data;
+    };
+
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
     //
     // `Landscape` names the root BY ID AND NOT AS A PARENT, and that is the whole reason this is a field:
@@ -39,9 +82,9 @@ namespace Desert::ECS
     //
     // `Heights` is the loaded tile — the single source of truth for this tile's terrain (landscape
     // analysis A2). Runtime state: it is not in the scene block, it is what the block's file decodes to.
-    // HELD BY VALUE, because the component is its one owner (PointerOwnership's Q1): a pointer here would
-    // answer a sharing question nobody has asked yet. A consumer that must keep the tile across frames
-    // (the GPU copy, LS-4) cannot keep an address into an entt pool anyway, and decides its own form then.
+    // OWNED BY THE COMPONENT ALONE (PointerOwnership's Q1): LandscapeTileHeights is a value — copied deep,
+    // never shared — that only keeps the data out of this header. A consumer that must keep the tile across
+    // frames (the GPU copy, LS-4) cannot keep an address into an entt pool anyway, and decides its own form then.
     //
     // ONE WRITER after construction: ECS::SetLandscapeTileHeights / ECS::EditLandscapeTile
     // (LandscapeRootOf.hpp), both a registry.patch, so the shared tile table (DrawableLandscapeTiles) is
@@ -54,6 +97,6 @@ namespace Desert::ECS
         int32_t      TileZ     = 0;
         std::string  HeightFile;
 
-        std::optional<World::Landscape::LandscapeTileData> Heights;
+        LandscapeTileHeights Heights;
     };
 } // namespace Desert::ECS
