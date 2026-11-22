@@ -16,6 +16,19 @@ foreach(name RenderCore ImageCore TextCore Audio GeometryCore)
     endif()
 endforeach()
 
+# The vendored libraries a module library links (besides Optick, which every module's profiling scopes use). A static
+# library's links travel to whoever links it, so this list is what the dedicated server's link (Server/CMakeLists.txt:
+# the closure of Core) builds and links: the modules of that closure name exactly the libraries their code calls
+# (measured with nm -u on each archive), and the server build compiles no physics, ray tracing, Voronoi fracture,
+# texture compression or media decoding. Modules not named here link the full set.
+set(_luau LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon)
+set(_thirdparty_default Jolt ${_luau} MeshOptimizer Voro Compressonator OpenSubdiv Embree Dav1d Opus)
+set(_thirdparty_CoreReflection "")
+set(_thirdparty_Projects "")
+set(_thirdparty_AssetCore "")
+set(_thirdparty_GeometryCore OpenSubdiv MeshOptimizer)
+set(_thirdparty_Core ${_luau})
+
 desert_engine_header_tool_command(_header_tool_command)
 
 set(_source "${CMAKE_CURRENT_SOURCE_DIR}/Source")
@@ -107,9 +120,11 @@ function(_desert_engine_module_library name)
     foreach(dep IN LISTS DESERT_MODULE_${name}_DEPS)
         target_link_libraries(${target} PRIVATE ${DESERT_MODULE_${dep}_LIBRARIES})
     endforeach()
-    target_link_libraries(${target} PRIVATE
-        Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon
-        ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree Dav1d Opus)
+    if(DEFINED _thirdparty_${name})
+        target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_${name}})
+    else()
+        target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_default})
+    endif()
 
     desert_config_platform_defines(${target})
     if(DESERT_IS_WINDOWS)
