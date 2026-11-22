@@ -3759,6 +3759,9 @@ namespace Desert::Graphic::System
             std::optional<uint64_t> Key;
             std::optional<uint64_t> PendingKey;
             CascadeFit              Fit;
+            // Why the last plan could not key the layer (a CascadeMovers::Unkeyed reason or a caster's), null when
+            // it could: PlanCascadeCache logs a new reason once, not every frame it persists.
+            const char* Unkeyed = nullptr;
         };
         FarShadowState                                                 m_FarShadow[kDirectionalShadowSlots];
         MeshRendererDetail::MeshDrawList                               m_FarShadowDraws[kDirectionalShadowSlots];
