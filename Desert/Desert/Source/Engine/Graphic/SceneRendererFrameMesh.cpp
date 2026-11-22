@@ -857,6 +857,28 @@ namespace Desert::Graphic
                      meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path );
                  } );
         }
+        // VG-SW-RASTER R1 (UE 5 Nanite's material pass over VisBuffer64): the software raster's words, shaded per
+        // G-buffer IndirectGroup through its `.VisibilityResolve.Binned.VirtualGeometry` cell on the same material
+        // depth (VgMaterialDepth stamped each VG pixel with its group's value), EQUAL. Their depth is already in
+        // the G-buffer depth ("Grass: Visibility Depth" of every word).
+        if ( !visibility.HasVirtualGeometryRows() )
+            return;
+        const System::MeshRenderer::VirtualGeometryResolveInputs vgInputs{
+             .Visibility      = visibility.Words,
+             .ResolveArgs     = visibility.ResolveArgs,
+             .VisibleClusters = visibility.VgVisibleClusters,
+             .Clusters        = visibility.VgGroups.Clusters,
+             .Dags            = visibility.VgGroups.Dags,
+             .PrimitiveDraws  = visibility.VgGroups.PrimitiveDraws,
+             .FirstRow        = visibility.VgFirstRow,
+             .RowCount        = visibility.VgRowCount };
+        AddRaster(
+             graph, "VirtualGeometry: Visibility Resolve", resolveTargets,
+             textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderVirtualGeometryVisibilityResolve( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), vgInputs]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareVirtualGeometryVisibilityResolve( pass, view, vgInputs ); } );
     }
 
     void SceneRenderer::AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,

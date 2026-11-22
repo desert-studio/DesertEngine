@@ -210,6 +210,13 @@ namespace Desert::Graphic::System
                 return GroupPipelines.empty() ? table.Groups[group].VirtualGeometryPipeline
                                               : GroupPipelines[group];
             }
+            // VG-SW-RASTER: set = THE VG VISIBILITY RESOLVE of the software-rastered clusters (UE 5 Nanite's
+            // material pass; "VirtualGeometry: Visibility Resolve"): GroupArgs is the visibility buffer's
+            // ResolveArgs, every group draws ITS ONE tile list record at ResolveArgsOffset through its
+            // `.VisibilityResolve.Binned.VirtualGeometry` cell (GroupPipelines), Rows is not read, and the group's
+            // words (group, VgFirstRow, VgRowCount) ride the push (ClusterIndirectGroupDraw::Resolve).
+            std::optional<glm::uvec2> ResolveRows; // (VgFirstRow, VgRowCount)
+            uint64_t                  ResolveArgsOffset = 0;
         };
 
         struct BinnedIssue
@@ -1812,6 +1819,30 @@ namespace Desert::Graphic::System
                                                  MeshVertexPath path );
         [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
                                                                                 MeshVertexPath path ) const;
+        // VG-SW-RASTER: THE VG VISIBILITY RESOLVE (UE 5 Nanite's material pass over VisBuffer64), the words the
+        // software raster wrote. One "VirtualGeometry: Visibility Resolve" node, the G-buffer LOADed, its depth
+        // target the material depth ("Grass: Visibility Material Depth" stamps a VG pixel with its IndirectGroup's
+        // value): per G-buffer group of the camera's phase-1 issue that has a resolve cell
+        // (VirtualGeometryResolvePipeline), the tile list (record 0 of @p resolveArgs at GpuInstanceArgsOffset(0))
+        // through that cell, depth EQUAL, so each group shades exactly its own pixels. @p visibility the words,
+        // @p visibleClusters / @p clusters / @p dags / @p primitiveDraws the cut's tables the cell reaches a row's
+        // cluster through, rows [@p firstRow, @p firstRow + @p rowCount). Nothing declared (and nothing recorded)
+        // when the camera issues no G-buffer bins or no group has a resolve cell.
+        struct VirtualGeometryResolveInputs
+        {
+            RDG::BufferRef Visibility;
+            RDG::BufferRef ResolveArgs;
+            RDG::BufferRef VisibleClusters;
+            RDG::BufferRef Clusters;
+            RDG::BufferRef Dags;
+            RDG::BufferRef PrimitiveDraws;
+            uint32_t       FirstRow = 0;
+            uint32_t       RowCount = 0;
+        };
+        void DeclareVirtualGeometryVisibilityResolve( RDG::PassBuilder& pass, const SceneViewInputs& view,
+                                                      const VirtualGeometryResolveInputs& inputs );
+        [[nodiscard]] Common::BoolResultStr
+        RenderVirtualGeometryVisibilityResolve( const RDG::PassContext& context ) const;
         // SETUP of "Grass: Depth Prepass Post-Occlusion" (GRASS-VIS-13; the G-buffer's depth LOADed, no colour;
         // after "Grass: Post-Occlusion Finalize" wrote phase 2's records, before "Grass: GBuffer Post-Occlusion";
         // UE: the two-pass occlusion's second depth pass, grass HISM by the same rule as every mesh): the G-buffer
@@ -2635,6 +2666,7 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterDraws;  // "Grass: Visibility Raster"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolveDraws; // "Grass: Visibility Resolve"
         MeshRendererDetail::MeshDrawList m_GrassMeshVisibilityResolveDraws; // "Grass: Mesh Visibility Resolve"
+        MeshRendererDetail::MeshDrawList m_VgVisibilityResolveDraws; // "VirtualGeometry: Visibility Resolve"
         // GRASS-VIS phase 2: "Grass: Visibility Raster Post-Occlusion", "Grass: GBuffer Post-Occlusion".
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterPostDraws;
         MeshRendererDetail::MeshDrawList m_GrassGBufferPostDraws;
@@ -4184,6 +4216,14 @@ namespace Desert::Graphic::System
         // be made.
         const GraphicsPipeline* ResolveVirtualGeometryPipeline( GpuDriven::MeshPass     pass,
                                                                 const GraphicsPipeline& group );
+        // VG-SW-RASTER: @p group's (a G-buffer IndirectGroup's `.GBuffer.Binned` PSO) VG visibility resolve PSO:
+        // its state with the cell VisibilityResolveCellOf names, CullMode None, depth EQUAL without a write (the
+        // material depth target, as the grass resolve's "GrassVisibilityResolve"). Null for a cell with no resolve
+        // twin (another pass, a `.Parallax` cell, a template without the VG permutation) and while the PSO
+        // compiles (asked again next frame). Ready answers are kept per group PSO until the pipeline epoch moves.
+        const GraphicsPipeline* VirtualGeometryResolvePipeline( const GraphicsPipeline& group );
+        std::unordered_map<const GraphicsPipeline*, const GraphicsPipeline*> m_VgResolvePipelines;
+        uint64_t                                                             m_VgResolvePipelinesEpoch = 0;
         // THE ONE RULE "this binned cell's template has a `.VirtualGeometry` twin": the twin cell
         // (VirtualGeometryCellOf) is registered. ShaderService registers every pass a template's parse emits when
         // the template registers (an uncompiled one too), and DShaderParser emits the twin for every
