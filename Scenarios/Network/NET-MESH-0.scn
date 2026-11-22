@@ -1,0 +1,13 @@
+# NET-MESH-0 pass 1: the DesertServer target on macOS (Docs/contracts/NET-ARCH.md §6, §9 row NET-MESH-0).
+# Outside the editor (DesertEngine-scratch/NET-MESH-0/):
+#   build/Bin/Release/WorldCook Projects/Desert/Content/Scenes/WP_Protocol.desce
+#        --out Projects/Desert/Content/Scenes/WP_Protocol.dwworld --project Projects/Desert/Desert.deproj --no-registry
+#   build/Bin/Release/DesertServer --project Projects/Desert/Desert.deproj --role all
+#        --world Content/Scenes/WP_Protocol.desce --source 0,0,0 --steps 600   > mesh0_mac_server.log
+#   otool -L build/Bin/Release/DesertServer                                     > mesh0_mac_server.otool.txt
+# Тогда [mesh0_mac_server]: the log shows "no device created", the cooked index loaded with its cook hash, 600 steps
+# at 60 Hz and the residency union of one source; the otool list names no Vulkan/MoltenVK/Metal/AppKit/Cocoa.
+# Regression (here): the client still builds and opens WP_Protocol unchanged (ReadCookedWorld moved to CookedWorld).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда mesh0_editor_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо; без падения и диалога ошибки
