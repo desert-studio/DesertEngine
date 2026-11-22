@@ -1,5 +1,6 @@
 #include "WorldCookMain.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
@@ -28,7 +29,7 @@ namespace Desert::WorldCook
         std::string Usage()
         {
             return "usage: WorldCook <source.desce> --out <directory> (--project <file.deproj> | --no-project) "
-                   "(--registry <file.dreg>... | --no-registry) [--verify] [--check]\n"
+                   "(--registry <file.dreg>... | --project-registry | --no-registry) [--verify] [--check]\n"
                    "  --check        check the world's partition (WP-MAP-CHECK) and cook nothing: every finding is\n"
                    "                 printed, the StreamingGeneration log written; exit 0 = none, 8 = findings; --out\n"
                    "                 is not needed\n"
@@ -47,6 +48,7 @@ namespace Desert::WorldCook
             bool                  NoProject = false;
             std::vector<fs::path> Registries;
             bool                  NoRegistry = false;
+            bool                  ProjectRegistry = false;
             bool                  Verify     = false;
             bool                  Check      = false;
         };
@@ -81,6 +83,8 @@ namespace Desert::WorldCook
                 }
                 else if ( arg == "--no-registry" )
                     options.NoRegistry = true;
+                else if ( arg == "--project-registry" )
+                    options.ProjectRegistry = true;
                 else if ( arg == "--no-project" )
                     options.NoProject = true;
                 else if ( arg == "--verify" )
@@ -105,8 +109,14 @@ namespace Desert::WorldCook
                 return Common::MakeError<Options>( "a source and --out (or --check) are required" );
             // Without a registry mesh assets are placed by position alone and no unit's assets are known.
             // That is a legitimate cook (a world of primitives needs none), but it is CHOSEN, never defaulted.
-            if ( options.Registries.empty() == !options.NoRegistry )
-                return Common::MakeError<Options>( "state exactly one of --registry <file>... or --no-registry" );
+            // --project-registry: the opened project's registry GATHERED here, as the editor's Build HLODs and the
+            // packager's cook read it (ContentRegistry::Gather), so the HLOD checksums and asset closures a cook
+            // computes are the ones the editor saved - no .dreg file between them.
+            if ( int( !options.Registries.empty() ) + int( options.NoRegistry ) + int( options.ProjectRegistry ) != 1 )
+                return Common::MakeError<Options>(
+                     "state exactly one of --registry <file>..., --project-registry or --no-registry" );
+            if ( options.ProjectRegistry && options.Project.empty() )
+                return Common::MakeError<Options>( "--project-registry gathers the registry of --project; name one" );
             // Without a project a content path in the source (a landscape's tiles, a mesh, a prefab instance's
             // PrefabPath, WP21) has nothing to resolve under, and the cook stops at the first one. Opening one is
             // likewise CHOSEN, never defaulted.
@@ -168,6 +178,21 @@ namespace Desert::WorldCook
                 return 3;
             }
             registries.push_back( registry.ExtractValue() );
+        }
+        if ( options.ProjectRegistry )
+        {
+            // A file that cannot enter the registry is a refusal, as in the packager: its rows would be missing
+            // from every closure and checksum the cook writes.
+            std::vector<std::string> refused;
+            auto                     gathered = Assets::ContentRegistry::Gather( &refused );
+            if ( !gathered || !refused.empty() )
+            {
+                err << "WorldCook: the project registry: "
+                    << ( gathered ? refused.front() : gathered.GetError() ) << "\n";
+                return 3;
+            }
+            registries.push_back( Assets::ContentRegistry::Snapshot() );
+            out << "WorldCook: project registry gathered, " << registries.back().Count() << " row(s)\n";
         }
         const double readMs = MsSince( started );
 

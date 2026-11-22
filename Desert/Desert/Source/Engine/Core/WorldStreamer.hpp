@@ -50,6 +50,7 @@
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/CookedWorld.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODSwitch.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
@@ -84,28 +85,6 @@ namespace Desert::Assets
 namespace Desert::Core
 {
     class Scene;
-
-    // A game's world as its cook left it, read up to the point where a scene can be made from it: the index,
-    // the plan residency needs, and the always-loaded part as scene JSON — the scene-wide part and the
-    // always-loaded records — which the ordinary loader (SceneSerializer::DeserializeFromJson) takes. What the
-    // runtime loads instead of the .desce.
-    struct CookedWorldStart
-    {
-        std::string                             Directory; // WorldCells::CookedWorldDirectory of the scene
-        std::shared_ptr<WorldCells::WorldIndex> Index;
-        WorldCells::IndexedWorld                Indexed;
-        std::string                             AlwaysLoadedJson;
-        // WP23: the on-demand REGION chunk of every cell file the packager divided off the base (file -> chunk,
-        // from WorldCells::ChunkLayoutOf); empty when the world states no ChunkRegionSize. Files of the world's
-        // Shared chunk are absent: it is mounted at start.
-        std::shared_ptr<const std::map<std::string, std::string>> RegionChunkOfFile;
-    };
-
-    // Whether @p scenePath has a cooked world beside it (through the VFS: a pak or the disk) and, when it has,
-    // that world read up to its always-loaded part. nullopt — and nothing read — when there is no index there;
-    // an index that is there but cannot be read, or whose files do not match it, is an error naming the file.
-    [[nodiscard]] Common::ResultStr<std::optional<CookedWorldStart>>
-    ReadCookedWorld( const std::string& scenePath );
 
     class WorldStreamer final : public Rules::ResidencyWorld, public Rules::HLODVisibilityWorld
     {
