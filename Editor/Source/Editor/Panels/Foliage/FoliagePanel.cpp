@@ -47,6 +47,7 @@
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 
 namespace Desert::Editor::Tools
 {

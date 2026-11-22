@@ -2,9 +2,6 @@
 
 #include "../RenderCommand.hpp"
 
-// The renderer itself: every Execute below calls a method on it, and RenderCommand.hpp only
-// forward-declares the type (see the note there on the include cycle that cost).
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Fog/HeterogeneousVolumePayload.hpp>
 
 namespace Desert::Graphic::Render
@@ -21,10 +18,6 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            // Copied, not moved: the same recorded command is replayed into every view's renderer.
-            renderer.AddHeterogeneousVolume( Volume );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

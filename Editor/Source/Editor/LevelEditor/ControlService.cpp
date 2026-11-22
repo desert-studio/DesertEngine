@@ -470,6 +470,9 @@ namespace Desert::Editor
         // A held nn-check reply goes out the frame its graph completed in; until then nothing else is read.
         if ( ServiceNnCheck() )
             return;
+        // A window shot's reply goes out once its worker has written the file; until then nothing else is read.
+        if ( ServiceShotWrite() )
+            return;
 
         // A request whose reply has not gone out yet holds the channel. Reading a second one here would
         // hand the ordering guarantee to whoever wrote the client: two commands in flight cannot both be
@@ -771,6 +774,20 @@ namespace Desert::Editor
                                                              const bool materialPipelinesCompiling,
                                                              const bool grassInstancesSettling )
     {
+        // WQH (11-22): a frame over kLongFrameMs since the last present is named with its serial, so a scenario's
+        // hitch (a quality switch, a shot) reads as a line with its ms rather than as the profiler's "worst".
+        {
+            constexpr double kLongFrameMs = 250.0;
+            const auto       now          = std::chrono::steady_clock::now();
+            if ( m_LastPresent && m_ControlSocket.IsListening() )
+            {
+                const double ms = std::chrono::duration<double, std::milli>( now - *m_LastPresent ).count();
+                if ( ms > kLongFrameMs )
+                    LOG_WARN( "[Control] long frame {}: {:.1f} ms since the previous present (over {:.0f} ms)",
+                              built.Serial, ms, kLongFrameMs );
+            }
+            m_LastPresent = now;
+        }
         // The clock is not advanced here: ServiceChannel advances it when the next update begins its frame.
         // THE FRAME IS JUDGED BY ITS OWN CENSUS (@p built, OVERLAP-ON-3) plus the four entries the frame itself
         // decides, below. The channel's live census takes those four as well, as it always has (`state`,
@@ -910,9 +927,24 @@ namespace Desert::Editor
             // a person would be looking at exists as bytes on the device, and it is a frame this gate has
             // just certified as reflecting the command that came before it.
             std::string error;
-            const bool  window  = ( m_ControlInFlight->Operation == Control::Op::ShotWindow );
-            const bool  written = window ? m_Capture.WriteWindowPng( m_ControlInFlight->Path, built.Serial, error )
-                                         : m_Capture.WriteViewportPng( m_ControlInFlight->Path );
+            const bool  window = ( m_ControlInFlight->Operation == Control::Op::ShotWindow );
+            if ( window )
+            {
+                // The pixels are collected now, on this frame; the PNG is a worker's, and the reply waits for it
+                // (ServiceShotWrite) - the client still hears back only once the file is on disk.
+                PendingShotWrite pending;
+                if ( m_Capture.BeginWindowPng( m_ControlInFlight->Path, built.Serial, pending.Write, error ) )
+                {
+                    pending.Id             = m_ControlInFlight->Id;
+                    pending.Client         = m_ControlInFlightClient;
+                    pending.PixelsPerPoint = static_cast<double>( ::ImGui::GetIO().DisplayFramebufferScale.x );
+                    m_ShotWrite            = std::move( pending );
+                    m_ControlInFlight.reset();
+                    m_ControlPendingReply.reset();
+                    return std::nullopt;
+                }
+            }
+            const bool written = !window && m_Capture.WriteViewportPng( m_ControlInFlight->Path );
 
             if ( written )
             {
@@ -994,6 +1026,39 @@ namespace Desert::Editor
         // path's refusal instead of a bare "ran nothing".
         m_NnCheck = std::move( pending );
         return std::nullopt;
+    }
+
+    bool ControlService::ServiceShotWrite()
+    {
+        if ( !m_ShotWrite )
+            return false;
+        if ( m_ShotWrite->Write.Encode.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+            return true;
+        const std::string error = m_Capture.FinishWindowPng( m_ShotWrite->Write );
+        // The reply reaches the client that asked, or nobody (AbandonControlRequestIfItsAskerIsGone's rule).
+        if ( !m_ControlSocket.HasClient() || m_ControlSocket.ClientGeneration() != m_ShotWrite->Client )
+        {
+            LOG_INFO( "[Control] the client that asked for shot {} is gone (generation {} -> {}); its file is "
+                      "written, its reply is not sent.",
+                      m_ShotWrite->Id, m_ShotWrite->Client, m_ControlSocket.ClientGeneration() );
+            m_ShotWrite.reset();
+            return true;
+        }
+        if ( !error.empty() )
+        {
+            m_ControlSocket.SendResponseLine(
+                 Control::FormatResponse( Control::Response::Failure( m_ShotWrite->Id, error ) ) );
+            m_ShotWrite.reset();
+            return true;
+        }
+        rfl::Generic::Object payload;
+        payload["path"]           = rfl::Generic( m_ShotWrite->Write.Path );
+        payload["subject"]        = rfl::Generic( std::string( "window" ) );
+        payload["pixelsPerPoint"] = rfl::Generic( m_ShotWrite->PixelsPerPoint );
+        m_ControlSocket.SendResponseLine(
+             Control::FormatResponse( Control::Response::Success( m_ShotWrite->Id, std::move( payload ) ) ) );
+        m_ShotWrite.reset();
+        return true;
     }
 
     bool ControlService::ServiceNnCheck()
@@ -1162,7 +1227,11 @@ namespace Desert::Editor
                 // once to look the command up and once to run it — would let the two disagree on any
                 // frame where something opened or closed in between, and the command that ran would not
                 // be the command that was found.
-                const std::vector<PaletteCommand> dictionary = BuildDictionary();
+                const auto                        buildStart = std::chrono::steady_clock::now();
+                std::vector<PaletteCommand>                dictionary;
+                std::vector<CommandRegistry::ProviderCost> costs;
+                m_Commands.Build( dictionary, &costs );
+                const auto runStart = std::chrono::steady_clock::now();
                 const Control::CommandAddress     wanted{ request.Group, request.Label };
                 const Control::Resolution         resolved = Control::ResolveCommand( dictionary, wanted );
 
@@ -1177,7 +1246,18 @@ namespace Desert::Editor
                 // a scene that would not save, an Apply that published nothing. A script driving the
                 // editor could not stop on any of them, and the whole point of the exit status is that it
                 // can be trusted (Tools/DesertCtl/Source/Main.cpp says so at the top).
-                if ( const auto ran = dictionary[resolved.Index].Run(); !ran )
+                const auto ran = dictionary[resolved.Index].Run();
+                // WQH: a `run` is named with its two costs, the dictionary and the command, in ms.
+                std::string slowest;
+                for ( std::size_t i = 0; i < std::min<std::size_t>( costs.size(), 3 ); ++i )
+                    slowest += std::format( "{}{} {:.1f} ms", i ? ", " : "", costs[i].Owner, costs[i].Ms );
+                LOG_INFO( "[Control] run '{}' / '{}': dictionary of {} command(s) built in {:.1f} ms (slowest: {}), "
+                          "the command ran in {:.1f} ms",
+                          request.Group, request.Label, dictionary.size(),
+                          std::chrono::duration<double, std::milli>( runStart - buildStart ).count(), slowest,
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - runStart )
+                               .count() );
+                if ( !ran )
                 {
                     return Control::Response::Failure( request.Id, std::format( "'{}' / '{}' ran and refused: {}",
                                                                                 request.Group, request.Label,
@@ -2442,7 +2522,7 @@ namespace Desert::Editor
         // task (VulkanImGui::End enqueues it, TICK-JOB-SPLIT-1); recorded here on the game thread, the copy found
         // no acquired image and every `shot.window` was refused. Jobs run in enqueue order, so this one runs
         // after this frame's interface and before its submit and present (UE: the screenshot request is served
-        // on the render thread, after the back buffer is drawn). WriteWindowPng joins the task before it reads.
+        // on the render thread, after the back buffer is drawn). BeginWindowPng joins the task before it reads.
         ::Desert::Engine::RenderTask::Get().Enqueue( "Window capture",
                                                      [this, frame = m_FrameIndex]() -> Common::BoolResultStr
                                                      {

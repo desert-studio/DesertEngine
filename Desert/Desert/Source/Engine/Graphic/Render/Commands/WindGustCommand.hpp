@@ -1,8 +1,7 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-// The renderer itself: Execute calls a method on it, and RenderCommand.hpp only forward-declares the type.
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/WindGust.hpp>
 
 #include <glm/glm.hpp>
 
@@ -25,10 +24,7 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            renderer.SetWindGust( Gust, PrevGust, DirectionalVelocityXZ );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 
     // One point (local) wind source of this gameplay step, sent after the step's WindGustCommand by the same
@@ -41,9 +37,6 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            renderer.AddLocalWindSource( Source );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

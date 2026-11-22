@@ -3,13 +3,17 @@
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
-#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 
 #include <unordered_map>
 
 #include <string>
 #include <vector>
+
+namespace Desert::Assets
+{
+    class AssetManager;
+} // namespace Desert::Assets
 
 namespace Desert::Animation
 {

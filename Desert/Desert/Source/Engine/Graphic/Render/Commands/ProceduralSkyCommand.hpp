@@ -1,9 +1,6 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-// The renderer itself: every Execute below calls a method on it, and RenderCommand.hpp only
-// forward-declares the type (see the note there on the include cycle that cost).
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
 
@@ -32,9 +29,6 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            renderer.SetProceduralSky( Enabled, SunDir, BakeNow, Sky, Fx, Light1 );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

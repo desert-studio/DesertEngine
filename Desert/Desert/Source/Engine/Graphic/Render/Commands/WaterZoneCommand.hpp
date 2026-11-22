@@ -1,8 +1,7 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-// The renderer itself: Execute calls a method on it, and RenderCommand.hpp only forward-declares the type.
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Water/WaterZoneDraw.hpp>
 
 #include <utility>
 
@@ -18,9 +17,6 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            renderer.SubmitWaterZone( Zone ); // by reference: read until EndScene, which this command outlives
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

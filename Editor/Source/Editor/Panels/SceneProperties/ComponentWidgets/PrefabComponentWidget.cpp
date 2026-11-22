@@ -21,6 +21,7 @@
 #include <format>
 #include <Engine/ECS/PrefabComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 
 namespace Desert::Editor
 {

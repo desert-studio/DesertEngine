@@ -3,6 +3,12 @@
 #include "IComponentWidget.hpp"
 
 #include <string>
+#include <Engine/Assets/Common.hpp>
+
+namespace Desert::Assets
+{
+    class AssetManager;
+} // namespace Desert::Assets
 
 namespace Desert::Editor
 {

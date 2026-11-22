@@ -10,7 +10,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
-#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsFrame.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>

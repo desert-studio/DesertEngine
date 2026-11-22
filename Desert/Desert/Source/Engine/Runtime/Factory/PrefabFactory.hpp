@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Core/Scene.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 
 #include <glm/glm.hpp>
@@ -12,6 +11,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace Desert::Core
+{
+    class Scene;
+} // namespace Desert::Core
 
 namespace Desert::Runtime::Factory
 {

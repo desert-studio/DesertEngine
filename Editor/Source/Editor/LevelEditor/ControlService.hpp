@@ -22,12 +22,14 @@
 #include "Editor/Core/Control/ControlProtocol.hpp"
 #include "Editor/Core/Control/ControlSocket.hpp"
 #include "Editor/Core/Control/ControlState.hpp"
+#include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/Core/Selection/SelectionTransformProperties.hpp"
 
 
 
 #include <Engine/Graphic/Neural/FusedMlpCompute.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -150,6 +152,9 @@ namespace Desert::Editor
         // Top of ServiceChannel: sends the held nn-check reply once its frame completed. True while one is held
         // (the channel reads nothing else meanwhile, so the ordering guarantee holds).
         bool                            ServiceNnCheck();
+        // Top of ServiceChannel: sends a window shot's held reply once its worker has written the PNG. True while
+        // one is held (the channel reads nothing else meanwhile, like ServiceNnCheck).
+        bool                            ServiceShotWrite();
         [[nodiscard]] Control::Response CompleteNnCheck();
         // The palette's dictionary, built from the CommandRegistry the palette reads (one list, two readers).
         [[nodiscard]] std::vector<PaletteCommand> BuildDictionary() const;
@@ -217,6 +222,20 @@ namespace Desert::Editor
         std::vector<std::pair<std::string, std::string>> m_NnLastCheck;
         std::unique_ptr<Engine::Neural::FusedMlpCompute> m_NnCompute; ///< the NN pipelines, kept across checks
         std::optional<PendingNnCheck>                    m_NnCheck;
+
+        // A window shot whose PNG a worker is writing (ViewportCapture::BeginWindowPng); its reply goes out from
+        // ServiceShotWrite to the client that asked, once the file is on disk.
+        struct PendingShotWrite
+        {
+            int64_t                         Id             = 0;
+            uint64_t                        Client         = 0;
+            double                          PixelsPerPoint = 1.0;
+            ViewportCapture::WindowPngWrite Write;
+        };
+        std::optional<PendingShotWrite> m_ShotWrite;
+        // The last present's time: a frame over kLongFrameMs since it is named in editor.log ([Control] long
+        // frame).
+        std::optional<std::chrono::steady_clock::time_point> m_LastPresent;
 
         // WHICH CONNECTION asked for it. Not "was somebody connected": the editor notices a disconnect and
         // accepts the next client in the SAME service call, so a request parked across that gap would have

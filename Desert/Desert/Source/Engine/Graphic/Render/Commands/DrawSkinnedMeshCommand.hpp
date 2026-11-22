@@ -1,14 +1,17 @@
 #pragma once
 
 #include "../RenderCommand.hpp"
-// The renderer itself: every Execute below calls a method on it, and RenderCommand.hpp only
-// forward-declares the type (see the note there on the include cycle that cost).
-#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
 
-#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+#include <Engine/Graphic/Materials/MaterialInstance.hpp>
+
+namespace Desert
+{
+    class Mesh;
+    class SkinnedMesh;
+} // namespace Desert
 
 namespace Desert::Graphic::Render
 {
@@ -45,25 +48,8 @@ namespace Desert::Graphic::Render
         {
         }
 
-        void Prepare() override
-        {
-            if ( Mesh != nullptr )
-                SceneRenderer::PrepareMesh( *Mesh );
-        }
+        void Prepare() override;
 
-        void Execute( SceneRenderer& renderer ) override
-        {
-            // CastShadows must survive this hop: the flag is consumed three links away (the cascade pass
-            // skips !CastShadows on SkinnedMeshRenderData), and a default here would silently re-enable
-            // the shadow for every skinned mesh whose component turned it off.
-            renderer.SubmitMesh( Mesh, MaterialSlot, Transform,
-                                 { .Entity        = Entity,
-                                   .BoneMatrices  = BoneMatrices,
-                                   .MorphWeights  = MorphWeights,
-                                   .MorphRevision = MorphRevision,
-                                   .LodFeedback   = LodFeedback,
-                                   .Outlined      = Outlined,
-                                   .CastShadows   = CastShadows } );
-        }
+        void Execute( SceneRenderer& renderer ) override;
     };
 } // namespace Desert::Graphic::Render

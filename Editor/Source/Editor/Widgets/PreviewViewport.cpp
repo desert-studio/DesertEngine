@@ -1,4 +1,5 @@
 #include "PreviewViewport.hpp"
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include "PreviewPaneLayout.hpp"
