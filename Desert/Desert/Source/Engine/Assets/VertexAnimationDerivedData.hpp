@@ -26,20 +26,21 @@ namespace Desert::Assets
      * One entry per skinned mesh x clip: the clip sampled at kVertexAnimationFramesPerSecond over its length, each
      * sample's skinning matrices applied on the CPU to the mesh's LOWEST level's vertices exactly as the skin pass
      * applies them (SkinCache.shader: posed position, unnormalised normal / tangent / bitangent). Only that
-     * level's vertices are stored - CesiumMan's 27, not its 5358 - in the GPU skin cache's planar stream layout
+     * level's vertices are stored - CesiumMan's 69, not its 5433 - in the GPU skin cache's planar stream layout
      * over a vertex RANGE (Common/SkinCacheStreams.glslh), so the far draw fetches a frame as it fetches the live
      * cache.
      *
      * THE KEY: the deriver's version, and a payload hash of everything the bake reads - the lowest level's vertex
      * bytes and its range, the rig as read (Skeleton::GetContentSignature: structure, binds and inverse binds) and
-     * the clip's content (its `.anim` body as the writer spells it, header and identity left out) - plus the
+     * the clip as sampled (the palettes at every sample time; its text mints ids at load) - plus the
      * sampling rate as the settings image. A reimport that changes the level, a re-rig or a clip edit is another
      * key; the same content under two names is one entry.
      *
-     * WHERE IT IS BUILT: the package cook derives every skinned mesh x clip that plays on it (PackageCook.cpp
-     * CookVertexAnimations) into the bucket the package ships (DDCShipRegister.hpp), and the editor may derive on
-     * demand into the DDC (SetVertexAnimationDeriving, EditorStartup). A packaged game registers nothing: it only
-     * loads, and a miss is an error (the figure stays skeletal), never a runtime bake.
+     * WHERE IT IS BUILT: the editor derives a miss into the DDC (SetVertexAnimationDeriving, EditorStartup), and
+     * the package ships the whole bucket (DDCShipRegister.hpp). A packaged game registers nothing: it only loads,
+     * and a miss is an error (the figure stays skeletal), never a runtime bake. The cook does not yet derive every
+     * pair itself: the lowest level's vertex range is assembled only by SkinnedMesh's constructor, which needs a
+     * device the cook does not have (WP-FAR-12B REMAINDER).
      */
     inline constexpr Common::DDC::Deriver kVertexAnimationDeriver{
          "VertexAnimation", ".devat", { 0x3C9E57A1D2864B0FULL, 0x8A61F0C4B75E2D93ULL } };

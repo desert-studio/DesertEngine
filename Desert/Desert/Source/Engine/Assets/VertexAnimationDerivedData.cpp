@@ -7,8 +7,6 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Assets/Serialization/Animation.hpp>
-#include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include <Common/Core/Core.hpp>
@@ -55,18 +53,31 @@ namespace Desert::Assets
         const auto range = LowestRange( mesh );
         if ( !range )
             return Common::MakeError<uint64_t>( range.GetError() );
-        const auto body = Serialization::BuildAssetDataFromClip( clip );
-        if ( !body )
-            return Common::MakeError<uint64_t>(
-                 std::format( "the clip's content is not writable: {}", body.GetError() ) );
-        const std::string clipText = Serialization::WriteAnimationJson( body.GetValue() );
+        // THE CLIP AS THE BAKE READS IT: the skinning palettes at every sample time (frame count included). The
+        // clip's written text is not stable across loads (its sequence mints ids at load), the samples are.
+        const double duration = clip.DurationSeconds();
+        if ( !( duration > 0.0 ) )
+            return Common::MakeError<uint64_t>( "the clip has no length" );
+        const uint32_t frames =
+             std::max( 1u, static_cast<uint32_t>( std::lround( duration * kVertexAnimationFramesPerSecond ) ) );
+        Animation::Animator animator( mesh.GetSkeleton() );
+        animator.Play( clip, true );
+        uint64_t clipHash = frames;
+        for ( uint32_t f = 0; f < frames; ++f )
+        {
+            animator.SetTime( static_cast<float>( f ) / kVertexAnimationFramesPerSecond );
+            const std::vector<glm::mat4>& palette = animator.GetPose().Matrices;
+            const std::array<uint64_t, 2> pair    = {
+                clipHash, Common::Utils::PakContentHash( palette.data(), palette.size() * sizeof( glm::mat4 ) ) };
+            clipHash = Common::Utils::PakContentHash( pair.data(), sizeof( pair ) );
+        }
 
         const SkinnedVertex* const    first   = mesh.GetVertices().data() + range.GetValue().FirstVertex;
         const std::array<uint64_t, 5> payload = {
              Common::Utils::PakContentHash( first, sizeof( SkinnedVertex ) * range.GetValue().VertexCount ),
              ( static_cast<uint64_t>( range.GetValue().FirstVertex ) << 32u ) | range.GetValue().VertexCount,
              mesh.GetSkeleton().GetContentSignature(),
-             Common::Utils::PakContentHash( clipText.data(), clipText.size() ), VertexAnimationHeader{}.Version };
+             clipHash, VertexAnimationHeader{}.Version };
         const uint64_t payloadHash = Common::Utils::PakContentHash( payload.data(), sizeof( payload ) );
         const float    settings    = kVertexAnimationFramesPerSecond;
         return Common::MakeSuccess(
