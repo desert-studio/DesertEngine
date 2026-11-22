@@ -38,6 +38,8 @@ set(_server_engine_sources
     "${_engine}/Scripting/Luau/LuauBinder.cpp"
     "${_engine}/Scripting/Luau/LuauDebugger.cpp"
     "${_engine}/Scripting/Luau/LuauProperties.cpp"
+    # the reflected-component table scripts reach entity rows through (entity.Transform, ...): data rows only
+    "${_engine}/ECS/ReflectedComponents.cpp"
     "${_engine}/World/Landscape/LandscapeBrush.cpp"
     "${_engine}/World/Landscape/LandscapeData.cpp"
     "${_engine}/World/Landscape/LandscapeEditCache.cpp"

@@ -1,10 +1,11 @@
 # NET-MESH-0 pass 1: the DesertServer target on macOS (Docs/contracts/NET-ARCH.md §6, §9 row NET-MESH-0).
-# Outside the editor (DesertEngine-scratch/NET-MESH-0/):
-#   build/Bin/Release/WorldCook Projects/Desert/Content/Scenes/WP_Protocol.desce
-#        --out Projects/Desert/Content/Scenes/WP_Protocol.dwworld --project Projects/Desert/Desert.deproj --no-registry
-#   build/Bin/Release/DesertServer --project Projects/Desert/Desert.deproj --role all
-#        --world Content/Scenes/WP_Protocol.desce --source 0,0,0 --steps 600   > mesh0_mac_server.log
-#   otool -L build/Bin/Release/DesertServer                                     > mesh0_mac_server.otool.txt
+# Outside the editor (DesertEngine-scratch/NET-MESH-0/; the world is a COPY of WP_Protocol under world/ with its
+# __ExternalEntities__/WP_Protocol, _Landscape and _HLOD, cp -p, so the cook never writes into the repo):
+#   build/Bin/Debug/WorldCook world/WP_Protocol.desce
+#        --out world/WP_Protocol.dwworld --project Projects/Desert/Desert.deproj --project-registry
+#   build/Bin/Debug/DesertServer --project Projects/Desert/Desert.deproj --role all
+#        --world <scratch>/world/WP_Protocol.desce --source 0,0,0 --steps 600   > mesh0_mac_server.log
+#   otool -L build/Bin/Debug/DesertServer                                     > mesh0_mac_server.otool.txt
 # Тогда [mesh0_mac_server]: the log shows "no device created", the cooked index loaded with its cook hash, 600 steps
 # at 60 Hz and the residency union of one source; the otool list names no Vulkan/MoltenVK/Metal/AppKit/Cocoa.
 # Regression (here): the client still builds and opens WP_Protocol unchanged (ReadCookedWorld moved to CookedWorld).
