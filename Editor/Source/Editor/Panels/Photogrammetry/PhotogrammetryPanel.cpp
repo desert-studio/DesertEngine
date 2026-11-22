@@ -18,6 +18,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
