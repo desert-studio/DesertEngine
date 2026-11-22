@@ -202,9 +202,12 @@ namespace Desert::Graphic::System
                 return Common::MakeError( tracePipeline.GetError() );
             m_TracePipeline = tracePipeline.GetValue();
 
-            // FPS-SSR-FARFIELD: the front layer's denoiser follows its world legs onto the async pipe
-            // (WorldStagePassFlags), so its first graphics reader is the water / glass, not the reconstruction.
-            m_Denoiser.RunOnAsyncCompute( m_Surface == ReflectingSurface::TranslucentFrontLayer );
+            // FPS-SSR-FARFIELD, FPS-GFX-TO-ASYNC-2: the denoiser follows the world legs onto the async pipe
+            // (WorldStagePassFlags), so the first graphics reader is the composite (the opaque surface) or the
+            // water / glass (the front layer), not the reconstruction right after the legs - a graphics
+            // reconstruction would join the async queue there, behind the whole screen-probe run before the legs.
+            // Every surface: the hardware tracer's ray query (on Graphics) forks it, and the composite joins it.
+            m_Denoiser.RunOnAsyncCompute( true );
             return m_Denoiser.Initialize();
         }
 
@@ -535,13 +538,20 @@ namespace Desert::Graphic::System
         // run on the async pipe, with its denoiser (Initialize): their first graphics reader is the water / glass
         // after the opaque composite (or the scene copy that rewrites the scene colour history they sample), and
         // by then the async queue has finished the screen probes, so the legs overlap the composite, the forward
-        // meshes and the opaque fog instead of lengthening the graphics queue. The opaque surface's legs stay on
-        // Graphics: their reader is the composite itself, which already waits for the async screen probes
-        // (FPS-SP-COMPOSITE-WAIT) - on the async FIFO behind them they would add their whole time to that wait.
+        // meshes and the opaque fog instead of lengthening the graphics queue. The opaque surface's legs run there
+        // too (FPS-GFX-TO-ASYNC-2): the graphics queue is the longer one (FIELD_Barn TURN scn-1121-214723: ~8.8 ms
+        // against ~4.8 ms, 'SSR: World far field' 0.426 ms of it). All three legs move together - the far field
+        // reads the near field's far list and the hit lighting the far field's hit list, so one leg alone on the
+        // async queue would fork and join around itself and the graphics queue would wait its whole time. The
+        // near field already waited on the async surface cache's final lighting ('RDG Wait .. before Deferred:
+        // Reflections World'); on the async queue that is a same-queue edge. Their reader is the composite, the
+        // join the screen probes' run already has (UE: Lumen reflections and the screen probe gather on async
+        // compute, joined before the composite); the graph fills that window with the graphics work that does not
+        // depend on them (RDG ScheduleIntoAsyncWindows). The measured balance may give a leg back to Graphics.
         // The hardware tracer's one ray query stays on Graphics (its TLAS is the graphics queue's build).
         [[nodiscard]] RDG::PassFlags WorldStagePassFlags( const WorldList& world ) const
         {
-            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer && world.Legs )
+            if ( world.Legs )
                 return RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
             return RDG::PassFlags::Compute;
         }
