@@ -95,14 +95,11 @@ function(_desert_engine_module_library name)
         desert_depend_on_codegen(${target})
     endif()
 
-    desert_engine_includes(${target})
+    # Closure-only (UBT): the module's own FOLDER and its dependency closure's, so an include of a module it does
+    # not depend on does not compile (cmake/DesertModules.cmake, MODULE BOUNDARY, refuses it at configure first).
+    desert_module_includes(${target} ${name})
     target_include_directories(${target} PRIVATE
-        "${_source}/"
         "${DESERT_ROOT}/ThirdParty/mikktspace"
-        "${DESERT_ROOT}/Desert/UI/Source"
-        "${DESERT_ROOT}/Desert/Render2DCore/Source"
-        "${DESERT_ROOT}/Desert/CoreReflection/Source"
-        "${DESERT_ROOT}/Desert/Common/Source"
         "${DESERT_ROOT}/Editor/Resources/Shaders")
     desert_external_includes(${target}
         "${DESERT_ROOT}/ThirdParty/voro++/src"

@@ -82,7 +82,9 @@ desert_placement(Localization [[Engine/Localization/|Engine/Assets/StringTable(A
 # geometry / animation runtime cores
 desert_placement(Engine [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]])
 desert_placement(GeometryCore [[Engine/Geometry/]])
-desert_placement(Engine [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSerialization\.|Timeline/SequenceFormat\.|Modular/)]])
+# Timeline/Hosts maps the UI's easing onto the Timeline's: the UI-side adapter, so Engine's (DesertUI is not in
+# AnimationCore's closure; MODULE BOUNDARY)
+desert_placement(Engine [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSerialization\.|Timeline/SequenceFormat\.|Timeline/Hosts\.|Modular/)]])
 desert_placement(AnimationCore [[Engine/Animation/]])
 # RHI + RDG
 desert_placement(ShaderCompiler [[Engine/Core/ShaderCompiler/]])
