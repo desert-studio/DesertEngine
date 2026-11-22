@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -40,8 +41,19 @@
 // each drawn graph's list schedule times its runs per frame; the "RDG Wait" rows are what the schedule must
 // reproduce, never a cost. (It was: one graph's pass SELF times, by exact name - on FPS-FIELD-BARN-TURN
 // scn-1121-214723 the SceneView graph was modelled at 2.445 ms of a 9.38 ms GPU frame, missed the 3.1 ms DLSS-RR
-// evaluate nested in its pass, and gave 'Clouds: March' to the graphics queue, the longer one.) A flip to
-// Graphics is never taken while the graph's graphics queue holds more work than its async queue.
+// evaluate nested in its pass, and gave 'Clouds: March' to the graphics queue, the longer one.)
+// A FLIP TO GRAPHICS FOLLOWS A MODELLED WAIT (FPS-ASYNC-BALANCE-ACT, UE: none - r.*.AsyncCompute is fixed; here
+// the profile-guided queue layout of id Tech / Frostbite): only while the schedule has the graphics queue
+// waiting more than kWaitThresholdMs on the async queue (at a join, or at the graph end), and only an async pass
+// at or before the async pass that join waits for (the async queue runs in position order, so each of them
+// delays it), cheapest on Graphics first, the first that shortens the modelled graph by kFlipMarginMs. A pass
+// back to AsyncCompute is the one whose flip shortens the graph most. (It was: no flip to Graphics while the
+// graph's graphics queue held more work than its async queue - a whole-graph sum. On FPS-FIELD-BARN-TURN
+// scn-1122-113538 the SceneView graph's graphics queue (DLSS-RR, the G-buffer, the shadows) always held more, so
+// no pass ever moved while graphics waited 1.87 ms before 'Deferred: Composite (Simple Tiles)' on the
+// ScreenProbes segment forked 7 graphics passes earlier: "RDG: Async balance" ran every window with 0 moves.)
+// A graph drawn while graphics waits on async and nothing moved logs why (warm-up, no modelled wait, no
+// gaining pass) once per change of the reason, with the modelled wait beside the measured one.
 // Who calls it: the backend - NotePlan when a graph begins with a plan it has not seen, Rebalance once per
 // published profiler window, GraphicsPasses when a graph compiles (IBackend::GetAsyncBalance). The compile
 // (Compiler::ChoosePipes) runs a listed pass on Graphics; the compile cache keys the list (AsyncBalanceKeyOf).
@@ -63,11 +75,15 @@ namespace Desert::Graphic::RDG
         static constexpr uint32_t kFrozenWindows    = 4;
         static constexpr uint32_t kMaxHoldDoublings = 4; // a repeated flip to Graphics holds at most 64 windows
         static constexpr uint32_t kFlipsPerWindow   = 4;
+        // The modelled graphics wait on the async queue (ms per run of the graph) a flip to Graphics answers.
+        static constexpr double kWaitThresholdMs = 0.1;
         // FPS-ASYNC-WARMUP: no flip from a shape's first kWarmupWindows measured windows, nor from a window whose
         // modelled graph is over kWarmupRatio x the shortest one seen - shader compiles and first-use uploads
         // inflate costs there. (FPS-FIELD-BARN-TURN scn-1121-111104: a 58.9 ms warm-up window gave
         // 'ScreenProbes: Integrate Classify' to Graphics for 0.315 ms; beside the async traces it then measured
-        // 0.757 ms there, and the model never saw a gain taking it back.)
+        // 0.757 ms there, and the model never saw a gain taking it back.) The shortest is the shortest of the
+        // last kWarmupWindows windows, not of the run: one short window (a load screen, a frame with half the
+        // passes unmeasured) would otherwise mark every later window a warm-up for the rest of the run.
         static constexpr uint32_t kWarmupWindows = 4;
         static constexpr double   kWarmupRatio   = 1.5;
 
@@ -116,10 +132,22 @@ namespace Desert::Graphic::RDG
             std::vector<bool>        Eligible;       // declared AsyncCompute on a device with an async queue
             std::vector<uint32_t>    PredFirst;      // by position, into Preds; one more entry at the end
             std::vector<uint32_t>    Preds;          // positions this position depends on
-            // Warm-up guard (FPS-ASYNC-WARMUP): measured windows seen and the shortest modelled graph so far.
-            uint32_t Windows   = 0;
-            double   MinLength = 0.0;
-            uint32_t Runs      = 0; // NotePlan calls since the last Rebalance: drawn in the window when > 0
+            // Warm-up guard (FPS-ASYNC-WARMUP): measured windows seen and the modelled graph of the last
+            // kWarmupWindows of them (a ring, by Windows).
+            uint32_t Windows                = 0;
+            std::array<double, kWarmupWindows> Recent{};
+            uint32_t Runs = 0; // NotePlan calls since the last Rebalance: drawn in the window when > 0
+            // Why the last window with a measured graphics wait moved nothing (HoldReason), logged on a change.
+            uint8_t LastHold = 0;
+        };
+        // The schedule's largest graphics wait on the async queue: at a graphics pass that starts after an async
+        // pass it depends on, or at the graph end. Async: the async position it waits for (count: no wait).
+        struct ModelledWait
+        {
+            double Largest = 0.0;
+            double Total   = 0.0;
+            size_t Join    = 0; // the graphics position that waits (count: the graph end)
+            size_t Async   = 0;
         };
         struct Decision
         {
@@ -133,6 +161,9 @@ namespace Desert::Graphic::RDG
         [[nodiscard]] static double Simulate( const Shape& shape, std::span<const Pipe> pipes,
                                               std::span<const double> cost, std::span<const double> asyncExtra,
                                               std::vector<double>& finish );
+        [[nodiscard]] static ModelledWait WaitOf( const Shape& shape, std::span<const Pipe> pipes,
+                                                  std::span<const double> cost,
+                                                  std::span<const double> asyncExtra );
         [[nodiscard]] Decision*     Find( uint64_t key ) noexcept;
         void                        SortList();
 
