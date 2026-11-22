@@ -308,9 +308,9 @@ Shader "DeferredLighting"
         	const float band = DistanceFieldShadowHandOver(light, cascade, worldPos);
         	if (band <= 0.0)
         		return cascades;
-        	const float field = texelFetch(DistanceFieldShadowTexture, ivec2(gl_FragCoord.xy), 0)[light];
+        	const float fieldShadow = texelFetch(DistanceFieldShadowTexture, ivec2(gl_FragCoord.xy), 0)[light];
         	// Past the cascades the far shadow's static casters (cascades) and the field both occlude: the darker.
-        	return cascade < 0 ? min(cascades, field) : mix(cascades, field, band);
+        	return cascade < 0 ? min(cascades, fieldShadow) : mix(cascades, fieldShadow, band);
         }
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) DesertDirectionalShadowWithDistanceField(kShadowLightSun, CompositeView.x, worldPos, N, L, cascade)
         #define DESERT_LIGHT1_SHADOW(worldPos, N, L, cascade) DesertDirectionalShadowWithDistanceField(kShadowLightAtmosphere1, CompositeView.w, worldPos, N, L, cascade)
