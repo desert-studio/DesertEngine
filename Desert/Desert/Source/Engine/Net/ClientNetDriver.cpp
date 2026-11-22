@@ -1,5 +1,7 @@
 #include <Engine/Net/ClientNetDriver.hpp>
 
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -114,7 +116,7 @@ namespace Desert::Core
 
     ClientNetDriver::~ClientNetDriver() = default;
 
-    void ClientNetDriver::Tick( Scene& scene, const Assets::AssetManager& assets, const double deltaSeconds )
+    void ClientNetDriver::Tick( Scene& scene, Assets::AssetManager& assets, const double deltaSeconds )
     {
         m_Clock += deltaSeconds;
         m_Client->Poll();
@@ -130,7 +132,10 @@ namespace Desert::Core
         if ( m_Client->State() != EState::InSession )
             return;
         if ( !m_InSession )
+        {
             LOG_INFO( "[Net] in session with {}", m_Options.Address );
+            LoadPawnPrefab( assets );
+        }
         m_InSession = true;
 
         ApplySpawnsAndDestroys( scene, assets );
@@ -163,6 +168,38 @@ namespace Desert::Core
                       line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
                       m_Client->PendingInputs() );
         }
+    }
+
+    // THE SERVER'S PAWN PREFAB, LOADED BEFORE ANY PAWN IS SPAWNED. The Welcome names it by handle; the open level
+    // references only its own assets, so a pawn the level does not name is not registered yet. The handle is resolved
+    // to its file through the content registry (handle -> stable key, no type and no prior registration needed) and
+    // registered + loaded here, once per session - UE's client loads the GameMode's DefaultPawnClass the same way.
+    void ClientNetDriver::LoadPawnPrefab( Assets::AssetManager& assets )
+    {
+        const Assets::AssetHandle handle( m_Client->PawnPrefab() );
+        if ( assets.FindByHandle<Assets::PrefabAsset>( handle ) )
+            return;
+        const std::string key = Assets::ContentRegistry::KeyForHandle( m_Client->PawnPrefab() );
+        if ( key.empty() )
+        {
+            LOG_ERROR( "[Net] the server's pawn prefab {:016x} names no content of this client's project",
+                       m_Client->PawnPrefab() );
+            return;
+        }
+        const std::filesystem::path path = Common::AssetHandle::PathForStableKey( key );
+        const auto                  prefab = assets.CreateAsset<Assets::PrefabAsset>( path );
+        if ( !prefab || !prefab->IsReadyForUse() )
+        {
+            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load", m_Client->PawnPrefab(), key );
+            return;
+        }
+        if ( !assets.FindByHandle<Assets::PrefabAsset>( handle ) )
+        {
+            LOG_ERROR( "[Net] the server's pawn prefab {:016x} loaded from '{}' under another handle",
+                       m_Client->PawnPrefab(), key );
+            return;
+        }
+        LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}')", m_Client->PawnPrefab(), key );
     }
 
     void ClientNetDriver::ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets )

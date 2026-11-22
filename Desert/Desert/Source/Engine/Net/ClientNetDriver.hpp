@@ -68,12 +68,15 @@ namespace Desert::Core
         ~ClientNetDriver();
 
         // Once per frame while Play runs, BEFORE the systems (so physics and the renderer see this frame's poses).
-        void Tick( Scene& scene, const Assets::AssetManager& assets, double deltaSeconds );
+        // The session's first Tick loads the server's pawn prefab into `assets` (UE: the client loads the GameMode's
+        // DefaultPawnClass package before it spawns the pawns replicated to it).
+        void Tick( Scene& scene, Assets::AssetManager& assets, double deltaSeconds );
         // Play stops: the remote pawns leave the Scene's players (Stop's restore drops their entities).
         void Shutdown( Scene& scene );
 
     private:
         ClientNetDriver() = default;
+        void      LoadPawnPrefab( Assets::AssetManager& assets );
         void      ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
         glm::vec3 InputMove( Scene& scene );
