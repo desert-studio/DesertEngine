@@ -236,6 +236,10 @@ namespace Desert::Editor
         // The last present's time: a frame over kLongFrameMs since it is named in editor.log ([Control] long
         // frame).
         std::optional<std::chrono::steady_clock::time_point> m_LastPresent;
+        // WQH p3: the profiler publication a long frame fell in; once that window is published, its hitches (the
+        // frames' largest self scopes, any thread) are logged under the long frame, so it is named, not guessed.
+        std::optional<uint64_t> m_LongFrameWindow;
+        void                    LogLongFrameWindowIfPublished();
 
         // WHICH CONNECTION asked for it. Not "was somebody connected": the editor notices a disconnect and
         // accepts the next client in the SAME service call, so a request parked across that gap would have

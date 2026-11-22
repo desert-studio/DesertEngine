@@ -779,6 +779,40 @@ namespace Desert::Editor
         m_FrameQuiescence = quiescence;
     }
 
+    void ControlService::LogLongFrameWindowIfPublished()
+    {
+        // The window holding the long frame closes on a later BeginFrame (time-based, or a `frames N` capture):
+        // its rows are read once it is published, never guessed from the log lines around the frame.
+        const auto& prof = Common::Profiling::Profiler::Get();
+        if ( !m_LongFrameWindow || prof.PublishCount() <= *m_LongFrameWindow )
+            return;
+        m_LongFrameWindow.reset();
+        for ( const Common::Profiling::HitchFrame& hitch : prof.LastHitches() )
+        {
+            std::string top;
+            for ( const auto& [name, selfMs] : hitch.TopRows() )
+                top += std::format( "{}{} {:.1f}", top.empty() ? "" : ", ", std::string_view( name ), selfMs );
+            LOG_WARN( "[Control] long frame window: frame {} of {}: {:.1f} ms (median {:.1f} ms); top self: {}",
+                      hitch.Frame, prof.LastWindowFrames(), hitch.FrameMs, hitch.MedianMs, top );
+        }
+        if ( !prof.LastHitches().empty() )
+            return;
+        // No frame of the window stood over 1.5x its median (a short window of long frames): its rows by self ms.
+        std::vector<const Common::Profiling::ScopeResult*> rows;
+        for ( const auto& row : prof.LastFrame() )
+            rows.push_back( &row );
+        const std::size_t top = std::min<std::size_t>( rows.size(), 8 );
+        std::partial_sort( rows.begin(), rows.begin() + static_cast<std::ptrdiff_t>( top ), rows.end(),
+                           []( const auto* a, const auto* b ) { return a->SelfMs > b->SelfMs; } );
+        std::string list;
+        for ( std::size_t i = 0; i < top; ++i )
+            list += std::format( "{}{} {:.1f}", list.empty() ? "" : ", ", std::string_view( rows[i]->Name ),
+                                 rows[i]->SelfMs );
+        LOG_WARN( "[Control] long frame window: {} frame(s), {:.1f} ms a frame, no hitch over the median; top self "
+                  "a frame: {}",
+                  prof.LastWindowFrames(), prof.LastFrameMs(), list );
+    }
+
     std::optional<int32_t> ControlService::OnFramePresented( const BuiltFrame& built,
                                                              const bool        displacementUnsettled,
                                                              const bool subsurfaceHistoryConverging,
@@ -794,10 +828,15 @@ namespace Desert::Editor
             {
                 const double ms = std::chrono::duration<double, std::milli>( now - *m_LastPresent ).count();
                 if ( ms > kLongFrameMs )
+                {
                     LOG_WARN( "[Control] long frame {}: {:.1f} ms since the previous present (over {:.0f} ms)",
                               built.Serial, ms, kLongFrameMs );
+                    if ( !m_LongFrameWindow )
+                        m_LongFrameWindow = Common::Profiling::Profiler::Get().PublishCount();
+                }
             }
             m_LastPresent = now;
+            LogLongFrameWindowIfPublished();
         }
         // The clock is not advanced here: ServiceChannel advances it when the next update begins its frame.
         // THE FRAME IS JUDGED BY ITS OWN CENSUS (@p built, OVERLAP-ON-3) plus the four entries the frame itself

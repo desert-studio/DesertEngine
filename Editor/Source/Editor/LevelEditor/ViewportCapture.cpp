@@ -371,15 +371,14 @@ namespace Desert::Editor
             }
         }
 
-        // The copy was submitted with this frame; waiting is what makes the staging buffer readable.
-        const auto collectStart = std::chrono::steady_clock::now();
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        const auto readbackStart = std::chrono::steady_clock::now();
-
-        // Only the device wait is the frame's (WQH p2): the staging is detached here and the worker reads it out
-        // (~0.3-0.6 s of a 4112x2580 window: readback memory reads slowly on the CPU), packs it to RGBA8 (~0.85 s)
-        // and encodes it; the staging is released on the game thread once the worker is done (FinishWindowPng).
-        auto captured = swapChain->DetachCapturedFrame();
+        // The copy was submitted with this frame. NOTHING ON THE FRAME WAITS FOR IT (WQH p3; the device idle wait
+        // here was 126-282 ms of the shot's frame): the detach queues a fence behind the frame, the worker waits
+        // that fence, then reads the staging out (~0.3-0.6 s of a 4112x2580 window: readback memory reads slowly
+        // on the CPU), packs it to RGBA8 (~0.85 s) and encodes it; the staging is released on the game thread once
+        // the worker is done (FinishWindowPng). UE: FRHIGPUTextureReadback - enqueue the copy, read once IsReady.
+        const auto collectStart  = std::chrono::steady_clock::now();
+        const auto readbackStart = collectStart;
+        auto       captured      = swapChain->DetachCapturedFrame();
         {
             // Collected: DetachCapturedFrame takes or releases the staging on every path. A return above leaves the copy
             // in flight, and the frame's announcement discards it (ControlService::OnFramePresented).
@@ -434,8 +433,8 @@ namespace Desert::Editor
         const double encodeMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.Started ).count();
         LOG_INFO( "[Control] wrote the presented frame (editor and interface) -> {} ({}x{}); on the frame "
-                  "{:.1f} ms (render task join {:.1f} ms, device idle wait {:.1f} ms, staging detach {:.1f} ms), staging "
-                  "read + RGBA8 pack + PNG encode + write on a worker {:.1f} ms",
+                  "{:.1f} ms (render task join {:.1f} ms, device wait {:.1f} ms, staging detach + fence {:.1f} ms), GPU "
+                  "fence wait + staging read + RGBA8 pack + PNG encode + write on a worker {:.1f} ms",
                   write.Path, write.Width, write.Height, write.JoinMs + write.WaitMs + write.CollectMs,
                   write.JoinMs, write.WaitMs, write.CollectMs, encodeMs );
         return {};
