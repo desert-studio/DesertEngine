@@ -408,10 +408,13 @@ Shader "SSR"
         		uint       entries[8];
         		vec3       positions[8];
         		RadianceCacheCorners(coord, coverage.clipmap, entries, positions);
+        		float visibility[8];
+        		for (uint c = 0u; c < 8u; ++c)
+        			visibility[c] = RadianceCacheCornerVisibility(t.worldPos, t.N, V, coverage.clipmap, entries[c], positions[c]);
         		const float pick = hash12(vec2(q) * 1.37 + vec2(CameraPosition.w, 0.0) * 2.83 + vec2(0.5, 17.0));
         		uint        why  = RADIANCE_CACHE_READ_EMPTY;
         		const vec4  cache =
-        		     RadianceCacheRadianceAt(t.worldPos, t.N, V, s.worldL, coverage.clipmap, entries, positions, pick, why);
+        		     RadianceCacheRadianceAt(t.worldPos, t.N, V, s.worldL, coverage.clipmap, entries, visibility, pick, why);
         		if (cache.a > 0.0)
         		{
         			SSRWorldWriteHit(q, t, s, cache.rgb, start + s.worldL * marchT);
