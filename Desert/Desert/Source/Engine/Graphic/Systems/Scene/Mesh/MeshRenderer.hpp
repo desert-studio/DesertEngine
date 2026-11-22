@@ -637,8 +637,10 @@ namespace Desert::Graphic::System
             // THE FAR CROWD HAND-OFF (WP-FAR-12, VertexAnimationCrowd): non-zero = this record is drawn this frame
             // from its clip's baked vertex animation at its lowest level - the device address of the VAT frame its
             // GpuScene row fetches its posed streams from (the skin cache's layout), so it is neither skinned nor
-            // posed. Set by SelectSkinnedLods; the skin cache leaves such a record alone.
-            uint64_t                    VatAddress  = 0;
+            // posed. Set by SelectSkinnedLods; the skin cache leaves such a record alone. The address is biased to
+            // the baked level's vertex range (VertexAnimationCrowd::FrameAddress), VatVertexCount that range's count.
+            uint64_t                    VatAddress     = 0;
+            uint32_t                    VatVertexCount = 0;
             // The far figure's minimum screen size (VertexAnimationCrowd::kMinScreenSize): the growth its draw
             // (VAT or skeletal) gets this frame about MinScreenPivot (the local bounds' bottom centre), 1 = its own size. Set by
             // SelectSkinnedLods; the GpuScene row's world (SyncGpuScene) carries it to every pass.

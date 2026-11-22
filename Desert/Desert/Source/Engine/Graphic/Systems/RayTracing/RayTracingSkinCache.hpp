@@ -15,7 +15,8 @@
 #include <span>
 #include <string_view>
 #include <unordered_map>
-#include <vector>
+#include <vector>
+
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert
@@ -65,7 +66,9 @@ namespace Desert::Graphic::System
 //   [3V, 6V)  previous positions - last frame's current, rotated in the skin shader (each invocation reads its
 //             vertex's current before overwriting it); a fresh entry (or one not skinned last frame) writes the
 //             new pose into both, so a newly cached primitive carries camera motion only
-//   [6V, 15V) tangent frame      - normal, tangent, bitangent (3 x float3) skinned by the palette's 3x3
+//   [6V, 15V) tangent frame      - normals [6V, 9V), tangents [9V, 12V), bitangents [12V, 15V), skinned by the
+//             palette's 3x3; one plane a stream so a range of the mesh's vertices fits the same fetch
+//             (Common/SkinCacheStreams.glslh)
 namespace Desert::Graphic::System
 {
     class DisplacementCache;

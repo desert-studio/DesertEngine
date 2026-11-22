@@ -1,0 +1,19 @@
+# WP-FAR-12B: the far crowd's vertex animation is DERIVED DATA (UE AnimToTexture), not a runtime bake: one DDC entry
+# per skinned mesh x clip (Assets/VertexAnimationDerivedData.hpp, bucket VertexAnimation), keyed by the lowest
+# level's vertices, the rig's content signature, the clip's content and the deriver's version; only the lowest
+# level's vertices are stored (CesiumMan 27 of 5358), in planar skin-cache streams over that range.
+# Readout: editor.log "[Crowd] clip '...' vertex animation <key> derived now into the DDC | derived (DDC hit): ... MB"
+# (first run: derived now; second run: DDC hit) and "[Crowd] skeletal N, vat M ...".
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR12_SkinnedCrowd.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,30000
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 2
+Тогда far_300 at 300 m the far figures walk (legs apart, not T-posed, not exploded); log: [Crowd] vat N > 0, vertex animation 27 vertices <= 0.2 MB, "derived (DDC hit)" on the second run
+Когда --subject viewport set Camera.Position 0,0,500
+Когда advance 2
+Тогда near_5 the origin CesiumMan at 5 m walks, skeletal, shaded as before (the planar skin-cache streams: normals not broken)
