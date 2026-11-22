@@ -531,13 +531,21 @@ namespace Desert::Graphic::System
 
         // THE FFT OCEAN replaces the Gerstner rows where the set is one and the tier asks for it.
         const bool fft = PrepareFFTFrame( material, wavesAsset, waves.Header, waves.FFT, verticalExtent );
-        if ( const int32_t source = fft ? 1 : 0; source != m_LoggedWaveSource )
+        // The frame's rivers: every distinct baked ribbon of the zones (a body shared by two zones counts once).
+        std::vector<const Water::RiverFlowField*> rivers;
+        for ( const WaterZoneDraw& zone : m_Queue )
+            for ( const std::shared_ptr<const Water::RiverFlowField>& flow : zone.Bodies->Flows )
+                if ( flow != nullptr && flow->Size.x != 0u &&
+                     std::find( rivers.begin(), rivers.end(), flow.get() ) == rivers.end() )
+                    rivers.push_back( flow.get() );
+        const auto riverCount = static_cast<int32_t>( rivers.size() );
+        if ( const int32_t source = ( fft ? 1 : 0 ) + 2 * riverCount; source != m_LoggedWaveSource )
         {
             m_LoggedWaveSource = source;
             if ( fft )
-                LOG_INFO( "[Water] waves=FFT cascades={} rivers=0", Water::kFFTOceanCascades );
+                LOG_INFO( "[Water] waves=FFT cascades={} rivers={}", Water::kFFTOceanCascades, riverCount );
             else
-                LOG_INFO( "[Water] waves=Gerstner" );
+                LOG_INFO( "[Water] waves=Gerstner rivers={}", riverCount );
         }
 
         // The waves block is whole here (its WaterInfo lane reads the ground and the mask depth, both settled
