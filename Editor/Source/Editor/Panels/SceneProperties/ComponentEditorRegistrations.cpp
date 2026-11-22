@@ -166,6 +166,11 @@
 #include <Engine/VFX/VFXUserOverride.hpp>
 #include <Common/Json/ReadWrite.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
+#include <Engine/ECS/ExponentialHeightFogComponent.hpp>
+#include <Engine/ECS/HeroCloudComponent.hpp>
+#include <Engine/ECS/HeterogeneousVolumeComponent.hpp>
+#include <Engine/ECS/LocalFogVolumeComponent.hpp>
+#include <Engine/ECS/VolumetricCloudComponent.hpp>
 
 // Directional light is a CUSTOM entry: the reflected fields PLUS the one direction widget (a sun dial over the
 // entity's Rotation, the light's forward axis -Z, as UE). See MakeDirectionalLightEntry.

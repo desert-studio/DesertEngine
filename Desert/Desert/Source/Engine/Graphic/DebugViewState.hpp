@@ -3,6 +3,8 @@
 #include <Common/Json/Json.hpp>
 
 
+#include <glm/glm.hpp>
+
 #include <optional>
 
 namespace Desert::Graphic

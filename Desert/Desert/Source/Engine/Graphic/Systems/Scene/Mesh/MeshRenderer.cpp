@@ -40,6 +40,8 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
+#include <Engine/Graphic/PipelineCache.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 
 namespace Desert::Graphic::System
 {

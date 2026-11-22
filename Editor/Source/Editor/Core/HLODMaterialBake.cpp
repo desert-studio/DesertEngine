@@ -421,7 +421,7 @@ namespace Desert::Editor
                 if ( !m_Renderer )
                 {
                     const auto side = static_cast<uint32_t>( m_Jobs.front().Source.Settings.TextureSize );
-                    m_Renderer      = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ side, side },
+                    m_Renderer      = Graphic::SceneRenderer::Create( Graphic::ViewExtent{ side, side },
                                                                                 Graphic::kThumbnailViewProfile );
                 }
                 if ( !m_Renderer->AdvanceRendererBuild() )

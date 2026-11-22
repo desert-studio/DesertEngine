@@ -8,7 +8,7 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/SceneRendererImpl.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -22,7 +22,7 @@
 
 namespace Desert::Graphic
 {
-    bool SceneRenderer::SurfaceCacheRuns() const
+    bool SceneRendererImpl::SurfaceCacheRuns() const
     {
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
@@ -42,7 +42,7 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
     }
 
-    std::span<const GlobalIllumination::LocalLighting> SceneRenderer::GatherFrameLocalLighting()
+    std::span<const GlobalIllumination::LocalLighting> SceneRendererImpl::GatherFrameLocalLighting()
     {
         // The lights as the surface cache's direct lighting reads them (PointLightsUB / SpotLightsUB: colour
         // times intensity over the range), each named by its kind and its SourceId (m_*LightShadows, index for
@@ -75,26 +75,26 @@ namespace Desert::Graphic
         return m_FrameLocalLighting;
     }
 
-    SurfaceCache::SurfaceCacheRenderer* SceneRenderer::ReadSurfaceCache() const
+    SurfaceCache::SurfaceCacheRenderer* SceneRendererImpl::ReadSurfaceCache() const
     {
         SurfaceCache::SurfaceCacheRenderer* const cache =
              m_SharedSurfaceCache != nullptr ? m_SharedSurfaceCache : m_FrameSurfaceCache;
         return cache != nullptr && cache->IsInitialized() ? cache : nullptr;
     }
 
-    SurfaceCache::SurfaceCacheRenderer* SceneRenderer::BoundSurfaceCache() const
+    SurfaceCache::SurfaceCacheRenderer* SceneRendererImpl::BoundSurfaceCache() const
     {
         return m_SharedSurfaceCache != nullptr ? m_SharedSurfaceCache : m_FrameSurfaceCache;
     }
 
-    const SurfaceCache::SurfaceCacheRenderer::FrameViews* SceneRenderer::SurfaceCacheFrameViews() const
+    const SurfaceCache::SurfaceCacheRenderer::FrameViews* SceneRendererImpl::SurfaceCacheFrameViews() const
     {
         const SurfaceCache::SurfaceCacheRenderer* const cache = BoundSurfaceCache();
         return cache != nullptr ? cache->ViewsOf( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
                                 : nullptr;
     }
 
-    GlobalIllumination::Pipeline SceneRenderer::SurfaceCacheTracer() const
+    GlobalIllumination::Pipeline SceneRendererImpl::SurfaceCacheTracer() const
     {
         // THE CACHE'S, NOT THE VIEW'S: one scene's cards are lit once per frame for every view, with the tracer the
         // cache's owner resolved from the scene (SurfaceCacheRenderer::BeginFrame). Untraced (nothing to walk)
@@ -103,7 +103,7 @@ namespace Desert::Graphic
         return views != nullptr ? views->Tracer : GlobalIllumination::Pipeline{};
     }
 
-    bool SceneRenderer::SurfaceCacheUpdateTracesRayQuery() const
+    bool SceneRendererImpl::SurfaceCacheUpdateTracesRayQuery() const
     {
         if ( !SurfaceCacheRuns() )
             return false;
@@ -115,7 +115,7 @@ namespace Desert::Graphic
         return tracer.Traced && tracer.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
     }
 
-    GlobalIllumination::TracerFrame SceneRenderer::MakeTracerFrame( RDG::Builder&                       graph,
+    GlobalIllumination::TracerFrame SceneRendererImpl::MakeTracerFrame( RDG::Builder&                       graph,
                                                                     const FrameTextures&                textures,
                                                                     const GlobalIllumination::Pipeline& pipeline )
     {
@@ -156,7 +156,7 @@ namespace Desert::Graphic
         return tracer;
     }
 
-    RDG::BufferRef SceneRenderer::AddFrameInstanceSurfaceCacheRows( RDG::Builder& graph )
+    RDG::BufferRef SceneRendererImpl::AddFrameInstanceSurfaceCacheRows( RDG::Builder& graph )
     {
         if ( m_TracedFrameShared.InstanceSurfaceCacheRows.IsValid() )
             return m_TracedFrameShared.InstanceSurfaceCacheRows;
@@ -193,7 +193,7 @@ namespace Desert::Graphic
         return buffer;
     }
 
-    void SceneRenderer::AddFrameSurfaceCache( RDG::Builder& graph, FrameTextures& textures,
+    void SceneRendererImpl::AddFrameSurfaceCache( RDG::Builder& graph, FrameTextures& textures,
                                               const ViewFrame& frame )
     {
         m_SurfaceCacheFrame.reset();
@@ -464,7 +464,7 @@ namespace Desert::Graphic
     }
 
 #if DESERT_DEV_INSTRUMENTS
-    void SceneRenderer::AddFrameSurfaceCacheView( RDG::Builder& graph, FrameTextures& textures,
+    void SceneRendererImpl::AddFrameSurfaceCacheView( RDG::Builder& graph, FrameTextures& textures,
                                                   const ViewFrame& frame, const RDG::TextureRef target )
     {
         const bool atlasView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheAtlas;

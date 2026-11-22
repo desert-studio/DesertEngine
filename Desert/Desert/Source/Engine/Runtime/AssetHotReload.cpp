@@ -39,6 +39,7 @@
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 
 namespace Desert::Runtime
 {
