@@ -57,6 +57,7 @@
 #include <Engine/Physics/CharacterControllerComponent.hpp>
 #include <Engine/Physics/ColliderComponent.hpp>
 #include <Engine/Physics/RigidBodyComponent.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 
 namespace Desert::ECS
 {

@@ -29,6 +29,7 @@
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is compiled into stb_image.cpp; declarations only here.
 #include <stb_image/stb_image_write.h>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 
 namespace Desert::Editor
 {

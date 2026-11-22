@@ -38,6 +38,7 @@
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
+#include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 
 namespace Desert::Core
 {

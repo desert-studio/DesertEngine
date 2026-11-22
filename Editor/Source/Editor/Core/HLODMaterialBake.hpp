@@ -21,7 +21,7 @@
 // answers true.
 
 #include <Engine/Core/HLODMeshBuilder.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

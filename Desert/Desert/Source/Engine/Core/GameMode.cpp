@@ -4,6 +4,7 @@
 
 #include <utility>
 #include <Engine/ECS/TagComponent.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 
 namespace Desert::Core
 {

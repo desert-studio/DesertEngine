@@ -9,7 +9,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODBuilders.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>

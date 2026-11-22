@@ -42,6 +42,7 @@
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/VFX/VFXComponent.hpp>
+#include <Engine/VFX/VFXWorld.hpp>
 
 namespace Desert::Editor
 {

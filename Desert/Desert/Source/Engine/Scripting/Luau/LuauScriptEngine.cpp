@@ -16,6 +16,7 @@
 #include <string_view>
 #include <Engine/Input/EnhancedInputPlayerComponent.hpp>
 #include <Engine/Scripting/ScriptComponent.hpp>
+#include <Engine/Core/GameMode.hpp>
 
 namespace Desert::Scripting
 {

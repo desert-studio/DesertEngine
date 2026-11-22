@@ -77,6 +77,11 @@
 #include <utility>
 #include <vector>
 
+namespace Desert::Core
+{
+    struct SceneSerialized;
+}
+
 namespace Desert::Core::Rules
 {
     // What the executor needs from the place entities live. Record indices are into the span given to

@@ -46,7 +46,8 @@
 // THE HLOD CELLS OF A SPATIALLY LOADED LAYER) through the same region chunks as its world cells.
 
 #include <set>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
+#include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODSwitch.hpp>
@@ -69,6 +70,11 @@
 #include <unordered_set>
 #include <vector>
 #include <string>
+
+namespace Desert::Core
+{
+    struct SceneSerialized;
+}
 
 namespace Desert::Assets
 {

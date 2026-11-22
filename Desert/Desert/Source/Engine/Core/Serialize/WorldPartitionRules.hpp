@@ -116,7 +116,7 @@
 #include <Common/Core/UUID.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>

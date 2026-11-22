@@ -15,7 +15,7 @@
 // panel, no undo stack — so Desert/Tests/Engine/WorldPartition can state the whole rule without an
 // editor, and the editor command below it is only the plumbing that stores the answer.
 
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Core/ResultStr.hpp>

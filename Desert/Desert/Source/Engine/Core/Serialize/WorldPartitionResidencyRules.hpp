@@ -78,7 +78,7 @@
 
 #include <format>
 #include <Common/Core/ResultStr.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 #include <Projects/WorldPartitionSettings.hpp>

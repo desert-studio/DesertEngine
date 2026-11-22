@@ -3,7 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 
 #include <cstdint>
 #include <span>
@@ -22,6 +22,11 @@
 // (Core::WorldCells::CookWorld, WP-FAR-6B D1). The cook PACKAGES the saved LightingBuildDataAsset and is REFUSED,
 // naming every stale or unbaked entity, when CheckLightingBuildCurrent fails. No headless bake, no RT GPU on the
 // cook machine.
+namespace Desert::Core
+{
+    struct SceneSerialized;
+}
+
 namespace Desert::Assets
 {
     class LightingBuildDataAsset;

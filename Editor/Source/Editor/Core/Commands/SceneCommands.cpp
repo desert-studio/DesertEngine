@@ -65,6 +65,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
 
 namespace Desert::Editor::Commands
 {

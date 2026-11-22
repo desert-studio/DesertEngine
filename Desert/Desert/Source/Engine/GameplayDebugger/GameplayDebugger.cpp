@@ -15,6 +15,7 @@
 #include <format>
 #include <string>
 #include <Engine/ECS/TagComponent.hpp>
+#include <Engine/Core/Camera.hpp>
 
 namespace Desert::Debug
 {
