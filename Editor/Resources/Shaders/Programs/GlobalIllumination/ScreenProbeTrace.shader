@@ -358,10 +358,10 @@ Shader "ScreenProbeTrace"
         // tracer resource and no shared sampler it would not sample (ScreenProbeGather binds none).
         #include <Common/GITracing.glslh>
         // THE PROBE'S CELLS (main): each lane's read key (probe * 8 + clipmap; ~0u past the list's end) and the one
-        // corner (lane & 7) of that read it computed - its indirection entry and probe position.
-        shared uint spCellKey[SP_TRACE_LEG_THREADS];
-        shared uint spCellEntry[SP_TRACE_LEG_THREADS];
-        shared vec3 spCellPosition[SP_TRACE_LEG_THREADS];
+        // corner (lane & 7) of that read it computed - its indirection entry and its visibility of the read point.
+        shared uint  spCellKey[SP_TRACE_LEG_THREADS];
+        shared uint  spCellEntry[SP_TRACE_LEG_THREADS];
+        shared float spCellVisibility[SP_TRACE_LEG_THREADS];
 #else
         #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
@@ -999,36 +999,41 @@ Shader "ScreenProbeTrace"
             // corner i from the lane (lane & ~7) | i of its block of eight when that lane reads the same probe and
             // clipmap, and computes it itself only where the block straddles two reads. Was: every ray its own eight
             // indirection loads, eight probe-offset loads and their addressing. The same values, the same sums.
+            // FPS-SP-TRACE: the corner's visibility of the read point too (RadianceCacheCornerVisibility: the point
+            // the cells are taken about, not the ray's), so a ray's eight distance-moment fetches are one a lane.
             const uint lane = gl_LocalInvocationIndex;
             const uint key  = listed ? probe * 8u + clipmap : 0xFFFFFFFFu; // clipmap < RADIANCE_CACHE_MAX_CLIPMAPS
             vec3       coord = vec3( 0.0 );
             spCellKey[lane]  = key;
             if ( listed )
             {
-                coord                = RadianceCacheCellCoord( texel.position, N, V, clipmap );
-                const ivec3 world    = RadianceCacheCornerWorldCell( coord, clipmap, lane & 7u );
-                const uint  entry    = RadianceCacheCornerEntry( world, clipmap );
-                spCellEntry[lane]    = entry;
-                spCellPosition[lane] = RadianceCacheCornerProbePosition( world, clipmap, entry );
+                coord                  = RadianceCacheCellCoord( texel.position, N, V, clipmap );
+                const ivec3 world      = RadianceCacheCornerWorldCell( coord, clipmap, lane & 7u );
+                const uint  entry      = RadianceCacheCornerEntry( world, clipmap );
+                spCellEntry[lane]      = entry;
+                spCellVisibility[lane] = RadianceCacheCornerVisibility(
+                     texel.position, N, V, clipmap, entry, RadianceCacheCornerProbePosition( world, clipmap, entry ) );
             }
             barrier();
             if ( !listed )
                 return;
-            uint entries[8];
-            vec3 positions[8];
+            uint  entries[8];
+            float visibility[8];
             for ( uint i = 0u; i < 8u; ++i )
             {
                 const uint owner = ( lane & ~7u ) | i;
                 if ( spCellKey[owner] == key )
                 {
-                    entries[i]   = spCellEntry[owner];
-                    positions[i] = spCellPosition[owner];
+                    entries[i]    = spCellEntry[owner];
+                    visibility[i] = spCellVisibility[owner];
                 }
                 else
                 {
                     const ivec3 world = RadianceCacheCornerWorldCell( coord, clipmap, i );
                     entries[i]        = RadianceCacheCornerEntry( world, clipmap );
-                    positions[i]      = RadianceCacheCornerProbePosition( world, clipmap, entries[i] );
+                    visibility[i]     = RadianceCacheCornerVisibility(
+                         texel.position, N, V, clipmap, entries[i],
+                         RadianceCacheCornerProbePosition( world, clipmap, entries[i] ) );
                 }
             }
             // FPS-SP-CACHE-READ: the stochastic corner pick's random, per ray and frame, independent of the texel's
@@ -1037,7 +1042,7 @@ Shader "ScreenProbeTrace"
                 SPTexelNoise( probe, slot % ( SP_RES * SP_RES ), screenProbeParams.atlas.y ^ 0x9E3779B9u ).x;
             uint       why   = RADIANCE_CACHE_READ_EMPTY;
             const vec4 cache =
-                RadianceCacheRadianceAt( texel.position, N, V, dir, clipmap, entries, positions, pick, why );
+                RadianceCacheRadianceAt( texel.position, N, V, dir, clipmap, entries, visibility, pick, why );
 #if defined( SP_TRACE_MISS_REASONS )
             SPCountCacheRead( why );
 #endif
