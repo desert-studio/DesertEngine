@@ -28,8 +28,8 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/VFX/VFXComponent.hpp>
-#include <Engine/ECS/VFXPointSet.hpp>
-#include <Engine/ECS/VFXUserOverride.hpp>
+#include <Engine/VFX/VFXPointSet.hpp>
+#include <Engine/VFX/VFXUserOverride.hpp>
 
 namespace Desert::Graphic::System
 {

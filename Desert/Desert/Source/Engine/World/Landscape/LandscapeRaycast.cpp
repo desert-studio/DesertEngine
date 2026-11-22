@@ -1,4 +1,5 @@
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <Common/Core/GlslAsCpp.hpp>
 #include <Common/Core/Logger.hpp>
@@ -23,7 +24,6 @@ namespace Desert::World::Landscape
 
         DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
 #include <Common/LandscapeHeight.glslh>
-#include <Engine/World/Landscape/LandscapeData.hpp>
              DESERT_GLSL_AS_CPP_END
 
              // The ray in one tile's grid space: g(t) = G0 + U·t, in samples; Y relative to the tile's base.

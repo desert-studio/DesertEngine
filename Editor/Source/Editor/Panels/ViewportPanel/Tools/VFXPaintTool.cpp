@@ -18,7 +18,6 @@
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/VFX/VFXPointSet.hpp>
 #include <Engine/VFX/VFXComponent.hpp>
-#include <Engine/ECS/VFXPointSet.hpp>
 
 namespace Desert::Editor::Tools
 {
