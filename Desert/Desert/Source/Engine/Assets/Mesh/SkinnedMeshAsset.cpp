@@ -92,6 +92,20 @@ namespace Desert::Assets
             submesh.IndexCount   = s.IndexCount;
             submesh.Transform    = s.Transform;
             submesh.BoundingBox  = s.BoundingBox;
+            // THE COOKED LOD CHAIN (UE: a skeletal mesh's LODs are its cooked FSkeletalMeshLODRenderData, never
+            // reduced at load): the triangle sets the import baked at the mesh's own chain (its record's
+            // MeshImportSettings::LodChain), as StaticMeshAsset::Load keeps them. SkinnedMesh appends exactly
+            // these levels; only a section no cook decided (LodChainCooked false) is generated at load.
+            submesh.LodChainCooked = s.LodChainCooked;
+            submesh.BakedLODs.reserve( s.LODs.size() );
+            for ( const auto& level : s.LODs )
+            {
+                std::vector<Index> tris;
+                tris.reserve( level.size() );
+                for ( const auto& t : level )
+                    tris.push_back( { t.V1, t.V2, t.V3 } );
+                submesh.BakedLODs.push_back( std::move( tris ) );
+            }
 
             // NEVER FILLED HERE UNTIL Д19, while a per-index accessor indexed it — so every material
             // lookup on a skinned mesh was an out-of-bounds read of an EMPTY vector. StaticMeshAsset::Load
