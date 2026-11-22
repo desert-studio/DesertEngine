@@ -1224,7 +1224,11 @@ namespace Desert::Editor
                 // once to look the command up and once to run it — would let the two disagree on any
                 // frame where something opened or closed in between, and the command that ran would not
                 // be the command that was found.
-                const std::vector<PaletteCommand> dictionary = BuildDictionary();
+                const auto                        buildStart = std::chrono::steady_clock::now();
+                std::vector<PaletteCommand>                dictionary;
+                std::vector<CommandRegistry::ProviderCost> costs;
+                m_Commands.Build( dictionary, &costs );
+                const auto runStart = std::chrono::steady_clock::now();
                 const Control::CommandAddress     wanted{ request.Group, request.Label };
                 const Control::Resolution         resolved = Control::ResolveCommand( dictionary, wanted );
 
@@ -1239,7 +1243,18 @@ namespace Desert::Editor
                 // a scene that would not save, an Apply that published nothing. A script driving the
                 // editor could not stop on any of them, and the whole point of the exit status is that it
                 // can be trusted (Tools/DesertCtl/Source/Main.cpp says so at the top).
-                if ( const auto ran = dictionary[resolved.Index].Run(); !ran )
+                const auto ran = dictionary[resolved.Index].Run();
+                // WQH: a `run` is named with its two costs, the dictionary and the command, in ms.
+                std::string slowest;
+                for ( std::size_t i = 0; i < std::min<std::size_t>( costs.size(), 3 ); ++i )
+                    slowest += std::format( "{}{} {:.1f} ms", i ? ", " : "", costs[i].Owner, costs[i].Ms );
+                LOG_INFO( "[Control] run '{}' / '{}': dictionary of {} command(s) built in {:.1f} ms (slowest: {}), "
+                          "the command ran in {:.1f} ms",
+                          request.Group, request.Label, dictionary.size(),
+                          std::chrono::duration<double, std::milli>( runStart - buildStart ).count(), slowest,
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - runStart )
+                               .count() );
+                if ( !ran )
                 {
                     return Control::Response::Failure( request.Id, std::format( "'{}' / '{}' ran and refused: {}",
                                                                                 request.Group, request.Label,

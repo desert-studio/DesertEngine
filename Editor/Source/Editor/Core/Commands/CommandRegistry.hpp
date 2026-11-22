@@ -40,7 +40,14 @@ namespace Desert::Editor
         // read (the content root's files), so it is taken once per build and never depends on provider order.
         void OnBuildBegin( std::function<void()> prelude );
         // Appends every provider's entries to `out`, in registration order.
-        void Build( std::vector<PaletteCommand>& out ) const;
+        // A provider's wall time in one Build (the preludes under "preludes"): the slowest first, so a
+        // dictionary that costs a frame names its owner.
+        struct ProviderCost
+        {
+            std::string Owner;
+            double      Ms = 0.0;
+        };
+        void Build( std::vector<PaletteCommand>& out, std::vector<ProviderCost>* costs = nullptr ) const;
 
         [[nodiscard]] size_t Size() const
         {

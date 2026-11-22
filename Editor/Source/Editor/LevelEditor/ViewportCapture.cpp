@@ -372,6 +372,7 @@ namespace Desert::Editor
         // The copy was submitted with this frame; waiting is what makes the staging buffer readable.
         const auto collectStart = std::chrono::steady_clock::now();
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
+        const auto readbackStart = std::chrono::steady_clock::now();
 
         uint32_t width  = 0;
         uint32_t height = 0;
@@ -395,7 +396,8 @@ namespace Desert::Editor
         out.Width     = width;
         out.Height    = height;
         out.Started   = std::chrono::steady_clock::now();
-        out.CollectMs = std::chrono::duration<double, std::milli>( out.Started - collectStart ).count();
+        out.WaitMs    = std::chrono::duration<double, std::milli>( readbackStart - collectStart ).count();
+        out.CollectMs = std::chrono::duration<double, std::milli>( out.Started - readbackStart ).count();
         out.Encode    = Common::JobSystem::Get().Async(
              [path, width, height, rgba = std::move( pixels.GetValue() )]() noexcept -> std::string
              {
@@ -416,8 +418,10 @@ namespace Desert::Editor
         const double encodeMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.Started ).count();
         LOG_INFO( "[Control] wrote the presented frame (editor and interface) -> {} ({}x{}); on the frame "
-                  "{:.1f} ms (device wait + readback), PNG encode + write on a worker {:.1f} ms",
-                  write.Path, write.Width, write.Height, write.CollectMs, encodeMs );
+                  "{:.1f} ms (device idle wait {:.1f} ms, readback + RGBA8 pack {:.1f} ms), PNG encode + write on a "
+                  "worker {:.1f} ms",
+                  write.Path, write.Width, write.Height, write.WaitMs + write.CollectMs, write.WaitMs,
+                  write.CollectMs, encodeMs );
         return {};
     }
 

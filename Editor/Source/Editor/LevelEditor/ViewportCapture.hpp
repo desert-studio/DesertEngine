@@ -63,7 +63,8 @@ namespace Desert::Editor
             std::string                           Path;
             uint32_t                              Width     = 0;
             uint32_t                              Height    = 0;
-            double                                CollectMs = 0.0; // on the frame: device wait + readback
+            double                                WaitMs    = 0.0; // on the frame: the device idle wait
+            double                                CollectMs = 0.0; // on the frame: readback + RGBA8 pack
             std::chrono::steady_clock::time_point Started;
             std::future<std::string>              Encode;
         };
