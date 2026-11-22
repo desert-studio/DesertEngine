@@ -84,9 +84,14 @@ namespace Desert::Graphic::System
         {
             glm::vec4                           Header{ 0.0f }; // x = count, y unused, zw = WaveOrigin
             glm::vec4 Info{ 0.0f }; // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = mask depth
+            // WATER-RIVERS-FFT (WaterMeshTiles.glslh WaterFFTFrame / WaterFlowFrame): xyz = 1 / cascade patch
+            // side, w = 1 when the frame's waves are the FFT cascades; the river's flow lane. Zero = Gerstner, no
+            // flow, until AddWavePasses / the river gather fill them (REMAINDER steps R1-R5).
+            glm::vec4 FFT{ 0.0f };
+            glm::vec4 Flow{ 0.0f };
             std::array<WaterWaveRow, kMaxWaves> Rows{};
         };
-        static_assert( sizeof( WaterWavesBlock ) == ( 2 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
+        static_assert( sizeof( WaterWavesBlock ) == ( 4 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
 
         // The WaterInfo ground as the GPU samples it: one R32F texel per baked height (Water::WaterInfoGround).
         std::shared_ptr<Image2D> CreateWaterInfoImage( const uint32_t size, const std::vector<float>& heights )

@@ -1,0 +1,39 @@
+// THE FFT OCEAN ON THE GPU (WATER-RIVERS-FFT): the constants and the per-frame block the three compute programs
+// share - Programs/Water/WaterFFTSpectrum.shader (h(k, t) and its seven derived spectra), WaterFFT.shader (one
+// radix-2 inverse FFT along the rows or the columns of every cascade) and WaterFFTFinalize.shader (the cascades'
+// displacement / slope atlas the water mesh samples, Mesh/Surface/WaterMeshTiles.glslh).
+//
+// The CPU half and its units: Engine/Water/FFTOceanSpectrum.hpp (centimetres, radians per centimetre, seconds;
+// the plane is (world X, world Z) relative to the body's WaveOrigin). The C++ twin of WaterFFTParams is
+// WaterRenderer.cpp's WaterFFTParams.
+#ifndef DESERT_WATER_FFT_GLSLH
+#define DESERT_WATER_FFT_GLSLH
+
+// Water::kFFTOceanResolution / kFFTOceanResolutionLog2 / kFFTOceanCascades.
+#define WATER_FFT_SIZE 256
+#define WATER_FFT_LOG2 8
+#define WATER_FFT_CASCADES 3
+
+// Deep-water gravity in cm/s^2, as Common/GerstnerWave.glslh's GERSTNER_GRAVITY.
+const float WATER_FFT_GRAVITY = 980.0;
+const float WATER_FFT_TWO_PI  = 6.2831853071795865;
+
+struct WaterFFTParams
+{
+    vec4 Cascade; // xyz = patch side of cascades 0..2 (cm), w = the view's time (s, cameraUB.Time)
+    vec4 Shape;   // x = choppiness (lambda), y = IFFT direction (0 = along rows, 1 = along columns), zw unused
+};
+
+// Complex product of a and b (x = real, y = imaginary).
+vec2 WaterFFTMul( vec2 a, vec2 b )
+{
+    return vec2( a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x );
+}
+
+// Two spectra of REAL fields packed into one complex signal: the inverse FFT of A + iB is a + ib.
+vec2 WaterFFTPack( vec2 a, vec2 b )
+{
+    return vec2( a.x - b.y, a.y + b.x );
+}
+
+#endif // DESERT_WATER_FFT_GLSLH
