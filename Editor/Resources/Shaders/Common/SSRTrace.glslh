@@ -184,6 +184,8 @@ layout(std430, binding = 50) readonly buffer SsrShadowUB
     vec4 ContactShadowView;      // z: the dither frame the soft filter's disc turns by
     vec4 SunContactShadow;       // unread here
     vec4 ShadowFilter;           // x = PCSS blocker search taps, y = filter taps
+    mat4 FarShadowViewProj[2]; // per slot: the far shadow (Mesh/ShadowUB.glslh)
+    vec4 FarShadow[2];
 };
 #define CASCADED_SHADOW_NOISE_PIXEL vec2(gl_GlobalInvocationID.xy)
 #include <Mesh/CascadedShadow.glslh>

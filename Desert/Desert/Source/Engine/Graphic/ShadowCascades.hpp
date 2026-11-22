@@ -52,6 +52,11 @@ namespace Desert::Graphic
         // held apart from the sun's ShadowMapSize because a ray-traced sun takes its cascades at low detail
         // (Shadows.RayTracedTranslucency*) while the point and spot lights keep their maps.
         uint32_t LocalShadowMapSize = 2048;
+        // THE FAR SHADOW (UE's DirectionalLight FarShadowDistance, its far shadow cascade): how far from the camera
+        // one more map, past the cascades, holds the STATIC casters' shadow (the terrain, buildings, rocks - UE's
+        // bCastFarShadow, off for skinned and moving meshes). 0, or a distance not past MaxDistance, means none:
+        // the receivers past the last cascade are lit, as before. The Shadows.FarDistance row.
+        float FarDistance = Common::Units::Metres( 1000.0f );
 
         bool operator==( const ShadowQuality& ) const = default;
     };
@@ -62,7 +67,7 @@ namespace Desert::Graphic
     // An asset preview: ONE cascade at 1024 over 10 m. Ten metres is the whole preview world — the
     // primitives are 1 m across (PrimitiveMeshFactory::kPrimitiveSize) and the floor a few metres — so
     // the single cascade is spent entirely on the subject instead of on empty distance.
-    inline constexpr ShadowQuality kPreviewShadowQuality{ 1u, 1024u, Common::Units::Metres( 10.0f ), 1024u };
+    inline constexpr ShadowQuality kPreviewShadowQuality{ 1u, 1024u, Common::Units::Metres( 10.0f ), 1024u, 0.0f };
 
     // A RENDERER THAT WILL NEVER DRAW A SHADOW, and therefore holds no map to draw one into. Zero is a
     // legal cascade count everywhere the count already travels: ComputeShadowCascades returns 0,
@@ -81,13 +86,19 @@ namespace Desert::Graphic
     // All three numbers are zero on purpose rather than "4 cascades of size 0": the decision is "this
     // renderer spends nothing on the sun", and a resolution or a distance left standing beside a count
     // of zero is a number the next reader has to work out is dead.
-    inline constexpr ShadowQuality kNoShadowQuality{ 0u, 0u, 0.0f, 0u };
+    inline constexpr ShadowQuality kNoShadowQuality{ 0u, 0u, 0.0f, 0u, 0.0f };
 
     // HOW MANY DEPTH IMAGES ONE CASCADE HOLDS: the map the receivers sample, and the cache of its STATIC casters
     // (UE: the cached shadow map of a directional light's cascades, r.Shadow.CSMCaching). The cache is drawn only
     // when the cascade's matrix or one of its static casters changed; every frame the map is the cache copied,
     // with the movable casters (skinned meshes, swaying foliage, the terrain) drawn over it.
     inline constexpr uint32_t kShadowImagesPerCascade = 2;
+
+    // Whether a budget holds the far shadow map: a cascade to stand behind and a reach past the cascades'.
+    [[nodiscard]] inline constexpr bool HasFarShadow( const ShadowQuality& quality )
+    {
+        return quality.CascadeCount > 0u && quality.FarDistance > quality.MaxDistance;
+    }
 
     // WHAT A BUDGET COSTS IN ATTACHMENT MEMORY. Derived from the format MeshRenderer::SetupShadowPass
     // actually pushes (ViewTargetFormats::kShadowDepth, kShadowImagesPerCascade per cascade) because
@@ -99,8 +110,11 @@ namespace Desert::Graphic
                                                                    const uint32_t       directionalLights = 1u )
     {
         const uint32_t side = quality.ShadowMapSize;
-        return static_cast<uint64_t>( quality.CascadeCount ) * directionalLights * kShadowImagesPerCascade *
-               Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth );
+        // The far map is one more layer of a light's cascade array (MeshRenderer::AcquireCascadeMaps): the static
+        // casters' depth, held across frames, so it needs no second (cache) image.
+        const uint64_t layers = static_cast<uint64_t>( quality.CascadeCount ) * kShadowImagesPerCascade +
+                                ( HasFarShadow( quality ) ? 1u : 0u );
+        return layers * directionalLights * Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth );
     }
 
     // THE LIVE TOTAL ACROSS EVERY RENDERER, because the per-renderer figure alone does not say how many

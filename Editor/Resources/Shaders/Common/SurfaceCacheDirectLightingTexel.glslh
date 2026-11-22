@@ -60,6 +60,8 @@ ReadBuffer(13) SurfaceCacheShadowUB
     vec4 SunContactShadow;
     vec4 ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF),
                             // z = 1: the distance-field sun runs (DistanceFieldShadowRuns), w unused
+    mat4 FarShadowViewProj[2]; // per slot: the far shadow (Mesh/ShadowUB.glslh)
+    vec4 FarShadow[2];
 };
 #include <Mesh/CascadedShadow.glslh>
 
@@ -278,9 +280,11 @@ float CascadeOrOffCascadeShadow(int light, int cascade, float cascades, vec3 wor
         const float band = DistanceFieldShadowHandOver(light, cascade, worldPos);
         if (band <= 0.0)
             return cascades;
-        return mix(cascades, OffCascadeShadow(light, worldPos, N, L), band);
+        const float off = OffCascadeShadow(light, worldPos, N, L);
+        // Past the cascades the far shadow's static casters (cascades) and the trace both occlude: the darker.
+        return cascade < 0 ? min(cascades, off) : mix(cascades, off, band);
     }
-    return cascade < 0 ? OffCascadeShadow(light, worldPos, N, L) : cascades;
+    return cascade < 0 ? min(cascades, OffCascadeShadow(light, worldPos, N, L)) : cascades;
 }
 
 // ONE SHADOWED DIRECTIONAL LIGHT at the texel, by its slot @p light of the cascades (kShadowLightSun,
