@@ -14,7 +14,6 @@
 #include <Common/Core/Units.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <glm/glm.hpp>
 
 #include <cmath>
 #include <format>

@@ -9,7 +9,6 @@
 #include <Common/Json/Json.hpp>
 
 // glm::vec3 <-> JSON reflector (OutlineColor). Must be visible before the rfl::json read/write below.
-#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Editor/Core/TextList.hpp>
 
 #include <algorithm>
@@ -17,9 +16,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
-#include <iterator>
 #include <optional>
 #include <string_view>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Editor
 {

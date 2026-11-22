@@ -1,5 +1,4 @@
 #include <Engine/Graphic/Texture.hpp>
-#include <Engine/Graphic/RendererAPI.hpp>
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>

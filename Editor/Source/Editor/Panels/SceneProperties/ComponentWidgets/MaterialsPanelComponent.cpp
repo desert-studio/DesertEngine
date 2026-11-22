@@ -1,12 +1,9 @@
 #include <Editor/Core/MaterialAssetUtils.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
 #include "MaterialsPanelComponent.hpp"
-#include <Common/Content/CanonicalText.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Editor/Core/DragPayloads.hpp>
-#include <Engine/Graphic/Texture.hpp>
 #include <ImGui/imgui.h>
-#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
@@ -23,9 +20,6 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/LODSelection.hpp>
-#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -33,13 +27,9 @@
 
 // rfl serialization environment (same as SurfaceMaterialAsset.cpp) — used to write a fresh
 // material file with its stable GUID before the asset is created/registered.
-#include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
 
-#include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <filesystem>
 #include <format>
 #include <system_error>
@@ -51,6 +41,36 @@
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
+#include <Common/Content/CanonicalText.hpp>
+#include <Engine/Graphic/Texture.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Geometry/DynamicMesh.hpp>
+#include <Engine/Geometry/LODSelection.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
+#include <rflcpp/rfl/json.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <chrono>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/UUID.hpp>
+#include <memory>
+#include <optional>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <CoreReflection/ReflectionMacros.hpp>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <utility>
+#include <vector>
+#include <Common/Core/TemplateHelpers.hpp>
+#include <Common/Core/Memory/Buffer.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+#include <cstdio>
 
 namespace Desert::Editor
 {

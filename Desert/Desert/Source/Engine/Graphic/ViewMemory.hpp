@@ -7,7 +7,6 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <algorithm>
-#include <cstdio>
 #include <cstdint>
 #include <format>
 #include <optional>

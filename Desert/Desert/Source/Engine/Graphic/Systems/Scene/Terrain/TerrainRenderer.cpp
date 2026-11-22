@@ -15,9 +15,7 @@
 #include <Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Image.hpp>
-#include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
-#include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Materials/DrawPushFields.hpp>
@@ -25,7 +23,6 @@
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
-#include <Common/Core/Units.hpp>
 
 #include <algorithm>
 #include <tuple>
@@ -33,14 +30,11 @@
 #include <cstddef>
 #include <cstring>
 #include <bit>
-#include <chrono>
 #include <cmath>
 #include <format>
-#include <map>
 #include <optional>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>

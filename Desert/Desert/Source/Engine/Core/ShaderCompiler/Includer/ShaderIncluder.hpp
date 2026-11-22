@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 
 #include <Common/Core/Core.hpp> // Common::Filepath — this header leaned on the engine PCH for it,

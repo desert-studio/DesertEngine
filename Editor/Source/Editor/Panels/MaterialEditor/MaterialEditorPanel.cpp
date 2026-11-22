@@ -11,19 +11,16 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Import/TextureDnD.hpp>
-#include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Editor/Widgets/PreviewEnvironmentUI.hpp>
-#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
-#include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
@@ -31,7 +28,6 @@
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Image.hpp>
-#include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Graphic/SkyPresets.hpp>
@@ -57,7 +53,6 @@
 #include <Editor/Core/AssetPickerRows.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
-#include <Engine/ECS/MaterialComponent.hpp>
 
 namespace Desert::Editor
 {

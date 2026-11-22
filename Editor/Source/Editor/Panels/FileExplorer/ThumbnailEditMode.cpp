@@ -13,9 +13,7 @@
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Core/Scene.hpp>       // GetFinalImage
-#include <Engine/Graphic/Image.hpp>    // Image2D::ReadPixelsRGBA8
 #include <Engine/Graphic/Renderer.hpp> // WaitDeviceIdle before readback
 #include <Common/Core/Logger.hpp>
 #include <ImGui/imgui_internal.h> // SetItemUsingMouseWheel

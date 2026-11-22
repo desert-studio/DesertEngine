@@ -31,13 +31,11 @@
 #include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <Editor/Import/TextureDnD.hpp>
 
-#include <Common/Core/Units.hpp>
 
 #include <ImGui/imgui.h>
 
 #include <algorithm>
 #include <cctype>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>

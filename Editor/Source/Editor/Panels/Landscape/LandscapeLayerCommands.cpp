@@ -28,7 +28,6 @@
 #include <span>
 #include <utility>
 #include <vector>
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>

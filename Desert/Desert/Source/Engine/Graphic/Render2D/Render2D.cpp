@@ -13,13 +13,11 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
-#include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Graphic/Render2D/Render2DExecutorRetire.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <bit>

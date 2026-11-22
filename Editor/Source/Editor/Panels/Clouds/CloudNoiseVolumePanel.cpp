@@ -3,7 +3,6 @@
 #include "CloudDocumentOpen.hpp"
 
 #include <Editor/Platform/DesktopPlatform.hpp>
-#include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
@@ -19,7 +18,6 @@
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
 #include <ImGui/imgui.h>
 

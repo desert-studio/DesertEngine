@@ -2,14 +2,12 @@
 
 #include "AutosavePaths.hpp"
 
-#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
-#include <sstream>
 #include <string>
 
 namespace Desert::Editor

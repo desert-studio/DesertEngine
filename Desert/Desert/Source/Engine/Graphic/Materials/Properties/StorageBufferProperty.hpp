@@ -3,6 +3,9 @@
 #include <Engine/Graphic/Materials/Properties/MaterialProperty.hpp>
 
 #include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 namespace Desert::Graphic
 {

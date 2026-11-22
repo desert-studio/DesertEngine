@@ -19,7 +19,6 @@
 #include "WaterZoneCommand.hpp"
 #include "WindGustCommand.hpp"
 #include <Engine/Graphic/SceneRenderer.hpp>
-#include <Engine/Geometry/SkinnedMesh.hpp>
 
 namespace Desert::Graphic::Render
 {

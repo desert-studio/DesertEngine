@@ -5,18 +5,31 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 
 #include <Common/Core/Constants.hpp>
-#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
-#include <Engine/Core/Scene.hpp>
 
 #include <algorithm>
 #include <filesystem>
-#include <Editor/Core/AssetPickerRows.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <Editor/Core/AssetPickerRows.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <optional>
+#include <utility>
+#include <vector>
+#include <Common/Core/TemplateHelpers.hpp>
+#include <Common/Core/Memory/Buffer.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+#include <cstdio>
 
 namespace Desert::Editor
 {

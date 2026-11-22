@@ -5,11 +5,8 @@
 #include <Engine/Geometry/MeshBounds.hpp>
 
 #include <Common/Content/ContentScan.hpp>
-#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
-#include <algorithm>
 #include <format>
 #include <map>
 #include <mutex>

@@ -3,7 +3,6 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/IO/ImageReader.hpp>
 #include <Engine/Graphic/Image.hpp>
-#include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>

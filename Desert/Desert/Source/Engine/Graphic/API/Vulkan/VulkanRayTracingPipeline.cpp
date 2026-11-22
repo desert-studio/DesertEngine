@@ -2,7 +2,6 @@
 
 #include <Common/Core/Logger.hpp>
 
-#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>

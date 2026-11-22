@@ -36,8 +36,6 @@
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
-#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
-#include <Engine/ECS/MaterialComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/SkyboxComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>

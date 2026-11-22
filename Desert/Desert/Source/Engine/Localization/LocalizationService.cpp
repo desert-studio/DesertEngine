@@ -3,7 +3,6 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Template.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 

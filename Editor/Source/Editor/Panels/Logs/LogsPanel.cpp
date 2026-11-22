@@ -14,7 +14,6 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
-#include <sstream>
 #include <filesystem>
 
 namespace Desert::Editor

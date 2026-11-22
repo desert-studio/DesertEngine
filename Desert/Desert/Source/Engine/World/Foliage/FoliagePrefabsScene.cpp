@@ -6,7 +6,6 @@
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
-#include <Common/Core/Logger.hpp>
 
 #include <glm/matrix.hpp>
 

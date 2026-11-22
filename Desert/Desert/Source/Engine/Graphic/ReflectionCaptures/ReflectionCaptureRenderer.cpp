@@ -16,7 +16,6 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Settings/Scalability.hpp>
 
-#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>

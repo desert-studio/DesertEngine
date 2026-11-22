@@ -15,7 +15,6 @@
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
-#include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>

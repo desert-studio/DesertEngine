@@ -1,16 +1,11 @@
 #include "AnimGraphPanel.hpp"
 
 #include <Editor/Widgets/PreviewEnvironmentUI.hpp>
-#include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
-#include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
-#include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Entity.hpp>
 
 #include <ImGuizmo.h>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <Engine/ECS/AnimationComponent.hpp>

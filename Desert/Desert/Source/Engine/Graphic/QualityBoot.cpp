@@ -10,7 +10,6 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/GlfwWindowMode.hpp>
 #include <Engine/Core/GpuBenchmark.hpp>
-#include <Engine/Core/Window.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 

@@ -38,7 +38,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <Engine/Destruction/DestructionField.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/Scripting/ScriptComponent.hpp>

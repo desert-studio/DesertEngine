@@ -3,7 +3,6 @@
 #include <Engine/ECS/System/ColliderFit.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 
-#include <glm/glm.hpp>
 #include <Engine/Physics/ColliderComponent.hpp>
 
 namespace Desert::Editor::Core

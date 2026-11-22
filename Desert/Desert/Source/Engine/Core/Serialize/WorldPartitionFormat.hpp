@@ -9,7 +9,6 @@
 
 #include <Common/Json/Document.hpp>
 
-#include <glm/glm.hpp>
 
 #include <array>
 #include <cmath>

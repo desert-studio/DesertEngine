@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 
-#include <glm/glm.hpp>
 
 // The unknown-key carrier below (Common::Json::KeyedValues) is a FIELD of the struct, so the facade is
 // included here and not only in the .cpp.

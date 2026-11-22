@@ -1,7 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/WriteDescriptorSetBuilder.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
-#include <Engine/Graphic/Renderer.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {

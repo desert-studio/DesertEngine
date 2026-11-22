@@ -7,12 +7,12 @@
 
 #include <Common/Core/UUID.hpp>
 
-#include <glm/glm.hpp>
 
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+#include <glm/glm.hpp>
 
 namespace Desert::Core::Formats
 {

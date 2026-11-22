@@ -8,7 +8,6 @@
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
@@ -20,15 +19,20 @@
 
 #include "MaterialsPanelComponent.hpp"
 
-#include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include <Editor/Core/AssetPickerRows.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
-#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
-#include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
+#include <Engine/Geometry/SkinnedMesh.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Common/Core/TemplateHelpers.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 namespace Desert::Editor
 {

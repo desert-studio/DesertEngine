@@ -2,7 +2,6 @@
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
 
-#include <Common/Core/Logger.hpp>
 
 namespace Desert::Runtime
 {

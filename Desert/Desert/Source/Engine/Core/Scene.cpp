@@ -8,7 +8,6 @@
 #include <Engine/Core/WorldParameterInstance.hpp>
 #include <Engine/Core/WorldTime.hpp>
 #include <Engine/Core/Serialize/EntityPackages.hpp>
-#include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
@@ -19,7 +18,6 @@
 #include <Common/Json/Carry.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
 #include <Engine/ECS/EditorHLODComponent.hpp>
-#include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
 #include <Common/Core/Constants.hpp>
@@ -53,7 +51,6 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
@@ -71,7 +68,6 @@
 #include <span>
 #include <typeinfo>
 
-#include <Engine/Core/Projection.hpp>
 #include <Engine/Geometry/PosedBounds.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>

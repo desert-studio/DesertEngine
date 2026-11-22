@@ -8,12 +8,10 @@
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 
-#include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 
@@ -21,6 +19,14 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Common/Core/Memory/Buffer.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+#include <Engine/Graphic/Shader.hpp>
 
 namespace Desert::Graphic
 {

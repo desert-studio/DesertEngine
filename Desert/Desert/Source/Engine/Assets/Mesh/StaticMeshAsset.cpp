@@ -1,6 +1,5 @@
 #include "StaticMeshAsset.hpp"
 
-#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDisplacementTopology.hpp>
@@ -12,6 +11,7 @@
 #include <optional>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
 namespace Desert::Assets
 {

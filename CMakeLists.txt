@@ -54,6 +54,17 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:SHELL:-Xclang -fno-pch-timestamp>")
 endif()
 
+# Build-cost measurement (BUILD-MOD-4): clang writes <object>.json next to every object, which
+# scripts/Dev/build_cost.sh feeds to ClangBuildAnalyzer (header parse seconds by full path). OFF by default:
+# it changes every compile line, so turning it on rebuilds the tree once.
+option(DESERT_TIME_TRACE "Compile with clang -ftime-trace for scripts/Dev/build_cost.sh" OFF)
+if(DESERT_TIME_TRACE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR MSVC)
+        message(FATAL_ERROR "DESERT_TIME_TRACE needs clang (not clang-cl/MSVC); compiler is ${CMAKE_CXX_COMPILER_ID}")
+    endif()
+    add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJCXX>:-ftime-trace>")
+endif()
+
 # The presets turn it ON (CMakePresets.json `base`); the build scripts pass it on every configure, so a
 # -DDESERT_WITH_TESTS=OFF run (CI's no-tests legs) is honoured and never sticks to the next configure.
 option(DESERT_WITH_TESTS "Configure the test suites" OFF)

@@ -1,7 +1,6 @@
 #include "ThumbnailPose.hpp"
 
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Core/Logger.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>

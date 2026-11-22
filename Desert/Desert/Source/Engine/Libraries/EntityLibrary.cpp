@@ -3,7 +3,6 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Math/Ray.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Core/Camera.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -12,19 +11,14 @@
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
-#include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Reflection/FunctionThunk.hpp>
 
-#include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
 
 #include <format>
 #include <Engine/ECS/CameraComponent.hpp>
-#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/MaterialComponent.hpp>
 #include <Engine/ECS/MaterialParamOverride.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
-#include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/SocketAttachmentComponent.hpp>
 #include <Engine/ECS/SpringArmComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>

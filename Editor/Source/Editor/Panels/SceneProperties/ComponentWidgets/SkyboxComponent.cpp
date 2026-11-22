@@ -1,5 +1,4 @@
 #include <Editor/Core/DetailsNavigation.hpp>
-#include "SkyboxComponent.hpp"
 #include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/DragPayloads.hpp>
@@ -14,14 +13,8 @@
 
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
-#include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/Skybox/SkyboxAsset.hpp>
-#include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
-#include <Engine/Graphic/Renderer.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
 #include <Editor/Core/AssetPickerRows.hpp>

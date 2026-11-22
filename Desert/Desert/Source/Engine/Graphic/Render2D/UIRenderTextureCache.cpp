@@ -1,7 +1,6 @@
 #include "UIRenderTextureCache.hpp"
 
 #include <Common/Core/Constants.hpp>
-#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -10,18 +9,14 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
-#include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
-#include <Engine/Graphic/ShadowCascades.hpp>
 
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <utility>
 #include <vector>
-#include <PhysicsCore/CollisionProfiles.hpp>
 
 namespace Desert::Graphic::Render2D
 {

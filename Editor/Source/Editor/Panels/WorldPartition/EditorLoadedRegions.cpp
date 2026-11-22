@@ -4,7 +4,6 @@
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <algorithm>
 #include <cstdint>
 #include <format>
 #include <optional>

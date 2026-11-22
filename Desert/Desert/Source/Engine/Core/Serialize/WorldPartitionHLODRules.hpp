@@ -69,7 +69,6 @@
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
-#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <array>

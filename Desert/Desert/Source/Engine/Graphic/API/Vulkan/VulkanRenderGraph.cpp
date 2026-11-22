@@ -18,7 +18,6 @@
 #include <string_view>
 #include <vector>
 
-#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <array>

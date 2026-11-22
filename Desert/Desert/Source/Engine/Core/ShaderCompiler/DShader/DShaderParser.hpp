@@ -54,10 +54,8 @@
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
-#include <Common/Core/ResultStr.hpp>
 
 #include <array>
-#include <cstdint>
 #include <string>
 #include <string_view>
 #include <unordered_map>

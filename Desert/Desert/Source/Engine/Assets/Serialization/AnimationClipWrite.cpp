@@ -5,10 +5,9 @@
 #include <Common/Content/CanonicalText.hpp>
 
 #include <Common/Core/Core.hpp> // BOOLSUCCESS
-#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 
-#include <rflcpp/rfl/json.hpp>
 
 namespace Desert::Assets::Serialization
 {

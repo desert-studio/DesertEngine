@@ -8,9 +8,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
-#include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 
 #include <ImGui/imgui.h>
@@ -22,6 +20,28 @@
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+#include <Engine/Core/Serialize/EntityPackages.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/Common.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
+#include <glm/glm.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
+#include <Common/Json/Document.hpp>
+#include <cmath>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <optional>
+#include <utility>
+#include <vector>
+#include <Common/Core/TemplateHelpers.hpp>
+#include <Common/Core/Memory/Buffer.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+#include <cstdio>
 
 namespace Desert::Editor
 {

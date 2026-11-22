@@ -24,11 +24,9 @@
 #include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
-#include <Engine/Graphic/Shader.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/FileSystem.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -38,13 +36,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <exception>
 #include <cctype>
 #include <filesystem>
 #include <format>
-#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
-#include <Engine/ECS/SkinnedMeshComponent.hpp>
-#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor
 {

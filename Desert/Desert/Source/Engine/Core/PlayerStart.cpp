@@ -13,7 +13,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/matrix_decompose.hpp>
 
-#include <format>
 #include <vector>
 #include <Engine/ECS/PlayerStartComponent.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>

@@ -4,7 +4,6 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
-#include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/PipelineBuilds.hpp>
 

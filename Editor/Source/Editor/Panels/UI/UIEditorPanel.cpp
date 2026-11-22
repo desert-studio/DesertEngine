@@ -3,7 +3,6 @@
 #include "UIElementFactory.hpp"
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Entity.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>

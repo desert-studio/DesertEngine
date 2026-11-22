@@ -5,7 +5,6 @@
 
 #include <Common/Json/Json.hpp>
 
-#include <spdlog/fmt/fmt.h>
 
 namespace Desert::Assets
 {

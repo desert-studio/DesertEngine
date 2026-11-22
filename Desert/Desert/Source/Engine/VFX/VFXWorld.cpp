@@ -2,20 +2,14 @@
 #include <Engine/VFX/VFXRandom.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
-#include <Engine/Assets/VFXEffectTypeAsset.hpp>
-#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
-#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Common/Utilities/FileSystem.hpp>
-#include <Common/Utilities/VFS.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
-#include <glm/geometric.hpp>
 #include <unordered_map>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>

@@ -4,7 +4,6 @@
 #include <Engine/Assets/RegistryDiscovery.hpp>
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
-#include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 
 #include <Common/Core/Logger.hpp>
 

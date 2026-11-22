@@ -26,7 +26,6 @@
 
 #include <algorithm>
 #include <array>
-#include <format>
 #include <optional>
 #include <string>
 #include <tuple>

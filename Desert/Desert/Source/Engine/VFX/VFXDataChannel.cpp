@@ -8,7 +8,6 @@
 
 #include <cmath>
 #include <filesystem>
-#include <format>
 
 namespace Desert::VFX
 {

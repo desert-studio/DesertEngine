@@ -11,7 +11,6 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <format>

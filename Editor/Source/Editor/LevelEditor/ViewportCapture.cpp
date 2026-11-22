@@ -2,13 +2,11 @@
 #include <Engine/Core/Scene.hpp>
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
-#include "Editor/Core/ProjectContext.hpp"
 #include <Common/Core/Core.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
 #include <Engine/Graphic/SceneRenderer.hpp>              // the view's HDR scene colour (--shot-hdr)
 #include <Engine/Graphic/DisplayOutput.hpp>
-#include <Engine/Graphic/PixelPack.hpp>
 #include <stb_image/stb_image_write.h>
 
 #include <glm/gtc/packing.hpp>
@@ -17,6 +15,19 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include "Editor/Core/ProjectContext.hpp"
+#include <Engine/Graphic/PixelPack.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <glm/glm.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Shader.hpp>
+#include <optional>
+#include <Common/Core/TemplateHelpers.hpp>
+#include <Common/Core/Memory/Buffer.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
+#include <Engine/Graphic/DefaultTextures.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+#include <cstdio>
 
 namespace Desert::Editor
 {
