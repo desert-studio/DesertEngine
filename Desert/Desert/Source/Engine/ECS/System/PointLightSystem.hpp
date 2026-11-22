@@ -1,13 +1,15 @@
 #pragma once
 
 #include "System.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 
 #include <Engine/Graphic/Render/Commands/PointLightCommand.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
+#include <Engine/ECS/LightUnits.hpp>
+#include <Engine/ECS/PointLightComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::ECS
 {

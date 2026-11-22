@@ -57,7 +57,6 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
@@ -79,6 +78,13 @@
 #include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <format>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
 
 namespace Desert::Editor
 {

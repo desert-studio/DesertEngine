@@ -38,6 +38,7 @@
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 namespace Desert::Graphic::System
 {

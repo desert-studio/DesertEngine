@@ -5,8 +5,6 @@
 // (velocity Verlet), HandleImpact / ComputeBounceResult (bounce or StopSimulating) and HandleDeflection's slide.
 // Run by PhysicsECSSystem once per frame after the physics step, against the world that step produced (UE ticks
 // the component in the frame, outside the physics scene). Every speed is cm/s, every length cm.
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
@@ -15,6 +13,7 @@
 
 #include <unordered_map>
 #include <vector>
+#include <Engine/Physics/ProjectileComponent.hpp>
 
 namespace Desert::ECS::ProjectileMovement
 {

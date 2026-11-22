@@ -13,6 +13,11 @@
 #include <functional>
 #include <unordered_map>
 
+namespace Desert
+{
+    class Mesh; // Engine/Geometry/Mesh.hpp: the panel only points at the drawn mesh
+}
+
 namespace Desert::Core
 {
     class Scene;

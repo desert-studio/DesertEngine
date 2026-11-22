@@ -5,8 +5,6 @@
 // PhysicsWorld::CreateBody). A ray through the doorway must reach the far wall's inner face.
 
 #include <Editor/Panels/ViewportPanel/Tools/BlockoutCollision.hpp>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
@@ -21,6 +19,9 @@
 #include <gtest/gtest.h>
 
 #include <optional>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 using namespace Desert;
 

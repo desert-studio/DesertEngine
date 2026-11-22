@@ -30,7 +30,6 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -44,6 +43,7 @@
 #include <format>
 #include <string_view>
 #include <utility>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

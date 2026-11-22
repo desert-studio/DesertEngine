@@ -3,7 +3,6 @@
 // thresholds replace the bake's.
 
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
@@ -11,6 +10,8 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 using namespace Desert;
 using namespace Desert::Destruction;

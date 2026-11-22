@@ -1,8 +1,9 @@
 #include "EditableMesh.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::ECS
 {

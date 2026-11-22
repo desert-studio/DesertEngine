@@ -6,25 +6,80 @@
 
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 
-#include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/AudioSourceComponent.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
+#include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
+#include <Engine/ECS/HeterogeneousVolumeComponent.hpp>
 #include <Engine/ECS/LocalFogVolumeComponent.hpp>
+#include <Engine/ECS/PlayerStartComponent.hpp>
+#include <Engine/ECS/PointLightComponent.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Engine/ECS/RagdollComponent.hpp>
+#include <Engine/ECS/RectLightComponent.hpp>
 #include <Engine/ECS/ReflectionCaptureComponent.hpp>
+#include <Engine/ECS/RetargetComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/SpotLightComponent.hpp>
+#include <Engine/ECS/SpringArmComponent.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
+#include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
 #include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
+#include <Engine/Input/EnhancedInputPlayerComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/ProjectileComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
+#include <Engine/UI/Ecs/UIBindingComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UIDraggableComponent.hpp>
+#include <Engine/UI/Ecs/UIDropTargetComponent.hpp>
+#include <Engine/UI/Ecs/UIDropdownComponent.hpp>
+#include <Engine/UI/Ecs/UIIconComponent.hpp>
+#include <Engine/UI/Ecs/UIImageComponent.hpp>
+#include <Engine/UI/Ecs/UIInputFieldComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutGroupComponent.hpp>
+#include <Engine/UI/Ecs/UIListViewComponent.hpp>
+#include <Engine/UI/Ecs/UINavigationComponent.hpp>
+#include <Engine/UI/Ecs/UIOverlayComponent.hpp>
+#include <Engine/UI/Ecs/UIOverlayTriggerComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UIPathComponent.hpp>
+#include <Engine/UI/Ecs/UIPointerEventsComponent.hpp>
+#include <Engine/UI/Ecs/UIProgressBarComponent.hpp>
+#include <Engine/UI/Ecs/UIRetainerComponent.hpp>
+#include <Engine/UI/Ecs/UIScreenComponent.hpp>
+#include <Engine/UI/Ecs/UIScreenStackComponent.hpp>
+#include <Engine/UI/Ecs/UIScrollViewComponent.hpp>
+#include <Engine/UI/Ecs/UISliderComponent.hpp>
+#include <Engine/UI/Ecs/UIStyleComponent.hpp>
+#include <Engine/UI/Ecs/UITabsComponent.hpp>
+#include <Engine/UI/Ecs/UITextComponent2D.hpp>
+#include <Engine/UI/Ecs/UITileViewComponent.hpp>
+#include <Engine/UI/Ecs/UIToggleComponent.hpp>
+#include <Engine/UI/Ecs/UITreeViewComponent.hpp>
+#include <Engine/UI/Ecs/UITweenComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
+#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
+#include <Engine/World/Partition/DataLayersComponent.hpp>
+#include <Engine/World/Partition/HLODLayerComponent.hpp>
+#include <Engine/World/Partition/LocationVolumeComponent.hpp>
+#include <Engine/World/Partition/RuntimeGridComponent.hpp>
+#include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 namespace Desert::Core::Serialize
 {
@@ -48,6 +103,7 @@ namespace Desert::Core::Serialize
         visit( ReflectedMemberBlock<::Desert::ECS::ExponentialHeightFogComponent, decltype( ::Desert::ECS::ExponentialHeightFogComponent::Data )>{ "ExponentialHeightFog", "ExponentialHeightFogData", &::Desert::ECS::ExponentialHeightFogComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::HLODLayerComponent, decltype( ::Desert::ECS::HLODLayerComponent::Data )>{ "HLODLayer", "HLODLayerData", &::Desert::ECS::HLODLayerComponent::Data, R::ActorsAndUI } );
         visit( ReflectedMemberBlock<::Desert::ECS::HeroCloudComponent, decltype( ::Desert::ECS::HeroCloudComponent::Data )>{ "HeroCloud", "HeroCloudData", &::Desert::ECS::HeroCloudComponent::Data, R::SkyAndAtmosphere } );
+        visit( ReflectedMemberBlock<::Desert::ECS::HeterogeneousVolumeComponent, decltype( ::Desert::ECS::HeterogeneousVolumeComponent::Data )>{ "HeterogeneousVolume", "HeterogeneousVolumeData", &::Desert::ECS::HeterogeneousVolumeComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::KillFieldComponent, decltype( ::Desert::ECS::KillFieldComponent::Data )>{ "KillField", "KillFieldData", &::Desert::ECS::KillFieldComponent::Data, R::SkyAndAtmosphere } );
         visit( ReflectedMemberBlock<::Desert::ECS::LandscapeMaterialComponent, decltype( ::Desert::ECS::LandscapeMaterialComponent::Data )>{ "LandscapeMaterial", "LandscapeMaterialData", &::Desert::ECS::LandscapeMaterialComponent::Data, R::Landscape } );
         visit( ReflectedMemberBlock<::Desert::ECS::LocalFogVolumeComponent, decltype( ::Desert::ECS::LocalFogVolumeComponent::Data )>{ "LocalFogVolume", "LocalFogVolumeData", &::Desert::ECS::LocalFogVolumeComponent::Data, R::SkyAndAtmosphere } );

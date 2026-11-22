@@ -9,6 +9,7 @@
 #include <format>
 #include <functional>
 #include <string>
+#include <Engine/ECS/VisibilityComponent.hpp>
 
 namespace Desert::Editor
 {

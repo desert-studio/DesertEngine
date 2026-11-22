@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Engine/ECS/System/System.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Audio/AudioEngine.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
@@ -13,6 +12,12 @@
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
+#include <Engine/Animation/Timeline/AudioVoices.hpp>
+#include <Engine/Animation/Timeline/Track.hpp>
+#include <Engine/Core/WindowCloseGate.hpp>
+#include <Engine/ECS/AudioSourceComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
 
 namespace Desert::ECS
 {

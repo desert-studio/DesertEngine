@@ -10,7 +10,6 @@
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/PrefabInstanceOverrides.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <functional>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -19,6 +18,11 @@
 #include <unordered_set>
 #include <algorithm>
 #include <format>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/PrefabInstanceComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Assets
 {

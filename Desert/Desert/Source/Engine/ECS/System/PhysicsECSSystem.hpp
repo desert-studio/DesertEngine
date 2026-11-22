@@ -12,7 +12,6 @@
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/System/FoliageCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
@@ -23,7 +22,6 @@
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
-#include <Engine/Animation/Animator.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -50,6 +48,14 @@
 #include <Engine/Runtime/Services/Destruction/FractureService.hpp>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
 #include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/VolumeComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 namespace Desert::ECS
 {

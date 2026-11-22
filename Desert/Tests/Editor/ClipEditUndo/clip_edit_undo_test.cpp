@@ -11,7 +11,6 @@
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -22,6 +21,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
 
 namespace
 {

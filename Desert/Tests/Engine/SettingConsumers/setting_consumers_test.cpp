@@ -34,8 +34,6 @@
 //      same file binds to THIS type. The mutation reddens it; renaming a local variable does not.
 
 #include "setting_consumers_reader.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 
@@ -49,6 +47,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <Common/Core/Events/RoutedEvents.hpp>
 
 using Desert::Reflection::FieldInfo;
 using Desert::Reflection::ReflectionRegistry;

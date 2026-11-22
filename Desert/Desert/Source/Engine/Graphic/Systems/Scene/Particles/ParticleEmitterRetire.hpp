@@ -1,11 +1,10 @@
 #pragma once
 
-#include <Engine/ECS/Components.hpp>
-
 #include <entt/entt.hpp>
 
 #include <cstddef>
 #include <unordered_map>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::Graphic::System
 {

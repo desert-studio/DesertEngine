@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <format>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::Editor::Commands
 {

@@ -8,7 +8,6 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -16,6 +15,8 @@
 #include <cstdint>
 #include <format>
 #include <utility>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
 
 namespace Desert::Editor
 {

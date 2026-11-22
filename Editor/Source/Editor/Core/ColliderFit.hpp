@@ -1,11 +1,10 @@
 #pragma once
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/ColliderFit.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 
 #include <glm/glm.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
 
 namespace Desert::Editor::Core
 {

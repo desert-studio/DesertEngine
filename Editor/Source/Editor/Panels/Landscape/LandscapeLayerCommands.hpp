@@ -1,6 +1,4 @@
 #pragma once
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/World/Landscape/LandscapeGenerator.hpp>
 #include <Engine/World/Landscape/LandscapeSplines.hpp>
 #include <Common/Core/ResultStr.hpp>

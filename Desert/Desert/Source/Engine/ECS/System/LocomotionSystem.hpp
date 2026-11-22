@@ -1,9 +1,12 @@
 #pragma once
 
 #include <Engine/ECS/System/System.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/System/CharacterMovement.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
 
 namespace Desert::ECS
 {

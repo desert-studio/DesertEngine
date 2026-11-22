@@ -7,7 +7,6 @@
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
@@ -16,6 +15,9 @@
 #include <format>
 #include <memory>
 #include <utility>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/VFX/VFXPointSet.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

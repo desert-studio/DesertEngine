@@ -8,6 +8,9 @@
 
 #include <string>
 #include <vector>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 using namespace Desert;
 using namespace Desert::Editor;

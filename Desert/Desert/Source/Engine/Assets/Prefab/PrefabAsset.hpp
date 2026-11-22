@@ -15,6 +15,7 @@
 #include <span>
 #include <string_view>
 #include <vector>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Core
 {

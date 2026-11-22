@@ -1,6 +1,6 @@
 #pragma once
 
-#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsContact.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>

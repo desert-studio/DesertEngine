@@ -4,12 +4,15 @@
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/EntityReferenceRemap.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <algorithm>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/PrefabInstanceComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Core::Serialize
 {

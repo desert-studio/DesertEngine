@@ -4,13 +4,12 @@
 // element's authored offset size), so it works in the Details inspector WITHOUT a viewport rect. The
 // in-viewport toolbar has its own on-screen-size variant; this one is for the component editor.
 
-#include <Engine/ECS/Components.hpp>
-
 #include <ImGui/imgui.h>
 
 #include <algorithm>
 #include <format>
 #include <string>
+#include <UI/Args/UILayoutArgs.hpp>
 
 namespace Desert::Editor::UIAnchors
 {

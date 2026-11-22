@@ -17,7 +17,6 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
 #include <Editor/Widgets/MeshLODRows.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/MeshToPhysicsTool.hpp>
@@ -35,6 +34,7 @@
 #include <string>
 #include <initializer_list>
 #include <type_traits>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor
 {

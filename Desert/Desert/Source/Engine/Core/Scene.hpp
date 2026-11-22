@@ -55,6 +55,7 @@
 #include <array>
 #include <span>
 #include <vector>
+#include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 
 namespace Desert::Graphic::RayTracing
 {

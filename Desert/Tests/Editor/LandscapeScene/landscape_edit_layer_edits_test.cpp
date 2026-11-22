@@ -6,13 +6,15 @@
 // "apply after, look at the merged samples; apply before, look again".
 
 #include <Editor/Core/Commands/LandscapeEditLayerEdits.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <gtest/gtest.h>
 
 #include <stdexcept>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 using namespace Desert;
 using namespace Desert::World::Landscape;

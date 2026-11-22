@@ -37,6 +37,14 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

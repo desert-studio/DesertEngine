@@ -3,7 +3,6 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
@@ -12,6 +11,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::VFX
 {

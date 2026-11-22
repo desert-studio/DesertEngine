@@ -1,5 +1,6 @@
 #include "Evaluator.hpp"
 
+#include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 
 #include <algorithm>

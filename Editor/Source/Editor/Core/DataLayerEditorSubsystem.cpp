@@ -5,7 +5,6 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <entt/entt.hpp>
 
@@ -13,6 +12,11 @@
 #include <format>
 #include <functional>
 #include <utility>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/World/Partition/DataLayersComponent.hpp>
+#include <Engine/World/Partition/HiddenByDataLayersComponent.hpp>
 
 namespace Desert::Editor::DataLayerEditor
 {

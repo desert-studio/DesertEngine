@@ -1,10 +1,11 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <glm/glm.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
 
 // THE PLAYABLE CHARACTER'S MOVEMENT MODEL (GP2a) — UE's UCharacterMovementComponent for MOVE_Walking and
 // MOVE_Falling with crouch, on the one controller the engine has (CharacterControllerComponent's Jolt

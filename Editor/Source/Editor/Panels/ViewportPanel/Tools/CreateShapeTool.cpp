@@ -5,7 +5,6 @@
 #include <Editor/RenderSystems/Passes/EditorToolPreviewPass.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
@@ -26,6 +25,10 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

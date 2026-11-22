@@ -4,7 +4,7 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

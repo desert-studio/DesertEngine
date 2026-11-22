@@ -1,13 +1,14 @@
 #include "ViewSettings.hpp"
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
 #include <functional>
 #include <vector>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Graphic
 {

@@ -8,7 +8,6 @@
 #include <Engine/Input/EnhancedInputSubsystem.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/Input/UserKeyBindings.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -26,6 +25,7 @@
 #include <vector>
 #include "../../TestSupport/runner.hpp"
 #include "../../TestSupport/scratch_dir.hpp"
+#include <Engine/Input/EnhancedInputPlayerComponent.hpp>
 
 using namespace Desert::Assets::Serialization;
 using Desert::Input::EnhancedInputSubsystem;

@@ -8,7 +8,7 @@
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Common/Core/UUID.hpp>
-#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
 
 #include <array>
 

@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 namespace Desert::World::Landscape
 {

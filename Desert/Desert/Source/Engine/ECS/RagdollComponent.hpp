@@ -7,7 +7,7 @@
 // at any time — from Details, or from Lua (`entity.Ragdoll.Mode`), which is how a hit turns a character limp.
 
 #include <Engine/Assets/Common.hpp>
-#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <cstdint>

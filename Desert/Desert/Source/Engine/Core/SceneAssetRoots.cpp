@@ -3,9 +3,34 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/TextTemplate.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Animation/Timeline/Sequence.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/AudioSourceComponent.hpp>
+#include <Engine/ECS/ControlRigComponent.hpp>
+#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/PrefabComponent.hpp>
+#include <Engine/ECS/RetargetComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/SkyboxComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TextComponent.hpp>
+#include <Engine/ECS/VolumetricCloudComponent.hpp>
+#include <Engine/Input/EnhancedInputPlayerComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UIIconComponent.hpp>
+#include <Engine/UI/Ecs/UIImageComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UITextComponent2D.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 
 namespace Desert::Core
 {

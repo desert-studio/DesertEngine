@@ -1,7 +1,6 @@
 #include <Engine/ECS/System/RagdollLifetime.hpp>
 
 #include <Engine/Animation/Animator.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Physics/RagdollDescBuilder.hpp>
 #include <Engine/Physics/RagdollPose.hpp>
 
@@ -11,6 +10,10 @@
 
 #include <format>
 #include <type_traits>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/RagdollComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::ECS
 {

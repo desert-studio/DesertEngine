@@ -34,7 +34,6 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
 #include <Engine/ECS/System/LevelSequenceSystem.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
@@ -54,6 +53,15 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::Editor
 {

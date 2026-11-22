@@ -4,7 +4,6 @@
 #include <Editor/Panels/UI/UIElementCatalog.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
@@ -19,6 +18,27 @@
 #include <cstddef>
 #include <format>
 #include <string>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/UI/Ecs/UIBindingComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutGroupComponent.hpp>
+#include <Engine/UI/Ecs/UIOverlayComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UITextComponent2D.hpp>
+#include <Engine/UI/Ecs/UIDropdownComponent.hpp>
+#include <Engine/UI/Ecs/UIIconComponent.hpp>
+#include <Engine/UI/Ecs/UIImageComponent.hpp>
+#include <Engine/UI/Ecs/UIInputFieldComponent.hpp>
+#include <Engine/UI/Ecs/UIListViewComponent.hpp>
+#include <Engine/UI/Ecs/UIPathComponent.hpp>
+#include <Engine/UI/Ecs/UIProgressBarComponent.hpp>
+#include <Engine/UI/Ecs/UIRenderTextureComponent.hpp>
+#include <Engine/UI/Ecs/UIScrollViewComponent.hpp>
+#include <Engine/UI/Ecs/UISliderComponent.hpp>
+#include <Engine/UI/Ecs/UIToggleComponent.hpp>
 
 // The one implementation of "make a UI element". There used to be two — UIEditorPanel.cpp and
 // ViewportPanel.cpp each carried a private AddUIChild template — and the two menus that called them had

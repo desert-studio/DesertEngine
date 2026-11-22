@@ -4,7 +4,6 @@
 #include <Editor/Baking/MaterialBaking.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp>
 #include <filesystem>
@@ -28,6 +27,8 @@
 #include <array>
 #include <initializer_list>
 #include <utility>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
 
 namespace Desert::Editor
 {

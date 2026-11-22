@@ -1,11 +1,15 @@
 #include "NodeActors.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <glm/gtx/quaternion.hpp>
 
 #include <limits>
+#include <Engine/ECS/DirectionLightComponent.hpp>
+#include <Engine/ECS/LightUnits.hpp>
+#include <Engine/ECS/PointLightComponent.hpp>
+#include <Engine/ECS/SpotLightComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Editor
 {

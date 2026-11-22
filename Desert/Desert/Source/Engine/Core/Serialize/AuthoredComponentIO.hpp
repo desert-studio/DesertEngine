@@ -51,8 +51,6 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Json/Document.hpp>
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/World/Landscape/LandscapeSplinesJson.hpp>
 
 #include <cmath>
@@ -62,6 +60,11 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/ECS/SocketAttachmentComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::Core::Serialize
 {

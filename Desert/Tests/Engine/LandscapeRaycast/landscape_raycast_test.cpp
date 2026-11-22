@@ -8,8 +8,6 @@
 //      grid lines and (5) everywhere inside the cells of a steep hill, it is the ray's surface.
 //   3. A ball rolled across the tile seams neither sinks through nor hops.
 //   4. Edits reach the body in place; the body goes with its tile.
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
@@ -52,6 +50,7 @@ namespace
     DESERT_GLSL_AS_CPP_BEGIN
 #include <Common/LandscapeHeight.glslh>
 #include <Common/LandscapeLod.glslh>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
     DESERT_GLSL_AS_CPP_END
 } // namespace
 

@@ -12,6 +12,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::ECS
 {

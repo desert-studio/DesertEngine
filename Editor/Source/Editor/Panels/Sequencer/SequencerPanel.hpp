@@ -32,6 +32,9 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
 
 namespace Desert::Core
 {

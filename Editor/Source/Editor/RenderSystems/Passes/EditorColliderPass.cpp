@@ -9,6 +9,10 @@
 
 #include <algorithm>
 #include <unordered_set>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/VolumeComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
 
 namespace Desert::Editor::Render
 {

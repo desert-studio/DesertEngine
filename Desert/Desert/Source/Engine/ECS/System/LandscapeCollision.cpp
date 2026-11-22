@@ -1,10 +1,9 @@
 #include <Engine/ECS/System/LandscapeCollision.hpp>
-
-#include <Engine/ECS/Components.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <vector>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::ECS
 {

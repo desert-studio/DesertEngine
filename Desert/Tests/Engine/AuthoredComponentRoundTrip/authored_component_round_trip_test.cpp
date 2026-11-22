@@ -30,6 +30,10 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/ECS/SocketAttachmentComponent.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace ECS = Desert::ECS;
 

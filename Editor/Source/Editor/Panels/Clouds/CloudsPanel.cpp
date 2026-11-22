@@ -15,7 +15,6 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
@@ -33,6 +32,8 @@
 #include <filesystem>
 #include <format>
 #include <optional>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

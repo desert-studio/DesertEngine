@@ -11,7 +11,6 @@
 #include <Engine/Core/Formats/TextureIntent.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
@@ -40,6 +39,8 @@
 #include <utility>
 
 #include <stb_image/stb_image_write.h>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
 
 namespace Desert::Editor::Baking
 {

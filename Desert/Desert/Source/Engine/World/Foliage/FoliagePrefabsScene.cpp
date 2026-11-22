@@ -2,7 +2,6 @@
 #include <Engine/World/Foliage/FoliagePrefabs.hpp>
 
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -13,6 +12,10 @@
 
 #include <vector>
 #include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
 
 namespace Desert::World::Foliage
 {

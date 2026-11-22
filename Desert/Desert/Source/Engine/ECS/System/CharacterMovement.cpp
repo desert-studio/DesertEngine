@@ -3,6 +3,9 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 
 #include <algorithm>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
 
 namespace Desert::ECS::CharacterMovement
 {

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Engine/ECS/System/System.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
@@ -24,6 +23,9 @@
 #include <cstdint>
 #include <span>
 #include <utility>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/Scripting/ScriptComponent.hpp>
+#include <Engine/ShaderResources/ViewCopiedBlock.hpp>
 
 namespace Desert::ECS
 {

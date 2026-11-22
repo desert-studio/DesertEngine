@@ -1,6 +1,10 @@
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
-
-#include <Engine/ECS/Components.hpp>
+#include <Common/Core/Memory/FrameArena.hpp>
+#include <Engine/Animation/Timeline/Track.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 namespace Desert::ECS
 {

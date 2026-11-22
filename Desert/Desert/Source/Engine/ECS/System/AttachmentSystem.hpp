@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Engine/ECS/System/System.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Animation/Animator.hpp>
@@ -14,6 +13,10 @@
 #include <glm/gtx/matrix_decompose.hpp>
 
 #include <unordered_map>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SocketAttachmentComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::ECS
 {

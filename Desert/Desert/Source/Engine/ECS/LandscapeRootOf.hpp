@@ -3,8 +3,6 @@
 // THE ROOT A TILE NAMES, as the frame LandscapeLayout computes with — built in one place. The loader
 // validates tiles against it, the renderer draws with it, picking and physics place the surface with it;
 // four copies of these five lines would be four chances for the surface to be in four places.
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapePaint.hpp>
@@ -19,6 +17,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 
 namespace Desert::ECS
 {

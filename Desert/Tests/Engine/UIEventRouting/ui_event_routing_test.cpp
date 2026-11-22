@@ -15,8 +15,6 @@
 // The seam is the public one: RenderCanvas2D takes a plain entt::registry, the canvas to draw, a DrawList2D
 // and a UIInput, so the pointer is synthesised rather than injected, and what the canvas fired is read back
 // out of the outMessages vector the runtime host already passes.
-
-#include <Engine/ECS/Components.hpp>
 #include <UI/UICanvasContext.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
@@ -28,6 +26,11 @@
 #include <string>
 #include <vector>
 #include <Common/Json/Document.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UIPointerEventsComponent.hpp>
 
 // The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
 namespace

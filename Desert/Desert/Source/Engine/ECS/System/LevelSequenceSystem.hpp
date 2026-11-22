@@ -6,7 +6,6 @@
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Audio/AudioEngine.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
@@ -16,6 +15,10 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
 
 namespace Desert::ECS
 {

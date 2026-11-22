@@ -12,6 +12,13 @@
 #include <optional>
 #include <utility>
 #include <variant>
+#include <Engine/Animation/Animator.hpp>
+#include <Engine/Assets/Common.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/VisibilityComponent.hpp>
+#include <Engine/VFX/VFXComponent.hpp>
 
 namespace Desert::ECS
 {

@@ -6,7 +6,7 @@
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Animation/Graph/BlendSpace1D.hpp>
 #include <Engine/Animation/Graph/BlendSpace2D.hpp>
-#include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
+#include <Engine/Animation/Graph/LayeredBlendPerBoneNode.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
 #include <algorithm>

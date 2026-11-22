@@ -7,7 +7,6 @@
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Channel.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequenceAuthoring.hpp>
 
 #include <gtest/gtest.h>
@@ -16,6 +15,9 @@
 #include <optional>
 #include <stdexcept>
 #include <variant>
+#include <Engine/ECS/CameraComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace LevelSequenceFixture
 {

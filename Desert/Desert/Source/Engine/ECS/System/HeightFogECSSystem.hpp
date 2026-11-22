@@ -1,8 +1,6 @@
 #pragma once
 
 #include "System.hpp"
-
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Graphic/Render/Commands/HeightFogCommand.hpp>
 #include <Engine/Graphic/Render/Commands/LocalFogVolumeCommand.hpp>
@@ -15,6 +13,10 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::ECS
 {

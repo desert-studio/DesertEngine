@@ -9,7 +9,6 @@
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/MaterialSlotAdoption.hpp>
 #include <Engine/ECS/RenderStateDelta.hpp>
@@ -38,6 +37,16 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Runtime/Services/Destruction/FractureService.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/MaterialComponent.hpp>
+#include <Engine/ECS/MorphComponent.hpp>
+#include <Engine/ECS/RenderCacheRetire.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
 
 namespace Desert::ECS
 {

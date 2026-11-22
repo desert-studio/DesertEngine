@@ -1,6 +1,7 @@
 #include <Engine/ECS/System/KinematicBodies.hpp>
-
-#include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 namespace Desert::ECS
 {

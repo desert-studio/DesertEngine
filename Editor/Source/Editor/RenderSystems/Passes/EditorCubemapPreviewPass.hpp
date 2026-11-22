@@ -6,6 +6,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <functional>
+#include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 
 namespace Desert::Editor::Render
 {

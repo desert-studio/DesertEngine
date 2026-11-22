@@ -2,13 +2,13 @@
 
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/PrimitiveReadout.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <array>
 #include <format>
 #include <string>
+#include <Engine/ECS/TagComponent.hpp>
 
 namespace Desert::Debug
 {

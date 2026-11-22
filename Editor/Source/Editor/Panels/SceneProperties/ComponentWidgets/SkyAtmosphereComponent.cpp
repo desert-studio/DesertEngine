@@ -6,12 +6,12 @@
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/SkyPresets.hpp>
 
 #include <cmath>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

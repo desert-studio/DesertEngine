@@ -7,13 +7,13 @@
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
 #include <ImGuizmo.h>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <Engine/ECS/AnimationComponent.hpp>
 
 namespace Desert::Editor
 {

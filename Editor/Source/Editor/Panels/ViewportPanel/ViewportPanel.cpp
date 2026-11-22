@@ -48,7 +48,6 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/SelectionContext.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityLock.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
@@ -82,6 +81,21 @@
 #include <string_view>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/ControlRigComponent.hpp>
+#include <Engine/ECS/InstancedStaticMeshComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/UI/Ecs/UIButtonComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UIDropdownComponent.hpp>
+#include <Engine/UI/Ecs/UIInputFieldComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UISliderComponent.hpp>
+#include <Engine/UI/Ecs/UIToggleComponent.hpp>
 
 namespace Desert::Editor
 {

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <Engine/ECS/Components.hpp>
-
 #include <entt/entt.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/World/Foliage/FoliageComponent.hpp>
 
 namespace Desert::ECS
 {

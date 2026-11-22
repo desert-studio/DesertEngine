@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <Engine/World/Landscape/LandscapeData.hpp>
 
 namespace Desert::Water
 {

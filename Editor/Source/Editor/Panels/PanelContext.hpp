@@ -6,6 +6,7 @@
 #include <Engine/ECS/Entity.hpp>
 
 #include <memory>
+#include <Engine/ECS/UUIDComponent.hpp>
 
 namespace Desert::Editor
 {

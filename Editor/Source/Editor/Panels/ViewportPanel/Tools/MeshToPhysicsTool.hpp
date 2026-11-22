@@ -2,7 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
-#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsTypes.hpp>
 
 #include <Editor/Core/Selection/ModelingState.hpp>
 

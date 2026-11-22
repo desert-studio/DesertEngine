@@ -14,8 +14,6 @@
 // opens a batch; ClassifyBatchBreak names which of those decisions fired. If a field is added to the
 // batch key and not to the classifier, two adjacent commands will classify as "could have merged" while
 // the draw list plainly did not merge them — and that is a failure here rather than a wrong column.
-
-#include <Engine/ECS/Components.hpp>
 #include <UI/UICanvasContext.hpp>
 #include <UI/UIDataStore.hpp>
 #include <Engine/UI/Ecs/UIIntrospectionEcs.hpp>
@@ -29,6 +27,17 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
+#include <Engine/Graphic/Image.hpp>
+#include <Engine/UI/Ecs/UIBindingComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
+#include <Engine/UI/Ecs/UIImageComponent.hpp>
+#include <Engine/UI/Ecs/UILayoutComponent.hpp>
+#include <Engine/UI/Ecs/UIPanelComponent.hpp>
+#include <Engine/UI/Ecs/UIScreenComponent.hpp>
+#include <Engine/UI/Ecs/UIScrollViewComponent.hpp>
+#include <Engine/UI/Ecs/UIToggleComponent.hpp>
 
 // The resources every view in this suite draws with: a mock that answers nothing unless a test says so.
 namespace

@@ -8,7 +8,6 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -18,6 +17,7 @@
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <Engine/ECS/TagComponent.hpp>
 
 namespace Desert::Core::EditorRegions
 {

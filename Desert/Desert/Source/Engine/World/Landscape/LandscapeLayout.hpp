@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Engine/World/Landscape/LandscapeFrame.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -10,6 +10,8 @@
 
 namespace Desert::World::Landscape
 {
+    class LandscapeTileData; // LandscapeData.hpp
+
     /**
      * @file
      * @brief How a landscape is cut into tiles and where each tile lies — the half of the landscape that

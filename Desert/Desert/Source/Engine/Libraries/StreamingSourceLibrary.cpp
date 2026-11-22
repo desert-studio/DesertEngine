@@ -3,9 +3,9 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingPerformance.hpp>
 #include <Engine/Core/WorldContext.hpp>
-#include <Engine/ECS/Components.hpp>
 
 #include <cstdint>
+#include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 namespace Desert::Libraries
 {

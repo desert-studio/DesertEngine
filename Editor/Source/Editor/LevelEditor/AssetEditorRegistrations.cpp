@@ -50,12 +50,15 @@
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 #include <memory>
 #include <string>
+#include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/UI/Ecs/UIAnimComponent.hpp>
+#include <Engine/UI/Ecs/UICanvasComponent.hpp>
 
 namespace Desert::Editor
 {

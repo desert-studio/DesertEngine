@@ -7,6 +7,10 @@
 
 #include <algorithm>
 #include <array>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Physics/ProjectileComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 namespace Desert::ECS::ProjectileMovement
 {

@@ -4,6 +4,7 @@
 
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
 
 namespace Desert::Editor
 {

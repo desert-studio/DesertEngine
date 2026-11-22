@@ -4,6 +4,17 @@
 // clang-format off
 // NOLINTBEGIN
 
+#include <Engine/Reflection/TypeRegistrar.hpp>
+#include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ContainerAccess.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 
 namespace Desert::Reflection::Generated
 {
@@ -11,6 +22,15 @@ void RegisterReflection_Landscape();
 
 void RegisterReflection_Landscape()
 {
+    using namespace ::Desert::Reflection;
+    {
+        using T = ::Desert::ECS::LandscapeMaterialData;
+        TypeBuilder( "LandscapeMaterialData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Material", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Material ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Material )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Material", .Category = "Landscape", .IsAsset = true, .AssetType = "MaterialAsset", .Hidden = true, } } )
+            .WithDefault<T>()
+            .Register();
+    }
 }
 } // namespace Desert::Reflection::Generated
 // NOLINTEND

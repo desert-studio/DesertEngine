@@ -1,7 +1,6 @@
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
 
 #include <Engine/ECS/ComponentEvents.hpp>
-#include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
@@ -12,6 +11,7 @@
 
 #include <array>
 #include <span>
+#include <Engine/Physics/RigidBodyComponent.hpp>
 
 namespace Desert::ECS
 {
