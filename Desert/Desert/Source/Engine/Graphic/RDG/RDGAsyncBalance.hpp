@@ -29,6 +29,19 @@
 // FPS-FIELD-BARN-TURN scn-1117-213616 a warm-up window - shader compiles, a 13.5 ms modelled graph - measured
 // 'RadianceCache: Filter' at 1.043 ms and gave it to Graphics; it measured 0.18 ms after, never went back, and
 // the graphics queue waited 0.19 ms for the cache's Mark .. Trace before it, every frame.)
+// THE MODEL IS THE MEASURED TIMELINE (FPS-ASYNC-BALANCE-MODEL). Every GPU row of the window is placed: a pass
+// costs its INCLUSIVE time (a pass's nested scopes - "DLSS-RR: NGX Evaluate", the mesh draw groups - are its
+// work), a pass whose name carries a per-frame count ("(256 pages)") is costed by its family (the variants the
+// window averaged, summed), a row shared by views or graphs is split over every run of every graph drawn in the
+// window, the async queue's own time (its remainder: barriers and gaps inside the "RDG Async: a .. b" segments)
+// is shared over the segments by span and rides on each head pass while it is on AsyncCompute, and the
+// graphics time no pass of a drawn graph holds (other
+// GPU work, the unaccounted remainder) is a constant beside the graphs. The modelled frame is that constant plus
+// each drawn graph's list schedule times its runs per frame; the "RDG Wait" rows are what the schedule must
+// reproduce, never a cost. (It was: one graph's pass SELF times, by exact name - on FPS-FIELD-BARN-TURN
+// scn-1121-214723 the SceneView graph was modelled at 2.445 ms of a 9.38 ms GPU frame, missed the 3.1 ms DLSS-RR
+// evaluate nested in its pass, and gave 'Clouds: March' to the graphics queue, the longer one.) A flip to
+// Graphics is never taken while the graph's graphics queue holds more work than its async queue.
 // Who calls it: the backend - NotePlan when a graph begins with a plan it has not seen, Rebalance once per
 // published profiler window, GraphicsPasses when a graph compiles (IBackend::GetAsyncBalance). The compile
 // (Compiler::ChoosePipes) runs a listed pass on Graphics; the compile cache keys the list (AsyncBalanceKeyOf).
@@ -58,21 +71,34 @@ namespace Desert::Graphic::RDG
         static constexpr uint32_t kWarmupWindows = 4;
         static constexpr double   kWarmupRatio   = 1.5;
 
-        // One pass's cost for Rebalance: GPU self time per frame (both queues), Measured false when the window
-        // has no row for it.
-        struct Cost
+        // One GPU row of the published window (the profiler's averaged columns, ms per frame), its view prefix
+        // ("<view> | ") already taken off. The whole-frame bracket is not a row: it is Window::GpuFrameMs.
+        struct MeasuredRow
         {
-            double Ms       = 0.0;
-            bool   Measured = false;
+            std::string_view Name;
+            double           GpuMs          = 0.0; // inclusive of nested scopes
+            double           GpuSelfMs      = 0.0; // both queues
+            double           GpuAsyncSelfMs = 0.0; // the part on the async compute queue
         };
-        using CostOf = std::function<Cost( std::string_view pass )>;
-        using LogFn  = std::function<void( std::string_view line )>;
+        // One published window: every GPU row and the measured GPU frame. No row: GPU timing off.
+        struct Window
+        {
+            std::span<const MeasuredRow> Rows;
+            double                       GpuFrameMs = 0.0;
+        };
+        using LogFn = std::function<void( std::string_view line )>;
 
         // The plan graph @p graph begins with: its shape is kept when it differs from the one kept (passes,
-        // pipes, edges), so a cached plan is walked once.
+        // pipes, edges), so a cached plan is walked once. Every call counts one run of the graph in the window.
         void NotePlan( std::string_view graph, const CompileResult& plan );
-        // One published profiler window: per graph, the flips the model gains from. True when the list changed.
-        bool Rebalance( const CostOf& costOf, const LogFn& log );
+        // One frame of the window (the backend's BeginFrame): runs per frame = runs / frames.
+        void NoteFrame() noexcept
+        {
+            ++m_Frames;
+        }
+        // One published profiler window: per graph drawn in it, the flips the model gains from. True when the
+        // list changed.
+        bool Rebalance( const Window& window, const LogFn& log );
         // Sorted AsyncBalancePassKey of every AsyncCompute pass that runs on Graphics.
         [[nodiscard]] std::span<const uint64_t> GraphicsPasses() const noexcept
         {
@@ -93,6 +119,7 @@ namespace Desert::Graphic::RDG
             // Warm-up guard (FPS-ASYNC-WARMUP): measured windows seen and the shortest modelled graph so far.
             uint32_t Windows   = 0;
             double   MinLength = 0.0;
+            uint32_t Runs      = 0; // NotePlan calls since the last Rebalance: drawn in the window when > 0
         };
         struct Decision
         {
@@ -102,13 +129,16 @@ namespace Desert::Graphic::RDG
             bool     OnGraphics = false; // false: given back to AsyncCompute, kept while frozen
         };
 
+        // @p asyncExtra: a position's added cost while it runs on AsyncCompute (its segment's own time).
         [[nodiscard]] static double Simulate( const Shape& shape, std::span<const Pipe> pipes,
-                                              std::span<const double> cost, std::vector<double>& finish );
+                                              std::span<const double> cost, std::span<const double> asyncExtra,
+                                              std::vector<double>& finish );
         [[nodiscard]] Decision*     Find( uint64_t key ) noexcept;
         void                        SortList();
 
         std::vector<Shape>    m_Shapes;
         std::vector<Decision> m_Decisions; // every pass on Graphics by the balance, and the passes frozen
         std::vector<uint64_t> m_GraphicsPasses;
+        uint32_t              m_Frames = 0; // NoteFrame calls since the last Rebalance
     };
 } // namespace Desert::Graphic::RDG
