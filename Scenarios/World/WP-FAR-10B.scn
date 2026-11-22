@@ -15,6 +15,7 @@
 Когда advance 2
 Тогда high_60 at 60 m under High the origin figure is walking at full-looking detail; log: its [SkinnedLOD] LOD finer than 5, the chain "loaded from the cooked derived data"
 Когда --subject viewport set Camera.Position 0,0,30000
-Когда advance 3
+Когда advance 2
+Когда advance 2
 Тогда far11_readout at 300 m the figures are a few pixels; log: every "[SkinnedLOD] anim CPU" line counts 21.0 animated instances
 Когда run Action "Stop"

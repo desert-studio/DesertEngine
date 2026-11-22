@@ -2,7 +2,6 @@
 # (UE: a skeletal mesh's LODs are generated at import / in derived data, never at load). Run once; the re-cooked
 # Content/Meshes/Displace/CesiumMan.skmesh is committed. The scene is not saved.
 Дано run Scene "Open Scene M4_RampNormalMap.desce"
-Когда run Assets "Drop into the viewport: Meshes/Displace/CesiumMan.glb"
-Когда run Assets "Import Options: Displacement Runtime"
-Когда run Assets "Import Options: Import"
-Тогда cooked CesiumMan placed; editor.log: "[MeshLOD] LOD n" lines from the import's bake, 0 import errors, CesiumMan.skmesh rewritten
+Когда run Assets "Select asset Meshes/Displace/CesiumMan.skmesh"
+Когда run "Content Browser" "Reimport"
+Тогда cooked editor.log: "[MeshLOD] LOD n" lines from the import's bake, 0 import errors, CesiumMan.skmesh rewritten
