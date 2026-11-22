@@ -1,0 +1,26 @@
+# WP-FAR-14 (owner 11-22, "speed-up + WP"): occluded World Partition meshes are not drawn. Every static mesh of a
+# streamed WP cell goes through the GPU-driven two-phase furthest-HZB cull (UE FInstanceCullingContext):
+# phase 1 against last frame's HZB, phase 2 re-tests what it held back against this frame's
+# (Graphic/GpuDriven/InstanceCulling.hpp, SceneRendererFrameGpuCull.cpp). No CPU occlusion path.
+# Readout: DesertCtl `state` -> views.drawBinViews[] {name, phase1, phase2, occluded} (GpuDriven::CullPhaseCounts),
+# kept by the player as line_NNN_state.txt.
+# Occluder: building "Main C07_08_B01" (cube x9 x21 x11 at -8482,-454,1613); the camera stands before its -Z face,
+# FOV 60, looking +Z across the city (buildings, bushes beyond it); then it rises above the roofs, same heading.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 60
+Когда --subject viewport set Camera.Position -8482,0,-400
+Когда --subject viewport set Camera.Direction 0,0,1
+Когда advance 2
+Когда advance 1
+Когда state
+Тогда 1_occluded the building Main C07_08_B01 stands in the centre of the view; state drawBinViews gbuffer: occluded N > 0 (measured 11-22: phase1 24, occluded 2 - the bushes behind the building)
+Когда --subject viewport set Camera.Position -8482,3000,-400
+Когда --subject viewport set Camera.Direction 0,-0.3,1
+Когда advance 2
+Когда advance 1
+Когда state
+Тогда 2_clear over the roof: the city's buildings and bushes are drawn, no hole or missing building; gbuffer occluded drops vs 1_occluded, phase1 rises (measured: phase1 26, occluded 0)
+Когда run Action "Stop"
