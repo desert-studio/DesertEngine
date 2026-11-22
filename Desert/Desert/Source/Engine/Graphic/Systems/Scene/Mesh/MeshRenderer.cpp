@@ -2436,6 +2436,12 @@ namespace Desert::Graphic::System
                 resolved.EmissionIsLight = resolved.Pipeline != nullptr &&
                                            ( row.Instance != nullptr ? row.Instance->IsEmissiveLightsScene()
                                                                      : row.Surface->IsEmissiveLightsScene() );
+                // VG-SW-RASTER: the software raster's clusters of this bin are shaded only through the cell's VG
+                // visibility resolve twin (a `.Parallax` cell or a path without the VG permutation has none).
+                if ( resolved.Pipeline != nullptr && !resolved.DitheredLod )
+                    if ( const auto resolveCell = VisibilityResolveCellOf( BinnedCellOf( *cell ) ) )
+                        resolved.SoftwareRaster =
+                             Runtime::ResourceRegistry::GetShaderService()->GetByName( *resolveCell ) != nullptr;
                 return resolved;
             }
             case GpuDriven::MeshPass::Forward:
