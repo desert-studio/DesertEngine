@@ -138,7 +138,7 @@ namespace Desert::Graphic
         RDG::TextureRef FogDistantSkyLight;
         RDG::TextureRef FogVolume;
         // The clouds' full-resolution image written this frame
-        // (VolumetricCloudRenderer::GetFrameResult().Upsampled, CloudUpsample.shader: premultiplied radiance +
+        // (VolumetricCloudRenderer::GetFrameResult().Upsampled, CloudTemporalResolve.shader: premultiplied radiance +
         // transmittance per framebuffer pixel); invalid when the frame has none -> CloudComposite
         RDG::TextureRef CloudScatter;
         // Beside it, each pixel's cloud-front device depth (GetFrameResult().UpsampledFrontDepth): the composite's

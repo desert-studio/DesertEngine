@@ -1528,10 +1528,16 @@ CloudFieldSample SampleCloudField( CloudFieldParams params, float heightFraction
 // carried cumulatively (a sample counts only while every sample before it was inside), which is exactly
 // the set of samples the `break` let through, summed in the same order. The result is the same quadrature
 // sample for sample; the price is that a group the ray leaves the shell inside still evaluates its
-// remaining samples (at most three per ray, and masked), while a group that starts outside is skipped
+// remaining samples (at most CLOUD_LIGHT_GROUP - 1 per ray, and masked), while a group that starts outside is skipped
 // whole, as the `break` skipped it. The count is not rounded: the samples past the last whole group run
 // one at a time below the groups, on the same rule.
-#define CLOUD_LIGHT_GROUP 4
+//
+// EIGHT AND NOT FOUR (FPS-CLOUDS-MARCH-2): the near shadow ray inside the self-shadow map square is
+// LightMarchLocalSamples = 8 samples by default, so a group of eight issues the whole near ray as ONE round of
+// fetches instead of two dependent ones - and the view march is a chain of such rounds per fine sample, under
+// one wave of occupancy, where a round of latency is the cost and the registers of four more samples are free.
+// The full ray (32 by default) becomes four rounds instead of eight. Same samples, same order, same sum.
+#define CLOUD_LIGHT_GROUP 8
 
 // Sample @p i (1-based) of the squared quadrature: xyz where it is, w its segment's share of the march.
 // `previous` is the last sample's `current`, written out rather than carried, so the samples of a group
@@ -1592,56 +1598,39 @@ float CloudLightOpticalDepth( CloudLayer layer, CloudFieldParams params, vec3 po
     {
         int first = 1 + groupIndex * CLOUD_LIGHT_GROUP;
 
-        // Positions and shell tests first — arithmetic only, no fetch waits on them.
-        vec4 s0  = CloudLightSampleAt( positionKm, toSun, marchKm, first, invCount );
-        vec4 s1  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 1, invCount );
-        vec4 s2  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 2, invCount );
-        vec4 s3  = CloudLightSampleAt( positionKm, toSun, marchKm, first + 3, invCount );
-        // Each test taken before the && rather than inside it, so no short-circuit branch stands between
-        // the four samples.
-        bool shell0 = CloudLightSampleInShell( layer, s0 );
-        bool shell1 = CloudLightSampleInShell( layer, s1 );
-        bool shell2 = CloudLightSampleInShell( layer, s2 );
-        bool shell3 = CloudLightSampleInShell( layer, s3 );
-        bool in0    = inside && shell0;
-        bool in1    = in0 && shell1;
-        bool in2    = in1 && shell2;
-        bool in3    = in2 && shell3;
-        if ( !in0 )
+        // Positions and shell tests first - arithmetic only, no fetch waits on them. Each test is taken
+        // before the && rather than inside it, so no short-circuit branch stands between the samples; the
+        // constant bound unrolls the loops, so the arrays are registers.
+        vec4 lightSamples[CLOUD_LIGHT_GROUP];
+        bool counted[CLOUD_LIGHT_GROUP];
+        bool carried = inside;
+        for ( int k = 0; k < CLOUD_LIGHT_GROUP; ++k )
+        {
+            lightSamples[k] = CloudLightSampleAt( positionKm, toSun, marchKm, first + k, invCount );
+            bool shell      = CloudLightSampleInShell( layer, lightSamples[k] );
+            carried         = carried && shell;
+            counted[k]      = carried;
+        }
+        if ( !counted[0] )
             break; // the `break` the loop always had: nothing from here on is inside
 
-        // Four independent field evaluations — their fetches overlap.
-        vec4 f0 = CloudLightFieldAt( layer, s0 );
-        vec4 f1 = CloudLightFieldAt( layer, s1 );
-        vec4 f2 = CloudLightFieldAt( layer, s2 );
-        vec4 f3 = CloudLightFieldAt( layer, s3 );
-        vec3 p0 = vec3( f0.x, f0.y, f0.z );
-        vec3 p1 = vec3( f1.x, f1.y, f1.z );
-        vec3 p2 = vec3( f2.x, f2.y, f2.z );
-        vec3 p3 = vec3( f3.x, f3.y, f3.z );
-
-        CloudFieldSample m0 = SampleCloudField( params, f0.w, p0 );
-        CloudFieldSample m1 = SampleCloudField( params, f1.w, p1 );
-        CloudFieldSample m2 = SampleCloudField( params, f2.w, p2 );
-        CloudFieldSample m3 = SampleCloudField( params, f3.w, p3 );
-
-        float d0 = CloudSampleDensity( params, m0, p0 ) * extinctionPerKm *
-                   CloudSampleExtinctionFactor( params, m0, p0 ) * s0.w;
-        float d1 = CloudSampleDensity( params, m1, p1 ) * extinctionPerKm *
-                   CloudSampleExtinctionFactor( params, m1, p1 ) * s1.w;
-        float d2 = CloudSampleDensity( params, m2, p2 ) * extinctionPerKm *
-                   CloudSampleExtinctionFactor( params, m2, p2 ) * s2.w;
-        float d3 = CloudSampleDensity( params, m3, p3 ) * extinctionPerKm *
-                   CloudSampleExtinctionFactor( params, m3, p3 ) * s3.w;
+        // CLOUD_LIGHT_GROUP independent field evaluations - their fetches overlap.
+        float depths[CLOUD_LIGHT_GROUP];
+        for ( int k = 0; k < CLOUD_LIGHT_GROUP; ++k )
+        {
+            vec4             fieldAt  = CloudLightFieldAt( layer, lightSamples[k] );
+            vec3             fieldPos = vec3( fieldAt.x, fieldAt.y, fieldAt.z );
+            CloudFieldSample field    = SampleCloudField( params, fieldAt.w, fieldPos );
+            depths[k] = CloudSampleDensity( params, field, fieldPos ) * extinctionPerKm *
+                        CloudSampleExtinctionFactor( params, field, fieldPos ) * lightSamples[k].w;
+        }
 
         // Summed in sample order, as the one-at-a-time loop summed them. A SELECT and not a multiply by
         // the mask: a sample past the shell is evaluated against a clamped height and must not be able
         // to bring a non-finite value into the sum.
-        accumulated += in0 ? d0 : 0.0f;
-        accumulated += in1 ? d1 : 0.0f;
-        accumulated += in2 ? d2 : 0.0f;
-        accumulated += in3 ? d3 : 0.0f;
-        inside = in3;
+        for ( int k = 0; k < CLOUD_LIGHT_GROUP; ++k )
+            accumulated += counted[k] ? depths[k] : 0.0f;
+        inside = counted[CLOUD_LIGHT_GROUP - 1];
     }
 
     for ( int i = 1 + groups * CLOUD_LIGHT_GROUP; i <= sampleCount; ++i )

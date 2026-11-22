@@ -386,19 +386,20 @@ namespace Desert::Graphic
         ComputeNodeList nodes = clouds->DeclareFrameNodes( graph, frame, history, marchDepth );
         // FPS-CLOUDS-MARCH (UE: the volumetric render target traced on the async pipe, r.VolumetricCloud.
         // AsyncCompute / r.VolumetricRenderTarget): every node of the layer - the stale sky occlusion, the march,
-        // the temporal resolve and the upsample - is a compute dispatch whose graph inputs are the scene depth,
-        // the sky LUTs, the cloud shadow map and the layer's own volumes, all final before the probes' fork, and
-        // whose only graphics reader of this frame is the cloud composite in the translucency. So the whole chain
-        // asks for the async queue as ONE run: the graph forks it after the last graphics writer of what it reads
-        // and joins it at the composite (RDGCompile FindAsyncRuns), and the graphics queue no longer pays the
-        // march. The chain stays whole on purpose: the march alone on async would be joined by the resolve right
-        // after it and the graphics queue would wait out the whole march. CloudQueue::Graphics (the late
-        // placement, after the opaque scene) keeps them on the graphics queue: there the composite follows at
-        // once, so an async run would only become a wait. RenderPipeline.AsyncCompute 0 or a device without a
-        // compute family demotes them anyway. FPS-CLOUDS-MARCH-ASYNC: the chain's queue is chosen here once, so
-        // FPS-ASYNC-BALANCE never splits it (RDG::PassFlags::AsyncComputeFixed): on FIELD-BARN-TURN
-        // scn-1121-214723 it gave the march alone to Graphics (0.10 ms in a 2.4 ms modelled graph, an early
-        // window) and the graphics queue paid 0.41 ms of march plus a resubmit every frame after.
+        // the reconstruction (temporal resolve + full-res compose, one dispatch) - is a compute dispatch whose
+        // graph inputs are the scene depth, the sky LUTs, the cloud shadow map and the layer's own volumes, all
+        // final before the probes' fork, and whose only graphics reader of this frame is the cloud composite in
+        // the translucency. So the whole chain asks for the async queue as ONE run: the graph forks it after the
+        // last graphics writer of what it reads and joins it at the composite (RDGCompile FindAsyncRuns), and the
+        // graphics queue no longer pays the march. The chain stays whole on purpose: the march alone on async
+        // would be joined by the resolve right after it and the graphics queue would wait out the whole march.
+        // CloudQueue::Graphics (the late placement, after the opaque scene) keeps them on the graphics queue:
+        // there the composite follows at once, so an async run would only become a wait.
+        // RenderPipeline.AsyncCompute 0 or a device without a compute family demotes them anyway.
+        // FPS-CLOUDS-MARCH-ASYNC: the chain's queue is chosen here once, so FPS-ASYNC-BALANCE never splits it
+        // (RDG::PassFlags::AsyncComputeFixed): on FIELD-BARN-TURN scn-1121-214723 it gave the march alone to
+        // Graphics (0.10 ms in a 2.4 ms modelled graph, an early window) and the graphics queue paid 0.41 ms of
+        // march plus a resubmit every frame after.
         for ( ComputeNodeDeclaration& node : nodes )
         {
             node.AsyncCompute      = async;

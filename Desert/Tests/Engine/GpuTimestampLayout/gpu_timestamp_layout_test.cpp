@@ -245,7 +245,7 @@ namespace
     }
 } // namespace
 
-// The frame's real shape: VolumetricClouds > Clouds: ExecuteInFrame > {March, TemporalResolve}. Summing
+// The frame's real shape: VolumetricClouds > Clouds: ExecuteInFrame > {March, Reconstruct}. Summing
 // the inclusive column here gives 8.0 + 7.9 + 7.1 + 0.7 = 23.7 ms out of an 8.0 ms pass; the self times
 // give back exactly 8.0.
 TEST( GpuTimestampLayout, SelfTimesSumToTheRootInclusive )
