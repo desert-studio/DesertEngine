@@ -12,7 +12,7 @@
 #   DesertNetProbe --bot --connect 127.0.0.1:27031 --cooked W --token B --name B --seconds 12
 # Тогда [net1_two_clients] server.log: "no device created"; "admitted as player 1" and "player 2"; a residency
 #   union line listing "server", "player 1 account 1" and "player 2 account 2" sources. clientB.log: "FINAL remote
-#   pawn ... moved 2000 cm" (+-60) for A's pawn and "FINAL own pawn ... moved 0 cm" at B's spawn (0,0,400);
+#   pawn ... moved" 2000..2120 cm for A's pawn (no prediction: inputs in flight for one RTT keep it walking, <= RTT x 600 cm/s) and "FINAL own pawn ... moved 0 cm" at B's spawn (0,0,400);
 #   clientA.log: own pawn moved 2000 cm, "unacked inputs" stays small (< 20); exits A 0, B 0, server 0.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state
