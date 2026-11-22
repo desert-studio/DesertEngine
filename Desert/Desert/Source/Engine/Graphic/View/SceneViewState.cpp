@@ -222,7 +222,7 @@ namespace Desert::Graphic
                                                                                const ViewExtent extent )
     {
         m_Created                                                = false;
-        m_WriterPass                                             = UINT32_MAX;
+        m_WriterPasses.clear();
         std::array<RDG::ExternalTexture, TextureCount>& previous = m_Slots[m_PreviousSlot];
         // Another extent is another view size: the set describes pixels that no longer exist.
         if ( !m_HasPrevious || AnyMissing( previous ) || m_PreviousExtent.Width != extent.Width ||
@@ -263,20 +263,26 @@ namespace Desert::Graphic
         }
         m_CurrentExtent = extent;
         m_Created       = true;
-        m_WriterPass    = UINT32_MAX;
+        m_WriterPasses.clear();
         return current;
     }
 
-    void ScreenProbeGatherHistory::SetWriterPass( const uint32_t writerPass )
+    void ScreenProbeGatherHistory::AddWriterPass( const uint32_t writerPass )
     {
-        m_WriterPass = writerPass;
+        m_WriterPasses.push_back( writerPass );
     }
 
     void ScreenProbeGatherHistory::EndFrame( const RDG::ExecuteReport& report )
     {
         const bool created = std::exchange( m_Created, false );
-        const bool lost    = m_WriterPass == UINT32_MAX ||
-                          std::ranges::find( report.FaultCulled, m_WriterPass ) != report.FaultCulled.end();
+        const bool lost    = m_WriterPasses.empty() ||
+                          std::ranges::any_of( m_WriterPasses,
+                                               [&report]( const uint32_t writer )
+                                               {
+                                                   return std::ranges::find( report.FaultCulled, writer ) !=
+                                                          report.FaultCulled.end();
+                                               } );
+        m_WriterPasses.clear();
         const uint32_t next = m_PreviousSlot ^ 1u;
         if ( !created || lost || AnyMissing( m_Slots[next] ) )
         {
@@ -299,7 +305,7 @@ namespace Desert::Graphic
         m_PreviousSlot   = 0;
         m_HasPrevious    = false;
         m_Created        = false;
-        m_WriterPass     = UINT32_MAX;
+        m_WriterPasses.clear();
     }
 
     uint64_t ScreenProbeGatherHistory::HeldBytes() const

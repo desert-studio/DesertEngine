@@ -161,6 +161,20 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateTilesUB );
         DESERT_SHADER_PARAMETER( Texture, GBufferShadingWord ); // the uncovered pixels' backface foliage test
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeUncoveredMaskUB ); // the uncovered pass's pixels
+        // SP_INTEGRATE_TEMPORAL: the uncovered pass's outputs read back, the history taps, the view's previous set
+        // and the new one.
+        DESERT_SHADER_PARAMETER( Texture, DiffuseIndirect );
+        DESERT_SHADER_PARAMETER( Texture, RoughSpecularIndirect );
+        DESERT_SHADER_PARAMETER( Texture, BackfaceDiffuseIndirect );
+        DESERT_SHADER_PARAMETER( Texture, ScreenProbeHistoryTaps );
+        DESERT_SHADER_PARAMETER( Texture, DiffuseIndirectHistory );
+        DESERT_SHADER_PARAMETER( Texture, RoughSpecularIndirectHistory );
+        DESERT_SHADER_PARAMETER( Texture, BackfaceDiffuseIndirectHistory );
+        DESERT_SHADER_PARAMETER( Texture, HistoryGuide );
+        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryDiffuseIndirect );
+        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryRoughSpecularIndirect );
+        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryBackfaceDiffuseIndirect );
+        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryGuide );
     };
     struct ScreenProbeGatherDisocclusionShaderParameters
     {
@@ -185,25 +199,6 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, FilteredScreenProbeRadiance );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeTraceHitUB ); // SP_SPATIAL_FILTER_FILLS_SKIPPED
     };
-    struct ScreenProbeGatherTemporalShaderParameters
-    {
-        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeParamsUB );
-        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
-        DESERT_SHADER_PARAMETER( Texture, ScreenProbeHistoryTaps );
-        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
-        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWord );
-        DESERT_SHADER_PARAMETER( Texture, DiffuseIndirect );
-        DESERT_SHADER_PARAMETER( Texture, RoughSpecularIndirect );
-        DESERT_SHADER_PARAMETER( Texture, BackfaceDiffuseIndirect );
-        DESERT_SHADER_PARAMETER( Texture, DiffuseIndirectHistory );
-        DESERT_SHADER_PARAMETER( Texture, RoughSpecularIndirectHistory );
-        DESERT_SHADER_PARAMETER( Texture, BackfaceDiffuseIndirectHistory );
-        DESERT_SHADER_PARAMETER( Texture, HistoryGuide );
-        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryDiffuseIndirect );
-        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryRoughSpecularIndirect );
-        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryBackfaceDiffuseIndirect );
-        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryGuide );
-    };
 
 } // namespace
 
@@ -213,15 +208,15 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 20> kScreenProbeShaderNames{
+        constexpr std::array<std::string_view, 21> kScreenProbeShaderNames{
              "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
              "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
              "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
              "ScreenProbeTrace",         "ScreenProbeDisocclusion", "ScreenProbeSpatialFilter",
              "ScreenProbeSpatialFilter", "ScreenProbeFilter",       "ScreenProbeFilter",
              "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeIntegrate",
-             "ScreenProbeIntegrate",     "ScreenProbeTemporal" };
-        static_assert( kScreenProbeShaderNames.size() == 20u, "one shader name a ScreenProbeGather::Program" );
+             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeIntegrate" };
+        static_assert( kScreenProbeShaderNames.size() == 21u, "one shader name a ScreenProbeGather::Program" );
 
         // The permutation define of a layout program that shares its shader with another (empty: none); the
         // spatial filter's first pass rebuilding the sparse stable probes' skipped texels
@@ -248,7 +243,8 @@ namespace Desert::Graphic::GlobalIllumination
              "SP_INTEGRATE_SIMPLE_DIFFUSE",
              "",
              "SP_INTEGRATE_UNCOVERED",
-             "" };
+             "SP_INTEGRATE_SIMPLE_DIFFUSE_TEMPORAL",
+             "SP_INTEGRATE_TEMPORAL" };
 
         // ScreenProbeIntegrateArgsUB: the simple-diffuse tiles' dispatch, then the full tiles' (x, y = a 2D grid
         // of SP_INTEGRATE_GROUPS_X groups a row, z = 1, w = the list's count), counted by the classification.
@@ -1572,10 +1568,18 @@ namespace Desert::Graphic::GlobalIllumination
         }
         // One integrate permutation over its tiles: the simple-diffuse one binds no filtered radiance (it samples
         // no GGX direction).
+        // FPS-SP-INTEGRATE (UE ScreenProbeTemporalReprojectionCS reads the pixel's own value only): a denoised
+        // frame's integrates blend each pixel with its history and write the view's new set themselves - the
+        // separate per-pixel temporal pass, its async slot and the three intermediates' round trip are gone. Both
+        // integrates write the set (disjoint tiles): both are its writers.
+        const bool          temporal = inputs.Denoise;
+        const History::Refs current  = temporal ? history.CreateCurrent( graph, extent ) : History::Refs{};
         const auto integrate = [&]( const Program program, const std::string_view name, const uint64_t argsOffset )
         {
             ComputePipeline* const pipeline = m_Pipelines[program].get();
-            const bool             simple   = program == IntegrateSimpleDiffuse;
+            const bool simple = program == IntegrateSimpleDiffuse || program == IntegrateSimpleDiffuseTemporal;
+            if ( temporal )
+                history.AddWriterPass( graph.GetPassCount() );
             graph.AddPass(
                  name, kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
@@ -1602,14 +1606,8 @@ namespace Desert::Graphic::GlobalIllumination
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbesUB, probes, kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeSHUB, sh, kR )
-                          .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeDiffuseOutTexture,
-                                    diffuse, kW )
-                          .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeSpecularOutTexture,
-                                    specular, kW )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeBackfaceUB,
                                     backfaceIrradiance, kR )
-                          .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeBackfaceOutTexture,
-                                    backface, kW )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeMovingUB, moving, kR )
                           // A pixel no screen probe holds reads the world radiance cache in the same group
                           // (THE UNCOVERED PIXELS, FPS-SP-SEGMENT: was the separate "Integrate Uncovered" pass).
@@ -1629,9 +1627,40 @@ namespace Desert::Graphic::GlobalIllumination
                      // FPS-GI-ASYNC (UE SkipBarrier): the classification lists every tile in one integrate
                      // permutation only, so the simple-diffuse and the full integrate write disjoint pixels (each
                      // group its tile's uncovered ones too): they overlap on the async queue.
-                     builder.SkipBarrier( diffuse );
-                     builder.SkipBarrier( specular );
-                     builder.SkipBarrier( backface );
+                     if ( temporal )
+                     {
+                         // FPS-SP-INTEGRATE: the temporal filter in the integrate (SP_INTEGRATE_TEMPORAL): the
+                         // uncovered pass's outputs read back at its pixels, the taps, the previous set, the new one.
+                         using H = History;
+                         block.Texture( IntegrateSlots::DiffuseIndirect, diffuse, kS, all )
+                              .Texture( IntegrateSlots::RoughSpecularIndirect, specular, kS, all )
+                              .Texture( IntegrateSlots::BackfaceDiffuseIndirect, backface, kS, all )
+                              .Texture( IntegrateSlots::ScreenProbeHistoryTaps, historyTaps, kS, all )
+                              .Texture( IntegrateSlots::DiffuseIndirectHistory, historyOrBlack( H::DiffuseIndirect ),
+                                        kS, all )
+                              .Texture( IntegrateSlots::RoughSpecularIndirectHistory,
+                                        historyOrBlack( H::RoughSpecularIndirect ), kS, all )
+                              .Texture( IntegrateSlots::BackfaceDiffuseIndirectHistory,
+                                        historyOrBlack( H::BackfaceDiffuseIndirect ), kS, all )
+                              .Texture( IntegrateSlots::HistoryGuide, historyOrBlack( H::Guide ), kS, all )
+                              .Storage( IntegrateSlots::NewHistoryDiffuseIndirect, current[H::DiffuseIndirect], kW )
+                              .Storage( IntegrateSlots::NewHistoryRoughSpecularIndirect,
+                                        current[H::RoughSpecularIndirect], kW )
+                              .Storage( IntegrateSlots::NewHistoryBackfaceDiffuseIndirect,
+                                        current[H::BackfaceDiffuseIndirect], kW )
+                              .Storage( IntegrateSlots::NewHistoryGuide, current[H::Guide], kW );
+                         for ( const RDG::TextureRef& texture : current )
+                             builder.SkipBarrier( texture );
+                     }
+                     else
+                     {
+                         block.Storage( IntegrateSlots::ScreenProbeDiffuseOutTexture, diffuse, kW )
+                              .Storage( IntegrateSlots::ScreenProbeSpecularOutTexture, specular, kW )
+                              .Storage( IntegrateSlots::ScreenProbeBackfaceOutTexture, backface, kW );
+                         builder.SkipBarrier( diffuse );
+                         builder.SkipBarrier( specular );
+                         builder.SkipBarrier( backface );
+                     }
                  },
                  [pipeline, args = integrateArgs, argsOffset]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -1642,8 +1671,9 @@ namespace Desert::Graphic::GlobalIllumination
         // FPS-SP-HALFRES-DIFFUSE: the simple-diffuse permutation interpolates the probes at half resolution (16
         // samples a tile) and upsamples depth/normal-aware in the same group (ScreenProbeIntegrate.shader
         // HALF-RESOLUTION SIMPLE DIFFUSE); the GGX tiles stay full resolution. Same bindings, same dispatch.
-        integrate( IntegrateSimpleDiffuse, "ScreenProbes: Integrate Simple Diffuse", 0u );
-        integrate( Integrate, "ScreenProbes: Integrate", kIntegrateFullArgsOffset );
+        integrate( temporal ? IntegrateSimpleDiffuseTemporal : IntegrateSimpleDiffuse,
+                   "ScreenProbes: Integrate Simple Diffuse", 0u );
+        integrate( temporal ? IntegrateTemporal : Integrate, "ScreenProbes: Integrate", kIntegrateFullArgsOffset );
 #if DESERT_DEV_INSTRUMENTS
         // FPS-SP-INTEGRATE: the placement's and the integrate's census, after the last pass that writes its words.
         m_Census.AddFrame( graph, m_FrameIndex,
@@ -1653,80 +1683,11 @@ namespace Desert::Graphic::GlobalIllumination
                            placedArgs, integrateArgs );
 #endif
 
-        if ( !inputs.Denoise )
+        if ( !temporal )
             return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse      = diffuse,
                                                                 .Specular     = specular,
                                                                 .Backface     = backface,
                                                                 .ShortRangeAO = inputs.ShortRangeAO } );
-
-        // TEMPORAL FILTER (UE ScreenProbeTemporalReprojectionCS): this frame's lighting blended with the view's
-        // history into the view's new history set, which is also what the composite reads.
-        const History::Refs current = history.CreateCurrent( graph, extent );
-        {
-            ComputePipeline* const pipeline = m_Pipelines[Temporal].get();
-            const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
-            history.SetWriterPass( graph.GetPassCount() );
-            graph.AddPass(
-                 "ScreenProbes: Temporal", kAsyncPass,
-                 [&]( RDG::PassBuilder& builder )
-                 {
-                     using H    = History;
-                     auto block = builder.Bindings( m_Layouts[Temporal].Get( m_Shaders[Temporal] ),
-                                                    Renderer::GetPipelineRouteFill( *pipeline ) );
-                     block.Storage( ScreenProbeGatherTemporalShaderParameters::ScreenProbeParamsUB, paramsBuffer,
-                                    kR )
-                          .Storage( ScreenProbeGatherTemporalShaderParameters::GIFrameUB, inputs.GIFrame, kR )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::ScreenProbeHistoryTaps, historyTaps,
-                                    kS, all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::GBufferShadingWord,
-                                    inputs.GBufferShadingWord, kS, all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::DiffuseIndirect, diffuse, kS, all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::RoughSpecularIndirect, specular, kS,
-                                    all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::BackfaceDiffuseIndirect, backface,
-                                    kS, all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::DiffuseIndirectHistory,
-                                    historyOrBlack( H::DiffuseIndirect ), kS, all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::RoughSpecularIndirectHistory,
-                                    historyOrBlack( H::RoughSpecularIndirect ), kS, all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::BackfaceDiffuseIndirectHistory,
-                                    historyOrBlack( H::BackfaceDiffuseIndirect ), kS, all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( ScreenProbeGatherTemporalShaderParameters::HistoryGuide,
-                                    historyOrBlack( H::Guide ), kS, all )
-                          .Sampler( ScreenProbeGatherTemporalShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Storage( ScreenProbeGatherTemporalShaderParameters::NewHistoryDiffuseIndirect,
-                                    current[H::DiffuseIndirect], kW )
-                          .Storage( ScreenProbeGatherTemporalShaderParameters::NewHistoryRoughSpecularIndirect,
-                                    current[H::RoughSpecularIndirect], kW )
-                          .Storage( ScreenProbeGatherTemporalShaderParameters::NewHistoryBackfaceDiffuseIndirect,
-                                    current[H::BackfaceDiffuseIndirect], kW )
-                          .Storage( ScreenProbeGatherTemporalShaderParameters::NewHistoryGuide, current[H::Guide],
-                                    kW );
-                     gbuf( block );
-                 },
-                 [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 {
-                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::DispatchCompute( bindings, *pipeline, groups.x, groups.y, 1u );
-                 } );
-        }
         return Common::MakeSuccess( ScreenProbeGatherFrame{ .Diffuse  = current[History::DiffuseIndirect],
                                                             .Specular = current[History::RoughSpecularIndirect],
                                                             .Backface = current[History::BackfaceDiffuseIndirect],
