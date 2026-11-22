@@ -27,9 +27,10 @@
 // socket half already lives next to it (ECS SocketAttachmentComponent, driven by AttachmentSystem), and
 // AttachToSocket is expected to be implemented on top of that component, not beside it.
 //
-// NOT HERE: EQP1 — the implementation (ECS side: follower mesh entities, section visibility on the mesh
-// renderer, cloth lifetime) and the Lua bindings of these mechanisms. No reflected ECS component is declared (the
-// follower's LeaderPoseLink is runtime-only), so no reflection, serialization or scene format moves with CLO0.
+// THE IMPLEMENTATION: ECS::ModularCharacter (Engine/ECS/ModularCharacter.hpp, EQP1) over the scene's registry,
+// with its state in the leader's runtime components; scripts reach it through Libraries/ModularCharacterLibrary.
+// No reflected ECS component is declared (LeaderPoseLink, HiddenSections and the leader's state are runtime-only),
+// so no reflection, serialization or scene format moves with it.
 
 #include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 #include <PhysicsCore/Cloth/ClothingSimulation.hpp>

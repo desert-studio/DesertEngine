@@ -471,7 +471,7 @@ namespace Desert::Graphic::System
         Animation::LeaderPoseLink Leader;
 
         bool     Outlined        = false;
-        uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
+        uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes; a skinned body's HiddenSections)
         int      ForcedLOD       = -1; // -1 = auto (by distance); 0..N pins a LOD level
         int      LODBias         = 0;  // shifts the auto LOD (ignored when forced)
         bool     CastShadows     = true;
@@ -4038,11 +4038,13 @@ namespace Desert::Graphic::System
         // reflection capture into its own face renderers), with ClearQueues between replays on that thread or at
         // the fence. A parallel replay into one renderer would race m_SkinnedQueue first: it is not allowed.
         const SkinnedSectionList& SkinnedSectionsFor( const MaterialSlotBindingPtr& binding,
-                                                      std::size_t                   submeshCount );
+                                                      std::size_t                   submeshCount,
+                                                      uint64_t                      hiddenSubmeshes );
         struct SkinnedSectionsEntry
         {
             MaterialSlotBindingPtr Binding;
             std::size_t            SubmeshCount = 0;
+            uint64_t               HiddenSubmeshes = 0; // the body's hidden sections the list was built without
             SkinnedSectionList     Sections;
             uint64_t               Seen = 0; // m_SkinnedSectionsEpoch last asked
         };

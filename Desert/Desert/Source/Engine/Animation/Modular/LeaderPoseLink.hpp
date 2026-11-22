@@ -33,4 +33,14 @@ namespace Desert::Animation
         }
         bool operator==( const LeaderPoseLink& ) const = default;
     };
+
+    // THE BODY'S HIDDEN SECTIONS (IModularCharacter::SetBodySectionVisible; UE ShowMaterialSection): a RUNTIME
+    // ECS component on the leader, bit i = submesh i not drawn. MeshECSSystem carries it in the leader's draw
+    // (DrawSkinnedMeshCommand::HiddenSubmeshes), MeshRenderer::SkinnedSectionsFor drops those submeshes from
+    // every skinned section. Never reflected or serialized, like the link above.
+    struct HiddenSections
+    {
+        uint64_t Mask = 0;
+        bool     operator==( const HiddenSections& ) const = default;
+    };
 } // namespace Desert::Animation

@@ -152,6 +152,7 @@ namespace Desert::Graphic::Render
                            .LodFeedback   = LodFeedback,
                            .Leader        = Leader,
                            .Outlined      = Outlined,
+                           .HiddenSubmeshes = HiddenSubmeshes,
                            .CastShadows   = CastShadows } );
     }
 
