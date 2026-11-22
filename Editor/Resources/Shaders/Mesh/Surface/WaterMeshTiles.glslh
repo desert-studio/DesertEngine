@@ -12,6 +12,10 @@ struct WaterTileRow
     vec4 Tile; // xy = lower (X, Z) corner relative to the zone origin, z = still level Y, w = side length
     vec4 Lod;  // x = LOD level, y = 1 if it morphs, z = 1 if it can morph twice, w = height LOD factor
     vec4 Zone; // xy = the zone's world (X, Z) origin, z = LOD scale (cm), w = quads per side
+    // The tile's body (UE: the water mesh tile's WaterBodyIndex): x = its material's row (the draw's MaterialIndex),
+    // y = 1 for a river (its surface is clipped to the bank mask, WaterOutsideBank), z = the body's wave scale (1 =
+    // the frame's waves, 0 = a flat body), w = the body's index in its zone.
+    vec4 Body;
 };
 
 // One Gerstner wave of the drawn body (Water::GerstnerWave; C++ twin WaterRenderer.cpp WaterWaveRow).
@@ -33,7 +37,7 @@ layout( std430, binding = 24 ) readonly buffer WaterTiles
     vec4         WaterWaveHeader; // x = wave count, y = the FFT atlas's first band of THIS frame (0 or 6), zw = WaveOrigin (X, Z)
     vec4         WaterInfoFrame;  // WaterInfoTexture's square: xy = lower world (X, Z), z = 1 / side (cm), w = the body's TargetWaveMaskDepth (cm), 0 = none baked
     vec4         WaterFFTFrame;   // the FFT ocean: xyz = 1 / patch side of cascades 0..2 (1/cm), w = 1 + the atlas's first band of the PREVIOUS frame (1 or 7) when this frame's waves ARE the FFT cascades (WaterFFTTexture), 0 = the Gerstner rows
-    vec4         WaterFlowFrame;  // a river's flow (WATER-RIVERS-FFT): x = 1 when the body flows, y = the flow map's two-phase period (s), z = the normal's flow tile (cm), w = foam speed scale
+    vec4         WaterFlowFrame;  // a river's flow (WATER-RIVERS-FFT): x = 1 when a river is in the frame (WaterInfoTexture's gba carry its flow), y = the two-phase flow's period (s), zw unused
     WaterWaveRow WaterWaveRows[WATER_MAX_WAVES];
     WaterTileRow WaterTileRows[];
 };
@@ -194,6 +198,55 @@ float WaterGroundDepth( vec2 worldXZ, float stillY )
         return 0.0; // the landscape's edge: no ground to break on
     const float ground = mix( mix( h00, h10, f.x ), mix( h01, h11, f.x ), f.y );
     return max( stillY - ground, 1.0 ); // over the ground's own level: the thinnest film
+}
+
+// THE RIVER FLOW (UE: the river velocity the WaterInfo texture carries; Water::RiverFlowField): the same square as
+// the ground, gba = the surface velocity on the (X, Z) plane (cm/s) and the bank mask (1 inside a river's ribbon).
+// Bilinear, as WaterGroundDepth. Zero (no flow, outside every bank) off the square or with no river this frame.
+vec3 WaterFlowAt( vec2 worldXZ )
+{
+    if ( WaterFlowFrame.x < 0.5 )
+        return vec3( 0.0 );
+    const vec2 uv = ( worldXZ - WaterInfoFrame.xy ) * WaterInfoFrame.z;
+    if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) )
+        return vec3( 0.0 );
+    const ivec2 size = textureSize( WaterInfoTexture, 0 );
+    const vec2  p    = uv * vec2( size ) - 0.5;
+    const ivec2 i0   = clamp( ivec2( floor( p ) ), ivec2( 0 ), size - 1 );
+    const ivec2 i1   = min( i0 + 1, size - 1 );
+    const vec2  f    = clamp( p - floor( p ), 0.0, 1.0 );
+    const vec3  a    = texelFetch( WaterInfoTexture, i0, 0 ).gba;
+    const vec3  b    = texelFetch( WaterInfoTexture, ivec2( i1.x, i0.y ), 0 ).gba;
+    const vec3  c    = texelFetch( WaterInfoTexture, ivec2( i0.x, i1.y ), 0 ).gba;
+    const vec3  d    = texelFetch( WaterInfoTexture, i1, 0 ).gba;
+    return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+}
+
+// A river tile's fragment outside its banks (UE draws a river as a spline mesh of the ribbon's width; here the
+// quadtree leaf overshoots the banks and is clipped to the baked mask). `riverTile` = WaterTileRow.Body.y, carried
+// to the fragment in VertexColor.b (Vertex_WaterMesh.glslh).
+bool WaterOutsideBank( vec2 worldXZ, float riverTile )
+{
+    return riverTile > 0.5 && WaterFlowAt( worldXZ ).z < 0.5;
+}
+
+// THE TWO-PHASE FLOW (UE's water material FlowMap: two copies of a texture advected along the flow, half a period
+// apart, each faded out as it resets): the two advected positions of `worldXZ` at `time` and the second's weight.
+// No flow here: both positions are `worldXZ`, the weight 0.
+void WaterFlowPhases( vec2 worldXZ, float time, out vec2 p0, out vec2 p1, out float w1 )
+{
+    p0 = worldXZ;
+    p1 = worldXZ;
+    w1 = 0.0;
+    const vec3 flow = WaterFlowAt( worldXZ );
+    if ( flow.z <= 0.0 )
+        return;
+    const float period = max( WaterFlowFrame.y, 0.05 );
+    const float ph0    = fract( time / period );
+    const float ph1    = fract( time / period + 0.5 );
+    p0                 = worldXZ - flow.xy * ph0 * period;
+    p1                 = worldXZ - flow.xy * ph1 * period;
+    w1                 = abs( ph0 - 0.5 ) * 2.0;
 }
 
 // How much of the body's waves survives over the ground at a world (X, Z) (UE: the water vertex factory's

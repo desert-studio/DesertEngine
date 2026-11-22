@@ -191,6 +191,9 @@ void main()
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN, v_Surface.UV1,
                               DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
+    // A river's tile past its banks (the quadtree leaf overshoots the ribbon): no water there.
+    if ( WaterOutsideBank( i.WorldPosition.xz, i.VertexColor.b ) )
+        discard;
     SurfaceOutput                s = EvaluateSurface( i );
     const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
     const float                  windRipple = WaterWindRippleScale( i.WorldPosition, w.WindRippleMaxGain );
@@ -291,7 +294,9 @@ void main()
                                    fract( i.Time * 7.31 ) );
     // The particle's still (X, Z) - the point the vertex path damped its waves at - for both the depth and the damping.
     const float depth     = WaterGroundDepth( i.UV1, i.VertexColor.g );
-    const float atten     = depth > 0.0 ? GerstnerDepthAttenuation( depth, WaterInfoFrame.w ) : 1.0;
+    // VertexColor.a = the tile's wave scale (WaterTileRow.Body.z): a body drawn without the frame's waves makes none
+    // of their foam.
+    const float atten     = ( depth > 0.0 ? GerstnerDepthAttenuation( depth, WaterInfoFrame.w ) : 1.0 ) * i.VertexColor.a;
     const float amount    = clamp( WaterFoamAmount( WaterWavePlane( i.UV1 ), i.Time, jitter, depth, atten, w ), 0.0, 1.0 );
     const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );

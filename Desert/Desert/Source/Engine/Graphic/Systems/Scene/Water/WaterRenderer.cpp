@@ -18,9 +18,12 @@
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Water/GerstnerWaterWaves.hpp>
+#include <Engine/Water/WaterRiver.hpp>
 #include <Common/Core/Profiler.hpp>
 
+#include <cmath>
 #include <cstddef>
+#include <limits>
 #include <cstring>
 #include <format>
 #include <algorithm>
@@ -101,8 +104,11 @@ namespace Desert::Graphic::System
             glm::vec4 Tile; // xy = lower (X, Z) corner relative to the zone origin, z = still level Y, w = side
             glm::vec4 Lod;  // x = LOD level, y = morphs, z = can morph twice, w = height LOD factor
             glm::vec4 Zone; // xy = the zone's world (X, Z) origin, z = LOD scale (cm), w = quads per side
+            // The tile's body (UE WaterBodyIndex; TileWalk::Bodies): x = its material's row, y = 1 for a river,
+            // z = its wave scale (1 = the frame's waves, 0 = flat), w = the body's index in its zone.
+            glm::vec4 Body;
         };
-        static_assert( sizeof( WaterTileRow ) == 3 * sizeof( glm::vec4 ), "std430 rows of three vec4" );
+        static_assert( sizeof( WaterTileRow ) == 4 * sizeof( glm::vec4 ), "std430 rows of four vec4" );
 
         // One Gerstner wave, std430 (Mesh/Surface/WaterMeshTiles.glslh WaterWaveRow).
         struct WaterWaveRow
@@ -127,16 +133,18 @@ namespace Desert::Graphic::System
         };
         static_assert( sizeof( WaterWavesBlock ) == ( 4 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
 
-        // The WaterInfo ground as the GPU samples it: one R32F texel per baked height (Water::WaterInfoGround).
-        std::shared_ptr<Image2D> CreateWaterInfoImage( const uint32_t size, const std::vector<float>& heights )
+        // THE WATER INFO TEXTURE as the GPU samples it (UE WaterInfo: ground depth + river velocity): one RGBA32F
+        // texel per square cell, (ground height cm, flow x cm/s, flow z cm/s, bank mask) - WaterMeshTiles.glslh
+        // WaterGroundDepth reads .r, WaterFlowAt .gba.
+        std::shared_ptr<Image2D> CreateWaterInfoImage( const uint32_t size, const std::vector<glm::vec4>& texels )
         {
-            std::vector<unsigned char> bytes( heights.size() * sizeof( float ) );
-            std::memcpy( bytes.data(), heights.data(), bytes.size() );
+            std::vector<unsigned char> bytes( texels.size() * sizeof( glm::vec4 ) );
+            std::memcpy( bytes.data(), texels.data(), bytes.size() );
             Core::Formats::Image2DSpecification spec = {
-                 .Tag        = "WaterInfoGround",
+                 .Tag        = "WaterInfo",
                  .Width      = size,
                  .Height     = size,
-                 .Format     = Core::Formats::ImageFormat::R32F,
+                 .Format     = Core::Formats::ImageFormat::RGBA32F,
                  .Mips       = 1,
                  .Samples    = 1,
                  .Data       = Core::Formats::EmptyPixelData{},
@@ -146,6 +154,93 @@ namespace Desert::Graphic::System
             };
             spec.Data = std::move( bytes );
             return Image2D::Create( spec );
+        }
+
+        // The square the WaterInfo texture spans: the ground's own grid while it holds every river's bake (the
+        // ground's heights then go up as baked), else the square over the ground and every bake at the finer of
+        // their texel sizes, at most Water::kRiverFlowMaxSize per side. Size 0: no ground and no river.
+        struct WaterInfoSquare
+        {
+            glm::vec2 Min{ 0.0f };
+            float     Extent = 0.0f;
+            uint32_t  Size   = 0u;
+        };
+        WaterInfoSquare
+        WaterInfoSquareOf( const Water::WaterInfoGround*                                 ground,
+                           std::span<const std::shared_ptr<const Water::RiverFlowField>> flows ) noexcept
+        {
+            const bool hasGround = ground != nullptr && ground->Size > 0u && ground->ExtentCm > 0.0f;
+            glm::vec2  lo( std::numeric_limits<float>::max() );
+            glm::vec2  hi( std::numeric_limits<float>::lowest() );
+            float      texel = Water::kRiverFlowCmPerTexel;
+            for ( const auto& flow : flows )
+            {
+                lo    = glm::min( lo, flow->Min );
+                hi    = glm::max( hi, flow->Min + flow->Extent );
+                texel = std::min( texel, flow->Extent.x / static_cast<float>( std::max( flow->Size.x, 1u ) ) );
+            }
+            if ( hasGround )
+            {
+                const glm::vec2 groundLo = ground->Min;
+                const glm::vec2 groundHi = ground->Min + glm::vec2( ground->ExtentCm );
+                if ( flows.empty() ||
+                     ( groundLo.x <= lo.x && groundLo.y <= lo.y && groundHi.x >= hi.x && groundHi.y >= hi.y ) )
+                    return { groundLo, ground->ExtentCm, ground->Size };
+                lo    = glm::min( lo, groundLo );
+                hi    = glm::max( hi, groundHi );
+                texel = std::min( texel, ground->ExtentCm / static_cast<float>( ground->Size ) );
+            }
+            if ( flows.empty() )
+                return {};
+            const float    extent = std::max( std::max( hi.x - lo.x, hi.y - lo.y ), 1.0f );
+            const uint32_t size =
+                 std::clamp( static_cast<uint32_t>( std::ceil( extent / std::max( texel, 1.0f ) ) ), 1u,
+                             Water::kRiverFlowMaxSize );
+            return { lo, extent, size };
+        }
+
+        // The WaterInfo texels over @p square (CreateWaterInfoImage's layout, row-major by Z): the ground's height
+        // (its own texel on its own grid, the nearest one otherwise; kWaterInfoNoGroundCm off it) and the flow of
+        // the first river whose banks hold the texel centre (Water::SampleRiverFlow; zero flow and mask outside).
+        std::vector<glm::vec4>
+        ComposeWaterInfo( const WaterInfoSquare& square, const Water::WaterInfoGround* ground,
+                          std::span<const std::shared_ptr<const Water::RiverFlowField>> flows )
+        {
+            const uint32_t         size = square.Size;
+            std::vector<glm::vec4> texels( static_cast<size_t>( size ) * size,
+                                           glm::vec4( Water::kWaterInfoNoGroundCm, 0.0f, 0.0f, 0.0f ) );
+            const bool             hasGround = ground != nullptr && ground->Size > 0u && ground->ExtentCm > 0.0f &&
+                                   ground->HeightCm.size() == static_cast<size_t>( ground->Size ) * ground->Size;
+            const bool sameGrid = hasGround && ground->Size == size && ground->Min == square.Min &&
+                                  ground->ExtentCm == square.Extent;
+            const float step = square.Extent / static_cast<float>( size );
+            for ( uint32_t z = 0; z < size; ++z )
+                for ( uint32_t x = 0; x < size; ++x )
+                {
+                    const size_t    at    = static_cast<size_t>( z ) * size + x;
+                    const glm::vec2 world = square.Min + ( glm::vec2( x, z ) + 0.5f ) * step;
+                    glm::vec4&      texel = texels[at];
+                    if ( sameGrid )
+                        texel.x = ground->HeightCm[at];
+                    else if ( hasGround )
+                    {
+                        const glm::vec2 g =
+                             ( world - ground->Min ) / ground->ExtentCm * static_cast<float>( ground->Size );
+                        if ( g.x >= 0.0f && g.y >= 0.0f && g.x < static_cast<float>( ground->Size ) &&
+                             g.y < static_cast<float>( ground->Size ) )
+                            texel.x = ground->HeightCm[static_cast<size_t>( g.y ) * ground->Size +
+                                                       static_cast<size_t>( g.x )];
+                    }
+                    for ( const auto& flow : flows )
+                        if ( const glm::vec4 f = Water::SampleRiverFlow( *flow, world ); f.z > 0.5f )
+                        {
+                            texel.y = f.x;
+                            texel.z = f.y;
+                            texel.w = f.z;
+                            break;
+                        }
+                }
+            return texels;
         }
 
         // The still surface's vertical extent the quadtree culls with when the body has no waves.
@@ -367,15 +462,38 @@ namespace Desert::Graphic::System
                m_Frame->Pipeline->GetSpecification().Shader->SamplesTexture( textureName );
     }
 
+    void WaterRenderer::ApplyMaterials( WaterProgram& program )
+    {
+        // One row per body material of the frame, in TileWalk::Materials' order (the tiles' MaterialIndex),
+        // written in one upload. A fold no material of this frame reads any more is dropped.
+        m_Rows.clear();
+        for ( const Assets::AssetHandle& material : m_Walk.Materials )
+            ApplyMaterial( material, m_Walk.Stamp, program, m_Rows );
+        std::erase_if( program.Folded,
+                       [this]( const FoldedValues& folded )
+                       {
+                           return std::none_of( m_Walk.Materials.begin(), m_Walk.Materials.end(),
+                                                [&]( const Assets::AssetHandle& m )
+                                                { return static_cast<uint64_t>( m ) == folded.Material; } );
+                       } );
+        if ( auto* rows = BlocksOf( program ).Rows )
+            rows->SetRawData( m_Rows.data(), static_cast<uint32_t>( m_Rows.size() * sizeof( glm::vec4 ) ) );
+    }
+
     void WaterRenderer::ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp,
-                                       WaterProgram& program )
+                                       WaterProgram& program, std::vector<glm::vec4>& rows )
     {
         // The body's `.demat` folded over the template's schema into the cell's material row (UE: the material's
         // uniform expressions, cached by the render proxy until the material changes), its textures into the
-        // bindless slots the row names. Re-resolved only when another material is drawn with this program or a
-        // stamp moved; the row is written every frame (each frame and view has its own copy of the block).
-        DataDrivenMaterial& cell   = *program.Material;
-        FoldedValues&       folded = program.Folded;
+        // bindless slots the row names. Each material keeps its own fold (WaterProgram::Folded), re-resolved only
+        // when a stamp moved; the cell takes a fold's values only when another material was applied to it last.
+        // The row is appended every frame (each frame and view has its own copy of the block).
+        DataDrivenMaterial& cell = *program.Material;
+        auto it = std::find_if( program.Folded.begin(), program.Folded.end(), [&]( const FoldedValues& f )
+                                { return f.Material == static_cast<uint64_t>( material ); } );
+        if ( it == program.Folded.end() )
+            it = program.Folded.emplace( program.Folded.end() );
+        FoldedValues& folded = *it;
         if ( folded.Material != static_cast<uint64_t>( material ) || folded.Stamp != stamp )
         {
             folded.Material = static_cast<uint64_t>( material );
@@ -386,8 +504,13 @@ namespace Desert::Graphic::System
             folded.Overrides.Resolved.Reset();
             if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
                 (void)materials->ResolveOverrides( material, folded.Overrides );
+            program.Applied = 0; // the cell must take the refolded values
+        }
+        if ( program.Applied != static_cast<uint64_t>( material ) )
+        {
             // FPS-MAT-HANDLES3: the defaults, then each param by its handle (resolved once per layout stamp).
             cell.ApplyOverrides( folded.Overrides );
+            program.Applied = static_cast<uint64_t>( material );
         }
         const auto& textures = folded.Overrides.Textures;
         for ( size_t index = 0; index < textures.size(); ++index )
@@ -406,8 +529,7 @@ namespace Desert::Graphic::System
                 (void)cell.SetTexture( cell.OverrideTextureHandle( index ), name, image );
         }
         const Core::Formats::MaterialParamRow& row = cell.GetParamRow();
-        if ( auto* rows = BlocksOf( program ).Rows )
-            rows->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
+        rows.insert( rows.end(), row.begin(), row.end() );
     }
 
     const WaterRenderer::WaterProgram::CellBlocks& WaterRenderer::BlocksOf( WaterProgram& program )
@@ -441,9 +563,12 @@ namespace Desert::Graphic::System
         if ( camera == nullptr || m_Queue.empty() )
             return;
 
-        // THE FRAME'S WATER MATERIAL: the first body's that names one. Bodies of one frame naming different
-        // materials draw with the first (REMAINDER WATER: a per-tile body index, UE's WaterBodyIndex).
-        // Its waves are that body's (the same per-tile body index in REMAINDER).
+        // THE FRAME'S BODIES (UE: the water mesh tile's WaterBodyIndex picks its body's material and waves). The
+        // frame's waves are the first body's that names a set (an ocean's: a river names none); its template the
+        // first body's that names a material. Every body naming a material of that template gets its own row in
+        // the Materials block (TileWalk::Materials; its tiles draw with MaterialIndex = that row). A body of
+        // another template is not drawn (said once: one program per frame, REMAINDER WATER-RIVERS-FFT R4 step 4),
+        // a body naming another wave set draws flat (said once: one wave set per frame).
         Assets::AssetHandle material   = Assets::AssetHandle::Null();
         Assets::AssetHandle wavesAsset = Assets::AssetHandle::Null();
         glm::vec2           waveOrigin( 0.0f );
@@ -453,24 +578,63 @@ namespace Desert::Graphic::System
             if ( ground == nullptr )
                 ground = zone.Ground;
         for ( const WaterZoneDraw& zone : m_Queue )
+        {
             for ( size_t b = 0; b < zone.Bodies->Materials.size(); ++b )
             {
-                const Assets::AssetHandle& body = zone.Bodies->Materials[b];
-                if ( static_cast<uint64_t>( body ) == 0 )
-                    continue;
-                if ( static_cast<uint64_t>( material ) == 0 )
+                if ( static_cast<uint64_t>( material ) == 0 &&
+                     static_cast<uint64_t>( zone.Bodies->Materials[b] ) != 0 )
+                    material = zone.Bodies->Materials[b];
+                if ( static_cast<uint64_t>( wavesAsset ) == 0 &&
+                     static_cast<uint64_t>( zone.Bodies->Waves[b] ) != 0 )
                 {
-                    material   = body;
-                    wavesAsset = zone.Bodies->Waves[b];
-                    waveOrigin = zone.Bodies->WaveOrigins[b];
+                    wavesAsset    = zone.Bodies->Waves[b];
+                    waveOrigin    = zone.Bodies->WaveOrigins[b];
                     waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
                 }
-                else if ( body != material )
-                    WarnOnce( body, WaterWarning::MixedMaterials,
-                              "differs from another body's in the same frame - drawn with the first one" );
             }
+        }
         if ( static_cast<uint64_t>( material ) == 0 )
             return; // no body names a look: no water (WaterBodyData::WaterMaterial)
+        auto* const       materialService = Runtime::ResourceRegistry::GetMaterialService();
+        const std::string templateName =
+             materialService != nullptr ? std::string( materialService->ShaderHandleOf( material ).CompileName )
+                                        : std::string{};
+        std::vector<Assets::AssetHandle>    bodyMaterials;
+        std::vector<std::vector<glm::vec4>> bodyLanes( m_Queue.size() );
+        for ( size_t z = 0; z < m_Queue.size(); ++z )
+        {
+            const WaterZoneBodies& bodies = *m_Queue[z].get().Bodies;
+            bodyLanes[z].assign( bodies.Materials.size(), glm::vec4( -1.0f, 0.0f, 0.0f, 0.0f ) );
+            for ( size_t b = 0; b < bodies.Materials.size(); ++b )
+            {
+                const Assets::AssetHandle& body = bodies.Materials[b];
+                if ( static_cast<uint64_t>( body ) == 0 )
+                    continue; // no look: its tiles are not drawn
+                auto slot = std::find( bodyMaterials.begin(), bodyMaterials.end(), body );
+                if ( slot == bodyMaterials.end() )
+                {
+                    if ( body != material &&
+                         ( materialService == nullptr ||
+                           materialService->ShaderHandleOf( body ).CompileName != templateName ) )
+                    {
+                        WarnOnce( body, WaterWarning::MixedTemplates,
+                                  "is of another template than the frame's first water body's - not drawn (one "
+                                  "water program per frame)" );
+                        continue;
+                    }
+                    slot = bodyMaterials.insert( bodyMaterials.end(), body );
+                }
+                const bool river = b < bodies.Types.size() && bodies.Types[b] == Water::WaterBodyType::River;
+                const Assets::AssetHandle& bodyWaves = bodies.Waves[b];
+                const bool waved = bodyWaves == wavesAsset && static_cast<uint64_t>( bodyWaves ) != 0;
+                if ( !waved && static_cast<uint64_t>( bodyWaves ) != 0 )
+                    WarnOnce( body, WaterWarning::MixedWaves,
+                              "its body names another wave set than the frame's - drawn flat (one wave set per "
+                              "frame)" );
+                bodyLanes[z][b] = glm::vec4( static_cast<float>( slot - bodyMaterials.begin() ),
+                                             river ? 1.0f : 0.0f, waved ? 1.0f : 0.0f, static_cast<float>( b ) );
+            }
+        }
         MaterialStamp stamp;
         if ( auto* const materials = Runtime::ResourceRegistry::GetMaterialService() )
         {
@@ -532,12 +696,14 @@ namespace Desert::Graphic::System
         // THE FFT OCEAN replaces the Gerstner rows where the set is one and the tier asks for it.
         const bool fft = PrepareFFTFrame( material, wavesAsset, waves.Header, waves.FFT, verticalExtent );
         // The frame's rivers: every distinct baked ribbon of the zones (a body shared by two zones counts once).
-        std::vector<const Water::RiverFlowField*> rivers;
+        // Kept as shared_ptrs: the WaterInfo texture composed from them is rebuilt only when this list changes
+        // (FinishPrepare, m_FlowsBaked).
+        std::vector<std::shared_ptr<const Water::RiverFlowField>> rivers;
         for ( const WaterZoneDraw& zone : m_Queue )
             for ( const std::shared_ptr<const Water::RiverFlowField>& flow : zone.Bodies->Flows )
-                if ( flow != nullptr && flow->Size.x != 0u &&
-                     std::find( rivers.begin(), rivers.end(), flow.get() ) == rivers.end() )
-                    rivers.push_back( flow.get() );
+                if ( flow != nullptr && flow->Size.x != 0u && flow->Size.y != 0u &&
+                     std::find( rivers.begin(), rivers.end(), flow ) == rivers.end() )
+                    rivers.push_back( flow );
         const auto riverCount = static_cast<int32_t>( rivers.size() );
         if ( const int32_t source = ( fft ? 1 : 0 ) + 2 * riverCount; source != m_LoggedWaveSource )
         {
@@ -548,10 +714,15 @@ namespace Desert::Graphic::System
                 LOG_INFO( "[Water] waves=Gerstner rivers={}", riverCount );
         }
 
-        // The waves block is whole here (its WaterInfo lane reads the ground and the mask depth, both settled
-        // above): the upload's head, the tile task appends the rows after it.
-        if ( ground != nullptr && ground->ExtentCm > 0.0f )
-            waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
+        // The waves block is whole here (its WaterInfo lane reads the square the ground and the rivers compose
+        // into, and the mask depth): the upload's head, the tile task appends the rows after it.
+        const WaterInfoSquare infoSquare = WaterInfoSquareOf( ground.get(), rivers );
+        if ( infoSquare.Size > 0u )
+            waves.Info = glm::vec4( infoSquare.Min, 1.0f / infoSquare.Extent, std::max( waveMaskDepth, 1.0f ) );
+        // THE FLOW LANE (WaterMeshTiles.glslh WaterFlowFrame): on while a river is in the frame; the two-phase
+        // period is the first river's (one period per frame, as one wave set).
+        if ( !rivers.empty() )
+            waves.Flow = glm::vec4( 1.0f, std::max( rivers.front()->FlowPeriod, 0.05f ), 0.0f, 0.0f );
         m_Upload.resize( sizeof( WaterWavesBlock ) );
         std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
 
@@ -566,6 +737,12 @@ namespace Desert::Graphic::System
                                           .Material       = material,
                                           .Stamp          = stamp,
                                           .Ground         = std::move( ground ),
+                                          .Flows          = std::move( rivers ),
+                                          .InfoMin        = infoSquare.Min,
+                                          .InfoExtent     = infoSquare.Extent,
+                                          .InfoSize       = infoSquare.Size,
+                                          .Materials      = std::move( bodyMaterials ),
+                                          .Bodies         = std::move( bodyLanes ),
                                           .View           = view,
                                           .Projection     = proj,
                                           .Observer       = observer,
@@ -603,12 +780,21 @@ namespace Desert::Graphic::System
                  tree.Traverse( observer, lensScale, &frustum, verticalExtent, m_Traversal );
             const float     viewLODScale = tree.GetViewLODScale( lensScale );
             const glm::vec2 origin = tree.GetRootMin();
+            const std::vector<glm::vec4>& bodies       = m_Walk.Bodies[z];
             for ( const Water::WaterTileInstance& tile : tiles )
             {
-                const uint32_t quads = tree.QuadsPerSide( tile.DensityIndex );
-                if ( m_FrameDraws.empty() || m_FrameDraws.back().QuadsPerSide != quads )
+                // The tile's body (PrepareFrame's lane): its material row; a body with no drawn look is skipped.
+                if ( tile.BodyIndex >= bodies.size() || bodies[tile.BodyIndex].x < 0.0f )
+                    continue;
+                const glm::vec4 body  = bodies[tile.BodyIndex];
+                const auto      slot  = static_cast<uint32_t>( body.x );
+                const uint32_t  quads = tree.QuadsPerSide( tile.DensityIndex );
+                // One instanced draw per run of one grid density AND one material row (the draw's MaterialIndex).
+                if ( m_FrameDraws.empty() || m_FrameDraws.back().QuadsPerSide != quads ||
+                     m_FrameDraws.back().MaterialSlot != slot )
                 {
-                    m_FrameDraws.push_back( { .FirstRow = rowCount, .RowCount = 0, .QuadsPerSide = quads } );
+                    m_FrameDraws.push_back(
+                         { .FirstRow = rowCount, .RowCount = 0, .QuadsPerSide = quads, .MaterialSlot = slot } );
                 }
                 ++m_FrameDraws.back().RowCount;
 
@@ -617,6 +803,7 @@ namespace Desert::Graphic::System
                 row.Lod  = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
                                      tile.CanMorphTwice ? 1.0f : 0.0f, tile.HeightMorph );
                 row.Zone = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
+                row.Body        = body;
                 const size_t at = m_Upload.size();
                 m_Upload.resize( at + sizeof( WaterTileRow ) );
                 std::memcpy( m_Upload.data() + at, &row, sizeof( WaterTileRow ) );
@@ -632,17 +819,21 @@ namespace Desert::Graphic::System
         if ( program == nullptr || m_Walk.Rows == 0u )
             return;
 
-        ApplyMaterial( m_Walk.Material, m_Walk.Stamp, *program );
+        ApplyMaterials( *program );
 
-        // THE WATER INFO GROUND (UE WaterInfo): re-uploaded only when the collector baked a new one. Over no
-        // landscape the texture is one texel of kWaterInfoNoGroundCm - a bottom no wave reaches.
+        // THE WATER INFO TEXTURE (UE WaterInfo: ground + river velocity): re-composed only when the collector
+        // baked a new ground or the frame's rivers changed. Over no landscape and no river it is one texel of
+        // kWaterInfoNoGroundCm - a bottom no wave reaches - and no flow.
         const std::shared_ptr<const Water::WaterInfoGround>& ground = m_Walk.Ground;
-        if ( ground != m_GroundBaked || m_WaterInfo == nullptr )
+        if ( ground != m_GroundBaked || m_Walk.Flows != m_FlowsBaked || m_WaterInfo == nullptr )
         {
             m_GroundBaked = ground;
-            m_WaterInfo   = ground != nullptr && ground->Size > 0u
-                                 ? CreateWaterInfoImage( ground->Size, ground->HeightCm )
-                                 : CreateWaterInfoImage( 1u, { Water::kWaterInfoNoGroundCm } );
+            m_FlowsBaked  = m_Walk.Flows;
+            const WaterInfoSquare square{ m_Walk.InfoMin, m_Walk.InfoExtent, m_Walk.InfoSize };
+            m_WaterInfo =
+                 square.Size > 0u
+                      ? CreateWaterInfoImage( square.Size, ComposeWaterInfo( square, ground.get(), m_Walk.Flows ) )
+                      : CreateWaterInfoImage( 1u, { glm::vec4( Water::kWaterInfoNoGroundCm, 0.0f, 0.0f, 0.0f ) } );
         }
         if ( auto* tiles = BlocksOf( *program ).Tiles )
             tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
@@ -651,7 +842,7 @@ namespace Desert::Graphic::System
         // The front layer draws the same surface: the same `.demat` folded into its own row and the same upload.
         if ( WaterProgram* const frontLayer = m_Walk.FrontLayer; frontLayer != nullptr )
         {
-            ApplyMaterial( m_Walk.Material, m_Walk.Stamp, *frontLayer );
+            ApplyMaterials( *frontLayer );
             if ( auto* tiles = BlocksOf( *frontLayer ).Tiles )
                 tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
             m_FrameFrontLayer = frontLayer;
@@ -1004,7 +1195,9 @@ namespace Desert::Graphic::System
             if ( pushed.Data != nullptr && pushed.Size != 0u )
                 std::memcpy( push.data(), pushed.Data, pushed.Size );
             DrawPushFields fields;
-            fields.Transform( glm::mat4( 1.0f ) ).MaterialIndex( 0u ).PrimitiveIndex( draw.FirstRow );
+            fields.Transform( glm::mat4( 1.0f ) )
+                 .MaterialIndex( draw.MaterialSlot )
+                 .PrimitiveIndex( draw.FirstRow );
             if ( auto written = fields.WriteInto( push, placement ); !written )
                 return Common::MakeFormattedError( "{}: water draw at tile row {}: {}", context.GetPassName(),
                                                    draw.FirstRow, written.GetError() );

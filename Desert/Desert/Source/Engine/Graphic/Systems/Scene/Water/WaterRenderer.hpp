@@ -167,6 +167,8 @@ namespace Desert::Graphic::System
             uint32_t FirstRow     = 0;
             uint32_t RowCount     = 0;
             uint32_t QuadsPerSide = 0;
+            uint32_t MaterialSlot =
+                 0; // the tiles' body material row (TileWalk::Materials), the draw's MaterialIndex
         };
 
         // What a material resolution read, so a cache of one is current exactly while none of it moved (the
@@ -198,7 +200,10 @@ namespace Desert::Graphic::System
         {
             std::shared_ptr<GraphicsPipeline>   Pipeline;
             std::unique_ptr<DataDrivenMaterial> Material;
-            FoldedValues                        Folded;
+            // One fold per body material drawn with this program (ApplyMaterial), and the material whose values
+            // the cell holds now (0: none / refolded).
+            std::vector<FoldedValues> Folded;
+            uint64_t                  Applied = 0;
             // FPS-MAT-HANDLES3, THE CELL'S BLOCKS (UE: a shader's buffer slots are bound once per shader map): its
             // Materials[] and WaterTiles storage-buffer properties, found by name once per (layout stamp,
             // executor) - the executor owns its properties for its whole life, a recompile moves the stamp - and
@@ -242,8 +247,11 @@ namespace Desert::Graphic::System
                                                           const std::string& debugName, WaterProgram& program );
         // Folds @p material's values over its program's schema into the program's WaterMaterialUB and ripple maps;
         // the fold is cached in WaterProgram::Folded, so a steady frame resolves nothing and allocates nothing.
-        void ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp,
-                            WaterProgram& program );
+        // The row is appended to @p rows (the Materials block holds one row per body material, ApplyMaterials).
+        void ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp, WaterProgram& program,
+                            std::vector<glm::vec4>& rows );
+        // Every TileWalk::Materials row into @p program's Materials block, in order (the tiles' MaterialIndex).
+        void ApplyMaterials( WaterProgram& program );
         // @p program's WaterProgram::Blocks, re-resolved by name only when its cell's layout stamp or executor
         // moved (a missing block is reported by Material::Get once per resolve, not per frame).
         static const WaterProgram::CellBlocks& BlocksOf( WaterProgram& program );
@@ -259,7 +267,8 @@ namespace Desert::Graphic::System
             VirtualLocalDoesNotBuild,
             NoFrontLayerCell,
             FrontLayerDoesNotBuild,
-            MixedMaterials,
+            MixedTemplates,
+            MixedWaves,
             NoWavesService,
             WavesRefused,
             TooManyWaves,
@@ -287,6 +296,8 @@ namespace Desert::Graphic::System
 
         // The WaterInfo ground uploaded last (WaterZoneDraw::Ground) and its texture.
         std::shared_ptr<const Water::WaterInfoGround> m_GroundBaked;
+        // The rivers whose flow the uploaded WaterInfo texture carries (TileWalk::Flows when it was composed).
+        std::vector<std::shared_ptr<const Water::RiverFlowField>> m_FlowsBaked;
         std::shared_ptr<Image2D>                      m_WaterInfo;
 
         // THE FFT OCEAN'S STATE (WATER-RIVERS-FFT). The three compute programs, built on the first FFT frame (a

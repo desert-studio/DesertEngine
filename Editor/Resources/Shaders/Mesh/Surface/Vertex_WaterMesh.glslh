@@ -75,7 +75,8 @@ void main()
     const vec2  plane    = WaterWavePlane( restPos.xz );
     // Damped over the shallows by the ground beneath (UE TargetWaveMaskDepth): a swell dies onto the beach instead
     // of running up it at full height.
-    const float atten    = WaterWaveAttenuation( restPos.xz, restPos.y );
+    // A body drawn without the frame's waves (a river, a flat lake: WaterTileRow.Body.z = 0) stays still.
+    const float atten    = WaterWaveAttenuation( restPos.xz, restPos.y ) * t.Body.z;
     const vec3  offset   = WaterWavesDisplacement( plane, time ) * atten;
     const vec4  worldPos = vec4( restPos.xyz + offset, 1.0 );
 
@@ -91,8 +92,10 @@ void main()
     // UV1 = the particle's label: its still-water (X, Z) in cm. Gerstner is a Lagrangian description, so the foam
     // pass follows ONE water particle back in time through it (Pass_SingleLayerWater.glslh).
     v_Surface.UV1           = restPos.xz;
-    // r = the particle's height above the still level (cm), g = that level (cm).
-    v_Surface.VertexColor   = vec4( offset.y, restPos.y, 0.0, 1.0 );
+    // r = the particle's height above the still level (cm), g = that level (cm), b = 1 on a river's tile (the
+    // fragment clips it to the banks, WaterOutsideBank).
+    // a = the tile's wave scale (the fragment's foam reads the same waves).
+    v_Surface.VertexColor   = vec4( offset.y, restPos.y, t.Body.y, t.Body.z );
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN           = mat3( T, B, N );
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the particle's place last frame is the
