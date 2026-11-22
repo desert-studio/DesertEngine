@@ -19,22 +19,27 @@
 #include <vector>
 
 // THE WORLD RADIANCE CACHE, RUNNING (GI-RADIANCE-CACHE) — the update of RadianceCache.hpp's interface, ported from
-// UE Lumen's LumenRadianceCache.cpp / LumenRadianceCacheUpdate.usf / LumenRadianceCache.usf. Seven compute passes
-// a frame (Programs/GlobalIllumination/RadianceCache*.shader):
+// UE Lumen's LumenRadianceCache.cpp / LumenRadianceCacheUpdate.usf / LumenRadianceCache.usf. Five compute passes
+// a frame (Programs/GlobalIllumination/RadianceCache*.shader); UE's seven steps, the short ones riding the pass
+// before them on the async chain (FPS-RADIANCE-CACHE):
 //   Mark      the cells this frame's readers interpolate are stamped "used": the G-buffer pixels, which are where
-//             the screen probes sit (UE marks from the screen probes; every probe is a G-buffer pixel).
-//   Update    entries whose probe belongs to another world cell (the clipmap scrolled) or that went unread for
-//             kProbeUnusedFramesBeforeFree frames free their slot.
+//             the screen probes sit (UE marks from the screen probes; every probe is a G-buffer pixel). Its group
+//             rows past the pixels FREE (UE UpdateCacheForUsedProbes), one thread per probe slot, not per
+//             indirection entry: a live probe whose cell the clipmap scrolled past, or whose entry went unread for
+//             kProbeUnusedFramesBeforeFree frames, gives its slot back.
 //   Allocate  used empty entries take a slot; every used probe is ranked (new of the coverage, new of the
 //             fallback, lights changed, then age of its last trace) into the priority histogram.
-//   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list.
-//   Place     each listed probe is moved out of geometry once (one thread a probe, UE's probe placement before
-//             TraceFromProbes): its offset, which Trace's rays start from (FPS-RC-TRACE2: Trace's every 8x8 tile
-//             ran the walk behind a barrier). A tracer permutation as Trace's, acquired with it.
-//   Trace     each listed probe traces its octahedral texels through the GI ray contract (Common/GITracing.glslh:
-//             the pipeline's tracer, the hit lit in place, the sky on a miss) into the radiance atlas, blended
-//             with its history. Its program is the permutation of TracerVariant( Pipeline ) and its tracer reads
-//             are DeclareTracerReads — the pass names no tracer resource itself (GITracing.hpp).
+//   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list, and
+//             their 8x8 squares of traced texels the trace TILE list (UE GenerateProbeTraceTiles: a probe past
+//             the downsample distance, or read only as the fallback, traces at half resolution, a quarter of the
+//             squares). The thread that lists a probe moves it out of geometry (UE's probe placement before
+//             TraceFromProbes): its offset, which Trace's rays start from. A tracer permutation as Trace's,
+//             acquired with it.
+//   Trace     one group per listed tile traces its octahedral texels through the GI ray contract
+//             (Common/GITracing.glslh: the pipeline's tracer, the hit lit in place, the sky on a miss) into the
+//             radiance atlas, blended with its history. Its program is the permutation of TracerVariant( Pipeline
+//             ) and its tracer reads are DeclareTracerReads — the pass names no tracer resource itself
+//             (GITracing.hpp).
 //   Filter    radiance -> irradiance probe and distance moments, octahedral borders; the probe is published.
 // The screen probe gather (ScreenProbeGather.hpp) then reads the cache's RADIANCE as the far field of its rays,
 // and every GI hit reads its irradiance for the next bounce (RadianceCacheIrradianceAt in GIHitRadiance).
@@ -113,10 +118,11 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::TextureRef Radiance; // "RadianceCacheRadianceAtlasTexture"
     };
 
-    // PROBE-TRACE-COST-3: one frame's radiance cache update in counts - RC_COUNT_* of Common/RadianceCacheState.glslh,
-    // in this order, written by RadianceCacheSelect.shader once Mark, Update and Allocate are done. Where a camera
-    // turn's probes go: the entries the readers stamped and how many of them hold a probe never traced, against what
-    // the budget traced; the slots taken, refused (the atlas full) and freed, by why.
+    // PROBE-TRACE-COST-3: one frame's radiance cache update in counts - RC_COUNT_* of
+    // Common/RadianceCacheState.glslh, in this order, written by RadianceCacheSelect.shader once Mark (its free
+    // too) and Allocate are done. Where a camera turn's probes go: the entries the readers stamped and how many of
+    // them hold a probe never traced, against what the budget traced; the slots taken, refused (the atlas full)
+    // and freed, by why.
     struct RadianceCacheUpdateCounts
     {
         static constexpr uint32_t kWords = 14u + 2u * RadianceCache::kMaxClipmaps; // RC_COUNT_WORDS
@@ -169,21 +175,21 @@ namespace Desert::Graphic::GlobalIllumination
         WorldRadianceCache( const WorldRadianceCache& )            = delete;
         WorldRadianceCache& operator=( const WorldRadianceCache& ) = delete;
 
-        // The five tracer-independent shaders and pipelines; Place's and Trace's are acquired per tracer
+        // The three tracer-independent shaders and pipelines; Select's and Trace's are acquired per tracer
         // permutation on the first update (EnsureTraceProgram). An error names what is missing.
         [[nodiscard]] Common::BoolResultStr Initialize();
-        // The Place and Trace programs compiled under TracerVariant( @p pipeline ), re-acquired when the pipeline
+        // The Select and Trace programs compiled under TracerVariant( @p pipeline ), re-acquired when the pipeline
         // changes.
         // Public so the view asks for it before the update and refuses the GI methods of that tracer by name
         // when it does not build (SceneRenderer::AddFrameTracedGI); AddUpdatePasses asks again (cached).
         [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
-        // Every variant EnsureTraceProgram can acquire: Place and Trace under each tracer permutation
+        // Every variant EnsureTraceProgram can acquire: Select and Trace under each tracer permutation
         // (TracerProgramVariants), cooked by the package (PackageCook CookShaderVariants).
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
-        // The update of one frame, its first six passes (Mark .. Trace) added to @p graph; the seventh, Filter,
+        // The update of one frame, its first four passes (Mark .. Trace) added to @p graph; the fifth, Filter,
         // is AddFilterPass's, which the caller MUST declare in the same graph before any reader of the returned
         // frame's Indirection, Probes, Irradiance, Depth or Radiance (Params is an upload: readable at once). The
         // cache is (re)built when @p shape differs from the last frame's (a quality change): every probe is traced
@@ -235,10 +241,8 @@ namespace Desert::Graphic::GlobalIllumination
         enum Pass : uint32_t
         {
             Mark = 0,
-            Update,
             Allocate,
             Select,
-            Place,
             Trace,
             Filter,
             PassCount
@@ -275,7 +279,7 @@ namespace Desert::Graphic::GlobalIllumination
         std::array<std::shared_ptr<Shader>, PassCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, PassCount> m_Pipelines;
         mutable std::array<ShaderBindingLayoutCache, PassCount> m_Layouts;
-        Pipeline m_TraceProgramFor{}; // what m_Shaders[Place / Trace] are
+        Pipeline m_TraceProgramFor{}; // what m_Shaders[Select / Trace] are
 
         // Persistent state (StorageBuffer persistent = true: one device buffer every frame writes).
         std::shared_ptr<ShaderResources::StorageBuffer> m_Indirection;
