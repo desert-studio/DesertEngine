@@ -4,8 +4,9 @@ Shader "WaterFFTFinalize"
     Compute
     {
         // THE OCEAN'S CASCADES AS THE WATER MESH READS THEM (WATER-RIVERS-FFT): the two inverse-transformed packed
-        // spectra (WaterFFT.shader, rows then columns) unpacked into one rgba16f atlas of 256 x 1536 texels
-        // (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture):
+        // spectra (WaterFFT.shader, rows then columns) unpacked into one 256 x 1536 half of a persistent rgba16f
+        // atlas of 256 x 3072 texels (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture); the rows below are
+        // relative to that half (Params.Shape.z):
         //   rows [256 c, 256 c + 256),       cascade c: xyz = the displacement (lambda Dx, Dy, lambda Dz), cm;
         //                                               w = lambda dDx/dz (the Jacobian's cross term);
         //   rows [256 (3 + c), 256 (4 + c)), cascade c: xy = the height's slopes (dDy/dx, dDy/dz),
@@ -37,9 +38,12 @@ Shader "WaterFFTFinalize"
             const vec4  b      = imageLoad(WaterFFTResultB, id) * flip; // dDy/dx, dDy/dz, dDx/dx, dDz/dz
             const float lambda = Params.Shape.x;
 
-            imageStore(WaterFFTWaves, ivec2(id.x, id.y + id.z * WATER_FFT_SIZE),
+            // This frame's half of the persistent two-frame atlas (Params.Shape.z = its first band, 0 or 6): the
+            // other half keeps the previous frame for the surface's velocity (WaterMeshTiles.glslh).
+            const int base = int(Params.Shape.z + 0.5);
+            imageStore(WaterFFTWaves, ivec2(id.x, id.y + (base + id.z) * WATER_FFT_SIZE),
                        vec4(lambda * a.x, a.y, lambda * a.z, lambda * a.w));
-            imageStore(WaterFFTWaves, ivec2(id.x, id.y + (WATER_FFT_CASCADES + id.z) * WATER_FFT_SIZE),
+            imageStore(WaterFFTWaves, ivec2(id.x, id.y + (base + WATER_FFT_CASCADES + id.z) * WATER_FFT_SIZE),
                        vec4(b.x, b.y, lambda * b.z, lambda * b.w));
         }
     }

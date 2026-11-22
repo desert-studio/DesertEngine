@@ -9,6 +9,8 @@
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
 #include <Engine/Water/WaterBodyQuery.hpp>
+#include <Engine/Water/FFTOceanSpectrum.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Systems/Scene/Water/WaterZoneDraw.hpp>
 #include <Engine/Assets/Common.hpp>
 
@@ -24,6 +26,11 @@
 #include <memory>
 #include <optional>
 #include <vector>
+
+namespace Desert::Graphic::RDG
+{
+    class Builder; // Engine/Graphic/RDG/RDGBuilder.hpp: AddWavePasses records into it
+} // namespace Desert::Graphic::RDG
 
 namespace Desert::Graphic::System
 {
@@ -76,6 +83,39 @@ namespace Desert::Graphic::System
             return m_WaterInfo;
         }
 
+        // THE FFT OCEAN (WATER-RIVERS-FFT; Tessendorf 2001, the UE Water plugin's FFT wave source): when the frame's
+        // body names a wave set authored as an FFT ocean and Effects.WaterWaveMethod resolves to FFT, PrepareFrame
+        // sets the frame's spectrum (uploading its h0 cascades once per set) and the waves block's FFT lane;
+        // the frame graph then records AddWavePasses once (SceneRenderer::FrameWaterWaves) before the first water
+        // draw, and both WaterMesh cells sample the result as WaterFFTTexture.
+        [[nodiscard]] bool FrameWavesAreFFT() const
+        {
+            return m_FFTFrame != nullptr && m_Walk.Program != nullptr;
+        }
+        // The h0 cascades of the frame's spectrum: kFFTOceanResolution x 3 kFFTOceanResolution RGBA32F, cascade c
+        // in rows [N c, N c + N) (Programs/Water/WaterFFTSpectrum.shader).
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetFFTInitialSpectrum() const
+        {
+            return m_FFTInitial;
+        }
+        // The persistent two-frame waves atlas (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture): N x 12 N
+        // RGBA16F, this frame's half written by AddWavePasses, the other half the previous frame's (the velocity).
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetFFTWaves() const
+        {
+            return m_FFTWaves;
+        }
+        // The waves this frame's water samples, once AddWavePasses recorded them into @p graph; invalid otherwise.
+        [[nodiscard]] RDG::TextureRef RecordedWaves( const RDG::Builder& graph ) const
+        {
+            return m_FrameWavesGraph == &graph ? m_FrameWavesTexture : RDG::TextureRef{};
+        }
+        // THE OCEAN AT THE VIEW'S TIME (Programs/Water/WaterFFTSpectrum, WaterFFT x2, WaterFFTFinalize): the
+        // cascades' spectra from @p initial (the imported GetFFTInitialSpectrum) advanced to @p timeSeconds
+        // (cameraUB.Time), inverse-transformed along rows then columns, and unpacked into this frame's half of
+        // @p waves (the imported GetFFTWaves). Returns @p waves; invalid when the frame draws no FFT ocean.
+        RDG::TextureRef AddWavePasses( RDG::Builder& graph, RDG::TextureRef initial, RDG::TextureRef waves,
+                                       float timeSeconds );
+
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
         // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes, the
@@ -85,8 +125,9 @@ namespace Desert::Graphic::System
         // (SceneRenderer::FrameFrontLayer; the graph's black texture for both when no front layer was traced),
         // bound as FrontLayerReflectionTexture / FrontLayerDepthTexture where the cell has the slots
         // (Mesh/Surface/FrontLayerReflection.glslh: the water's traced reflection where it IS the front layer).
+        // @p waves: this frame's FFT atlas (SceneRenderer::FrameWaterWaves), the graph's black without one.
         void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, RDG::TextureRef waterInfo,
-                           RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
+                           RDG::TextureRef waves, RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
                            const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
@@ -102,7 +143,7 @@ namespace Desert::Graphic::System
         // SETUP of the front layer node: the cell's material route (frame block, tile rows, material row and
         // ripple maps), the scene/view inputs it has slots for and the WaterInfo ground @p waterInfo its waves
         // damp by.
-        void DeclareFrontLayerDraws( RDG::PassBuilder& pass, RDG::TextureRef waterInfo,
+        void DeclareFrontLayerDraws( RDG::PassBuilder& pass, RDG::TextureRef waterInfo, RDG::TextureRef waves,
                                      const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context );
 
@@ -222,6 +263,9 @@ namespace Desert::Graphic::System
             NoWavesService,
             WavesRefused,
             TooManyWaves,
+            SpectrumRefused,
+            FFTPipelinesMissing,
+            SpectrumMalformed,
         };
         [[nodiscard]] bool FirstWarning( const Assets::AssetHandle& material, WaterWarning cause );
         void WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
@@ -244,6 +288,30 @@ namespace Desert::Graphic::System
         // The WaterInfo ground uploaded last (WaterZoneDraw::Ground) and its texture.
         std::shared_ptr<const Water::WaterInfoGround> m_GroundBaked;
         std::shared_ptr<Image2D>                      m_WaterInfo;
+
+        // THE FFT OCEAN'S STATE (WATER-RIVERS-FFT). The three compute programs, built on the first FFT frame (a
+        // failure is said once and the water draws its Gerstner generator); one layout cache per program.
+        [[nodiscard]] bool EnsureFFTPipelines();
+        // The frame's spectrum and its waves lane, or null/false: the Gerstner rows (PrepareFrame).
+        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& waves,
+                                            glm::vec4& header, glm::vec4& fft, float& verticalExtent );
+        std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize;
+        ShaderBindingLayoutCache         m_FFTSpectrumLayout, m_FFTTransformLayout, m_FFTFinalizeLayout;
+        bool                             m_FFTTried = false;
+        // This frame's spectrum (null: Gerstner), the one whose h0 is uploaded, its h0 image and the atlas.
+        std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTFrame;
+        std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTUploaded;
+        std::shared_ptr<Image2D>                       m_FFTInitial;
+        std::shared_ptr<Image2D>                       m_FFTWaves;
+        // The atlas half (0 or 1) this frame writes, and the one the last recorded frame wrote (-1: none since the
+        // spectrum changed - the previous frame is then this frame's own half, a zero velocity for one frame).
+        int32_t m_FFTHalf        = 0;
+        int32_t m_FFTWrittenHalf = -1;
+        // The waves recorded into a graph this frame (RecordedWaves), reset by PrepareFrame.
+        RDG::TextureRef     m_FrameWavesTexture;
+        const RDG::Builder* m_FrameWavesGraph = nullptr;
+        // The wave source last said in the log ([Water] waves=...), -1: nothing said yet.
+        int32_t m_LoggedWaveSource = -1;
 
         std::vector<std::reference_wrapper<const WaterZoneDraw>> m_Queue;
         std::vector<FrameDraw>                                   m_FrameDraws;

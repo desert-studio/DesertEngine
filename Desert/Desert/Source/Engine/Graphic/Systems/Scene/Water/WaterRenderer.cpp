@@ -31,9 +31,41 @@
 #include <vector>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
+#include <Common/Settings/Scalability.hpp>
+
+#include <span>
 
 namespace
 {
+    // THE FFT OCEAN'S THREE COMPUTE PROGRAMS (WATER-RIVERS-FFT; Programs/Water/WaterFFT*.shader), one spelling.
+    struct WaterFFTShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, WaterFFTInitialSpectrum );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTSpectrumA );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTSpectrumB );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTSourceA );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTSourceB );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTTargetA );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTTargetB );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTResultA );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTResultB );
+        DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTWaves );
+        DESERT_SHADER_PARAMETER( StorageBuffer, WaterFFTParamsBuffer );
+        static constexpr std::array kSpectrum{ ::Desert::Graphic::RDG::Erase( WaterFFTInitialSpectrum ),
+                                               ::Desert::Graphic::RDG::Erase( WaterFFTSpectrumA ),
+                                               ::Desert::Graphic::RDG::Erase( WaterFFTSpectrumB ),
+                                               ::Desert::Graphic::RDG::Erase( WaterFFTParamsBuffer ) };
+        static constexpr std::array kTransform{ ::Desert::Graphic::RDG::Erase( WaterFFTSourceA ),
+                                                ::Desert::Graphic::RDG::Erase( WaterFFTSourceB ),
+                                                ::Desert::Graphic::RDG::Erase( WaterFFTTargetA ),
+                                                ::Desert::Graphic::RDG::Erase( WaterFFTTargetB ),
+                                                ::Desert::Graphic::RDG::Erase( WaterFFTParamsBuffer ) };
+        static constexpr std::array kFinalize{ ::Desert::Graphic::RDG::Erase( WaterFFTResultA ),
+                                               ::Desert::Graphic::RDG::Erase( WaterFFTResultB ),
+                                               ::Desert::Graphic::RDG::Erase( WaterFFTWaves ),
+                                               ::Desert::Graphic::RDG::Erase( WaterFFTParamsBuffer ) };
+    };
+
     // The slot names the two water cells' passes bind, spelled once (RDGShaderParameters.hpp; UE
     // FSingleLayerWaterPassParameters). The material's own (route fill): WaterTiles, Materials, the push block.
     struct WaterShaderParameters
@@ -50,6 +82,8 @@ namespace
         // Mesh/Surface/FrontLayerReflection.glslh, as the glass cells bind them (MeshRendererForward.cpp).
         DESERT_SHADER_PARAMETER( Texture, FrontLayerReflectionTexture );
         DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
+        // Mesh/Surface/WaterMeshTiles.glslh binding 23: the FFT ocean's two-frame atlas (both cells, both stages).
+        DESERT_SHADER_PARAMETER( Texture, WaterFFTTexture );
     };
     static_assert( WaterShaderParameters::FrontLayerReflectionTexture.Name ==
                    ::Desert::Graphic::kPassFrontLayerReflectionTextureName );
@@ -116,6 +150,17 @@ namespace Desert::Graphic::System
 
         // The still surface's vertical extent the quadtree culls with when the body has no waves.
         constexpr float kFlatSurfaceVerticalExtentCm = 1.0f;
+
+        // Water/WaterFFT.glslh WaterFFTParams, std430.
+        struct WaterFFTParams
+        {
+            glm::vec4 Cascade{ 0.0f }; // xyz = cascade patch sides (cm), w = the view's time (s)
+            glm::vec4 Shape{ 0.0f };   // x = choppiness, y = IFFT direction, z = the atlas band this frame writes
+        };
+        static_assert( sizeof( WaterFFTParams ) == 2 * sizeof( glm::vec4 ) );
+        constexpr uint32_t kFFTN             = Water::kFFTOceanResolution;
+        constexpr uint32_t kFFTBandsPerFrame = 2 * Water::kFFTOceanCascades; // WATER_FFT_BANDS_PER_FRAME
+        constexpr uint32_t kFFTGroups8       = kFFTN / 8;                    // LocalSize(8, 8, 1)
 
     } // namespace
 
@@ -388,6 +433,9 @@ namespace Desert::Graphic::System
         m_Frame            = nullptr;
         m_Walk             = TileWalk{};
         m_FrameFrontLayer  = nullptr;
+        m_FFTFrame.reset();
+        m_FrameWavesTexture = RDG::TextureRef{};
+        m_FrameWavesGraph   = nullptr;
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -479,6 +527,17 @@ namespace Desert::Graphic::System
                 waves.Header.x = static_cast<float>( count );
                 verticalExtent = std::max( verticalExtent, Water::MaxWaveHeight( set ) );
             }
+        }
+
+        // THE FFT OCEAN replaces the Gerstner rows where the set is one and the tier asks for it.
+        const bool fft = PrepareFFTFrame( material, wavesAsset, waves.Header, waves.FFT, verticalExtent );
+        if ( const int32_t source = fft ? 1 : 0; source != m_LoggedWaveSource )
+        {
+            m_LoggedWaveSource = source;
+            if ( fft )
+                LOG_INFO( "[Water] waves=FFT cascades={} rivers=0", Water::kFFTOceanCascades );
+            else
+                LOG_INFO( "[Water] waves=Gerstner" );
         }
 
         // The waves block is whole here (its WaterInfo lane reads the ground and the mask depth, both settled
@@ -592,12 +651,13 @@ namespace Desert::Graphic::System
     }
 
     void WaterRenderer::DeclareDraws( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
-                                      const RDG::TextureRef waterInfo, const RDG::TextureRef frontReflection,
-                                      const RDG::TextureRef frontDepth, const SceneViewInputs& view,
-                                      const SceneFrameBinding& frame )
+                                      const RDG::TextureRef waterInfo, const RDG::TextureRef waves,
+                                      const RDG::TextureRef frontReflection, const RDG::TextureRef frontDepth,
+                                      const SceneViewInputs& view, const SceneFrameBinding& frame )
     {
         // Exactly when RenderManual draws.
-        if ( m_FrameDraws.empty() || m_Frame == nullptr || !sceneCopy.IsValid() || !waterInfo.IsValid() )
+        if ( m_FrameDraws.empty() || m_Frame == nullptr || !sceneCopy.IsValid() || !waterInfo.IsValid() ||
+             !waves.IsValid() )
             return;
         // The view's camera, sun, sky cubes and sky look, by block name - as every surface cell gets them.
         frame.ApplyTo( m_Frame->Material.get() );
@@ -614,6 +674,8 @@ namespace Desert::Graphic::System
                        RDG::SubresourceRange::All() )
              .Texture( WaterShaderParameters::WaterInfoTexture, waterInfo, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All() )
+             .Texture( WaterShaderParameters::WaterFFTTexture, waves, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
              .Sampler( WaterShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
         // The front layer's traced reflection where this fragment is the front layer (FrontLayerReflection.glslh),
         // fetched by texel through the clamp state above; the caller hands the graph's black for both without one,
@@ -626,10 +688,11 @@ namespace Desert::Graphic::System
     }
 
     void WaterRenderer::DeclareFrontLayerDraws( RDG::PassBuilder& pass, const RDG::TextureRef waterInfo,
-                                                const SceneViewInputs& view, const SceneFrameBinding& frame )
+                                                const RDG::TextureRef waves, const SceneViewInputs& view,
+                                                const SceneFrameBinding& frame )
     {
         // Exactly when RenderFrontLayerManual draws.
-        if ( !HasFrontLayerDraws() || !waterInfo.IsValid() )
+        if ( !HasFrontLayerDraws() || !waterInfo.IsValid() || !waves.IsValid() )
             return;
         WaterProgram& front = *m_FrameFrontLayer;
         frame.ApplyTo( front.Material.get() );
@@ -653,7 +716,240 @@ namespace Desert::Graphic::System
         // the front layer draws before the scene copy exists.
         BindSceneViewInputs( block, view, slotted.Slots );
         block.Texture( WaterShaderParameters::WaterInfoTexture, waterInfo, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Texture( WaterShaderParameters::WaterFFTTexture, waves, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All() );
+    }
+
+    bool WaterRenderer::EnsureFFTPipelines()
+    {
+        if ( m_FFTTried )
+            return m_FFTSpectrum != nullptr && m_FFTTransform != nullptr && m_FFTFinalize != nullptr;
+        m_FFTTried        = true;
+        auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
+        const auto  build   = [shaders]( const char* name, ShaderBindingLayoutCache& layout,
+                                      std::span<const RDG::ShaderParameter> parameters )
+             -> std::shared_ptr<ComputePipeline>
+        {
+            const auto shader = shaders != nullptr ? shaders->GetByName( name ) : nullptr;
+            if ( !shader )
+            {
+                LOG_ERROR( "[Water] the FFT ocean's compute shader '{}' is missing - the waves draw Gerstner", name );
+                return nullptr;
+            }
+            auto pipeline = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
+            if ( !pipeline )
+            {
+                LOG_ERROR( "[Water] '{}' does not build: {} - the waves draw Gerstner", name, pipeline.GetError() );
+                return nullptr;
+            }
+            if ( const auto valid = layout.Validate( pipeline.GetValue()->GetSpecification().Shader, parameters );
+                 !valid )
+            {
+                LOG_ERROR( "[Water] '{}': {} - the waves draw Gerstner", name, valid.GetError() );
+                return nullptr;
+            }
+            return pipeline.GetValue();
+        };
+        m_FFTSpectrum  = build( "WaterFFTSpectrum", m_FFTSpectrumLayout, WaterFFTShaderParameters::kSpectrum );
+        m_FFTTransform = build( "WaterFFT", m_FFTTransformLayout, WaterFFTShaderParameters::kTransform );
+        m_FFTFinalize  = build( "WaterFFTFinalize", m_FFTFinalizeLayout, WaterFFTShaderParameters::kFinalize );
+        return m_FFTSpectrum != nullptr && m_FFTTransform != nullptr && m_FFTFinalize != nullptr;
+    }
+
+    bool WaterRenderer::PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& wavesAsset,
+                                         glm::vec4& header, glm::vec4& fft, float& verticalExtent )
+    {
+        if ( static_cast<uint64_t>( wavesAsset ) == 0 )
+            return false;
+        const Common::Scalability::ResolvedQuality& quality = Common::Scalability::QualityState::Resolved();
+        if ( quality.As<Common::Scalability::WaterWaveMethod>(
+                  Common::Scalability::Parameter::EffectsWaterWaveMethod ) !=
+             Common::Scalability::WaterWaveMethod::FFT )
+            return false;
+        auto* const service = Runtime::ResourceRegistry::GetWaterWavesService();
+        if ( service == nullptr )
+            return false; // PrepareFrame said NoWavesService
+        Common::ResultStr<Runtime::WaterWavesService::Spectrum> got = service->GetSpectrum( wavesAsset );
+        if ( !got )
+        {
+            if ( FirstWarning( material, WaterWarning::SpectrumRefused ) )
+                Warn( material, std::format( "its body's FFT ocean is refused: {}", got.GetError() ) );
+            return false;
+        }
+        const Runtime::WaterWavesService::Spectrum spectrum = got.GetValue();
+        if ( spectrum == nullptr )
+            return false; // a Gerstner set, or still loading
+        if ( !EnsureFFTPipelines() )
+        {
+            WarnOnce( material, WaterWarning::FFTPipelinesMissing,
+                      "its body's FFT ocean has no compute programs - drawn with its Gerstner generator" );
+            return false;
+        }
+
+        constexpr size_t kTexels = size_t( kFFTN ) * kFFTN;
+        if ( spectrum != m_FFTUploaded )
+        {
+            std::vector<unsigned char> bytes( Water::kFFTOceanCascades * kTexels * sizeof( glm::vec4 ) );
+            for ( uint32_t c = 0; c < Water::kFFTOceanCascades; ++c )
+            {
+                const std::vector<glm::vec4>& h0 = spectrum->Cascades[c].H0;
+                if ( h0.size() != kTexels )
+                {
+                    if ( FirstWarning( material, WaterWarning::SpectrumMalformed ) )
+                        Warn( material, std::format( "its FFT ocean's cascade {} has {} texels, not {} - drawn "
+                                                     "with its Gerstner generator",
+                                                     c, h0.size(), kTexels ) );
+                    return false;
+                }
+                std::memcpy( bytes.data() + c * kTexels * sizeof( glm::vec4 ), h0.data(),
+                             kTexels * sizeof( glm::vec4 ) );
+            }
+            Core::Formats::Image2DSpecification initial = {
+                 .Tag        = "WaterFFTInitialSpectrum",
+                 .Width      = kFFTN,
+                 .Height     = kFFTN * Water::kFFTOceanCascades,
+                 .Format     = Core::Formats::ImageFormat::RGBA32F,
+                 .Mips       = 1,
+                 .Samples    = 1,
+                 .Data       = Core::Formats::EmptyPixelData{},
+                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                 .Properties = Core::Formats::ImageProperties::Sample,
+                 .MipLevels  = {},
+            };
+            initial.Data = std::move( bytes );
+            m_FFTInitial = Image2D::Create( initial );
+            if ( m_FFTWaves == nullptr )
+                m_FFTWaves = Image2D::Create( Core::Formats::Image2DSpecification{
+                     .Tag        = "WaterFFTWaves",
+                     .Width      = kFFTN,
+                     .Height     = kFFTN * 2 * kFFTBandsPerFrame,
+                     .Format     = Core::Formats::ImageFormat::RGBA16F,
+                     .Mips       = 1,
+                     .Usage      = Core::Formats::Image2DUsage::Image2D,
+                     .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                } );
+            m_FFTUploaded    = spectrum;
+            m_FFTWrittenHalf = -1; // the other half holds another sea
+        }
+        if ( m_FFTInitial == nullptr || m_FFTWaves == nullptr )
+            return false;
+
+        // The ping-pong: this frame writes the half the last recorded frame did not; with no such frame both
+        // lanes name this frame's half (a zero wave velocity for one frame).
+        m_FFTHalf             = m_FFTWrittenHalf == 0 ? 1 : 0;
+        const int32_t previous = m_FFTWrittenHalf >= 0 ? m_FFTWrittenHalf : m_FFTHalf;
+        const auto&   sizes    = spectrum->Params.CascadeSizes;
+        header.y              = static_cast<float>( m_FFTHalf * int32_t( kFFTBandsPerFrame ) );
+        fft = glm::vec4( 1.0f / sizes[0], 1.0f / sizes[1], 1.0f / sizes[2],
+                         1.0f + static_cast<float>( previous * int32_t( kFFTBandsPerFrame ) ) );
+        // The cull extent: the vertical reach, and the choppy map moves the surface sideways by up to lambda times
+        // it (the quadtree culls by a vertical extent only: the larger of the two bounds both).
+        verticalExtent = std::max( { verticalExtent, spectrum->MaxWaveHeight,
+                                     spectrum->MaxWaveHeight * spectrum->Params.Choppiness } );
+        m_FFTFrame     = spectrum;
+        return true;
+    }
+
+    RDG::TextureRef WaterRenderer::AddWavePasses( RDG::Builder& graph, const RDG::TextureRef initial,
+                                                  const RDG::TextureRef waves, const float timeSeconds )
+    {
+        if ( !FrameWavesAreFFT() || !initial.IsValid() || !waves.IsValid() )
+            return RDG::TextureRef{};
+        if ( const RDG::TextureRef recorded = RecordedWaves( graph ); recorded.IsValid() )
+            return recorded;
+        const auto& sizes = m_FFTFrame->Params.CascadeSizes;
+        const float band  = static_cast<float>( m_FFTHalf * int32_t( kFFTBandsPerFrame ) );
+        const WaterFFTParams rows{ .Cascade = glm::vec4( sizes[0], sizes[1], sizes[2], timeSeconds ),
+                                   .Shape   = glm::vec4( m_FFTFrame->Params.Choppiness, 0.0f, band, 0.0f ) };
+        WaterFFTParams       columns = rows;
+        columns.Shape.y              = 1.0f;
+        const RDG::BufferRef rowsBuffer = graph.CreateBuffer( RDG::BufferDesc{ sizeof( WaterFFTParams ) },
+                                                              "WaterFFT.ParamsRows" );
+        const RDG::BufferRef columnsBuffer =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( WaterFFTParams ) }, "WaterFFT.ParamsColumns" );
+        graph.QueueBufferUpload( rowsBuffer, std::as_bytes( std::span( &rows, 1 ) ) );
+        graph.QueueBufferUpload( columnsBuffer, std::as_bytes( std::span( &columns, 1 ) ) );
+
+        const RDG::TextureDesc spectrumDesc{ .Size   = { kFFTN, kFFTN, 1 },
+                                             .Format = Core::Formats::ImageFormat::RGBA32F,
+                                             .Layers = Water::kFFTOceanCascades,
+                                             .Dim    = RDG::TextureDim::Tex2D };
+        const RDG::TextureRef specA = graph.CreateTexture( spectrumDesc, "WaterFFT.SpectrumA" );
+        const RDG::TextureRef specB = graph.CreateTexture( spectrumDesc, "WaterFFT.SpectrumB" );
+        const RDG::TextureRef rowA  = graph.CreateTexture( spectrumDesc, "WaterFFT.RowsA" );
+        const RDG::TextureRef rowB  = graph.CreateTexture( spectrumDesc, "WaterFFT.RowsB" );
+        const RDG::TextureRef colA  = graph.CreateTexture( spectrumDesc, "WaterFFT.ColumnsA" );
+        const RDG::TextureRef colB  = graph.CreateTexture( spectrumDesc, "WaterFFT.ColumnsB" );
+
+        using P = WaterFFTShaderParameters;
+        graph.AddPass(
+             "Water: FFT Spectrum", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( m_FFTSpectrumLayout.Get( m_FFTSpectrum->GetSpecification().Shader ),
+                                Renderer::GetPipelineRouteFill( *m_FFTSpectrum ) )
+                      .Texture( P::WaterFFTInitialSpectrum, initial, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Storage( P::WaterFFTSpectrumA, specA, RDG::Access::StorageWrite, 0 )
+                      .Storage( P::WaterFFTSpectrumB, specB, RDG::Access::StorageWrite, 0 )
+                      .Storage( P::WaterFFTParamsBuffer, rowsBuffer, RDG::Access::StorageRead );
+             },
+             [pipeline = m_FFTSpectrum]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, kFFTGroups8, kFFTGroups8,
+                                                                 Water::kFFTOceanCascades );
+             } );
+        // Rows, then columns: one 256-thread group per line per cascade (WaterFFT.shader LocalSize(256, 1, 1)).
+        const auto transform = [&]( const char* name, const RDG::TextureRef srcA, const RDG::TextureRef srcB,
+                                    const RDG::TextureRef dstA, const RDG::TextureRef dstB,
+                                    const RDG::BufferRef params )
+        {
+            graph.AddPass(
+                 name, RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( m_FFTTransformLayout.Get( m_FFTTransform->GetSpecification().Shader ),
+                                    Renderer::GetPipelineRouteFill( *m_FFTTransform ) )
+                          .Storage( P::WaterFFTSourceA, srcA, RDG::Access::StorageRead, 0 )
+                          .Storage( P::WaterFFTSourceB, srcB, RDG::Access::StorageRead, 0 )
+                          .Storage( P::WaterFFTTargetA, dstA, RDG::Access::StorageWrite, 0 )
+                          .Storage( P::WaterFFTTargetB, dstB, RDG::Access::StorageWrite, 0 )
+                          .Storage( P::WaterFFTParamsBuffer, params, RDG::Access::StorageRead );
+                 },
+                 [pipeline = m_FFTTransform]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, 1u, kFFTN,
+                                                                     Water::kFFTOceanCascades );
+                 } );
+        };
+        transform( "Water: FFT Rows", specA, specB, rowA, rowB, rowsBuffer );
+        transform( "Water: FFT Columns", rowA, rowB, colA, colB, columnsBuffer );
+        // This frame's half of the persistent atlas; StorageWrite is read-modify-write, so the other half (the
+        // previous frame) survives.
+        graph.AddPass(
+             "Water: FFT Finalize", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( m_FFTFinalizeLayout.Get( m_FFTFinalize->GetSpecification().Shader ),
+                                Renderer::GetPipelineRouteFill( *m_FFTFinalize ) )
+                      .Storage( P::WaterFFTResultA, colA, RDG::Access::StorageRead, 0 )
+                      .Storage( P::WaterFFTResultB, colB, RDG::Access::StorageRead, 0 )
+                      .Storage( P::WaterFFTWaves, waves, RDG::Access::StorageWrite, 0 )
+                      .Storage( P::WaterFFTParamsBuffer, rowsBuffer, RDG::Access::StorageRead );
+             },
+             [pipeline = m_FFTFinalize]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, kFFTGroups8, kFFTGroups8,
+                                                                 Water::kFFTOceanCascades );
+             } );
+        m_FFTWrittenHalf    = m_FFTHalf;
+        m_FrameWavesTexture = waves;
+        m_FrameWavesGraph   = &graph;
+        return waves;
     }
 
     Common::BoolResultStr WaterRenderer::RenderManual( const RDG::PassContext& context )

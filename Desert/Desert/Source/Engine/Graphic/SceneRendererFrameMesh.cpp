@@ -1033,12 +1033,38 @@ namespace Desert::Graphic
         const RDG::TextureRef black           = textures.GraphRefs().System.Black;
         const RDG::TextureRef frontReflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black;
         const RDG::TextureRef frontDepth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black;
+        const RDG::TextureRef waves           = FrameWaterWaves( graph, textures );
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return water->RenderManual( context ); },
-             [water, sceneCopy, waterInfo, frontReflection, frontDepth, view, frame]( RDG::PassBuilder& pass )
-             { water->DeclareDraws( pass, sceneCopy, waterInfo, frontReflection, frontDepth, view, frame ); } );
+             [water, sceneCopy, waterInfo, waves, frontReflection, frontDepth, view, frame]( RDG::PassBuilder& pass )
+             { water->DeclareDraws( pass, sceneCopy, waterInfo, waves, frontReflection, frontDepth, view, frame ); } );
+    }
+
+    RDG::TextureRef SceneRenderer::FrameWaterWaves( RDG::Builder& graph, FrameTextures& textures )
+    {
+        const RDG::TextureRef black = textures.GraphRefs().System.Black;
+        auto* water                 = m_Systems.Water.get();
+        if ( water == nullptr || !water->FrameWavesAreFFT() )
+            return black;
+        if ( const RDG::TextureRef recorded = water->RecordedWaves( graph ); recorded.IsValid() )
+            return recorded;
+        // The h0 cascades (uploaded once per wave set) and the persistent two-frame atlas, left sampled by the
+        // water's vertex and fragment stages for the next frame.
+        const RDG::TextureRef initial =
+             textures.Import( water->GetFFTInitialSpectrum(), "WaterFFT.H0", RDG::Access::SampledCompute );
+        const RDG::TextureRef atlas =
+             textures.Import( water->GetFFTWaves(), "WaterFFT.Waves", RDG::Access::SampledGraphics );
+        const ViewFrame* const frame = GetViewFrame();
+        const RDG::TextureRef  waves =
+             initial.IsValid() && atlas.IsValid() && frame != nullptr
+                  ? water->AddWavePasses( graph, initial, atlas, static_cast<float>( frame->TimeSeconds ) )
+                  : RDG::TextureRef{};
+        if ( waves.IsValid() )
+            return waves;
+        LOG_ERROR( "[SceneRenderer] Water: the FFT ocean's images cannot be imported - the waves read black (flat)" );
+        return black;
     }
 
 #if DESERT_DEV_INSTRUMENTS

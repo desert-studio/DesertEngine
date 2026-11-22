@@ -30,9 +30,9 @@ struct WaterWaveRow
 // the foam), the tiles follow.
 layout( std430, binding = 24 ) readonly buffer WaterTiles
 {
-    vec4         WaterWaveHeader; // x = wave count, y unused, zw = WaveOrigin (X, Z)
+    vec4         WaterWaveHeader; // x = wave count, y = the FFT atlas's first band of THIS frame (0 or 6), zw = WaveOrigin (X, Z)
     vec4         WaterInfoFrame;  // WaterInfoTexture's square: xy = lower world (X, Z), z = 1 / side (cm), w = the body's TargetWaveMaskDepth (cm), 0 = none baked
-    vec4         WaterFFTFrame;   // the FFT ocean: xyz = 1 / patch side of cascades 0..2 (1/cm), w = 1 when this frame's waves ARE the FFT cascades (WaterFFTTexture), 0 = the Gerstner rows
+    vec4         WaterFFTFrame;   // the FFT ocean: xyz = 1 / patch side of cascades 0..2 (1/cm), w = 1 + the atlas's first band of the PREVIOUS frame (1 or 7) when this frame's waves ARE the FFT cascades (WaterFFTTexture), 0 = the Gerstner rows
     vec4         WaterFlowFrame;  // a river's flow (WATER-RIVERS-FFT): x = 1 when the body flows, y = the flow map's two-phase period (s), z = the normal's flow tile (cm), w = foam speed scale
     WaterWaveRow WaterWaveRows[WATER_MAX_WAVES];
     WaterTileRow WaterTileRows[];
@@ -41,24 +41,22 @@ layout( std430, binding = 24 ) readonly buffer WaterTiles
 #include <Common/GerstnerWave.glslh>
 
 // THE FFT OCEAN'S CASCADES (WATER-RIVERS-FFT; Programs/Water/WaterFFTFinalize.shader writes it each frame): one
-// rgba16f atlas of 256 x 1536 texels - rows [256 c, 256 c + 256) the displacement of cascade c (xyz, cm) and its
-// lambda dDx/dz (w), rows [256 (3 + c), ...) its slopes (xy) and lambda dDx/dx, lambda dDz/dz (zw). Binding 23: free
-// in every surface cell (the list below). Fetched by texel and filtered here with a wrapping bilinear (the patch
-// tiles), so it brings no sampler. When WaterFFTFrame.w is 0 the graph's black texture is bound and never read.
+// persistent rgba16f atlas of 256 x 3072 texels in two halves of six bands, written in turn (WaterRenderer's
+// ping-pong): this frame's half starts at band WaterWaveHeader.y, the previous frame's at WaterFFTFrame.w - 1, so the
+// velocity reads the surface one frame earlier with no copy. Within a half: band c the displacement of cascade c
+// (xyz, cm) and its lambda dDx/dz (w), band 3 + c its slopes (xy) and lambda dDx/dx, lambda dDz/dz (zw). Binding 23:
+// free in every surface cell (the list below). Fetched by texel and filtered here with a wrapping bilinear (the
+// patch tiles), so it brings no sampler. When WaterFFTFrame.w is 0 the graph's black texture is bound and never
+// read. Both WaterMesh cells (SingleLayerWater, FrontLayer) bind it (WaterRenderer::DeclareDraws /
+// DeclareFrontLayerDraws).
 #define WATER_FFT_SIZE_TILES 256
 #define WATER_FFT_CASCADES_TILES 3
-// Declared only once WaterRenderer binds it (REMAINDER WATER-RIVERS-FFT step R2 defines WATER_FFT_BOUND for the
-// WaterMesh cells): until then the FFT lane reads nothing and WaterFFTFrame.w stays 0.
-#ifdef WATER_FFT_BOUND
+#define WATER_FFT_BANDS_PER_FRAME 6
 layout( binding = 23 ) uniform texture2D WaterFFTTexture;
-#endif
 
-// One atlas band (0..5) at a plane point, `invPatch` = 1 / its cascade's side: wrapped bilinear.
+// One atlas band (0..11) at a plane point, `invPatch` = 1 / its cascade's side: wrapped bilinear.
 vec4 WaterFFTSample( int band, vec2 plane, float invPatch )
 {
-#ifndef WATER_FFT_BOUND
-    return vec4( 0.0 );
-#else
     const vec2  p  = plane * invPatch * float( WATER_FFT_SIZE_TILES ) - 0.5;
     const ivec2 i0 = ivec2( floor( p ) ) & ( WATER_FFT_SIZE_TILES - 1 );
     const ivec2 i1 = ( i0 + 1 ) & ( WATER_FFT_SIZE_TILES - 1 );
@@ -69,7 +67,6 @@ vec4 WaterFFTSample( int band, vec2 plane, float invPatch )
     const vec4  c  = texelFetch( WaterFFTTexture, ivec2( i0.x, row + i1.y ), 0 );
     const vec4  d  = texelFetch( WaterFFTTexture, ivec2( i1.x, row + i1.y ), 0 );
     return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
-#endif
 }
 
 bool WaterWavesAreFFT()
@@ -77,18 +74,33 @@ bool WaterWavesAreFFT()
     return WaterFFTFrame.w > 0.5;
 }
 
-// The three cascades' displacement summed (xyz, cm) and their summed lambda dDx/dz (w).
+// This frame's half of the atlas, and the previous frame's (the same half on the first FFT frame).
+int WaterFFTCurrentBase()
+{
+    return int( WaterWaveHeader.y + 0.5 );
+}
+int WaterFFTPreviousBase()
+{
+    return int( WaterFFTFrame.w - 0.5 );
+}
+
+// The three cascades' displacement summed (xyz, cm) and their summed lambda dDx/dz (w), from the half at `base`.
+vec4 WaterFFTDisplacementSumAt( int base, vec2 plane )
+{
+    return WaterFFTSample( base + 0, plane, WaterFFTFrame.x ) + WaterFFTSample( base + 1, plane, WaterFFTFrame.y ) +
+           WaterFFTSample( base + 2, plane, WaterFFTFrame.z );
+}
 vec4 WaterFFTDisplacementSum( vec2 plane )
 {
-    return WaterFFTSample( 0, plane, WaterFFTFrame.x ) + WaterFFTSample( 1, plane, WaterFFTFrame.y ) +
-           WaterFFTSample( 2, plane, WaterFFTFrame.z );
+    return WaterFFTDisplacementSumAt( WaterFFTCurrentBase(), plane );
 }
 
 // The three cascades' slopes (xy) and choppy derivatives (zw) summed.
 vec4 WaterFFTSlopeSum( vec2 plane )
 {
-    return WaterFFTSample( 3, plane, WaterFFTFrame.x ) + WaterFFTSample( 4, plane, WaterFFTFrame.y ) +
-           WaterFFTSample( 5, plane, WaterFFTFrame.z );
+    const int base = WaterFFTCurrentBase();
+    return WaterFFTSample( base + 3, plane, WaterFFTFrame.x ) + WaterFFTSample( base + 4, plane, WaterFFTFrame.y ) +
+           WaterFFTSample( base + 5, plane, WaterFFTFrame.z );
 }
 
 // The plane point of a world (X, Z): relative to the body's WaveOrigin, as every Gerstner query takes it.
@@ -98,8 +110,8 @@ vec2 WaterWavePlane( vec2 worldXZ )
 }
 
 // The summed displacement of the plane point at `time` (Engine/Water/GerstnerWaterWaves.cpp WaveDisplacement).
-// THE FFT OCEAN carries only THIS frame (the cascades are evaluated at cameraUB.Time): asked at another time it
-// answers the current surface (REMAINDER: the previous frame's atlas for the velocity and the foam's history).
+// THE FFT OCEAN carries this frame and the previous one only (the cascades are evaluated at cameraUB.Time): asked at
+// any other time it answers the current surface (REMAINDER: the foam's history needs an accumulated foam texture).
 vec3 WaterWavesDisplacement( vec2 plane, float time )
 {
     if ( WaterWavesAreFFT() )
@@ -109,6 +121,15 @@ vec3 WaterWavesDisplacement( vec2 plane, float time )
         d += GerstnerWaveOffset( plane, WaterWaveRows[k].Wave.xy, WaterWaveRows[k].Wave.z, WaterWaveRows[k].Wave.w,
                                  WaterWaveRows[k].Form.x, time );
     return d;
+}
+
+// The displacement one frame earlier (`prevTime` = cameraUB.PrevTime): the velocity's previous position (UE's
+// water writes velocity from the previous frame's waves). The FFT reads the atlas's other half.
+vec3 WaterWavesPreviousDisplacement( vec2 plane, float prevTime )
+{
+    if ( WaterWavesAreFFT() )
+        return WaterFFTDisplacementSumAt( WaterFFTPreviousBase(), plane ).xyz;
+    return WaterWavesDisplacement( plane, prevTime );
 }
 
 // The displaced surface's normal at the plane point.
