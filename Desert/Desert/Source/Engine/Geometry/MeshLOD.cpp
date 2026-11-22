@@ -6,9 +6,12 @@
 #include <meshoptimizer.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <limits>
+#include <string>
 #include <vector>
 
 namespace Desert::Geometry
@@ -56,6 +59,167 @@ namespace Desert::Geometry
         float LODHalfDiagonal( const LODComponent& part )
         {
             return 0.5f * glm::length( part.Max - part.Min );
+        }
+
+        // THE SILHOUETTE A LEVEL KEEPS, measured (UE: a reduction's MaxDeviation is the distance the reduced
+        // surface lies from the source, not the quadric's estimate). meshopt's error is a QUADRIC distance - the
+        // distance to the planes of the collapsed triangles - and a collapse that slides a limb's end along its
+        // own side planes costs it nothing: a figure folded to a quarter of its height reported 0.09 of the extent
+        // (CesiumMan LOD 6, WP-FAR-12C). The support distance in kLODSilhouetteDirectionCount directions (every
+        // face, edge and corner direction of a cube) is the outline the level can no longer reach: how far its
+        // convex outline lies inside the source's - a lower bound on the true deviation that sees exactly the
+        // loss the quadric does not (a limb or the head pulled in).
+        inline constexpr std::size_t kLODSilhouetteDirectionCount = 26;
+
+        std::array<glm::vec3, kLODSilhouetteDirectionCount> LODSilhouetteDirections()
+        {
+            std::array<glm::vec3, kLODSilhouetteDirectionCount> directions{};
+            std::size_t                                         next = 0;
+            for ( int x = -1; x <= 1; ++x )
+                for ( int y = -1; y <= 1; ++y )
+                    for ( int z = -1; z <= 1; ++z )
+                        if ( x != 0 || y != 0 || z != 0 )
+                            directions[next++] = glm::normalize( glm::vec3(
+                                 static_cast<float>( x ), static_cast<float>( y ), static_cast<float>( z ) ) );
+            return directions;
+        }
+
+        // The support of the vertices @p indices names, in every silhouette direction.
+        std::array<float, kLODSilhouetteDirectionCount> LODSupport( const float*                 positions,
+                                                                    const std::vector<uint32_t>& indices )
+        {
+            static const std::array<glm::vec3, kLODSilhouetteDirectionCount> directions =
+                 LODSilhouetteDirections();
+            std::array<float, kLODSilhouetteDirectionCount> support;
+            support.fill( -std::numeric_limits<float>::max() );
+            for ( const uint32_t v : indices )
+            {
+                const glm::vec3 p = LODPosition( positions, v );
+                for ( std::size_t d = 0; d < kLODSilhouetteDirectionCount; ++d )
+                    support[d] = std::max( support[d], glm::dot( p, directions[d] ) );
+            }
+            return support;
+        }
+
+        // How far, relative to @p extent, the outline of @p level lies inside @p source's (0 = nothing lost).
+        float LODSilhouetteLoss( const std::array<float, kLODSilhouetteDirectionCount>& source,
+                                 const float* positions, const std::vector<uint32_t>& level, const float extent )
+        {
+            if ( level.empty() || !( extent > 0.0f ) )
+                return std::numeric_limits<float>::max();
+            const auto kept = LODSupport( positions, level );
+            float      loss = 0.0f;
+            for ( std::size_t d = 0; d < kLODSilhouetteDirectionCount; ++d )
+                loss = std::max( loss, source[d] - kept[d] );
+            return loss / extent;
+        }
+
+        // THE COVERAGE A LEVEL KEEPS (the outline above sees a lost limb end, not a limb thinned to a sliver: a
+        // 24-triangle figure keeps its head and feet and covers nothing between them). The source and the level
+        // are rasterised along each axis onto kLODCoverageCells^2 cells over the extent (cell centres, as the
+        // screen samples them); the cells one covers and the other does not, over the source outline's boundary
+        // cells, are the mean distance the outline moved - the deviation the projected area shows.
+        inline constexpr int kLODCoverageCells = 128;
+
+        struct LODCoverage
+        {
+            glm::vec3                           Origin{ 0.0f };
+            float                               Extent = 0.0f;
+            std::array<std::vector<uint8_t>, 3> Cells;
+            std::array<uint32_t, 3>             Boundary{};
+        };
+
+        std::array<std::vector<uint8_t>, 3> LODRasterise( const float*                 positions,
+                                                          const std::vector<uint32_t>& tris,
+                                                          const glm::vec3& origin, const float extent )
+        {
+            constexpr int                       n = kLODCoverageCells;
+            std::array<std::vector<uint8_t>, 3> cells;
+            for ( auto& axis : cells )
+                axis.assign( static_cast<std::size_t>( n ) * n, 0 );
+            const float toCell = static_cast<float>( n ) / extent;
+            for ( std::size_t t = 0; t + 2 < tris.size(); t += 3 )
+            {
+                const glm::vec3 p[3] = { ( LODPosition( positions, tris[t] ) - origin ) * toCell,
+                                         ( LODPosition( positions, tris[t + 1] ) - origin ) * toCell,
+                                         ( LODPosition( positions, tris[t + 2] ) - origin ) * toCell };
+                for ( int axis = 0; axis < 3; ++axis )
+                {
+                    const int       u = ( axis + 1 ) % 3, v = ( axis + 2 ) % 3;
+                    const glm::vec2 a( p[0][u], p[0][v] ), b( p[1][u], p[1][v] ), c( p[2][u], p[2][v] );
+                    const float     area = ( b.x - a.x ) * ( c.y - a.y ) - ( b.y - a.y ) * ( c.x - a.x );
+                    if ( area == 0.0f )
+                        continue;
+                    const glm::vec2 lo = glm::min( a, glm::min( b, c ) ), hi = glm::max( a, glm::max( b, c ) );
+                    const int       x0   = std::max( 0, static_cast<int>( std::ceil( lo.x - 0.5f ) ) );
+                    const int       x1   = std::min( n - 1, static_cast<int>( std::floor( hi.x - 0.5f ) ) );
+                    const int       y0   = std::max( 0, static_cast<int>( std::ceil( lo.y - 0.5f ) ) );
+                    const int       y1   = std::min( n - 1, static_cast<int>( std::floor( hi.y - 0.5f ) ) );
+                    const float     sign = area > 0.0f ? 1.0f : -1.0f;
+                    for ( int y = y0; y <= y1; ++y )
+                        for ( int x = x0; x <= x1; ++x )
+                        {
+                            const glm::vec2 q( static_cast<float>( x ) + 0.5f, static_cast<float>( y ) + 0.5f );
+                            const float     e0 =
+                                 sign * ( ( b.x - a.x ) * ( q.y - a.y ) - ( b.y - a.y ) * ( q.x - a.x ) );
+                            const float e1 =
+                                 sign * ( ( c.x - b.x ) * ( q.y - b.y ) - ( c.y - b.y ) * ( q.x - b.x ) );
+                            const float e2 =
+                                 sign * ( ( a.x - c.x ) * ( q.y - c.y ) - ( a.y - c.y ) * ( q.x - c.x ) );
+                            if ( e0 >= 0.0f && e1 >= 0.0f && e2 >= 0.0f )
+                                cells[axis][static_cast<std::size_t>( y ) * n + x] = 1;
+                        }
+                }
+            }
+            return cells;
+        }
+
+        LODCoverage LODSourceCoverage( const float* positions, const std::vector<uint32_t>& tris,
+                                       const float extent )
+        {
+            LODCoverage coverage;
+            if ( tris.empty() || !( extent > 0.0f ) )
+                return coverage;
+            glm::vec3 lo( std::numeric_limits<float>::max() );
+            for ( const uint32_t v : tris )
+                lo = glm::min( lo, LODPosition( positions, v ) );
+            coverage.Origin = lo;
+            coverage.Extent = extent;
+            coverage.Cells  = LODRasterise( positions, tris, lo, extent );
+            constexpr int n = kLODCoverageCells;
+            for ( int axis = 0; axis < 3; ++axis )
+            {
+                const auto& c  = coverage.Cells[axis];
+                const auto  at = [&]( int x, int y )
+                { return x >= 0 && y >= 0 && x < n && y < n && c[static_cast<std::size_t>( y ) * n + x] != 0; };
+                for ( int y = 0; y < n; ++y )
+                    for ( int x = 0; x < n; ++x )
+                        if ( at( x, y ) &&
+                             ( !at( x - 1, y ) || !at( x + 1, y ) || !at( x, y - 1 ) || !at( x, y + 1 ) ) )
+                            ++coverage.Boundary[axis];
+            }
+            return coverage;
+        }
+
+        // The mean distance, relative to the extent, the level's projected outline moved from the source's.
+        float LODCoverageLoss( const LODCoverage& source, const float* positions,
+                               const std::vector<uint32_t>& level )
+        {
+            if ( !( source.Extent > 0.0f ) )
+                return 0.0f;
+            if ( level.empty() )
+                return std::numeric_limits<float>::max();
+            const auto kept = LODRasterise( positions, level, source.Origin, source.Extent );
+            float      loss = 0.0f;
+            for ( int axis = 0; axis < 3; ++axis )
+            {
+                uint32_t changed = 0;
+                for ( std::size_t i = 0; i < kept[axis].size(); ++i )
+                    changed += kept[axis][i] != source.Cells[axis][i] ? 1u : 0u;
+                loss = std::max( loss, static_cast<float>( changed ) /
+                                            static_cast<float>( std::max( source.Boundary[axis], 1u ) ) );
+            }
+            return loss / static_cast<float>( kLODCoverageCells );
         }
     } // namespace
 
@@ -148,30 +312,93 @@ namespace Desert::Geometry
         const std::size_t     totalTris  = localTris.size();
         const std::size_t     solidTris  = solidFlat.size() / 3;
         std::size_t           prevCount  = flat.size(); // each level must strictly decrease
-        float                 screenSize = kLOD0ScreenSize;
+        std::size_t           prevSolid    = solidTris;   // the solid triangles of the last level kept
+        const auto            solidSupport = LODSupport( positions, solidFlat );
+        const LODCoverage     solidCoverage      = LODSourceCoverage( positions, solidFlat, extent );
+        float                 previousScreenSize = kLOD0ScreenSize; // the last made level's
+        uint32_t              madeLevels         = 0;
         for ( std::size_t level = 0; level < targets.size(); ++level )
         {
-            // THE LEVEL'S ERROR BUDGET: kLODMaxPixelError reference pixels at the screen size the automatic
-            // progression starts this level at (there the bounding sphere's diameter is screenSize x 1080 rows,
-            // and the extent the relative error is measured against is no longer than that diameter). A part
-            // thinner than the budget may go - it is under a pixel there; a rail wider than it stays.
-            screenSize = ComputeLODScreenSize( static_cast<uint32_t>( level + 1 ), screenSize, 0, 1.0f );
+            // THE LEVEL'S ERROR BUDGET: kLODMaxPixelError reference pixels at the screen size this level is DRAWN
+            // from (there the bounding sphere's diameter is screenSize x 1080 rows, and the extent the relative
+            // error is measured against is no longer than that diameter). A part thinner than the budget may go -
+            // it is under a pixel there; a rail wider than it stays. The size is the one ResolveLODScreenSizes
+            // gives the level (Mesh::m_LODScreenSizes, coverage 1): its index among the levels made, below the
+            // last made one, and the density term of the finer level's triangles - which starts a coarse level
+            // well before the progression would (CesiumMan LOD 6: 0.0142 after 46 triangles, not 0.0020), so a
+            // budget at the progression alone let it lose 7x what a pixel there allows (WP-FAR-12C).
+            const float screenSize = ComputeLODScreenSize( madeLevels + 1u, previousScreenSize,
+                                                           static_cast<uint32_t>( prevCount / 3 ), 1.0f );
             const float errorBudget =
                  kLODMaxPixelError / ( std::max( screenSize, 1e-6f ) * kAutoLODReferenceScreenRows );
             const double share = static_cast<double>( targets[level] ) / static_cast<double>( totalTris );
 
             std::vector<uint32_t> out;
             float                 error = 0.0f;
+            float                 silhouette = 0.0f;
             if ( solidTris > 0 )
             {
-                const auto  solidTarget = static_cast<std::size_t>( static_cast<double>( solidTris ) * share );
-                const float ratio = ( static_cast<float>( solidTarget ) + 0.5f ) / static_cast<float>( solidTris );
-                auto lod = SimplifyMesh( positions, vertexCount, solidFlat, ratio, errorBudget, attributes );
+                // The level's MEASURED error: the larger of the quadric deviation, the outline it lost and the
+                // coverage it lost.
+                const auto reduce = [&]( const std::size_t triangles, float& measured )
+                {
+                    const float ratio =
+                         ( static_cast<float>( triangles ) + 0.5f ) / static_cast<float>( solidTris );
+                    auto lod = SimplifyMesh( positions, vertexCount, solidFlat, std::min( ratio, 1.0f ),
+                                             errorBudget, attributes );
+                    measured = std::max( LODSilhouetteLoss( solidSupport, positions, lod.Indices, extent ),
+                                         LODCoverageLoss( solidCoverage, positions, lod.Indices ) );
+                    return lod;
+                };
+                const auto solidTarget = static_cast<std::size_t>( static_cast<double>( solidTris ) * share );
+                auto       lod         = reduce( solidTarget, silhouette );
                 if ( !lod.StopReason.empty() )
                     LOG_INFO( "[MeshLOD] LOD {}: solid parts stopped at {} of target {} tris: {}", level + 1,
                               lod.Indices.size() / 3, solidTarget, lod.StopReason );
-                out   = std::move( lod.Indices );
-                error = lod.Error;
+                // A LEVEL STOPS SHORT OF ITS TARGET RATHER THAN EXCEED ITS BUDGET (UE: a level exists only while
+                // its deviation fits a pixel at the screen size it is drawn at): when the outline it lost is over
+                // the budget, the fewest triangles between the target and the last kept level whose outline fits
+                // (bisection; meshopt's count is monotone in the target). None fits - the level is not made
+                // (empty = the previous level is drawn on), the next, coarser one tries again with its own,
+                // larger budget.
+                if ( silhouette > errorBudget )
+                {
+                    std::size_t    fails = solidTarget, fits = prevSolid;
+                    SimplifyResult best;
+                    float          bestSilhouette = 0.0f;
+                    bool           found          = false;
+                    while ( fits > fails + 1 )
+                    {
+                        const std::size_t mid      = fails + ( fits - fails ) / 2;
+                        float             measured = 0.0f;
+                        auto              trial    = reduce( mid, measured );
+                        if ( measured <= errorBudget && trial.Indices.size() / 3 < prevSolid )
+                        {
+                            fits           = mid;
+                            best           = std::move( trial );
+                            bestSilhouette = measured;
+                            found          = true;
+                        }
+                        else
+                            fails = mid;
+                    }
+                    LOG_INFO( "[MeshLOD] LOD {}: target {} tris lost {:.4f} of the extent of its outline (budget "
+                              "{:.4f}); {}",
+                              level + 1, solidTarget, silhouette, errorBudget,
+                              found ? std::format( "kept {} tris, outline loss {:.4f}", best.Indices.size() / 3,
+                                                   bestSilhouette )
+                                    : std::string( "no level fits - not made" ) );
+                    if ( !found )
+                    {
+                        levels.emplace_back();
+                        continue;
+                    }
+                    lod        = std::move( best );
+                    silhouette = bestSilhouette;
+                }
+                out       = std::move( lod.Indices );
+                error     = lod.Error;
+                prevSolid = out.size() / 3;
             }
 
             // ELEMENTS (UE Nanite Preserve Area's selection; a discrete level adds no vertex, so no inflation):
@@ -200,17 +427,22 @@ namespace Desert::Geometry
             }
             const double keptAreaPercent = elementArea > 0.0 ? 100.0 * keptArea / elementArea : 0.0;
 
-            LOG_INFO( "[MeshLOD] LOD {}: target {} tris, result {} of {} tris, solid deviation {:.4f} of the extent "
-                      "(budget {:.4f} at screen size {:.4f}); {} of {} elements kept ({:.1f} % of their area){}",
-                      level + 1, targets[level], out.size() / 3, totalTris, error, errorBudget, screenSize,
-                      keptElements, elements.size(), keptAreaPercent, attributes ? "" : " (positions only)" );
+            LOG_INFO(
+                 "[MeshLOD] LOD {}: target {} tris, result {} of {} tris, solid deviation {:.4f} of the extent, "
+                 "outline loss {:.4f} (budget {:.4f} at screen size {:.4f}); {} of {} elements kept ({:.1f} % of "
+                 "their "
+                 "area){}",
+                 level + 1, targets[level], out.size() / 3, totalTris, error, silhouette, errorBudget, screenSize,
+                 keptElements, elements.size(), keptAreaPercent, attributes ? "" : " (positions only)" );
             std::vector<Index> tris;
             if ( out.size() >= 3 && out.size() < prevCount )
             {
                 tris.reserve( out.size() / 3 );
                 for ( std::size_t i = 0; i + 2 < out.size(); i += 3 )
                     tris.push_back( { out[i], out[i + 1], out[i + 2] } );
-                prevCount = out.size();
+                prevCount          = out.size();
+                previousScreenSize = screenSize;
+                ++madeLevels;
             }
             levels.push_back( std::move( tris ) ); // empty => reuse previous at assembly
         }
