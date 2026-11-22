@@ -7,54 +7,27 @@
             "LGHT": 1,
             "SCNE": 76,
             "UNIT": 1,
-            "WPAR": 13
+            "WPAR": 14
         },
-        "Dependencies": [
-            "04f3bb576e64e248daad7640edbe91c5",
-            "f6f923426f71eb4a270b1db46ebceeff"
-        ]
+        "Dependencies": []
     },
     "Name": "Fence_Run",
     "Entities": [
         {
             "id": 9600,
             "Tag": "Fence_Run",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ]
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0]
         },
         {
             "id": 9601,
             "parent": 9600,
             "siblingIndex": 0,
             "Tag": "Post_01",
-            "Translation": [
-                0.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [0.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -74,21 +47,9 @@
             "parent": 9600,
             "siblingIndex": 1,
             "Tag": "Post_02",
-            "Translation": [
-                100.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [100.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -108,21 +69,9 @@
             "parent": 9600,
             "siblingIndex": 2,
             "Tag": "Post_03",
-            "Translation": [
-                200.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [200.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -142,21 +91,9 @@
             "parent": 9600,
             "siblingIndex": 3,
             "Tag": "Post_04",
-            "Translation": [
-                300.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [300.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -176,21 +113,9 @@
             "parent": 9600,
             "siblingIndex": 4,
             "Tag": "Post_05",
-            "Translation": [
-                400.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [400.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -210,21 +135,9 @@
             "parent": 9600,
             "siblingIndex": 5,
             "Tag": "Post_06",
-            "Translation": [
-                500.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [500.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -244,21 +157,9 @@
             "parent": 9600,
             "siblingIndex": 6,
             "Tag": "Post_07",
-            "Translation": [
-                600.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [600.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -278,21 +179,9 @@
             "parent": 9600,
             "siblingIndex": 7,
             "Tag": "Post_08",
-            "Translation": [
-                700.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [700.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -312,21 +201,9 @@
             "parent": 9600,
             "siblingIndex": 8,
             "Tag": "Post_09",
-            "Translation": [
-                800.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [800.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -346,21 +223,9 @@
             "parent": 9600,
             "siblingIndex": 9,
             "Tag": "Post_10",
-            "Translation": [
-                900.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [900.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -380,21 +245,9 @@
             "parent": 9600,
             "siblingIndex": 10,
             "Tag": "Post_11",
-            "Translation": [
-                1000.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1000.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -414,21 +267,9 @@
             "parent": 9600,
             "siblingIndex": 11,
             "Tag": "Post_12",
-            "Translation": [
-                1100.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1100.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -448,21 +289,9 @@
             "parent": 9600,
             "siblingIndex": 12,
             "Tag": "Post_13",
-            "Translation": [
-                1200.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1200.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -482,21 +311,9 @@
             "parent": 9600,
             "siblingIndex": 13,
             "Tag": "Post_14",
-            "Translation": [
-                1300.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1300.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -516,21 +333,9 @@
             "parent": 9600,
             "siblingIndex": 14,
             "Tag": "Post_15",
-            "Translation": [
-                1400.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1400.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -550,21 +355,9 @@
             "parent": 9600,
             "siblingIndex": 15,
             "Tag": "Post_16",
-            "Translation": [
-                1500.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1500.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -584,21 +377,9 @@
             "parent": 9600,
             "siblingIndex": 16,
             "Tag": "Post_17",
-            "Translation": [
-                1600.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1600.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -618,21 +399,9 @@
             "parent": 9600,
             "siblingIndex": 17,
             "Tag": "Post_18",
-            "Translation": [
-                1700.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1700.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -652,21 +421,9 @@
             "parent": 9600,
             "siblingIndex": 18,
             "Tag": "Post_19",
-            "Translation": [
-                1800.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1800.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -686,21 +443,9 @@
             "parent": 9600,
             "siblingIndex": 19,
             "Tag": "Post_20",
-            "Translation": [
-                1900.0,
-                65.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.12,
-                1.3,
-                0.12
-            ],
+            "Translation": [1900.0, 65.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.11999999731779099, 1.2999999523162842, 0.11999999731779099],
             "StaticMesh": {
                 "Primitive": "Cylinder",
                 "MeshHandle": {
@@ -720,21 +465,9 @@
             "parent": 9600,
             "siblingIndex": 20,
             "Tag": "Board_01",
-            "Translation": [
-                50.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [50.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -754,21 +487,9 @@
             "parent": 9600,
             "siblingIndex": 21,
             "Tag": "Board_02",
-            "Translation": [
-                150.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [150.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -788,21 +509,9 @@
             "parent": 9600,
             "siblingIndex": 22,
             "Tag": "Board_03",
-            "Translation": [
-                250.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [250.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -822,21 +531,9 @@
             "parent": 9600,
             "siblingIndex": 23,
             "Tag": "Board_04",
-            "Translation": [
-                350.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [350.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -856,21 +553,9 @@
             "parent": 9600,
             "siblingIndex": 24,
             "Tag": "Board_05",
-            "Translation": [
-                450.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [450.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -890,21 +575,9 @@
             "parent": 9600,
             "siblingIndex": 25,
             "Tag": "Board_06",
-            "Translation": [
-                550.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [550.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -924,21 +597,9 @@
             "parent": 9600,
             "siblingIndex": 26,
             "Tag": "Board_07",
-            "Translation": [
-                650.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [650.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -958,21 +619,9 @@
             "parent": 9600,
             "siblingIndex": 27,
             "Tag": "Board_08",
-            "Translation": [
-                750.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [750.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -992,21 +641,9 @@
             "parent": 9600,
             "siblingIndex": 28,
             "Tag": "Board_09",
-            "Translation": [
-                850.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [850.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1026,21 +663,9 @@
             "parent": 9600,
             "siblingIndex": 29,
             "Tag": "Board_10",
-            "Translation": [
-                950.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [950.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1060,21 +685,9 @@
             "parent": 9600,
             "siblingIndex": 30,
             "Tag": "Board_11",
-            "Translation": [
-                1050.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1050.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1094,21 +707,9 @@
             "parent": 9600,
             "siblingIndex": 31,
             "Tag": "Board_12",
-            "Translation": [
-                1150.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1150.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1128,21 +729,9 @@
             "parent": 9600,
             "siblingIndex": 32,
             "Tag": "Board_13",
-            "Translation": [
-                1250.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1250.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1162,21 +751,9 @@
             "parent": 9600,
             "siblingIndex": 33,
             "Tag": "Board_14",
-            "Translation": [
-                1350.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1350.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1196,21 +773,9 @@
             "parent": 9600,
             "siblingIndex": 34,
             "Tag": "Board_15",
-            "Translation": [
-                1450.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1450.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1230,21 +795,9 @@
             "parent": 9600,
             "siblingIndex": 35,
             "Tag": "Board_16",
-            "Translation": [
-                1550.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1550.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1264,21 +817,9 @@
             "parent": 9600,
             "siblingIndex": 36,
             "Tag": "Board_17",
-            "Translation": [
-                1650.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1650.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1298,21 +839,9 @@
             "parent": 9600,
             "siblingIndex": 37,
             "Tag": "Board_18",
-            "Translation": [
-                1750.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1750.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1332,21 +861,9 @@
             "parent": 9600,
             "siblingIndex": 38,
             "Tag": "Board_19",
-            "Translation": [
-                1850.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1850.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1366,21 +883,9 @@
             "parent": 9600,
             "siblingIndex": 39,
             "Tag": "Board_20",
-            "Translation": [
-                1950.0,
-                55.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.2,
-                1.0,
-                0.03
-            ],
+            "Translation": [1950.0, 55.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.20000000298023224, 1.0, 0.029999999329447746],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -1396,5 +901,6 @@
             }
         }
     ],
-    "Root": 9600
+    "Root": 9600,
+    "RuntimeBehavior": "Partitioned"
 }
