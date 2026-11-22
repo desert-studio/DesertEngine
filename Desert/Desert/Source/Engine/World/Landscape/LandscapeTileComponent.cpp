@@ -28,6 +28,8 @@ namespace Desert::ECS
 
     LandscapeTileHeights& LandscapeTileHeights::operator=( LandscapeTileHeights&& other ) noexcept = default;
 
+    LandscapeTileHeights::LandscapeTileHeights( std::nullopt_t ) noexcept {}
+
     LandscapeTileHeights& LandscapeTileHeights::operator=( std::nullopt_t ) noexcept
     {
         reset();
@@ -49,15 +51,6 @@ namespace Desert::ECS
             *m_Data = data;
         else
             m_Data = std::make_unique<Data>( data );
-        return *this;
-    }
-
-    LandscapeTileHeights& LandscapeTileHeights::operator=( std::optional<Data>&& data )
-    {
-        if ( data.has_value() )
-            *this = std::move( *data );
-        else
-            reset();
         return *this;
     }
 

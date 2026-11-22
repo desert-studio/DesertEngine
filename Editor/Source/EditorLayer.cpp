@@ -165,6 +165,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/World/Landscape/LandscapeGenerator.hpp>
 
 namespace Desert::Editor
 {

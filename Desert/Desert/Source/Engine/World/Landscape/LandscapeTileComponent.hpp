@@ -9,6 +9,8 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #ifndef GLM_ENABLE_EXPERIMENTAL
@@ -39,7 +41,7 @@ namespace Desert::ECS
         using Data = World::Landscape::LandscapeTileData;
 
         LandscapeTileHeights() noexcept = default;
-        LandscapeTileHeights( std::nullopt_t ) noexcept {}
+        LandscapeTileHeights( std::nullopt_t ) noexcept;
         LandscapeTileHeights( const LandscapeTileHeights& other );
         LandscapeTileHeights( LandscapeTileHeights&& other ) noexcept = default;
         ~LandscapeTileHeights();
@@ -49,7 +51,18 @@ namespace Desert::ECS
         LandscapeTileHeights& operator=( std::nullopt_t ) noexcept;
         LandscapeTileHeights& operator=( Data&& data );
         LandscapeTileHeights& operator=( const Data& data );
-        LandscapeTileHeights& operator=( std::optional<Data>&& data );
+        // A template so that overload resolution for the component's own copy/move never instantiates
+        // std::optional<LandscapeTileData> with the data incomplete; only a caller holding the optional
+        // (and therefore LandscapeData.hpp) reaches it.
+        template <typename Optional>
+            requires std::is_same_v<std::remove_cvref_t<Optional>, std::optional<Data>>
+        LandscapeTileHeights& operator=( Optional&& data )
+        {
+            if ( data.has_value() )
+                return *this = std::move( *data );
+            reset();
+            return *this;
+        }
 
         bool has_value() const noexcept { return m_Data != nullptr; }
         explicit operator bool() const noexcept { return m_Data != nullptr; }
