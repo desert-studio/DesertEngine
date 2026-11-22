@@ -82,6 +82,7 @@
 #include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
+#include <Engine/Core/Serialize/EngineComponentProvider.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/LevelSequenceComponent.hpp>
@@ -526,6 +527,8 @@ namespace Desert::Core
            m_File( std::make_unique<FileState>() ),
            m_VFXWorld( std::make_unique<VFX::VFXWorld>() )
     {
+        // Engine's component serializers (Core's registry): this reference links the provider in.
+        Serialize::LinkEngineComponentProvider();
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
     }
@@ -557,6 +560,8 @@ namespace Desert::Core
            m_File( std::make_unique<FileState>() ),
            m_VFXWorld( std::make_unique<VFX::VFXWorld>() )
     {
+        // Engine's component serializers (Core's registry): this reference links the provider in.
+        Serialize::LinkEngineComponentProvider();
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
 
