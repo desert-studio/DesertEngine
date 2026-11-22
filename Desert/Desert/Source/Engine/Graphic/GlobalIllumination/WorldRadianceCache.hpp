@@ -30,9 +30,10 @@
 //   Allocate  used empty entries take a slot; every used probe is ranked (new of the coverage, new of the
 //             fallback, lights changed, then age of its last trace) into the priority histogram.
 //   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list, and
-//             their 8x8 squares of traced texels the trace TILE list (UE GenerateProbeTraceTiles: a probe past
-//             the downsample distance, or read only as the fallback, traces at half resolution, a quarter of the
-//             squares). The thread that lists a probe moves it out of geometry (UE's probe placement before
+//             their trace TILES of 8x8 rays the trace tile list (UE GenerateProbeTraceTiles: a near probe traces
+//             at half resolution and supersamples to full only the squares its readers' normals face - the BRDF
+//             bins Mark gathers per entry -; a probe past the downsample distance, or read only as the fallback,
+//             traces at a quarter). The thread that lists a probe moves it out of geometry (UE's probe placement before
 //             TraceFromProbes): its offset, which Trace's rays start from. A tracer permutation as Trace's,
 //             acquired with it.
 //   Trace     one group per listed tile traces its octahedral texels through the GI ray contract

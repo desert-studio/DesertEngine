@@ -1,6 +1,7 @@
 // DesertAsset {"Kind":"Shader","Guid":"a0fa2ae2b4ca49f2940bb34be1953134","Versions":{"SHDR":1},"Dependencies":[]}
 // THE RADIANCE CACHE UPDATE, 4/5 — TRACE (UE TraceFromProbes, LumenRadianceCache.usf): one workgroup per TRACE
-// TILE of a selected probe - an 8x8 SQUARE of its traced octahedral texels, one ray per thread (UE's 8x8 probe trace
+// TILE of a selected probe - an 8x8 of its rays at the tile's level (full, half or a quarter of the probe's
+// resolution, RADIANCE_CACHE_TRACE_LEVEL_*), one ray per thread (UE's 8x8 probe trace
 // tiles; one group per word of Select's trace tile list, RadianceCacheTraceTileList, a probe's tiles one after the
 // other; an indirect dispatch of exactly that many groups, written by Select).
 // FPS-RC-TRACE: the tile is a square, not 64 texels in row order - a row of a 32-texel probe spans the whole
@@ -103,17 +104,19 @@ Shader "RadianceCacheTrace"
             if ( index >= radianceCacheSchedule[RC_SCHEDULE_TILES] )
                 return;
             const uint               word    = radianceCacheSchedule[RadianceCacheTraceTileList( radianceCache.atlas.z ) + index];
-            const uint               probe   = word >> 7;
+            const uint               probe   = word >> RADIANCE_CACHE_TRACE_TILE_PROBE_SHIFT;
             const uint               tile    = word & RADIANCE_CACHE_TRACE_TILE_MASK;
+            const uint               level   = ( word >> RADIANCE_CACHE_TRACE_TILE_LEVEL_SHIFT ) & 3u;
+            const uint               skip    = ( word >> RADIANCE_CACHE_TRACE_TILE_SKIP_SHIFT ) & 0xFu;
             const RadianceCacheProbe state   = radianceCacheProbes[probe];
             const uint               clipmap = uint( state.cell.w );
             const vec3               centre  = RadianceCacheWorldCellCentre( radianceCache, state.cell.xyz, clipmap );
             const uint               res     = radianceCache.shape.z;
-            // The traced resolution Select chose: res, or half of it (rounded up), one ray per 2x2 texels.
-            const bool downsampled  = ( word & RADIANCE_CACHE_TRACE_TILE_DOWNSAMPLED ) != 0u;
-            const uint traceRes     = RadianceCacheTraceResolution( res, downsampled );
-            const uint blockSide    = downsampled ? 2u : 1u;
-            const uint tilesPerSide = ( traceRes + 7u ) / 8u;
+            // The traced resolution of the tile's level (RADIANCE_CACHE_TRACE_LEVEL_*): one ray per texel, per 2x2
+            // or per 4x4 texels.
+            const uint traceRes     = RadianceCacheTraceResolution( res, level );
+            const uint blockSide    = 1u << level;
+            const uint tilesPerSide = RadianceCacheTraceTilesPerSide( res, level );
             // Out of geometry: RadianceCacheSelect.shader wrote this frame's offset to the probe before this pass.
             const vec3 position = centre + state.offset.xyz;
 
@@ -124,15 +127,18 @@ Shader "RadianceCacheTrace"
             const float history = fresh ? 0.0 : ( state.frames.w != state.frames.z ? DirtyHistory : HistoryWeight );
             // The cone of one traced texel: its solid angle 4 pi / traceRes^2 as a cone's half angle.
             const float cone    = sqrt( 4.0 / float( traceRes * traceRes ) );
-            // This thread's traced texel: its place in the tile's 8x8 square (the edge squares of a traceRes that is
-            // no multiple of 8 are cut at the probe's edge). No barrier follows, so the threads past them end.
-            const uvec2 square = uvec2( tile % tilesPerSide, tile / tilesPerSide );
-            const ivec2 t      = ivec2( square * 8u + gl_LocalInvocationID.xy );
-            if ( t.x < int( traceRes ) && t.y < int( traceRes ) )
+            // This thread's traced texel: its place in the tile's 8x8 (the edge tiles of a traceRes that is no
+            // multiple of 8 are cut at the probe's edge). A HALF tile's 4x4 quarter over a square the probe
+            // supersamples (skip, RadianceCacheTraceTileWord) is a FULL tile's. No barrier follows, so those
+            // threads end.
+            const uvec2 square  = uvec2( tile % tilesPerSide, tile / tilesPerSide );
+            const ivec2 t       = ivec2( square * 8u + gl_LocalInvocationID.xy );
+            const uint  quarter = ( gl_LocalInvocationID.y / 4u ) * 2u + gl_LocalInvocationID.x / 4u;
+            if ( t.x < int( traceRes ) && t.y < int( traceRes ) && ( ( skip >> quarter ) & 1u ) == 0u )
             {
                 // The texel's row-order index: its jitter sequence (the same ray whatever the tile shape).
                 const uint  texel = uint( t.y ) * traceRes + uint( t.x );
-                // A full-resolution texel keeps its own jitter sequence; a downsampled ray's spans its 2x2 block.
+                // A full-resolution texel keeps its own jitter sequence; a lower level's ray spans its block.
                 const vec2  o = ( vec2( t ) + TexelJitter( probe, texel, FrameIndex ) ) / float( traceRes ) * 2.0 -
                                1.0;
                 GITraceInput ray;
@@ -147,8 +153,8 @@ Shader "RadianceCacheTrace"
                 // The far field alone (UE TraceFromProbesCS: the global SDF, no mesh SDFs; GIRayRadianceFarField).
                 const vec3 radiance = GIRayRadianceFarField( ray, hitDistance );
                 const vec4 traced   = vec4( radiance, hitDistance );
-                // The atlas texels the ray stands for: itself, or its 2x2 block (an odd res's last row and column
-                // block is cut at the probe's edge).
+                // The atlas texels the ray stands for: itself, or its 2x2 or 4x4 block (the last row and column of
+                // blocks of a res that is no multiple of the block is cut at the probe's edge).
                 for ( uint j = 0u; j < blockSide; ++j )
                 {
                     for ( uint i = 0u; i < blockSide; ++i )
