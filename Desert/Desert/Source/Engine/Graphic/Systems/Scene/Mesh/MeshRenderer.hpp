@@ -1584,6 +1584,10 @@ namespace Desert::Graphic::System
         void SetRainOcclusionQuality( const RainOcclusionQuality& quality );
         void UpdateRainOcclusion();
         [[nodiscard]] std::optional<SystemRasterPass> RainOcclusionPass();
+        // The FAR CASCADE passes ("MeshShadowFar<slot>"): one per directional-shadow slot whose far layer
+        // (FarShadowLayer) must be redrawn this frame (m_FarShadow[slot].Redraw), its static casters into
+        // @p maps, the cascade array of AcquireCascadeMaps. None when every far layer still holds its content.
+        [[nodiscard]] std::vector<SystemRasterPass> FarShadowPasses( RDG::TextureRef maps );
         [[nodiscard]] std::shared_ptr<Image2D>        GetRainOcclusionImage() const
         {
             return m_RainOcclusionFB && m_RainOcclusionBox ? m_RainOcclusionFB->GetDepthAttachmentImage()
@@ -1616,8 +1620,16 @@ namespace Desert::Graphic::System
         // movable layer.
         static constexpr uint32_t kVsmMovableViewBase     = kVsmViewBase + kVsmClipmapLevelCount;
         static constexpr uint32_t kRainOcclusionView      = kVsmMovableViewBase + kVsmClipmapLevelCount;
-        static constexpr uint32_t kLocalShadowViewBase    = kRainOcclusionView + 1u;
+        // Each shadowed directional light's FAR cascade (UE: the far shadow cascade, r.Shadow.FarShadow*): one
+        // view per slot, drawn into the cascade map's layer past every slot's cascades (FarShadowLayer) with the
+        // cascades' depth-clamp pipelines, STATIC casters only, cached across frames (m_FarShadow[slot].Key).
+        static constexpr uint32_t           kFarShadowViewBase      = kRainOcclusionView + 1u;
+        static constexpr uint32_t           kLocalShadowViewBase    = kFarShadowViewBase + kDirectionalShadowSlots;
         static constexpr uint32_t kFixedShadowViews       = kLocalShadowViewBase;
+        [[nodiscard]] static constexpr bool IsFarShadowView( const uint32_t view )
+        {
+            return view >= kFarShadowViewBase && view < kLocalShadowViewBase;
+        }
         // A virtual shadow map view: a clipmap level of the sun (the fixed range), or a local view this frame's
         // "VSM: Raster" of a point / spot light's mip gave out (m_VirtualShadowViews, past the atlas rows).
         [[nodiscard]] bool IsVirtualShadowView( const uint32_t view ) const
@@ -2343,6 +2355,11 @@ namespace Desert::Graphic::System
         [[nodiscard]] uint32_t CascadeLayer( uint32_t view ) const
         {
             return ( view / kMaxCascades ) * m_Shadow.CascadeCount + view % kMaxCascades;
+        }
+        // The array layer of slot @p slot's far cascade: past every held slot's cascades.
+        [[nodiscard]] uint32_t FarShadowLayer( uint32_t slot ) const
+        {
+            return m_CascadeSlots * m_Shadow.CascadeCount + slot;
         }
         // The one place the shadow budget is said out loud. Called from both arms of SetupShadowPass —
         // the allocating one and the zero-budget one — because a renderer that spends nothing on the sun
@@ -3703,6 +3720,21 @@ namespace Desert::Graphic::System
             glm::vec3 Travel        = glm::vec3( 0.0f ); // the direction the light travels, as it was fitted
         };
         DirectionalShadowSlot m_DirectionalShadow[kDirectionalShadowSlots];
+        // ONE DIRECTIONAL LIGHT'S FAR CASCADE, per slot (UpdateCascades fits it, PlanCascadeCache keys it,
+        // FarShadowPasses draws it): Fitted = this frame placed it (ComputeFarShadow); Key = the static content
+        // the layer holds (nullopt = unknown -> redrawn); PendingKey = this frame's, made the Key when the layer is
+        // drawn (a frame that adds no far pass - the ray-traced sun - keeps it stale); Redraw = drawn this frame.
+        struct FarShadowState
+        {
+            bool                    Fitted = false;
+            bool                    Redraw = false;
+            std::optional<uint64_t> Key;
+            std::optional<uint64_t> PendingKey;
+            CascadeFit              Fit;
+        };
+        FarShadowState                                                 m_FarShadow[kDirectionalShadowSlots];
+        MeshRendererDetail::MeshDrawList                               m_FarShadowDraws[kDirectionalShadowSlots];
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_FarShadowCasters[kDirectionalShadowSlots];
 
         // The receivers' matrix of every cascade view, EVERY element identity (a zero matrix's w is 0 and its
         // perspective divide a division by zero in the sampling shader). Nothing should ever read past a slot's

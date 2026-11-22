@@ -104,9 +104,9 @@ namespace Desert::Graphic::SceneResources
                                                   static_cast<float>( n ), static_cast<float>( view.FirstLayer ) );
         data.CascadeTexelWorld[slot] = view.CascadeWorldPerTexel;
         data.CascadeDepthRange[slot] = view.CascadeDepthRange;
-        const bool far               = view.FarFitted && view.CastShadows;
-        data.FarShadowViewProj[slot] = far ? view.FarViewProj : glm::mat4( 1.0f );
-        data.FarShadow[slot] = far ? glm::vec4( view.FarWorldPerTexel, view.FarDepthRange,
+        const bool farShadow               = view.FarFitted && view.CastShadows;
+        data.FarShadowViewProj[slot] = farShadow ? view.FarViewProj : glm::mat4( 1.0f );
+        data.FarShadow[slot] = farShadow ? glm::vec4( view.FarWorldPerTexel, view.FarDepthRange,
                                                 static_cast<float>( view.FarLayer ), 1.0f )
                                    : glm::vec4( 1.0f, 1.0f, 0.0f, 0.0f );
     }
