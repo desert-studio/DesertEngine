@@ -8,6 +8,7 @@
 #include <Engine/Core/WorldParameterInstance.hpp>
 #include <Engine/Core/WorldTime.hpp>
 #include <Engine/Core/Serialize/EntityPackages.hpp>
+#include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
@@ -80,7 +81,6 @@
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
-#include <Engine/ECS/DestructibleComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
@@ -1458,7 +1458,6 @@ namespace Desert::Core
         // pool exists before the first parallel group, not which system happens to be serial this week.
         r.prepare<ECS::ColliderComponent>();
         r.prepare<ECS::RigidBodyComponent>();
-        r.prepare<ECS::DestructibleComponent>();
         r.prepare<ECS::WaterBodyComponent>();
         r.prepare<ECS::RagdollComponent>();
         r.prepare<ECS::WaterZoneComponent>();
@@ -1474,6 +1473,13 @@ namespace Desert::Core
         r.prepare<ECS::StreamingSourceComponent>();
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();
+
+        // Every module's reflected component (Core/Serialize/ComponentRegistration.hpp) — a module's component
+        // is prepared from its own generated registration, not named here: DestructibleComponent left this list
+        // with BUILD-MOD-5 so a field added to it no longer recompiles the engine's Scene.cpp. Preparing a pool
+        // twice is a no-op, so the rows also named above stay correct.
+        for ( const ECS::ReflectedComponent& row : ECS::AllReflectedComponents() )
+            row.Prepare( r );
         r.prepare<ECS::UIAnimComponent>(); // AudioECSSystem reads the UI clips' Audio voices
         r.prepare<ECS::SocketAttachmentComponent>();
     }

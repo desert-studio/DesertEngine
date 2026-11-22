@@ -88,6 +88,12 @@ foreach(name IN LISTS _desert_generated_modules)
     list(APPEND DESERT_PLACEMENT_MODULES "${name}")
     list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS "Engine/Generated/Reflection_${name}\\.gen\\.cpp$")
 endforeach()
+# The per-module component registration (BUILD-MOD-5): Components_<Module>.gen.cpp compiles in its module, so a
+# field added to a module's component rebuilds that module, not the engine.
+foreach(name IN LISTS _desert_generated_modules)
+    list(APPEND DESERT_PLACEMENT_MODULES "${name}")
+    list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS "Engine/Generated/Components_${name}\\.gen\\.cpp$")
+endforeach()
 list(APPEND DESERT_PLACEMENT_MODULES ${_desert_table_placement_modules})
 list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS ${_desert_table_placement_patterns})
 foreach(_pattern IN LISTS DESERT_PLACEMENT_SOURCE_PATTERNS)
