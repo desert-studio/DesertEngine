@@ -1,6 +1,7 @@
 #include "WaterRenderer.hpp"
 
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -299,10 +300,17 @@ namespace Desert::Graphic::System
     {
         // The last answer while the material and every stamp a resolution reads stand: a steady frame walks no
         // instance chain and copies no template name.
-        if ( m_Resolved.Program != nullptr && m_Resolved.Material == static_cast<uint64_t>( material ) &&
-             m_Resolved.Stamp == stamp )
-            return m_Resolved.Program;
-        m_Resolved      = ResolvedProgram{};
+        // A moved stamp drops every answer (a template may have been rebuilt or a material re-pointed).
+        if ( !m_Resolved.empty() && !( m_Resolved.front().Stamp == stamp ) )
+            m_Resolved.clear();
+        for ( const ResolvedProgram& resolved : m_Resolved )
+            if ( resolved.Material == static_cast<uint64_t>( material ) )
+                return resolved.Program;
+        const auto remember = [&]( WaterProgram* const answer )
+        {
+            m_Resolved.push_back( ResolvedProgram{ static_cast<uint64_t>( material ), stamp, answer } );
+            return answer;
+        };
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
             return nullptr;
@@ -317,8 +325,7 @@ namespace Desert::Graphic::System
         {
             if ( !it->second.Pipeline )
                 return nullptr; // a refusal, said once when it was built
-            m_Resolved = ResolvedProgram{ static_cast<uint64_t>( material ), stamp, &it->second };
-            return &it->second;
+            return remember( &it->second );
         }
 
         WaterProgram&     program  = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
@@ -343,8 +350,7 @@ namespace Desert::Graphic::System
         }
         program.Material    = std::make_unique<DataDrivenMaterial>( cellName );
         program.CompileName = templ.CompileName;
-        m_Resolved          = ResolvedProgram{ static_cast<uint64_t>( material ), stamp, &program };
-        return &program;
+        return remember( &program );
     }
 
     WaterRenderer::WaterProgram* WaterRenderer::FrontLayerProgramFor( const Assets::AssetHandle& material,
@@ -458,21 +464,29 @@ namespace Desert::Graphic::System
 
     bool WaterRenderer::FrameSamples( const std::string_view textureName ) const
     {
-        return !m_FrameDraws.empty() && m_Frame != nullptr && m_Frame->Pipeline &&
-               m_Frame->Pipeline->GetSpecification().Shader->SamplesTexture( textureName );
+        // Any of the frame's templates: the shadow gates must serve every program that draws.
+        if ( m_FrameDraws.empty() || !m_FrameReady )
+            return false;
+        return std::any_of( m_Walk.Programs.begin(), m_Walk.Programs.end(),
+                            [&]( const FrameProgram& frame )
+                            {
+                                return frame.Program != nullptr && frame.Program->Pipeline &&
+                                       frame.Program->Pipeline->GetSpecification().Shader->SamplesTexture(
+                                            textureName );
+                            } );
     }
 
-    void WaterRenderer::ApplyMaterials( WaterProgram& program )
+    void WaterRenderer::ApplyMaterials( WaterProgram& program, const std::vector<Assets::AssetHandle>& materials )
     {
-        // One row per body material of the frame, in TileWalk::Materials' order (the tiles' MaterialIndex),
-        // written in one upload. A fold no material of this frame reads any more is dropped.
+        // One row per body material of the template, in FrameProgram::Materials' order (the tiles'
+        // MaterialIndex), written in one upload. A fold no material of this frame reads any more is dropped.
         m_Rows.clear();
-        for ( const Assets::AssetHandle& material : m_Walk.Materials )
+        for ( const Assets::AssetHandle& material : materials )
             ApplyMaterial( material, m_Walk.Stamp, program, m_Rows );
         std::erase_if( program.Folded,
-                       [this]( const FoldedValues& folded )
+                       [&]( const FoldedValues& folded )
                        {
-                           return std::none_of( m_Walk.Materials.begin(), m_Walk.Materials.end(),
+                           return std::none_of( materials.begin(), materials.end(),
                                                 [&]( const Assets::AssetHandle& m )
                                                 { return static_cast<uint64_t>( m ) == folded.Material; } );
                        } );
@@ -552,9 +566,9 @@ namespace Desert::Graphic::System
     {
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
-        m_Frame            = nullptr;
+        m_FrameReady       = false;
         m_Walk             = TileWalk{};
-        m_FrameFrontLayer  = nullptr;
+        m_FrameFrontLayers = 0u;
         m_FFTFrame.reset();
         m_FrameWavesTexture = RDG::TextureRef{};
         m_FrameWavesGraph   = nullptr;
@@ -565,10 +579,10 @@ namespace Desert::Graphic::System
 
         // THE FRAME'S BODIES (UE: the water mesh tile's WaterBodyIndex picks its body's material and waves). The
         // frame's waves are the first body's that names a set (an ocean's: a river names none); its template the
-        // first body's that names a material. Every body naming a material of that template gets its own row in
-        // the Materials block (TileWalk::Materials; its tiles draw with MaterialIndex = that row). A body of
-        // another template is not drawn (said once: one program per frame, REMAINDER WATER-RIVERS-FFT R4 step 4),
-        // a body naming another wave set draws flat (said once: one wave set per frame).
+        // first body's that names a material. Each template the bodies use is one FrameProgram (its own cell,
+        // binding block and Materials block); every body material gets a row in its template's Materials block
+        // (FrameProgram::Materials; its tiles draw with MaterialIndex = that row, through that program). A body
+        // naming another wave set draws flat (said once: one wave set per frame, REMAINDER R4 4b).
         Assets::AssetHandle material   = Assets::AssetHandle::Null();
         Assets::AssetHandle wavesAsset = Assets::AssetHandle::Null();
         glm::vec2           waveOrigin( 0.0f );
@@ -595,46 +609,6 @@ namespace Desert::Graphic::System
         }
         if ( static_cast<uint64_t>( material ) == 0 )
             return; // no body names a look: no water (WaterBodyData::WaterMaterial)
-        auto* const       materialService = Runtime::ResourceRegistry::GetMaterialService();
-        const std::string templateName =
-             materialService != nullptr ? std::string( materialService->ShaderHandleOf( material ).CompileName )
-                                        : std::string{};
-        std::vector<Assets::AssetHandle>    bodyMaterials;
-        std::vector<std::vector<glm::vec4>> bodyLanes( m_Queue.size() );
-        for ( size_t z = 0; z < m_Queue.size(); ++z )
-        {
-            const WaterZoneBodies& bodies = *m_Queue[z].get().Bodies;
-            bodyLanes[z].assign( bodies.Materials.size(), glm::vec4( -1.0f, 0.0f, 0.0f, 0.0f ) );
-            for ( size_t b = 0; b < bodies.Materials.size(); ++b )
-            {
-                const Assets::AssetHandle& body = bodies.Materials[b];
-                if ( static_cast<uint64_t>( body ) == 0 )
-                    continue; // no look: its tiles are not drawn
-                auto slot = std::find( bodyMaterials.begin(), bodyMaterials.end(), body );
-                if ( slot == bodyMaterials.end() )
-                {
-                    if ( body != material &&
-                         ( materialService == nullptr ||
-                           materialService->ShaderHandleOf( body ).CompileName != templateName ) )
-                    {
-                        WarnOnce( body, WaterWarning::MixedTemplates,
-                                  "is of another template than the frame's first water body's - not drawn (one "
-                                  "water program per frame)" );
-                        continue;
-                    }
-                    slot = bodyMaterials.insert( bodyMaterials.end(), body );
-                }
-                const bool river = b < bodies.Types.size() && bodies.Types[b] == Water::WaterBodyType::River;
-                const Assets::AssetHandle& bodyWaves = bodies.Waves[b];
-                const bool waved = bodyWaves == wavesAsset && static_cast<uint64_t>( bodyWaves ) != 0;
-                if ( !waved && static_cast<uint64_t>( bodyWaves ) != 0 )
-                    WarnOnce( body, WaterWarning::MixedWaves,
-                              "its body names another wave set than the frame's - drawn flat (one wave set per "
-                              "frame)" );
-                bodyLanes[z][b] = glm::vec4( static_cast<float>( slot - bodyMaterials.begin() ),
-                                             river ? 1.0f : 0.0f, waved ? 1.0f : 0.0f, static_cast<float>( b ) );
-            }
-        }
         MaterialStamp stamp;
         if ( auto* const materials = Runtime::ResourceRegistry::GetMaterialService() )
         {
@@ -642,16 +616,57 @@ namespace Desert::Graphic::System
             stamp.InvalidationVersion = materials->GetInvalidationVersion();
             stamp.ValuesEditSerial    = materials->GetValuesEditSerial();
         }
-        stamp.ContentSerial   = Assets::ContentRegistry::WriteSerial();
-        WaterProgram* program = ProgramFor( material, stamp );
-        // The template's front layer cell, of the base program (it reads no local shadow: no VSM twin).
-        WaterProgram* const frontLayer = program != nullptr ? FrontLayerProgramFor( material, *program ) : nullptr;
-        // Under Shadows.Method VirtualMaps no atlas is drawn: the cell's virtual-map permutation draws, as every
+        stamp.ContentSerial = Assets::ContentRegistry::WriteSerial();
+        // Under Shadows.Method VirtualMaps no atlas is drawn: each cell's virtual-map permutation draws, as every
         // forward local-shadow reader's does (SceneRenderer::LocalShadowsAreVirtual, settled by BeginScene).
-        if ( program != nullptr && m_SceneRenderer->LocalShadowsAreVirtual() )
-            program = VirtualLocalProgramFor( material, *program );
-        if ( program == nullptr )
-            return;
+        const bool                          virtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
+        std::vector<FrameProgram>           programs;
+        std::vector<std::vector<glm::vec4>> bodyLanes( m_Queue.size() );
+        std::vector<std::vector<uint32_t>>  bodyPrograms( m_Queue.size() );
+        for ( size_t z = 0; z < m_Queue.size(); ++z )
+        {
+            const WaterZoneBodies& bodies = *m_Queue[z].get().Bodies;
+            bodyLanes[z].assign( bodies.Materials.size(), glm::vec4( -1.0f, 0.0f, 0.0f, 0.0f ) );
+            bodyPrograms[z].assign( bodies.Materials.size(), 0u );
+            for ( size_t b = 0; b < bodies.Materials.size(); ++b )
+            {
+                const Assets::AssetHandle& body = bodies.Materials[b];
+                if ( static_cast<uint64_t>( body ) == 0 )
+                    continue; // no look: its tiles are not drawn
+                // The body's template (ProgramFor says a refusal once; its tiles are then not drawn).
+                WaterProgram* const base = ProgramFor( body, stamp );
+                if ( base == nullptr )
+                    continue;
+                auto frame = std::find_if( programs.begin(), programs.end(),
+                                           [base]( const FrameProgram& p ) { return p.Base == base; } );
+                if ( frame == programs.end() )
+                {
+                    // The template's front layer cell, of the base program (it reads no local shadow: no twin).
+                    WaterProgram* const front = FrontLayerProgramFor( body, *base );
+                    WaterProgram* const drawn = virtualLocal ? VirtualLocalProgramFor( body, *base ) : base;
+                    if ( drawn == nullptr )
+                        continue; // no VSM twin: not drawn rather than drawn unshadowed (said once)
+                    frame = programs.insert(
+                         programs.end(),
+                         FrameProgram{ .Base = base, .Program = drawn, .FrontLayer = front, .Materials = {} } );
+                }
+                auto slot = std::find( frame->Materials.begin(), frame->Materials.end(), body );
+                if ( slot == frame->Materials.end() )
+                    slot = frame->Materials.insert( frame->Materials.end(), body );
+                bodyPrograms[z][b] = static_cast<uint32_t>( frame - programs.begin() );
+                const bool river = b < bodies.Types.size() && bodies.Types[b] == Water::WaterBodyType::River;
+                const Assets::AssetHandle& bodyWaves = bodies.Waves[b];
+                const bool waved = bodyWaves == wavesAsset && static_cast<uint64_t>( bodyWaves ) != 0;
+                if ( !waved && static_cast<uint64_t>( bodyWaves ) != 0 )
+                    WarnOnce( body, WaterWarning::MixedWaves,
+                              "its body names another wave set than the frame's - drawn flat (one wave set per "
+                              "frame)" );
+                bodyLanes[z][b] = glm::vec4( static_cast<float>( slot - frame->Materials.begin() ),
+                                             river ? 1.0f : 0.0f, waved ? 1.0f : 0.0f, static_cast<float>( b ) );
+            }
+        }
+        if ( programs.empty() )
+            return; // no body's template builds: no water (each refusal said once)
 
         // THE BODY'S WAVES (UE: the water body's wave buffer the water vertex factory reads): the generated set,
         // once per asset (Runtime::WaterWavesService), packed ahead of the tiles. Still loading = flat this frame.
@@ -732,17 +747,15 @@ namespace Desert::Graphic::System
         // The lens stretches every water LOD ring (VIEW-LOD-FOV): the one view scale meshes, foliage and terrain
         // read, so a 10-degree scope keeps the far sea as fine as it looks.
         const float lensScale = DrawDistanceScale( Geometry::LODView{ .Origin = observer, .Projection = proj } );
-        m_Walk                = TileWalk{ .Program        = program,
-                                          .FrontLayer     = frontLayer,
-                                          .Material       = material,
+        m_Walk                = TileWalk{ .Programs       = std::move( programs ),
                                           .Stamp          = stamp,
                                           .Ground         = std::move( ground ),
                                           .Flows          = std::move( rivers ),
                                           .InfoMin        = infoSquare.Min,
                                           .InfoExtent     = infoSquare.Extent,
                                           .InfoSize       = infoSquare.Size,
-                                          .Materials      = std::move( bodyMaterials ),
                                           .Bodies         = std::move( bodyLanes ),
+                                          .BodyPrograms   = std::move( bodyPrograms ),
                                           .View           = view,
                                           .Projection     = proj,
                                           .Observer       = observer,
@@ -753,7 +766,7 @@ namespace Desert::Graphic::System
 
     void WaterRenderer::PrepareTiles() noexcept
     {
-        if ( m_Walk.Program == nullptr )
+        if ( m_Walk.Programs.empty() )
             return;
         const Core::Frustum frustum( m_Walk.Projection, m_Walk.View );
         const glm::vec3     observer       = m_Walk.Observer;
@@ -781,20 +794,26 @@ namespace Desert::Graphic::System
             const float     viewLODScale = tree.GetViewLODScale( lensScale );
             const glm::vec2 origin = tree.GetRootMin();
             const std::vector<glm::vec4>& bodies       = m_Walk.Bodies[z];
+            const std::vector<uint32_t>&  bodyPrograms = m_Walk.BodyPrograms[z];
             for ( const Water::WaterTileInstance& tile : tiles )
             {
                 // The tile's body (PrepareFrame's lane): its material row; a body with no drawn look is skipped.
                 if ( tile.BodyIndex >= bodies.size() || bodies[tile.BodyIndex].x < 0.0f )
                     continue;
-                const glm::vec4 body  = bodies[tile.BodyIndex];
-                const auto      slot  = static_cast<uint32_t>( body.x );
-                const uint32_t  quads = tree.QuadsPerSide( tile.DensityIndex );
-                // One instanced draw per run of one grid density AND one material row (the draw's MaterialIndex).
+                const glm::vec4 body    = bodies[tile.BodyIndex];
+                const auto      slot    = static_cast<uint32_t>( body.x );
+                const uint32_t  program = bodyPrograms[tile.BodyIndex];
+                const uint32_t  quads   = tree.QuadsPerSide( tile.DensityIndex );
+                // One instanced draw per run of one grid density, one template AND one material row (the draw's
+                // program and MaterialIndex).
                 if ( m_FrameDraws.empty() || m_FrameDraws.back().QuadsPerSide != quads ||
-                     m_FrameDraws.back().MaterialSlot != slot )
+                     m_FrameDraws.back().MaterialSlot != slot || m_FrameDraws.back().ProgramSlot != program )
                 {
-                    m_FrameDraws.push_back(
-                         { .FirstRow = rowCount, .RowCount = 0, .QuadsPerSide = quads, .MaterialSlot = slot } );
+                    m_FrameDraws.push_back( { .FirstRow     = rowCount,
+                                              .RowCount     = 0,
+                                              .QuadsPerSide = quads,
+                                              .MaterialSlot = slot,
+                                              .ProgramSlot  = program } );
                 }
                 ++m_FrameDraws.back().RowCount;
 
@@ -815,11 +834,8 @@ namespace Desert::Graphic::System
 
     void WaterRenderer::FinishPrepare()
     {
-        WaterProgram* const program = m_Walk.Program;
-        if ( program == nullptr || m_Walk.Rows == 0u )
+        if ( m_Walk.Programs.empty() || m_Walk.Rows == 0u )
             return;
-
-        ApplyMaterials( *program );
 
         // THE WATER INFO TEXTURE (UE WaterInfo: ground + river velocity): re-composed only when the collector
         // baked a new ground or the frame's rivers changed. Over no landscape and no river it is one texel of
@@ -835,18 +851,24 @@ namespace Desert::Graphic::System
                       ? CreateWaterInfoImage( square.Size, ComposeWaterInfo( square, ground.get(), m_Walk.Flows ) )
                       : CreateWaterInfoImage( 1u, { glm::vec4( Water::kWaterInfoNoGroundCm, 0.0f, 0.0f, 0.0f ) } );
         }
-        if ( auto* tiles = BlocksOf( *program ).Tiles )
-            tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
-        m_Frame = program;
-
-        // The front layer draws the same surface: the same `.demat` folded into its own row and the same upload.
-        if ( WaterProgram* const frontLayer = m_Walk.FrontLayer; frontLayer != nullptr )
+        // Each template's cell takes its own bodies' rows and the whole tile upload (its draws index the rows of
+        // their own runs; FrameDraw::FirstRow is global).
+        for ( const FrameProgram& frame : m_Walk.Programs )
         {
-            ApplyMaterials( *frontLayer );
-            if ( auto* tiles = BlocksOf( *frontLayer ).Tiles )
+            ApplyMaterials( *frame.Program, frame.Materials );
+            if ( auto* tiles = BlocksOf( *frame.Program ).Tiles )
                 tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
-            m_FrameFrontLayer = frontLayer;
+            // The front layer draws the same surface: the same `.demat`s folded into its own rows, the same
+            // upload.
+            if ( frame.FrontLayer != nullptr )
+            {
+                ApplyMaterials( *frame.FrontLayer, frame.Materials );
+                if ( auto* tiles = BlocksOf( *frame.FrontLayer ).Tiles )
+                    tiles->SetRawData( m_Upload.data(), static_cast<uint32_t>( m_Upload.size() ) );
+                ++m_FrameFrontLayers;
+            }
         }
+        m_FrameReady = true;
     }
 
     void WaterRenderer::DeclareDraws( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
@@ -855,17 +877,29 @@ namespace Desert::Graphic::System
                                       const SceneViewInputs& view, const SceneFrameBinding& frame )
     {
         // Exactly when RenderManual draws.
-        if ( m_FrameDraws.empty() || m_Frame == nullptr || !sceneCopy.IsValid() || !waterInfo.IsValid() ||
+        if ( m_FrameDraws.empty() || !m_FrameReady || !sceneCopy.IsValid() || !waterInfo.IsValid() ||
              !waves.IsValid() )
             return;
+        // One binding block per template, in TileWalk::Programs' order (RenderManual's block index).
+        for ( const FrameProgram& program : m_Walk.Programs )
+            DeclareProgramDraws( pass, *program.Program, sceneCopy, waterInfo, waves, frontReflection, frontDepth,
+                                 view, frame );
+    }
+
+    void WaterRenderer::DeclareProgramDraws( RDG::PassBuilder& pass, WaterProgram& program,
+                                             const RDG::TextureRef sceneCopy, const RDG::TextureRef waterInfo,
+                                             const RDG::TextureRef waves, const RDG::TextureRef frontReflection,
+                                             const RDG::TextureRef frontDepth, const SceneViewInputs& view,
+                                             const SceneFrameBinding& frame )
+    {
         // The view's camera, sun, sky cubes and sky look, by block name - as every surface cell gets them.
-        frame.ApplyTo( m_Frame->Material.get() );
-        // RENDER-THREADS M1: the one material RenderManual applies - its view sets and block copies exist before
+        frame.ApplyTo( program.Material.get() );
+        // RENDER-THREADS M1: the material RenderManual applies - its view sets and block copies exist before
         // the graph records (after the frame binding above, which writes its blocks).
-        pass.Prepares( *m_Frame->Material->GetMaterialExecutor() );
-        const SlottedLayout& slotted = m_Layout.GetSlotted( m_Frame->Pipeline->GetSpecification().Shader );
+        pass.Prepares( *program.Material->GetMaterialExecutor() );
+        const SlottedLayout& slotted = m_Layout.GetSlotted( program.Pipeline->GetSpecification().Shader );
         const auto&          layout  = slotted.Layout;
-        auto block = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
+        auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
         BindSceneViewInputs( block, view, slotted.Slots );
         // The WaterInfo ground (UE: the water info texture a view's water pass reads): a pass input like the scene
         // copy, never a material property.
@@ -893,7 +927,17 @@ namespace Desert::Graphic::System
         // Exactly when RenderFrontLayerManual draws.
         if ( !HasFrontLayerDraws() || !waterInfo.IsValid() || !waves.IsValid() )
             return;
-        WaterProgram& front = *m_FrameFrontLayer;
+        // One binding block per template with a front layer cell, in TileWalk::Programs' order.
+        for ( const FrameProgram& program : m_Walk.Programs )
+            if ( program.FrontLayer != nullptr )
+                DeclareFrontLayerProgramDraws( pass, *program.FrontLayer, waterInfo, waves, view, frame );
+    }
+
+    void WaterRenderer::DeclareFrontLayerProgramDraws( RDG::PassBuilder& pass, WaterProgram& front,
+                                                       const RDG::TextureRef waterInfo,
+                                                       const RDG::TextureRef waves, const SceneViewInputs& view,
+                                                       const SceneFrameBinding& frame )
+    {
         frame.ApplyTo( front.Material.get() );
         pass.Prepares( *front.Material->GetMaterialExecutor() );
         const SlottedLayout& slotted = m_Layout.GetSlotted( front.Pipeline->GetSpecification().Shader );
@@ -1035,9 +1079,19 @@ namespace Desert::Graphic::System
             return false;
 
         // The ping-pong: this frame writes the half the last recorded frame did not; with no such frame both
-        // lanes name this frame's half (a zero wave velocity for one frame).
-        m_FFTHalf             = m_FFTWrittenHalf == 0 ? 1 : 0;
-        const int32_t previous = m_FFTWrittenHalf >= 0 ? m_FFTWrittenHalf : m_FFTHalf;
+        // lanes name this frame's half (a zero wave velocity for one frame). It flips once per frame TIME, not per
+        // PrepareFrame: a second view of the same frame (the same ViewFrame::TimeSeconds) rewrites the same half
+        // with the same waves and reads the same previous half, so the velocity stays one frame's.
+        const ViewFrame* const viewFrame = m_SceneRenderer->GetViewFrame();
+        const double           time      = viewFrame != nullptr ? viewFrame->TimeSeconds : 0.0;
+        if ( !m_FFTFlipped || time != m_FFTFlipTime || m_FFTWrittenHalf < 0 )
+        {
+            m_FFTHalf         = m_FFTWrittenHalf == 0 ? 1 : 0;
+            m_FFTPreviousHalf = m_FFTWrittenHalf >= 0 ? m_FFTWrittenHalf : m_FFTHalf;
+            m_FFTFlipTime     = time;
+            m_FFTFlipped      = true;
+        }
+        const int32_t previous = m_FFTPreviousHalf;
         const auto&   sizes    = spectrum->Params.CascadeSizes;
         header.y              = static_cast<float>( m_FFTHalf * int32_t( kFFTBandsPerFrame ) );
         fft = glm::vec4( 1.0f / sizes[0], 1.0f / sizes[1], 1.0f / sizes[2],
@@ -1153,10 +1207,14 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr WaterRenderer::RenderManual( const RDG::PassContext& context )
     {
-        if ( m_FrameDraws.empty() || m_Frame == nullptr )
+        if ( m_FrameDraws.empty() || !m_FrameReady )
             return BOOLSUCCESS;
         DESERT_PROFILE_PASS( "Water: Surface" );
-        return RecordDraws( context, *m_Frame );
+        // Each template through its own block (DeclareDraws declared them in TileWalk::Programs' order).
+        for ( uint32_t slot = 0; slot < m_Walk.Programs.size(); ++slot )
+            if ( auto drawn = RecordDraws( context, *m_Walk.Programs[slot].Program, slot, slot ); !drawn )
+                return drawn;
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr WaterRenderer::RenderFrontLayerManual( const RDG::PassContext& context )
@@ -1165,11 +1223,21 @@ namespace Desert::Graphic::System
         if ( !HasFrontLayerDraws() )
             return BOOLSUCCESS;
         DESERT_PROFILE_PASS( "Water: Front Layer" );
-        return RecordDraws( context, *m_FrameFrontLayer );
+        // The templates with a front layer cell, each through its own block (DeclareFrontLayerDraws' order).
+        uint32_t block = 0;
+        for ( uint32_t slot = 0; slot < m_Walk.Programs.size(); ++slot )
+        {
+            const WaterProgram* const front = m_Walk.Programs[slot].FrontLayer;
+            if ( front == nullptr )
+                continue;
+            if ( auto drawn = RecordDraws( context, *front, slot, block++ ); !drawn )
+                return drawn;
+        }
+        return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr WaterRenderer::RecordDraws( const RDG::PassContext& context,
-                                                      const WaterProgram&     program )
+    Common::BoolResultStr WaterRenderer::RecordDraws( const RDG::PassContext& context, const WaterProgram& program,
+                                                      const uint32_t programSlot, const uint32_t blockIndex )
     {
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
@@ -1180,7 +1248,7 @@ namespace Desert::Graphic::System
         // TerrainRenderer::RecordDraws): each draw's block is a copy of the material's with the identity matrix,
         // the material row (the cell's one row) and the draw's first tile row over it (PrimitiveIndex: the water
         // has no GpuScene primitive; Vertex_WaterMesh.glslh).
-        const RDG::PassBindings       block( context, context.GetBindingBlock( 0 ) );
+        const RDG::PassBindings       block( context, context.GetBindingBlock( blockIndex ) );
         const MaterialExecutor*       executor = material.GetMaterialExecutor();
         const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
         std::vector<std::byte>&       push     = m_Push;
@@ -1191,6 +1259,8 @@ namespace Desert::Graphic::System
              DrawPushFields::ThreadShaderPlacements().Of( executor->GetShader().get() );
         for ( const FrameDraw& draw : m_FrameDraws )
         {
+            if ( draw.ProgramSlot != programSlot )
+                continue; // another template's run: drawn through its own block
             push.assign( pushed.Size, std::byte{ 0 } );
             if ( pushed.Data != nullptr && pushed.Size != 0u )
                 std::memcpy( push.data(), pushed.Data, pushed.Size );
