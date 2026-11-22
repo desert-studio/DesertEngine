@@ -3,6 +3,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
