@@ -2338,8 +2338,12 @@ namespace Desert::Editor
             if ( m_Workspace.PrimaryRenderer() != nullptr )
                 for ( const Graphic::GpuDriven::CullPhaseViewCount& view :
                       m_Workspace.PrimaryRenderer()->GetDrawBinPhaseCounts() )
-                    snapshot.DrawBinViews.push_back( Control::DrawBinViewSnapshot{
-                         .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2, .Occluded = view.Occluded } );
+                    snapshot.DrawBinViews.push_back(
+                         Control::DrawBinViewSnapshot{ .Name        = view.Name,
+                                                       .Phase1      = view.Phase1,
+                                                       .Phase2      = view.Phase2,
+                                                       .Occluded    = view.Occluded,
+                                                       .Phase2Total = view.Phase2Total } );
             snapshot.VirtualGeometry = {};
             if ( m_Workspace.PrimaryRenderer() != nullptr )
             {
