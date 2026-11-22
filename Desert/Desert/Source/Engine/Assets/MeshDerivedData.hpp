@@ -35,7 +35,11 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         21; // 21: a generated level's error is MEASURED - the larger of the quadric deviation and the outline it
+         22; // 22: every generated level is made at its target share again (21's dropped grass levels drew LOD 0
+             // at every distance - FIELD_Barn 0.8M -> 49.9M triangles, FPS-MESHLOD-BUDGET); its measured error (of
+             // the bounds radius) is stored per level in LodCutErrors and caps its screen size at ~1 px (UE: a
+             // reduction's MaxDeviation sets the LOD's screen size, the level is never removed);
+             // 21: a generated level's error is MEASURED - the larger of the quadric deviation and the outline it
              // lost (support distance in 26 directions) - and a level stops short of its target to fit its budget
              // or is not made (WP-FAR-12C: CesiumMan LOD 6 folded to a quarter of its height at 0.09 "error");
              // 20: each section's vertices are welded over every stream and put in GPU order (meshopt remap,

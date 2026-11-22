@@ -81,11 +81,11 @@ namespace Desert::Editor
                 localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
             }
 
-            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain,
-                                                             attrs.data() );
+            Geometry::SimplifiedLODChain levels =
+                 Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain, attrs.data() );
             sm.LODs.clear();
-            sm.LODs.reserve( levels.size() );
-            for ( const auto& lvl : levels )
+            sm.LODs.reserve( levels.Levels.size() );
+            for ( const auto& lvl : levels.Levels )
             {
                 std::vector<Ser::IndexData> tris;
                 tris.reserve( lvl.size() );
@@ -93,6 +93,9 @@ namespace Desert::Editor
                     tris.push_back( { tri.V1, tri.V2, tri.V3 } );
                 sm.LODs.push_back( std::move( tris ) );
             }
+            // Each level's measured error (of the bounds radius), aligned with LODs: the runtime draws the level
+            // only where it is under ~1 px (Geometry::ResolveLODScreenSizes), never drops it.
+            sm.LodCutErrors = std::move( levels.Errors );
         }
     }
 
