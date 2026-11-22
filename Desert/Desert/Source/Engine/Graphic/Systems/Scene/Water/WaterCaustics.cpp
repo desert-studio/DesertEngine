@@ -6,8 +6,11 @@
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <cmath>
+#include <cstring>
+#include <limits>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace Desert::Graphic::System
 {
@@ -15,7 +18,7 @@ namespace Desert::Graphic::System
     {
         constexpr uint32_t kGroupSize = 8; // both shaders' LocalSize(8, 8, 1)
 
-        // THE MAP'S SQUARE: kMapSize texels of 4 cm = 20.48 m around the camera. A caustic line is a few cm wide
+        // THE MAP'S SQUARE: kMapSize texels of 4 cm = 20.48 m (WindowCentre). A caustic line is a few cm wide
         // on a shallow floor (Wallace's pool: the focal lines a quarter of a ripple wavelength apart), so a
         // texel must be no wider than the narrowest line the waves draw; past the square the receiver blends to
         // the plain sun over WATER_CAUSTICS_BORDER_UV.
@@ -42,6 +45,31 @@ namespace Desert::Graphic::System
         // The sun's travel must point down by at least this much: a sun at the horizon refracts at the critical
         // angle and lights no floor.
         constexpr float kMinSunDescent = 0.01f;
+
+        // THE SQUARE'S CENTRE: the point of the body nearest the camera (in X, Z; the smaller height over its
+        // still level breaks a tie) closest to the camera - the camera itself when it stands over that body, so
+        // the lines are drawn where the view is, and the body's nearest shore when it does not, so a camera on
+        // the bank looking at a pool still has the pool's floor in the map.
+        glm::vec2 WindowCentre( const std::span<const Water::WaterQuadTreeBody> bodies, const glm::vec3& camera )
+        {
+            const glm::vec2 eye( camera.x, camera.z );
+            glm::vec2       best          = eye;
+            float           bestDistance  = std::numeric_limits<float>::max();
+            float           bestElevation = std::numeric_limits<float>::max();
+            for ( const Water::WaterQuadTreeBody& body : bodies )
+            {
+                const glm::vec2 closest   = glm::clamp( eye, body.FootprintMin, body.FootprintMax );
+                const float     distance  = glm::length( closest - eye );
+                const float     elevation = std::abs( camera.y - body.SurfaceY );
+                if ( distance < bestDistance || ( distance == bestDistance && elevation < bestElevation ) )
+                {
+                    best          = closest;
+                    bestDistance  = distance;
+                    bestElevation = elevation;
+                }
+            }
+            return best;
+        }
 
         constexpr uint32_t GroupCount( const uint32_t size )
         {
@@ -106,10 +134,11 @@ namespace Desert::Graphic::System
 
     WaterCausticsFrame WaterCaustics::Off( RDG::Builder& graph, const RDG::TextureRef white )
     {
-        const WaterCausticsFrameRow row{};
-        const RDG::BufferRef        buffer =
-             graph.CreateBuffer( RDG::BufferDesc{ sizeof( row ) }, "Water.Caustics.Frame" );
-        graph.QueueBufferUpload( buffer, std::as_bytes( std::span( &row, 1 ) ) );
+        // Window.w 0 and no body row: every receiver's factor is exactly 1.
+        const WaterCausticsFrameHead head{};
+        const RDG::BufferRef         buffer =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( head ) }, "Water.Caustics.Frame" );
+        graph.QueueBufferUpload( buffer, std::as_bytes( std::span( &head, 1 ) ) );
         return WaterCausticsFrame{ .Map = white, .Row = buffer };
     }
 
@@ -125,7 +154,7 @@ namespace Desert::Graphic::System
             ReportState( false, "the caustics programs did not build" );
             return Off( graph, inputs.White );
         }
-        if ( inputs.Waves.empty() || !inputs.Body )
+        if ( inputs.Waves.empty() || inputs.Bodies.empty() )
         {
             ReportState( false, "no water body draws" );
             return Off( graph, inputs.White );
@@ -136,23 +165,39 @@ namespace Desert::Graphic::System
             ReportState( false, "the sun is below the horizon" );
             return Off( graph, inputs.White );
         }
+        // The square (WindowCentre), its lower corner on the texel grid so the map does not swim as it moves.
+        const float     side  = static_cast<float>( kMapSize ) * kTexelCm;
+        const glm::vec2 lower = glm::floor( ( WindowCentre( inputs.Bodies, inputs.Camera ) - 0.5f * side ) / kTexelCm ) *
+                                kTexelCm;
+        const glm::vec2 upper = lower + side;
+
+        // THE FRAME ROW: the head, then every body whose footprint meets the square (a receiver outside them all
+        // takes no caustics). Each keeps its own still level: the splat starts a texel's rays at the level of
+        // the body over it, and a receiver measures its depth under the body over it.
+        std::vector<WaterCausticsBodyRow> rows;
+        rows.reserve( inputs.Bodies.size() );
+        for ( const Water::WaterQuadTreeBody& body : inputs.Bodies )
+            if ( body.FootprintMax.x >= lower.x && body.FootprintMin.x <= upper.x && body.FootprintMax.y >= lower.y &&
+                 body.FootprintMin.y <= upper.y )
+                rows.push_back( WaterCausticsBodyRow{ .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
+                                                      .Level     = glm::vec4( body.SurfaceY, 0.0f, 0.0f, 0.0f ) } );
+        if ( rows.empty() )
+        {
+            // Unreachable while WindowCentre lies on a body's footprint; said rather than drawn blind.
+            ReportState( false, "no body meets the caustics square" );
+            return Off( graph, inputs.White );
+        }
         ReportState( true, {} );
-
-        // The square around the camera, its lower corner on the texel grid so the map does not swim as the
-        // camera moves.
-        const float     side = static_cast<float>( kMapSize ) * kTexelCm;
-        const glm::vec2 lower =
-             glm::floor( ( glm::vec2( inputs.Camera.x, inputs.Camera.z ) - 0.5f * side ) / kTexelCm ) * kTexelCm;
-        const Water::WaterQuadTreeBody& body = *inputs.Body;
-
-        const WaterCausticsFrameRow row{
+        const WaterCausticsFrameHead head{
              .Window = glm::vec4( lower, 1.0f / side, 1.0f ),
-             .Body   = glm::vec4( body.FootprintMin, body.FootprintMax ),
-             .Shape  = glm::vec4( body.SurfaceY, kOnsetDepthCm, kFadeDepthCm, kStrength ),
+             .Shape  = glm::vec4( static_cast<float>( rows.size() ), kOnsetDepthCm, kFadeDepthCm, kStrength ),
         };
+        std::vector<std::byte> rowBytes( sizeof( head ) + rows.size() * sizeof( WaterCausticsBodyRow ) );
+        std::memcpy( rowBytes.data(), &head, sizeof( head ) );
+        std::memcpy( rowBytes.data() + sizeof( head ), rows.data(), rows.size() * sizeof( WaterCausticsBodyRow ) );
         const RDG::BufferRef frame =
-             graph.CreateBuffer( RDG::BufferDesc{ sizeof( row ) }, "Water.Caustics.Frame" );
-        graph.QueueBufferUpload( frame, std::as_bytes( std::span( &row, 1 ) ) );
+             graph.CreateBuffer( RDG::BufferDesc{ rowBytes.size() }, "Water.Caustics.Frame" );
+        graph.QueueBufferUpload( frame, rowBytes );
 
         // The waves block, as the water mesh's WaterTiles head (the shader declares the tile rows after it and
         // reads none).
@@ -172,13 +217,12 @@ namespace Desert::Graphic::System
         const RDG::TextureRef ground = inputs.WaterInfo.IsValid() ? inputs.WaterInfo : inputs.Black;
 
         const ShaderPush::WaterCausticsSplat push{
-             .Window  = glm::vec4( lower, kTexelCm, 0.0f ),
-             .Sun     = glm::vec4( sun, inputs.TimeSeconds ),
-             .Surface = glm::vec4( body.SurfaceY, kNoGroundFloorDepthCm, 0.0f, 0.0f ),
+             .Window = glm::vec4( lower, kTexelCm, kNoGroundFloorDepthCm ),
+             .Sun    = glm::vec4( sun, inputs.TimeSeconds ),
         };
         graph.AddPass(
              "Water: Caustics Splat", RDG::PassFlags::Compute,
-             [this, waves, ground, energy]( RDG::PassBuilder& pass )
+             [this, waves, ground, energy, frame]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( m_SplatLayout.Get( m_SplatPipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_SplatPipeline ) )
@@ -187,6 +231,8 @@ namespace Desert::Graphic::System
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Storage( WaterCausticsSplatShaderParameters::WaterCausticsEnergy, energy,
                                 RDG::Access::StorageWrite )
+                      .Storage( WaterCausticsSplatShaderParameters::WaterCausticsFrameUB, frame,
+                                RDG::Access::StorageRead )
                       .PushConstants<ShaderPush::WaterCausticsSplat>();
              },
              [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr

@@ -959,6 +959,35 @@ namespace Desert::Graphic
              { return deferred->RecordGrid( context, cells ); } );
     }
 
+    // WATER-CAUSTICS: the sun refracted through this frame's water waves onto the floor ("Water: Caustics Splat" /
+    // "Resolve"), for every sun receiver of the view (SceneViewInputs::WaterCausticsMap / WaterCausticsFrame: the
+    // deferred direct pass, the forward meshes, the glass, the forward terrain). Always a valid pair: the neutral
+    // one (factor exactly 1) when the frame has no caustics.
+    void SceneRendererImpl::AddFrameWaterCaustics( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        const FrameGraphRefs                 refs = textures.GraphRefs();
+        System::WaterCaustics::FrameInputs caustics{ .SunTravel   = glm::vec3( GetFrameSun().Direction ),
+                                                     .Camera      = frame.CameraPosition,
+                                                     .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
+                                                     .White       = refs.System.White,
+                                                     .Black       = refs.System.Black };
+        if ( const auto* water = m_Systems.Water.get(); water != nullptr )
+        {
+            caustics.Waves  = water->GetFrameWavesBlock();
+            caustics.Bodies = water->GetFrameBodies();
+            if ( !caustics.Waves.empty() && water->GetWaterInfo() != nullptr )
+                caustics.WaterInfo =
+                     textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
+        }
+        // The system registers with the water (SceneRenderer.cpp). A renderer without it leaves the row invalid,
+        // and every receiver's pass then faults by name (BindSceneViewInputs) rather than reading no row.
+        if ( m_Systems.WaterCaustics == nullptr )
+            return;
+        const System::WaterCausticsFrame made = m_Systems.WaterCaustics->AddPasses( graph, caustics );
+        textures.Transients.WaterCausticsMap   = made.Map;
+        textures.Transients.WaterCausticsFrame = made.Row;
+    }
+
     void SceneRendererImpl::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                                const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
                                                const RDG::TextureRef             sunShadowMask,
@@ -1093,30 +1122,6 @@ namespace Desert::Graphic
         if ( !subsurfaceDiffuse.IsValid() )
             specularDesc.Size = { .Width = 1u, .Height = 1u };
         inputs.DirectSpecular = graph.CreateTexture( specularDesc, "DeferredDirectSpecular" );
-        // WATER-CAUSTICS: the sun refracted through this frame's water waves onto the floor ("Water: Caustics
-        // Splat" / "Resolve"), multiplied onto the sun under the body's surface by the direct program. Always a
-        // valid pair: the neutral one (factor exactly 1) when the frame has no caustics.
-        {
-            System::WaterCaustics::FrameInputs caustics{ .SunTravel   = glm::vec3( lightDir ),
-                                                         .Camera      = glm::vec3( cameraPos ),
-                                                         .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
-                                                         .White       = refs.System.White,
-                                                         .Black       = refs.System.Black };
-            if ( const auto* water = m_Systems.Water.get(); water != nullptr )
-            {
-                caustics.Waves = water->GetFrameWavesBlock();
-                caustics.Body  = water->GetFrameBody();
-                if ( !caustics.Waves.empty() && water->GetWaterInfo() != nullptr )
-                    caustics.WaterInfo =
-                         textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
-            }
-            const System::WaterCausticsFrame frameCaustics =
-                 m_Systems.WaterCaustics != nullptr
-                      ? m_Systems.WaterCaustics->AddPasses( graph, caustics )
-                      : System::WaterCausticsFrame{};
-            inputs.WaterCaustics      = frameCaustics.Map.IsValid() ? frameCaustics.Map : refs.System.White;
-            inputs.WaterCausticsFrame = frameCaustics.Row;
-        }
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         shadow.Filter                        = GetShadowFilterSettings();

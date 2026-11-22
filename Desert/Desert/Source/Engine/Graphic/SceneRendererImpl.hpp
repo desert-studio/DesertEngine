@@ -1192,6 +1192,9 @@ namespace Desert::Graphic
         // The WORLD layout of the same lights ("LightGridWorld" compute node: the radiance cache's clipmap cells
         // around the camera), into FrameTransients::Lights.World* — only when WorldLightGridRead().
         void AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // WATER-CAUSTICS: the water's caustics map and frame row (System::WaterCaustics::AddPasses) into
+        // FrameTransients::WaterCausticsMap / WaterCausticsFrame - before the first sun receiver, on both paths.
+        void AddFrameWaterCaustics( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // Whether a node of this frame reads the world light grid: the radiance cache's trace (a traced GI method
         // lights its hits with it) and the "Light Grid (World)" view mode (Deferred).
         [[nodiscard]] bool WorldLightGridRead() const;

@@ -74,9 +74,6 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, DeferredDirectSpecularImage );
         DESERT_SHADER_PARAMETER( Texture, DeferredDirectSpecularTexture );
         DESERT_SHADER_PARAMETER( Texture, DeferredDirectLightingTexture );
-        // WATER-CAUSTICS (WaterCaustics.hpp): the direct program's caustics map and its frame row.
-        DESERT_SHADER_PARAMETER( Texture, WaterCausticsTexture );
-        DESERT_SHADER_PARAMETER( StorageBuffer, WaterCausticsFrameUB );
     };
 
     // "Deferred: Tile Classify" (DeferredTileClassify.shader) and the tile list the tiled permutations of
@@ -133,11 +130,8 @@ namespace Desert::Graphic::System
         // not scatter): written by "Deferred: Direct Lighting", read by "Deferred: Composite".
         RDG::TextureRef DirectLighting;
         RDG::TextureRef DirectSpecular;
-        // WATER-CAUSTICS: the water's caustics map and its frame row (WaterCaustics::AddPasses), read by the direct
-        // program on the sun; System.White and a row with no map when the frame has none (factor exactly 1).
-        RDG::TextureRef WaterCaustics;
-        RDG::BufferRef  WaterCausticsFrame;
-        // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
+        // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map, the
+        // water's caustics.
         SceneViewInputs View;
     };
 
@@ -692,10 +686,6 @@ namespace Desert::Graphic::System
             if ( m_Active == kRayTracedLocalProgram || m_Active == kVirtualLocalProgram )
                 block.Texture( DeferredLightingCompositeShaderParameters::LocalShadowMasksTexture,
                                inputs.LocalShadowMasks, kRead, kWhole );
-            block.Texture( DeferredLightingCompositeShaderParameters::WaterCausticsTexture, inputs.WaterCaustics,
-                           kRead, kWhole )
-                 .Storage( DeferredLightingCompositeShaderParameters::WaterCausticsFrameUB, inputs.WaterCausticsFrame,
-                           RDG::Access::StorageRead );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, slotted.Slots );
             // The indirect-argument read of the buffer is the pass's, once (DeclareDirectBindings).

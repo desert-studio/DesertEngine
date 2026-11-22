@@ -1,10 +1,10 @@
 // THE WATER'S CAUSTICS (WATER-CAUSTICS; Evan Wallace's WebGL water / GPU Gems 1 ch. 2: the sun refracted through
 // the wave field onto the floor, the light's density there = the area ratio of the beam it came in as; UE's water
 // samples such a map in its lighting). One map per frame, made by Programs/Water/WaterCausticsSplat.shader +
-// WaterCausticsResolve.shader (Graphic::System::WaterCaustics), read by the deferred direct pass on the sun.
+// WaterCausticsResolve.shader (Graphic::System::WaterCaustics), read by every sun receiver (below).
 //
-// THE MAP: WATER_CAUSTICS_SIZE^2 texels of one world square centred on the camera, texel (x, y) at world
-// (X, Z) = lower + (x + 0.5, y + 0.5) * texel. Its value is the sun's irradiance where the refracted light LANDS
+// THE MAP: WATER_CAUSTICS_SIZE^2 texels of one world square (around the camera, on the body nearest it), texel
+// (x, y) at world (X, Z) = lower + (x + 0.5, y + 0.5) * texel. Its value is the sun's irradiance where the refracted light LANDS
 // over the irradiance through still water: 1 on still water, > 1 on the bright lines, < 1 between them. Its mean
 // is 1, so it moves light around and adds none.
 #ifndef DESERT_WATER_CAUSTICS_GLSLH
@@ -21,34 +21,72 @@
 // square is not in the map, so its edge is darker than the water around it.
 #define WATER_CAUSTICS_BORDER_UV 0.08
 
-// THE RECEIVER (the deferred direct pass; Common/CloudShadowReceiver.glslh's contract). The includer declares,
-// at slots free in ITS layout, before including this file:
+// THE FRAME ROW (Graphic::System::WaterCausticsFrameHead + WaterCausticsBodyRow, its C++ twins). The includer
+// declares, at a slot free in ITS layout, before including this file:
+//
+//     a std430 buffer WaterCausticsFrameUB { vec4 WaterCausticsWindow; vec4 WaterCausticsShape;
+//                                            vec4 WaterCausticsBodies[]; }
+//     #define WATER_CAUSTICS_FRAME
+//
+// WaterCausticsWindow: xy = world (X, Z) of the map's lower corner, z = 1 / its side (cm), w = 1 when this frame
+// has a map. WaterCausticsShape: x = the bodies in the table, y = the depth over which the caustics come in under
+// the surface (cm), z = the depth over which they fade (cm), w = their strength (1 = the map as computed).
+// WaterCausticsBodies: two vec4 per body whose footprint meets the map's square - [2i] its footprint (xy = min
+// (X, Z), zw = max), [2i + 1].x its still surface Y (cm).
+#ifdef WATER_CAUSTICS_FRAME
+// The body whose still surface is the nearest one above @p worldPos (its footprint holds the point, the point
+// lies under its level), or -1: the water the light reaching that point came down through.
+int WaterCausticsBodyOver( vec3 worldPos )
+{
+    int   found = -1;
+    float least = 3.0e38;
+    const int count = int( WaterCausticsShape.x );
+    for ( int i = 0; i < count; ++i )
+    {
+        const vec4 footprint = WaterCausticsBodies[2 * i];
+        if ( any( lessThan( worldPos.xz, footprint.xy ) ) || any( greaterThan( worldPos.xz, footprint.zw ) ) )
+            continue;
+        const float depth = WaterCausticsBodies[2 * i + 1].x - worldPos.y;
+        if ( depth > 0.0 && depth < least )
+        {
+            found = i;
+            least = depth;
+        }
+    }
+    return found;
+}
+// The still surface Y of body @p body (WaterCausticsBodyOver).
+float WaterCausticsBodyLevel( int body )
+{
+    return WaterCausticsBodies[2 * body + 1].x;
+}
+#endif // WATER_CAUSTICS_FRAME
+
+// THE RECEIVER (every sun receiver: the deferred direct pass, Mesh/Surface/Pass_Forward.glslh,
+// Pass_Forward_Translucent.glslh, Programs/Terrain/Terrain.shader; Common/CloudShadowReceiver.glslh's contract,
+// one binding pair of the scene/view inputs: SceneViewInputs::WaterCausticsMap / WaterCausticsFrame). The lit
+// particles take none: their translucency lighting volume's cells average the map to its mean, 1. The includer declares the
+// frame row above and, before including this file:
 //
 //     texture2D WaterCausticsTexture + #define WaterCausticsTexture sampler2D(WaterCausticsTexture, <a sampler>)
-//     a std430 buffer WaterCausticsFrameUB { vec4 WaterCausticsWindow; vec4 WaterCausticsBody;
-//                                            vec4 WaterCausticsShape; }
-//
-// (Graphic::System::WaterCausticsFrameRow is its C++ twin.) WaterCausticsWindow: xy = world (X, Z) of the map's
-// lower corner, z = 1 / its side (cm), w = 1 when this frame has a map. WaterCausticsBody: the body's footprint,
-// xy = min (X, Z), zw = max. WaterCausticsShape: x = the still surface Y (cm), y = the depth over which the
-// caustics come in under the surface (cm), z = the depth over which they fade (cm), w = their strength (1 = the
-// map as computed).
 #ifdef WaterCausticsTexture
+#ifndef WATER_CAUSTICS_FRAME
+#error "Common/WaterCaustics.glslh: the receiver reads the frame row - declare WaterCausticsFrameUB first"
+#endif
 // The factor on the sun's light reaching @p worldPos: the map under a water body's surface, EXACTLY 1.0 anywhere
-// else (above the water, outside the body or the map, and with no map this frame - Effects.WaterCaustics 0), so
-// a frame without caustics is the frame before them, bit for bit.
+// else (above every body's water, outside every body or the map, and with no map this frame -
+// Effects.WaterCaustics 0), so a frame without caustics is the frame before them, bit for bit.
 float WaterCausticsFactor( vec3 worldPos )
 {
     if ( WaterCausticsWindow.w < 0.5 )
         return 1.0;
-    if ( any( lessThan( worldPos.xz, WaterCausticsBody.xy ) ) || any( greaterThan( worldPos.xz, WaterCausticsBody.zw ) ) )
-        return 1.0;
-    const float depth = WaterCausticsShape.x - worldPos.y;
-    if ( depth <= 0.0 )
-        return 1.0;
     const vec2 uv = ( worldPos.xz - WaterCausticsWindow.xy ) * WaterCausticsWindow.z;
     if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) )
         return 1.0;
+    const int body = WaterCausticsBodyOver( worldPos );
+    if ( body < 0 )
+        return 1.0;
+    const float depth   = WaterCausticsBodyLevel( body ) - worldPos.y;
     const vec2  edge    = min( uv, vec2( 1.0 ) - uv );
     const float border  = smoothstep( 0.0, WATER_CAUSTICS_BORDER_UV, min( edge.x, edge.y ) );
     const float onset   = smoothstep( 0.0, max( WaterCausticsShape.y, 1.0 ), depth );

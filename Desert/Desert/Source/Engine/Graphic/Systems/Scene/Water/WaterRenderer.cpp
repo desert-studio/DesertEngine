@@ -384,7 +384,7 @@ namespace Desert::Graphic::System
         m_Frame            = nullptr;
         m_Walk             = TileWalk{};
         m_FrameFrontLayer  = nullptr;
-        m_FrameBody.reset();
+        m_FrameBodies.clear();
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -407,13 +407,14 @@ namespace Desert::Graphic::System
                 const Assets::AssetHandle& body = zone.Bodies->Materials[b];
                 if ( static_cast<uint64_t>( body ) == 0 )
                     continue;
+                // Every body that draws this frame (WATER-CAUSTICS: each one's footprint and still level).
+                m_FrameBodies.push_back( zone.Bodies->Footprints[b] );
                 if ( static_cast<uint64_t>( material ) == 0 )
                 {
                     material   = body;
                     wavesAsset = zone.Bodies->Waves[b];
                     waveOrigin = zone.Bodies->WaveOrigins[b];
                     waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
-                    m_FrameBody   = zone.Bodies->Footprints[b];
                 }
                 else if ( body != material )
                     WarnOnce( body, WaterWarning::MixedMaterials,

@@ -15,6 +15,15 @@ Shader "WaterCausticsSplat"
         // Binding 24 WaterTiles (only its waves block: the frame's WaterRenderer upload head) and binding 25
         // WaterInfoTexture: the wave evaluation the water mesh itself draws with.
         #include <Mesh/Surface/WaterMeshTiles.glslh>
+
+        // The frame row (Common/WaterCaustics.glslh): its body table gives each texel's still level.
+        layout(std430, binding = 1) readonly buffer WaterCausticsFrameUB
+        {
+        	vec4 WaterCausticsWindow;
+        	vec4 WaterCausticsShape;
+        	vec4 WaterCausticsBodies[];
+        };
+        #define WATER_CAUSTICS_FRAME
         #include <Common/WaterCaustics.glslh>
 
         Buffer(0) WaterCausticsEnergy
@@ -24,9 +33,9 @@ Shader "WaterCausticsSplat"
 
         PushConstant PushConstants
         {
-            vec4 Window;  // xy = world (X, Z) of the map's lower corner (cm), z = the texel's side (cm), w unused
-            vec4 Sun;     // xyz = the direction the sunlight travels (normalised, y < 0), w = time (s, cameraUB.Time)
-            vec4 Surface; // x = the still surface Y (cm), y = the floor's depth where no WaterInfo ground is baked (cm)
+            vec4 Window; // xy = world (X, Z) of the map's lower corner (cm), z = the texel's side (cm),
+                         // w = the floor's depth where no WaterInfo ground is baked (cm)
+            vec4 Sun;    // xyz = the direction the sunlight travels (normalised, y < 0), w = time (s, cameraUB.Time)
         };
 
         // THE ONE SURFACE QUERY (FFT later: this function alone changes): the water surface's point and normal
@@ -64,10 +73,9 @@ Shader "WaterCausticsSplat"
             const ivec2 cell = ivec2( gl_GlobalInvocationID.xy );
             if ( any( greaterThanEqual( cell, ivec2( WATER_CAUSTICS_SIZE ) ) ) )
                 return;
-            const vec3  sun    = Sun.xyz;
-            const float time   = Sun.w;
-            const float stillY = Surface.x;
-            const float eta    = 1.0 / WATER_CAUSTICS_IOR;
+            const vec3  sun  = Sun.xyz;
+            const float time = Sun.w;
+            const float eta  = 1.0 / WATER_CAUSTICS_IOR;
             // Still water's refracted ray: the shift from where a ray enters to where it lands, per cm of depth.
             // The rays are shot from the texel moved back by it, so still water lands each one in its own texel.
             const vec3 still      = refract( sun, vec3( 0.0, 1.0, 0.0 ), eta );
@@ -76,12 +84,32 @@ Shader "WaterCausticsSplat"
             {
                 const vec2  sub         = ( vec2( s & 1, s >> 1 ) + 0.5 ) * 0.5;
                 const vec2  target      = Window.xy + ( vec2( cell ) + sub ) * Window.z;
-                const float targetDepth = WaterGroundDepth( target, stillY );
-                const vec2  source      = target - stillShift * ( targetDepth > 0.0 ? targetDepth : Surface.y );
+                // The body over the target (the frame row's table): of the footprints that hold it, the one whose
+                // baked ground lies the least deep under its level (the water the floor there is under, where two
+                // footprints overlap), else the first that holds it (no ground baked). A texel under no body's
+                // footprint lights none.
+                int   body        = -1;
+                float targetDepth = 0.0;
+                for ( int i = 0; i < int( WaterCausticsShape.x ); ++i )
+                {
+                    const vec4 footprint = WaterCausticsBodies[2 * i];
+                    if ( any( lessThan( target, footprint.xy ) ) || any( greaterThan( target, footprint.zw ) ) )
+                        continue;
+                    const float d = WaterGroundDepth( target, WaterCausticsBodyLevel( i ) );
+                    if ( body < 0 || ( d > 0.0 && ( targetDepth <= 0.0 || d < targetDepth ) ) )
+                    {
+                        body        = i;
+                        targetDepth = d;
+                    }
+                }
+                if ( body < 0 )
+                    continue;
+                const float stillY      = WaterCausticsBodyLevel( body );
+                const vec2  source      = target - stillShift * ( targetDepth > 0.0 ? targetDepth : Window.w );
                 // The floor under the ray's entry: the WaterInfo ground (the waves damp over it as the drawn
                 // surface's do), or the push's depth where none is baked.
                 const float ground      = WaterGroundDepth( source, stillY );
-                const float depth       = ground > 0.0 ? ground : Surface.y;
+                const float depth       = ground > 0.0 ? ground : Window.w;
                 const float attenuation = ground > 0.0 ? GerstnerDepthAttenuation( ground, WaterInfoFrame.w ) : 1.0;
                 vec3  position;
                 vec3  normal;

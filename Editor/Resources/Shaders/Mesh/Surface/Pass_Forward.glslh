@@ -122,6 +122,19 @@ layout( binding = 21 ) uniform CloudShadowUB
 
 #include <Common/CloudShadowReceiver.glslh>
 
+// The water's caustics on the sun under a water body (Common/WaterCaustics.glslh; SceneViewInputs::WaterCausticsMap /
+// WaterCausticsFrame, bound by name). Set 1 after ViewIndirect's 0..6.
+layout( set = 1, binding = 7 ) uniform texture2D WaterCausticsTexture;
+#define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+layout( std430, set = 1, binding = 8 ) readonly buffer WaterCausticsFrameUB
+{
+    vec4 WaterCausticsWindow;
+    vec4 WaterCausticsShape;
+    vec4 WaterCausticsBodies[];
+};
+#define WATER_CAUSTICS_FRAME
+#include <Common/WaterCaustics.glslh>
+
 // The reflection captures and the view's radiance cache, the deferred composite's two indirect sources.
 #include <Mesh/Surface/ViewIndirect.glslh>
 
@@ -228,8 +241,11 @@ void main()
 #endif
     float transmissionShadow = ( receivesSun && subsurfaceOpacity >= 0.0 ) ? sunTransmission * sunContact : 1.0;
     const float cloudShadow = CloudShadowFactor( i.WorldPosition );
-    shadow *= cloudShadow;
-    transmissionShadow *= cloudShadow;
+    // The sun under a water body, focused by its waves: EXACTLY 1.0 above the water, outside every body and with
+    // Effects.WaterCaustics 0 (the deferred direct pass's same factor on the same sun).
+    const float sunOverhead = cloudShadow * WaterCausticsFactor( i.WorldPosition );
+    shadow *= sunOverhead;
+    transmissionShadow *= sunOverhead;
 
     vec3 light = vec3( 0.0 );
     for ( uint d = 0; d < lightsMetadata.DirectionLightCount; d++ )

@@ -379,7 +379,7 @@ namespace Desert::Graphic
                                init.GetError() );
                 }
                 // The water's caustics (WATER-CAUSTICS): two compute passes before the deferred direct lighting,
-                // which multiplies the sun under the water by their map (AddFrameComposite).
+                // and every sun receiver multiplies the sun under the water by their map (AddFrameWaterCaustics).
                 RegisterSystem<System::WaterCaustics>( m_Systems.WaterCaustics, this, m_TargetFramebuffer );
                 if ( const auto init = m_Systems.WaterCaustics->Initialize(); !init )
                 {
@@ -2646,6 +2646,9 @@ namespace Desert::Graphic
         }
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
         textures.Transients.Lights.LightFunctionAtlas = lightFunctionAtlas;
+        // The water's caustics, read by every sun receiver of both paths (the forward base pass, the deferred
+        // direct lighting, the glass, the forward terrain) through the scene/view inputs.
+        AddFrameWaterCaustics( graph, textures, frame );
         DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: World grid + distance field" );
         // The MegaLights translucency volume the forward and glass cells read starts OFF (the neutral block); it is
         // lit by AddFrameMegaLightsVolume once its visibility source is drawn - before the base pass on the forward

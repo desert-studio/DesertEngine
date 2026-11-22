@@ -345,16 +345,18 @@ Shader "DeferredLighting"
         #include <Common/CloudShadowReceiver.glslh>
 
         // THE WATER'S CAUSTICS (WATER-CAUSTICS, Graphic::System::WaterCaustics): the sun refracted through the
-        // drawn waves onto the floor, a map around the camera and its frame row, at set-1 slots free in the direct
-        // layout (ViewIndirect holds 0..6, the composite's and the direct's own targets 7..10).
+        // drawn waves onto the floor - the map and its frame row (SceneViewInputs::WaterCausticsMap /
+        // WaterCausticsFrame, bound by name), at set-1 slots free in this layout (ViewIndirect holds 0..6, the
+        // composite's and the direct's own targets 7..10). The forward receivers hold them at set 1 7 / 8.
         layout(set = 1, binding = 11) uniform texture2D WaterCausticsTexture;
         #define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
         layout(std430, set = 1, binding = 12) readonly buffer WaterCausticsFrameUB
         {
         	vec4 WaterCausticsWindow;
-        	vec4 WaterCausticsBody;
         	vec4 WaterCausticsShape;
+        	vec4 WaterCausticsBodies[];
         };
+        #define WATER_CAUSTICS_FRAME
         #include <Common/WaterCaustics.glslh>
 
         // THE POINT AND SPOT LIGHTS' SHADOWS: the view's local shadow atlas and the table of its views
