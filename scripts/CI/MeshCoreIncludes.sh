@@ -15,6 +15,7 @@ cd "$(dirname "$0")/../.." || exit 2
 
 G=Desert/Desert/Source/Engine/Geometry
 D=Desert/Desert/Source/Engine/Destruction
+C=Desert/Desert/Source/Engine/Core
 # path | reason
 ALLOW=(
     "$G/DynamicMeshAsset.hpp|adapter: the asset holds a DynamicMesh3"
@@ -51,6 +52,13 @@ ALLOW=(
     "$G/MeshWeldEdgesOperation.hpp|adapter: WeldMeshEdges takes and returns DynamicMesh3"
     "$G/MeshWeldEdgesOperation.cpp|adapter: drives the ported MergeCoincidentMeshEdges"
     "$G/ShapeGenerators.hpp|adapter: the ported shape generators ear-clip caps with the ported PolygonTriangulation"
+    "$G/MeshBooleanOperation.cpp|adapter: drives the ported MeshBoolean, MergeCoincidentMeshEdges, SimpleHoleFiller and MeshBoundaryLoops (P17c)"
+    "$C/HLODMeshBuilder.hpp|HLOD builder (UE MeshMerge/MeshApproximate place): merges cluster sources into one DynamicMesh3"
+    "$C/HLODMeshBuilder.cpp|HLOD builder: packs the merged UVs with the ported UVPacking"
+    "$C/HLODApproximate.hpp|HLOD MeshApproximate layer: the voxel-wrapped shell is a DynamicMesh3"
+    "$C/HLODApproximate.cpp|HLOD MeshApproximate layer: drives the ported voxel wrap, simplifier and AABB tree to capture BaseColor/Normal/ORM"
+    "$C/HLODImpostor.hpp|HLOD impostor: the card mesh is built as a DynamicMesh3"
+    "$C/HLODImpostor.cpp|HLOD impostor: ray-casts the source through the ported MeshAABBTree3"
     "$D/FractureBake.hpp|fracture operation (UE PlanarCut's place): BakeFracture takes the source as a DynamicMesh3"
     "$D/FractureBake.cpp|fracture operation: builds cell meshes with attribute overlays, Intersect-cuts them (MeshBoolean) and splits islands (MeshConnectedComponents)"
     "$D/RuntimeFracture.hpp|fracture operation at run time: BakeRuntimeFracture takes the source as a DynamicMesh3 and the sources are DynamicMesh3 makers"
