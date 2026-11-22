@@ -333,6 +333,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DesertCtl/mcp` — 1 files, 387 lines
 - `DesertHeaderTool` — 1 files, 1,804 lines
 - `DesertHeaderTool/Source` — 10 files, 1,727 lines: ComponentBlock, Diagnostic, HeaderModel, ModuleInfo, ModulePlacement, ModuleTable, ReflectedTypeName, RoutedEventName, ScannedFile, ShaderPushField, ShaderPushScan, ShaderPushStruct, … (+2)
+- `DesertNetProbe/Source` — 1 files, 510 lines
 - `DomeSheet/Source` — 2 files, 699 lines: DomeSample, Image, SheetGeometry
 - `FbxMeshSplitter` — 3 files, 620 lines: FbxSplitResult
 - `GamePackager/Source` — 1 files, 208 lines
