@@ -1,0 +1,76 @@
+#pragma once
+
+// A RIVER water body (UE 5.x AWaterBodyRiver / UWaterBodyRiverComponent): a ribbon of water along a spline,
+// RiverWidth wide, flowing from the first point to the last. Its surface is drawn by the same water zone quadtree
+// as the ocean (WaterQuadTree tags each tile with the body that owns it, a river over an ocean); the FLOW FIELD
+// baked here from the spline's tangent (UE bakes the river's velocity into the WaterInfo texture,
+// WaterInfoRendering .cpp) is what the surface's two-phase flow advects its normals and foam with.
+//
+// The points are relative to the body entity's location (the entity carries the river as the ocean entity carries
+// its footprint). Pure CPU, no renderer types: the collector bakes, the renderer uploads.
+
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+
+#include <cstdint>
+#include <span>
+#include <vector>
+
+namespace Desert::Water
+{
+    /// What a water body is (ECS::WaterBodyData::Type). UE: AWaterBodyOcean / AWaterBodyRiver.
+    enum class WaterBodyType : uint8_t
+    {
+        Ocean,
+        River,
+    };
+
+    /// The tiles' body precedence: where a river's footprint overlaps an ocean's the river's surface is drawn.
+    [[nodiscard]] constexpr int32_t WaterBodyPriority( const WaterBodyType type ) noexcept
+    {
+        return type == WaterBodyType::River ? 1 : 0;
+    }
+
+    /// A uniform Catmull-Rom spline through @p points, the ends clamped (the first and last
+    /// segments use their own end point as the missing neighbour). @p t in [0, points.size() - 1].
+    [[nodiscard]] glm::vec3 RiverSplinePoint( std::span<const glm::vec3> points, float t ) noexcept;
+    /// d/dt of RiverSplinePoint (not normalised; zero only on a degenerate spline).
+    [[nodiscard]] glm::vec3 RiverSplineTangent( std::span<const glm::vec3> points, float t ) noexcept;
+
+    /// The river's footprint on the XZ plane (cm, the spline's frame): the swept ribbon's bounds, half the width
+    /// out from every sampled point. Min > Max (an empty box) for fewer than two points or a non-positive width.
+    struct RiverFootprint
+    {
+        glm::vec2 Min{ 0.0f };
+        glm::vec2 Max{ 0.0f };
+    };
+    [[nodiscard]] RiverFootprint ComputeRiverFootprint( std::span<const glm::vec3> points, float width ) noexcept;
+
+    /// The baked flow of one river over its footprint (UE: the river velocity in the WaterInfo texture), row-major
+    /// over (z, x), texel centres at Min + (i + 0.5) * Extent / Size. Each texel:
+    ///   xy = the surface velocity on the XZ plane, cm/s (the spline's unit tangent * FlowSpeed, eased to 0 at the
+    ///        banks so the banks do not shear);
+    ///   z  = the bank mask: 1 inside the ribbon, 0 outside (the surface is clipped where it is 0);
+    ///   w  = the distance along the spline, cm (the flow phase's anchor; foam streaks follow it).
+    struct RiverFlowField
+    {
+        glm::vec2              Min{ 0.0f };
+        glm::vec2              Extent{ 0.0f };
+        glm::uvec2             Size{ 0u };
+        std::vector<glm::vec4> Texels;
+        /// The two-phase flow's period (s): ECS::WaterBodyData::RiverFlowPeriod.
+        float FlowPeriod = 1.0f;
+        /// The surface's still level, cm: the spline's mean height (a river is drawn flat at it; the slope along
+        /// the spline is REMAINDER).
+        float SurfaceY = 0.0f;
+    };
+
+    /// The largest side a flow field is baked at (texels): a longer river gets coarser texels, not a bigger image.
+    inline constexpr uint32_t kRiverFlowMaxSize = 1024;
+
+    /// Bakes @p points (already in world space) into a flow field of about @p cmPerTexel (clamped so neither side
+    /// exceeds kRiverFlowMaxSize). An empty field (Size 0) for fewer than two points or a non-positive width.
+    [[nodiscard]] RiverFlowField BakeRiverFlow( std::span<const glm::vec3> points, float width, float flowSpeed,
+                                                float flowPeriod, float cmPerTexel ) noexcept;
+} // namespace Desert::Water
