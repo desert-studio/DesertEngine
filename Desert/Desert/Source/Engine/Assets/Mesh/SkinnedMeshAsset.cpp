@@ -130,7 +130,9 @@ namespace Desert::Assets
             submesh.LodChainCooked = s.LodChainCooked;
             // Each cooked level's measured error: SkinnedMesh's ResolveLODScreenSizes draws a level only where it
             // is under ~1 px (a figure folded at LOD 6 stays off screen sizes it would show at).
-            submesh.LODCutErrors = s.LodCutErrors;
+            // Only a DAG cut caps its level at ~1 px (FPS-MESHLOD-CAP); a simplified level keeps the progression.
+            if ( !s.ClusterDag.Clusters.empty() )
+                submesh.LODCutErrors = s.LodCutErrors;
             submesh.BakedLODs.reserve( s.LODs.size() );
             for ( const auto& level : s.LODs )
             {

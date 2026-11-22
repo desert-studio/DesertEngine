@@ -93,9 +93,9 @@ namespace Desert::Editor
                     tris.push_back( { tri.V1, tri.V2, tri.V3 } );
                 sm.LODs.push_back( std::move( tris ) );
             }
-            // Each level's measured error (of the bounds radius), aligned with LODs: the runtime draws the level
-            // only where it is under ~1 px (Geometry::ResolveLODScreenSizes), never drops it.
-            sm.LodCutErrors = std::move( levels.Errors );
+            // A simplified level is drawn at the automatic progression (FPS-MESHLOD-CAP): its measured error is
+            // not stored as a ~1 px cap - that cap is the DAG cut's.
+            sm.LodCutErrors.clear();
         }
     }
 
