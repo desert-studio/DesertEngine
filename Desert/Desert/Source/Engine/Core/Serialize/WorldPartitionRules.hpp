@@ -148,7 +148,6 @@
 #include <utility>
 #include <vector>
 
-
 namespace Desert::Core::Rules
 {
     // "No record". Same spelling and the same purpose as SceneStitchRules' kNoSlot.
@@ -389,8 +388,7 @@ namespace Desert::Core::Rules
     // tiles, a cross along x = 0 and z = 0). The tolerance is a few float epsilons of the edge's own
     // magnitude, measured in cells — the error a float coordinate of that size carries, nothing coarser:
     // a real overhang of a millimetre on a 128 m cell is still an overhang.
-    [[nodiscard]] std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint,
-                                                                     double            levelCellSize );
+    [[nodiscard]] std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint, double levelCellSize );
 
     // WHY A COMPOSITE IS IN THE ALWAYS-LOADED SET. Most specific first: the author said so, a component
     // says so, the grid could not hold it, or there is no grid.
@@ -746,7 +744,7 @@ namespace Desert::Core::Rules
         std::string_view   PathField;
     };
     [[nodiscard]] std::optional<MeshReferenceNode> MeshReferenceOf( const Common::Json::Node& block,
-                                                                           std::string_view          component );
+                                                                    std::string_view          component );
 
     // WHAT THE PARTITIONER MAY KNOW FROM OUTSIDE THE FILE: a mesh asset's box around its own origin, asked
     // by the GUID its block names (null when it names none) and the path beside it.
@@ -761,12 +759,11 @@ namespace Desert::Core::Rules
     {
         // WHERE A RECORD'S COMPONENT PAYLOAD LIVES, as the loader names it: `Entities[id=7].<Component>`. A
         // record without an id (the planner still places it) is named by the literal "none".
-        [[nodiscard]] Common::Json::Path ComponentPath( const Assets::EntityData& record,
-                                                               std::string_view          key );
+        [[nodiscard]] Common::Json::Path ComponentPath( const Assets::EntityData& record, std::string_view key );
 
         // A component payload of the record, of any kind, read in place (no copy of the block).
         [[nodiscard]] std::optional<Common::Json::Node> PayloadOf( const Assets::EntityData& record,
-                                                                          std::string_view          key );
+                                                                   std::string_view          key );
 
         // A component block of the record, if it has one. A payload that is not an object is an Issue: the
         // loader could not read it either.
@@ -776,7 +773,7 @@ namespace Desert::Core::Rules
         // The id a named field of a component block holds (a DECIMAL STRING, because a 64-bit id does not
         // survive JSON's double). False when the field is absent; a value that is not an id is an Issue.
         [[nodiscard]] bool ReadReference( const Common::Json::Node& block, std::string_view field,
-                                                 Common::UUID& out, Common::Json::Issues& issues );
+                                          Common::UUID& out, Common::Json::Issues& issues );
 
         // ONE RECORD'S LOCAL MATRIX, and it must stay identical to ECS::TransformComponent::
         // GetTransform() (Engine/ECS/Components.hpp:645-649) — translate * toMat4(quat(euler)) *
@@ -800,30 +797,30 @@ namespace Desert::Core::Rules
         // A matrix that is not 16 numbers is an Issue and is skipped rather than guessed at; the loader
         // would reject the same block, so it cannot be drawn either.
         void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec3>& out,
-                                          Common::Json::Issues& issues );
+                                   Common::Json::Issues& issues );
 
         // A scalar field of a component block as a number: a bool reads as 1/0, an enum is written as its
         // integer. False when the field is absent; a value that is neither is an Issue.
         [[nodiscard]] bool ReadScalar( const Common::Json::Node& block, std::string_view field, double& out,
-                                              Common::Json::Issues& issues );
+                                       Common::Json::Issues& issues );
 
         // Whether this record's own components make it always-loaded, and why. Author before Component,
         // because the author's marker is the more specific statement.
         [[nodiscard]] AlwaysLoadedReason GlobalReasonOf( const Assets::EntityData& record,
-                                                                Common::Json::Issues&     issues );
+                                                         Common::Json::Issues&     issues );
 
         // Appends the world position of a local-space box's eight corners, through @p world.
         void AppendBoxCorners( const glm::mat4& world, const glm::vec3& half, std::vector<glm::vec3>& out );
 
         // Appends the world position of a local-space AABB's eight corners, through @p world.
         void AppendBoundsCorners( const glm::mat4& world, const Common::Math::AABB& box,
-                                         std::vector<glm::vec3>& out );
+                                  std::vector<glm::vec3>& out );
 
         // The GUID a mesh block names, written as GUID text (SCNE 28). Absent or empty text is the null GUID:
         // the block names no asset the bounds source could answer for. A value that is not GUID text is an
         // Issue, and is the null GUID too.
-        [[nodiscard]] Common::Content::AssetGuid
-        ReadGuid( const Common::Json::Node& block, std::string_view field, Common::Json::Issues& issues );
+        [[nodiscard]] Common::Content::AssetGuid ReadGuid( const Common::Json::Node& block, std::string_view field,
+                                                           Common::Json::Issues& issues );
 
         // THE BOX AROUND A SCENE-HELD MESH (the StaticMesh block's EditMesh), in the record's own frame, or
         // nullopt when the block holds none. UE's GetStreamingBounds pattern: an actor whose geometry is its
@@ -832,13 +829,12 @@ namespace Desert::Core::Rules
         // or holds no vertex, is an Issue on its path (Entities[id=..].StaticMesh.EditMesh.Positions) and
         // gives no box: the loader's FromSerialized refuses the same block, so the mesh is never drawn.
         [[nodiscard]] std::optional<Common::Math::AABB> EditMeshBox( const Common::Json::Node& block,
-                                                                            Common::Json::Issues&     issues );
-
+                                                                     Common::Json::Issues&     issues );
 
         // THE BOX AROUND A LANDSCAPE SPLINE RECORD'S BAND (world cm), or nullopt when the record has no
         // LandscapeSpline block, its splines do not read (an Issue), or they have no control point.
         std::optional<Common::Math::AABB> LandscapeSplineBandOf( const Assets::EntityData& record,
-                                                                        Common::Json::Issues&     issues );
+                                                                 Common::Json::Issues&     issues );
 
         // The two corners of a spline's band box: its whole footprint, and NOT the entity's position.
         void AppendSplineBand( const Common::Math::AABB& band, std::vector<glm::vec3>& out );
@@ -847,8 +843,8 @@ namespace Desert::Core::Rules
         // the top of this file. Returns false when the record contributed its position and nothing more.
         // A landscape spline contributes its band's box alone (UE ALandscapeSplineActor's streaming bounds).
         bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
-                                     Common::Json::Issues& issues );
+                              const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
+                              Common::Json::Issues& issues );
 
         // THE GROUND RECTANGLE OF A LANDSCAPE TILE RECORD, or nullopt when it has none. The root's fields are
         // read with the loader's rule — an absent field is the component's default, which is LandscapeRoot's
@@ -1025,8 +1021,7 @@ namespace Desert::Core::Rules
     // here, once, with the same helpers.
     [[nodiscard]] EntityDescriptor DescribeEntity( const Assets::EntityData& record );
 
-    [[nodiscard]] std::vector<EntityDescriptor>
-    DescribeEntities( std::span<const Assets::EntityData> records );
+    [[nodiscard]] std::vector<EntityDescriptor> DescribeEntities( std::span<const Assets::EntityData> records );
 
     // ── EVERY ENTITY→ENTITY REFERENCE, RESOLVED TO RECORDS (WP-ENTITY-REFS) ──────────────────────────────
     //
@@ -1179,7 +1174,7 @@ namespace Desert::Core::Rules
         // the bounds source answers for its meshes, then its instance points. True when it had more than
         // the position (AppendFootprint over the record, the same points).
         bool AppendFootprint( const EntityDescriptor& descriptor, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec3>& out );
+                              const AssetBoundsSource& bounds, std::vector<glm::vec3>& out );
 
         // A landscape tile's rectangle from its root's descriptor and world position (LandscapeTileRectOf).
         std::optional<World::Landscape::LandscapeTileRect>
@@ -1205,14 +1200,14 @@ namespace Desert::Core::Rules
     // (WorldPartitionPlan::Generation), in that order. @p records are the ones the plan was made from: a Planner
     // finding's path (`Entities[7]...` or `Entities[id=9000001]...`) names the record it selects.
     [[nodiscard]] std::vector<GenerationIssue> PlanIssues( const WorldPartitionPlan&         plan,
-                                                                  std::span<const EntityDescriptor> records );
+                                                           std::span<const EntityDescriptor> records );
 
     // THE GRID A RuntimeGrid NAME STREAMS ON (UE AActor::RuntimeGrid), the one rule the planner and every editor
     // tool that files content by grid (the foliage brush, the procedural volume) read: absent = the world's
     // first grid, UE's main grid; a name the world does not state = nullopt - never read as the first grid by a
     // guess (the planner reports it as a MissingReference Issue with the record's path).
     [[nodiscard]] std::optional<std::size_t> GridIndexOf( const WorldPartitionSerialized&   settings,
-                                                                 const std::optional<std::string>& wanted );
+                                                          const std::optional<std::string>& wanted );
 
     // WHAT CheckRuntimeGrids FOUND. `CellsUsable` is false when the CELLS cannot be made - no partition, a name
     // missing or stated twice (which partition a record's name reaches would be a guess), settings its class
@@ -1235,14 +1230,14 @@ namespace Desert::Core::Rules
     // settings.DataLayers) whose Type is Runtime, in the same order. An editor layer is nothing to the cook or to
     // Play, so it neither splits a cell nor gates one.
     [[nodiscard]] std::vector<std::size_t> RuntimeDataLayersOf( const WorldPartitionSerialized& settings,
-                                                                       std::span<const std::size_t>    layers );
+                                                                std::span<const std::size_t>    layers );
 
     // THE NAME A SET OF RUNTIME LAYERS GIVES ITS CELLS (UE FDataLayersID: a hash of the layers' names in the runtime
     // cell's name). FNV-1a over the NAMES, sorted and each closed by a 0 byte - not over the indices, so a cell's
     // file does not move when the world gains, loses or reorders another layer. Empty set = "" (a cell of no runtime
     // layer keeps the name it always had); otherwise "_DL" and eight hex digits.
     [[nodiscard]] std::string DataLayersCellSuffix( const WorldPartitionSerialized& settings,
-                                                           std::span<const std::size_t>    runtimeLayers );
+                                                    std::span<const std::size_t>    runtimeLayers );
 
     // A CELL'S NAME ON DISK, without the extension: grid, level, coordinate and its runtime layers
     // (`G0_L1_3_-2`, `G0_L0_1_0_DL1A2B3C4D`). The one statement of it: the cook names the cell's file
@@ -1252,26 +1247,26 @@ namespace Desert::Core::Rules
     // The index of the HLOD layer @p name names in @p settings (WorldPartitionSerialized::HLODLayers), or nullopt
     // when the world states none of that name.
     [[nodiscard]] std::optional<std::size_t> HLODLayerIndexOf( const WorldPartitionSerialized& settings,
-                                                                      std::string_view                name );
+                                                               std::string_view                name );
 
     // The index of the layer @p name names in @p settings, or nullopt when the world states none of that name.
     [[nodiscard]] std::optional<std::size_t> DataLayerIndexOf( const WorldPartitionSerialized& settings,
-                                                                      std::string_view                name );
+                                                               std::string_view                name );
 
     // The index of @p layer's parent (DataLayerSerialized::Parent, WP v4), or nullopt for a top-level layer or a
     // parent the world does not state (CheckDataLayers names that one).
     [[nodiscard]] std::optional<std::size_t> DataLayerParentIndex( const WorldPartitionSerialized& settings,
-                                                                          const std::size_t               layer );
+                                                                   const std::size_t               layer );
 
     // Whether @p layer is @p ancestor or nests under it at any depth: a member of the one is a member of the other
     // (UE resolves an actor's layers with their parents). Bounded by the layer count, so an unchecked cycle ends.
     [[nodiscard]] bool DataLayerIsWithin( const WorldPartitionSerialized& settings, const std::size_t layer,
-                                                 const std::size_t ancestor );
+                                          const std::size_t ancestor );
 
     // UE UDataLayerInstance::IsEffectiveVisible / IsEffectiveLoadedInEditor: each layer's own flag (index = the
     // world's layer) AND every ancestor's - a child is loaded or visible only while all its parents are.
     [[nodiscard]] std::vector<bool> EffectiveDataLayerFlags( const WorldPartitionSerialized& settings,
-                                                                    const std::vector<bool>&        own );
+                                                             const std::vector<bool>&        own );
 
     // The DebugColor a layer made in the editor starts with (UE FColor::MakeRandomSeededColor over the asset's
     // name): a hue from the name's FNV-1a hash at one saturation and value, so two layers of a world differ and
@@ -1516,8 +1511,8 @@ namespace Desert::Core::Rules
 
     // The grid cells of partition @p partition stream on, or null when @p settings states no such partition or
     // it makes no cells - the streaming query's, the residency's and the cook's one way to a cell's numbers.
-    [[nodiscard]] const RuntimePartitionLHGridSerialized*
-    CellGridOf( const WorldPartitionSerialized& settings, std::size_t partition );
+    [[nodiscard]] const RuntimePartitionLHGridSerialized* CellGridOf( const WorldPartitionSerialized& settings,
+                                                                      std::size_t                     partition );
 
     // THE PARTITIONS A WORLD MAY STATE (WP22, WP-HASH-SET) - the one rule the planner (step 4a) and every editor
     // edit of the block (EditWorldPartition: the panel's Runtime partitions section, `desertctl set world
@@ -1534,15 +1529,15 @@ namespace Desert::Core::Rules
         // cell is at least as wide as the footprint's larger side, and the cell of the footprint's centre in it.
         // nullopt: no level holds it, or its centre's cell index does not fit an int32 (a corrupt 1e30, a NaN - that
         // conversion is undefined behaviour) - the planner's NoFit.
-        [[nodiscard]] std::optional<std::pair<int, CellCoord>>
-        PlaceFootprint( const CellBounds& footprint, float cellSize, int levelCount );
+        [[nodiscard]] std::optional<std::pair<int, CellCoord>> PlaceFootprint( const CellBounds& footprint,
+                                                                               float cellSize, int levelCount );
 
         // A record as a finding names it: its tag and id (`House (9200001)`), or `Entities[<id>]` without a tag.
         [[nodiscard]] std::string RecordName( std::span<const EntityDescriptor> records, std::size_t record );
 
         // The names of @p layers (indices into settings.DataLayers), or "none".
         [[nodiscard]] std::string LayerNames( const WorldPartitionSerialized& settings,
-                                                     std::span<const std::size_t>    layers );
+                                              std::span<const std::size_t>    layers );
 
         // STEP 7 OF THE PLANNER: THE REFERENCES, VALIDATED (UE FWorldPartitionStreamingGenerator's validation of the
         // actor desc views, each finding to IStreamingGenerationErrorHandler). Into plan.Generation, never into the
@@ -1558,23 +1553,23 @@ namespace Desert::Core::Rules
         //     planner's own Issue in step 4d: a composite has its anchor's layers.)
         //   * a composite member stating a runtime grid other than the composite's (OnInvalidReferenceRuntimeGrid).
         void ValidateReferences( WorldPartitionPlan& plan, std::span<const EntityDescriptor> records,
-                                        const WorldPartitionSerialized& settings, bool gridsUsable,
-                                        const std::unordered_map<Common::UUID, std::size_t>& byId,
-                                        const std::vector<std::optional<CellBounds>>&        ownFootprint );
+                                 const WorldPartitionSerialized& settings, bool gridsUsable,
+                                 const std::unordered_map<Common::UUID, std::size_t>& byId,
+                                 const std::vector<std::optional<CellBounds>>&        ownFootprint );
     } // namespace Detail
 
     // THE PLANNER, over descriptors (an index on disk, EntityDescriptorIndex.hpp, or DescribeEntities of a
     // scene in memory). Record `r` of the plan is descriptor `r`.
     [[nodiscard]] WorldPartitionPlan PlanWorldPartition( std::span<const EntityDescriptor> records,
-                                                                const WorldPartitionSerialized&   settings,
-                                                                const AssetBoundsSource&          bounds  = {},
-                                                                const ScriptReferenceSource&      scripts = {} );
+                                                         const WorldPartitionSerialized&   settings,
+                                                         const AssetBoundsSource&          bounds  = {},
+                                                         const ScriptReferenceSource&      scripts = {} );
 
     // A scene in memory: described, then planned by the one planner.
     [[nodiscard]] WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
-                                                                const WorldPartitionSerialized&     settings,
-                                                                const AssetBoundsSource&            bounds  = {},
-                                                                const ScriptReferenceSource&        scripts = {} );
+                                                         const WorldPartitionSerialized&     settings,
+                                                         const AssetBoundsSource&            bounds  = {},
+                                                         const ScriptReferenceSource&        scripts = {} );
 
     // How many cells each level holds, index = level. Sized LevelCount.
     [[nodiscard]] std::vector<std::size_t> CellsPerLevel( const WorldPartitionPlan& plan );
@@ -1585,7 +1580,7 @@ namespace Desert::Core::Rules
     // THE PLAN IN ONE LINE — one wording, used by the loader's log and by `WorldGen --partition`, so the
     // two never describe the same world differently. Lengths are printed as whole world units.
     [[nodiscard]] std::string SummarisePartition( const WorldPartitionPlan&       plan,
-                                                         const WorldPartitionSerialized& settings );
+                                                  const WorldPartitionSerialized& settings );
 
     // THE BOX A PREFAB STATES (AL1-8a): what its registry row carries in the `bounds` column, so a world
     // cell holding an instance learns its extent without loading the file (UE's Actor Descriptor).
@@ -1598,7 +1593,8 @@ namespace Desert::Core::Rules
     //
     // nullopt when nothing in the body has an extent (a UI prefab, an empty group): the column's "absent".
     // A component block that does not read is added to @p issues and contributes no box, as in the plan.
-    [[nodiscard]] std::optional<Common::Math::AABB>
-    PrefabBounds( std::span<const Assets::EntityData> records, const Common::UUID& root,
-                  const AssetBoundsSource& bounds, Common::Json::Issues& issues );
+    [[nodiscard]] std::optional<Common::Math::AABB> PrefabBounds( std::span<const Assets::EntityData> records,
+                                                                  const Common::UUID&                 root,
+                                                                  const AssetBoundsSource&            bounds,
+                                                                  Common::Json::Issues&               issues );
 } // namespace Desert::Core::Rules

@@ -899,7 +899,7 @@ namespace Desert::Graphic
     }
 
     SceneRendererImpl::SceneRendererImpl( const ViewExtent& extent, const ViewProfile& profile,
-                                  const ResourceOwnerInstance accountUnder )
+                                          const ResourceOwnerInstance accountUnder )
          : m_LedgerView( accountUnder ), m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ),
            m_ViewExtent( extent ), m_RenderExtent( extent ),
            m_EmissiveLights( std::make_unique<RayTracing::EmissiveLightsRenderer>() ),
@@ -1031,7 +1031,7 @@ namespace Desert::Graphic
     }
 
     NO_DISCARD Common::BoolResultStr SceneRendererImpl::BeginScene( const Desert::Core::Scene& scene,
-                                                                Core::Camera*              camera )
+                                                                    Core::Camera*              camera )
     {
         // ONE BRACKET AT A TIME (see Scene::OnUpdate's view loop): a view still recording on the render task
         // closes before this one opens. THE VIEWS ONLY, NOT THE QUEUE (CPU-GT-OVERLAP; UE: the game thread opens
@@ -1676,7 +1676,7 @@ namespace Desert::Graphic
     // The DF-shadow sun is a third key (ShadowQualityOf, SunDistanceFieldShadowBudget): its cascades end at
     // Shadows.DistanceFieldCascadeDistance.
     void SceneRendererImpl::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
-                                            const bool sunRayTraced, const bool sunDistanceField )
+                                                const bool sunRayTraced, const bool sunDistanceField )
     {
         if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced &&
              sunDistanceField == m_ShadowBudgetSunDistanceField )
@@ -3670,8 +3670,8 @@ namespace Desert::Graphic
     }
 
     System::MegaLightsLighting SceneRendererImpl::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
-                                                                  const std::vector<RDG::TextureRef>& gbuffer,
-                                                                  const ViewFrame&                    frame )
+                                                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                                                      const ViewFrame&                    frame )
     {
         using Common::Scalability::StochasticVisibility;
         if ( !EnsureMegaLightsResources() )
@@ -3762,8 +3762,9 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame, const LightGridParamsPayload& lightGrid,
-                                                  const RDG::TextureRef hzbDepth )
+                                                      const ViewFrame&              frame,
+                                                      const LightGridParamsPayload& lightGrid,
+                                                      const RDG::TextureRef         hzbDepth )
     {
         const FrameGraphRefs refs            = textures.GraphRefs();
         const auto           pointCount      = static_cast<uint32_t>( GetPointLights().PointLights.size() );
@@ -3863,8 +3864,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                     const std::vector<RDG::TextureRef>& gbuffer,
-                                                     const glm::vec3& directionToSun, const ViewFrame& frame )
+                                                         const std::vector<RDG::TextureRef>& gbuffer,
+                                                         const glm::vec3& directionToSun, const ViewFrame& frame )
     {
         if ( !EnsureDistanceFieldShadowResources() )
             return;
@@ -3935,8 +3936,8 @@ namespace Desert::Graphic
 
     SceneRendererImpl::FrameVirtualShadows SceneRendererImpl::AddFrameVirtualShadows(
          RDG::Builder& graph, FrameTextures& textures, const RDG::TextureRef viewDepth,
-         const std::vector<RDG::TextureRef>& gbuffer,
-         const glm::vec3& directionToSun, const ViewFrame& frame, const std::span<const RDG::TextureRef> receiverDepths )
+         const std::vector<RDG::TextureRef>& gbuffer, const glm::vec3& directionToSun, const ViewFrame& frame,
+         const std::span<const RDG::TextureRef> receiverDepths )
     {
         if ( !EnsureVirtualShadowResources() )
             return {};
@@ -4077,9 +4078,9 @@ namespace Desert::Graphic
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                               const std::vector<RDG::TextureRef>& gbuffer,
-                                                               const glm::vec3&                    directionToSun,
-                                                               const ViewFrame&                    frame )
+                                                                   const std::vector<RDG::TextureRef>& gbuffer,
+                                                                   const glm::vec3& directionToSun,
+                                                                   const ViewFrame& frame )
     {
         // The frame resolved to a ray-traced sun only with this frame's TLAS built (OnUpdate,
         // LowerShadowsForFrame).
@@ -4127,8 +4128,8 @@ namespace Desert::Graphic
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameRayTracedLocalShadows( RDG::Builder& graph, FrameTextures& textures,
-                                                                  const std::vector<RDG::TextureRef>& gbuffer,
-                                                                  const ViewFrame&                    frame )
+                                                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                                                      const ViewFrame&                    frame )
     {
         // As the sun: the frame resolved to HardwareTraced only with this frame's TLAS built and the renderers
         // initialised (LowerShadowsForFrame, EnsureRayTracedShadowResources).
@@ -4286,21 +4287,22 @@ namespace Desert::Graphic
     } // namespace
 
     void SceneRendererImpl::RefuseProgramMethods( const std::span<const Common::Scalability::GIMethod> methods,
-                                              const std::string_view program, const std::string_view error )
+                                                  const std::string_view program, const std::string_view error )
     {
         RefuseMethods( m_ProgramRefusals.GlobalIllumination, m_RetriedProgramRefusals.GlobalIllumination, methods,
                        "GI", Common::Scalability::kGIMethodNames, program, error );
     }
 
-    void SceneRendererImpl::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
-                                              const std::string_view program, const std::string_view error )
+    void
+    SceneRendererImpl::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
+                                             const std::string_view program, const std::string_view error )
     {
         RefuseMethods( m_ProgramRefusals.Reflections, m_RetriedProgramRefusals.Reflections, methods, "Reflections",
                        Common::Scalability::kReflectionMethodNames, program, error );
     }
 
     void SceneRendererImpl::RefuseProgramMethods( const std::span<const Common::Scalability::ShadowMethod> methods,
-                                              const std::string_view program, const std::string_view error )
+                                                  const std::string_view program, const std::string_view error )
     {
         RefuseMethods( m_ProgramRefusals.Shadows, m_RetriedProgramRefusals.Shadows, methods, "Shadows",
                        Common::Scalability::kShadowMethodNames, program, error );
@@ -4521,8 +4523,8 @@ namespace Desert::Graphic
     }
 
     float SceneRendererImpl::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
-                                            const std::span<const Material* const> materials,
-                                            const MaterialOverrides*               overrides ) const
+                                                const std::span<const Material* const> materials,
+                                                const MaterialOverrides*               overrides ) const
     {
         const auto* camera = GetMainCamera();
         if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
@@ -4532,9 +4534,9 @@ namespace Desert::Graphic
     }
 
     float SceneRendererImpl::NoteTextureDemandOfBounds( const Common::Math::AABB&              local,
-                                                    const std::span<const glm::mat4>       transforms,
-                                                    const std::span<const Material* const> materials,
-                                                    const MaterialOverrides*               overrides ) const
+                                                        const std::span<const glm::mat4>       transforms,
+                                                        const std::span<const Material* const> materials,
+                                                        const MaterialOverrides*               overrides ) const
     {
         const auto* camera = GetMainCamera();
         if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
@@ -4559,9 +4561,10 @@ namespace Desert::Graphic
         return pixels;
     }
 
-    float SceneRendererImpl::NoteInstanceFieldDemand( const Mesh&                                          mesh,
-                                                  const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                                  const std::span<const Material* const> materials ) const
+    float
+    SceneRendererImpl::NoteInstanceFieldDemand( const Mesh&                                          mesh,
+                                                const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                                const std::span<const Material* const> materials ) const
     {
         const auto* camera = GetMainCamera();
         if ( camera == nullptr || !transforms || transforms->empty() || GetViewExtent().Height == 0 )
@@ -4580,7 +4583,7 @@ namespace Desert::Graphic
     }
 
     bool SceneRendererImpl::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
-                                                 float maxDrawDistance ) const
+                                                     float maxDrawDistance ) const
     {
         const auto* camera = GetMainCamera();
         if ( maxDrawDistance <= 0.0f || mesh == nullptr || camera == nullptr )
@@ -4616,7 +4619,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
-                                    const glm::mat4& transform, const RenderSubmissionExtra& extra )
+                                        const glm::mat4& transform, const RenderSubmissionExtra& extra )
     {
         if ( !mesh || !materialSlots || materialSlots->Slots.empty() )
         {
@@ -4834,10 +4837,10 @@ namespace Desert::Graphic
         m_Systems.Mesh->SubmitStaticScene( scene, m_StaticAdmitted, m_StaticAdmittedRevision );
     }
 
-    void SceneRendererImpl::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
-                                             const System::LandscapeTileDraw&   tile,
-                                             const std::shared_ptr<const MaterialOverrides>& overrides,
-                                             const System::LandscapeWeightDraw&               weights )
+    void SceneRendererImpl::SubmitLandscapeTile( const std::shared_ptr<Image2D>&                 heightmap,
+                                                 const System::LandscapeTileDraw&                tile,
+                                                 const std::shared_ptr<const MaterialOverrides>& overrides,
+                                                 const System::LandscapeWeightDraw&              weights )
     {
         // TEX-STREAMING: the tile's layer textures are asked for at the size the tile covers; its sphere spans the
         // tile's square around its base height, so a camera over the tile asks for everything.
@@ -4872,12 +4875,12 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
-                                           const std::string& shaderName, const MaterialOverrides& overrides,
-                                           bool outlined, Image2D* directTexture,
-                                           const std::string& directTextureSampler, bool castShadows,
-                                           bool                                    visibleInRayTracing,
-                                           const RayTracing::RayTracingProgramHit& rayHit,
-                                           const GenericValuesRevision             revision )
+                                               const std::string& shaderName, const MaterialOverrides& overrides,
+                                               bool outlined, Image2D* directTexture,
+                                               const std::string& directTextureSampler, bool castShadows,
+                                               bool                                    visibleInRayTracing,
+                                               const RayTracing::RayTracingProgramHit& rayHit,
+                                               const GenericValuesRevision             revision )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -4902,8 +4905,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
-                                                Material* material, uint64_t visibleSubmeshMask, bool outlined,
-                                                bool castShadows, const uint32_t motionPart )
+                                                    Material* material, uint64_t visibleSubmeshMask, bool outlined,
+                                                    bool castShadows, const uint32_t motionPart )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -4991,7 +4994,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::SubmitInstancedScene( const Render::InstancedSceneSnapshot& scene,
-                                              const Render::InstancedSceneFrame&    frame )
+                                                  const Render::InstancedSceneFrame&    frame )
     {
         DESERT_PROFILE_SCOPE( "SceneRendererImpl::SubmitInstancedScene" );
         // Index for index (MeshECSSystem writes both in one walk); a shorter frame array draws only its rows.
@@ -5012,7 +5015,8 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRendererImpl::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )
+    void SceneRendererImpl::SetOutlineSettings( const glm::vec3& color, float width, float smoothness,
+                                                bool enabled )
     {
         // Between recordings (SetDebugView's note): the outline system reads these while the view records.
         BetweenRecordings(
@@ -5053,8 +5057,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
-                                          const SkySettings& sky, const SunLightFx& fx,
-                                          const AtmosphereLight1& light1 )
+                                              const SkySettings& sky, const SunLightFx& fx,
+                                              const AtmosphereLight1& light1 )
     {
         m_SunLightFx = fx;
         m_Systems.Skybox->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx, light1 );
@@ -5162,7 +5166,7 @@ namespace Desert::Graphic
 
 #if DESERT_DEV_INSTRUMENTS
     void SceneRendererImpl::AddFrameDebugDraw( RDG::Builder& graph, FrameTextures& textures,
-                                           const RDG::TextureRef display, const OverlayTargets& overlay )
+                                               const RDG::TextureRef display, const OverlayTargets& overlay )
     {
         // THE GAMEPLAY DEBUG DRAWING (Core/DebugDraw.hpp) OVER THE DISPLAY-REFERRED FINAL IMAGE (UE: the editor
         // primitives - ULineBatchComponent's lines, DrawDebugPoint's squares - composite after the tonemapper,
@@ -5206,10 +5210,9 @@ namespace Desert::Graphic
     }
 #endif // DESERT_DEV_INSTRUMENTS
 
-    SceneRendererImpl::OverlayTargets SceneRendererImpl::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
-                                                                   const ViewFrame&      frame,
-                                                                   const RDG::TextureRef exposure,
-                                                                   const RDG::TextureRef opaqueLuma )
+    SceneRendererImpl::OverlayTargets
+    SceneRendererImpl::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                         const RDG::TextureRef exposure, const RDG::TextureRef opaqueLuma )
     {
         // The resolve of this frame: the temporal method's, the spatial upscale (below 100 % without one), and
         // above 100 % the fixed SSAA downsample after the temporal method, or alone without one
@@ -5463,8 +5466,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                                       const LocalLightShadowSettings&           shadow,
-                                       const System::LightFunctionProxy& function )
+                                           const LocalLightShadowSettings&           shadow,
+                                           const System::LightFunctionProxy&         function )
     {
         m_PointLight.PointLights.push_back( pointLight );
         // The light's tile in this frame's light function atlas (-1 = none); the atlas slot is stamped before the
@@ -5490,8 +5493,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                                      const LocalLightShadowSettings&          shadow,
-                                       const System::LightFunctionProxy& function )
+                                          const LocalLightShadowSettings&          shadow,
+                                          const System::LightFunctionProxy&        function )
     {
         m_SpotLight.SpotLights.push_back( spotLight );
         m_SpotLight.SpotLights.back().LightFunctionTile =
@@ -5535,15 +5538,16 @@ namespace Desert::Graphic
         m_RenderSystemOrder.push_back( system );
     }
 
-    void SceneRendererImpl::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )
+    void SceneRendererImpl::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data,
+                                          float fogHeightY )
     {
         m_Systems.HeightFog->SetFogSettings( present, data, fogHeightY );
         m_Systems.VolumetricFog->SetFogSettings( present, data, fogHeightY );
     }
 
     void SceneRendererImpl::SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data,
-                                             const glm::vec3& windOffset, const glm::vec3& windDirection,
-                                             const std::vector<HeroCloudInstance>& heroClouds )
+                                                 const glm::vec3& windOffset, const glm::vec3& windDirection,
+                                                 const std::vector<HeroCloudInstance>& heroClouds )
     {
         m_Systems.VolumetricCloud->SetCloudSettings(
              present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection, m_CloudQuality,
@@ -5552,7 +5556,7 @@ namespace Desert::Graphic
     }
 
     SceneResources::ContactShadowSettings SceneRendererImpl::GetContactShadowSettings( const ViewFrame& frame,
-                                                                                   bool hasOpaqueDepth ) const
+                                                                                       bool hasOpaqueDepth ) const
     {
         // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip. The view's PostProcess Contact
         // Shadows (m_RenderMethods.ContactShadows) gates the march for every light, as UE's r.ContactShadows does;

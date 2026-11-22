@@ -39,12 +39,12 @@ namespace Desert::Core
 {
     class Camera;
     enum class RenderPath : int;
-}
+} // namespace Desert::Core
 namespace Desert::ECS
 {
     struct ExponentialHeightFogData;
     struct VolumetricCloudData;
-}
+} // namespace Desert::ECS
 namespace Desert::Engine::Neural
 {
     struct NrcStats;
@@ -197,7 +197,6 @@ namespace Desert::Graphic
         class WaterRenderer;
     } // namespace System
 
-
     /**
      * What one view holds and what the scene it draws shares, READ FROM THE RESOURCE LEDGER (RT-LEDGER-3): the
      * view's rows (every device object opened under its instance: targets, history, per-view copies, its TLAS
@@ -235,10 +234,10 @@ namespace Desert::Graphic
     class SceneRenderer
     {
     public:
-        [[nodiscard]] static std::unique_ptr<SceneRenderer> Create( const ViewExtent& extent,
-                                                                    const ViewProfile& profile = kSceneViewProfile,
-                                                                    ResourceOwnerInstance accountUnder = ResourceOwnerInstance{} );
-        virtual ~SceneRenderer() = default;
+        [[nodiscard]] static std::unique_ptr<SceneRenderer>
+        Create( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile,
+                ResourceOwnerInstance accountUnder = ResourceOwnerInstance{} );
+        virtual ~SceneRenderer()                         = default;
         SceneRenderer( const SceneRenderer& )            = delete;
         SceneRenderer& operator=( const SceneRenderer& ) = delete;
 
@@ -364,7 +363,8 @@ namespace Desert::Graphic
         // @p camera is the VIEW's camera — the scene holds a list of views and hands in the one this
         // renderer is recording (Engine/Core/SceneViewList.hpp). Null is legal and renders a scene with
         // no view matrix, which is what a world whose camera has not been made yet looks like.
-        [[nodiscard]] virtual Common::BoolResultStr BeginScene( const Desert::Core::Scene& scene, Core::Camera* camera ) = 0;
+        [[nodiscard]] virtual Common::BoolResultStr BeginScene( const Desert::Core::Scene& scene,
+                                                                Core::Camera*              camera ) = 0;
 
         virtual void OnUpdate( const UpdateInfo& sceneRenderInfo ) = 0;
 
@@ -375,7 +375,7 @@ namespace Desert::Graphic
         // Captures or above), and the identity of the sky bake it holds (0 before it has one) - the scene
         // recaptures when it changes.
         [[nodiscard]] virtual bool     ReadsReflectionCaptures() const = 0;
-        [[nodiscard]] virtual uint64_t GetEnvironmentIdentity() = 0;
+        [[nodiscard]] virtual uint64_t GetEnvironmentIdentity()        = 0;
         // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a
         // reflection capture resamples into its cube. Null before the targets exist.
         [[nodiscard]] virtual std::shared_ptr<Image2D> GetSceneColorImage() const = 0;
@@ -421,13 +421,13 @@ namespace Desert::Graphic
         // velocity or debug — of this view. Measured from the view's main camera and stretched by its lens
         // (Graphic::IsWithinDrawDistance). maxDrawDistance <= 0, or no camera yet: drawn.
         [[nodiscard]] virtual bool IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
-                                                    float maxDrawDistance ) const = 0;
+                                                            float maxDrawDistance ) const = 0;
 
         // The slot binding is taken BY SHARED HANDLE, not by reference to the caller's storage: the
         // caller is a draw command whose recorder (an ECS component) may already be gone. See
         // Graphic::MaterialSlotBinding (A8-3).
-        virtual void SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots, const glm::mat4& transform,
-                         const RenderSubmissionExtra& extra ) = 0;
+        virtual void SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
+                                 const glm::mat4& transform, const RenderSubmissionExtra& extra ) = 0;
 
         // THE RETAINED STATIC SCENE'S REPLAY (Render::DrawStaticSceneCommand): every section of @p scene through
         // the same per-view admission SubmitMesh applies (readiness, max draw distance, texture demand, the LOD
@@ -439,14 +439,15 @@ namespace Desert::Graphic
         // ForcedLOD, the authored StaticMeshComponent::ForcedLOD is untouched and other views keep their own pick.
         // It is a LEASE, not a setting: per-frame renderer state that lapses one frame after the caller stops
         // renewing it (BeginScene), so a closed tool can never leave a view pinned. level < 0 clears it now.
-        virtual void              SetLODPreview( uint32_t entity, int level ) = 0;
+        virtual void              SetLODPreview( uint32_t entity, int level )                   = 0;
         [[nodiscard]] virtual int LODPreviewFor( uint32_t entity, int authoredForcedLOD ) const = 0;
 
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
-        virtual void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
-                                  const std::shared_ptr<const MaterialOverrides>& overrides,
-                                  const System::LandscapeWeightDraw&               weights ) = 0;
+        virtual void SubmitLandscapeTile( const std::shared_ptr<Image2D>&                 heightmap,
+                                          const System::LandscapeTileDraw&                tile,
+                                          const std::shared_ptr<const MaterialOverrides>& overrides,
+                                          const System::LandscapeWeightDraw&              weights ) = 0;
 
         // Submit one landscape root's grass for this frame (from LandscapeECSSystem via
         // DrawLandscapeGrassCommand). BY REFERENCE, NOT COPIED (REVIEW-FIX R6; UE: a mesh draw command reads its
@@ -483,17 +484,19 @@ namespace Desert::Graphic
             bool HasShaderName = false;
         };
         virtual void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
-                                const std::string& shaderName, const MaterialOverrides& overrides, bool outlined,
-                                Image2D* directTexture, const std::string& directTextureSampler, bool castShadows,
-                                bool visibleInRayTracing, const RayTracing::RayTracingProgramHit& rayHit,
-                                GenericValuesRevision revision ) = 0;
+                                        const std::string& shaderName, const MaterialOverrides& overrides,
+                                        bool outlined, Image2D* directTexture,
+                                        const std::string& directTextureSampler, bool castShadows,
+                                        bool visibleInRayTracing, const RayTracing::RayTracingProgramHit& rayHit,
+                                        GenericValuesRevision revision ) = 0;
 
         // v3 per-slot custom shaders: draw only @p visibleSubmeshMask submeshes of the mesh with the
         // slot's own runtime material (a MaterialService-owned DataDrivenMaterial). @p motionPart: the stable part
         // of the entity the draw belongs to (RenderSubmissionExtra::MotionPart), 0 = the entity itself.
-        virtual void SubmitSlotMaterialMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform, Material* material,
-                                     uint64_t visibleSubmeshMask, bool outlined = false, bool castShadows = false,
-                                     uint32_t motionPart = 0 ) = 0;
+        virtual void SubmitSlotMaterialMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
+                                             Material* material, uint64_t visibleSubmeshMask,
+                                             bool outlined = false, bool castShadows = false,
+                                             uint32_t motionPart = 0 ) = 0;
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] virtual uint32_t GetIsmInstancesDrawn() const = 0;
@@ -514,7 +517,8 @@ namespace Desert::Graphic
         /// PROBE-TURN-1: this view's screen probe far-field reads of the radiance cache by why they answered or not
         /// (GlobalIllumination::ScreenProbeMissReasons, read back slots-in-flight late); nullptr while the view has
         /// no screen probe gather.
-        [[nodiscard]] virtual const GlobalIllumination::ScreenProbeMissReasons* GetScreenProbeMissReasons() const = 0;
+        [[nodiscard]] virtual const GlobalIllumination::ScreenProbeMissReasons*
+        GetScreenProbeMissReasons() const = 0;
         /// FPS-SP-INTEGRATE: the screen probe gather's census (GlobalIllumination::ScreenProbeCensus: probes
         /// placed against the budget, the integrate's tiles by kind), slots-in-flight late; nullptr without a
         /// gather.
@@ -523,7 +527,8 @@ namespace Desert::Graphic
         /// PROBE-TRACE-COST-3: the radiance cache update's counts (GlobalIllumination::RadianceCacheUpdateCounts,
         /// read back slots-in-flight late): stamped, never traced, traced, slots taken / refused / freed by why.
         /// nullptr while the view has no radiance cache.
-        [[nodiscard]] virtual const GlobalIllumination::RadianceCacheUpdateCounts* GetRadianceCacheUpdateCounts() const = 0;
+        [[nodiscard]] virtual const GlobalIllumination::RadianceCacheUpdateCounts*
+        GetRadianceCacheUpdateCounts() const = 0;
         /// VIRT-GEOM (DesertCtl `state views.virtualGeometry`): the VG instances this frame's draw bins made cut
         /// candidates of, and the clusters the main view's cluster cut drew (read back slots-in-flight late,
         /// VirtualGeometry::ClusterCutCounts). Zero while no VG mesh is drawn. Overflow: what the cut could not do
@@ -580,23 +585,24 @@ namespace Desert::Graphic
         /// @p transforms covers with @p mesh, for every texture @p materials bind and every texture asset
         /// @p overrides name; answers that size (0 when there is no main camera or the mesh has no bounds).
         virtual float NoteTextureDemand( const Mesh& mesh, std::span<const glm::mat4> transforms,
-                                 std::span<const Material* const> materials,
-                                 const MaterialOverrides*         overrides = nullptr ) const = 0;
-        // The same, for a mesh whose local bounds the caller already holds (@p local, Geometry::LocalBounds).
-        virtual float NoteTextureDemandOfBounds( const Common::Math::AABB& local, std::span<const glm::mat4> transforms,
                                          std::span<const Material* const> materials,
                                          const MaterialOverrides*         overrides = nullptr ) const = 0;
+        // The same, for a mesh whose local bounds the caller already holds (@p local, Geometry::LocalBounds).
+        virtual float NoteTextureDemandOfBounds( const Common::Math::AABB&        local,
+                                                 std::span<const glm::mat4>       transforms,
+                                                 std::span<const Material* const> materials,
+                                                 const MaterialOverrides*         overrides = nullptr ) const = 0;
         /// NoteTextureDemand for an instanced field: the same size, the nearest of @p transforms, measured
         /// through the field's cached bounds tree (TextureStreamingDemand::FieldScreenPixels).
         virtual float NoteInstanceFieldDemand( const Mesh&                                          mesh,
-                                       const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                       std::span<const Material* const>                     materials ) const = 0;
+                                               const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                               std::span<const Material* const> materials ) const = 0;
 
         // THE RETAINED ISM LIST'S REPLAY (Render::DrawInstancedSceneCommand): every row of @p scene that is ready
         // to draw, with @p frame's values of the same index, into this view's instanced queue
         // (MeshRenderer::SubmitInstancedRow: no handle copied that the queue entry already holds).
         virtual void SubmitInstancedScene( const Render::InstancedSceneSnapshot& scene,
-                                   const Render::InstancedSceneFrame&    frame ) = 0;
+                                           const Render::InstancedSceneFrame&    frame ) = 0;
 
         virtual void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look ) = 0;
 
@@ -654,8 +660,9 @@ namespace Desert::Graphic
         // The GI / reflection / shadow methods this view renders and why any came out below its request — what
         // the viewport overlay draws (Graphic/RenderMethods.hpp). Refreshed every BeginScene.
         // VFX-PORT-2: this view's particle cull (ParticleRenderer::ViewEmitterCulls); empty without the system.
-        [[nodiscard]] virtual std::span<const System::ParticleViewEmitterCull> ParticleViewEmitterCulls() const = 0;
-        [[nodiscard]] virtual const RenderMethods& GetRenderMethods() const = 0;
+        [[nodiscard]] virtual std::span<const System::ParticleViewEmitterCull>
+                                                   ParticleViewEmitterCulls() const = 0;
+        [[nodiscard]] virtual const RenderMethods& GetRenderMethods() const         = 0;
         // GI-ALL-LIGHTS step 5: how the emissive light list followed the scene since the view was made - full
         // scene gathers vs in-place primitive moves (RayTracingSceneRenderer), CPU list rebuilds vs row moves
         // (EmissiveTriangleListCache), GPU static-part rebuilds vs moved-row passes (EmissiveLightsRenderer). A
@@ -706,7 +713,7 @@ namespace Desert::Graphic
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
         // the editor's Bake button.
         virtual void SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
-                               const SunLightFx& fx, const AtmosphereLight1& light1 ) = 0;
+                                       const SunLightFx& fx, const AtmosphereLight1& light1 ) = 0;
 
         // This frame's exponential height fog (from ExponentialHeightFogComponent, via the ECS).
         // `present` = false means the scene has no enabled fog component at all — said explicitly, because
@@ -717,9 +724,9 @@ namespace Desert::Graphic
 
         // This frame's volumetric cloud layer (from VolumetricCloudComponent, via the ECS). The wind
         // offset is accumulated by the ECS system, which is where the timestep lives.
-        virtual void SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
-                                  const glm::vec3&                      windDirection,
-                                  const std::vector<HeroCloudInstance>& heroClouds ) = 0;
+        virtual void SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data,
+                                          const glm::vec3& windOffset, const glm::vec3& windDirection,
+                                          const std::vector<HeroCloudInstance>& heroClouds ) = 0;
 
         // This gameplay step's gust fronts and the previous step's (Graphic::PackWindGust), from the ECS, which
         // advances them with the timestep (Render::WindGustCommand). Every view's frame carries them
@@ -727,7 +734,7 @@ namespace Desert::Graphic
         // It opens the step's local wind list: the step's point sources follow it (AddLocalWindSource), and a
         // step that sends none leaves none.
         virtual void SetWindGust( const glm::vec4& gust, const glm::vec4& prevGust,
-                          const glm::vec2& directionalVelocityXZ ) = 0;
+                                  const glm::vec2& directionalVelocityXZ ) = 0;
 
         // One point wind source of this gameplay step (Render::LocalWindSourceCommand), a candidate for the
         // camera block's local sources (Graphic::SelectLocalWind, BeginScene).
@@ -805,7 +812,8 @@ namespace Desert::Graphic
 
         // The virtual shadow map's local lights as last read back: per light its requested, rendered and cached
         // pages (DesertCtl state "vsm"). Empty while no frame drew a local light into the map.
-        [[nodiscard]] virtual const std::vector<System::VsmLocalLightStats>& GetVirtualShadowLocalStats() const = 0;
+        [[nodiscard]] virtual const std::vector<System::VsmLocalLightStats>&
+        GetVirtualShadowLocalStats() const = 0;
         // The virtual shadow map's drawn pages as last read back, static layer and movers apart (state "vsm").
         [[nodiscard]] virtual const System::VsmPageStats& GetVirtualShadowPageStats() const = 0;
 
@@ -828,9 +836,9 @@ namespace Desert::Graphic
         // records on the render task, and that frame's OnUpdate may re-budget the shadows (RebudgetShadowsFor
         // re-makes the maps). A published image stays alive in the snapshot until the next EndScene replaces it.
         [[nodiscard]] virtual std::shared_ptr<Image2D> GetShadowCascadeCacheImage( uint32_t cascade ) const = 0;
-        [[nodiscard]] virtual uint32_t                 GetShadowCascadeCount() const = 0;
+        [[nodiscard]] virtual uint32_t                 GetShadowCascadeCount() const                        = 0;
 
-        virtual const std::shared_ptr<Image2D>      GetFinalImage() = 0;
+        virtual const std::shared_ptr<Image2D> GetFinalImage() = 0;
         // THE DISPLAY-REFERRED FINAL IMAGE'S FRAMEBUFFER: the last post pass's output (tonemap, or FXAA / SMAA
         // after it), the image the viewport shows. The game UI draws on it after the post chain
         // (RDG::ExtensionPoint::UI, UE: Slate/UMG over the final image), so its pipelines are built against it.
@@ -854,7 +862,7 @@ namespace Desert::Graphic
         // reader (the mesh cells, the forward terrain) reads the virtual map in place of the atlas.
         // This frame's RenderPipeline.ParallelSetup (or the --parallel-setup override): a pass may build its
         // setup on Common::TaskGroup tasks (MeshRenderer::DeclareGBufferDraws' early-Z halves).
-        [[nodiscard]] virtual bool ParallelSetup() const = 0;
+        [[nodiscard]] virtual bool ParallelSetup() const          = 0;
         [[nodiscard]] virtual bool LocalShadowsAreVirtual() const = 0;
         // This frame's point/spot lights have virtual-shadow-map pages (m_LocalLightsVirtualPages, resolved once
         // per frame by AssignLocalShadowMaskSlots through RenderMethods' LocalLightsVirtualPages):
@@ -870,7 +878,7 @@ namespace Desert::Graphic
         // The lights whose Shadow Method is not Auto, as AssignLocalShadowMaskSlots resolved them this frame
         // (DesertCtl state render.shadows.lights).
         [[nodiscard]] virtual const std::vector<StochasticLightMethod>& GetStochasticLightMethods() const = 0;
-        [[nodiscard]] virtual const System::VirtualShadowMapQuality& GetVirtualShadowQuality() const = 0;
+        [[nodiscard]] virtual const System::VirtualShadowMapQuality&    GetVirtualShadowQuality() const   = 0;
 
         // Shared GraphicsPipeline cache (keyed by shader + target + render-state). Renderers request
         // pipelines from here instead of creating their own; cleared on Init (full rebuild).
@@ -880,7 +888,7 @@ namespace Desert::Graphic
         // to hide authoring aids during gameplay.
         virtual bool IsScenePlaying() const = 0;
 
-        virtual std::shared_ptr<Texture>     GetTexture( const std::string& name ) = 0;
+        virtual std::shared_ptr<Texture> GetTexture( const std::string& name ) = 0;
 
         // BY CONST REFERENCE, because the caller is a RECORDED COMMAND that is replayed once per view
         // of the scene (Scene::OnUpdate). An rvalue parameter invited the recorder to hand its only copy
@@ -888,8 +896,8 @@ namespace Desert::Graphic
         // @p shadow is what the light asks of its shadow; the payload's ShadowView is written later, by
         // MeshRenderer::UpdateLocalShadows, once the frame's atlas is allocated.
         virtual void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                            const LocalLightShadowSettings&           shadow,
-                           const System::LightFunctionProxy& function ) = 0;
+                                    const LocalLightShadowSettings&           shadow,
+                                    const System::LightFunctionProxy&         function ) = 0;
 
         virtual const ShaderProtocols::PointLight& GetPointLights() const = 0;
 
@@ -898,8 +906,8 @@ namespace Desert::Graphic
         virtual void AddDecal( const System::DecalProxy& decal ) = 0;
 
         virtual void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                           const LocalLightShadowSettings&          shadow,
-                           const System::LightFunctionProxy& function ) = 0;
+                                   const LocalLightShadowSettings&          shadow,
+                                   const System::LightFunctionProxy&        function ) = 0;
 
         // One local fog volume of this frame (LocalFogVolumeCommand, replayed per view: by const reference).
         // The list is reserved once at kVolumetricFogMaxLocalVolumes and emptied with the lights at frame end.
@@ -927,7 +935,8 @@ namespace Desert::Graphic
 
         /// The view's snapshot of the world's parameters this frame (Common/WorldParameters.glslh), written once
         /// at BeginScene from Scene::GetWorldParameters; every capture of the frame binds this one buffer.
-        [[nodiscard]] virtual const std::shared_ptr<ShaderResources::StorageBuffer>& GetWorldParametersBuffer() const = 0;
+        [[nodiscard]] virtual const std::shared_ptr<ShaderResources::StorageBuffer>&
+        GetWorldParametersBuffer() const = 0;
         // The frame's sun as every lit pass receives it: the first directional light (direction it travels,
         // colour/intensity), or the default sun when the scene has none. The deferred composite and the
         // surface-cache lighting read this one rule.
@@ -952,8 +961,8 @@ namespace Desert::Graphic
         /// @p hasOpaqueDepth says whether the pass has the opaque scene depth to march: the deferred path's
         /// G-buffer depth does; the forward path draws its opaque surfaces with no prepass, so its passes get
         /// Steps = 0 (no march) - there is nothing in front of them for the ray to hit.
-        [[nodiscard]] virtual SceneResources::ContactShadowSettings GetContactShadowSettings( const ViewFrame& frame,
-                                                                                      bool hasOpaqueDepth ) const = 0;
+        [[nodiscard]] virtual SceneResources::ContactShadowSettings
+        GetContactShadowSettings( const ViewFrame& frame, bool hasOpaqueDepth ) const = 0;
         /// THE view's sun PCSS kernel (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps), packed into
         /// ShadowUB by every lit pass that samples the cascades.
         [[nodiscard]] virtual SceneResources::ShadowFilterSettings GetShadowFilterSettings() const = 0;
@@ -972,7 +981,6 @@ namespace Desert::Graphic
 
         // This view's RT scene (instances, skips, stats) as of its last frame - the viewport's RT scene overlay.
         [[nodiscard]] virtual const RayTracing::RayTracingSceneRenderer& GetRayTracingScene() const = 0;
-
 
     protected:
         SceneRenderer() = default;

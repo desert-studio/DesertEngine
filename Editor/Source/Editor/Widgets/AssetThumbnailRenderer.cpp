@@ -106,7 +106,7 @@ namespace Desert::Editor
         if ( !m_Renderer )
         {
             m_Renderer = Graphic::SceneRenderer::Create( Graphic::ViewExtent{ kRenderSize, kRenderSize },
-                                                                   Graphic::kThumbnailViewProfile );
+                                                         Graphic::kThumbnailViewProfile );
         }
 
         // THE VIEW IS BUILT ONE STAGE PER TICK, not in the tick that first wants a picture. Built whole it was

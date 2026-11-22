@@ -244,7 +244,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures,
-                                               const ViewFrame& frame )
+                                                   const ViewFrame& frame )
     {
         auto* volume = m_Systems.VolumetricFog.get();
         if ( volume == nullptr )
@@ -272,7 +272,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
-                                                            const ViewFrame& frame )
+                                                                const ViewFrame& frame )
     {
         auto* volume    = m_Systems.TranslucencyLightingVolume.get();
         auto* particles = m_Systems.Particle.get();
@@ -293,8 +293,8 @@ namespace Desert::Graphic
                  std::shared_ptr<Image>( lit ), System::TranslucencyLightingVolumeRenderer::kVolumeName );
     }
 
-    void SceneRendererImpl::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
-                                           const OpaqueFogFroxels froxels )
+    void SceneRendererImpl::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures,
+                                               const ViewFrame& frame, const OpaqueFogFroxels froxels )
     {
         AddFrameSceneDepthResolve( graph, textures );
         if ( froxels == OpaqueFogFroxels::AddHere )
@@ -345,7 +345,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame )
+                                                      const ViewFrame& frame )
     {
         auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )

@@ -518,7 +518,7 @@ namespace Desert::Editor
                 {
                     const auto side = CaptureSide( m_Cells.front() );
                     m_Renderer      = Graphic::SceneRenderer::Create( Graphic::ViewExtent{ side, side },
-                                                                                Graphic::kThumbnailViewProfile );
+                                                                      Graphic::kThumbnailViewProfile );
                 }
                 if ( !m_Renderer->AdvanceRendererBuild() )
                     return false;

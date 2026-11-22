@@ -54,7 +54,7 @@
 namespace Desert::Graphic
 {
     RDG::TextureRef SceneRendererImpl::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures,
-                                                      const RDG::TextureRef scene )
+                                                          const RDG::TextureRef scene )
     {
         auto* jfa = m_Systems.JumpFlood.get();
         if ( jfa == nullptr || !scene.IsValid() )
@@ -143,8 +143,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
-                                              const std::vector<RDG::TextureRef>& sceneColor,
-                                              const RDG::TextureRef               previous )
+                                                  const std::vector<RDG::TextureRef>& sceneColor,
+                                                  const RDG::TextureRef               previous )
     {
         auto* autoExp = m_Systems.AutoExposure.get();
         if ( autoExp == nullptr || sceneColor.empty() || !previous.IsValid() )
@@ -195,7 +195,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameLocalExposure( RDG::Builder& graph, FrameTextures& textures,
-                                               const std::vector<RDG::TextureRef>& sceneColor )
+                                                   const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* le = m_Systems.LocalExposure.get();
         auto* tonemap = m_Systems.Tonemap.get();
@@ -273,9 +273,9 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameLocalExposureFusion( RDG::Builder& graph, FrameTextures& textures,
-                                                     System::LocalExposureRenderer& le,
-                                                     const System::TonemapRenderer& tonemap, RDG::TextureRef scene,
-                                                     uint32_t width, uint32_t height )
+                                                         System::LocalExposureRenderer& le,
+                                                         const System::TonemapRenderer& tonemap,
+                                                         RDG::TextureRef scene, uint32_t width, uint32_t height )
     {
         // UE 5.4 AddLocalExposureFusionPass: setup at full resolution, the exposures and weights downsampled to a
         // texel (two Gaussian pyramids), then the blend coarsest-first through the Laplacian bands. The setup
@@ -344,7 +344,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
-                                       const std::vector<RDG::TextureRef>& sceneColor )
+                                           const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* bloom = m_Systems.Bloom.get();
         if ( bloom == nullptr || sceneColor.empty() )
@@ -401,8 +401,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
-                                             const std::vector<RDG::TextureRef>& sceneColor,
-                                             const std::shared_ptr<FrameValues>& values )
+                                                 const std::vector<RDG::TextureRef>& sceneColor,
+                                                 const std::shared_ptr<FrameValues>& values )
     {
         // The sun's screen position is the frame's, known when the graph is built (the camera and the atmosphere
         // are); the shafts here and the lens flare after them read it from the frame's shared values, whether or
@@ -470,8 +470,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameLensFlare( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& sceneColor,
-                                           const std::shared_ptr<FrameValues>& values )
+                                               const std::vector<RDG::TextureRef>& sceneColor,
+                                               const std::shared_ptr<FrameValues>& values )
     {
         auto* flare = m_Systems.LensFlare.get();
         auto* tonemap = m_Systems.Tonemap.get();
@@ -526,7 +526,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameTonemap( RDG::Builder& graph, FrameTextures& textures,
-                                         const RDG::TextureRef source, const ViewFrame& frame )
+                                             const RDG::TextureRef source, const ViewFrame& frame )
     {
         auto* tonemap = m_Systems.Tonemap.get();
         if ( tonemap == nullptr )
@@ -694,7 +694,7 @@ namespace Desert::Graphic
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameBackdropBlur( RDG::Builder& graph, FrameTextures& textures,
-                                                         const std::vector<RDG::TextureRef>& sceneColor )
+                                                             const std::vector<RDG::TextureRef>& sceneColor )
     {
         auto* backdrop = m_Systems.BackdropBlur.get();
         if ( backdrop == nullptr || sceneColor.empty() )

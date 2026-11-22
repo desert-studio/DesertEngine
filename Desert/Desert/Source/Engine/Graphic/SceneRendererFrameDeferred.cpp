@@ -259,7 +259,7 @@ namespace Desert::Graphic
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures,
-                                                              const std::string_view name )
+                                                                  const std::string_view name )
     {
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
             return {};
@@ -313,7 +313,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameSSAO( RDG::Builder& graph, FrameTextures& textures,
-                                      const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
+                                          const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
     {
         // SSAO first (reads the G-buffer depth + normal into the AO buffer); the lighting pass below multiplies
         // its ambient term by this. Skipped when disabled (the shader uses AO=1 then).
@@ -386,7 +386,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameTileClassify( RDG::Builder& graph, FrameTextures& textures,
-                                              const std::vector<RDG::TextureRef>& gbuffer )
+                                                  const std::vector<RDG::TextureRef>& gbuffer )
     {
         // GPU-TILE-CLASSIFY (RenderPipeline.TileClassify; UE Substrate ClassificationTiles, classified on the
         // async pipe): the view's ONE tile list, before its first reader (SSAO), read by every screen pass that
@@ -431,7 +431,7 @@ namespace Desert::Graphic
     }
 
     LightGridParamsPayload SceneRendererImpl::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
-                                                             const ViewFrame& frame )
+                                                                 const ViewFrame& frame )
     {
         auto* const deferred =
              m_Systems.DeferredLighting.get();
@@ -481,7 +481,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameReflectionCaptureUpdate( RDG::Builder& graph, FrameTextures& textures,
-                                                         const bool tracedGI )
+                                                             const bool tracedGI )
     {
         if ( !m_FrameReflectionCaptures )
             return;
@@ -505,10 +505,9 @@ namespace Desert::Graphic
         return RadianceCacheRuns() && m_GIPipeline.ScreenProbes && m_ScreenProbeShortRangeAO;
     }
 
-    std::optional<SceneRendererImpl::TracedGIUpdate>
-    SceneRendererImpl::AddFrameTracedGIUpdate( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const ViewFrame& frame )
+    std::optional<SceneRendererImpl::TracedGIUpdate> SceneRendererImpl::AddFrameTracedGIUpdate(
+         RDG::Builder& graph, FrameTextures& textures, const std::vector<RDG::TextureRef>& gbuffer,
+         const glm::vec4& lightDir, const glm::vec4& lightColor, const ViewFrame& frame )
     {
         if ( !RadianceCacheRuns() )
             return std::nullopt;
@@ -679,8 +678,9 @@ namespace Desert::Graphic
         return TracedGIUpdate{ .Inputs = inputs, .Cache = cache.GetValue() };
     }
 
-    Common::BoolResultStr SceneRendererImpl::AddFrameRadianceCacheFinish( RDG::Builder& graph, FrameTextures& textures,
-                                                                      const TracedGIUpdate& update )
+    Common::BoolResultStr SceneRendererImpl::AddFrameRadianceCacheFinish( RDG::Builder&         graph,
+                                                                          FrameTextures&        textures,
+                                                                          const TracedGIUpdate& update )
     {
         // An update after its readers (FPS-ASYNC-WAIT) is filtered by AddFrameRadianceCacheDeferredUpdate; the
         // radiosity below reads the cache as the last update left it, like every other reader of this frame.
@@ -750,9 +750,9 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameTracedGIGather( RDG::Builder& graph, FrameTextures& textures,
-                                                const std::vector<RDG::TextureRef>& gbuffer,
-                                                const std::optional<TracedGIUpdate>& update,
-                                                const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+                                                    const std::vector<RDG::TextureRef>&  gbuffer,
+                                                    const std::optional<TracedGIUpdate>& update,
+                                                    const FrameScreenTrace& screenTrace, const ViewFrame& frame )
     {
         if ( !update )
             return;
@@ -868,8 +868,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameSSGI( RDG::Builder& graph, FrameTextures& textures,
-                                      const std::vector<RDG::TextureRef>& gbuffer,
-                                      const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+                                          const std::vector<RDG::TextureRef>& gbuffer,
+                                          const FrameScreenTrace& screenTrace, const ViewFrame& frame )
     {
         if ( m_RenderMethods.GlobalIllumination.Effective != Common::Scalability::GIMethod::ScreenSpace )
             return;
@@ -933,7 +933,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures,
-                                                const ViewFrame& frame )
+                                                    const ViewFrame& frame )
     {
         auto* const deferred =
              m_Systems.DeferredLighting.get();
@@ -960,13 +960,13 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
-                                           const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                           const RDG::TextureRef             sunShadowMask,
-                                           const RDG::TextureRef             localShadowMasks,
-                                           const System::MegaLightsLighting& megaLights,
-                                           System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const ViewFrame& frame,
-                                           const RDG::TextureRef subsurfaceDiffuse )
+                                               const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
+                                               const RDG::TextureRef             sunShadowMask,
+                                               const RDG::TextureRef             localShadowMasks,
+                                               const System::MegaLightsLighting& megaLights,
+                                               System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
+                                               const glm::vec4& lightColor, const ViewFrame& frame,
+                                               const RDG::TextureRef subsurfaceDiffuse )
     {
         // w: what SsrTexture holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
         // traced reflection, which the composite fades into the traced GI's rough specular past
@@ -1241,8 +1241,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameSubsurface( RDG::Builder& graph, FrameTextures& textures,
-                                            const std::vector<RDG::TextureRef>& gbuffer,
-                                            const RDG::TextureRef subsurfaceDiffuse, const ViewFrame& frame )
+                                                const std::vector<RDG::TextureRef>& gbuffer,
+                                                const RDG::TextureRef subsurfaceDiffuse, const ViewFrame& frame )
     {
         if ( gbuffer.size() < 2 )
             return;
@@ -1306,7 +1306,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameGlobalDistanceField( RDG::Builder& graph, FrameTextures& textures,
-                                                     const ViewFrame& frame )
+                                                         const ViewFrame& frame )
     {
         const auto& it = m_Systems.Mesh;
         auto* const meshRenderer =
@@ -1550,7 +1550,7 @@ namespace Desert::Graphic
 
 #if DESERT_DEV_INSTRUMENTS
     void SceneRendererImpl::AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures,
-                                              const RDG::TextureRef target )
+                                                  const RDG::TextureRef target )
     {
         // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
         if ( m_DebugView.DeferredDebug != DeferredDebugMode::Velocity ||
@@ -1588,7 +1588,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameIndirectView( RDG::Builder& graph, FrameTextures& textures,
-                                              const RDG::TextureRef target, const ViewFrame& frame )
+                                                  const RDG::TextureRef target, const ViewFrame& frame )
     {
         // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame. The composite drew
         // this frame Lit (DrawsLitComposite), so the scene colour history the screen traces read stays lit.
@@ -1640,7 +1640,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameLightGridWorldView( RDG::Builder& graph, FrameTextures& textures,
-                                                    const RDG::TextureRef target, const ViewFrame& frame )
+                                                        const RDG::TextureRef target, const ViewFrame& frame )
     {
         if ( m_DebugView.DeferredDebug != DeferredDebugMode::LightGridWorld ||
              m_RenderPath != Core::RenderPath::Deferred )
@@ -1684,7 +1684,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameGlobalDistanceFieldView( RDG::Builder& graph, FrameTextures& textures,
-                                                         const ViewFrame& frame, const RDG::TextureRef target )
+                                                             const ViewFrame& frame, const RDG::TextureRef target )
     {
         // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
         if ( m_DebugView.DeferredDebug != DeferredDebugMode::GlobalDistanceField ||
@@ -1709,7 +1709,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameDeformationFieldView( RDG::Builder& graph, FrameTextures& textures,
-                                                      const ViewFrame& frame, const RDG::TextureRef target )
+                                                          const ViewFrame& frame, const RDG::TextureRef target )
     {
         if ( m_DebugView.DeferredDebug != DeferredDebugMode::DeformationField || m_ViewProfile.SceneCapture )
             return;
@@ -1737,7 +1737,8 @@ namespace Desert::Graphic
     }
 #endif // DESERT_DEV_INSTRUMENTS
 
-    void SceneRendererImpl::AddFrameDeformationField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameDeformationField( RDG::Builder& graph, FrameTextures& textures,
+                                                      const ViewFrame& frame )
     {
         m_DeformationFrame.reset();
         // DEFORM-GRASS: on every exit the mesh lists get this graph's field as its surfaces read it - the levels'
@@ -1790,9 +1791,9 @@ namespace Desert::Graphic
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameSceneCopy( RDG::Builder& graph, FrameTextures& textures,
-                                                      const std::vector<RDG::TextureRef>& sceneColor,
-                                                      System::CopyRenderer* copy, RDG::TextureRef into,
-                                                      std::function<void()> recorded )
+                                                          const std::vector<RDG::TextureRef>& sceneColor,
+                                                          System::CopyRenderer* copy, RDG::TextureRef into,
+                                                          std::function<void()> recorded )
     {
         if ( copy == nullptr || sceneColor.empty() )
             return {};
@@ -1835,7 +1836,7 @@ namespace Desert::Graphic
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures,
-                                                const RDG::TextureRef depth )
+                                                    const RDG::TextureRef depth )
     {
         if ( textures.Transients.ClosestHzb.IsValid() )
             return textures.Transients.ClosestHzb; // one hierarchy per graph: its first caller built it
@@ -1872,8 +1873,8 @@ namespace Desert::Graphic
     }
 
     RDG::BufferRef SceneRendererImpl::AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
-                                                    const glm::vec4& lightDir, const glm::vec4& lightColor,
-                                                    const glm::uvec2 extent )
+                                                        const glm::vec4& lightDir, const glm::vec4& lightColor,
+                                                        const glm::uvec2 extent )
     {
         const GlobalIllumination::GIFramePayload payload =
              MakeFrameGIPayload( frame, lightDir, lightColor, extent );
@@ -1883,9 +1884,9 @@ namespace Desert::Graphic
     }
 
     GlobalIllumination::GIFramePayload SceneRendererImpl::MakeFrameGIPayload( const ViewFrame& frame,
-                                                                          const glm::vec4& lightDir,
-                                                                          const glm::vec4& lightColor,
-                                                                          const glm::uvec2 extent )
+                                                                              const glm::vec4& lightDir,
+                                                                              const glm::vec4& lightColor,
+                                                                              const glm::uvec2 extent )
     {
         GlobalIllumination::GIFramePayload payload;
         payload.InvViewProjection = frame.InvJitteredViewProjection;
@@ -1914,9 +1915,9 @@ namespace Desert::Graphic
     }
 
     uint64_t SceneRendererImpl::PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
-                                                  const uint64_t environment, const uint64_t emissive,
-                                                  const CloudShadowUniforms& cloudShadow,
-                                                  const glm::vec4&           grassLens ) const
+                                                      const uint64_t environment, const uint64_t emissive,
+                                                      const CloudShadowUniforms& cloudShadow,
+                                                      const glm::vec4&           grassLens ) const
     {
         System::PathTracer::SceneHasher         hash;
         const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
@@ -2022,7 +2023,8 @@ namespace Desert::Graphic
         }
     }
 
-    Common::ResultStr<RayTracing::EmissiveLightsFrame> SceneRendererImpl::AddFrameEmissiveLights( RDG::Builder& graph )
+    Common::ResultStr<RayTracing::EmissiveLightsFrame>
+    SceneRendererImpl::AddFrameEmissiveLights( RDG::Builder& graph )
     {
         using Result    = RayTracing::EmissiveLightsFrame;
         const bool tlas = m_RayTracingScene.GetFrame().Built;
@@ -2104,7 +2106,7 @@ namespace Desert::Graphic
     }
 
     Common::BoolResultStr SceneRendererImpl::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
-                                                              const ViewFrame& frame )
+                                                                  const ViewFrame& frame )
     {
         auto* const pathTracer = m_Systems.PathTracer.get();
         if ( pathTracer == nullptr )
@@ -2302,10 +2304,9 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    std::optional<System::SSRRenderer::TracedReads>
-    SceneRendererImpl::MakeTracedReflectionReads( RDG::Builder& graph, FrameTextures& textures,
-                                              System::SSRRenderer&                ssr,
-                                              const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
+    std::optional<System::SSRRenderer::TracedReads> SceneRendererImpl::MakeTracedReflectionReads(
+         RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
+         const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
     {
         FrameTransients& t = textures.Transients;
         const auto refuse  = [&]( const std::string_view why ) -> std::optional<System::SSRRenderer::TracedReads>
@@ -2444,11 +2445,11 @@ namespace Desert::Graphic
     }
 
     SceneRendererImpl::FrameSSR SceneRendererImpl::AddFrameSSR( RDG::Builder& graph, FrameTextures& textures,
-                                                        System::SSRRenderer&                ssr,
-                                                        const std::vector<RDG::TextureRef>& gbuffer,
-                                                        const FrameScreenTrace&             screenTrace,
-                                                        const ViewFrame&                    frame,
-                                                        const FrontLayerSurface* frontLayer )
+                                                                System::SSRRenderer&                ssr,
+                                                                const std::vector<RDG::TextureRef>& gbuffer,
+                                                                const FrameScreenTrace&             screenTrace,
+                                                                const ViewFrame&                    frame,
+                                                                const FrontLayerSurface*            frontLayer )
     {
         if ( gbuffer.size() < 3 )
         {
@@ -2722,7 +2723,8 @@ namespace Desert::Graphic
         return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
     }
 
-    SceneRendererImpl::FrontLayerWriters SceneRendererImpl::BuildFrontLayerWriters( System::MeshRenderer* meshRenderer )
+    SceneRendererImpl::FrontLayerWriters
+    SceneRendererImpl::BuildFrontLayerWriters( System::MeshRenderer* meshRenderer )
     {
         // Always asked of the meshes: BuildFrontLayerDraws builds (or clears) the list their pass records.
         const auto* water = m_Systems.Water.get();

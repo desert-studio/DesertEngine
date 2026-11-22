@@ -115,9 +115,9 @@ namespace Desert::Graphic
         return tracer.Traced && tracer.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
     }
 
-    GlobalIllumination::TracerFrame SceneRendererImpl::MakeTracerFrame( RDG::Builder&                       graph,
-                                                                    const FrameTextures&                textures,
-                                                                    const GlobalIllumination::Pipeline& pipeline )
+    GlobalIllumination::TracerFrame
+    SceneRendererImpl::MakeTracerFrame( RDG::Builder& graph, const FrameTextures& textures,
+                                        const GlobalIllumination::Pipeline& pipeline )
     {
         const FrameTransients&          t = textures.Transients;
         GlobalIllumination::TracerFrame tracer{ .Pipeline                      = pipeline,
@@ -194,7 +194,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameSurfaceCache( RDG::Builder& graph, FrameTextures& textures,
-                                              const ViewFrame& frame )
+                                                  const ViewFrame& frame )
     {
         m_SurfaceCacheFrame.reset();
         if ( !SurfaceCacheRuns() )
@@ -465,7 +465,7 @@ namespace Desert::Graphic
 
 #if DESERT_DEV_INSTRUMENTS
     void SceneRendererImpl::AddFrameSurfaceCacheView( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame, const RDG::TextureRef target )
+                                                      const ViewFrame& frame, const RDG::TextureRef target )
     {
         const bool atlasView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheAtlas;
         const bool sceneView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheScene;

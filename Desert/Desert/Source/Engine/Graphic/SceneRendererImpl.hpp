@@ -4,7 +4,6 @@
 // SceneRenderer*.cpp translation units include it; everything else holds the interface (SceneRenderer.hpp).
 #include <Engine/Graphic/SceneRenderer.hpp>
 
-
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
 
@@ -147,41 +146,41 @@ namespace Desert::Graphic
      */
     struct SceneRenderSystems
     {
-        std::shared_ptr<System::SkyboxRenderer>            Skybox;
-        std::shared_ptr<System::MeshRenderer>              Mesh;
-        std::shared_ptr<System::JumpFloodOutlineRenderer>  JumpFlood;
-        std::shared_ptr<System::TerrainRenderer>           Terrain;
-        std::shared_ptr<System::GrassRenderer>             Grass;
-        std::shared_ptr<System::WaterRenderer>             Water;
-        std::shared_ptr<System::TonemapRenderer>           Tonemap;
-        std::shared_ptr<System::CombineLUTsRenderer>       CombineLUTs;
-        std::shared_ptr<System::BackdropBlurRenderer>      BackdropBlur;
-        std::shared_ptr<System::BloomRenderer>             Bloom;
-        std::shared_ptr<System::LightShaftRenderer>        LightShaft;
-        std::shared_ptr<System::LensFlareRenderer>         LensFlare;
-        std::shared_ptr<System::SSAORenderer>              SSAO;
-        std::shared_ptr<System::DepthExpandRenderer>       DepthExpand;
-        std::shared_ptr<System::SceneDepthResolveRenderer> SceneDepthResolve;
-        std::shared_ptr<System::GraphColorResolveRenderer> GraphColorResolve;
-        std::shared_ptr<System::CopyRenderer>              SceneColorCopy;
-        std::shared_ptr<System::VelocityViewRenderer>      VelocityView;
-        std::shared_ptr<System::IndirectViewRenderer>      IndirectView;
-        std::shared_ptr<System::HeightFogRenderer>         HeightFog;
-        std::shared_ptr<System::VolumetricFogRenderer>     VolumetricFog;
-        std::shared_ptr<System::HeterogeneousVolumeRenderer> HeterogeneousVolume;
+        std::shared_ptr<System::SkyboxRenderer>                     Skybox;
+        std::shared_ptr<System::MeshRenderer>                       Mesh;
+        std::shared_ptr<System::JumpFloodOutlineRenderer>           JumpFlood;
+        std::shared_ptr<System::TerrainRenderer>                    Terrain;
+        std::shared_ptr<System::GrassRenderer>                      Grass;
+        std::shared_ptr<System::WaterRenderer>                      Water;
+        std::shared_ptr<System::TonemapRenderer>                    Tonemap;
+        std::shared_ptr<System::CombineLUTsRenderer>                CombineLUTs;
+        std::shared_ptr<System::BackdropBlurRenderer>               BackdropBlur;
+        std::shared_ptr<System::BloomRenderer>                      Bloom;
+        std::shared_ptr<System::LightShaftRenderer>                 LightShaft;
+        std::shared_ptr<System::LensFlareRenderer>                  LensFlare;
+        std::shared_ptr<System::SSAORenderer>                       SSAO;
+        std::shared_ptr<System::DepthExpandRenderer>                DepthExpand;
+        std::shared_ptr<System::SceneDepthResolveRenderer>          SceneDepthResolve;
+        std::shared_ptr<System::GraphColorResolveRenderer>          GraphColorResolve;
+        std::shared_ptr<System::CopyRenderer>                       SceneColorCopy;
+        std::shared_ptr<System::VelocityViewRenderer>               VelocityView;
+        std::shared_ptr<System::IndirectViewRenderer>               IndirectView;
+        std::shared_ptr<System::HeightFogRenderer>                  HeightFog;
+        std::shared_ptr<System::VolumetricFogRenderer>              VolumetricFog;
+        std::shared_ptr<System::HeterogeneousVolumeRenderer>        HeterogeneousVolume;
         std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
-        std::shared_ptr<System::VolumetricCloudRenderer>   VolumetricCloud;
-        std::shared_ptr<System::ParticleRenderer>          Particle;
-        std::shared_ptr<System::DeferredLightingRenderer>  DeferredLighting;
-        std::shared_ptr<System::SubsurfaceRenderer>        Subsurface;
-        std::shared_ptr<System::AutoExposureRenderer>      AutoExposure;
-        std::shared_ptr<System::LocalExposureRenderer>     LocalExposure;
-        std::shared_ptr<System::FXAARenderer>              FXAA;
-        std::shared_ptr<System::SMAARenderer>              SMAA;
-        std::shared_ptr<System::SSRRenderer>               SSR;
-        std::shared_ptr<System::PathTracer>                PathTracer;
-        std::shared_ptr<System::HZBRenderer>               HZB;
-        std::shared_ptr<System::SceneColorHistoryRenderer> SceneColorHistory;
+        std::shared_ptr<System::VolumetricCloudRenderer>            VolumetricCloud;
+        std::shared_ptr<System::ParticleRenderer>                   Particle;
+        std::shared_ptr<System::DeferredLightingRenderer>           DeferredLighting;
+        std::shared_ptr<System::SubsurfaceRenderer>                 Subsurface;
+        std::shared_ptr<System::AutoExposureRenderer>               AutoExposure;
+        std::shared_ptr<System::LocalExposureRenderer>              LocalExposure;
+        std::shared_ptr<System::FXAARenderer>                       FXAA;
+        std::shared_ptr<System::SMAARenderer>                       SMAA;
+        std::shared_ptr<System::SSRRenderer>                        SSR;
+        std::shared_ptr<System::PathTracer>                         PathTracer;
+        std::shared_ptr<System::HZBRenderer>                        HZB;
+        std::shared_ptr<System::SceneColorHistoryRenderer>          SceneColorHistory;
         // Lumen-style front-layer reflections: an SSR instance of its own, registered on first use.
         std::shared_ptr<System::SSRRenderer> FrontLayerReflections;
     };
@@ -192,7 +191,7 @@ namespace Desert::Graphic
     public:
         // The SceneRenderer interface (SceneRenderer.hpp documents each call), then the view's passes.
         SceneRendererImpl( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile,
-                       ResourceOwnerInstance accountUnder = ResourceOwnerInstance{} );
+                           ResourceOwnerInstance accountUnder = ResourceOwnerInstance{} );
         ~SceneRendererImpl();
         [[nodiscard]] const ShadowQuality& GetShadowQuality() const override
         {
@@ -210,21 +209,22 @@ namespace Desert::Graphic
         {
             return m_FrameLocalShadows;
         }
-        void Init() override;
-        bool AdvanceRendererBuild() override;
-        [[nodiscard]] Common::BoolResultStr BeginScene( const Desert::Core::Scene& scene, Core::Camera* camera ) override;
-        void OnUpdate( const UpdateInfo& sceneRenderInfo ) override;
-        [[nodiscard]] Common::BoolResultStr EndScene() override;
-        [[nodiscard]] bool     ReadsReflectionCaptures() const override;
-        [[nodiscard]] uint64_t GetEnvironmentIdentity() override;
+        void                                   Init() override;
+        bool                                   AdvanceRendererBuild() override;
+        [[nodiscard]] Common::BoolResultStr    BeginScene( const Desert::Core::Scene& scene,
+                                                           Core::Camera*              camera ) override;
+        void                                   OnUpdate( const UpdateInfo& sceneRenderInfo ) override;
+        [[nodiscard]] Common::BoolResultStr    EndScene() override;
+        [[nodiscard]] bool                     ReadsReflectionCaptures() const override;
+        [[nodiscard]] uint64_t                 GetEnvironmentIdentity() override;
         [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const override;
         [[nodiscard]] std::shared_ptr<Image2D> GetHdrRenditionImage() const override;
-        void LogHdrRenditionPeak() const override;
-        void Resize( const uint32_t width, const uint32_t height ) override;
-        void ResizeRenderTargets( ViewExtent render ) override;
-        void ResetTemporalHistory() override;
-        void ReleaseWorldResources() override;
-        [[nodiscard]] const ViewExtent& GetViewExtent() const override
+        void                                   LogHdrRenditionPeak() const override;
+        void                                   Resize( const uint32_t width, const uint32_t height ) override;
+        void                                   ResizeRenderTargets( ViewExtent render ) override;
+        void                                   ResetTemporalHistory() override;
+        void                                   ReleaseWorldResources() override;
+        [[nodiscard]] const ViewExtent&        GetViewExtent() const override
         {
             return m_ViewExtent;
         }
@@ -233,11 +233,11 @@ namespace Desert::Graphic
         void SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots, const glm::mat4& transform,
                          const RenderSubmissionExtra& extra ) override;
         void SubmitStaticScene( const Render::StaticSceneSnapshot& scene ) override;
-        void              SetLODPreview( uint32_t entity, int level ) override;
+        void SetLODPreview( uint32_t entity, int level ) override;
         [[nodiscard]] int LODPreviewFor( uint32_t entity, int authoredForcedLOD ) const override;
         void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
                                   const std::shared_ptr<const MaterialOverrides>& overrides,
-                                  const System::LandscapeWeightDraw&               weights ) override;
+                                  const System::LandscapeWeightDraw&              weights ) override;
         void SubmitLandscapeGrass( const System::GrassFieldDraw& draw ) override;
         void SubmitWaterZone( const System::WaterZoneDraw& zone ) override;
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
@@ -248,9 +248,9 @@ namespace Desert::Graphic
         void SubmitSlotMaterialMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform, Material* material,
                                      uint64_t visibleSubmeshMask, bool outlined = false, bool castShadows = false,
                                      uint32_t motionPart = 0 ) override;
-        [[nodiscard]] uint32_t GetIsmInstancesDrawn() const override;
-        [[nodiscard]] const Engine::Neural::NrcStats* GetRadianceCacheStats() const override;
-        [[nodiscard]] System::PathTracerRadianceCacheStatus GetRadianceCacheStatus() const override;
+        [[nodiscard]] uint32_t                                          GetIsmInstancesDrawn() const override;
+        [[nodiscard]] const Engine::Neural::NrcStats*                   GetRadianceCacheStats() const override;
+        [[nodiscard]] System::PathTracerRadianceCacheStatus             GetRadianceCacheStatus() const override;
         [[nodiscard]] const std::vector<GpuDriven::CullPhaseViewCount>& GetDrawBinPhaseCounts() const override
         {
             return m_DrawBinPhaseCounts.LastCounts();
@@ -269,16 +269,17 @@ namespace Desert::Graphic
             return m_ScreenProbeGather ? &m_ScreenProbeGather->LastCensus() : nullptr;
         }
 #endif
-        [[nodiscard]] const GlobalIllumination::RadianceCacheUpdateCounts* GetRadianceCacheUpdateCounts() const override
+        [[nodiscard]] const GlobalIllumination::RadianceCacheUpdateCounts*
+        GetRadianceCacheUpdateCounts() const override
         {
             return m_RadianceCache ? &m_RadianceCache->LastUpdateCounts() : nullptr;
         }
-        [[nodiscard]] VirtualGeometryCounts GetVirtualGeometryCounts() const override;
-        [[nodiscard]] bool SunShadowIsVirtual() const override;
+        [[nodiscard]] VirtualGeometryCounts              GetVirtualGeometryCounts() const override;
+        [[nodiscard]] bool                               SunShadowIsVirtual() const override;
         [[nodiscard]] const GpuDriven::DrawCommandCache* GetDrawCommandCache() const override;
-        [[nodiscard]] uint32_t GetStandInDraws() const override;
-        [[nodiscard]] uint64_t GetViewTrianglesDrawn() const override;
-        [[nodiscard]] System::ForwardPrepassStats GetForwardPrepassStats() const override;
+        [[nodiscard]] uint32_t                           GetStandInDraws() const override;
+        [[nodiscard]] uint64_t                           GetViewTrianglesDrawn() const override;
+        [[nodiscard]] System::ForwardPrepassStats        GetForwardPrepassStats() const override;
         float NoteTextureDemand( const Mesh& mesh, std::span<const glm::mat4> transforms,
                                  std::span<const Material* const> materials,
                                  const MaterialOverrides*         overrides = nullptr ) const override;
@@ -287,14 +288,14 @@ namespace Desert::Graphic
                                          const MaterialOverrides*         overrides = nullptr ) const override;
         float NoteInstanceFieldDemand( const Mesh&                                          mesh,
                                        const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                       std::span<const Material* const>                     materials ) const override;
-        void SubmitInstancedScene( const Render::InstancedSceneSnapshot& scene,
-                                   const Render::InstancedSceneFrame&    frame ) override;
-        void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look ) override;
-        void SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled ) override;
-        void SetDebugView( const DebugViewState& state ) override;
+                                       std::span<const Material* const> materials ) const override;
+        void  SubmitInstancedScene( const Render::InstancedSceneSnapshot& scene,
+                                    const Render::InstancedSceneFrame&    frame ) override;
+        void  SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look ) override;
+        void  SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled ) override;
+        void  SetDebugView( const DebugViewState& state ) override;
 #if DESERT_DEV_INSTRUMENTS
-        void WatchPrimitive( uint32_t entity ) override;
+        void                                  WatchPrimitive( uint32_t entity ) override;
         [[nodiscard]] const PrimitiveReadout* GetPrimitiveReadout() const override
         {
             return m_PrimitiveReadout.has_value() ? &*m_PrimitiveReadout : nullptr;
@@ -302,7 +303,7 @@ namespace Desert::Graphic
 #endif
         void SetQuality( const Common::Scalability::ResolvedQuality& quality ) override;
         [[nodiscard]] std::span<const System::ParticleViewEmitterCull> ParticleViewEmitterCulls() const override;
-        [[nodiscard]] const RenderMethods& GetRenderMethods() const override
+        [[nodiscard]] const RenderMethods&                             GetRenderMethods() const override
         {
             return m_RenderMethods;
         }
@@ -312,9 +313,9 @@ namespace Desert::Graphic
             return m_DebugView;
         }
         std::optional<Environment> GetEnvironment() override;
-        void BorrowEnvironment( std::optional<Environment> environment ) override;
-        void ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field ) override;
-        void ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache ) override;
+        void                       BorrowEnvironment( std::optional<Environment> environment ) override;
+        void                       ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field ) override;
+        void                       ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache ) override;
         void SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
                                const SunLightFx& fx, const AtmosphereLight1& light1 ) override;
         void SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY ) override;
@@ -324,24 +325,24 @@ namespace Desert::Graphic
         void SetWindGust( const glm::vec4& gust, const glm::vec4& prevGust,
                           const glm::vec2& directionalVelocityXZ ) override
         {
-            m_WindGust                   = gust;
-            m_PrevWindGust               = prevGust;
-            m_DirectionalWindVelocityXZ  = directionalVelocityXZ;
+            m_WindGust                  = gust;
+            m_PrevWindGust              = prevGust;
+            m_DirectionalWindVelocityXZ = directionalVelocityXZ;
             m_LocalWindCandidates.clear();
         }
         void AddLocalWindSource( const LocalWindCandidate& source ) override
         {
             m_LocalWindCandidates.push_back( source );
         }
-        const AtmosphereEnv& GetAtmosphere() const override;
-        CloudEnvironmentBake BuildCloudEnvironmentBake() override;
-        bool IsCloudVolumeBaking() const override;
-        [[nodiscard]] SkyLightState GetSkyLightState() const override;
-        [[nodiscard]] bool SkyLightRecapturesFor( const glm::vec3& sunDir ) const override;
-        [[nodiscard]] bool DrawsVolumetricClouds() const override;
-        float CloudVolumeBakeProgress() const override;
-        [[nodiscard]] uint64_t HeldBytes() const override;
-        [[nodiscard]] ViewLedgerMemory TakeLedgerMemory() const override;
+        const AtmosphereEnv&                GetAtmosphere() const override;
+        CloudEnvironmentBake                BuildCloudEnvironmentBake() override;
+        bool                                IsCloudVolumeBaking() const override;
+        [[nodiscard]] SkyLightState         GetSkyLightState() const override;
+        [[nodiscard]] bool                  SkyLightRecapturesFor( const glm::vec3& sunDir ) const override;
+        [[nodiscard]] bool                  DrawsVolumetricClouds() const override;
+        float                               CloudVolumeBakeProgress() const override;
+        [[nodiscard]] uint64_t              HeldBytes() const override;
+        [[nodiscard]] ViewLedgerMemory      TakeLedgerMemory() const override;
         [[nodiscard]] ResourceOwnerInstance GetLedgerInstance() const override
         {
             return m_LedgerView.Instance;
@@ -372,10 +373,10 @@ namespace Desert::Graphic
         }
         [[nodiscard]] std::shared_ptr<Image2D> GetShadowCascadeCacheImage( uint32_t cascade ) const override;
         [[nodiscard]] uint32_t                 GetShadowCascadeCount() const override;
-        const std::shared_ptr<Image2D>      GetFinalImage() override;
-        std::shared_ptr<Framebuffer> GetDisplayFramebuffer() const override;
-        std::shared_ptr<Image2D>            GetComputeSceneDepth() const override;
-        const std::shared_ptr<Framebuffer>& GetTargetFramebuffer() const override
+        const std::shared_ptr<Image2D>         GetFinalImage() override;
+        std::shared_ptr<Framebuffer>           GetDisplayFramebuffer() const override;
+        std::shared_ptr<Image2D>               GetComputeSceneDepth() const override;
+        const std::shared_ptr<Framebuffer>&    GetTargetFramebuffer() const override
         {
             return m_TargetFramebuffer;
         }
@@ -391,9 +392,9 @@ namespace Desert::Graphic
         {
             return m_ParallelSetup;
         }
-        [[nodiscard]] bool LocalShadowsAreVirtual() const override;
-        [[nodiscard]] bool LocalLightsReadVirtualPages() const override;
-        [[nodiscard]] Common::Scalability::StochasticSources StochasticTraceSources() const override;
+        [[nodiscard]] bool                                      LocalShadowsAreVirtual() const override;
+        [[nodiscard]] bool                                      LocalLightsReadVirtualPages() const override;
+        [[nodiscard]] Common::Scalability::StochasticSources    StochasticTraceSources() const override;
         [[nodiscard]] const std::vector<StochasticLightMethod>& GetStochasticLightMethods() const override
         {
             return m_StochasticLightMethods;
@@ -410,10 +411,10 @@ namespace Desert::Graphic
         {
             return m_ScenePlaying;
         }
-        std::shared_ptr<Texture>     GetTexture( const std::string& name ) override;
-        void AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                            const LocalLightShadowSettings&           shadow,
-                           const System::LightFunctionProxy& function ) override;
+        std::shared_ptr<Texture>           GetTexture( const std::string& name ) override;
+        void                               AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
+                                                          const LocalLightShadowSettings&           shadow,
+                                                          const System::LightFunctionProxy&         function ) override;
         const ShaderProtocols::PointLight& GetPointLights() const override
         {
             return m_PointLight;
@@ -421,16 +422,17 @@ namespace Desert::Graphic
         void AddDecal( const System::DecalProxy& decal ) override;
         void AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
                            const LocalLightShadowSettings&          shadow,
-                           const System::LightFunctionProxy& function ) override;
+                           const System::LightFunctionProxy&        function ) override;
         void AddLocalFogVolume( const LocalFogVolumeGpu& volume ) override;
         void AddHeterogeneousVolume( const HeterogeneousVolumeInstance& volume ) override;
         const ShaderProtocols::SpotLight& GetSpotLights() const override
         {
             return m_SpotLight;
         }
-        CloudShadowInput GetCloudShadowInput() const override;
+        CloudShadowInput    GetCloudShadowInput() const override;
         [[nodiscard]] float GetWorldParameterScalar( std::string_view name ) const override;
-        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetWorldParametersBuffer() const override
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>&
+        GetWorldParametersBuffer() const override
         {
             return m_WorldParameters;
         }
@@ -461,11 +463,12 @@ namespace Desert::Graphic
                      .Light1ColorIntensity = light1.ColorIntensity };
         }
         [[nodiscard]] std::span<const GlobalIllumination::LocalLighting> GatherFrameLocalLighting() override;
-        [[nodiscard]] SceneResources::ContactShadowSettings GetContactShadowSettings( const ViewFrame& frame,
-                                                                                      bool hasOpaqueDepth ) const override;
+        [[nodiscard]] SceneResources::ContactShadowSettings
+        GetContactShadowSettings( const ViewFrame& frame, bool hasOpaqueDepth ) const override;
         [[nodiscard]] SceneResources::ShadowFilterSettings GetShadowFilterSettings() const override;
-        [[nodiscard]] bool SubsurfaceHistoryConverging() const override;
-        [[nodiscard]] bool GrassInstancesSettling() const override;
+        [[nodiscard]] bool                                 SubsurfaceHistoryConverging() const override;
+        [[nodiscard]] bool                                 GrassInstancesSettling() const override;
+
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'
         // buffers and BLASes — carry this instance (the RT block's scope in OnUpdate); HeldBytes reads them back
@@ -541,10 +544,11 @@ namespace Desert::Graphic
             bool                                        SettleAfterMove   = false;
         };
         std::optional<KeptGdfObjects> m_GdfObjects;
-        // The view's deformation field (DEFORM-FIELD: the clipmap of the world's contacts around this view's camera),
-        // and what this frame's graph imported of it (empty while the world never deformed: no pass, no image).
-        Deformation::DeformationFieldRenderer               m_DeformationField;
-        std::optional<Deformation::DeformationFieldFrame>   m_DeformationFrame;
+        // The view's deformation field (DEFORM-FIELD: the clipmap of the world's contacts around this view's
+        // camera), and what this frame's graph imported of it (empty while the world never deformed: no pass, no
+        // image).
+        Deformation::DeformationFieldRenderer             m_DeformationField;
+        std::optional<Deformation::DeformationFieldFrame> m_DeformationFrame;
         // The view's world radiance cache (a traced GI method, either tracer; clipmaps follow this view's camera),
         // made on first use.
         std::unique_ptr<GlobalIllumination::WorldRadianceCache> m_RadianceCache;
@@ -555,8 +559,8 @@ namespace Desert::Graphic
         // scene is FScene's): it reads its scene's (m_FrameSurfaceCache) - unless one is lent
         // (ShareSurfaceCache): a face view of a reflection capture reads its capture's. ReadSurfaceCache() is the
         // one the frame reads.
-        SurfaceCache::SurfaceCacheRenderer*                 m_SharedSurfaceCache = nullptr;
-        uint64_t m_SurfaceCacheLoggedCensus = 0; // cards << 32 | captured
+        SurfaceCache::SurfaceCacheRenderer* m_SharedSurfaceCache       = nullptr;
+        uint64_t                            m_SurfaceCacheLoggedCensus = 0; // cards << 32 | captured
         // This frame's surface cache (AddFrameSurfaceCache): the scene's records, their graph buffers and what a
         // traced hit reads - for the traced GI and the view modes of the same graph; reset every frame.
         struct SurfaceCacheFrameRecord
@@ -613,8 +617,8 @@ namespace Desert::Graphic
             int      FramesLeft = 0;
         };
         LODPreviewLease m_LODPreview;
-        // GetViewTrianglesDrawn's answer: the mesh renderer's count as of the last EndScene (the interface reads it
-        // while the next frame records on the render task).
+        // GetViewTrianglesDrawn's answer: the mesh renderer's count as of the last EndScene (the interface reads
+        // it while the next frame records on the render task).
         std::atomic<uint64_t> m_PublishedViewTriangles{ 0 };
         // GetShadowCascadeCacheImage / GetShadowCascadeCount's answer: the mesh renderer's cascade caches as of
         // the last EndScene (written on the render task, read by the interface: hence the lock; one short copy
@@ -711,14 +715,14 @@ namespace Desert::Graphic
         // overlay velocity (never read) and the overlay depth PopulateSceneDepth filled. Invalid: no resolve.
         struct OverlayTargets
         {
-            RDG::TextureRef    Color;
-            RDG::TextureRef    Velocity;
-            RDG::TextureRef    ResponsiveAA; // never read; cleared by its first overlay writer (OwnClears)
-            RDG::TextureRef    ThinGeometryCoverage; // never read; cleared by its first overlay writer (OwnClears)
-            RDG::TextureRef    Depth;
+            RDG::TextureRef Color;
+            RDG::TextureRef Velocity;
+            RDG::TextureRef ResponsiveAA;         // never read; cleared by its first overlay writer (OwnClears)
+            RDG::TextureRef ThinGeometryCoverage; // never read; cleared by its first overlay writer (OwnClears)
+            RDG::TextureRef Depth;
             // The set's OUTPUT extent (ViewFrame::Split.Output), in pixels; read only when IsValid() (no member
             // initializer: the enclosing class's `= {}` default arguments forbid one).
-            glm::uvec2 Extent;
+            glm::uvec2         Extent;
             [[nodiscard]] bool IsValid() const
             {
                 return Color.IsValid();
@@ -734,13 +738,13 @@ namespace Desert::Graphic
         // its depth prepass).
         // The passes are CONSUMED: each body is moved into its node (a SystemRasterPass is move-only).
         void AddSystemRasters( RDG::Builder& graph, FrameTextures& textures, std::span<SystemRasterPass> passes,
-                               bool clearFirst,
-                               const OverlayTargets& overlay = {}, bool clearDepth = true );
+                               bool clearFirst, const OverlayTargets& overlay = {}, bool clearDepth = true );
         // The systems' opaque raster, called in this order by OnUpdate: the mesh renderer's cascade depths (each
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
         void AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures );
-        // The directional lights' cascade depths (MeshRenderer::ShadowCascadePasses); declared only when m_FrameCascades.
+        // The directional lights' cascade depths (MeshRenderer::ShadowCascadePasses); declared only when
+        // m_FrameCascades.
         void AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer& mesh );
         // The one-texel far-plane cascade array a view binds when no cascade is drawn this frame ("CSM.None").
         RDG::TextureRef AddFrameNoSunCascades( RDG::Builder& graph );
@@ -775,7 +779,7 @@ namespace Desert::Graphic
         void AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
                                           const std::vector<RDG::TextureRef>& gbuffer,
                                           const glm::vec3& directionToSun, const ViewFrame& frame );
-        bool            EnsureDistanceFieldShadowResources();
+        bool EnsureDistanceFieldShadowResources();
         // This frame's local lights are MegaLights' (the Shadows method resolved to Stochastic, its sun ray
         // traced): the composite's MegaLights program reads AddFrameMegaLights' lighting in place of the
         // light-grid loop.
@@ -821,16 +825,17 @@ namespace Desert::Graphic
         // MegaLightsVolume, sliced over @p lightGrid's depth range, its froxels' visibility the frame's
         // StochasticVisibility per light (rayquery: the TLAS; vsm+screen: the screen trace from the froxel point
         // over the closest HZB, then the local lights' virtual pages, so it runs after AddFrameVirtualShadows;
-        // screen: the screen trace): on under Stochastic with a local light; otherwise, or - logged - when its pass
-        // could not be declared, the neutral block OnUpdate set stays. @p hzbDepth: the single-sample opaque depth
-        // the HZB is built from on the forward path (the depth prepass's); invalid on the deferred path (the
+        // screen: the screen trace): on under Stochastic with a local light; otherwise, or - logged - when its
+        // pass could not be declared, the neutral block OnUpdate set stays. @p hzbDepth: the single-sample opaque
+        // depth the HZB is built from on the forward path (the depth prepass's); invalid on the deferred path (the
         // G-buffer's).
         void AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                        const LightGridParamsPayload& lightGrid, RDG::TextureRef hzbDepth );
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
         // shadow map, both ShadowMask.Sun): every mask READER asks it - the composite's and the opaque generic
         // programs' DESERT_SUN_SHADOW_SCREEN_MASK permutations, the depth/normal prepass, the cascade budget (the
-        // low-detail cascades kept for the blended ShadowCascadesTexture readers). The producers ask their own method.
+        // low-detail cascades kept for the blended ShadowCascadesTexture readers). The producers ask their own
+        // method.
         [[nodiscard]] bool SunShadowIsScreenMask() const;
         // "Shadows: Virtual Shadow Map" (System::VirtualShadowMapRenderer): the page passes over this view's
         // G-buffer for the sun (when the scene has a directional light) and, under LocalShadowsAreVirtual, every
@@ -843,9 +848,9 @@ namespace Desert::Graphic
             RDG::TextureRef SunMask;
             RDG::TextureRef LocalMasks;
         };
-        // @p viewDepth: the view's reversed-Z opaque depth the local lights' pages are marked from - the G-buffer's,
-        // or the forward depth prepass's (AddFrameForwardDepthPrepass). @p gbuffer empty: the forward shading path,
-        // before its base pass - no sun pages and no masks (its forward cells read the map itself,
+        // @p viewDepth: the view's reversed-Z opaque depth the local lights' pages are marked from - the
+        // G-buffer's, or the forward depth prepass's (AddFrameForwardDepthPrepass). @p gbuffer empty: the forward
+        // shading path, before its base pass - no sun pages and no masks (its forward cells read the map itself,
         // DESERT_LOCAL_SHADOW_VSM), the local lights' pages from @p viewDepth, @p receiverDepths and their coarse
         // mips. @p receiverDepths: the forward receivers' device depths (the translucent front layer).
         FrameVirtualShadows AddFrameVirtualShadows( RDG::Builder& graph, FrameTextures& textures,
@@ -853,12 +858,12 @@ namespace Desert::Graphic
                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                     const glm::vec3& directionToSun, const ViewFrame& frame,
                                                     std::span<const RDG::TextureRef> receiverDepths );
-        bool            EnsureVirtualShadowResources();
+        bool                EnsureVirtualShadowResources();
         // GPU-DRIVEN CULL, only under DebugViewState::ValidateGpuCulling (the drawing stays on the CPU path): the
         // InstanceCulling phases over the main view (two-phase FURTHEST-HZB occlusion against m_CullHzbHistory),
         // the sun's cascades (m_FrameCascades) and the VSM clipmap levels (m_FrameVsmPages, with a sun), then
-        // this frame's furthest HZB extracted into m_CullHzbHistory. A refusal is logged once per message and skips
-        // the frame.
+        // this frame's furthest HZB extracted into m_CullHzbHistory. A refusal is logged once per message and
+        // skips the frame.
         void AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // GPU-DRIVEN PASSES, before the cascade depths and the base pass: the draw command cache's upload, the GPU
         // scene's tables (m_FrameGpuSceneTables, reused by AddFrameGpuCull) and the phase-1 cull of the main view
@@ -873,7 +878,8 @@ namespace Desert::Graphic
         // m_CullHzbHistory by its first reader - the grass generation (GRASS-VIS), the draw bins' phase 1, the GPU
         // cull - and handed to the rest: invalid when the history is not @p width x @p height (the G-buffer depth)
         // or the view has no previous frame (ViewFrame::HistoryValid). Reset per frame before the grass.
-        RDG::TextureRef FramePrevHzb( RDG::Builder& graph, const ViewFrame& frame, uint32_t width, uint32_t height );
+        RDG::TextureRef FramePrevHzb( RDG::Builder& graph, const ViewFrame& frame, uint32_t width,
+                                      uint32_t height );
         // The main view's G-buffer depth size an HZB is built from this frame (the deferred G-buffer pass, an HZB
         // pipeline), or nothing: the size FramePrevHzb and the draw bins' phase 1 test the history against.
         [[nodiscard]] std::optional<glm::uvec2> FrameHzbSize( RDG::Builder& graph, FrameTextures& textures );
@@ -905,10 +911,11 @@ namespace Desert::Graphic
         // FInstanceCullingContext's post pass, HZB.cpp): this frame's furthest HZB of that depth, extracted into
         // m_CullHzbHistory for the next frame's phase 1; when phase 1 tested last frame's HZB, the instances it
         // held back re-tested against this one and the visible drawn by "Deferred: GBuffer Post-Occlusion" (same
-        // carriers, their own indirect args). Then the deferred depth prepass view (FrameDrawBins::DepthPrepassView;
-        // UE InstanceCulling: a view drawn after this frame's HZB is culled by it in one pass): one main-phase cull
-        // against that HZB (frustum only without it), handed to MeshRenderer::SetFrameBinned before
-        // AddFrameForwardDepthNormal draws it. Then the per-view phase counts' readback. No-op without draw bins.
+        // carriers, their own indirect args). Then the deferred depth prepass view
+        // (FrameDrawBins::DepthPrepassView; UE InstanceCulling: a view drawn after this frame's HZB is culled by
+        // it in one pass): one main-phase cull against that HZB (frustum only without it), handed to
+        // MeshRenderer::SetFrameBinned before AddFrameForwardDepthNormal draws it. Then the per-view phase counts'
+        // readback. No-op without draw bins.
         void AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
                                             System::MeshRenderer* meshRenderer, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
@@ -920,7 +927,7 @@ namespace Desert::Graphic
         // (AddFrameBasePass) then loads it, tests CloserOrEqual and writes none. The scene depth it wrote, for
         // AddFrameVirtualShadows' view depth; invalid without a scene target.
         RDG::TextureRef AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
+        void            AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on its TargetFramebuffer (its whole attachment set, or @p overlay's) or its
         // depth-array layer, with the pass's declared reads; @p color / @p depth are the loads of the node's
         // targets. The pass's body is moved into the node.
@@ -969,7 +976,8 @@ namespace Desert::Graphic
         // no PopulateSceneDepth pipeline, the upscaler's refusal) is RENDERED WITHOUT IT: ERROR "rendered without
         // the temporal resolve this frame: <why>", an invalid set, and the caller draws the overlays into the
         // scene target and post-processes the scene colour.
-        // @p opaqueLuma: what the method's AddOpaquePasses returned this frame (TemporalUpscalerInputs::OpaqueLuma).
+        // @p opaqueLuma: what the method's AddOpaquePasses returned this frame
+        // (TemporalUpscalerInputs::OpaqueLuma).
         OverlayTargets AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                          RDG::TextureRef exposure, RDG::TextureRef opaqueLuma );
         // AutoExposure's build-time step (Prepare advances its ping-pong), taken before the temporal node so that
@@ -1022,16 +1030,18 @@ namespace Desert::Graphic
         // still holds the grass): "Grass: Visibility Raster" into @p visibility over the G-buffer's depth, then
         // "Grass: Visibility Depth". Nothing when the mesh renderer chose no section.
         // @p postOcclusion (AddFrameGrassPostOcclusion): the two nodes over the grass's phase-2 records.
-        void AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
-                                      const VirtualGeometry::VisibilityBufferFrame& visibility, bool postOcclusion );
+        void AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures,
+                                      System::MeshRenderer*                         meshRenderer,
+                                      const VirtualGeometry::VisibilityBufferFrame& visibility,
+                                      bool                                          postOcclusion );
         // FPS-GRASS-RASTER-VS (Ghost of Tsushima, GDC 2021: a compute pass evaluates each visible blade once; the
         // raster and the shading read it): "Grass: Blade Setup" (GrassRenderer::AddFrameBladeSetup, @p frame's
         // camera block, the frame's deformation field) over phase 1's records (@p postOcclusion false: from
         // OnUpdate once the grass visibility frame is made, before any phase-1 raster) or phase 2's (true: from
-        // AddFrameGrassPostOcclusion, before its raster). The visibility raster's vertex stage and the blade resolve
-        // read those records instead of placing each blade per vertex / per pixel. A refusal is logged.
-        void AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer, const ViewFrame& frame,
-                                      bool postOcclusion );
+        // AddFrameGrassPostOcclusion, before its raster). The visibility raster's vertex stage and the blade
+        // resolve read those records instead of placing each blade per vertex / per pixel. A refusal is logged.
+        void AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer,
+                                      const ViewFrame& frame, bool postOcclusion );
         // GRASS-VIS-23: the ONE material pass over the visibility buffer, after both phases' rasters (UE Nanite's
         // base pass after the post pass): every word - phase 1's and phase 2's - shaded once into the G-buffer.
         // The blade resolve reads both phases' setup records (AddFrameGrassBladeSetup) instead of rebuilding each
@@ -1054,17 +1064,18 @@ namespace Desert::Graphic
         // DESERT_LOCAL_SHADOW_SCREEN_MASK (SceneViewInputs.LocalShadowMasks).
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
                               RDG::TextureRef sunShadowMask, RDG::TextureRef localShadowMasks );
-        // THE TRANSLUCENT FRONT LAYER of the frame (UE FFrontLayerTranslucencyData, Reflections.TranslucentFrontLayer):
-        // the nearest translucent surface's normal + roughness, motion and depth ("Translucency: Front Layer G-buffer",
-        // Mesh/Surface/Pass_FrontLayer.glslh), graph transients of the frame - the surface AddFrameSSR's front layer
-        // renderer starts its rays from.
+        // THE TRANSLUCENT FRONT LAYER of the frame (UE FFrontLayerTranslucencyData,
+        // Reflections.TranslucentFrontLayer): the nearest translucent surface's normal + roughness, motion and
+        // depth ("Translucency: Front Layer G-buffer", Mesh/Surface/Pass_FrontLayer.glslh), graph transients of
+        // the frame - the surface AddFrameSSR's front layer renderer starts its rays from.
         struct FrontLayerSurface
         {
             RDG::TextureRef Normal;
             RDG::TextureRef Velocity;
             RDG::TextureRef Depth;
         };
-        // What the glass reads of it: the denoised reflection and the depth it belongs to. Invalid both: no front layer.
+        // What the glass reads of it: the denoised reflection and the depth it belongs to. Invalid both: no front
+        // layer.
         struct FrameFrontLayer
         {
             RDG::TextureRef Reflection;
@@ -1072,8 +1083,7 @@ namespace Desert::Graphic
         };
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
-                            System::MeshRenderer* meshRenderer ,
-                           const FrameFrontLayer& frontLayer );
+                            System::MeshRenderer* meshRenderer, const FrameFrontLayer& frontLayer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
         // glass. @p frontLayer: the front layer's reflection, which the water reads where it is the front layer
         // (UE single layer water's SSR leg); invalid -> the graph's black, the water's captures and sky alone.
@@ -1088,8 +1098,8 @@ namespace Desert::Graphic
         // velocity over @p target, the post input, after the temporal resolve.
         void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
         // The Indirect Lighting view mode (DeferredDebugMode::GI, Deferred only): "Debug: Indirect" draws the GI
-        // method's diffuse indirect x the diffuse colour over @p target, the post input, after the temporal resolve
-        // (System::IndirectViewRenderer: why not in the composite).
+        // method's diffuse indirect x the diffuse colour over @p target, the post input, after the temporal
+        // resolve (System::IndirectViewRenderer: why not in the composite).
         void AddFrameIndirectView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target,
                                    const ViewFrame& frame );
         // The surface cache view modes (DeferredDebugMode::SurfaceCacheAtlas / SurfaceCacheScene / SceneLit,
@@ -1109,21 +1119,22 @@ namespace Desert::Graphic
         void AddFrameDeformationFieldView( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                            RDG::TextureRef target );
 #endif // DESERT_DEV_INSTRUMENTS
-        // The view's deformation field (DEFORM-FIELD): scrolls its clipmap to the unjittered camera and applies the
-        // world's new contacts, before the base pass (its readers - terrain, grass - draw there). No pass while the
-        // world never deformed and the debug view is off.
+       // The view's deformation field (DEFORM-FIELD): scrolls its clipmap to the unjittered camera and applies the
+       // world's new contacts, before the base pass (its readers - terrain, grass - draw there). No pass while the
+       // world never deformed and the debug view is off.
         void AddFrameDeformationField( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
         // "Scene: DepthResolve" (@p name): the scene depth as the single-sample texture a compute or sampling pass
-        // reads - the resolved copy at MSAA, the scene depth itself at one sample; invalid when MSAA has no resolve.
+        // reads - the resolved copy at MSAA, the scene depth itself at one sample; invalid when MSAA has no
+        // resolve.
         RDG::TextureRef AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures,
                                                    std::string_view name = "Scene: DepthResolve" );
         // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
         void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
         // THE PATH-TRACED FRAME (PathTraced( m_RenderMethods ), after the G-buffer): System::PathTracer's restart,
-        // trace and resolve over the scene colour, fed this frame's TLAS, hit groups, camera, GI record, lights and
-        // environment, and the hash of what the accumulation integrated (PathTracingSceneHash). An error names
+        // trace and resolve over the scene colour, fed this frame's TLAS, hit groups, camera, GI record, lights
+        // and environment, and the hash of what the accumulation integrated (PathTracingSceneHash). An error names
         // what was refused.
         [[nodiscard]] Common::BoolResultStr AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
                                                                  const ViewFrame& frame );
@@ -1151,9 +1162,9 @@ namespace Desert::Graphic
         // parts are empty and nothing is sampled.
         [[nodiscard]] Common::ResultStr<RayTracing::EmissiveLightsFrame>
         AddFrameSceneEmissiveLights( RDG::Builder& graph );
-        // THE FRAME'S ONE SCENE GATHER for the emissive lists (RayTracingSceneRenderer::GatherScene): a second call
-        // in the same frame on a frame without a TLAS would clear the moved-primitives list the first one filled,
-        // so the list built second would miss its movers. Every emissive list of the frame reads this one.
+        // THE FRAME'S ONE SCENE GATHER for the emissive lists (RayTracingSceneRenderer::GatherScene): a second
+        // call in the same frame on a frame without a TLAS would clear the moved-primitives list the first one
+        // filled, so the list built second would miss its movers. Every emissive list of the frame reads this one.
         [[nodiscard]] Common::BoolResultStr GatherFrameEmissiveScene();
         // The emission estimate of a gather segment record (the surface templates' SurfaceEmission in the row the
         // raster draws it with): what both emissive lists' power trees are made of.
@@ -1195,8 +1206,8 @@ namespace Desert::Graphic
         // Whether this frame brings the surface cache up: the GI pipeline reads it (m_GIPipeline.SurfaceCache),
         // the traced reflections read it (ReflectionsTraced), or one of its view modes is on. Deferred only.
         [[nodiscard]] bool SurfaceCacheRuns() const;
-        // The surface cache this view reads - the lent one (ShareSurfaceCache), else its scene's - once initialised
-        // (AddFrameSurfaceCache brings it up); null before.
+        // The surface cache this view reads - the lent one (ShareSurfaceCache), else its scene's - once
+        // initialised (AddFrameSurfaceCache brings it up); null before.
         [[nodiscard]] SurfaceCache::SurfaceCacheRenderer* ReadSurfaceCache() const;
         // Whether this frame's reflections are traced (ReflectionMethod::SoftwareTraced or HardwareTraced): SSR's
         // pass in its traced permutation, over the tracer of ReflectionsTracer(), the surface cache and the world
@@ -1274,8 +1285,8 @@ namespace Desert::Graphic
         FrameScreenTrace AddFrameScreenTrace( RDG::Builder& graph, FrameTextures& textures,
                                               const ViewFrame& frame );
         // The traced GI in two declarations (FPS-PROBE-WAIT-2, UE Lumen: the radiance cache update forks right
-        // after the depth): the update - the radiance cache's Mark .. Trace - before the screen trace's HZB, so its
-        // async run forks at the depth's last writer; the gather after it - the cache's Filter declared by the
+        // after the depth): the update - the radiance cache's Mark .. Trace - before the screen trace's HZB, so
+        // its async run forks at the depth's last writer; the gather after it - the cache's Filter declared by the
         // screen probes right before their first cache reader (ScreenProbeGatherInputs::FinishRadianceCache), so
         // the far field overlaps the filter. Empty: no traced GI this frame (said once by the update).
         struct TracedGIUpdate
@@ -1296,16 +1307,17 @@ namespace Desert::Graphic
         void AddFrameRadianceCacheDeferredUpdate( RDG::Builder& graph, FrameTextures& textures );
         std::optional<TracedGIUpdate> AddFrameTracedGIUpdate( RDG::Builder& graph, FrameTextures& textures,
                                                               const std::vector<RDG::TextureRef>& gbuffer,
-                                                              const glm::vec4& lightDir, const glm::vec4& lightColor,
-                                                              const ViewFrame& frame );
-        void AddFrameTracedGIGather( RDG::Builder& graph, FrameTextures& textures,
-                                     const std::vector<RDG::TextureRef>& gbuffer,
-                                     const std::optional<TracedGIUpdate>& update, const FrameScreenTrace& screenTrace,
-                                     const ViewFrame& frame );
+                                                              const glm::vec4&                    lightDir,
+                                                              const glm::vec4&                    lightColor,
+                                                              const ViewFrame&                    frame );
+        void                          AddFrameTracedGIGather( RDG::Builder& graph, FrameTextures& textures,
+                                                              const std::vector<RDG::TextureRef>&  gbuffer,
+                                                              const std::optional<TracedGIUpdate>& update,
+                                                              const FrameScreenTrace& screenTrace, const ViewFrame& frame );
         // The cache's Filter (WorldRadianceCache::AddFilterPass) and what reads the filtered cache first: the
         // cards' radiosity of the view that updated the cache.
-        [[nodiscard]] Common::BoolResultStr AddFrameRadianceCacheFinish( RDG::Builder& graph, FrameTextures& textures,
-                                                                         const TracedGIUpdate& update );
+        [[nodiscard]] Common::BoolResultStr
+        AddFrameRadianceCacheFinish( RDG::Builder& graph, FrameTextures& textures, const TracedGIUpdate& update );
         // GIMethod::ScreenSpace's diffuse indirect of this frame (System::SSGIRenderer: the HZB trace over the
         // scene colour history, then the diffuse-indirect denoiser) into FrameTransients::GIDiffuse, which the
         // composite reads as GI mode 1 - only when the frame's GI is ScreenSpace and @p screenTrace is valid.
@@ -1319,12 +1331,11 @@ namespace Desert::Graphic
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
                                 RDG::TextureRef sunShadowMask, RDG::TextureRef localShadowMasks,
-                                const System::MegaLightsLighting& megaLights,
-                                System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                const glm::vec4& lightColor, const ViewFrame& frame,
+                                const System::MegaLightsLighting& megaLights, System::MeshRenderer* meshRenderer,
+                                const glm::vec4& lightDir, const glm::vec4& lightColor, const ViewFrame& frame,
                                 RDG::TextureRef subsurfaceDiffuse );
-        // SSS-PROFILE (CONTRACT §5): whether this view scatters - SubsurfaceScattering on with a Scale above 0, the
-        // Lit view, a profile registered and the SubsurfaceRenderer built.
+        // SSS-PROFILE (CONTRACT §5): whether this view scatters - SubsurfaceScattering on with a Scale above 0,
+        // the Lit view, a profile registered and the SubsurfaceRenderer built.
         [[nodiscard]] bool SubsurfaceRuns() const;
         // "Subsurface: Burley" + "Subsurface: Recombine" over the composite's @p subsurfaceDiffuse (its split).
         void AddFrameSubsurface( RDG::Builder& graph, FrameTextures& textures,
@@ -1348,9 +1359,10 @@ namespace Desert::Graphic
         // composes (SsrTexture); invalid when SSR did not run.
         // Reflections.TranslucentFrontLayer of the resolved quality.
         [[nodiscard]] bool TranslucentFrontLayerReflections() const;
-        // The front layer's G-buffer, then its reflections through the "FrontLayerReflectionsSystem" (an SSRRenderer
-        // tracing from TranslucentFrontLayer: the same tracer, hit lighting and denoiser as the opaque reflections).
-        // Empty: no translucent object is visible, or the reflections could not run (said by the step that refused).
+        // The front layer's G-buffer, then its reflections through the "FrontLayerReflectionsSystem" (an
+        // SSRRenderer tracing from TranslucentFrontLayer: the same tracer, hit lighting and denoiser as the opaque
+        // reflections). Empty: no translucent object is visible, or the reflections could not run (said by the
+        // step that refused).
         FrameFrontLayer AddFrameTranslucentFrontLayer( RDG::Builder& graph, FrameTextures& textures,
                                                        System::MeshRenderer*               meshRenderer,
                                                        const std::vector<RDG::TextureRef>& gbuffer,
@@ -1378,7 +1390,7 @@ namespace Desert::Graphic
                                                                     System::MeshRenderer* meshRenderer,
                                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                                     const FrontLayerWriters&            writers );
-        bool m_FrontLayerReflectionsFailed = false;
+        bool                             m_FrontLayerReflectionsFailed = false;
 
         struct FrameSSR
         {
@@ -1386,9 +1398,8 @@ namespace Desert::Graphic
         };
         FrameSSR AddFrameSSR( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
                               const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace,
-                              const ViewFrame& frame ,
-                              const FrontLayerSurface* frontLayer = nullptr );
-        void AddFrameParticlesSimulate( RDG::Builder& graph );
+                              const ViewFrame& frame, const FrontLayerSurface* frontLayer = nullptr );
+        void     AddFrameParticlesSimulate( RDG::Builder& graph );
         // PORT-VFX-MODULES: the PostOpaque tick stage after the scene depth resolve @p sceneDepth - its scene
         // inputs, its chain (simulating view), this view's PostOpaque sort, then the tick's readbacks.
         void AddFrameParticlesPostOpaque( RDG::Builder& graph, RDG::TextureRef sceneDepth );
@@ -1488,8 +1499,8 @@ namespace Desert::Graphic
         // This frame's atmosphere light 1 (the moon) as the deferred pass shades it: the scene's value times
         // AtmosphereEnv::Light1TransmittanceAtGround (OnUpdate), or nothing.
         std::optional<AtmosphereLight1Frame> m_AtmosphereLight1;
-        ShaderProtocols::PointLight     m_PointLight;
-        ShaderProtocols::SpotLight      m_SpotLight;
+        ShaderProtocols::PointLight          m_PointLight;
+        ShaderProtocols::SpotLight           m_SpotLight;
         // "Deferred: Decals" (DECALS-DBUFFER): this frame's decals, faded and sorted per view; a typed member, its
         // lists reserved once and cleared each frame beside the lights.
         System::DecalRenderer m_Decals;
@@ -1497,10 +1508,10 @@ namespace Desert::Graphic
         // before the G-buffer by "Lights: Light Function Atlas".
         System::LightFunctionAtlas m_LightFunctions;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
-        std::vector<LocalLightShadowSettings> m_PointLightShadows;
-        std::vector<LocalFogVolumeGpu> m_LocalFogVolumes; // this frame's, AddLocalFogVolume
+        std::vector<LocalLightShadowSettings>    m_PointLightShadows;
+        std::vector<LocalFogVolumeGpu>           m_LocalFogVolumes;      // this frame's, AddLocalFogVolume
         std::vector<HeterogeneousVolumeInstance> m_HeterogeneousVolumes; // this frame's, AddHeterogeneousVolume
-        std::vector<LocalLightShadowSettings> m_SpotLightShadows;
+        std::vector<LocalLightShadowSettings>    m_SpotLightShadows;
         std::vector<GlobalIllumination::LocalLighting> m_FrameLocalLighting; // GatherFrameLocalLighting
 
         // Selected post-process anti-aliasing technique, taken from m_Quality each BeginScene.
@@ -1508,16 +1519,16 @@ namespace Desert::Graphic
         // The anti-aliasing this view's frames ACTUALLY render, as ViewInputs::AntiAliasing (BeginScene).
         Common::Scalability::PathAntiAliasing m_RenderedAntiAliasing;
         // The vendor-method fallback last logged (ReplaceUnavailableVendorMethods::Why): logged when it changes.
-        std::string                        m_VendorFallbackSaid;
-        bool                               m_BloomEnabled = false;
+        std::string m_VendorFallbackSaid;
+        bool        m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest
         // because the pass never sees it — the tonemap applies it, the way the shafts' tint works.
         System::LensFlareRenderer::Params m_LensFlare;
         glm::vec3                         m_LensFlareTint = glm::vec3( 1.0f );
         // Raised by the UI canvas when it drew glass; consumed at the top of the next frame's UI extension point.
-        bool                   m_BackdropBlurNeeded = false;
-        bool                   m_ScenePlaying = false; // set per frame in BeginScene (hides authoring aids)
+        bool m_BackdropBlurNeeded = false;
+        bool m_ScenePlaying       = false; // set per frame in BeginScene (hides authoring aids)
         // The extension passes of the scene BeginScene was handed: read by AddExtensionPoint while OnUpdate
         // builds the frame, cleared by EndScene. The scene owns them; null outside a BeginScene/EndScene bracket.
         const ExtensionPassRegistry* m_FrameExtensions = nullptr;
@@ -1547,8 +1558,9 @@ namespace Desert::Graphic
         // contacts, and it now runs before the TLAS, ahead of the cascade cache plan that reads this). Empty: no
         // capture this frame, or a reflection capture's face.
         std::vector<glm::vec4> m_FramePendingFootprints;
-        // The scene's surface cache (Scene::GetSurfaceCache), the same bracket: what this view reads and, the first
-        // view of an engine frame, updates (AddFrameSurfaceCache), unless one is lent (m_SharedSurfaceCache).
+        // The scene's surface cache (Scene::GetSurfaceCache), the same bracket: what this view reads and, the
+        // first view of an engine frame, updates (AddFrameSurfaceCache), unless one is lent
+        // (m_SharedSurfaceCache).
         SurfaceCache::SurfaceCacheRenderer* m_FrameSurfaceCache = nullptr;
 #if DESERT_DEV_INSTRUMENTS
         // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
@@ -1573,10 +1585,10 @@ namespace Desert::Graphic
         std::unique_ptr<VirtualGeometry::VirtualGeometryRenderer> m_VirtualGeometry;
         std::unique_ptr<VirtualGeometry::ClusterCutCounts>        m_ClusterCutCounts;
         // The VSM levels' drawn groups (MeshRenderer::SetVirtualShadowGeometry's out-param), kept across frames.
-        std::vector<uint8_t>                                      m_VsmDrawnGroups;
+        std::vector<uint8_t> m_VsmDrawnGroups;
         // The VSM's caster invalidation (MeshRenderer::CollectVirtualShadowInvalidation's out-param), kept.
-        System::VirtualShadowInvalidation                         m_VsmInvalidation;
-        std::string                                               m_VirtualGeometryLastError;
+        System::VirtualShadowInvalidation m_VsmInvalidation;
+        std::string                       m_VirtualGeometryLastError;
         // DebugViewState::ForceVirtualGeometryPostCutRefusal as last logged (logged once when it turns on).
         bool  m_VirtualGeometryPostRefusalLogged = false;
         float m_VirtualGeometryMaxPixelsPerEdge  = 1.0f;
@@ -1600,6 +1612,7 @@ namespace Desert::Graphic
         {
             m_BackdropBlurNeeded = needed;
         }
+
     private:
         std::shared_ptr<Framebuffer> m_TargetFramebuffer;
         std::shared_ptr<Framebuffer> m_GBuffer;                    // deferred G-buffer (MRT)
@@ -1626,7 +1639,7 @@ namespace Desert::Graphic
         // "Not pushed to" therefore has to mean "this machine's answer" here rather than "the defaults".
         // The RESOLVED quality (SCAL1): the only product of the scalability system a renderer reads.
         Common::Scalability::ResolvedQuality m_Quality = Common::Scalability::QualityState::Resolved();
-        bool m_ParallelSetup = false; // set per frame where the view's setup starts
+        bool m_ParallelSetup                           = false; // set per frame where the view's setup starts
         // CPU-FRAME-ARENA: the view's ONE render graph (UE: FRDGBuilder over FRDGAllocator), kept across frames so
         // its record arrays and its frame arena keep their capacity; OnUpdate resets it when the frame's graph
         // scope ends (RDG::Builder::Reset). Built on the first frame.
@@ -1636,25 +1649,26 @@ namespace Desert::Graphic
         // What this VIEW is drawing on top of the world. NOT refreshed from the scene — pushed in by
         // whoever owns the view (SetDebugView), and "show nothing" until someone does. See
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
-        DebugViewState          m_DebugView;
-        bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
+        DebugViewState m_DebugView;
+        bool           m_EnableSSAO = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
         // Grass through the 64-bit visibility buffer this frame: what PostProcessSettings::GrassRaster asks for
         // (GrassRasterPath::Scalability: the level's Foliage.GrassVisibilityBuffer) AND the device's
         // SupportsVisibilityBuffer64. The refusal is logged once per renderer; the chosen path each time it
         // changes (m_GrassRasterLogged: 0 none yet, 1 G-buffer, 2 visibility buffer).
-        bool                    m_GrassVisibilityBuffer  = false;
-        bool                    m_GrassVisibilityRefusal = false;
-        uint8_t                 m_GrassRasterLogged      = 0;
+        bool    m_GrassVisibilityBuffer  = false;
+        bool    m_GrassVisibilityRefusal = false;
+        uint8_t m_GrassRasterLogged      = 0;
         // The view's visibility buffer (GRASS-VIS): initialised with the grass system; the last error its frame
         // returned, logged when it changes (a view that cannot allocate it keeps the G-buffer grass path).
         VirtualGeometry::VisibilityBuffer m_GrassVisibility;
         std::string                       m_GrassVisibilityError;
         // The view's grass handed out more raster-stream rows than a visibility word addresses
-        // (GrassRenderer::VisibilityRowsOverflow) last frame: logged when it starts, the path refused while it lasts.
-        bool                              m_GrassVisibilityRowsOverflow = false;
+        // (GrassRenderer::VisibilityRowsOverflow) last frame: logged when it starts, the path refused while it
+        // lasts.
+        bool m_GrassVisibilityRowsOverflow = false;
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
-        RenderMethods           m_RenderMethods;
+        RenderMethods m_RenderMethods;
         // The methods the view's renderers could not build a program for on this device, an input of every
         // ResolveRenderMethods: Shadows from the DeferredLightingRenderer's initialisation, GI and Reflections
         // from their renderers' programs as each is first built (RefuseProgramMethods), PathTraced on both from
@@ -1716,17 +1730,17 @@ namespace Desert::Graphic
         // The CPU list across frames (rebuilt only on a regathered frame or a moved material estimate), and the
         // RT scene's layout serial it was last given (RayTracingSceneRenderer::GetLayoutSerial; ~0: none yet).
         std::unique_ptr<RayTracing::EmissiveTriangleListCache> m_EmissiveList;
-        uint64_t                              m_EmissiveLayoutSerial = ~0ull;
+        uint64_t                                               m_EmissiveLayoutSerial = ~0ull;
         // The scene-lighting emissive list (AddFrameSceneEmissiveLights): MegaLights' emissive lights, its own GPU
         // part and CPU list and the layout serial it was last given.
         std::unique_ptr<RayTracing::EmissiveLightsRenderer>    m_SceneEmissiveLights;
         std::unique_ptr<RayTracing::EmissiveTriangleListCache> m_SceneEmissiveList;
-        uint64_t                              m_SceneEmissiveLayoutSerial = ~0ull;
+        uint64_t                                               m_SceneEmissiveLayoutSerial = ~0ull;
         // The absolute frame GatherFrameEmissiveScene last gathered in (~0: none yet).
         uint64_t m_EmissiveGatherFrame = ~0ull;
         // AddFrameMegaLights: why the scene-lighting emissive list was last missing (said once per cause; empty
         // while it builds).
-        std::string m_ReportedSceneEmissive;
+        std::string                         m_ReportedSceneEmissive;
         std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
         bool                                m_ReportedHitLightingDevice = false;
         // Templates already reported as shading on the default hit group (no compiled `RayTracing.Hit` cell):
@@ -1754,11 +1768,12 @@ namespace Desert::Graphic
         {
             return m_RayTracingScene;
         }
+
     private:
         // PostProcessSettings SubsurfaceScattering / SubsurfaceScale of this view (SSS-PROFILE, CONTRACT §6).
         bool  m_SubsurfaceScattering = true;
         float m_SubsurfaceScale      = 1.0f;
-        float                   m_SSRIntensity  = 1.0f;
+        float m_SSRIntensity         = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
         // SceneSettings every frame, so this value only matters before the first Update.
         float m_SSRMaxDistance = Common::Units::Metres( 40.0f );
@@ -1784,7 +1799,7 @@ namespace Desert::Graphic
         // scene's DisplacementCache before this view requests levels. Rate 0 = runtime displacement off.
         int      m_DisplacementDicingRate = 2;
         uint32_t m_DisplacementPoolMiB    = 256;
-        int m_SSAOSamples = 16;
+        int      m_SSAOSamples            = 16;
         // Adaptive screen probes per uniform one, percent (Scalability GlobalIllumination.
         // AdaptiveProbeAllocationPercent, UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction), refreshed
         // each BeginScene and handed to the screen probe gather's layout.
@@ -1801,13 +1816,13 @@ namespace Desert::Graphic
         // The surface cache's radiosity on the async compute queue (Scalability
         // GlobalIllumination.SurfaceCacheAsyncRadiosity, SurfaceCacheRenderer::IndirectLightingInputs::Async),
         // refreshed each BeginScene.
-        bool m_SurfaceCacheAsyncRadiosity = true;
-        uint32_t m_ScreenProbeDownsample   = 16; // Scalability GlobalIllumination.ScreenProbeDownsample
-        uint32_t m_ScreenProbeTracedTexels = 8;  // Scalability GlobalIllumination.ScreenProbeTracedTexels
+        bool     m_SurfaceCacheAsyncRadiosity = true;
+        uint32_t m_ScreenProbeDownsample      = 16; // Scalability GlobalIllumination.ScreenProbeDownsample
+        uint32_t m_ScreenProbeTracedTexels    = 8;  // Scalability GlobalIllumination.ScreenProbeTracedTexels
         // Contact-shadow ray steps (Scalability: Shadows.ContactShadowSteps; 0 = the march is skipped for every
         // light) and the sun's contact shadow (ViewShadowSettings, from the elected sun), taken each BeginScene
         // and handed to the deferred composite (Common/ContactShadow.glslh).
-        int   m_ContactShadowSteps                  = 12;
+        int m_ContactShadowSteps = 12;
         // Shading.Parallax*Steps, read in BeginScene; every view's frame carries them (ViewFrame::Parallax).
         ParallaxQuality m_ParallaxQuality;
         // The ECS's gust fronts (SetWindGust): 0 = no gusts until a scene's systems say otherwise.
@@ -1828,10 +1843,10 @@ namespace Desert::Graphic
         // Foliage.GrassCullDistanceScalePercent (and the density), read in BeginScene; the scene view's frame
         // carries the lens it makes (ViewFrame::GrassLens, OnUpdate).
         System::GrassQuality m_GrassQuality;
-        float m_SunContactShadowLength              = 0.0f;
-        bool  m_SunContactShadowLengthInWorldSpace  = false;
-        float m_SunContactShadowCastingIntensity    = 1.0f;
-        float m_SunContactShadowNonCastingIntensity = 0.0f;
+        float                m_SunContactShadowLength              = 0.0f;
+        bool                 m_SunContactShadowLengthInWorldSpace  = false;
+        float                m_SunContactShadowCastingIntensity    = 1.0f;
+        float                m_SunContactShadowNonCastingIntensity = 0.0f;
         // The light grid's cut (Scalability: Shadows.LightGrid*), taken each BeginScene like the knobs above; the
         // initialiser is the High column.
         LightGridQuality m_LightGridQuality;
@@ -1851,7 +1866,7 @@ namespace Desert::Graphic
         bool EnsureScreenTraceResources();
         bool m_ScreenTraceResourcesReady  = false;
         bool m_ScreenTraceResourcesFailed = false;
-        bool m_SSRResourcesReady  = false;
+        bool m_SSRResourcesReady          = false;
         // "Shadows: Ray Traced Sun" and its denoiser (per view: the denoiser keeps this view's history), created
         // on the first frame that resolves the sun to HardwareTraced.
         System::RayTracedSunShadowRenderer m_RayTracedSunShadow;
@@ -1859,8 +1874,8 @@ namespace Desert::Graphic
         // "Shadows: Ray Traced Local", this frame's slots, and one ShadowVisibility denoiser per light (keyed by
         // LocalLightShadowSettings::SourceId: slots move between frames, the history follows the light - UE keys
         // its shadow denoiser history per light too). Pruned each frame to the frame's lights.
-        System::RayTracedLocalShadowRenderer                                     m_RayTracedLocalShadow;
-        std::vector<System::RayTracedLocalShadowLight>                           m_LocalShadowMaskLights;
+        System::RayTracedLocalShadowRenderer           m_RayTracedLocalShadow;
+        std::vector<System::RayTracedLocalShadowLight> m_LocalShadowMaskLights;
         // Shadows Stochastic, this frame (AssignLocalShadowMaskSlots): the lights per resolved source
         // (StochasticVisibility order), the non-Auto lights' methods, and the (SourceId, method) pairs whose clamp
         // was logged (once per light and method).
@@ -1872,8 +1887,8 @@ namespace Desert::Graphic
         // A pruned light's denoiser (its extracted history textures) is PARKED here, not destroyed: frames still
         // in flight may read its history; released once no frame recorded before the prune can (FrameRetireQueue).
         Assets::FrameRetireQueue<std::unique_ptr<System::ScreenSpaceDenoiser>> m_RetiredLocalShadowDenoisers;
-        bool                               m_RayTracedShadowReady  = false;
-        bool                               m_RayTracedShadowFailed = false;
+        bool                                                                   m_RayTracedShadowReady  = false;
+        bool                                                                   m_RayTracedShadowFailed = false;
         // "Shadows: Distance Field Sun", created on the first frame DistanceFieldShadowRuns; latched like the
         // ray-traced sun's.
         System::DistanceFieldShadowRenderer m_DistanceFieldShadow;
@@ -1902,19 +1917,19 @@ namespace Desert::Graphic
         System::VirtualShadowMapQuality  m_VirtualShadowQuality;
         bool                             m_VirtualShadowReady  = false;
         bool                             m_VirtualShadowFailed = false;
-        // This frame draws the directional cascade array (OnUpdate's frame decision): CascadedMaps; or a screen-mask
-        // sun with a cascade reader queued (MeshRenderer::SunCascadeReadersQueued), or with another directional
-        // light (the moon) that casts its own cascades. Last frame's, to redraw the static caches after a gap in
-        // which nothing drew them.
-        bool m_FrameCascades          = true;
+        // This frame draws the directional cascade array (OnUpdate's frame decision): CascadedMaps; or a
+        // screen-mask sun with a cascade reader queued (MeshRenderer::SunCascadeReadersQueued), or with another
+        // directional light (the moon) that casts its own cascades. Last frame's, to redraw the static caches
+        // after a gap in which nothing drew them.
+        bool m_FrameCascades = true;
         // This frame's clouds were added between the screen probes' fork and join (SceneRenderer.cpp, after the
         // traced GI), not after the opaque scene. Reset at the graph head.
-        bool m_FrameCloudsTraced = false;
+        bool m_FrameCloudsTraced      = false;
         bool m_CascadesDrawnLastFrame = false;
         // Last frame's FURTHEST HZB of the main view, phase 1's occlusion input (registered only when its size is
         // this frame's depth size): written by the draw bins' phase 2 (AddFrameDrawBinsPostOcclusion), or by the
         // GPU-DRIVEN CULL validation (DebugViewState::ValidateGpuCulling) on a frame without them.
-        RDG::ExternalTexture m_CullHzbHistory;
+        RDG::ExternalTexture       m_CullHzbHistory;
         GpuDriven::InstanceCulling m_GpuCull;
         // FPS-SET-MEMO4: the cull's kept visible rows, ONE store per call site (a site's rows must not be shared
         // by two culls in one graph): the draw bins' main view (AddFrameDrawBins + its phase 2), the depth
@@ -1938,12 +1953,12 @@ namespace Desert::Graphic
             std::vector<GpuDriven::CullViewInput> Views;
             std::vector<uint32_t>                 ViewKeys;
             // The cascade views of the content-hash cull views, by region (CullViewFlags::kContentHash).
-            std::vector<uint32_t>                 ContentViews;
-            std::vector<std::string>              ViewNames;
-            GpuDriven::OcclusionCarry             Carry;
-            GpuDriven::DrawCommandBuffers         Upload;
-            GpuDriven::GpuSceneBuffers            Scene;
-            bool                                  MainTestsHzb = false;
+            std::vector<uint32_t>         ContentViews;
+            std::vector<std::string>      ViewNames;
+            GpuDriven::OcclusionCarry     Carry;
+            GpuDriven::DrawCommandBuffers Upload;
+            GpuDriven::GpuSceneBuffers    Scene;
+            bool                          MainTestsHzb = false;
             // TWO-PASS OCCLUSION OF THE CLUSTERS (UE Nanite: the main pass tests last frame's HZB only when the
             // post pass runs): whether the main view's cluster cut tests last frame's HZB and carries what it
             // holds back. Decided in AddFrameDrawBins BEFORE AddFrameVirtualGeometry's main cut: the instances'
@@ -2026,13 +2041,14 @@ namespace Desert::Graphic
         uint32_t m_ShadowDenoiserRadius = 2;
         // Shadows.BlockerSearchTaps / Shadows.FilterTaps (Scalability): the sun's PCSS kernel, taken each
         // BeginScene and packed into every ShadowUB (GetShadowFilterSettings).
-        SceneResources::ShadowFilterSettings                            m_ShadowFilter;
-        float                                                           m_SunSourceAngleDegrees = 0.0f;
-        // The elected sun's CastShadows (ViewShadowSettings::Enabled), taken each BeginScene: the GI frame record's
-        // SunRadiance.w, so the path tracer and the GI hit lighting leave its rays unoccluded as the raster does.
-        bool m_SunCastsShadows = true;
-        bool                                                            m_SSRResourcesFailed = false;
-        SceneRenderSystems                                              m_Systems;
+        SceneResources::ShadowFilterSettings m_ShadowFilter;
+        float                                m_SunSourceAngleDegrees = 0.0f;
+        // The elected sun's CastShadows (ViewShadowSettings::Enabled), taken each BeginScene: the GI frame
+        // record's SunRadiance.w, so the path tracer and the GI hit lighting leave its rays unoccluded as the
+        // raster does.
+        bool               m_SunCastsShadows    = true;
+        bool               m_SSRResourcesFailed = false;
+        SceneRenderSystems m_Systems;
 
         // The members of m_Systems that are registered, in the order they were first registered (non-owning;
         // never a null). RebindScene and ResetTemporalHistory walk THIS. The draw order is not this order: it

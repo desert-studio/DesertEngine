@@ -422,7 +422,7 @@ namespace Desert::Editor
                 {
                     const auto side = static_cast<uint32_t>( m_Jobs.front().Source.Settings.TextureSize );
                     m_Renderer      = Graphic::SceneRenderer::Create( Graphic::ViewExtent{ side, side },
-                                                                                Graphic::kThumbnailViewProfile );
+                                                                      Graphic::kThumbnailViewProfile );
                 }
                 if ( !m_Renderer->AdvanceRendererBuild() )
                     return false;

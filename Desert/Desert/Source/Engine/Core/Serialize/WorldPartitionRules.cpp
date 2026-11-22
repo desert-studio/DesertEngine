@@ -66,7 +66,7 @@ namespace Desert::Core::Rules::Detail
 namespace Desert::Core::Rules
 {
     [[nodiscard]] CellCoord CellOf( float worldX, float worldZ, double cellSize )
-{
+    {
         CellCoord cell;
         cell.X = static_cast<std::int32_t>( std::floor( static_cast<double>( worldX ) / cellSize ) );
         cell.Z = static_cast<std::int32_t>( std::floor( static_cast<double>( worldZ ) / cellSize ) );
@@ -74,7 +74,7 @@ namespace Desert::Core::Rules
     }
 
     [[nodiscard]] std::string_view GenerationIssueKindName( GenerationIssueKind kind )
-{
+    {
         switch ( kind )
         {
             case GenerationIssueKind::Planner:
@@ -96,17 +96,17 @@ namespace Desert::Core::Rules
     }
 
     [[nodiscard]] HeightSpan UnionHeight( const HeightSpan& a, const HeightSpan& b )
-{
+    {
         return HeightSpan{ std::min( a.MinY, b.MinY ), std::max( a.MaxY, b.MaxY ) };
     }
 
     [[nodiscard]] double LevelCellSize( float cellSize, int level )
-{
+    {
         return std::ldexp( static_cast<double>( cellSize ), level );
     }
 
     [[nodiscard]] CellBounds GridSquareOf( const CellCoord& cell, double levelCellSize )
-{
+    {
         CellBounds square;
         square.MinX = static_cast<float>( static_cast<double>( cell.X ) * levelCellSize );
         square.MinZ = static_cast<float>( static_cast<double>( cell.Z ) * levelCellSize );
@@ -115,9 +115,8 @@ namespace Desert::Core::Rules
         return square;
     }
 
-    [[nodiscard]] std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint,
-                                                                     double            levelCellSize )
-{
+    [[nodiscard]] std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint, double levelCellSize )
+    {
         // An edge in cell units, and the float rounding it may carry (in cells too).
         constexpr double kRoundingEpsilons = 4.0 * static_cast<double>( std::numeric_limits<float>::epsilon() );
         const auto       rounding          = []( float edge, double size )
@@ -154,8 +153,8 @@ namespace Desert::Core::Rules
     }
 
     [[nodiscard]] std::optional<MeshReferenceNode> MeshReferenceOf( const Common::Json::Node& block,
-                                                                           std::string_view          component )
-{
+                                                                    std::string_view          component )
+    {
         if ( component == "StaticMesh" )
         {
             auto handle = block.Find( "MeshHandle" );
@@ -166,18 +165,17 @@ namespace Desert::Core::Rules
         return MeshReferenceNode{ block, "MeshGuid", "MeshPath" };
     }
 
-namespace Detail
-{
-        [[nodiscard]] Common::Json::Path ComponentPath( const Assets::EntityData& record,
-                                                               std::string_view          key )
-{
+    namespace Detail
+    {
+        [[nodiscard]] Common::Json::Path ComponentPath( const Assets::EntityData& record, std::string_view key )
+        {
             const std::string id = record.id.has_value() ? record.id->ToString() : std::string( "none" );
             return Common::Json::Path{}.Key( "Entities" ).Record( id ).Key( key );
         }
 
         [[nodiscard]] std::optional<Common::Json::Node> PayloadOf( const Assets::EntityData& record,
-                                                                          std::string_view          key )
-{
+                                                                   std::string_view          key )
+        {
             for ( const auto& [name, payload] : record.Components )
                 if ( name == key )
                     return Common::Json::Node( payload, ComponentPath( record, key ) );
@@ -186,7 +184,7 @@ namespace Detail
 
         [[nodiscard]] std::optional<Common::Json::Node>
         BlockOf( const Assets::EntityData& record, std::string_view key, Common::Json::Issues& issues )
-{
+        {
             auto payload = PayloadOf( record, key );
             if ( !payload.has_value() )
                 return std::nullopt;
@@ -199,8 +197,8 @@ namespace Detail
         }
 
         [[nodiscard]] bool ReadReference( const Common::Json::Node& block, std::string_view field,
-                                                 Common::UUID& out, Common::Json::Issues& issues )
-{
+                                          Common::UUID& out, Common::Json::Issues& issues )
+        {
             const auto value = block.Find( field );
             if ( !value.has_value() )
                 return false;
@@ -210,7 +208,7 @@ namespace Detail
         }
 
         [[nodiscard]] glm::mat4 ComposeLocal( const Assets::EntityData& record )
-{
+        {
             const glm::vec3 translation = record.Translation.value_or( glm::vec3( 0.0f ) );
             const glm::vec3 rotation    = record.Rotation.value_or( glm::vec3( 0.0f ) );
             const glm::vec3 scale       = record.Scale.value_or( glm::vec3( 1.0f ) );
@@ -219,8 +217,8 @@ namespace Detail
         }
 
         void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec3>& out,
-                                          Common::Json::Issues& issues )
-{
+                                   Common::Json::Issues& issues )
+        {
             const auto block = BlockOf( record, kInstancePointsComponent, issues );
             if ( !block.has_value() )
                 return;
@@ -264,8 +262,8 @@ namespace Detail
         }
 
         [[nodiscard]] bool ReadScalar( const Common::Json::Node& block, std::string_view field, double& out,
-                                              Common::Json::Issues& issues )
-{
+                                       Common::Json::Issues& issues )
+        {
             const auto value = block.Find( field );
             if ( !value.has_value() )
                 return false;
@@ -284,8 +282,8 @@ namespace Detail
         }
 
         [[nodiscard]] AlwaysLoadedReason GlobalReasonOf( const Assets::EntityData& record,
-                                                                Common::Json::Issues&     issues )
-{
+                                                         Common::Json::Issues&     issues )
+        {
             if ( PayloadOf( record, kAlwaysLoadedComponent ).has_value() )
                 return AlwaysLoadedReason::Author;
 
@@ -312,7 +310,7 @@ namespace Detail
         }
 
         void AppendBoxCorners( const glm::mat4& world, const glm::vec3& half, std::vector<glm::vec3>& out )
-{
+        {
             for ( int corner = 0; corner < 8; ++corner )
             {
                 const glm::vec4 local( ( ( corner & 1 ) != 0 ) ? half.x : -half.x,
@@ -324,16 +322,16 @@ namespace Detail
         }
 
         void AppendBoundsCorners( const glm::mat4& world, const Common::Math::AABB& box,
-                                         std::vector<glm::vec3>& out )
-{
+                                  std::vector<glm::vec3>& out )
+        {
             const glm::vec3 centre = ( box.Min + box.Max ) * 0.5f;
             const glm::vec3 half   = ( box.Max - box.Min ) * 0.5f;
             AppendBoxCorners( world * glm::translate( glm::mat4( 1.0f ), centre ), half, out );
         }
 
-        [[nodiscard]] Common::Content::AssetGuid
-        ReadGuid( const Common::Json::Node& block, std::string_view field, Common::Json::Issues& issues )
-{
+        [[nodiscard]] Common::Content::AssetGuid ReadGuid( const Common::Json::Node& block, std::string_view field,
+                                                           Common::Json::Issues& issues )
+        {
             std::string text;
             block.ReadInto( field, text, issues );
             if ( text.empty() )
@@ -349,8 +347,8 @@ namespace Detail
         }
 
         [[nodiscard]] std::optional<Common::Math::AABB> EditMeshBox( const Common::Json::Node& block,
-                                                                            Common::Json::Issues&     issues )
-{
+                                                                     Common::Json::Issues&     issues )
+        {
             const auto editMesh = block.Find( kEditMeshField );
             if ( !editMesh.has_value() || !editMesh->ExpectKind( Common::Json::Kind::Object, issues ) )
                 return std::nullopt;
@@ -382,8 +380,8 @@ namespace Detail
         }
 
         std::optional<Common::Math::AABB> LandscapeSplineBandOf( const Assets::EntityData& record,
-                                                                        Common::Json::Issues&     issues )
-{
+                                                                 Common::Json::Issues&     issues )
+        {
             const auto block = BlockOf( record, kLandscapeSplineComponent, issues );
             if ( !block.has_value() )
                 return std::nullopt;
@@ -393,15 +391,15 @@ namespace Detail
         }
 
         void AppendSplineBand( const Common::Math::AABB& band, std::vector<glm::vec3>& out )
-{
+        {
             out.push_back( band.Min );
             out.push_back( band.Max );
         }
 
         bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
-                                     Common::Json::Issues& issues )
-{
+                              const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
+                              Common::Json::Issues& issues )
+        {
             if ( const auto band = LandscapeSplineBandOf( record, issues ); band.has_value() )
             {
                 AppendSplineBand( *band, out );
@@ -422,7 +420,7 @@ namespace Detail
                              std::span<const Assets::EntityData>                  records,
                              const std::unordered_map<Common::UUID, std::size_t>& byId,
                              Common::Json::Issues&                                issues )
-{
+        {
             const auto tileBlock = BlockOf( tile, kLandscapeTileComponent, issues );
             if ( !tileBlock.has_value() )
                 return std::nullopt;
@@ -452,10 +450,10 @@ namespace Detail
             return World::Landscape::LandscapeTileBounds( root, tileX, tileZ );
         }
 
-}
+    } // namespace Detail
     [[nodiscard]] std::vector<UnregisteredReference>
     FindUnregisteredEntityReferences( std::span<const Assets::EntityData> records )
-{
+    {
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
@@ -500,18 +498,18 @@ namespace Detail
         return found;
     }
 
-namespace Detail
-{
+    namespace Detail
+    {
         [[nodiscard]] std::optional<std::uint64_t> IdBits( const std::optional<Common::UUID>& id )
-{
+        {
             if ( !id.has_value() || id->IsNull() )
                 return std::nullopt;
             return static_cast<std::uint64_t>( *id );
         }
 
-}
+    } // namespace Detail
     [[nodiscard]] EntityDescriptor DescribeEntity( const Assets::EntityData& record )
-{
+    {
         EntityDescriptor      out;
         Common::Json::Issues& issues = out.Issues;
         out.Id                       = Detail::IdBits( record.id );
@@ -612,7 +610,8 @@ namespace Detail
                                   else if ( type == kArray && element == kEntity )
                                   {
                                       const auto items = prop.Find( "Items" );
-                                      if ( items.has_value() && items->ExpectKind( Common::Json::Kind::Array, issues ) )
+                                      if ( items.has_value() &&
+                                           items->ExpectKind( Common::Json::Kind::Array, issues ) )
                                           items->ForEachElement(
                                                [&]( std::size_t, const Common::Json::Node& item )
                                                {
@@ -636,16 +635,19 @@ namespace Detail
                     out.NamedReferences.push_back( DescriptorNamedReference{
                          std::string( row.ComponentKey ), std::string( row.Field ), std::move( name ) } );
             }
-            const bool carried = std::any_of( out.Names.begin(), out.Names.end(), [&row]( const DescriptorName& held )
-                                              { return held.Component == row.TargetComponentKey; } );
+            const bool carried =
+                 std::any_of( out.Names.begin(), out.Names.end(), [&row]( const DescriptorName& held )
+                              { return held.Component == row.TargetComponentKey; } );
             if ( carried )
                 continue;
-            if ( const auto target = Detail::BlockOf( record, row.TargetComponentKey, issues ); target.has_value() )
+            if ( const auto target = Detail::BlockOf( record, row.TargetComponentKey, issues );
+                 target.has_value() )
             {
                 std::string name;
                 target->ReadInto( "Name", name, issues );
                 if ( !name.empty() )
-                    out.Names.push_back( DescriptorName{ std::string( row.TargetComponentKey ), std::move( name ) } );
+                    out.Names.push_back(
+                         DescriptorName{ std::string( row.TargetComponentKey ), std::move( name ) } );
             }
         }
 
@@ -700,9 +702,8 @@ namespace Detail
         return out;
     }
 
-    [[nodiscard]] std::vector<EntityDescriptor>
-    DescribeEntities( std::span<const Assets::EntityData> records )
-{
+    [[nodiscard]] std::vector<EntityDescriptor> DescribeEntities( std::span<const Assets::EntityData> records )
+    {
         std::vector<EntityDescriptor> out;
         out.reserve( records.size() );
         for ( const Assets::EntityData& record : records )
@@ -711,7 +712,7 @@ namespace Detail
     }
 
     [[nodiscard]] Containment ContainmentOf( ReferenceOrigin origin )
-{
+    {
         if ( origin == ReferenceOrigin::Script )
             return Containment::ScriptReference;
         if ( origin == ReferenceOrigin::Name )
@@ -722,9 +723,10 @@ namespace Detail
     [[nodiscard]] std::vector<ResolvedReference>
     ResolveEntityReferences( std::span<const EntityDescriptor> records, const ScriptReferenceSource& scripts,
                              Common::Json::Issues& issues )
-{
-        std::unordered_map<Common::UUID, std::size_t>                           byId;
-        std::map<std::pair<std::string, std::string>, std::vector<std::size_t>> carriers; // (block, name) -> records
+    {
+        std::unordered_map<Common::UUID, std::size_t> byId;
+        std::map<std::pair<std::string, std::string>, std::vector<std::size_t>>
+             carriers; // (block, name) -> records
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
             if ( records[record].Id.has_value() )
@@ -770,7 +772,8 @@ namespace Detail
                                             .Kind      = ReferenceKind::Observation,
                                             .Origin    = ReferenceOrigin::Script,
                                             .Component = std::string( kScriptComponent ),
-                                            .Field     = std::format( "{}:{}", reference.Script, reference.Property ) };
+                                            .Field =
+                                                 std::format( "{}:{}", reference.Script, reference.Property ) };
                 if ( !scripts )
                     ++undeclared;
                 else if ( const auto kind = scripts( reference.Script, reference.Property ); kind.has_value() )
@@ -787,12 +790,10 @@ namespace Detail
             }
             for ( const DescriptorNamedReference& reference : data.NamedReferences )
             {
-                const auto row = std::find_if( std::begin( kEntityReferencesByName ), std::end( kEntityReferencesByName ),
-                                               [&reference]( const NamedEntityReferenceRow& named )
-                                               {
-                                                   return named.ComponentKey == reference.Component &&
-                                                          named.Field == reference.Field;
-                                               } );
+                const auto row = std::find_if(
+                     std::begin( kEntityReferencesByName ), std::end( kEntityReferencesByName ),
+                     [&reference]( const NamedEntityReferenceRow& named )
+                     { return named.ComponentKey == reference.Component && named.Field == reference.Field; } );
                 if ( row == std::end( kEntityReferencesByName ) )
                 {
                     issues.push_back( Common::Json::Issue{
@@ -836,24 +837,24 @@ namespace Detail
         return out;
     }
 
-namespace Detail
-{
+    namespace Detail
+    {
         [[nodiscard]] std::optional<Common::UUID> ParentOf( const Assets::EntityData& record )
-{
+        {
             if ( record.parent.has_value() && !record.parent->IsNull() )
                 return record.parent;
             return std::nullopt;
         }
 
         [[nodiscard]] std::optional<Common::UUID> ParentOf( const EntityDescriptor& descriptor )
-{
+        {
             if ( descriptor.Parent.has_value() )
                 return Common::UUID( *descriptor.Parent );
             return std::nullopt;
         }
 
         [[nodiscard]] glm::mat4 ComposeLocal( const EntityDescriptor& descriptor )
-{
+        {
             const glm::vec3 translation = descriptor.Translation.value_or( glm::vec3( 0.0f ) );
             const glm::vec3 rotation    = descriptor.Rotation.value_or( glm::vec3( 0.0f ) );
             const glm::vec3 scale       = descriptor.Scale.value_or( glm::vec3( 1.0f ) );
@@ -862,8 +863,8 @@ namespace Detail
         }
 
         bool AppendFootprint( const EntityDescriptor& descriptor, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec3>& out )
-{
+                              const AssetBoundsSource& bounds, std::vector<glm::vec3>& out )
+        {
             if ( descriptor.LandscapeSpline.has_value() )
             {
                 AppendSplineBand( *descriptor.LandscapeSpline, out );
@@ -891,7 +892,7 @@ namespace Detail
         LandscapeTileRectOf( const EntityDescriptor& tile, const std::vector<glm::mat4>& world,
                              std::span<const EntityDescriptor>                    descriptors,
                              const std::unordered_map<Common::UUID, std::size_t>& byId )
-{
+        {
             if ( !tile.LandscapeTile.has_value() || tile.LandscapeTile->Root == 0 )
                 return std::nullopt;
             const auto found = byId.find( Common::UUID( tile.LandscapeTile->Root ) );
@@ -911,16 +912,16 @@ namespace Detail
             return World::Landscape::LandscapeTileBounds( root, tile.LandscapeTile->X, tile.LandscapeTile->Z );
         }
 
-}
+    } // namespace Detail
     std::string ReportGenerationIssues( std::span<const GenerationIssue> issues, std::string_view world )
-{
+    {
         std::string text;
         for ( const GenerationIssue& issue : issues )
         {
             if ( issue.Kind == GenerationIssueKind::Planner )
                 continue;
-            const std::string line =
-                 std::format( "[WorldPartition] '{}': {}: {}", world, GenerationIssueKindName( issue.Kind ), issue.Text );
+            const std::string line = std::format( "[WorldPartition] '{}': {}: {}", world,
+                                                  GenerationIssueKindName( issue.Kind ), issue.Text );
             LOG_WARN( "{}", line );
             text += ( text.empty() ? "" : "\n" ) + line;
         }
@@ -928,18 +929,18 @@ namespace Detail
     }
 
     std::string ReportPlanIssues( const WorldPartitionPlan& plan, std::string_view world )
-{
-        std::string       text   = Common::Json::ReportIssues( plan.Issues,
-                                                              std::format( "the world partition plan of '{}'", world ) );
-        const std::string found  = ReportGenerationIssues( plan.Generation, world );
+    {
+        std::string text =
+             Common::Json::ReportIssues( plan.Issues, std::format( "the world partition plan of '{}'", world ) );
+        const std::string found = ReportGenerationIssues( plan.Generation, world );
         if ( !text.empty() && !found.empty() )
             text += "\n";
         return text + found;
     }
 
     [[nodiscard]] std::vector<GenerationIssue> PlanIssues( const WorldPartitionPlan&         plan,
-                                                                  std::span<const EntityDescriptor> records )
-{
+                                                           std::span<const EntityDescriptor> records )
+    {
         std::vector<GenerationIssue> issues;
         issues.reserve( plan.Issues.size() + plan.Generation.size() );
         constexpr std::string_view kEntities = "Entities[";
@@ -949,11 +950,11 @@ namespace Detail
             named.Text = Common::Json::Describe( issue );
             if ( issue.Path.starts_with( kEntities ) )
             {
-                std::string_view rest   = std::string_view( issue.Path ).substr( kEntities.size() );
-                const bool       byId   = rest.starts_with( "id=" );
-                rest                    = byId ? rest.substr( 3 ) : rest;
-                std::uint64_t     value = 0;
-                std::size_t       digits = 0;
+                std::string_view rest = std::string_view( issue.Path ).substr( kEntities.size() );
+                const bool       byId = rest.starts_with( "id=" );
+                rest                  = byId ? rest.substr( 3 ) : rest;
+                std::uint64_t value   = 0;
+                std::size_t   digits  = 0;
                 while ( digits < rest.size() && rest[digits] >= '0' && rest[digits] <= '9' )
                 {
                     value = value * 10 + static_cast<std::uint64_t>( rest[digits] - '0' );
@@ -978,8 +979,8 @@ namespace Detail
     }
 
     [[nodiscard]] std::optional<std::size_t> GridIndexOf( const WorldPartitionSerialized&   settings,
-                                                                 const std::optional<std::string>& wanted )
-{
+                                                          const std::optional<std::string>& wanted )
+    {
         const std::vector<RuntimePartitionSerialized>& partitions = settings.RuntimePartitions;
         if ( partitions.empty() )
             return std::nullopt;
@@ -994,7 +995,7 @@ namespace Detail
     }
 
     [[nodiscard]] Common::Json::Issues CheckDataLayers( const WorldPartitionSerialized& settings )
-{
+    {
         Common::Json::Issues issues;
         if ( !settings.DataLayers.has_value() )
             return issues;
@@ -1010,9 +1011,10 @@ namespace Detail
                                     "a name no other data layer of the world states", layer.Name } );
             // WP v3: a runtime layer starts in the state it states; an editor layer has none to start in.
             if ( layer.Type == DataLayerType::Runtime && !layer.InitialRuntimeState.has_value() )
-                issues.push_back( { std::format( "WorldPartition.DataLayers[{}].InitialRuntimeState", layerIndex ),
-                                    "the state a Runtime data layer starts Play in (Unloaded, Loaded or Activated)",
-                                    "nothing" } );
+                issues.push_back(
+                     { std::format( "WorldPartition.DataLayers[{}].InitialRuntimeState", layerIndex ),
+                       "the state a Runtime data layer starts Play in (Unloaded, Loaded or Activated)",
+                       "nothing" } );
             if ( layer.Type == DataLayerType::Editor && layer.InitialRuntimeState.has_value() )
                 issues.push_back( { std::format( "WorldPartition.DataLayers[{}].InitialRuntimeState", layerIndex ),
                                     "no runtime state on an Editor data layer (it does not stream)",
@@ -1063,20 +1065,21 @@ namespace Detail
     }
 
     [[nodiscard]] std::vector<std::size_t> RuntimeDataLayersOf( const WorldPartitionSerialized& settings,
-                                                                       std::span<const std::size_t>    layers )
-{
+                                                                std::span<const std::size_t>    layers )
+    {
         std::vector<std::size_t> runtime;
         if ( !settings.DataLayers.has_value() )
             return runtime;
         for ( const std::size_t layer : layers )
-            if ( layer < settings.DataLayers->size() && ( *settings.DataLayers )[layer].Type == DataLayerType::Runtime )
+            if ( layer < settings.DataLayers->size() &&
+                 ( *settings.DataLayers )[layer].Type == DataLayerType::Runtime )
                 runtime.push_back( layer );
         return runtime;
     }
 
     [[nodiscard]] std::string DataLayersCellSuffix( const WorldPartitionSerialized& settings,
-                                                           std::span<const std::size_t>    runtimeLayers )
-{
+                                                    std::span<const std::size_t>    runtimeLayers )
+    {
         if ( runtimeLayers.empty() || !settings.DataLayers.has_value() )
             return {};
         std::vector<std::string_view> names;
@@ -1100,40 +1103,40 @@ namespace Detail
     }
 
     [[nodiscard]] std::string CellStem( const WorldPartitionSerialized& settings, const PlannedCell& cell )
-{
+    {
         return std::format( "G{}_L{}_{}_{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z,
                             DataLayersCellSuffix( settings, cell.DataLayers ) );
     }
 
     [[nodiscard]] std::optional<std::size_t> HLODLayerIndexOf( const WorldPartitionSerialized& settings,
-                                                                      std::string_view                name )
-{
+                                                               std::string_view                name )
+    {
         if ( !settings.HLODLayers.has_value() )
             return std::nullopt;
         const std::vector<HLODLayerSerialized>& layers = *settings.HLODLayers;
-        const auto found = std::find_if( layers.begin(), layers.end(),
-                                         [&]( const HLODLayerSerialized& layer ) { return layer.Name == name; } );
+        const auto                              found  = std::find_if( layers.begin(), layers.end(),
+                                                                       [&]( const HLODLayerSerialized& layer ) { return layer.Name == name; } );
         if ( found == layers.end() )
             return std::nullopt;
         return static_cast<std::size_t>( found - layers.begin() );
     }
 
     [[nodiscard]] std::optional<std::size_t> DataLayerIndexOf( const WorldPartitionSerialized& settings,
-                                                                      std::string_view                name )
-{
+                                                               std::string_view                name )
+    {
         if ( !settings.DataLayers.has_value() )
             return std::nullopt;
         const std::vector<DataLayerSerialized>& layers = *settings.DataLayers;
-        const auto found = std::find_if( layers.begin(), layers.end(),
-                                         [&]( const DataLayerSerialized& layer ) { return layer.Name == name; } );
+        const auto                              found  = std::find_if( layers.begin(), layers.end(),
+                                                                       [&]( const DataLayerSerialized& layer ) { return layer.Name == name; } );
         if ( found == layers.end() )
             return std::nullopt;
         return static_cast<std::size_t>( found - layers.begin() );
     }
 
     [[nodiscard]] std::optional<std::size_t> DataLayerParentIndex( const WorldPartitionSerialized& settings,
-                                                                          const std::size_t               layer )
-{
+                                                                   const std::size_t               layer )
+    {
         if ( !settings.DataLayers.has_value() || layer >= settings.DataLayers->size() )
             return std::nullopt;
         const std::optional<std::string>& parent = ( *settings.DataLayers )[layer].Parent;
@@ -1143,8 +1146,8 @@ namespace Detail
     }
 
     [[nodiscard]] bool DataLayerIsWithin( const WorldPartitionSerialized& settings, const std::size_t layer,
-                                                 const std::size_t ancestor )
-{
+                                          const std::size_t ancestor )
+    {
         const std::size_t          count = settings.DataLayers.has_value() ? settings.DataLayers->size() : 0;
         std::optional<std::size_t> at    = layer;
         for ( std::size_t steps = 0; at.has_value() && steps <= count; ++steps )
@@ -1157,8 +1160,8 @@ namespace Detail
     }
 
     [[nodiscard]] std::vector<bool> EffectiveDataLayerFlags( const WorldPartitionSerialized& settings,
-                                                                    const std::vector<bool>&        own )
-{
+                                                             const std::vector<bool>&        own )
+    {
         std::vector<bool> effective = own;
         for ( std::size_t layer = 0; layer < effective.size(); ++layer )
         {
@@ -1173,7 +1176,7 @@ namespace Detail
     }
 
     [[nodiscard]] std::array<float, 3> SeededDataLayerColor( std::string_view name )
-{
+    {
         std::uint32_t hash = 2166136261u;
         for ( const char character : name )
         {
@@ -1213,13 +1216,13 @@ namespace Detail
     }
 
     [[nodiscard]] double FootprintExtent( const CellBounds& box )
-{
+    {
         return std::max( static_cast<double>( box.MaxX ) - static_cast<double>( box.MinX ),
                          static_cast<double>( box.MaxZ ) - static_cast<double>( box.MinZ ) );
     }
 
     [[nodiscard]] const IRuntimePartition& RuntimePartitionClass( RuntimePartitionType type )
-{
+    {
         static const RuntimePartitionLHGrid     lhGrid{};
         static const RuntimePartitionPersistent persistent{};
         switch ( type )
@@ -1233,7 +1236,7 @@ namespace Detail
     }
 
     [[nodiscard]] std::string_view RuntimePartitionTypeName( RuntimePartitionType type )
-{
+    {
         switch ( type )
         {
             case RuntimePartitionType::LHGrid:
@@ -1244,9 +1247,9 @@ namespace Detail
         return "LHGrid"; // unreachable: every enumerator returns above (MSVC C4715 asks for a return here)
     }
 
-    [[nodiscard]] const RuntimePartitionLHGridSerialized*
-    CellGridOf( const WorldPartitionSerialized& settings, std::size_t partition )
-{
+    [[nodiscard]] const RuntimePartitionLHGridSerialized* CellGridOf( const WorldPartitionSerialized& settings,
+                                                                      std::size_t                     partition )
+    {
         if ( partition >= settings.RuntimePartitions.size() )
             return nullptr;
         const RuntimePartitionSerialized& desc = settings.RuntimePartitions[partition];
@@ -1254,7 +1257,7 @@ namespace Detail
     }
 
     [[nodiscard]] RuntimeGridsCheck CheckRuntimeGrids( const WorldPartitionSerialized& settings )
-{
+    {
         RuntimeGridsCheck                              check;
         const std::vector<RuntimePartitionSerialized>& partitions = settings.RuntimePartitions;
         if ( partitions.empty() )
@@ -1282,11 +1285,11 @@ namespace Detail
         return check;
     }
 
-namespace Detail
-{
-        [[nodiscard]] std::optional<std::pair<int, CellCoord>>
-        PlaceFootprint( const CellBounds& footprint, float cellSize, int levelCount )
-{
+    namespace Detail
+    {
+        [[nodiscard]] std::optional<std::pair<int, CellCoord>> PlaceFootprint( const CellBounds& footprint,
+                                                                               float cellSize, int levelCount )
+        {
             const double extent = FootprintExtent( footprint );
             const double centreX =
                  ( static_cast<double>( footprint.MinX ) + static_cast<double>( footprint.MaxX ) ) * 0.5;
@@ -1297,25 +1300,28 @@ namespace Detail
                 const double size = LevelCellSize( cellSize, level );
                 if ( size < extent )
                     continue;
-                if ( !( std::fabs( centreX / size ) < 2147483647.0 ) || !( std::fabs( centreZ / size ) < 2147483647.0 ) )
+                if ( !( std::fabs( centreX / size ) < 2147483647.0 ) ||
+                     !( std::fabs( centreZ / size ) < 2147483647.0 ) )
                     return std::nullopt;
-                return std::make_pair( level, CellCoord{ static_cast<std::int32_t>( std::floor( centreX / size ) ),
-                                                         static_cast<std::int32_t>( std::floor( centreZ / size ) ) } );
+                return std::make_pair( level,
+                                       CellCoord{ static_cast<std::int32_t>( std::floor( centreX / size ) ),
+                                                  static_cast<std::int32_t>( std::floor( centreZ / size ) ) } );
             }
             return std::nullopt;
         }
 
         [[nodiscard]] std::string RecordName( std::span<const EntityDescriptor> records, std::size_t record )
-{
+        {
             const EntityDescriptor& described = records[record];
-            const std::string       id        = described.Id.has_value() ? std::to_string( *described.Id )
-                                                                         : std::format( "record {}", record );
-            return described.Tag.empty() ? std::format( "Entities[{}]", id ) : std::format( "{} ({})", described.Tag, id );
+            const std::string       id =
+                 described.Id.has_value() ? std::to_string( *described.Id ) : std::format( "record {}", record );
+            return described.Tag.empty() ? std::format( "Entities[{}]", id )
+                                         : std::format( "{} ({})", described.Tag, id );
         }
 
         [[nodiscard]] std::string LayerNames( const WorldPartitionSerialized& settings,
-                                                     std::span<const std::size_t>    layers )
-{
+                                              std::span<const std::size_t>    layers )
+        {
             std::string names;
             for ( const std::size_t layer : layers )
                 names += ( names.empty() ? "" : ", " ) + settings.DataLayers->at( layer ).Name;
@@ -1323,10 +1329,10 @@ namespace Detail
         }
 
         void ValidateReferences( WorldPartitionPlan& plan, std::span<const EntityDescriptor> records,
-                                        const WorldPartitionSerialized& settings, bool gridsUsable,
-                                        const std::unordered_map<Common::UUID, std::size_t>& byId,
-                                        const std::vector<std::optional<CellBounds>>&        ownFootprint )
-{
+                                 const WorldPartitionSerialized& settings, bool gridsUsable,
+                                 const std::unordered_map<Common::UUID, std::size_t>& byId,
+                                 const std::vector<std::optional<CellBounds>>&        ownFootprint )
+        {
             std::vector<std::size_t> compositeOf( records.size(), kNoRecord );
             for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
                 for ( const std::size_t member : plan.Composites[group].Members )
@@ -1336,31 +1342,35 @@ namespace Detail
                 for ( const std::size_t group : plan.Cells[cell].Composites )
                     cellOf[group] = cell;
             const auto name = [&]( std::size_t record ) { return RecordName( records, record ); };
-            const auto add  = [&]( GenerationIssueKind kind, std::size_t record, std::size_t target, std::string text )
+            const auto add =
+                 [&]( GenerationIssueKind kind, std::size_t record, std::size_t target, std::string text )
             { plan.Generation.push_back( GenerationIssue{ kind, record, target, std::move( text ) } ); };
 
             for ( const DanglingContainment& dangling : plan.Dangling )
                 add( GenerationIssueKind::InvalidReference, dangling.Member, kNoRecord,
                      std::format( "{} names {} {}, which no record of the world is: it is loaded without it",
                                   name( dangling.Member ),
-                                  dangling.Relation == Containment::Hierarchy ? "the parent" : "the SocketAttachment.Target",
+                                  dangling.Relation == Containment::Hierarchy ? "the parent"
+                                                                              : "the SocketAttachment.Target",
                                   static_cast<std::uint64_t>( dangling.NamedId ) ) );
 
             for ( const ContainmentEdge& edge : plan.Containment )
             {
                 const PlannedComposite& held = plan.Composites[compositeOf[edge.Member]];
-                if ( !gridsUsable ||
-                     ( held.Reason != AlwaysLoadedReason::Author && held.Reason != AlwaysLoadedReason::Component ) )
+                if ( !gridsUsable || ( held.Reason != AlwaysLoadedReason::Author &&
+                                       held.Reason != AlwaysLoadedReason::Component ) )
                     continue;
                 if ( records[edge.Member].Reason == AlwaysLoadedReason::None ||
-                     records[edge.Holder].Reason != AlwaysLoadedReason::None || !ownFootprint[edge.Holder].has_value() )
+                     records[edge.Holder].Reason != AlwaysLoadedReason::None ||
+                     !ownFootprint[edge.Holder].has_value() )
                     continue;
                 const std::optional<std::size_t> grid = GridIndexOf( settings, records[edge.Holder].RuntimeGrid );
                 if ( !grid.has_value() )
                     continue;
                 // A Persistent partition places nothing (what streams on it is always loaded): no cell to name.
                 const RuntimePartitionSerialized&       partition = settings.RuntimePartitions[*grid];
-                const RuntimePartitionLHGridSerialized* lhGrid    = RuntimePartitionClass( partition.Type ).CellGrid( partition );
+                const RuntimePartitionLHGridSerialized* lhGrid =
+                     RuntimePartitionClass( partition.Type ).CellGrid( partition );
                 if ( lhGrid == nullptr )
                     continue;
                 const auto place = PlaceFootprint( *ownFootprint[edge.Holder], lhGrid->CellSize, kMaxGridLevels );
@@ -1375,7 +1385,8 @@ namespace Detail
                      std::format( "AlwaysLoaded {} references spatially loaded {} (cell {}) through {}: the whole "
                                   "composite is always loaded",
                                   name( edge.Member ), name( edge.Holder ), CellStem( settings, would ),
-                                  edge.Relation == Containment::Hierarchy ? "its parent" : "SocketAttachment.Target" ) );
+                                  edge.Relation == Containment::Hierarchy ? "its parent"
+                                                                          : "SocketAttachment.Target" ) );
             }
 
             for ( std::size_t record = 0; record < records.size(); ++record )
@@ -1388,8 +1399,9 @@ namespace Detail
                     if ( found == byId.end() )
                     {
                         add( GenerationIssueKind::InvalidReference, record, kNoRecord,
-                             std::format( "{} references {} through {}, which no record of the world is: it reads null",
-                                          name( record ), reference.Target, through ) );
+                             std::format(
+                                  "{} references {} through {}, which no record of the world is: it reads null",
+                                  name( record ), reference.Target, through ) );
                         continue;
                     }
                     const std::size_t target = found->second;
@@ -1401,24 +1413,30 @@ namespace Detail
                     const PlannedComposite& referenced = plan.Composites[to];
                     if ( referer.Reason != AlwaysLoadedReason::None && cellOf[to] != kNoRecord )
                         add( GenerationIssueKind::AlwaysLoadedReferencesSpatial, record, target,
-                             std::format( "AlwaysLoaded {} references spatially loaded {} (cell {}) through {}: it reads "
-                                          "null wherever that cell is not loaded",
-                                          name( record ), name( target ), CellStem( settings, plan.Cells[cellOf[to]] ),
-                                          through ) );
-                    const std::vector<std::size_t> fromLayers = RuntimeDataLayersOf( settings, referer.DataLayers );
-                    const std::vector<std::size_t> toLayers   = RuntimeDataLayersOf( settings, referenced.DataLayers );
+                             std::format(
+                                  "AlwaysLoaded {} references spatially loaded {} (cell {}) through {}: it reads "
+                                  "null wherever that cell is not loaded",
+                                  name( record ), name( target ), CellStem( settings, plan.Cells[cellOf[to]] ),
+                                  through ) );
+                    const std::vector<std::size_t> fromLayers =
+                         RuntimeDataLayersOf( settings, referer.DataLayers );
+                    const std::vector<std::size_t> toLayers =
+                         RuntimeDataLayersOf( settings, referenced.DataLayers );
                     if ( fromLayers == toLayers )
                         continue;
                     if ( !fromLayers.empty() && toLayers.empty() )
                         add( GenerationIssueKind::ReferenceIntoNoDataLayer, record, target,
-                             std::format( "{} in data layers {} references {}, which is in no runtime data layer, through {}",
-                                          name( record ), LayerNames( settings, fromLayers ), name( target ), through ) );
+                             std::format( "{} in data layers {} references {}, which is in no runtime data layer, "
+                                          "through {}",
+                                          name( record ), LayerNames( settings, fromLayers ), name( target ),
+                                          through ) );
                     else
                         add( GenerationIssueKind::ReferenceAcrossDataLayers, record, target,
-                             std::format( "{} in data layers {} references {} in data layers {} through {}: it reads null "
-                                          "while those layers are not activated",
-                                          name( record ), LayerNames( settings, fromLayers ), name( target ),
-                                          LayerNames( settings, toLayers ), through ) );
+                             std::format(
+                                  "{} in data layers {} references {} in data layers {} through {}: it reads null "
+                                  "while those layers are not activated",
+                                  name( record ), LayerNames( settings, fromLayers ), name( target ),
+                                  LayerNames( settings, toLayers ), through ) );
                 }
 
             for ( const PlannedComposite& held : plan.Composites )
@@ -1436,20 +1454,21 @@ namespace Detail
                     if ( own.has_value() && *own == held.Grid )
                         continue;
                     add( GenerationIssueKind::ReferenceAcrossRuntimeGrids, member, held.Anchor,
-                         std::format( "{} states runtime grid '{}' but is part of the composite of {}, which streams on "
-                                      "grid '{}': its own grid is not used",
-                                      name( member ), *records[member].RuntimeGrid, name( held.Anchor ),
-                                      settings.RuntimePartitions[held.Grid].Name ) );
+                         std::format(
+                              "{} states runtime grid '{}' but is part of the composite of {}, which streams on "
+                              "grid '{}': its own grid is not used",
+                              name( member ), *records[member].RuntimeGrid, name( held.Anchor ),
+                              settings.RuntimePartitions[held.Grid].Name ) );
                 }
             }
         }
 
-}
+    } // namespace Detail
     [[nodiscard]] WorldPartitionPlan PlanWorldPartition( std::span<const EntityDescriptor> records,
-                                                                const WorldPartitionSerialized&   settings,
-                                                                const AssetBoundsSource&          bounds,
-                                                                const ScriptReferenceSource&      scripts)
-{
+                                                         const WorldPartitionSerialized&   settings,
+                                                         const AssetBoundsSource&          bounds,
+                                                         const ScriptReferenceSource&      scripts )
+    {
         WorldPartitionPlan                            plan;
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
@@ -1477,7 +1496,7 @@ namespace Detail
         // ── 2. Containment edges, then composites ─────────────────────────────────────────────────
         // Every reference resolved once, in record order: a record's edges are taken as they always were - its
         // parent, then its references (the register's, its scripts' hard ones, its names').
-        const std::vector<ResolvedReference> references    = ResolveEntityReferences( records, scripts, plan.Issues );
+        const std::vector<ResolvedReference> references = ResolveEntityReferences( records, scripts, plan.Issues );
         std::size_t                          nextReference = 0;
         for ( const ResolvedReference& reference : references )
             if ( reference.Kind == ReferenceKind::Observation && reference.To != kNoRecord &&
@@ -1510,7 +1529,8 @@ namespace Detail
                          ContainmentEdge{ found->second, record, Containment::Hierarchy, *parent } );
             }
 
-            for ( ; nextReference < references.size() && references[nextReference].From == record; ++nextReference )
+            for ( ; nextReference < references.size() && references[nextReference].From == record;
+                  ++nextReference )
             {
                 const ResolvedReference& reference = references[nextReference];
                 if ( reference.Kind != ReferenceKind::Containment )
@@ -1596,7 +1616,8 @@ namespace Detail
             unplaced[record] = true;
 
         std::vector<glm::vec3> points;
-        // Each record's own footprint, beside its composite's: where it would stream on its own (ValidateReferences).
+        // Each record's own footprint, beside its composite's: where it would stream on its own
+        // (ValidateReferences).
         std::vector<std::optional<CellBounds>> ownFootprint( records.size() );
         for ( PlannedComposite& group : plan.Composites )
         {
@@ -1643,11 +1664,11 @@ namespace Detail
                         group.Footprint = CellBounds{ point.x, point.z, point.x, point.z };
                         group.Height    = HeightSpan{ point.y, point.y };
                     }
-                    CellBounds& box = *group.Footprint;
-                    box.MinX        = std::min( box.MinX, point.x );
-                    box.MinZ        = std::min( box.MinZ, point.z );
-                    box.MaxX        = std::max( box.MaxX, point.x );
-                    box.MaxZ        = std::max( box.MaxZ, point.z );
+                    CellBounds& box    = *group.Footprint;
+                    box.MinX           = std::min( box.MinX, point.x );
+                    box.MinZ           = std::min( box.MinZ, point.z );
+                    box.MaxX           = std::max( box.MaxX, point.x );
+                    box.MaxZ           = std::max( box.MaxZ, point.z );
                     HeightSpan& height = *group.Height;
                     height.MinY        = std::min( height.MinY, point.y );
                     height.MaxY        = std::max( height.MaxY, point.y );
@@ -1679,9 +1700,9 @@ namespace Detail
                     const std::optional<std::size_t> layer = DataLayerIndexOf( settings, name );
                     if ( !layer.has_value() )
                     {
-                        plan.Issues.push_back( { std::format( "Entities[{}].{}.Layers", held.Anchor,
-                                                              kDataLayersComponent ),
-                                                 "data layer", name, Common::Json::IssueKind::MissingReference } );
+                        plan.Issues.push_back(
+                             { std::format( "Entities[{}].{}.Layers", held.Anchor, kDataLayersComponent ),
+                               "data layer", name, Common::Json::IssueKind::MissingReference } );
                         continue;
                     }
                     held.DataLayers.push_back( *layer );
@@ -1694,14 +1715,15 @@ namespace Detail
                     if ( member != held.Anchor && sortedNames( records[member].DataLayers ) != anchorNames )
                         plan.Issues.push_back(
                              { std::format( "Entities[{}].{}.Layers", member, kDataLayersComponent ),
-                               std::format( "the data layers of its composite's anchor Entities[{}]", held.Anchor ),
+                               std::format( "the data layers of its composite's anchor Entities[{}]",
+                                            held.Anchor ),
                                std::format( "{} layer(s) of its own", records[member].DataLayers.size() ) } );
             }
         }
 
         // ── 3c. The HLOD layer each composite is built by (WP-SETTINGS-UI, UE AActor::HLODLayer) ────────────
-        // Its anchor's HLODLayer block; absent = its grid's layer. A name the world does not state is an Issue with
-        // the record's path and the composite is built by its grid's layer (UE resolves an invalid HLOD layer
+        // Its anchor's HLODLayer block; absent = its grid's layer. A name the world does not state is an Issue
+        // with the record's path and the composite is built by its grid's layer (UE resolves an invalid HLOD layer
         // reference to the default the same way) - the Issue is what says so. A member that states another layer
         // than its anchor is an Issue too: the composite is one part of one cell's HLOD.
         for ( PlannedComposite& held : plan.Composites )
@@ -1711,8 +1733,9 @@ namespace Detail
             {
                 held.HLODLayer = HLODLayerIndexOf( settings, *wanted );
                 if ( !held.HLODLayer.has_value() )
-                    plan.Issues.push_back( { std::format( "Entities[{}].{}.Layer", held.Anchor, kHLODLayerComponent ),
-                                             "HLOD layer", *wanted, Common::Json::IssueKind::MissingReference } );
+                    plan.Issues.push_back(
+                         { std::format( "Entities[{}].{}.Layer", held.Anchor, kHLODLayerComponent ), "HLOD layer",
+                           *wanted, Common::Json::IssueKind::MissingReference } );
             }
             for ( const std::size_t member : held.Members )
                 if ( member != held.Anchor && records[member].HLODLayer.has_value() &&
@@ -1827,16 +1850,16 @@ namespace Detail
     }
 
     [[nodiscard]] WorldPartitionPlan PlanWorldPartition( std::span<const Assets::EntityData> records,
-                                                                const WorldPartitionSerialized&     settings,
-                                                                const AssetBoundsSource&            bounds,
-                                                                const ScriptReferenceSource&        scripts)
-{
+                                                         const WorldPartitionSerialized&     settings,
+                                                         const AssetBoundsSource&            bounds,
+                                                         const ScriptReferenceSource&        scripts )
+    {
         const std::vector<EntityDescriptor> descriptors = DescribeEntities( records );
         return PlanWorldPartition( std::span<const EntityDescriptor>( descriptors ), settings, bounds, scripts );
     }
 
     [[nodiscard]] std::vector<std::size_t> CellsPerLevel( const WorldPartitionPlan& plan )
-{
+    {
         std::vector<std::size_t> perLevel( static_cast<std::size_t>( plan.LevelCount ), 0 );
         for ( const PlannedCell& cell : plan.Cells )
             ++perLevel[static_cast<std::size_t>( cell.Level )];
@@ -1844,7 +1867,7 @@ namespace Detail
     }
 
     [[nodiscard]] std::vector<std::size_t> AlwaysLoadedByReason( const WorldPartitionPlan& plan )
-{
+    {
         std::vector<std::size_t> byReason( static_cast<std::size_t>( AlwaysLoadedReason::Persistent ) + 1, 0 );
         for ( const std::size_t group : plan.AlwaysLoaded )
             ++byReason[static_cast<std::size_t>( plan.Composites[group].Reason )];
@@ -1852,8 +1875,8 @@ namespace Detail
     }
 
     [[nodiscard]] std::string SummarisePartition( const WorldPartitionPlan&       plan,
-                                                         const WorldPartitionSerialized& settings )
-{
+                                                  const WorldPartitionSerialized& settings )
+    {
         const auto units = []( float value ) { return std::to_string( std::llround( value ) ); };
 
         std::string line = std::to_string( plan.Composites.size() ) +
@@ -1887,10 +1910,11 @@ namespace Detail
         return line;
     }
 
-    [[nodiscard]] std::optional<Common::Math::AABB>
-    PrefabBounds( std::span<const Assets::EntityData> records, const Common::UUID& root,
-                  const AssetBoundsSource& bounds, Common::Json::Issues& issues )
-{
+    [[nodiscard]] std::optional<Common::Math::AABB> PrefabBounds( std::span<const Assets::EntityData> records,
+                                                                  const Common::UUID&                 root,
+                                                                  const AssetBoundsSource&            bounds,
+                                                                  Common::Json::Issues&               issues )
+    {
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
@@ -1928,4 +1952,4 @@ namespace Detail
         return united;
     }
 
-}
+} // namespace Desert::Core::Rules

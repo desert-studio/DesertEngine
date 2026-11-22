@@ -210,8 +210,8 @@ namespace Desert::Graphic
         return glm::uvec2( depthDesc.GetValue().Size.Width, depthDesc.GetValue().Size.Height );
     }
 
-    RDG::TextureRef SceneRendererImpl::FramePrevHzb( RDG::Builder& graph, const ViewFrame& frame, const uint32_t width,
-                                                 const uint32_t height )
+    RDG::TextureRef SceneRendererImpl::FramePrevHzb( RDG::Builder& graph, const ViewFrame& frame,
+                                                     const uint32_t width, const uint32_t height )
     {
         if ( m_FramePrevHzb.IsValid() )
         {
@@ -227,7 +227,8 @@ namespace Desert::Graphic
         return m_FramePrevHzb;
     }
 
-    void SceneRendererImpl::AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures,
+                                              const ViewFrame& frame )
     {
         m_FrameGpuSceneTables.reset();
         m_FrameDrawBins.reset();
@@ -518,7 +519,8 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
-                                                       System::MeshRenderer* meshRenderer, const ViewFrame& frame )
+                                                           System::MeshRenderer* meshRenderer,
+                                                           const ViewFrame&      frame )
     {
         if ( !m_FrameDrawBins || meshRenderer == nullptr || meshRenderer->GetDrawCommandCache() == nullptr ||
              !m_GBuffer )
@@ -1036,7 +1038,7 @@ namespace Desert::Graphic
     }
 
     void SceneRendererImpl::AddFrameVirtualGeometryShadowPages( RDG::Builder&                        graph,
-                                                            const System::VirtualShadowMapFrame& pages )
+                                                                const System::VirtualShadowMapFrame& pages )
     {
         auto*               meshes = m_Systems.Mesh.get();
         const Core::Camera* camera = GetMainCamera();
