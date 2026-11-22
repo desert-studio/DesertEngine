@@ -1,13 +1,16 @@
 // INetTransport over Valve GameNetworkingSockets (NET-ARCH §1). GNS keeps its own socket thread; this file only
 // translates: connection handles are the ConnectionIds (both are non-zero 32-bit, 0 = invalid), status-change
-// callbacks become OnConnected/OnClosed, poll-group messages become OnMessage.
+// callbacks become OnConnected/OnClosed, poll-group messages become OnMessage, ENetLane is the GNS lane index
+// (ConfigureLanes sets every connection's lanes the moment it exists, on both ends).
 
 #include "Net/NetTransport.hpp"
 
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingsockets.h>
 
+#include <array>
 #include <atomic>
+#include <cstring>
 #include <format>
 
 namespace Desert::Net
@@ -27,6 +30,19 @@ namespace Desert::Net
             {
                 g_LogSink( std::format( "[GNS {}] {}", static_cast<int>( type ), message ) );
             }
+        }
+
+        // The sending side's lanes (GNS lanes are configured per direction, by the sender): index = ENetLane.
+        // Lower priority value = sent first; weights share bandwidth between lanes of one priority.
+        constexpr std::array<int, kNetLaneCount>    kLanePriorities = { 0, 1, 1, 1 };
+        constexpr std::array<uint16, kNetLaneCount> kLaneWeights    = { 1, 50, 10, 40 };
+        static_assert( static_cast<int>( ENetLane::Control ) == 0 && static_cast<int>( ENetLane::Rpc ) == 1 &&
+                       static_cast<int>( ENetLane::Bulk ) == 2 && static_cast<int>( ENetLane::State ) == 3 );
+
+        bool ConfigureLanes( ISteamNetworkingSockets* sockets, HSteamNetConnection connection )
+        {
+            return sockets->ConfigureConnectionLanes( connection, kNetLaneCount, kLanePriorities.data(),
+                                                      kLaneWeights.data() ) == k_EResultOK;
         }
 
         std::string AddressText( const SteamNetworkingIPAddr& address )
@@ -94,24 +110,37 @@ namespace Desert::Net
                     error = std::format( "cannot start a connection to {}", address );
                     return kInvalidConnection;
                 }
+                if ( !ConfigureLanes( m_Sockets, connection ) )
+                {
+                    m_Sockets->CloseConnection( connection, 0, "lane configuration refused", false );
+                    error =
+                         std::format( "connection to {}: the transport refused the lane configuration", address );
+                    return kInvalidConnection;
+                }
                 m_Sockets->SetConnectionPollGroup( connection, m_PollGroup );
                 return connection;
             }
 
-            ESendResult Send( ConnectionId connection, std::span<const std::byte> data, ESendMode mode ) override
+            ESendResult Send( ConnectionId connection, std::span<const std::byte> data, ENetLane lane ) override
             {
-                const int flags = mode == ESendMode::Reliable ? k_nSteamNetworkingSend_Reliable
-                                                              : k_nSteamNetworkingSend_Unreliable;
-                switch ( m_Sockets->SendMessageToConnection( connection, data.data(),
-                                                             static_cast<uint32>( data.size() ), flags, nullptr ) )
+                SteamNetworkingMessage_t* message =
+                     SteamNetworkingUtils()->AllocateMessage( static_cast<int>( data.size() ) );
+                if ( !data.empty() )
                 {
-                    case k_EResultOK:
-                        return ESendResult::Sent;
-                    case k_EResultLimitExceeded:
-                        return ESendResult::QueueFull;
-                    default:
-                        return ESendResult::NoConnection;
+                    std::memcpy( message->m_pData, data.data(), data.size() );
                 }
+                message->m_conn = connection;
+                message->m_nFlags =
+                     IsReliableLane( lane ) ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable;
+                message->m_idxLane = static_cast<uint16>( lane );
+                int64 result       = 0;
+                // SendMessages takes ownership of the message whatever the outcome.
+                m_Sockets->SendMessages( 1, &message, &result );
+                if ( result > 0 )
+                {
+                    return ESendResult::Sent;
+                }
+                return -result == k_EResultLimitExceeded ? ESendResult::QueueFull : ESendResult::NoConnection;
             }
 
             void Poll( INetTransportEvents& events ) override
@@ -124,9 +153,18 @@ namespace Desert::Net
                     const int count = m_Sockets->ReceiveMessagesOnPollGroup( m_PollGroup, messages, 64 );
                     for ( int i = 0; i < count; ++i )
                     {
-                        events.OnMessage( messages[i]->m_conn,
-                                          std::span( static_cast<const std::byte*>( messages[i]->m_pData ),
-                                                     static_cast<std::size_t>( messages[i]->m_cbSize ) ) );
+                        // The peer chooses its own lane count: a lane we do not have is not our protocol.
+                        if ( messages[i]->m_idxLane < kNetLaneCount )
+                        {
+                            events.OnMessage( messages[i]->m_conn, static_cast<ENetLane>( messages[i]->m_idxLane ),
+                                              std::span( static_cast<const std::byte*>( messages[i]->m_pData ),
+                                                         static_cast<std::size_t>( messages[i]->m_cbSize ) ) );
+                        }
+                        else if ( g_LogSink )
+                        {
+                            g_LogSink( std::format( "connection {}: message on unknown lane {} dropped",
+                                                    messages[i]->m_conn, messages[i]->m_idxLane ) );
+                        }
                         messages[i]->Release();
                     }
                     if ( count < 64 )
@@ -196,6 +234,25 @@ namespace Desert::Net
                 return true;
             }
 
+            bool SetSendRate( int minBytesPerSecond, int maxBytesPerSecond, std::string& error ) override
+            {
+                if ( minBytesPerSecond <= 0 || maxBytesPerSecond < minBytesPerSecond )
+                {
+                    error = std::format( "send rate {}..{} B/s is not a range", minBytesPerSecond,
+                                         maxBytesPerSecond );
+                    return false;
+                }
+                ISteamNetworkingUtils* utils = SteamNetworkingUtils();
+                if ( !utils->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_SendRateMin,
+                                                        minBytesPerSecond ) ||
+                     !utils->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_SendRateMax, maxBytesPerSecond ) )
+                {
+                    error = std::format( "send rate {}..{} B/s refused", minBytesPerSecond, maxBytesPerSecond );
+                    return false;
+                }
+                return true;
+            }
+
         private:
             static SteamNetworkingConfigValue_t StatusCallbackOption()
             {
@@ -223,7 +280,8 @@ namespace Desert::Net
                     // Connecting, with no listen socket): accept it into the poll group.
                     if ( change->m_info.m_hListenSocket != k_HSteamListenSocket_Invalid )
                     {
-                        if ( sockets->AcceptConnection( connection ) != k_EResultOK )
+                        if ( sockets->AcceptConnection( connection ) != k_EResultOK ||
+                             !ConfigureLanes( sockets, connection ) )
                         {
                             sockets->CloseConnection( connection, 0, "accept failed", false );
                             return;
