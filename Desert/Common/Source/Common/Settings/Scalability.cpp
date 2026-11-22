@@ -569,6 +569,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD selection "
                "distance, percent)",
                100, Vis::Advanced },
+             { P::EffectsWaterCaustics, G::Effects, "Effects.WaterCaustics", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> WaterCaustics::SetEnabled (the sun refracted through the water's waves "
+               "into a 512^2 caustics map the deferred direct pass multiplies the sun under the water by)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

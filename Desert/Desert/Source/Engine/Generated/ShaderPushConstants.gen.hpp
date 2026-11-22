@@ -1524,6 +1524,19 @@ namespace Desert::Graphic::ShaderPush
     template <> inline constexpr bool IsBlock<VisibilityClear> = true;
     static_assert( offsetof( VisibilityClear, Extent ) == 0u, "VisibilityClear::Extent: std430 offset" );
 
+    // Programs/Water/WaterCausticsSplat.shader (Compute)
+    struct WaterCausticsSplat
+    {
+        glm::vec4 Window{};
+        glm::vec4 Sun{};
+        glm::vec4 Surface{};
+    };
+    static_assert( sizeof( WaterCausticsSplat ) == 48u, "WaterCausticsSplat: std430 push block size" );
+    template <> inline constexpr bool IsBlock<WaterCausticsSplat> = true;
+    static_assert( offsetof( WaterCausticsSplat, Window ) == 0u, "WaterCausticsSplat::Window: std430 offset" );
+    static_assert( offsetof( WaterCausticsSplat, Sun ) == 16u, "WaterCausticsSplat::Sun: std430 offset" );
+    static_assert( offsetof( WaterCausticsSplat, Surface ) == 32u, "WaterCausticsSplat::Surface: std430 offset" );
+
 } // namespace Desert::Graphic::ShaderPush
 
 // NOLINTEND

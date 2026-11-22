@@ -378,6 +378,15 @@ namespace Desert::Graphic
                     LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",
                                init.GetError() );
                 }
+                // The water's caustics (WATER-CAUSTICS): two compute passes before the deferred direct lighting,
+                // which multiplies the sun under the water by their map (AddFrameComposite).
+                RegisterSystem<System::WaterCaustics>( m_Systems.WaterCaustics, this, m_TargetFramebuffer );
+                if ( const auto init = m_Systems.WaterCaustics->Initialize(); !init )
+                {
+                    LOG_ERROR( "[SceneRenderer] the water caustics did not initialise; the sun under water has "
+                               "none: {}",
+                               init.GetError() );
+                }
                 return "Terrain";
             }
             case 4:
@@ -1254,6 +1263,8 @@ namespace Desert::Graphic
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         m_CloudFootprintSteps = quality.As<int>( Parameter::CloudFootprintSteps ) != 0;
         m_CloudLightLocalSamples = quality.As<int>( Parameter::CloudLightLocalSamples );
+        if ( m_Systems.WaterCaustics )
+            m_Systems.WaterCaustics->SetEnabled( quality.As<int>( Parameter::EffectsWaterCaustics ) != 0 );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // A shader recompiled since the standing program refusals were made: every refused method is resolved and
         // asked for again this frame (a fixed program draws, one still broken is refused again without a new

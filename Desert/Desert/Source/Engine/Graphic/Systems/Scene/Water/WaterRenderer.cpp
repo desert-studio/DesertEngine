@@ -87,6 +87,7 @@ namespace Desert::Graphic::System
             std::array<WaterWaveRow, kMaxWaves> Rows{};
         };
         static_assert( sizeof( WaterWavesBlock ) == ( 2 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
+        static_assert( sizeof( WaterWavesBlock ) == WaterRenderer::kWavesBlockBytes, "WATER-CAUSTICS reads the head" );
 
         // The WaterInfo ground as the GPU samples it: one R32F texel per baked height (Water::WaterInfoGround).
         std::shared_ptr<Image2D> CreateWaterInfoImage( const uint32_t size, const std::vector<float>& heights )
@@ -383,6 +384,7 @@ namespace Desert::Graphic::System
         m_Frame            = nullptr;
         m_Walk             = TileWalk{};
         m_FrameFrontLayer  = nullptr;
+        m_FrameBody.reset();
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -411,6 +413,7 @@ namespace Desert::Graphic::System
                     wavesAsset = zone.Bodies->Waves[b];
                     waveOrigin = zone.Bodies->WaveOrigins[b];
                     waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
+                    m_FrameBody   = zone.Bodies->Footprints[b];
                 }
                 else if ( body != material )
                     WarnOnce( body, WaterWarning::MixedMaterials,

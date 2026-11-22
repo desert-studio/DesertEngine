@@ -344,6 +344,19 @@ Shader "DeferredLighting"
         // Included after the two bindings above because it names them.
         #include <Common/CloudShadowReceiver.glslh>
 
+        // THE WATER'S CAUSTICS (WATER-CAUSTICS, Graphic::System::WaterCaustics): the sun refracted through the
+        // drawn waves onto the floor, a map around the camera and its frame row, at set-1 slots free in the direct
+        // layout (ViewIndirect holds 0..6, the composite's and the direct's own targets 7..10).
+        layout(set = 1, binding = 11) uniform texture2D WaterCausticsTexture;
+        #define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+        layout(std430, set = 1, binding = 12) readonly buffer WaterCausticsFrameUB
+        {
+        	vec4 WaterCausticsWindow;
+        	vec4 WaterCausticsBody;
+        	vec4 WaterCausticsShape;
+        };
+        #include <Common/WaterCaustics.glslh>
+
         // THE POINT AND SPOT LIGHTS' SHADOWS: the view's local shadow atlas and the table of its views
         // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
         // The row struct first, then the two bindings, then the reader, which names them.
@@ -566,6 +579,9 @@ Shader "DeferredLighting"
         	shadow             *= cloudShadow;
         	transmissionShadow *= cloudShadow;
         	vec3  radiance = LightColor.rgb * LightColor.a;
+        	// The sun under a water body, focused by its waves (Common/WaterCaustics.glslh): EXACTLY 1.0 above the
+        	// water, outside the body and with Effects.WaterCaustics 0, so those texels are the frame before it.
+        	radiance      *= WaterCausticsFactor(worldPos);
 
         	// The screen-space scattered texel (CONTRACT §4) is lit with BaseColor = 1: its diffuse leaves demodulated,
         	// so the scatter does not smear the albedo's texture detail; Recombine multiplies BaseColor back.

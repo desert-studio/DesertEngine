@@ -84,6 +84,7 @@
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
 #include "Systems/Scene/Terrain/TerrainRenderer.hpp"
 #include "Systems/Scene/Water/WaterRenderer.hpp"
+#include "Systems/Scene/Water/WaterCaustics.hpp"
 #include "Systems/Scene/PostProcessing/TonemapRenderer.hpp"
 #include "Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp"
 #include "Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp"
@@ -152,6 +153,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::TerrainRenderer>                    Terrain;
         std::shared_ptr<System::GrassRenderer>                      Grass;
         std::shared_ptr<System::WaterRenderer>                      Water;
+        std::shared_ptr<System::WaterCaustics>                      WaterCaustics;
         std::shared_ptr<System::TonemapRenderer>                    Tonemap;
         std::shared_ptr<System::CombineLUTsRenderer>                CombineLUTs;
         std::shared_ptr<System::BackdropBlurRenderer>               BackdropBlur;

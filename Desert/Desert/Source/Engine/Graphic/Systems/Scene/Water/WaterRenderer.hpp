@@ -23,6 +23,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic::System
@@ -74,6 +75,21 @@ namespace Desert::Graphic::System
         [[nodiscard]] const std::shared_ptr<Image2D>& GetWaterInfo() const
         {
             return m_WaterInfo;
+        }
+
+        // WATER-CAUSTICS (WaterCaustics.hpp): this frame's waves block - the upload's head, WaterMeshTiles.glslh
+        // WaterTiles' leading members - and the body it is of, after PrepareFrame; empty / nullopt when no water
+        // draws this frame.
+        static constexpr std::size_t kWavesBlockBytes = ( 2 + 2 * 32 ) * 4 * sizeof( float );
+        [[nodiscard]] std::span<const std::byte> GetFrameWavesBlock() const
+        {
+            if ( m_Walk.Program == nullptr || m_Upload.size() < kWavesBlockBytes )
+                return {};
+            return std::span<const std::byte>( m_Upload.data(), kWavesBlockBytes );
+        }
+        [[nodiscard]] const std::optional<Water::WaterQuadTreeBody>& GetFrameBody() const
+        {
+            return m_FrameBody;
         }
 
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
@@ -277,6 +293,7 @@ namespace Desert::Graphic::System
             uint32_t                                      Rows           = 0;
         };
         TileWalk m_Walk;
+        std::optional<Water::WaterQuadTreeBody> m_FrameBody; // the frame material's body (GetFrameBody)
         // Per-view scratch the frame reuses, so a steady frame allocates nothing: the traversal's tiles, the
         // upload (the waves block, then the tile rows), and RenderManual's push block.
         Water::WaterTraversalBuffers m_Traversal;

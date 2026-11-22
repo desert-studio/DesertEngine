@@ -1093,6 +1093,30 @@ namespace Desert::Graphic
         if ( !subsurfaceDiffuse.IsValid() )
             specularDesc.Size = { .Width = 1u, .Height = 1u };
         inputs.DirectSpecular = graph.CreateTexture( specularDesc, "DeferredDirectSpecular" );
+        // WATER-CAUSTICS: the sun refracted through this frame's water waves onto the floor ("Water: Caustics
+        // Splat" / "Resolve"), multiplied onto the sun under the body's surface by the direct program. Always a
+        // valid pair: the neutral one (factor exactly 1) when the frame has no caustics.
+        {
+            System::WaterCaustics::FrameInputs caustics{ .SunTravel   = glm::vec3( lightDir ),
+                                                         .Camera      = glm::vec3( cameraPos ),
+                                                         .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
+                                                         .White       = refs.System.White,
+                                                         .Black       = refs.System.Black };
+            if ( const auto* water = m_Systems.Water.get(); water != nullptr )
+            {
+                caustics.Waves = water->GetFrameWavesBlock();
+                caustics.Body  = water->GetFrameBody();
+                if ( !caustics.Waves.empty() && water->GetWaterInfo() != nullptr )
+                    caustics.WaterInfo =
+                         textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
+            }
+            const System::WaterCausticsFrame frameCaustics =
+                 m_Systems.WaterCaustics != nullptr
+                      ? m_Systems.WaterCaustics->AddPasses( graph, caustics )
+                      : System::WaterCausticsFrame{};
+            inputs.WaterCaustics      = frameCaustics.Map.IsValid() ? frameCaustics.Map : refs.System.White;
+            inputs.WaterCausticsFrame = frameCaustics.Row;
+        }
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         shadow.Filter                        = GetShadowFilterSettings();
