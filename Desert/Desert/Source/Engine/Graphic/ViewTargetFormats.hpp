@@ -91,7 +91,7 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // VolumetricCloudRenderer::EnsureTraceTargets.
     inline constexpr ImageFormat kCloudTrace = ImageFormat::RGBA16F;
-    // CloudUpsample's full-resolution cloud-front device depth (reversed-Z), the composite's fragment depth: one
+    // The cloud reconstruction's (CloudTemporalResolve.shader) full-resolution cloud-front device depth (reversed-Z), the composite's fragment depth: one
     // 32-bit float, the depth attachment's own precision.
     inline constexpr ImageFormat kCloudFrontDepth = ImageFormat::R32F;
 

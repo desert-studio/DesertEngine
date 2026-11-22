@@ -3901,18 +3901,17 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp", ".Texture(HeightFogApplyShaderParameters::FogApplyTexture,"
                                                       "refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
-         // The cloud composite's image: an entry of its block (with the material route), the read. The half-res
-         // pair it used to upsample is read by the upsample compute node instead (FOLIAGE-CLOUD-FLICKER), each
-         // half an entry of that node's block.
+         // The cloud composite's image: an entry of its block (with the material route), the read. It is written
+         // by the reconstruction node itself (FPS-CLOUDS-RESOLVE-FUSE: reconstruct + compose in one dispatch), each
+         // full-res output an entry of that node's block.
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            ".Texture(VolumetricCloudCompositeShaderParameters::CloudScatterTexture,scatter,RDG::Access::"
            "SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Texture(VolumetricCloudShaderParameters::CloudReconstructionTexture,current.Scatter,RDG::Access::"
-           "SampledCompute" },
+           ".Storage(VolumetricCloudShaderParameters::UpsampledCloudTexture,upsampled,RDG::Access::StorageWrite)" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Texture(VolumetricCloudShaderParameters::CloudReconstructionGuideTexture,current.Guide,RDG::Access::"
-           "SampledCompute" },
+           ".Storage(VolumetricCloudShaderParameters::UpsampledCloudFrontDepthTexture,upsampledFrontDepth,RDG::"
+           "Access::StorageWrite)" },
          // The cascades and the cloud shadow map are imported once per frame as scene-view inputs, and every lit
          // node binds them through BindSceneViewInputs (the block entry is the read; RDG-FAULT1).
          { "SceneRendererFrameDeferred.cpp", "view.ShadowCascades=mesh->AcquireCascadeMaps(graph);" },

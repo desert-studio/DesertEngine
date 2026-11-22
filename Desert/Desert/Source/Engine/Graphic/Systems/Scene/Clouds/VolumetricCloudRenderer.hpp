@@ -70,7 +70,7 @@ namespace Desert::Graphic::System
      *                  against its OWN scene depth and keeps the cloud behind opaque by the cloud front. A compute
      *                  pass because the raster composite draws with the depth attached and cannot sample it.
      *                  Without it a grass blade or a leaf against the sky took the cloud on some frames and not
-     *                  on others (FOLIAGE-CLOUD-FLICKER, CloudUpsample.shader).
+     *                  on others (FOLIAGE-CLOUD-FLICKER, CloudTemporalResolve.shader's compose stage).
      *   SM  SHADOW MAP compute, RGBA32F, 512x512 at the reference quality tier and scaled with it,
      *                  marched down the SUN's direction rather than the eye's,
      *                  and declared EARLY in the frame graph, because the lit passes read it. A
@@ -105,7 +105,7 @@ namespace Desert::Graphic::System
     struct VolumetricCloudCompositeShaderParameters
     {
         DESERT_SHADER_PARAMETER( Texture, CloudScatterTexture );
-        // The device depth of each pixel's cloud front (CloudUpsample.shader), written as the fragment's depth so
+        // The device depth of each pixel's cloud front (CloudTemporalResolve.shader), written as the fragment's depth so
         // the hardware depth test drops the cloud behind a surface drawn after the march (the water).
         DESERT_SHADER_PARAMETER( Texture, CloudFrontDepthTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
@@ -194,7 +194,7 @@ namespace Desert::Graphic::System
          */
         // @p frame: this view's frame (TAA1 step 3) — the march's and the resolve's matrices and camera position,
         // and whether the view's previous frame may be reprojected at all (ViewFrame::HistoryValid).
-        // @p marchDepth: the graph depth the march, the resolve and the upsample read; invalid = the scene
+        // @p marchDepth: the graph depth the march and the reconstruction read; invalid = the scene
         // target's single-sample depth (SceneRenderer::GetComputeSceneDepth), final only after the opaque scene.
         // The early (async) placement passes the G-buffer depth - the opaque depth without the water (UE
         // SceneDepthWithoutSingleLayerWater) - which nothing after it writes this frame, so the run is not joined
@@ -224,7 +224,7 @@ namespace Desert::Graphic::System
             // The half-resolution reconstruction the resolve writes: the transient pair the view extracts as
             // its history (SceneViewState::Clouds).
             VolumetricCloudHistory::Refs Reconstruction;
-            // The full-resolution image the upsample writes and the composite reads 1:1.
+            // The full-resolution image the reconstruction composes and the composite reads 1:1.
             RDG::TextureRef Upsampled;
             // Beside it, the device depth (reversed-Z) of each pixel's nearest cloud front: the composite's
             // fragment depth.
@@ -613,7 +613,6 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ComputePipeline>  m_MarchPipeline;
         std::shared_ptr<ComputePipeline>  m_ResolvePipeline;
-        std::shared_ptr<ComputePipeline>  m_UpsamplePipeline;
         std::shared_ptr<ComputePipeline>  m_ShadowMapPipeline;
         std::shared_ptr<ComputePipeline>  m_SkyOcclusionPipeline;
         std::shared_ptr<GraphicsPipeline> m_CompositePipeline;
@@ -626,7 +625,6 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache m_SkyOcclusionLayout;
         ShaderBindingLayoutCache m_MarchLayout;
         ShaderBindingLayoutCache m_ResolveLayout;
-        ShaderBindingLayoutCache m_UpsampleLayout;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveParamsBuffer;
