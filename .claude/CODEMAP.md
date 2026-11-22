@@ -190,7 +190,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Builders` — 3 files, 630 lines: BuilderCell, BuilderContext, IWorldPartitionBuilder, WorldPartitionBuilderRow, WorldPartitionBuilderRun
 - `Core` — 111 files, 25,961 lines: AssetEditorToolbar, AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, BakedImages, BakedMaterial, Barrier, BuilderRunOptions, ByteCommand, Capture, Choice, ClosedDocument, … (+100)
 - `Core/Commands` — 23 files, 7,501 lines: AnimGraphEditCommand, AnimGraphEditTransaction, AnimGraphOwner, AssetFolderMoveCommand, AssetMoveCommand, AssetTrashCommand, BindPoseGesture, BoneDelta, BoneGizmoGesture, CommandRegistry, ControlAutoKey, ControlEdit, … (+29)
-- `Core/Control` — 9 files, 3,644 lines: AuthoringSnapshot, BackgroundReport, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DeviceSnapshot, DocumentSnapshot, DrawBinViewSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, … (+26)
+- `Core/Control` — 9 files, 3,647 lines: AuthoringSnapshot, BackgroundReport, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DeviceSnapshot, DocumentSnapshot, DrawBinViewSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, … (+26)
 - `Core/GraphCanvas` — 4 files, 908 lines: CanvasPlan, CanvasRect, DeferredFrameAll, ElementIdMap, ElementLedger, FindPopup, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 2 files, 297 lines: Bone, RigBuilder
 - `Core/Selection` — 24 files, 5,092 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BooleanToolArgs, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MergeInputs, MeshElementSelection, MeshOperationArgs, … (+13)

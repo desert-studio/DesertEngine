@@ -60,6 +60,7 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <array>
 #include <optional>
 #include <atomic>
 #include <chrono>
@@ -4708,6 +4709,7 @@ namespace Desert::Graphic
             view.Projection = camera->GetProjectionMatrix();
         }
         view.Height = GetViewExtent().Height;
+        view.LODDistanceScale = m_Systems.Mesh->IsLODEnabled() ? m_Systems.Mesh->GetLODDistanceScale() : 0.0f;
         if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 ) // LODPreviewFor's lease, as it answers
         {
             view.PreviewEntity = m_LODPreview.Entity;
@@ -4720,6 +4722,14 @@ namespace Desert::Graphic
         if ( camera != nullptr )
             lodView.emplace( Geometry::LODView{ view.Position, view.Projection } );
         const bool demandAsked = camera != nullptr && view.Height != 0;
+        // THE IMPOSTOR SWITCH'S EYE (WP-FAR-12E, StaticSceneSection::ImpostorScreenSize): the LOD eye with the
+        // renderer's LOD distance scale, as every other level is chosen; none while LOD is off (source side).
+        std::optional<Geometry::LODView> impostorView;
+        if ( lodView.has_value() && view.LODDistanceScale > 0.0f )
+        {
+            impostorView                = lodView;
+            impostorView->DistanceScale = view.LODDistanceScale;
+        }
 
         // Uploads (the render revision, the residency, the cached bounds' validity) follow the stale epoch; while
         // it held over two recorded frames that compared the admitted revisions, none is pending (the cache's
@@ -4763,6 +4773,17 @@ namespace Desert::Graphic
                 if ( section.MaxDrawDistance > 0.0f && lodView.has_value() &&
                      !IsWithinDrawDistance( *lodView, section.Transform, local, section.MaxDrawDistance ) )
                     continue;
+                if ( section.ImpostorScreenSize > 0.0f )
+                {
+                    // One side of the pair per view: the card below the switch size, the source at or above.
+                    const std::array<float, 2> switchSizes{ Geometry::kLOD0ScreenSize, section.ImpostorScreenSize };
+                    const bool                 far =
+                         impostorView.has_value() &&
+                         Geometry::SelectLODFromBounds( section.Transform, section.ImpostorBounds, *impostorView,
+                                                        switchSizes, -1, 0 ) == 1u;
+                    if ( far != section.ImpostorCard )
+                        continue;
+                }
                 if ( demandAsked )
                 {
                     // Measured only (no material handed in: nothing noted here); noted once per parent below.
