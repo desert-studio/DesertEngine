@@ -45,28 +45,45 @@ namespace Desert::Geometry
     inline constexpr float       kLODElementExtentShare = 0.05f;
     inline constexpr std::size_t kLODMinElements        = 16;
 
-    // THE ERROR A GENERATED LEVEL MAY SHOW, in reference pixels (kAutoLODReferenceScreenRows) at the screen size
-    // the automatic progression starts it at (UE: a reduction's MaxDeviation is turned into the LOD's screen size
-    // at 1 pixel of error). A part thinner than that there may go, one wider stays: a fence keeps its rails.
+    // THE REDUCTION'S TOLERANCE FOR A GENERATED LEVEL, in reference pixels (kAutoLODReferenceScreenRows) at the
+    // screen size the automatic progression starts it at: meshopt stops a solid reduction there and the elements
+    // keep the area it allows - a fence keeps its rails. It does not decide where the level is drawn: that is
+    // the level's MEASURED error (SimplifiedLODChain::Errors -> Submesh::LODCutErrors -> ResolveLODScreenSizes'
+    // ~1 px cap), as UE turns a reduction's MaxDeviation into the LOD's screen size.
     inline constexpr float kLODMaxPixelError = 1.0f;
 
-    // Simplifies ONE submesh into the LOD levels @p chain states (LODChainTargets), returning the simplified
-    // TRIANGLE sets (submesh-local indices, coarsest last; an empty level = "this target did not improve, reuse
-    // the previous"). Used at COOK time to BAKE LODs into the asset, and by BuildLODIndexBuffer when a submesh
-    // has no cooked chain. `positions` = the submesh's tightly-packed xyz (vertexCount*3); `localTris` = its base
-    // triangles (indices relative to the submesh's VertexOffset); `attributes` = null or kSimplifyAttributeCount
-    // floats per vertex (normal xyz, uv) so the reduction is attribute-aware.
-    // Each level aims at its target share of the BASE triangles: the solid parts are reduced by meshopt with the
-    // level's error budget (kLODMaxPixelError - a level stops short of its target rather than exceed it; the error
-    // is MEASURED as the larger of meshopt's quadric deviation and the outline the level lost, its support
-    // distance against the source's in 26 directions, and a level no count fits is not made), the
-    // elements (kLODElementExtentShare) are thinned to the same share, never below the area the budget may lose.
+    // The smallest error a generated level states (a level that lost nothing measurable): positive, as a
+    // MeshBinary submesh states all its levels' errors positive or none (DecodeMeshBinary); its screen-size cap
+    // (LODCutErrorScreenSize) is far above any level's automatic size.
+    inline constexpr float kLODMinLevelError = 1.0e-6f;
+
+    // A submesh's generated chain: the TRIANGLE sets (submesh-local indices, coarsest last; an empty level =
+    // "this target did not improve, reuse the previous") and, one per level, the error of the level DRAWN at that
+    // index - relative to the submesh's bounds radius (half its box diagonal), positive, never below the finer
+    // level's - stored as Submesh::LODCutErrors / SubmeshData::LodCutErrors.
+    struct SimplifiedLODChain
+    {
+        std::vector<std::vector<Index>> Levels;
+        std::vector<float>              Errors;
+    };
+
+    // Simplifies ONE submesh into the LOD levels @p chain states (LODChainTargets). Used at COOK time to BAKE LODs
+    // into the asset, and by BuildLODIndexBuffer when a submesh has no cooked chain. `positions` = the submesh's
+    // tightly-packed xyz (vertexCount*3); `localTris` = its base triangles (indices relative to the submesh's
+    // VertexOffset); `attributes` = null or kSimplifyAttributeCount floats per vertex (normal xyz, uv) so the
+    // reduction is attribute-aware.
+    // EVERY LEVEL IS MADE at its target share of the BASE triangles (UE auto LOD: a level is never dropped for its
+    // deviation): the solid parts are reduced by meshopt within the reduction's tolerance (kLODMaxPixelError), the
+    // elements (kLODElementExtentShare) are thinned to the same share, never below the area the tolerance may
+    // lose. Its error is then MEASURED - the largest of meshopt's quadric deviation, the solid outline it lost
+    // (support distance against the source's in 26 directions), the solid coverage it lost and the distance the
+    // thinned elements' edges moved - and decides its screen size (a figure folded to a quarter of its height is
+    // drawn only where that is under a pixel; WP-FAR-12C's CesiumMan).
     // Every index names one of the submesh's own vertexCount vertices (a level adds none), so the cook and the
     // load-time chain over a fixed vertex buffer build the same levels. Logs target / result / error / elements.
-    std::vector<std::vector<Index>> SimplifyLODLevels( const float* positions, uint32_t vertexCount,
-                                                       const std::vector<Index>& localTris,
-                                                       const LODChainSettings&   chain,
-                                                       const float*              attributes = nullptr );
+    SimplifiedLODChain SimplifyLODLevels( const float* positions, uint32_t vertexCount,
+                                          const std::vector<Index>& localTris, const LODChainSettings& chain,
+                                          const float* attributes = nullptr );
 
     // Packs one vertex's simplifier attributes (normal xyz, uv) onto `out` - the one layout both the
     // load-time chain and the import-time bake hand to SimplifyLODLevels.
