@@ -1,16 +1,19 @@
-# NET-1 pass 1: GameNetworkingSockets behind INetTransport (Desert/Net) + the connect handshake with the cook hash.
-# The network half runs outside the editor (no window, no device): Tools/DesertNetProbe in server and client mode
-# on loopback, every process with the GNS simulator at 75 ms one-way send lag (150 ms RTT) and 2 % send loss,
-# messages of 1100 bytes (about one packet each, so the loss hits messages and the reliable lane retransmits).
-# Logs go to <scratch>/NET-1/logs/{server,clientA,clientB,clientC}.log; the player below runs only the editor part.
-#   DesertNetProbe --server --port 27020 --cook-hash 0xC0FFEE --clients 2 --messages 1000 --lag-ms 75 --loss 2
-#   DesertNetProbe --client --connect 127.0.0.1:27020 --cook-hash 0xC0FFEE --name A --messages 1000 --lag-ms 75 --loss 2
-#   DesertNetProbe --client --connect 127.0.0.1:27020 --cook-hash 0xC0FFEE --name B --messages 1000 --lag-ms 75 --loss 2
-#   DesertNetProbe --client --connect 127.0.0.1:27020 --cook-hash 0xBADBAD --name C --messages 1000 --lag-ms 75 --loss 2
-# Тогда [net1a_handshake] server.log: "accepted" for A and B; for each "received 1000/1000 in order, 0 lost";
-#   clientA.log and clientB.log: "received 1000/1000 in order, 0 lost", the server summary for their own 1000,
-#   RTT 140-170 ms, GNS lifetime stats with dropped packets > 0; server.log and clientC.log: "cook hash mismatch";
-#   exit codes A 0, B 0, C 2 (refused), server 0.
+# NET-1 pass 2: GNS lanes behind INetTransport (Control / Rpc / Bulk / State) + the connect token in the Hello
+# (NET-ARCH §8: {account, server, expiry} signed HMAC-SHA256 with the server secret) + the cook hash read from a
+# cooked world directory (Core::CookHashOf of World.dwindex), not a literal.
+# The network half runs outside the editor: Tools/DesertNetProbe on loopback, every process at 75 ms one-way send
+# lag (150 ms RTT) and 2 % send loss, send rate 1 MB/s; the cooked world is NET-MESH-0's WP_Protocol cook
+# (<scratch>/NET-MESH-0/world/WP_Protocol.dwworld). Runner: <scratch>/NET-1/run_net1b.sh; logs <scratch>/NET-1/logs.
+#   DesertNetProbe --issue-token --secret-file S --account 1 --server-id 7 --expires-in 600   (A, valid)
+#   DesertNetProbe --issue-token --secret-file S --account 2 --server-id 7 --expires-in -60   (B, expired)
+#   DesertNetProbe --issue-token --secret-file FORGED --account 3 --server-id 7 --expires-in 600 (C, other key)
+#   DesertNetProbe --server --port 27021 --cooked W --server-id 7 --secret-file S --clients 1 --refusals 2
+#        --bulk-mb 8 --rpcs 200 --lag-ms 75 --loss 2 --rate-kbps 1024
+#   DesertNetProbe --client --connect 127.0.0.1:27021 --cooked W --token <A|B|C> --name A|B|C --lag-ms 75 --loss 2
+# Тогда [net1b_lanes_token] server.log: "cook hash ee311acb3b50b349" (or the re-cooked one) read from W; client A
+#   accepted (account 1); clientA.log: "bulk 8388608/8388608 bytes in order" and "rpc 200/200" with p95 < 400 ms
+#   while the bulk lane was still filling; server.log + clientB.log "token expired", server.log + clientC.log
+#   "token invalid"; exit codes A 0, B 2, C 2, server 0.
 # The editor is untouched by this pass, but the tree must still build and open the WP world.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state

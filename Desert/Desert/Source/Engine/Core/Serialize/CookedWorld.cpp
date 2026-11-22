@@ -34,17 +34,6 @@ namespace Desert::Core
         };
     }
 
-    std::uint64_t CookHashOf( const std::span<const unsigned char> indexBytes )
-    {
-        std::uint64_t hash = 14695981039346656037ull;
-        for ( const unsigned char byte : indexBytes )
-        {
-            hash ^= byte;
-            hash *= 1099511628211ull;
-        }
-        return hash;
-    }
-
     Common::ResultStr<std::optional<CookedWorldStart>> ReadCookedWorld( const std::string& scenePath )
     {
         using Result = std::optional<CookedWorldStart>;

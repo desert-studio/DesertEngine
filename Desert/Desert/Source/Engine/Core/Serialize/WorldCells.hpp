@@ -61,6 +61,7 @@
 // checksum, so a cell that is intact on its own but belongs to ANOTHER cook of the world (a stale file left in
 // the directory) is refused too. Every refusal names the file.
 
+#include <Engine/Core/Serialize/CookHash.hpp>
 #include <Engine/Core/Serialize/PrefabReader.hpp>
 #include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
@@ -115,7 +116,7 @@ namespace Desert::Core::WorldCells
              // Impostor layer's cards and which their instanced source meshes (ImpostorCards / ImpostorFallbacks,
              // IMPOSTORS-HLOD), the pair the machine's ViewDistance.HLODImpostors picks one side of
 
-    inline constexpr std::string_view kIndexFileName        = "World.dwindex";
+    // kIndexFileName: CookHash.hpp (the network layer names the index without the cook).
     inline constexpr std::string_view kCellExtension        = ".dwcell";
     inline constexpr std::string_view kAlwaysLoadedFileName = "AlwaysLoaded.dwcell";
     // The `Reason` of an HLOD unit resident the whole session: the top of a chain, whose layer is not spatially

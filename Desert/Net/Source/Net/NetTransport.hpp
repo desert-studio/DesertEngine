@@ -19,11 +19,40 @@ namespace Desert::Net
     using ConnectionId                               = std::uint32_t;
     inline constexpr ConnectionId kInvalidConnection = 0;
 
-    enum class ESendMode : std::uint8_t
+    // THE LANES of a connection (UE: a channel per traffic kind; GNS: lanes with a priority and a weight). Each
+    // lane is a separate send queue, so a large transfer on Bulk does not hold back an RPC queued after it (the
+    // head-of-line blocking of one reliable stream); reliable messages keep their order within their lane only.
+    //   Control - the handshake, kicks, session control: reliable, sent before every other lane.
+    //   Rpc     - remote calls: reliable, shares the rest of the bandwidth by weight (Rpc 50 : State 40 : Bulk
+    //   10). Bulk    - large transfers (a character, a level's worth of state): reliable, the smallest weight.
+    //   State   - replicated state snapshots: unreliable (a lost snapshot is superseded by the next).
+    enum class ENetLane : std::uint8_t
     {
-        Reliable,   // ordered, retransmitted until acknowledged
-        Unreliable, // may be lost; never retransmitted
+        Control,
+        Rpc,
+        Bulk,
+        State,
     };
+    inline constexpr int kNetLaneCount = 4;
+    constexpr bool       IsReliableLane( ENetLane lane )
+    {
+        return lane != ENetLane::State;
+    }
+    constexpr std::string_view NetLaneName( ENetLane lane )
+    {
+        switch ( lane )
+        {
+            case ENetLane::Control:
+                return "Control";
+            case ENetLane::Rpc:
+                return "Rpc";
+            case ENetLane::Bulk:
+                return "Bulk";
+            case ENetLane::State:
+                return "State";
+        }
+        return "unknown lane";
+    }
 
     enum class ESendResult : std::uint8_t
     {
@@ -69,8 +98,10 @@ namespace Desert::Net
         virtual void OnConnected( ConnectionId connection, std::string_view address ) = 0;
         // The connection is gone (peer closed it, or it timed out). Not called for connections closed by Close().
         virtual void OnClosed( ConnectionId connection, const DisconnectInfo& info ) = 0;
-        // One whole message, as sent (the transport fragments and reassembles). The span is valid during the call.
-        virtual void OnMessage( ConnectionId connection, std::span<const std::byte> data ) = 0;
+        // One whole message, as sent, on the lane it was sent on (the transport fragments and reassembles). The
+        // span is valid during the call. A message on a lane this protocol does not have is dropped by the
+        // transport.
+        virtual void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) = 0;
     };
 
     class INetTransport
@@ -81,7 +112,9 @@ namespace Desert::Net
         virtual bool Listen( std::uint16_t port, std::string& error ) = 0;
         // Start connecting to "ip:port". kInvalidConnection + `error` when the address does not parse.
         virtual ConnectionId Connect( std::string_view address, std::string& error )                          = 0;
-        virtual ESendResult  Send( ConnectionId connection, std::span<const std::byte> data, ESendMode mode ) = 0;
+        // Queues one message on `lane`. The send queue is shared by the lanes (QueueFull counts every lane's
+        // bytes), so a bulk sender keeps its share of it bounded (ConnectionStats::PendingReliableBytes).
+        virtual ESendResult Send( ConnectionId connection, std::span<const std::byte> data, ENetLane lane ) = 0;
         // Deliver every pending connection change and message to `events`, on the calling thread.
         virtual void Poll( INetTransportEvents& events ) = 0;
         // Close with a code and reason the peer receives in OnClosed; `flush` first delivers what is queued
@@ -92,6 +125,10 @@ namespace Desert::Net
         virtual std::string DescribeConnection( ConnectionId connection ) const = 0;
         // False + `error` naming the setting the transport refused.
         virtual bool SetSimulator( const NetSimulator& simulator, std::string& error ) = 0;
+        // The send rate every connection's congestion control stays within, bytes per second (UE: the net
+        // driver's MaxClientRate / MaxInternetClientRate). min == max fixes the rate. False + `error` when
+        // refused.
+        virtual bool SetSendRate( int minBytesPerSecond, int maxBytesPerSecond, std::string& error ) = 0;
     };
 
     // Receives the transport library's own diagnostics, one line each.
