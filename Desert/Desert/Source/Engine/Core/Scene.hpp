@@ -511,25 +511,57 @@ namespace Desert::Core
             return m_State == SceneState::Play || ( m_State == SceneState::Paused && m_SingleFramePending );
         }
 
-        // THE PLAYER'S PAWN AND VIEW TARGET (UE: the PlayerController's possessed pawn and
-        // APlayerCameraManager's view target). Core::BeginPlay sets both; Clear() forgets them, which is
-        // what makes the editor's Stop (clear + restore the pre-Play snapshot) leave nothing behind.
+        // THE PLAYERS (UE: the world's PlayerControllers, one per connection on a server, the local one plus
+        // the replicated others on a client; NET-ARCH §9 NET-1). Index 0 is the LOCAL player (UE
+        // GetFirstPlayerController): the one this process's input drives and whose view the camera takes - the
+        // only one a standalone game has. Remote players are added by the net driver for the pawns the server
+        // replicates (NetPlayer = the server's player index). Clear() forgets all of them, which is what makes
+        // the editor's Stop (clear + restore the pre-Play snapshot) leave nothing behind.
+        struct ScenePlayer
+        {
+            entt::entity  Controller = entt::null; // SceneSettings::PlayerController's instance; null when none
+            entt::entity  Pawn       = entt::null; // the possessed pawn; null while dead / not spawned
+            std::uint32_t NetPlayer  = 0;          // the server's player index; 0 for a standalone game
+            bool          Local      = true;
+        };
+        [[nodiscard]] const std::vector<ScenePlayer>& GetPlayers() const
+        {
+            return m_Players;
+        }
+        // Adds a remote player (a replicated pawn's controller), returns its index.
+        std::size_t AddRemotePlayer( entt::entity pawn, std::uint32_t netPlayer )
+        {
+            LocalPlayer();
+            m_Players.push_back( { entt::null, pawn, netPlayer, false } );
+            return m_Players.size() - 1;
+        }
+        // Removes the remote player possessing @p pawn (its pawn is destroyed by the caller); false when none.
+        bool RemoveRemotePlayer( entt::entity pawn )
+        {
+            for ( std::size_t i = 1; i < m_Players.size(); ++i )
+                if ( m_Players[i].Pawn == pawn )
+                {
+                    m_Players.erase( m_Players.begin() + static_cast<std::ptrdiff_t>( i ) );
+                    return true;
+                }
+            return false;
+        }
+        // The local player's pawn and controller (UE: GetFirstPlayerController()->GetPawn()).
         void SetPlayerPawn( entt::entity pawn )
         {
-            m_PlayerPawn = pawn;
+            LocalPlayer().Pawn = pawn;
         }
         [[nodiscard]] entt::entity GetPlayerPawn() const
         {
-            return m_PlayerPawn;
+            return m_Players.empty() ? entt::entity( entt::null ) : m_Players.front().Pawn;
         }
-        // The player's controller entity (SceneSettings::PlayerController), null when the level names none.
         void SetPlayerController( entt::entity controller )
         {
-            m_PlayerController = controller;
+            LocalPlayer().Controller = controller;
         }
         [[nodiscard]] entt::entity GetPlayerController() const
         {
-            return m_PlayerController;
+            return m_Players.empty() ? entt::entity( entt::null ) : m_Players.front().Controller;
         }
         // The game rules of this played world (Core/GameMode.hpp): death and restart of the player's pawn.
         [[nodiscard]] GameMode& GetGameMode()
@@ -983,8 +1015,13 @@ namespace Desert::Core
         std::unique_ptr<WeatherState> m_Weather;
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate
-        entt::entity                  m_PlayerPawn     = entt::null; // see SetPlayerPawn
-        entt::entity                  m_PlayerController   = entt::null; // see SetPlayerController
+        ScenePlayer& LocalPlayer()
+        {
+            if ( m_Players.empty() )
+                m_Players.push_back( {} );
+            return m_Players.front();
+        }
+        std::vector<ScenePlayer>      m_Players; // see GetPlayers; [0] is the local player once one is set
         std::unique_ptr<GameMode> m_GameMode;                        // see GetGameMode
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
         uint64_t                      m_Generation         = NextSceneGeneration(); // see GetGeneration

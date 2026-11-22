@@ -43,6 +43,7 @@ foreach(name IN LISTS _table)
         list(APPEND _server_libs ${DESERT_MODULE_${name}_LIBRARIES})
     endif()
 endforeach()
-target_link_libraries(DesertServer PRIVATE ${_server_libs}
+# DesertNet: the transport, handshake and the mesh-of-one roles (gateway, sim, store; NET-ARCH §2M.2). Device-free.
+target_link_libraries(DesertServer PRIVATE DesertNet ${_server_libs}
     LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
 desert_link_mimalloc(DesertServer)
