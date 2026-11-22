@@ -4,6 +4,7 @@
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/Core/ProjectContext.hpp"
 #include <Common/Core/Core.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
 #include <Engine/Graphic/SceneRenderer.hpp>              // the view's HDR scene colour (--shot-hdr)
@@ -319,7 +320,8 @@ namespace Desert::Editor
         m_WindowRecord.InFlight = false;
     }
 
-    bool ViewportCapture::WriteWindowPng( const std::string& path, const uint64_t frame, std::string& outError )
+    bool ViewportCapture::BeginWindowPng( const std::string& path, const uint64_t frame, WindowPngWrite& out,
+                                          std::string& outError )
     {
         // THE WHOLE EDITOR, INTERFACE INCLUDED — which is what WriteViewportPng next door cannot do and
         // never could. That one reads the scene's own final image; ImGui is recorded into the SWAPCHAIN
@@ -368,11 +370,12 @@ namespace Desert::Editor
         }
 
         // The copy was submitted with this frame; waiting is what makes the staging buffer readable.
+        const auto collectStart = std::chrono::steady_clock::now();
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
 
-        uint32_t   width  = 0;
-        uint32_t   height = 0;
-        const auto pixels = swapChain->TakeCapturedFrameRGBA8( width, height );
+        uint32_t width  = 0;
+        uint32_t height = 0;
+        auto     pixels = swapChain->TakeCapturedFrameRGBA8( width, height );
         {
             // Collected: TakeCapturedFrameRGBA8 releases the staging on every path. A return above leaves the copy
             // in flight, and the frame's announcement discards it (ControlService::OnFramePresented).
@@ -385,17 +388,37 @@ namespace Desert::Editor
             return false;
         }
 
-        const bool written = WritePngRGBA8( path, width, height, pixels.GetValue().data() );
-        if ( !written )
-        {
-            outError = std::format( "stb_image_write refused to write '{}'.", path );
-            return false;
-        }
-
-        LOG_INFO( "[Control] wrote the presented frame (editor and interface) -> {} ({}x{})", path, width,
-                  height );
+        // WQH (11-22): the PNG encode of a 4112x2580 window was the whole frame's cost - seconds on the game
+        // thread, the "worst frame" the profiler showed after every scenario step that took a shot. The bytes
+        // are now the worker's: the frame pays the device wait and the readback, the reply waits for the file.
+        out.Path      = path;
+        out.Width     = width;
+        out.Height    = height;
+        out.Started   = std::chrono::steady_clock::now();
+        out.CollectMs = std::chrono::duration<double, std::milli>( out.Started - collectStart ).count();
+        out.Encode    = Common::JobSystem::Get().Async(
+             [path, width, height, rgba = std::move( pixels.GetValue() )]() noexcept -> std::string
+             {
+                 if ( WritePngRGBA8( path, width, height, rgba.data() ) )
+                     return {};
+                 return std::format( "stb_image_write refused to write '{}'.", path );
+             } );
+        // The peak is the renderer's measurement of THIS frame: read now, not when the worker is done.
         LogHdrRenditionPeak();
         return true;
+    }
+
+    std::string ViewportCapture::FinishWindowPng( WindowPngWrite& write ) const
+    {
+        std::string error = write.Encode.get();
+        if ( !error.empty() )
+            return error;
+        const double encodeMs =
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.Started ).count();
+        LOG_INFO( "[Control] wrote the presented frame (editor and interface) -> {} ({}x{}); on the frame "
+                  "{:.1f} ms (device wait + readback), PNG encode + write on a worker {:.1f} ms",
+                  write.Path, write.Width, write.Height, write.CollectMs, encodeMs );
+        return {};
     }
 
     void ViewportCapture::LogHdrRenditionPeak()

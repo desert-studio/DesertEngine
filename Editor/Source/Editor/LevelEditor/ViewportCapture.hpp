@@ -8,9 +8,9 @@
 // and `<project>/.thumbnail.png` for the launcher tile. A member of EditorLayer BY VALUE, declared after the
 // SceneWorkspace whose active scene it reads.
 
-
-
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -55,8 +55,25 @@ namespace Desert::Editor
         // @p frame was judged and its copy is not the answer: released (after the device has finished the copy),
         // so the next frame can record. No-op when @p frame holds no copy, or it was already collected.
         void DiscardWindowCapture( uint64_t frame );
-        // Collects @p frame's copy (its refusal, if the record half was refused) and writes it to @p path.
-        [[nodiscard]] bool WriteWindowPng( const std::string& path, uint64_t frame, std::string& outError );
+        // A window shot whose pixels are collected and whose PNG is being encoded and written on a JobSystem
+        // worker (UE FImageWriteQueue: a screenshot's encode never runs on the game thread). Encode yields the
+        // write's refusal, empty when the file is on disk.
+        struct WindowPngWrite
+        {
+            std::string                           Path;
+            uint32_t                              Width     = 0;
+            uint32_t                              Height    = 0;
+            double                                CollectMs = 0.0; // on the frame: device wait + readback
+            std::chrono::steady_clock::time_point Started;
+            std::future<std::string>              Encode;
+        };
+        // Collects @p frame's copy (its refusal, if the record half was refused) ON THE FRAME and hands its PNG
+        // encode + write to a worker (@p out.Encode); the caller answers once that future is ready.
+        [[nodiscard]] bool BeginWindowPng( const std::string& path, uint64_t frame, WindowPngWrite& out,
+                                           std::string& outError );
+        // The write's second half, on the game thread once @p write.Encode is ready: its log line (ms per step).
+        // Returns the refusal, empty on success.
+        [[nodiscard]] std::string FinishWindowPng( WindowPngWrite& write ) const;
         // HDR-OUTPUT p3: after a window shot of an HDR output, the peak of the tonemap's HDR rendition of the same
         // frame, in paper-white units and nits, into editor.log (the PNG is the SDR rendition).
         void LogHdrRenditionPeak();

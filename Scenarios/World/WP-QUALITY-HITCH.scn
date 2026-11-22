@@ -1,0 +1,24 @@
+# WP-QUALITY-HITCH (11-22): the 4.7 s "worst frame" the profiler showed right after the High -> Cinematic switch in
+# CINEMATIC-LOD. Measured, not guessed: "[Control] long frame N: X ms" names every frame over 250 ms with its
+# serial; `frames 60` + `profile-dump` bracket the 60 frames after the switch ([Hitch] lines, slowest first); the
+# shot line "[Control] wrote the presented frame ... on the frame X ms, PNG encode + write on a worker Y ms" splits
+# a window shot's cost. Scene and camera as CINEMATIC-LOD (the crowd 30-300 m behind the origin figure).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_FAR11_SkinnedCrowd.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 0,0,30000
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 2
+Когда frames 60
+Когда profile-dump
+Тогда 0_before_switch High at 300 m, the crowd at the horizon; log: the [Hitch] of the 60 frames before (the reference)
+Когда run Quality "Quality: ViewDistance Cinematic"
+Когда frames 60
+Когда profile-dump
+Тогда 1_after_switch Cinematic, same view: the crowd at the horizon present; log: no "[Control] long frame" between the switch and this shot, the 60 frames after the switch with their [Hitch] ms (< 250 ms), this shot's own on-the-frame ms
+Когда frames 30
+Тогда 2_next_shot a second shot after 30 frames: the frame after 1_after_switch's shot is not a long frame (the PNG went to a worker)
+Когда run Action "Stop"
