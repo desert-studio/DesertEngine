@@ -11,7 +11,7 @@ namespace Desert::Core::Serialize::Builtins
             ComponentSerializer s;
             s.Key             = "StaticMesh";
             s.DeclaredMembers = Common::Json::MemberNames<Assets::StaticMeshComponentSer>();
-            s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::StaticMeshComponent>(); };
+            s.Has             = []( ECS::Entity e ) { return e.HasComponent<ECS::StaticMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
@@ -29,7 +29,7 @@ namespace Desert::Core::Serialize::Builtins
                 }
                 auto                 resolver = MakeAssetResolver( assetManager );
                 Common::Json::Object out      = Reflection::SerializeReflected( *type, &smc, &resolver );
-                meshSer.Primitive = smc.GetPrimitive();
+                meshSer.Primitive             = smc.GetPrimitive();
 
                 // Rendering controls: write only non-default values (absent = default on load).
                 if ( smc.GetOutlineDraw() )
@@ -129,7 +129,7 @@ namespace Desert::Core::Serialize::Builtins
         // ---- Instanced Static Mesh (UE-style ISM: asset/primitive mesh + N world matrices) ----
         {
             ComponentSerializer s;
-            s.Key = "InstancedStaticMesh";
+            s.Key             = "InstancedStaticMesh";
             s.DeclaredMembers = Common::Json::MemberNames<Assets::InstancedStaticMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::InstancedStaticMeshComponent>(); };
 
@@ -141,7 +141,8 @@ namespace Desert::Core::Serialize::Builtins
                 auto resolver = MakeAssetResolver( assetManager );
                 if ( ism.GetMeshHandle() )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.GetMeshHandle() ), "StaticMeshAsset" );
+                    if ( auto p =
+                              resolver.ToPath( static_cast<uint64_t>( ism.GetMeshHandle() ), "StaticMeshAsset" );
                          !p.empty() )
                         ser.MeshPath = p;
                     ser.MeshGuid =
@@ -242,9 +243,9 @@ namespace Desert::Core::Serialize::Builtins
         // ---- Material (generic data-driven: shader name + param overrides + texture refs as paths) ----
         {
             ComponentSerializer s;
-            s.Key = "Material";
+            s.Key             = "Material";
             s.DeclaredMembers = Common::Json::MemberNames<Assets::MaterialComponentSer>();
-            s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::MaterialComponent>(); };
+            s.Has             = []( ECS::Entity e ) { return e.HasComponent<ECS::MaterialComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
@@ -361,9 +362,9 @@ namespace Desert::Core::Serialize::Builtins
         // ---- Skinned Mesh (asset-bearing) ----
         {
             ComponentSerializer s;
-            s.Key = "SkinnedMesh";
+            s.Key             = "SkinnedMesh";
             s.DeclaredMembers = Common::Json::MemberNames<Assets::SkinnedMeshComponentSer>();
-            s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::SkinnedMeshComponent>(); };
+            s.Has             = []( ECS::Entity e ) { return e.HasComponent<ECS::SkinnedMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
@@ -373,11 +374,12 @@ namespace Desert::Core::Serialize::Builtins
                 auto resolver = MakeAssetResolver( assetManager );
                 if ( smc.GetMeshHandle() )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
+                    if ( auto p =
+                              resolver.ToPath( static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
                          !p.empty() )
                         meshSer.MeshPath = p;
-                    meshSer.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
+                    meshSer.MeshGuid = MeshGuidText( resolver, static_cast<uint64_t>( smc.GetMeshHandle() ),
+                                                     "SkinnedMeshAsset" );
                 }
 
                 if ( !smc.GetMaterialSlots().empty() )
@@ -438,4 +440,4 @@ namespace Desert::Core::Serialize::Builtins
         }
     }
 
-} // Desert::Core::Serialize::Builtins
+} // namespace Desert::Core::Serialize::Builtins

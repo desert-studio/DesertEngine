@@ -71,8 +71,8 @@ namespace Desert::Core
                 const Json::Object fields = CaptureSaveGameFields( *type, row.Data( reg, entity ) );
                 if ( fields.size() == 0 )
                     continue;
-                blocks[std::string( row.Name )] =
-                     Json::Value( Json::ObjectBuilder{}.Set( "Type", type->Name ).Set( "Fields", fields ).Build() );
+                blocks[std::string( row.Name )] = Json::Value(
+                     Json::ObjectBuilder{}.Set( "Type", type->Name ).Set( "Fields", fields ).Build() );
             }
             return blocks;
         }
@@ -337,21 +337,23 @@ namespace Desert::Core
                 if ( !row.Has( registry, entity ) )
                 {
                     report.Problems.push_back( std::format(
-                         "{}: component '{}' is no longer on the entity; its saved fields were skipped", label, key ) );
+                         "{}: component '{}' is no longer on the entity; its saved fields were skipped", label,
+                         key ) );
                     continue;
                 }
                 const Reflection::TypeInfo* type = types( std::string( row.TypeName ) );
                 if ( type == nullptr )
                 {
-                    report.Problems.push_back( std::format(
-                         "{}: component '{}': reflected type '{}' is not registered; skipped", label, key, row.TypeName ) );
+                    report.Problems.push_back(
+                         std::format( "{}: component '{}': reflected type '{}' is not registered; skipped", label,
+                                      key, row.TypeName ) );
                     continue;
                 }
                 const auto fields = saved->Find( "Fields" );
                 if ( !fields )
                     continue;
-                ApplySaveGameFields( *type, row.Data( registry, entity ), *fields, std::format( "{}: {}", label, key ),
-                                     report );
+                ApplySaveGameFields( *type, row.Data( registry, entity ), *fields,
+                                     std::format( "{}: {}", label, key ), report );
             }
             blocks.ForEachMember(
                  [&]( std::string_view key, const Json::Node& )

@@ -11,10 +11,10 @@ namespace Desert::Core::Serialize::Builtins
         //      playhead is runtime-only and never written) ----
         {
             ComponentSerializer s;
-            s.Key       = "UIAnim";
+            s.Key             = "UIAnim";
             s.DeclaredMembers = Common::Json::MemberNames<Assets::UIAnimComponentSer>();
-            s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
-            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
+            s.Has             = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
+            s.Serialize       = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 const auto& d       = e.GetComponent<ECS::UIAnimComponent>().Data;
                 auto        written = Animation::Timeline::WriteSequence( d.Sequence );
@@ -80,10 +80,10 @@ namespace Desert::Core::Serialize::Builtins
         // ---- Text (custom: only the authored fields; the glyph mesh is transient) ----
         {
             ComponentSerializer s;
-            s.Key       = "Text";
+            s.Key             = "Text";
             s.DeclaredMembers = Common::Json::MemberNames<Assets::TextComponentSer>();
-            s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::TextComponent>(); };
-            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
+            s.Has             = []( ECS::Entity e ) { return e.HasComponent<ECS::TextComponent>(); };
+            s.Serialize       = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 const auto& tc = e.GetComponent<ECS::TextComponent>();
                 // The font is an asset HANDLE in memory and persists as the ROOT-TAGGED KEY its handle is
@@ -102,10 +102,10 @@ namespace Desert::Core::Serialize::Builtins
                 auto parsed = ReadBlock<Assets::TextComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
-                const auto& d        = parsed.value();
-                auto&       tc       = e.HasComponent<ECS::TextComponent>() ? e.GetComponent<ECS::TextComponent>()
-                                                                            : e.AddComponent<ECS::TextComponent>();
-                tc.Text              = d.Text;
+                const auto& d  = parsed.value();
+                auto&       tc = e.HasComponent<ECS::TextComponent>() ? e.GetComponent<ECS::TextComponent>()
+                                                                      : e.AddComponent<ECS::TextComponent>();
+                tc.Text        = d.Text;
                 // Path -> stable handle (registers it so the handle resolves at render time). Empty stays null,
                 // which the render path falls back to the default font for.
                 tc.Font = Assets::AssetHandle(
@@ -121,17 +121,17 @@ namespace Desert::Core::Serialize::Builtins
         // ---- Animation (manual: playback settings + the `.danimgraph` this entity plays) ----
         {
             ComponentSerializer s;
-            s.Key       = "Animation";
+            s.Key             = "Animation";
             s.DeclaredMembers = Common::Json::MemberNames<Assets::AnimationComponentSer>();
-            s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::AnimationComponent>(); };
+            s.Has             = []( ECS::Entity e ) { return e.HasComponent<ECS::AnimationComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
                 const auto&                   ac = e.GetComponent<ECS::AnimationComponent>();
                 Assets::AnimationComponentSer ser;
-                ser.CurrentClip   = ac.CurrentClip;
-                ser.Playing       = ac.Playing;
-                ser.Loop          = ac.Loop;
-                ser.PlaybackSpeed = ac.PlaybackSpeed;
+                ser.CurrentClip             = ac.CurrentClip;
+                ser.Playing                 = ac.Playing;
+                ser.Loop                    = ac.Loop;
+                ser.PlaybackSpeed           = ac.PlaybackSpeed;
                 ser.UpdateAnimationInEditor = ac.UpdateAnimationInEditor;
                 ser.RootMotion              = ac.RootMotion;
 
@@ -172,10 +172,10 @@ namespace Desert::Core::Serialize::Builtins
                 const auto& d = parsed.value();
                 auto& ac = e.HasComponent<ECS::AnimationComponent>() ? e.GetComponent<ECS::AnimationComponent>()
                                                                      : e.AddComponent<ECS::AnimationComponent>();
-                ac.CurrentClip = d.CurrentClip;
-                ac.Playing     = d.Playing;
-                ac.Loop        = d.Loop;
-                ac.PlaybackSpeed = d.PlaybackSpeed;
+                ac.CurrentClip             = d.CurrentClip;
+                ac.Playing                 = d.Playing;
+                ac.Loop                    = d.Loop;
+                ac.PlaybackSpeed           = d.PlaybackSpeed;
                 ac.UpdateAnimationInEditor = d.UpdateAnimationInEditor;
                 ac.RootMotion              = d.RootMotion;
 
@@ -199,7 +199,6 @@ namespace Desert::Core::Serialize::Builtins
             };
             out.push_back( std::move( s ) );
         }
-
     }
 
     void AddUIRenderTextureSerializer( std::vector<ComponentSerializer>& out )
@@ -314,9 +313,8 @@ namespace Desert::Core::Serialize::Builtins
         // back visible on the next load is a setting the user made and the file never kept, and nothing
         // says so — the entity simply reappears. It was the lock's defect, already live for visibility,
         // in the same panel and one row up. No version bump: an added key is what ForeignKeys is for.
-        out.push_back(
-             MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::IsVisible,
-                                                &ECS::SetVisible ) );
+        out.push_back( MakeFlag<ECS::VisibilityComponent>(
+             "Visibility", "Visible", &ECS::VisibilityComponent::IsVisible, &ECS::SetVisible ) );
 
         // ---- Level sequence actor: the `.dseq` it plays + playback settings + binding overrides (I11) ----
         // {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides[{Binding, Entity}]}: the Foliage shape
@@ -447,4 +445,4 @@ namespace Desert::Core::Serialize::Builtins
         out.push_back( MakeAuthored<ECS::SocketAttachmentComponent>( "SocketAttachment" ) );
     }
 
-} // Desert::Core::Serialize::Builtins
+} // namespace Desert::Core::Serialize::Builtins

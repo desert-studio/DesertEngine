@@ -102,71 +102,71 @@ namespace Desert::Core::Serialize::Builtins
 
     } // namespace
 
-        ComponentSerializer MakeScript()
+    ComponentSerializer MakeScript()
+    {
+        ComponentSerializer s;
+        s.Key = "Script";
+        s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::ScriptComponent>(); };
+
+        s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
         {
-            ComponentSerializer s;
-            s.Key = "Script";
-            s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::ScriptComponent>(); };
-
-            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
+            const auto&                sc = e.GetComponent<ECS::ScriptComponent>();
+            ScriptCompSer              ser;
+            std::vector<ScriptSlotSer> slots;
+            for ( const auto& slot : sc.Scripts )
             {
-                const auto&                sc = e.GetComponent<ECS::ScriptComponent>();
-                ScriptCompSer              ser;
-                std::vector<ScriptSlotSer> slots;
-                for ( const auto& slot : sc.Scripts )
+                ScriptSlotSer ss;
+                ss.ScriptKey = slot.ScriptKey;
+                for ( const auto& p : slot.Properties )
                 {
-                    ScriptSlotSer ss;
-                    ss.ScriptKey = slot.ScriptKey;
-                    for ( const auto& p : slot.Properties )
+                    const ScriptValueSer value = SaveValue( p );
+                    ScriptPropSer        prop{ p.Name,    value.Type, value.Number, value.Bool,  value.Str,
+                                        value.Vec, value.Ref,  std::nullopt, std::nullopt };
+                    if ( p.Type == Scripting::PropertyType::Array )
                     {
-                        const ScriptValueSer value = SaveValue( p );
-                        ScriptPropSer        prop{ p.Name,    value.Type, value.Number, value.Bool,  value.Str,
-                                            value.Vec, value.Ref,  std::nullopt, std::nullopt };
-                        if ( p.Type == Scripting::PropertyType::Array )
-                        {
-                            prop.ElementType = static_cast<int>( p.ElementType );
-                            prop.Items.emplace();
-                            for ( const Scripting::ScriptValue& item : p.Items )
-                                prop.Items->push_back( SaveValue( item ) );
-                        }
-                        ss.Props.push_back( std::move( prop ) );
+                        prop.ElementType = static_cast<int>( p.ElementType );
+                        prop.Items.emplace();
+                        for ( const Scripting::ScriptValue& item : p.Items )
+                            prop.Items->push_back( SaveValue( item ) );
                     }
-                    slots.push_back( std::move( ss ) );
+                    ss.Props.push_back( std::move( prop ) );
                 }
-                ser.Scripts = std::move( slots );
-                return Common::Json::FromStruct( ser );
-            };
+                slots.push_back( std::move( ss ) );
+            }
+            ser.Scripts = std::move( slots );
+            return Common::Json::FromStruct( ser );
+        };
 
-            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
-                                Common::Json::Issues& issues )
+        s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
+                            Common::Json::Issues& issues )
+        {
+            auto ser = ReadBlock<ScriptCompSer>( g, issues );
+            if ( !ser )
+                return;
+            auto& sc = e.HasComponent<ECS::ScriptComponent>() ? e.GetComponent<ECS::ScriptComponent>()
+                                                              : e.AddComponent<ECS::ScriptComponent>();
+            sc.Scripts.clear();
+            if ( ser->Scripts )
             {
-                auto ser = ReadBlock<ScriptCompSer>( g, issues );
-                if ( !ser )
-                    return;
-                auto& sc = e.HasComponent<ECS::ScriptComponent>() ? e.GetComponent<ECS::ScriptComponent>()
-                                                                  : e.AddComponent<ECS::ScriptComponent>();
-                sc.Scripts.clear();
-                if ( ser->Scripts )
+                for ( const auto& ss : *ser->Scripts )
                 {
-                    for ( const auto& ss : *ser->Scripts )
-                    {
-                        ECS::ScriptSlot slot;
-                        slot.ScriptKey  = ss.ScriptKey;
-                        slot.Started    = false;
-                        slot.Properties = loadProps( ss.Props );
-                        sc.Scripts.push_back( std::move( slot ) );
-                    }
+                    ECS::ScriptSlot slot;
+                    slot.ScriptKey  = ss.ScriptKey;
+                    slot.Started    = false;
+                    slot.Properties = loadProps( ss.Props );
+                    sc.Scripts.push_back( std::move( slot ) );
                 }
-            };
-            return s;
-        }
+            }
+        };
+        return s;
+    }
 
-        // THE THREE `Ensure*Registered` HELPERS THAT STOOD HERE NOW LIVE IN
-        // Engine/Runtime/Services/AssetServiceRegistration.hpp, unchanged in behaviour.
-        //
-        // They moved because two OTHER files had independently written the same find-else-create and each
-        // got a different part of it wrong (the import's reuse path registered nothing; the thumbnail's
-        // reuse path registered nothing AND then blamed the consequence on the wrong cause). A rule
-        // enforced by three careful copies is the shape Ф5 paid forty-four call sites for; this one is
-        // enforced by there being one implementation to call.
-} // Desert::Core::Serialize::Builtins
+    // THE THREE `Ensure*Registered` HELPERS THAT STOOD HERE NOW LIVE IN
+    // Engine/Runtime/Services/AssetServiceRegistration.hpp, unchanged in behaviour.
+    //
+    // They moved because two OTHER files had independently written the same find-else-create and each
+    // got a different part of it wrong (the import's reuse path registered nothing; the thumbnail's
+    // reuse path registered nothing AND then blamed the consequence on the wrong cause). A rule
+    // enforced by three careful copies is the shape Ф5 paid forty-four call sites for; this one is
+    // enforced by there being one implementation to call.
+} // namespace Desert::Core::Serialize::Builtins

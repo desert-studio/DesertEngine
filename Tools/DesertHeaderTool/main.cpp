@@ -1393,7 +1393,8 @@ namespace
     }
 
     // `module`: the module whose rows these are (Components_<Module>.gen.cpp); empty for the whole list.
-    Common::Json::Value ComponentsModel( const std::vector<ComponentBlock>& components, const std::string& module = {} )
+    Common::Json::Value ComponentsModel( const std::vector<ComponentBlock>& components,
+                                         const std::string&                 module = {} )
     {
         std::vector<std::string> includes;
         for ( const auto& c : components )
@@ -1658,9 +1659,9 @@ namespace
                     request.Output ) )
             return 1;
 
-        // The COMPONENT rows, per module (BUILD-MOD-5): Components_<Module>.gen.cpp registers that module's rows and
-        // includes only its headers; Components.gen.cpp calls every module's in the table's order. Every module
-        // gets its file, as above, so the configure-time glob is fixed by the table.
+        // The COMPONENT rows, per module (BUILD-MOD-5): Components_<Module>.gen.cpp registers that module's rows
+        // and includes only its headers; Components.gen.cpp calls every module's in the table's order. Every
+        // module gets its file, as above, so the configure-time glob is fixed by the table.
         if ( !request.Components.empty() )
         {
             for ( const std::string& module : moduleNames )
@@ -1685,8 +1686,9 @@ namespace
         for ( const auto& entry : fs::directory_iterator( outputDir ) )
         {
             const std::string name = entry.path().filename().string();
-            const bool generatedPerModule = name.starts_with( kModuleFilePrefix ) ||
-                                            ( !request.Components.empty() && name.starts_with( kComponentsFilePrefix ) );
+            const bool        generatedPerModule =
+                 name.starts_with( kModuleFilePrefix ) ||
+                 ( !request.Components.empty() && name.starts_with( kComponentsFilePrefix ) );
             if ( generatedPerModule && name.ends_with( kModuleFileSuffix ) && !written.contains( name ) )
             {
                 fs::remove( entry.path() );

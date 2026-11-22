@@ -24,8 +24,7 @@ namespace Desert::Core::Serialize
             Generated::RegisterModuleComponents( registrar );
             std::vector<ModuleComponent> all = registrar.Take();
             // Key order: the order the one generated list had, so a run registers its rows as it always did.
-            std::stable_sort( all.begin(), all.end(),
-                              []( const ModuleComponent& a, const ModuleComponent& b )
+            std::stable_sort( all.begin(), all.end(), []( const ModuleComponent& a, const ModuleComponent& b )
                               { return a.Serializer.Key < b.Serializer.Key; } );
             return all;
         }();
@@ -55,7 +54,7 @@ namespace Desert::Core::Serialize
     void ComponentRegistry::RegisterBuiltins()
     {
         std::vector<ComponentSerializer> builtins;
-        const auto flush = [this, &builtins]
+        const auto                       flush = [this, &builtins]
         {
             for ( ComponentSerializer& s : builtins )
                 Register( std::move( s ) );
