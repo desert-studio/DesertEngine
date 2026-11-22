@@ -97,7 +97,7 @@ namespace Desert::Graphic
                                            : quality.As<uint32_t>( Parameter::ShadowCascades ),
                               sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyMapSize )
                                            : mapSize,
-                              maxDistance, mapSize };
+                              maxDistance, mapSize, quality.As<float>( Parameter::ShadowFarDistance ) };
     }
 
     // THE RE-ALLOCATION RULE (UE re-creates its shadow depth targets when r.Shadow.* changes): the budget a

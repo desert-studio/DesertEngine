@@ -56,6 +56,13 @@ namespace Desert::Graphic::SceneResources
         float            SourceTanHalf = 0.0f;    // tan(SourceAngle / 2): the PCSS penumbra slope
         glm::vec4        CascadeWorldPerTexel = glm::vec4( 1.0f );
         glm::vec4        CascadeDepthRange    = glm::vec4( 1.0f );
+        // THE FAR SHADOW (ShadowQuality::FarDistance; UE's far shadow cascade): one more map past the cascades,
+        // holding the static casters only. FarFitted false: none this frame, the receivers past the cascades are lit.
+        bool      FarFitted        = false;
+        glm::mat4 FarViewProj      = glm::mat4( 1.0f ); // receiver side, no bias
+        float     FarWorldPerTexel = 1.0f;
+        float     FarDepthRange    = 1.0f;
+        uint32_t  FarLayer         = 0; // its layer of the shared cascade array
     };
 
     // The C++ half of the `ShadowUB` block every lit surface declares. PUBLIC because the other half is
@@ -79,6 +86,11 @@ namespace Desert::Graphic::SceneResources
         // directional lights' cascades hand over to this frame's distance-field shadow
         // (ShadowFilterSettings::DistanceField), w unused. Packed by PackShadowFilter.
         glm::vec4 ShadowFilter;
+        // THE FAR SHADOW per slot (DirectionalShadowView::Far*), appended so every receiver's block keeps its
+        // offsets above: its matrix, and x = world size of one texel, y = world length of [0,1] depth, z = its
+        // array layer, w = 1 when fitted this frame (0: lit past the cascades).
+        glm::mat4 FarShadowViewProj[kMaxShadowedDirectionalLights];
+        glm::vec4 FarShadow[kMaxShadowedDirectionalLights];
     };
 
     // THE ONE PACKER of a directional light's cascades into its slot of the block. A light with no view (no
@@ -92,6 +104,11 @@ namespace Desert::Graphic::SceneResources
                                                   static_cast<float>( n ), static_cast<float>( view.FirstLayer ) );
         data.CascadeTexelWorld[slot] = view.CascadeWorldPerTexel;
         data.CascadeDepthRange[slot] = view.CascadeDepthRange;
+        const bool farShadow               = view.FarFitted && view.CastShadows;
+        data.FarShadowViewProj[slot] = farShadow ? view.FarViewProj : glm::mat4( 1.0f );
+        data.FarShadow[slot] = farShadow ? glm::vec4( view.FarWorldPerTexel, view.FarDepthRange,
+                                                static_cast<float>( view.FarLayer ), 1.0f )
+                                   : glm::vec4( 1.0f, 1.0f, 0.0f, 0.0f );
     }
 
     using DirectionalShadowViews = std::array<DirectionalShadowView, kMaxShadowedDirectionalLights>;

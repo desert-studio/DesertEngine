@@ -243,6 +243,9 @@ float GIHitDirectionalVisibility( int slot, vec3 origin, vec3 N, vec3 L )
             return cascades;
         return mix( cascades, GIHitDirectionalFieldVisibility( slot, origin, L ), band );
     }
+    // Past the cascades the far shadow's static casters (cascades: 1 where it does not reach) and the field both
+    // occlude: the darker.
+    return min( cascades, GIHitDirectionalFieldVisibility( slot, origin, L ) );
 #endif
     return GIHitDirectionalFieldVisibility( slot, origin, L );
 }

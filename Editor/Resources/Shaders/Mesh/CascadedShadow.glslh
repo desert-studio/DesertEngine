@@ -48,6 +48,8 @@
 //                                   // view's dither frame, also turns the soft filter's disc below
 //         vec4 SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5)
 //         vec4 ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (SceneResources::PackShadowFilter)
+//         mat4 FarShadowViewProj[2]; // per light: the far shadow's matrix (kFarShadowCascade)
+//         vec4 FarShadow[2];         // per light: x = texel world, y = depth range, z = array layer, w = fitted
 //     };
 //
 // `light` IS THE DIRECTIONAL LIGHT'S SLOT (SceneResources::kMaxShadowedDirectionalLights: its Atmosphere Sun Light
@@ -80,9 +82,30 @@ int cascadeView(int light, int c)
 {
 	return light * kCascadesPerLight + c;
 }
+// THE FAR SHADOW (ShadowCascades.hpp ShadowQuality::FarDistance; UE's far shadow cascade): one more level past a
+// light's cascades, its static casters only, named by this index wherever a cascade index is taken (sampleCascade,
+// sampleCascadeTransmission). chooseCascade never returns it: a receiver past the cascades reports cascade -1 and
+// ShadowFactor samples the far level when it holds the receiver (farShadowHolds).
+const int kFarShadowCascade = kCascadesPerLight;
+mat4 cascadeMatrix(int light, int c)
+{
+	return c == kFarShadowCascade ? FarShadowViewProj[light] : LightViewProjection[cascadeView(light, c)];
+}
+float cascadeTexelWorld(int light, int c)
+{
+	return c == kFarShadowCascade ? FarShadow[light].x : CascadeTexelWorld[light][c];
+}
+float cascadeDepthRange(int light, int c)
+{
+	return c == kFarShadowCascade ? FarShadow[light].y : CascadeDepthRange[light][c];
+}
+float cascadeLayer(int light, int c)
+{
+	return c == kFarShadowCascade ? FarShadow[light].z : DirectionalShadow[light].w + float(c);
+}
 vec4 gatherShadowMap(int light, int c, vec2 uv)
 {
-	return textureGather(ShadowCascadesTexture, vec3(uv, DirectionalShadow[light].w + float(c)), 0);
+	return textureGather(ShadowCascadesTexture, vec3(uv, cascadeLayer(light, c)), 0);
 }
 ivec2 shadowMapSize(int c)
 {
@@ -115,6 +138,25 @@ int chooseCascade(int light, vec3 worldPos)
 			return c;
 	}
 	return -1;
+}
+// Whether light @p light's far shadow was fitted this frame and holds worldPos (chooseCascade's test on its map).
+bool farShadowHolds(int light, vec3 worldPos)
+{
+	if (FarShadow[light].w < 0.5)
+		return false;
+	vec4  lc     = FarShadowViewProj[light] * vec4(worldPos, 1.0);
+	vec3  ndc    = lc.xyz / lc.w;
+	vec2  uv     = ndc.xy * 0.5 + 0.5;
+	float margin = kCascadeReceiverOffsetTexels * FarShadow[light].x / max(FarShadow[light].y, 1e-3);
+	return uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && ndc.z >= margin && ndc.z <= 1.0;
+}
+// The level a receiver in cascade @p c cross-fades into across its border band: the next cascade, past the last one
+// the far shadow when it holds the receiver, else none (-1).
+int nextShadowLevel(int light, int c, vec3 worldPos)
+{
+	if (c + 1 < int(DirectionalShadow[light].z))
+		return c + 1;
+	return farShadowHolds(light, worldPos) ? kFarShadowCascade : -1;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -154,11 +196,11 @@ float sampleCascade(int light, int c, vec3 worldPos, vec3 N, float NdotL)
 {
 	// Normal-offset bias scaled by the cascade's world-per-texel (a few texels along the normal,
 	// widening at grazing angles) — cascade-correct instead of fixed world-unit constants.
-	float texelWorld   = CascadeTexelWorld[light][c];
+	float texelWorld   = cascadeTexelWorld(light, c);
 	float normalOffset = (1.5 + 2.5 * (1.0 - NdotL)) * texelWorld;
 	vec3  samplePos    = worldPos + N * normalOffset;
 
-	vec4 lightClip = LightViewProjection[cascadeView(light, c)] * vec4(samplePos, 1.0);
+	vec4 lightClip = cascadeMatrix(light, c) * vec4(samplePos, 1.0);
 	vec3 ndc = lightClip.xyz / lightClip.w;
 	vec2 uv = ndc.xy * 0.5 + 0.5;
 	// Shadow maps are rendered through the engine's negative-height (Y-flipped) viewport -> flip Y.
@@ -175,7 +217,7 @@ float sampleCascade(int light, int c, vec3 worldPos, vec3 N, float NdotL)
 
 	vec2  size       = vec2(shadowMapSize(c));
 	vec2  texel      = 1.0 / size;
-	float depthRange = max(CascadeDepthRange[light][c], 1e-3); // world cm per unit of map depth
+	float depthRange = max(cascadeDepthRange(light, c), 1e-3); // world cm per unit of map depth
 	float tanHalf    = DirectionalShadow[light].x;            // tan(light source angle / 2)
 	float phi        = 6.28318531 * shadowInterleavedGradientNoise(CASCADED_SHADOW_NOISE_PIXEL, ContactShadowView.z);
 	// The kernel's cost (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps, the view's ShadowUB).
@@ -261,26 +303,25 @@ float ShadowFactor(int light, vec3 worldPos, vec3 N, vec3 L, out int cascadeOut)
 
 	int c = chooseCascade(light, worldPos);
 	cascadeOut = c;
+	float NdotL = max(dot(N, L), 0.0);
+	// Past the cascades: the far shadow's static casters where it reaches (cascadeOut stays -1), else lit.
 	if (c < 0)
-		return 1.0;
+		return farShadowHolds(light, worldPos) ? sampleCascade(light, kFarShadowCascade, worldPos, N, NdotL) : 1.0;
 
-	float NdotL  = max(dot(N, L), 0.0);
 	float shadow = sampleCascade(light, c, worldPos, N, NdotL);
 
-	// Cross-fade near the chosen cascade's border into the next one (which fully covers this
-	// region). `edge` is the distance to the nearest UV border (0.5 at centre, 0 at the seam).
+	// Cross-fade near the chosen cascade's border into the next level (which fully covers this region: the next
+	// cascade, past the last one the far shadow). `edge` is the distance to the nearest UV border (0.5 at centre,
+	// 0 at the seam).
 	const float kBand = 0.10;
-	int cascadeCount = int(DirectionalShadow[light].z);
-	if (c + 1 < cascadeCount)
+	vec4  lc   = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
+	vec2  uv   = (lc.xy / lc.w) * 0.5 + 0.5;
+	float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+	if (edge < kBand)
 	{
-		vec4  lc  = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
-		vec2  uv  = (lc.xy / lc.w) * 0.5 + 0.5;
-		float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-		if (edge < kBand)
-		{
-			float next = sampleCascade(light, c + 1, worldPos, N, NdotL);
-			shadow = mix(next, shadow, clamp(edge / kBand, 0.0, 1.0));
-		}
+		int next = nextShadowLevel(light, c, worldPos);
+		if (next >= 0)
+			shadow = mix(sampleCascade(light, next, worldPos, N, NdotL), shadow, clamp(edge / kBand, 0.0, 1.0));
 	}
 	return shadow;
 }
@@ -297,7 +338,7 @@ float ShadowFactor(int light, vec3 worldPos, vec3 N, vec3 L, out int cascadeOut)
 // `density`: per centimetre (Common/ContactShadow.glslh ContactShadowSubsurfaceDensity of the receiver's opacity).
 float sampleCascadeTransmission(int light, int c, vec3 worldPos, float density)
 {
-	vec4 lightClip = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
+	vec4 lightClip = cascadeMatrix(light, c) * vec4(worldPos, 1.0);
 	vec3 ndc       = lightClip.xyz / lightClip.w;
 	vec2 uv        = ndc.xy * 0.5 + 0.5;
 	uv.y           = 1.0 - uv.y; // the negative-height viewport, as sampleCascade
@@ -305,7 +346,7 @@ float sampleCascadeTransmission(int light, int c, vec3 worldPos, float density)
 		return 1.0;
 
 	const vec4  occluder   = gatherShadowMap(light, c, uv);
-	const float depthRange = max(CascadeDepthRange[light][c], 1e-3); // world cm per unit of map depth
+	const float depthRange = max(cascadeDepthRange(light, c), 1e-3); // world cm per unit of map depth
 	const vec4  thickness  = max(vec4(ndc.z) - occluder, vec4(0.0)) * depthRange;
 	vec4        through    = clamp(exp(-thickness * density), vec4(0.0), vec4(1.0));
 	through                = mix(through, vec4(1.0), step(vec4(0.99), occluder)); // UE: depth > .99 never written
@@ -322,18 +363,21 @@ float sampleCascadeTransmission(int light, int c, vec3 worldPos, float density)
 // TransmissionShadowFactor below answers, so the result is the same value.
 float TransmissionShadowFactorInCascade(int light, int c, vec3 worldPos, float density)
 {
+	// Past the cascades: the far shadow where it reaches, as ShadowFactor (a slot casting no shadow fits none).
 	if (c < 0)
-		return 1.0;
-	float     through      = sampleCascadeTransmission(light, c, worldPos, density);
-	const int cascadeCount = int(DirectionalShadow[light].z);
-	if (c + 1 < cascadeCount)
+		return DirectionalShadow[light].y > 0.5 && farShadowHolds(light, worldPos)
+		            ? sampleCascadeTransmission(light, kFarShadowCascade, worldPos, density)
+		            : 1.0;
+	float       through = sampleCascadeTransmission(light, c, worldPos, density);
+	const float kBand   = 0.10;
+	vec4        lc      = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
+	vec2        uv      = (lc.xy / lc.w) * 0.5 + 0.5;
+	float       edge    = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+	if (edge < kBand)
 	{
-		const float kBand = 0.10;
-		vec4        lc    = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
-		vec2        uv    = (lc.xy / lc.w) * 0.5 + 0.5;
-		float       edge  = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-		if (edge < kBand)
-			through = mix(sampleCascadeTransmission(light, c + 1, worldPos, density), through, clamp(edge / kBand, 0.0, 1.0));
+		const int next = nextShadowLevel(light, c, worldPos);
+		if (next >= 0)
+			through = mix(sampleCascadeTransmission(light, next, worldPos, density), through, clamp(edge / kBand, 0.0, 1.0));
 	}
 	return through;
 }

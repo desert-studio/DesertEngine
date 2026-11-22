@@ -26,6 +26,8 @@ Uniform(7) ShadowUB
     vec4 ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF;
                               // SceneResources::PackShadowFilter), z = the directional lights' cascades
                               // hand over to the distance-field shadow (>0.5; Common/DistanceFieldShadow.glslh)
+    mat4 FarShadowViewProj[2]; // per slot: the far shadow's matrix (Mesh/CascadedShadow.glslh kFarShadowCascade)
+    vec4 FarShadow[2];         // per slot: x = texel world size, y = depth range, z = array layer, w = fitted (>0.5)
 };
 
 #endif // DESERT_SHADOW_UB_GLSLH

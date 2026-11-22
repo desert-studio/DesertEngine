@@ -512,6 +512,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: the cascades end at min(Shadows."
                "Distance, this) when the sun reads the distance-field shadow past them)",
                8000, Vis::Advanced },
+             { P::ShadowFarDistance, G::Shadows, "Shadows.FarDistance", 0, 400000, CL::None,
+               "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: ShadowQuality::FarDistance, the far "
+               "shadow map's reach past the cascades; 0 = none)",
+               100000, Vis::Advanced },
              { P::RenderPipelineTileClassify, G::Effects, "RenderPipeline.TileClassify", 0, 1, CL::None,
                "SceneRenderer::AddFrameComposite -> DeferredLightingRenderer (the 8x8 tile lists the "
                "direct and composite passes draw indirectly; 0 = both draw the whole view)",
