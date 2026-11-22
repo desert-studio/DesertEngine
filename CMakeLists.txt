@@ -104,6 +104,7 @@ add_subdirectory(Tools/GamePackager)
 add_subdirectory(Tools/WorldCook)
 add_subdirectory(Tools/SceneMigrator)
 add_subdirectory(Tools/TextureCook)
+add_subdirectory(Tools/DesertNetProbe)
 
 add_subdirectory(Editor)
 add_subdirectory(Runtime)
