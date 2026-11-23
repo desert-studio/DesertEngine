@@ -5,8 +5,10 @@
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingFoliage.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <format>
@@ -269,6 +271,16 @@ namespace Desert::Graphic::RayTracing
             const void* geometry = nullptr;
             if ( !ResolveGeometry( variants, *data.Mesh, masks, out, geometry ) )
                 continue;
+            // RT-FOLIAGE-BLAS (RayTracingFoliage.hpp): each instance traces the shared BLAS of its RT-LOD, resolved
+            // once per level the field uses; a swaying one is handed to the wind refit. A TLAS gather only.
+            const std::vector<float> lodErrors = variants != nullptr && inputs.FoliageLod != nullptr
+                                                      ? RayTracingLodErrors( *data.Mesh, masks.Hidden )
+                                                      : std::vector<float>{};
+            std::array<const void*, kRayTracingMaxLod + 1u> lodGeometry{};
+            std::array<bool, kRayTracingMaxLod + 1u>        lodResolved{};
+            lodGeometry[0]   = geometry;
+            lodResolved[0]   = true;
+            const bool sways = variants != nullptr && data.Wind.Sways();
             const auto                    firstRecord  = static_cast<uint32_t>( out.SegmentRecords.size() );
             uint32_t                      recordCount  = 0;
             bool                          recordsAdded = false;
@@ -279,15 +291,46 @@ namespace Desert::Graphic::RayTracing
                 if ( !KeepsInstanceAtDistance( cull, static_cast<uint32_t>( instance ),
                                                glm::vec3( transforms[instance][3] ), inputs.ViewOrigin ) )
                     continue;
+                const uint32_t component = data.InstanceIds && instance < data.InstanceIds->size()
+                                                ? ( *data.InstanceIds )[instance]
+                                                : static_cast<uint32_t>( instance );
+                RayTracingSubmeshMasks instanceMasks    = masks;
+                const void*            instanceGeometry = geometry;
+                if ( !lodErrors.empty() )
+                {
+                    const glm::vec3 origin( transforms[instance][3] );
+                    const uint8_t   lod = inputs.FoliageLod->Select(
+                         data.Entity, component, lodErrors, glm::length( origin - inputs.ViewOrigin ),
+                         RayTracingInstanceScale( transforms[instance] ) );
+                    if ( lod > 0u && !lodResolved[lod] )
+                    {
+                        RayTracingSubmeshMasks lodMasks = masks;
+                        lodMasks.Lod                    = lod;
+                        lodResolved[lod]                = true;
+                        const void* resolved            = nullptr;
+                        if ( ResolveGeometry( variants, *data.Mesh, lodMasks, out, resolved ) )
+                            lodGeometry[lod] = resolved;
+                    }
+                    if ( lod > 0u && lodGeometry[lod] != nullptr )
+                    {
+                        instanceMasks.Lod = lod;
+                        instanceGeometry  = lodGeometry[lod];
+                    }
+                }
                 RayTracingPrimitive& primitive = out.Primitives.emplace_back();
-                primitive.Geometry             = geometry;
+                primitive.Geometry             = instanceGeometry;
                 primitive.World                = transforms[instance];
                 primitive.GpuSceneRow          = data.FirstGpuInstance + static_cast<uint32_t>( instance );
                 primitive.SourceMesh           = data.Mesh;
                 primitive.CastShadows          = field.CastShadows;
                 primitive.Translucent          = AllTranslucent( field.Sections );
-                primitive.Submeshes            = masks;
+                primitive.Submeshes            = instanceMasks;
                 primitive.Kind                 = RayTracingPrimitiveKind::Instanced;
+                if ( sways && instanceGeometry != nullptr )
+                    primitive.Wind = { .MeshPtr  = data.Mesh,
+                                       .Rest     = instanceGeometry,
+                                       .Entity   = data.Entity,
+                                       .Instance = component };
                 if ( variants != nullptr && geometry == nullptr && IsResident( *data.Mesh ) )
                     primitive.ProceduralMesh = data.Mesh;
                 if ( !recordsAdded )
@@ -449,8 +492,9 @@ namespace Desert::Graphic::RayTracing
     bool RayTracingGatherCullsByView( const RayTracingGatherInputs& inputs )
     {
         for ( const MeshRenderer::InstancedMeshRenderData& data : inputs.Instanced )
-            if ( data.Mesh != nullptr && data.Transforms && data.CullDistance.Culls() )
-                return true;
+            if ( data.Mesh != nullptr && data.Transforms &&
+                 ( data.CullDistance.Culls() || !RayTracingLodErrors( *data.Mesh, data.HiddenSubmeshes ).empty() ) )
+                return true; // a distance cull, or an RT-LOD chosen by distance (RayTracingFoliage.hpp)
         return false;
     }
 

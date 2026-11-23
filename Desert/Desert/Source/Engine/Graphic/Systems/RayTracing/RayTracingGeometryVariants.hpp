@@ -81,7 +81,8 @@ namespace Desert::Graphic::RayTracing
             {
                 return std::hash<const void*>{}( key.MeshPtr ) ^
                        ( std::hash<uint64_t>{}( key.Masks.Hidden ) * 0x9E3779B97F4A7C15ull ) ^
-                       ( std::hash<uint64_t>{}( key.Masks.NonOpaque ) * 0xC2B2AE3D27D4EB4Full );
+                       ( std::hash<uint64_t>{}( key.Masks.NonOpaque ) * 0xC2B2AE3D27D4EB4Full ) ^
+                       ( std::size_t{ key.Masks.Lod } * 0x165667B19E3779F9ull );
             }
         };
         struct Variant

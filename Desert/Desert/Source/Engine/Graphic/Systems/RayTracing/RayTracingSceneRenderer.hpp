@@ -3,6 +3,7 @@
 #include <Common/Core/Core.hpp> // BOOLSUCCESS (the .cpp and the tests)
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingFoliage.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
@@ -570,11 +571,19 @@ namespace Desert::Graphic::RayTracing
         // views.
         // @p external: primitives another renderer produced this frame (the landscape tiles), instanced after the
         // meshes; their BLAS requests join RayTracingScene.DynamicGeometry.
+        // @p windCamera: the view's CameraUB this frame (its gust and local wind), what the swaying foliage's wind
+        // BLASes are evaluated with (RayTracingFoliage.hpp); invalid: every swaying instance traces its rest pose.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, bool required,
                                                        const System::MeshRenderer& meshes,
                                                        RayTracingSceneCache& cache, const glm::vec3& viewOrigin,
                                                        float                               drawDistanceScale,
-                                                       const RayTracingExternalPrimitives& external = {} );
+                                                       const RayTracingExternalPrimitives& external = {},
+                                                       RDG::BufferRef                      windCamera = {} );
+        // What this view's last AddPasses traced of the ISM / foliage (RT-LOD sharing, wind refits).
+        [[nodiscard]] const RayTracingFoliageStats& GetFoliageStats() const
+        {
+            return m_FoliageStats;
+        }
 
         // THE SCENE'S ROWS WITHOUT A TLAS: on a frame whose AddPasses built none, gathers this frame's primitives
         // and
@@ -753,6 +762,9 @@ namespace Desert::Graphic::RayTracing
         RayTracingSceneRows                 m_SceneRows;        // the CPU rows of the last build, patched since
         std::optional<RayTracingMetadataBuild> m_Metadata;      // the kept metadata (rebuilt with the list)
         uint32_t                            m_TlasUpdatesBeforeRebuild = 0;
+        RayTracingFoliageLod   m_FoliageLod;   // the view's RT-LOD hysteresis (RayTracingFoliage.hpp)
+        RayTracingFoliageStats m_FoliageStats; // this frame's
+        RayTracingFoliageStats m_LoggedFoliage; // the last one the [RT] foliage line said
         uint32_t                            m_UpdatesSinceBuild        = 0;
         uint64_t                            m_TlasFullBuilds           = 0;
         uint64_t                            m_TlasUpdates              = 0;
