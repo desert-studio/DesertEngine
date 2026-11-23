@@ -856,8 +856,8 @@ namespace Desert::Server
                 LOG_ERROR( "[Server] {}", collision.GetError() );
                 return 5;
             }
-            ServerCollision     world = collision.ExtractValue();
-            Net::PawnSimulation sim( replica, gatewayLink, *world.PawnMove, std::move( simSettings ), netLog );
+            ServerCollision     pawnCollision = collision.ExtractValue();
+            Net::PawnSimulation sim( replica, gatewayLink, *pawnCollision.PawnMove, std::move( simSettings ), netLog );
             Net::SimHandover    handover( endpoint, options.index, netLog );
             replica.TrackProxies();
             std::uint32_t lastStep = 0;
