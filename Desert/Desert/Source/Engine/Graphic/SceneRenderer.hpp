@@ -86,7 +86,6 @@ namespace Desert::Graphic
         struct GrassFieldDraw;
         struct LandscapeTileDraw;
         struct LandscapeWeightDraw;
-        struct WaterZoneDraw;
         struct DecalProxy;
         struct LightFunctionProxy;
         struct ForwardPrepassStats;
@@ -194,7 +193,7 @@ namespace Desert::Graphic
         class VolumetricFogRenderer;
         class HeterogeneousVolumeRenderer;
         class TranslucencyLightingVolumeRenderer;
-        class WaterRenderer;
+        class ISingleLayerWaterPass;
     } // namespace System
 
     /**
@@ -458,11 +457,9 @@ namespace Desert::Graphic
         // A temporary would dangle in the queue (the renderer keeps a reference until EndScene).
         void SubmitLandscapeGrass( System::GrassFieldDraw&& ) = delete;
 
-        // Submit one water zone for this frame (from WaterZoneECSSystem via WaterZoneCommand): its quadtree is
-        // walked from the main camera and its tiles drawn by the water renderer (WATER-W6). By reference, as
-        // SubmitLandscapeGrass: @p zone is the recorded command's, kept until EndScene.
-        virtual void SubmitWaterZone( const System::WaterZoneDraw& zone ) = 0;
-        void SubmitWaterZone( System::WaterZoneDraw&& ) = delete; // a reference to a temporary would dangle
+        // The single layer water pass the Water module registered (SingleLayerWaterPass.hpp), null without it:
+        // the module's zone command submits its zones there (WATER-W6), kept until EndScene.
+        [[nodiscard]] virtual System::ISingleLayerWaterPass* GetSingleLayerWaterPass() = 0;
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-lit shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for

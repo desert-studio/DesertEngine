@@ -32,7 +32,6 @@ namespace Desert::Runtime
     class LandscapeGrassTypeService;
     class LandscapeLayerInfoService;
     class FoliageTypeService;
-    class WaterWavesService;
     class WorldParametersService;
     class WeatherPresetService;
     class SubsurfaceProfileService;
@@ -88,9 +87,6 @@ namespace Desert::Runtime
 
         // The `.dfrac` fractures destructible entities name (DST-03b): read on demand, held as the assets.
 
-        // The `.dwaves` wave sets water bodies name (WATER-W2): read on demand, each generated into its Gerstner
-        // waves once per load and shared by every body naming it.
-        static WaterWavesService* GetWaterWavesService();
         // The `.dworldparams` collections scenes name (WTH-PARAMS): read on first ask, held as the assets.
         static WorldParametersService* GetWorldParametersService();
         // The `.dweatherpreset` presets weather zones name (WTH-STATE): read on first ask, held as the assets.

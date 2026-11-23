@@ -113,8 +113,8 @@
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
+#include <Water/Public/WaterBodyComponent.hpp>
+#include <Water/Public/WaterZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Input/EnhancedInputPlayerComponent.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>

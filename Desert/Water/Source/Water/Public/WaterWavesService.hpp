@@ -20,7 +20,7 @@ namespace Desert::Water
 
 namespace Desert::Assets
 {
-    class WaterWavesAsset; // Engine/Assets/WaterWavesAsset.hpp
+    class WaterWavesAsset; // Water/Public/WaterWavesAsset.hpp
 }
 
 namespace Desert::Runtime
@@ -54,4 +54,9 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, Waves>               m_Ready;
         std::unordered_map<Assets::AssetHandle, std::string>         m_Failed;
     };
+
+    // The `.dwaves` wave sets water bodies name (WATER-W2): read on demand, each generated into its Gerstner waves
+    // once per load and shared by every body naming it. Bound and cleared with the engine's services through the
+    // Water module's hooks (Private/WaterModule.cpp).
+    WaterWavesService* GetWaterWavesService();
 } // namespace Desert::Runtime

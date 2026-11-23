@@ -1,15 +1,15 @@
 #pragma once
 
-#include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/Systems/Scene/SingleLayerWaterPass.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
-#include <Engine/Water/WaterQuadTree.hpp>
-#include <Engine/Water/WaterBodyQuery.hpp>
-#include <Engine/Graphic/Systems/Scene/Water/WaterZoneDraw.hpp>
+#include <Water/Public/WaterQuadTree.hpp>
+#include <Water/Public/WaterBodyQuery.hpp>
+#include <Water/Public/WaterZoneDraw.hpp>
 #include <Engine/Assets/Common.hpp>
 
 #include <glm/glm.hpp>
@@ -38,10 +38,10 @@ namespace Desert::Graphic::System
     // engine's); this renderer draws that template's `WaterMesh.SingleLayerWater` cell (the water mesh vertex
     // factory + the single layer water pass), its material row folded from the `.demat` over the template's schema
     // (MaterialService::ResolveOverrides) and its ripple maps in the bindless slots the row names.
-    class WaterRenderer final : public RenderSystem
+    class WaterRenderer final : public ISingleLayerWaterPass
     {
     public:
-        using RenderSystem::RenderSystem;
+        using ISingleLayerWaterPass::ISingleLayerWaterPass;
 
         Common::BoolResultStr Initialize() override;
 
@@ -49,16 +49,16 @@ namespace Desert::Graphic::System
         // render graph records; nothing may draw the water this frame before FinishPrepare ran.
         // PrepareFrame (render thread): the frame's material and program, its waves block (written into the
         // upload's head), the camera's matrices and lens scale.
-        void PrepareFrame();
+        void PrepareFrame() override;
         // PrepareTiles (a setup task, or inline): every zone's retained quadtree walked from the camera
         // PrepareFrame took, its tiles appended to the upload as rows and grouped into the frame's draws. Touches
         // only the zone trees, the traversal scratch, the upload's rows and the draws - no service, no GPU object.
-        void PrepareTiles() noexcept;
+        void PrepareTiles() noexcept override;
         // FinishPrepare (render thread, after the task joined): the material's fold, the WaterInfo ground and the
         // rows' upload; the frame's program is set only here.
-        void FinishPrepare();
+        void FinishPrepare() override;
 
-        [[nodiscard]] bool HasDraws() const
+        [[nodiscard]] bool HasDraws() const override
         {
             return !m_FrameDraws.empty();
         }
@@ -67,11 +67,11 @@ namespace Desert::Graphic::System
         // shadow gates' question (SceneRenderer ShadowMapReadersOutsideMeshes), answered after FinishPrepare. The
         // water reads the sun's cascades and the point/spot atlas wherever it draws - it is in no opaque depth a
         // screen shadow mask could serve it from.
-        [[nodiscard]] bool FrameSamples( std::string_view textureName ) const;
+        [[nodiscard]] bool FrameSamples( std::string_view textureName ) const override;
 
         // The WaterInfo ground (UE WaterInfo texture) FinishPrepare keeps: a persistent image the frame graph
         // imports and the water pass samples as WaterInfoTexture - a pass input, not a material property.
-        [[nodiscard]] const std::shared_ptr<Image2D>& GetWaterInfo() const
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetWaterInfo() const override
         {
             return m_WaterInfo;
         }
@@ -87,15 +87,15 @@ namespace Desert::Graphic::System
         // (Mesh/Surface/FrontLayerReflection.glslh: the water's traced reflection where it IS the front layer).
         void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, RDG::TextureRef waterInfo,
                            RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
-                           const SceneViewInputs& view, const SceneFrameBinding& frame );
-        [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
+                           const SceneViewInputs& view, const SceneFrameBinding& frame ) override;
+        [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context ) override;
 
         // THE WATER'S FRONT LAYER (UE: single layer water writes the G-buffer its SSR / Lumen reflections trace
         // from): this frame's `WaterMesh.FrontLayer` cell over the same tile rows, drawn into the translucent
         // front layer's targets ("Translucency: Front Layer G-buffer (Water)",
         // SceneRenderer::AddFrameFrontLayerSurface). True after PrepareFrame when the water draws and its
         // template's front layer cell built.
-        [[nodiscard]] bool HasFrontLayerDraws() const
+        [[nodiscard]] bool HasFrontLayerDraws() const override
         {
             return !m_FrameDraws.empty() && m_FrameFrontLayer != nullptr;
         }
@@ -103,8 +103,8 @@ namespace Desert::Graphic::System
         // ripple maps), the scene/view inputs it has slots for and the WaterInfo ground @p waterInfo its waves
         // damp by.
         void DeclareFrontLayerDraws( RDG::PassBuilder& pass, RDG::TextureRef waterInfo,
-                                     const SceneViewInputs& view, const SceneFrameBinding& frame );
-        [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context );
+                                     const SceneViewInputs& view, const SceneFrameBinding& frame ) override;
+        [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context ) override;
 
         // By reference, as GrassRenderer::Submit: @p zone is the recorded command's, held until ClearQueue.
         void Submit( WaterZoneDraw&& ) = delete; // the queue keeps a reference: a temporary would dangle
@@ -113,7 +113,7 @@ namespace Desert::Graphic::System
             m_Queue.emplace_back( zone );
         }
 
-        void ClearQueue()
+        void ClearQueue() override
         {
             m_Queue.clear();
             m_FrameDraws.clear();
@@ -133,10 +133,10 @@ namespace Desert::Graphic::System
         // stamp and the content registry's write serial. Taken once per frame (PrepareFrame).
         struct MaterialStamp
         {
-            const void* Service             = nullptr;
-            uint32_t    InvalidationVersion = 0;
-            uint32_t    ValuesEditSerial    = 0;
-            uint64_t    ContentSerial       = 0;
+            const void* Service                                  = nullptr;
+            uint32_t    InvalidationVersion                      = 0;
+            uint32_t    ValuesEditSerial                         = 0;
+            uint64_t    ContentSerial                            = 0;
             bool        operator==( const MaterialStamp& ) const = default;
         };
 
@@ -224,14 +224,14 @@ namespace Desert::Graphic::System
             TooManyWaves,
         };
         [[nodiscard]] bool FirstWarning( const Assets::AssetHandle& material, WaterWarning cause );
-        void WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
+        void        WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
         static void Warn( const Assets::AssetHandle& material, std::string_view why );
 
         std::unordered_map<std::string, WaterProgram> m_Programs;        // by template compile name
         WaterProgram*                                 m_Frame = nullptr; // this frame's program
-        WaterProgram* m_FrameFrontLayer = nullptr; // this frame's front layer cell (null: not drawn)
-        ShaderBindingLayoutCache                      m_Layout;
-        std::unordered_set<uint64_t>                  m_Warned; // FirstWarning's (material, cause) keys
+        WaterProgram*            m_FrameFrontLayer = nullptr; // this frame's front layer cell (null: not drawn)
+        ShaderBindingLayoutCache m_Layout;
+        std::unordered_set<uint64_t> m_Warned; // FirstWarning's (material, cause) keys
         // ProgramFor's last answer (UE: the proxy's cached FMaterial), while the material and the stamp stand.
         struct ResolvedProgram
         {
@@ -264,9 +264,9 @@ namespace Desert::Graphic::System
         // camera the quadtrees are walked from, and the task's row count.
         struct TileWalk
         {
-            WaterProgram*                                 Program  = nullptr;
+            WaterProgram*                                 Program    = nullptr;
             WaterProgram*                                 FrontLayer = nullptr; // FrontLayerProgramFor's, or null
-            Assets::AssetHandle                           Material = Assets::AssetHandle::Null();
+            Assets::AssetHandle                           Material   = Assets::AssetHandle::Null();
             MaterialStamp                                 Stamp;
             std::shared_ptr<const Water::WaterInfoGround> Ground;
             glm::mat4                                     View{ 1.0f };

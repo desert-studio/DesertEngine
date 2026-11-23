@@ -52,7 +52,7 @@
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Destruction/Public/FractureAsset.hpp>
-#include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Water/Public/WaterWavesAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>

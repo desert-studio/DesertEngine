@@ -19,6 +19,8 @@ namespace Desert::Assets
 
 namespace Desert::Core
 {
+    class Scene;
+
     /// A module's asset service: bound to the project's AssetManager and cleared with the others
     /// (Runtime::ResourceRegistry::BindAssetManager / Clear).
     struct ModuleService
@@ -36,14 +38,22 @@ namespace Desert::Core
     {
         const char* Type = "";
         std::uint64_t ( *Announce )( Assets::AssetManager& assets, const std::filesystem::path& file ) = nullptr;
+        /// A reference stored BY GUID (the handle IS HandleForGuid of the header GUID): whether the asset is
+        /// already on record under @p handle; otherwise AssetResolver finds its content-registry row and announces
+        /// that file. Null: the type is stored by path only.
+        bool ( *IsRecorded )( const Assets::AssetManager& assets, std::uint64_t handle ) = nullptr;
     };
+    /// A module's render-data collectors (ECS systems emitting render commands), added to every scene after the
+    /// engine's own (Core/SceneRenderCollectors.cpp).
+    using RenderCollectorAdder = void ( * )( Scene& scene );
 
     struct ModuleHookLists
     {
         std::vector<ModuleService>   Services;
         std::vector<AssetRootWalker> AssetRoots;
         std::vector<RegistryPrepare> Prepares;
-        std::vector<AssetAnnouncer>  AssetTypes;
+        std::vector<AssetAnnouncer>       AssetTypes;
+        std::vector<RenderCollectorAdder> RenderCollectors;
     };
 
     inline ModuleHookLists& ModuleHooks()

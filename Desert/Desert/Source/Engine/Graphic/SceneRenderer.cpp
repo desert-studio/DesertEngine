@@ -372,8 +372,17 @@ namespace Desert::Graphic
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
                 // copy.
-                RegisterSystem<System::WaterRenderer>( m_Systems.Water, this, m_TargetFramebuffer );
-                if ( const auto init = m_Systems.Water->Initialize(); !init )
+                // The Water module's pass (SingleLayerWaterPass.hpp); none registered = no water in this
+                // executable.
+                if ( const System::SingleLayerWaterPassFactory make = System::SingleLayerWaterPassFactorySlot() )
+                {
+                    std::shared_ptr<System::ISingleLayerWaterPass> created = make( this, m_TargetFramebuffer );
+                    TrackRenderSystem( m_Systems.Water.get(), created.get() );
+                    m_Systems.Water = std::move( created );
+                }
+                if ( !m_Systems.Water )
+                    LOG_INFO( "[SceneRenderer] no Water module: the scene has no water pass" );
+                else if ( const auto init = m_Systems.Water->Initialize(); !init )
                 {
                     LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",
                                init.GetError() );
@@ -2017,7 +2026,8 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Water + terrain frame" );
         {
             DESERT_PROFILE_PASS( "Water: PrepareFrame" );
-            m_Systems.Water->PrepareFrame();
+            if ( m_Systems.Water )
+                m_Systems.Water->PrepareFrame();
         }
 
         // The terrain's frame data, once, before any of its three passes records (the cascades in
@@ -2050,9 +2060,9 @@ namespace Desert::Graphic
         // task beside the terrain's (they share no state), joined at the same point; its material, WaterInfo
         // ground and upload follow the join (FinishPrepare). Nothing between here and the join reads the water.
         {
-            auto* const water = m_Systems.Water.get();
-            prepareTasks.Launch( "Water: Prepare tiles",
-                                 Common::InlineJob( [water]() noexcept { water->PrepareTiles(); } ) );
+            if ( auto* const water = m_Systems.Water.get() )
+                prepareTasks.Launch( "Water: Prepare tiles",
+                                     Common::InlineJob( [water]() noexcept { water->PrepareTiles(); } ) );
         }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Temporal history images" );
         if ( const Common::BoolResultStr physical =
@@ -2137,7 +2147,8 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Join terrain + water tasks" );
         prepareTasks.Join();
         m_Systems.Terrain->FinishPrepare();
-        m_Systems.Water->FinishPrepare();
+        if ( m_Systems.Water )
+            m_Systems.Water->FinishPrepare();
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Landscape dice pool" );
         {
             auto* terrain = m_Systems.Terrain.get();
@@ -3364,7 +3375,8 @@ namespace Desert::Graphic
         m_Systems.Mesh->ClearQueues();
         m_Systems.Terrain->ClearQueue();
         m_Systems.Grass->ClearQueue();
-        m_Systems.Water->ClearQueue();
+        if ( m_Systems.Water )
+            m_Systems.Water->ClearQueue();
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
@@ -4867,11 +4879,6 @@ namespace Desert::Graphic
     void SceneRendererImpl::SubmitLandscapeGrass( const System::GrassFieldDraw& draw )
     {
         m_Systems.Grass->Submit( draw );
-    }
-
-    void SceneRendererImpl::SubmitWaterZone( const System::WaterZoneDraw& zone )
-    {
-        m_Systems.Water->Submit( zone );
     }
 
     void SceneRendererImpl::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,

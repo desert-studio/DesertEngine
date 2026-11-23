@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetBase.hpp>
-#include <Engine/Assets/Serialization/WaterWaves.hpp>
+#include <Water/Public/WaterWaves.hpp>
 
 namespace Desert::Assets
 {
