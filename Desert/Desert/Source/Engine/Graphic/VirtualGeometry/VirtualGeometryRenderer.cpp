@@ -298,7 +298,7 @@ namespace Desert::Graphic::VirtualGeometry
                               firstView, uint64_t{ firstView } + views.size(), candidates.CutViews ) );
         // The visible list: the caller's exact bound, capped by the dispatch's budget (kMaxVisibleClustersPerCut,
         // UE MaxVisibleClusters). A cluster past it is counted (ClusterCutStatus::VisibleOverflow), not emitted.
-        const uint32_t visibleCapacity = std::min( candidates.VisibleCapacity, kMaxVisibleClustersPerCut );
+        const uint32_t visibleCapacity = ClusterCutVisibleCapacity( candidates.VisibleCapacity );
         // The post cut appends to the main cut's list (ClusterCandidates::MainVisibleClusters / MainRasterArgs),
         // whose capacity the caller hands as VisibleCapacity (the main cut's, already within the budget).
         if ( post && ( !candidates.MainVisibleClusters.IsValid() || !candidates.MainRasterArgs.IsValid() ) )
@@ -546,6 +546,15 @@ namespace Desert::Graphic::VirtualGeometry
 
     // --- ClusterCutCounts ------------------------------------------------------------------------------------
 
+    Common::BoolResultStr SoftwareRasterRowsFit( const uint32_t rowBase, const uint32_t visibleCapacity ) noexcept
+    {
+        if ( uint64_t{ rowBase } + visibleCapacity > kMaxVisibleClusters )
+            return Common::MakeError( std::format(
+                 "VirtualGeometry: Software Raster: rows [{}, +{}) pass the visibility word's {} rows", rowBase,
+                 visibleCapacity, kMaxVisibleClusters ) );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr VirtualGeometryRenderer::AddSoftwareRaster(
          RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene, const VirtualMeshBuffers& meshes,
          const GpuDriven::PassDrawBuffers& passSlots, const RDG::BufferRef submeshTransforms,
@@ -560,11 +569,11 @@ namespace Desert::Graphic::VirtualGeometry
             return Common::MakeError( "VirtualGeometry: Software Raster: the pass's draw tables are not uploaded" );
         if ( !meshes.Dags.IsValid() || !meshes.Clusters.IsValid() )
             return Common::MakeError( "VirtualGeometry: Software Raster: the VirtualMeshTable has no tables" );
-        // Every row the cut may write must fit the word's payload (kVisClusterBits).
-        if ( uint64_t{ rowBase } + culled.VisibleCapacity > kMaxVisibleClusters )
-            return Common::MakeError(
-                 std::format( "VirtualGeometry: Software Raster: rows [{}, +{}) pass the visibility word's {} rows",
-                              rowBase, culled.VisibleCapacity, kMaxVisibleClusters ) );
+        // Every row the cut may write must fit the word's payload (kVisClusterBits): the gate the main cut asked
+        // before its HW/SW split (SceneRenderer::VirtualGeometrySwRasterRowBase), so it refuses here only when
+        // the caller broke that contract.
+        if ( const Common::BoolResultStr fit = SoftwareRasterRowsFit( rowBase, culled.VisibleCapacity ); !fit )
+            return fit;
         if ( const Common::BoolResultStr ready = m_Programs->SoftwareRaster.Ensure(
                   kSoftwareRasterShader, "Editor/Resources/Shaders/Programs/VirtualGeometry/SoftwareRaster.shader" );
              !ready )

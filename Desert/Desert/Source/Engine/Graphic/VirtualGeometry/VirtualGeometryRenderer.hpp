@@ -173,6 +173,14 @@ namespace Desert::Graphic::VirtualGeometry
     };
     inline constexpr uint32_t kRasterBinsArgsStride = 16u; // sizeof( VkDrawIndirectCommand )
 
+    // THE SW RASTER'S ROWS GATE (one source; UE Nanite: one rasterizer-capability decision before binning): a cut
+    // of @p visibleCapacity rows (ClusterCutVisibleCapacity) placed at @p rowBase in the visibility buffer fits
+    // the word's payload (kMaxVisibleClusters). The main cut asks it BEFORE its HW/SW split
+    // (SceneRenderer::VirtualGeometrySwRasterRowBase) - refused, every cluster stays HW; AddSoftwareRaster
+    // checks the same gate on what it is handed.
+    [[nodiscard]] Common::BoolResultStr SoftwareRasterRowsFit( uint32_t rowBase,
+                                                               uint32_t visibleCapacity ) noexcept;
+
     class VirtualGeometryRenderer
     {
     public:

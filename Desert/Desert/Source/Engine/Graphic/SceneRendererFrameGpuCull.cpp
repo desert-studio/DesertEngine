@@ -896,10 +896,27 @@ namespace Desert::Graphic
         const SceneResources::DirectionalShadowViews shadows = meshes->DirectionalShadows();
         const SceneResources::DirectionalShadowView& sun     = shadows[SceneResources::kDirectionalShadowSun];
         // VG-SW-RASTER: the main view (cut view 0) splits HW/SW when the view can keep a visibility buffer this
-        // frame (VirtualGeometrySwRasterOn), with or without grass on it (R2: SceneRenderer.cpp makes the frame for
-        // either); its post cut splits the same way (AddFrameVirtualGeometryPostOcclusion). The SW raster writes
-        // nowhere else. Cascades stay HW (SwRasterMaxEdgePixels 0).
-        const bool swRaster = VirtualGeometrySwRasterOn();
+        // frame (VirtualGeometrySwRasterOn), with or without grass on it (R2: SceneRenderer.cpp makes the frame
+        // for either); its post cut splits the same way (AddFrameVirtualGeometryPostOcclusion). The SW raster
+        // writes nowhere else. Cascades stay HW (SwRasterMaxEdgePixels 0). The split asks the SW raster's own rows
+        // gate FIRST (VirtualGeometrySwRasterRowBase, UE Nanite: one rasterizer decision before binning): refused,
+        // the main cut keeps every cluster HW, so no SW cluster waits for a raster that will refuse it.
+        bool swRaster = VirtualGeometrySwRasterOn();
+        if ( swRaster )
+        {
+            const auto rows = VirtualGeometrySwRasterRowBase(
+                 VirtualGeometry::ClusterCutVisibleCapacity( bins.VgVisibleCapacity ) );
+            if ( !rows )
+            {
+                if ( rows.GetError() != m_VirtualGeometrySwRefusal )
+                    LOG_WARN( "[VG] main SW raster refused ({}): {}; clusters kept HW", m_ViewResources.GetName(),
+                              rows.GetError() );
+                m_VirtualGeometrySwRefusal = rows.GetError();
+                swRaster                   = false;
+            }
+            else
+                m_VirtualGeometrySwRefusal.clear();
+        }
         const auto viewOf = [&]( const size_t v ) -> Common::ResultStr<VirtualGeometry::ClusterCullView>
         {
             using Result = VirtualGeometry::ClusterCullView;
@@ -1010,6 +1027,26 @@ namespace Desert::Graphic
                EngineContext::GetInstance().GetCapabilities().SupportsVisibilityBuffer64 &&
                m_GrassVisibility.IsInitialized() && m_RenderPath == Core::RenderPath::Deferred && m_GBuffer &&
                !( m_GrassVisibilityBuffer && m_Systems.Grass && m_Systems.Grass->VisibilityRowsOverflow() );
+    }
+
+    Common::ResultStr<uint32_t>
+    SceneRenderer::VirtualGeometrySwRasterRowBase( const uint32_t visibleCapacity ) const
+    {
+        // The VG rows follow the grass's when the grass shares the buffer (SceneRenderer.cpp: grassOnVisibility,
+        // the same test), else they start at 0. GrassRenderer::CommitFrame fixed this frame's grass rows before
+        // AddFrameVirtualGeometry runs.
+        const bool grassOnVisibility =
+             m_GrassVisibilityBuffer && m_Systems.Grass && !m_Systems.Grass->VisibilityRowsOverflow();
+        const uint64_t grassRows = grassOnVisibility ? m_Systems.Grass->VisibilityRows() : 0u;
+        if ( grassRows > VirtualGeometry::kMaxVisibleClusters )
+            return Common::MakeError<uint32_t>( std::format(
+                 "VirtualGeometry: Software Raster: the grass's {} rows pass the visibility word's {} rows",
+                 grassRows, VirtualGeometry::kMaxVisibleClusters ) );
+        const auto rowBase = static_cast<uint32_t>( grassRows );
+        if ( const Common::BoolResultStr fit = VirtualGeometry::SoftwareRasterRowsFit( rowBase, visibleCapacity );
+             !fit )
+            return Common::MakeError<uint32_t>( fit.GetError() );
+        return Common::MakeSuccess( rowBase );
     }
 
     void SceneRenderer::AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame )

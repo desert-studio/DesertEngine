@@ -2752,11 +2752,18 @@ namespace Desert::Graphic
                 culled.VisibleClusters = cut.VisibleClusters;
                 culled.RasterArgs      = cut.RasterArgs;
                 culled.VisibleCapacity = cut.VisibleCapacity;
-                // The VG rows follow the grass's when the grass shares the buffer, else they start at 0.
-                const auto rowBase =
-                     grassOnVisibility ? static_cast<uint32_t>( m_Systems.Grass->VisibilityRows() ) : 0u;
-                if ( view != nullptr && cut.Pass < GpuDriven::kMeshPassCount )
+                // The VG rows follow the grass's when the grass shares the buffer, else they start at 0: the row
+                // base of the gate the main cut asked before its HW/SW split (one gate, one row base; it passed
+                // there, so cut.SoftwareRaster is set only when it passes here too).
+                const Common::ResultStr<uint32_t> rows = VirtualGeometrySwRasterRowBase( cut.VisibleCapacity );
+                if ( !rows && rows.GetError() != m_VirtualGeometrySwRasterError )
                 {
+                    LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), rows.GetError() );
+                    m_VirtualGeometrySwRasterError = rows.GetError();
+                }
+                if ( rows && view != nullptr && cut.Pass < GpuDriven::kMeshPassCount )
+                {
+                    const uint32_t rowBase  = rows.GetValue();
                     const auto vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
                     const GpuDriven::PassDrawBuffers& passSlots = bins.Upload.Passes[cut.Pass];
                     const GpuDriven::PassDrawTable&   passTable =
@@ -2784,10 +2791,10 @@ namespace Desert::Graphic
                                       .BinRows        = static_cast<uint32_t>( passTable.Bins.size() ),
                                       .GroupCount     = static_cast<uint32_t>( passTable.Groups.size() ) };
                     }
-                    if ( !sw && sw.GetError() != m_VirtualGeometryLastError )
+                    if ( !sw && sw.GetError() != m_VirtualGeometrySwRasterError )
                     {
                         LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), sw.GetError() );
-                        m_VirtualGeometryLastError = sw.GetError();
+                        m_VirtualGeometrySwRasterError = sw.GetError();
                     }
                 }
             }
@@ -2882,11 +2889,11 @@ namespace Desert::Graphic
                          graph, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
                          bins.Upload.Passes[cut.Pass], bins.Upload.SubmeshTransforms, culled, grassVisibility.Words,
                          view->JitteredViewProjection, grassVisibility.VgFirstRow, true );
-                    if ( !sw && sw.GetError() != m_VirtualGeometryLastError )
+                    if ( !sw && sw.GetError() != m_VirtualGeometrySwRasterError )
                     {
                         LOG_ERROR( "[SceneRenderer] {}: {}; the post cut's SW clusters are not drawn this frame",
                                    m_ViewResources.GetName(), sw.GetError() );
-                        m_VirtualGeometryLastError = sw.GetError();
+                        m_VirtualGeometrySwRasterError = sw.GetError();
                     }
                 }
             }

@@ -184,6 +184,12 @@ namespace Desert::Graphic::VirtualGeometry
     // out of range.
     inline constexpr uint32_t kMaxVisibleClustersPerCut = 1u << 22;
     static_assert( kMaxVisibleClustersPerCut <= kMaxVisibleClusters, "the budget is inside the visibility word" );
+    // The visible list's capacity a cut of the caller's exact bound @p visibleBound gets (the ONE rule:
+    // VirtualGeometryRenderer::AddClusterCut sizes the list by it, the SW raster gate checks its rows by it).
+    [[nodiscard]] constexpr uint32_t ClusterCutVisibleCapacity( const uint32_t visibleBound ) noexcept
+    {
+        return visibleBound < kMaxVisibleClustersPerCut ? visibleBound : kMaxVisibleClustersPerCut;
+    }
     [[nodiscard]] constexpr uint64_t PackVisibility( const uint32_t depthBits, const uint32_t visibleCluster,
                                                      const uint32_t triangle )
     {

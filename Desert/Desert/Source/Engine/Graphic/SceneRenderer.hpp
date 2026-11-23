@@ -1590,6 +1590,12 @@ namespace Desert::Graphic
         // them). AddFrameVirtualGeometry records it in FrameVirtualGeometry::SoftwareRaster; the post cut splits
         // by that record (one decision per frame for both phases).
         [[nodiscard]] bool VirtualGeometrySwRasterOn() const;
+        // VG-SW-RASTER: the main SW raster's row base in this frame's visibility buffer (past every grass row when
+        // the grass shares it, else 0) once VirtualGeometry::SoftwareRasterRowsFit passes for a cut of
+        // @p visibleCapacity rows (ClusterCutVisibleCapacity); the refusal otherwise. Asked by the main cut BEFORE
+        // its HW/SW split (refused: every cluster stays HW this frame) and by the main SW raster for its row
+        // base - one gate, one row base.
+        [[nodiscard]] Common::ResultStr<uint32_t> VirtualGeometrySwRasterRowBase( uint32_t visibleCapacity ) const;
         // VIRT-GEOM step 16 (AddFrameVirtualSunShadow, between the page passes and "VSM: Raster"): the virtual
         // shadow map's clipmap levels as cut views - one instance cull over the levels (kVsmPageMask, the level's
         // drawn-page mask) appending only VG candidates, then per level a "Cluster Cut" at the level's texel
@@ -2282,6 +2288,13 @@ namespace Desert::Graphic
         // Scalability VirtualGeometry.SoftwareRaster (VG-SW-RASTER): the main cut hands small clusters to the
         // compute raster when the view also has its visibility buffer (AddFrameVirtualGeometry).
         bool m_VirtualGeometrySoftwareRaster = false;
+        // The main cut's last SW raster refusal (VirtualGeometrySwRasterRowBase) as logged: once per reason,
+        // cleared when the gate passes again.
+        std::string m_VirtualGeometrySwRefusal;
+        // The main / post SW raster's last error as logged (SceneRenderer.cpp): once per reason (a new reason
+        // logs). Not m_VirtualGeometryLastError, which AddFrameVirtualGeometry clears every frame its cuts pass -
+        // a raster error kept there was logged every frame.
+        std::string m_VirtualGeometrySwRasterError;
         // This frame's cut (reset by AddFrameVirtualGeometry): what the vg_clusters view draws.
         struct FrameVirtualGeometry
         {
