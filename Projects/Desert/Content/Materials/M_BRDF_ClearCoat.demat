@@ -1,0 +1,38 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "d8f77307ac204818984e06334f92429c",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["d649a1cb12ffed49f8bcf432e3ae32af"]
+    },
+    "Shader": {
+        "Guid": "d649a1cb12ffed49f8bcf432e3ae32af",
+        "Path": "engine:Shaders/Programs/Surface/ClearCoatSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.6000000238418579, 0.03999999910593033, 0.029999999329447746, 1.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.6000000238418579, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "ClearCoat",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "ClearCoatRoughness",
+            "Value": [0.05000000074505806, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": []
+}
