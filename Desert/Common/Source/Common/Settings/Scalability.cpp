@@ -573,6 +573,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD selection "
                "distance, percent)",
                100, Vis::Advanced },
+             { P::EffectsWaterWaveMethod, G::Effects, "Effects.WaterWaveMethod", 0,
+               LastOf( kWaterWaveMethodNames.size() ), CL::None,
+               "WaterRenderer::PrepareFrame (an FFT wave set's Tessendorf cascades, or its Gerstner generator)",
+               Of( WaterWaveMethod::FFT ), Vis::Basic },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -611,6 +615,8 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
+            if ( parameter == Parameter::EffectsWaterWaveMethod )
+                return kWaterWaveMethodNames;
             if ( parameter == Parameter::PathTracingRadianceCache )
                 return kPathTracingRadianceCacheNames;
             if ( parameter == Parameter::EarlyZPass )

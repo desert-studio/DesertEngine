@@ -26,10 +26,7 @@ namespace Desert::Core
     // the server) the mount does nothing.
     [[nodiscard]] WorldCells::FileReader CookedFileReader( std::string directory, RegionChunks regions );
 
-    // THE COOK HASH (NET-ARCH §8, the NET-1 handshake): the identity of one cook of one world, so a client and a
-    // server agree they stream the same cells. FNV-1a 64 of the index file's bytes - the index names every cell
-    // file with its size and checksum (WorldCells::IndexFile), so any re-cooked cell changes it.
-    [[nodiscard]] std::uint64_t CookHashOf( std::span<const unsigned char> indexBytes );
+    // CookHashOf: CookHash.hpp (included through WorldCells.hpp), dependency-free for the network layer.
 
     // A game's world as its cook left it: the index, the plan residency needs, and the always-loaded part as
     // scene JSON - the scene-wide part and the always-loaded records - which the ordinary loader

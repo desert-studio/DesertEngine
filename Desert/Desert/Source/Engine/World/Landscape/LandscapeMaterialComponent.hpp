@@ -21,7 +21,6 @@
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/Materials/Material.hpp>
 
 namespace Desert::ECS
 {

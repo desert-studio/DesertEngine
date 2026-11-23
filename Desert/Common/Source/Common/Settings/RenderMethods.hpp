@@ -258,6 +258,17 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( GIMethod::PathTraced ) + 1 == kGIMethodNames.size() );
     static_assert( static_cast<std::size_t>( ReflectionMethod::PathTraced ) + 1 == kReflectionMethodNames.size() );
     static_assert( static_cast<std::size_t>( ShadowMethod::Stochastic ) + 1 == kShadowMethodNames.size() );
+    // THE WATER'S WAVE SOURCE CEILING (Effects.WaterWaveMethod; WATER-RIVERS-FFT): a wave set authored as an FFT
+    // ocean (Assets::Serialization::WaterWavesData::Source) is drawn by its Tessendorf cascades at FFT and by its
+    // Gerstner generator below it; a Gerstner set is Gerstner at every level. Read by
+    // Graphic::System::WaterRenderer::PrepareFrame.
+    enum class WaterWaveMethod : uint8_t
+    {
+        Gerstner,
+        FFT,
+    };
+    inline constexpr std::array<std::string_view, 2> kWaterWaveMethodNames{ "Gerstner", "FFT" };
+    static_assert( static_cast<std::size_t>( WaterWaveMethod::FFT ) + 1 == kWaterWaveMethodNames.size() );
     // A view's request (PostProcessSettings) and the resolved tracer, by name: Details, the overlay and the log.
     inline constexpr std::array<std::string_view, 6> kGIRequestNames{ "Off",         "Lightmaps", "ScreenSpace",
                                                                       "ProbeVolume", "Traced",    "PathTraced" };

@@ -55,20 +55,45 @@ Shader "WaterSurface"
             return SurfaceSampleTangentNormal( map, vec2( p.x, -p.y ) );
         }
 
+        // Two ripple maps crossing (UE's water material's detail normals), whiteout-blended, tilted by strength.
+        vec3 WaterRipplePair( vec2 worldXZ, float seconds )
+        {
+            const vec3 a = WaterRipple( Material.RippleNormalA, worldXZ, Material.RippleTileSizeA,
+                                        Material.RippleAngleA, Material.RippleSpeed, seconds );
+            const vec3 b = WaterRipple( Material.RippleNormalB, worldXZ, Material.RippleTileSizeB,
+                                        Material.RippleAngleB, Material.RippleSpeed, seconds );
+            return normalize( vec3( ( a.xy + b.xy ) * Material.RippleStrength, a.z * b.z ) );
+        }
+
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
-            // Two ripple maps crossing (UE's water material's detail normals), whiteout-blended, tilted by strength.
-            const vec3 a = WaterRipple( Material.RippleNormalA, i.WorldPosition.xz, Material.RippleTileSizeA,
-                                        Material.RippleAngleA, Material.RippleSpeed, i.Time );
-            const vec3 b = WaterRipple( Material.RippleNormalB, i.WorldPosition.xz, Material.RippleTileSizeB,
-                                        Material.RippleAngleB, Material.RippleSpeed, i.Time );
-            s.Normal    = normalize( vec3( ( a.xy + b.xy ) * Material.RippleStrength, a.z * b.z ) );
+#ifdef WATER_MAX_WAVES
+            // A river's surface flows along its spline (WaterMeshTiles.glslh WaterFlowPhases: two copies advected
+            // half a period apart, each faded out as it resets); still water reads one copy.
+            vec2  p0, p1;
+            float w1;
+            WaterFlowPhases( i.WorldPosition.xz, i.Time, p0, p1, w1 );
+            const vec3 n0 = WaterRipplePair( p0, i.Time );
+            s.Normal      = w1 > 0.0 ? normalize( mix( n0, WaterRipplePair( p1, i.Time ), w1 ) ) : n0;
+#else
+            s.Normal = WaterRipplePair( i.WorldPosition.xz, i.Time );
+#endif
             s.BaseColor = vec3( 0.0 );
             s.Metallic  = 0.0;
             s.Roughness = Material.Roughness;
             s.Specular  = Material.Specular;
             return s;
+        }
+
+        // The foam sheet at a still-water (X, Z), at two scales so it does not repeat: rgb = albedo, a = coverage.
+        vec4 WaterFoamSheet( vec2 stillXZ )
+        {
+            const vec2 foamUv  = vec2( stillXZ.x, -stillXZ.y ) / max( Material.FoamTileSize, 1.0 );
+            const vec2 foamUv2 = mat2( 0.8, -0.6, 0.6, 0.8 ) * foamUv * 0.37 + vec2( 0.31, 0.17 );
+            return vec4( SurfaceSampleMaterial( Material.FoamTexture, foamUv ).rgb * Material.FoamTint.rgb,
+                         0.5 * ( SurfaceSampleMaterial( Material.FoamStructure, foamUv ).r +
+                                 SurfaceSampleMaterial( Material.FoamStructure, foamUv2 ).r ) );
         }
 
         SingleLayerWaterOutput EvaluateSingleLayerWater( SurfaceInput i )
@@ -81,11 +106,16 @@ Shader "WaterSurface"
             w.RefractionOffset       = Material.RefractionStrength;
             // The foam rides the water particle (UV1 = its still-water X, Z; Vertex_WaterMesh.glslh), at two scales
             // so the sheet does not repeat.
-            const vec2 foamUv        = vec2( i.UV1.x, -i.UV1.y ) / max( Material.FoamTileSize, 1.0 );
-            const vec2 foamUv2       = mat2( 0.8, -0.6, 0.6, 0.8 ) * foamUv * 0.37 + vec2( 0.31, 0.17 );
-            w.FoamAlbedo             = SurfaceSampleMaterial( Material.FoamTexture, foamUv ).rgb * Material.FoamTint.rgb;
-            w.FoamCoverage           = 0.5 * ( SurfaceSampleMaterial( Material.FoamStructure, foamUv ).r +
-                                     SurfaceSampleMaterial( Material.FoamStructure, foamUv2 ).r );
+            // On a river the sheet is carried by the flow, two-phase as the normals (EvaluateSurface).
+            vec2  foam0 = i.UV1, foam1 = i.UV1;
+            float foamW1 = 0.0;
+#ifdef WATER_MAX_WAVES
+            WaterFlowPhases( i.UV1, i.Time, foam0, foam1, foamW1 );
+#endif
+            const vec4 sheet0        = WaterFoamSheet( foam0 );
+            const vec4 sheet         = foamW1 > 0.0 ? mix( sheet0, WaterFoamSheet( foam1 ), foamW1 ) : sheet0;
+            w.FoamAlbedo             = sheet.rgb;
+            w.FoamCoverage           = sheet.a;
             w.FoamJacobianThreshold  = Material.FoamJacobianThreshold;
             w.FoamJacobianSoftness   = Material.FoamJacobianSoftness;
             w.FoamDecaySeconds       = Material.FoamDecaySeconds;
