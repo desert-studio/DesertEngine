@@ -28,8 +28,9 @@ namespace Desert::Graphic::RayTracing
         }
 
         // Every view calls this before it gathers, with the engine's absolute frame number. A new number ends the
-        // previous frame: the variants and skin-cache entries no view asked for during it are released (their
-        // API objects retire on the frame ring, so a frame in flight still traces them safely).
+        // previous frame: the skin-cache entries no view asked for during it are released, BLAS entries none asked
+        // for in RayTracingGeometryVariants::kUnusedFramesBeforeRelease frames too (their API objects retire on
+        // the frame ring, so a frame in flight still traces them safely).
         void BeginViewFrame( const uint64_t frame )
         {
             if ( m_HasFrame && frame == m_Frame )

@@ -156,15 +156,20 @@ namespace Desert::Graphic::RayTracing
                 return false;
             }
             geometry = resolved.GetValue();
-            if ( masks != RayTracingSubmeshMasks{} )
+            // Every BLAS the owner answered, once (thousands of rows share a few): a kept gather asks again for
+            // each. A null answer of a cooked mesh (still streaming in) is kept too - its arrival regathers; a
+            // skinned or procedural mesh is never the owner's and needs no second ask.
+            if ( geometry != nullptr ? out.ResolvedGeometry.insert( geometry ).second
+                                     : !mesh.IsSkinned() && !mesh.IsProceduralRayTracingGeometry() )
                 out.VariantUses.push_back( { .MeshPtr = &mesh, .Masks = masks, .Geometry = geometry } );
             return true;
         }
-        // A mesh without an uploader BLAS whose buffers are resident: the procedural cache builds its BLAS. A
-        // mesh still streaming in has neither and stays NoGeometry.
-        bool IsResident( const Mesh& mesh )
+        // A procedural mesh (Mesh::IsProceduralRayTracingGeometry) whose buffers are resident: the RT scene's
+        // procedural cache builds its BLAS. One still streaming in has none and stays NoGeometry.
+        bool TracesProcedurally( const Mesh& mesh )
         {
-            return mesh.GetGeometry().IsResident() && mesh.GetGeometry().IndexCount > 0u;
+            return mesh.IsProceduralRayTracingGeometry() && mesh.GetGeometry().IsResident() &&
+                   mesh.GetGeometry().IndexCount > 0u;
         }
     } // namespace
 
@@ -231,7 +236,7 @@ namespace Desert::Graphic::RayTracing
             primitive.Translucent          = AllTranslucent( record.Sections );
             primitive.Submeshes            = masks;
             primitive.Kind                 = record.Kind;
-            if ( variants != nullptr && geometry == nullptr && IsResident( *record.MeshPtr ) )
+            if ( variants != nullptr && geometry == nullptr && TracesProcedurally( *record.MeshPtr ) )
             {
                 primitive.ProceduralMesh = record.MeshPtr;
                 primitive.Kind           = RayTracingPrimitiveKind::Procedural;
@@ -343,7 +348,7 @@ namespace Desert::Graphic::RayTracing
                                        .Rest     = instanceGeometry,
                                        .Entity   = data.Entity,
                                        .Instance = component };
-                if ( variants != nullptr && instanceGeometry == nullptr && IsResident( *data.Mesh ) )
+                if ( variants != nullptr && instanceGeometry == nullptr && TracesProcedurally( *data.Mesh ) )
                     primitive.ProceduralMesh = data.Mesh;
                 if ( !recordsAdded )
                 {
@@ -469,7 +474,7 @@ namespace Desert::Graphic::RayTracing
                 primitive.CastShadows          = castShadows;
                 primitive.Submeshes            = masks;
                 primitive.Kind                 = RayTracingPrimitiveKind::GpuInstanced;
-                if ( variants != nullptr && geometry == nullptr && IsResident( *data->Mesh ) )
+                if ( variants != nullptr && geometry == nullptr && TracesProcedurally( *data->Mesh ) )
                     primitive.ProceduralMesh = data->Mesh;
                 AppendSegmentRecords( *data->Mesh, sections, primitive, out );
                 out.GpuInstanced.push_back( { .Primitive = index,

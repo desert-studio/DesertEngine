@@ -1,13 +1,7 @@
 #include "MeshUploader.hpp"
 
 #include <Common/Core/Logger.hpp>
-#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Geometry/MeshFactory.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
-#include <Engine/Graphic/Render/RayTracingMeshInput.hpp>
-
-#include <algorithm>
-#include <mutex>
 
 namespace Desert::Runtime
 {
@@ -27,6 +21,8 @@ namespace Desert::Runtime
                     return false;
                 // A static mesh's geometry is staged by Stage and lands in the geometry pool here; a skinned one
                 // was built whole by Stage (MeshFactory::Stage says why).
+                // No BLAS is built here: the ray-tracing scene builds a mesh's BLAS on the first frame a traced row
+                // asks for it, at that row's RT-LOD, and releases it when no row asks (RayTracingGeometryVariants).
                 if ( !asset.IsSkinned() )
                 {
                     if ( const auto uploaded = mesh->Invalidate(); !uploaded.IsSuccess() )
@@ -36,51 +32,7 @@ namespace Desert::Runtime
                         return false;
                     }
                 }
-                BuildRayTracingGeometry( mesh, asset );
                 return true;
-            }
-
-        private:
-            // The BLAS is built where the mesh becomes resident, from the buffers just uploaded; it is released
-            // with the mesh (RetireEvicted). A failed build keeps the mesh drawable and says so: the TLAS counts
-            // it as NoGeometry, so rays miss it visibly rather than silently.
-            static void BuildRayTracingGeometry( const std::shared_ptr<Mesh>& mesh,
-                                                 const Assets::MeshAsset&     asset )
-            {
-                if ( !mesh )
-                    return;
-                // A device without ray tracing (none in hardware, or hidden by machine.json HideRayTracing) has no
-                // acceleration structures: no BLAS is asked for, and the start says so once. Every RT consumer
-                // reads the same catalog, so nothing downstream expects one (RayTracingSceneRequired is false).
-                const Engine::DeviceCapabilities& capabilities = EngineContext::GetInstance().GetCapabilities();
-                const auto&                       modes        = capabilities.Catalog.RayTracingModes;
-                if ( std::none_of( modes.begin(), modes.end(), []( Common::Scalability::RayTracingMode m )
-                                   { return m != Common::Scalability::RayTracingMode::None; } ) )
-                {
-                    static std::once_flag s_Logged;
-                    std::call_once(
-                         s_Logged,
-                         [&capabilities]
-                         {
-                             LOG_INFO( "[MeshService] no BLAS is built for meshes: ray tracing is {} on "
-                                       "this device",
-                                       capabilities.RayTracingHidden ? "hidden by machine.json (HideRayTracing)"
-                                                                     : "not offered" );
-                         } );
-                    return;
-                }
-                auto built = Graphic::API::Vulkan::VulkanRayTracingGeometry::BuildStatic(
-                     Graphic::RayTracing::DescribeStaticMeshBlas( *mesh, {} ) );
-                if ( !built.IsSuccess() )
-                {
-                    LOG_ERROR( "[MeshService] BLAS of '{}' not built: {}", asset.GetMetadata().Filepath.string(),
-                               built.GetError() );
-                    return;
-                }
-                if ( built.GetValue() )
-                    built.GetValue()->ClaimOwnership( Graphic::ResourceOwner::AssetService,
-                                                      asset.GetMetadata().Handle );
-                mesh->SetRayTracingGeometry( built.GetValue() );
             }
         };
     } // namespace

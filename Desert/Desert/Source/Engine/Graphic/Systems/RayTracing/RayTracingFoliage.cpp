@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <string>
 #include <unordered_set>
 
@@ -254,13 +255,26 @@ namespace Desert::Graphic::RayTracing
                  source.VertexStride != sizeof( Vertex ) )
                 continue;
 
-            // The target's layout: the mesh's every vertex as Desert::Vertex, the rest BLAS's segments with their
-            // indices packed one after another.
+            // The target's layout: the vertex range the rest BLAS's segments address (its RT-LOD's visible
+            // submeshes, [lowest FirstVertex, highest MaxVertex]) as Desert::Vertex - not the mesh's every vertex:
+            // a hidden or trailing submesh is never copied - and its segments with their indices packed one after
+            // another. Indices are submesh-local (added to FirstVertex), so the range's first vertex moves the
+            // source address and every segment's FirstVertex / MaxVertex, never an index.
+            // Segments is not empty (checked above) and each MaxVertex >= its FirstVertex (DescribeMeshGeometry).
+            uint32_t firstVertex = std::numeric_limits<uint32_t>::max();
+            uint32_t lastVertex  = 0u;
+            for ( const RayTracingGeometrySegment& segment : source.Segments )
+            {
+                firstVertex = std::min( firstVertex, segment.FirstVertex );
+                lastVertex  = std::max( lastVertex, segment.MaxVertex );
+            }
             RayTracingDynamicMeshLayout layout;
-            const uint32_t              vertexCount = primitive.Wind.MeshPtr->GetGeometry().VertexCount;
-            layout.VertexBytes                      = uint64_t{ vertexCount } * sizeof( Vertex );
-            const auto firstCopy                    = static_cast<uint32_t>( copies.size() );
-            uint32_t   indexCount                   = 0;
+            const uint32_t              vertexCount = lastVertex - firstVertex + 1u;
+            const uint64_t              vertexAddress =
+                 source.VertexAddress + uint64_t{ firstVertex } * uint64_t{ source.VertexStride };
+            layout.VertexBytes   = uint64_t{ vertexCount } * sizeof( Vertex );
+            const auto firstCopy = static_cast<uint32_t>( copies.size() );
+            uint32_t   indexCount = 0;
             for ( RayTracingGeometrySegment segment : source.Segments )
             {
                 const uint32_t count = segment.PrimitiveCount * 3u;
@@ -268,6 +282,8 @@ namespace Desert::Graphic::RayTracing
                                      indexCount, count, 0u );
                 segment.VertexStride    = static_cast<uint32_t>( sizeof( Vertex ) );
                 segment.PositionOffset  = static_cast<uint32_t>( offsetof( Vertex, Position ) );
+                segment.FirstVertex    -= firstVertex;
+                segment.MaxVertex      -= firstVertex;
                 segment.IndexByteOffset = indexCount * static_cast<uint32_t>( sizeof( uint32_t ) );
                 layout.Segments.push_back( segment );
                 indexCount += count;
@@ -297,8 +313,8 @@ namespace Desert::Graphic::RayTracing
 
             const auto  job = static_cast<uint32_t>( jobs.size() );
             const auto& m   = primitive.World;
-            jobRows.emplace_back( static_cast<uint32_t>( source.VertexAddress ),
-                                  static_cast<uint32_t>( source.VertexAddress >> 32u ),
+            jobRows.emplace_back( static_cast<uint32_t>( vertexAddress ),
+                                  static_cast<uint32_t>( vertexAddress >> 32u ),
                                   static_cast<uint32_t>( source.IndexAddress ),
                                   static_cast<uint32_t>( source.IndexAddress >> 32u ) );
             jobRows.emplace_back( vertexCount, firstCopy, static_cast<uint32_t>( copies.size() ) - firstCopy,
@@ -393,10 +409,11 @@ namespace Desert::Graphic::RayTracing
         return BOOLSUCCESS;
     }
 
-    void CountRayTracingFoliage( const std::span<const RayTracingPrimitive> primitives, RayTracingFoliageStats& stats )
+    void CountRayTracingFoliage( const std::span<const RayTracingPrimitive> primitives,
+                                 const RayTracingGeometryVariants& variants, RayTracingFoliageStats& stats )
     {
         std::unordered_set<const void*> shared;
-        std::unordered_set<const void*> meshes;
+        std::unordered_set<const void*> lod0;
         for ( const RayTracingPrimitive& primitive : primitives )
         {
             if ( primitive.Kind != RayTracingPrimitiveKind::Instanced )
@@ -408,8 +425,14 @@ namespace Desert::Graphic::RayTracing
             if ( rest != nullptr && shared.insert( rest ).second )
                 stats.SharedBytes += static_cast<const RayTracingGeometryResource*>( rest )->GetMemoryBytes();
             const auto* mesh = static_cast<const Mesh*>( primitive.SourceMesh );
-            if ( mesh != nullptr && meshes.insert( mesh ).second && mesh->GetRayTracingGeometry() )
-                stats.Lod0Bytes += mesh->GetRayTracingGeometry()->GetMemoryBytes();
+            if ( mesh == nullptr )
+                continue;
+            RayTracingSubmeshMasks masks = primitive.Submeshes;
+            masks.Lod                    = 0u;
+            // Each resident LOD-0 BLAS once, however many instances (and masks sets) share it.
+            const RayTracingGeometryResource* resident = variants.FindResident( *mesh, masks );
+            if ( resident != nullptr && lod0.insert( resident ).second )
+                stats.Lod0ResidentBytes += resident->GetMemoryBytes();
         }
         stats.Unique = static_cast<uint32_t>( shared.size() );
     }

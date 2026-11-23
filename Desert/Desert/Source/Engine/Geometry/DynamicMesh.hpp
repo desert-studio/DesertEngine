@@ -27,6 +27,13 @@ namespace Desert
             return MeshType::Static;
         }
 
+        // Its triangles change at runtime (Update): the RT scene's procedural cache builds its BLAS in the frame's
+        // graph, not the cooked-mesh BLAS owner (Mesh::IsProceduralRayTracingGeometry).
+        [[nodiscard]] bool IsProceduralRayTracingGeometry() const override
+        {
+            return true;
+        }
+
         Common::BoolResultWithCodes<MeshError> Invalidate() override;
 
         // GAME THREAD. Replaces the CPU geometry; the device side follows at the next fence that prepares a draw

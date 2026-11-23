@@ -5,6 +5,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingGeometryVariants.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 
 #include <glm/glm.hpp>
@@ -128,14 +129,18 @@ namespace Desert::Graphic::RayTracing
         uint32_t RestPose    = 0; // swaying instances past the budget or the distance: rest-pose BLAS
         uint32_t Budget      = 0; // RayTracingFoliageSettings::RefitBudget
         uint64_t SharedBytes = 0; // storage of the distinct shared BLASes traced
-        uint64_t Lod0Bytes   = 0; // storage of those meshes' own LOD-0 BLASes (what the instances traced before)
+        // Storage of those meshes' LOD-0 BLASes still resident (built on demand: a field traced past LOD 0 holds
+        // none once its LOD-0 entry is released - the saving against RayTracingLodError 0).
+        uint64_t Lod0ResidentBytes = 0;
         uint64_t WindBytes   = 0; // storage + build inputs of the own wind BLASes
         bool     operator==( const RayTracingFoliageStats& ) const = default;
     };
 
     // The ISM / foliage part of @p primitives (the view's TLAS primitives after RayTracingFoliageWind::AddPasses):
-    // instances, distinct shared BLASes and their storage against the meshes' own LOD-0 BLASes, into @p stats.
-    void CountRayTracingFoliage( std::span<const RayTracingPrimitive> primitives, RayTracingFoliageStats& stats );
+    // instances, distinct shared BLASes and their storage against the meshes' resident LOD-0 BLASes (@p variants,
+    // the owner), into @p stats.
+    void CountRayTracingFoliage( std::span<const RayTracingPrimitive> primitives,
+                                 const RayTracingGeometryVariants& variants, RayTracingFoliageStats& stats );
 
     // THE SCENE'S WIND BLASES (one per scene, RayTracingSceneCache; UE FRayTracingDynamicGeometryCollection for
     // WPO primitives). Entries keyed {entity, component instance}; one refit per entry per frame, by the first

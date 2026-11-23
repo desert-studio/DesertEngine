@@ -14,9 +14,10 @@ Shader "FoliageWindRayTracing"
         // scene's "RayTracingScene.DynamicGeometry" pass then refits the instance's BLAS from these vertices.
         //
         // Output, per instance: Desert::Vertex (14 words: position 0-2, normal 3-5, tangent 6-8, bitangent 9-11,
-        // uv 12-13; Geometry/MeshTypes.hpp) for every vertex of the mesh, in the mesh's order, so the RT-LOD's
-        // segments address them unchanged; and, when the target was (re)made, the RT-LOD's triangle indices,
-        // segment after segment (FoliageWindCopies), unchanged values (the build adds each segment's FirstVertex).
+        // uv 12-13; Geometry/MeshTypes.hpp) for every vertex of the range the RT-LOD's segments address (lowest
+        // FirstVertex to highest MaxVertex), in the mesh's order - the CPU rebased the segments' FirstVertex on the
+        // range's start; and, when the target was (re)made, the RT-LOD's triangle indices, segment after segment
+        // (FoliageWindCopies), unchanged values (submesh-local: the build adds each segment's FirstVertex).
         // Normals stay the rest pose's (a sway of a few degrees; the hit reads them for shading only).
         LocalSize(64, 1, 1);
 
@@ -24,7 +25,7 @@ Shader "FoliageWindRayTracing"
         #include <Common/FoliageWind.glslh>
 
         // RayTracingFoliage.cpp FoliageWindJobGpu, kFoliageWindJobRows uvec4 per job:
-        //   [0] source vertex address lo/hi (the mesh's vertex 0), source index address lo/hi (the mesh's index 0)
+        //   [0] source vertex address lo/hi (the range's first vertex), source index address lo/hi (the mesh's index 0)
         //   [1] x = vertex count, y = first copy, z = copy count, w = index count of the whole job
         //   [2..5] the instance's model matrix, column by column (float bits)
         //   [6] windA (dir.x, dir.z, Strength cm, Height cm)   [7] windB (Speed Hz, Seconds, 0, 0)
