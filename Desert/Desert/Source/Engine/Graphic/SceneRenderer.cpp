@@ -1324,6 +1324,12 @@ namespace Desert::Graphic
         m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
         m_ScreenProbeShortRangeAO    = quality.As<int>( Parameter::ScreenProbeShortRangeAO ) != 0;
         m_ScreenProbeSparseStableRays = quality.As<int>( Parameter::ScreenProbeSparseStableRays ) != 0;
+        // The tier's final gather, run only where its tracer is (ReSTIRGatherRuns: the hardware one); every other
+        // traced view gathers with the screen probes.
+        m_ReSTIRGather =
+             GlobalIllumination::ReSTIRGatherRuns( static_cast<Common::Scalability::ScreenProbeGatherMethod>(
+                                                        quality.As<int>( Parameter::ScreenProbeGatherMethod ) ),
+                                                   m_GIPipeline );
         m_SurfaceCacheAsyncRadiosity = quality.As<int>( Parameter::SurfaceCacheAsyncRadiosity ) != 0;
         m_ScreenProbeDownsample      = quality.As<uint32_t>( Parameter::ScreenProbeDownsample );
         m_ScreenProbeTracedTexels    = quality.As<uint32_t>( Parameter::ScreenProbeTracedTexels );

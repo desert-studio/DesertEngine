@@ -319,10 +319,12 @@
                 "GlobalIllumination.AdaptiveProbeAllocationPercent": 50
             },
             "Epic": {
-                "GlobalIllumination.ScreenSpaceRays": 16
+                "GlobalIllumination.ScreenSpaceRays": 16,
+                "GlobalIllumination.FinalGather": "ReSTIR"
             },
             "Cinematic": {
                 "GlobalIllumination.ScreenSpaceRays": 32,
+                "GlobalIllumination.FinalGather": "ReSTIR",
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
                 "GlobalIllumination.RadianceCacheProbesPerFrame": 350,
                 "GlobalIllumination.ScreenProbeDownsample": 8,

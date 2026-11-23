@@ -316,6 +316,21 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( PathTracingRadianceCacheMethod::Nrc ) + 1 ==
                    kPathTracingRadianceCacheNames.size() );
 
+    // THE TRACED GI'S FINAL GATHER (Parameter::ScreenProbeGatherMethod; UE r.Lumen.ScreenProbeGather.ReSTIR).
+    // Stored by name. ScreenProbes: the screen probe gather (GlobalIllumination::ScreenProbeGather, UE
+    // LumenScreenProbeGather). ReSTIR: one hardware ray a reservoir texel with temporal and spatial reservoir
+    // reuse (GlobalIllumination::ReSTIRGather, Ouyang et al. 2021, UE LumenReSTIRGather) - a hardware-tracer
+    // gather: a view whose GI method walks the distance field gathers with the screen probes whatever this says
+    // (SceneRenderer::BeginScene, GlobalIllumination::ReSTIRGatherRuns).
+    enum class ScreenProbeGatherMethod : int
+    {
+        ScreenProbes = 0,
+        ReSTIR       = 1,
+    };
+    inline constexpr std::array<std::string_view, 2> kScreenProbeGatherMethodNames{ "ScreenProbes", "ReSTIR" };
+    static_assert( static_cast<std::size_t>( ScreenProbeGatherMethod::ReSTIR ) + 1 ==
+                   kScreenProbeGatherMethodNames.size() );
+
     // WHICH MESHES THE DEFERRED EARLY-Z PASS DRAWS (Parameter::EarlyZPass; UE r.EarlyZPass). Stored by name. Off:
     // none, every mesh clips and writes its own depth in the G-buffer (UE 0). Masked: the masked ones (UE
     // r.EarlyZPass masked-only), the G-buffer then draws them EQUAL without the clip. All: every opaque and masked

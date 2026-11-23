@@ -3,6 +3,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
+#include <Engine/Graphic/GlobalIllumination/ReSTIRGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
@@ -117,13 +118,12 @@ namespace Desert::Graphic::GlobalIllumination
         glm::vec4 RayClamp{ 0.0f };
     };
     static_assert( sizeof( ScreenProbeParamsPayload ) == 208 );
-    // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh.
-    inline constexpr uint32_t kScreenProbeHistoryValid = 1u; // the temporal history is the view's previous frame
+    // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh. Bit 1 is free: no
+    // shader tests the view's history (without it the disocclusion pass is not added and the temporal filter is
+    // its no-history permutation: Program::Integrate*TemporalNoHistory, the ReSTIR gather's
+    // Program::TemporalNoHistory). Bits 4 and 8 are free: the screen walk and the
+    // sparse stable probes are the screen leg's permutations (ScreenProbeGather::TraceScreenProgram).
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
-    inline constexpr uint32_t kScreenProbeScreenTrace  = 4u; // last frame's scene colour is readable: screen leg
-    // ScreenProbeGatherInputs::SparseStableRays with the denoiser and the view's history: settled uniform probes
-    // trace a checkerboard half of their texels (Common/ScreenProbeTracing.glslh SPTexelSkipped).
-    inline constexpr uint32_t kScreenProbeSparseStable = 8u;
 
     // std430 — must match `struct ScreenProbe` in Common/ScreenProbes.glslh. 32 bytes.
     struct ScreenProbePayload
@@ -282,6 +282,11 @@ namespace Desert::Graphic::GlobalIllumination
         // rebuilds the other half from their traced neighbours. Only with the denoiser (Denoise): it is what
         // measures the history and accumulates the two halves.
         bool SparseStableRays = true;
+        // The final gather is the ReSTIR one (SceneRenderer m_ReSTIRGather, ReSTIRGatherRuns: Scalability
+        // GlobalIllumination.FinalGather = ReSTIR on the hardware tracer): one ray a reservoir texel, temporal and
+        // spatial reservoir reuse, resolved per pixel into the same diffuse / rough specular / backface textures
+        // the integrate writes, which the same disocclusion and temporal filter then take.
+        bool               ReSTIR = false;
         glm::mat4          PrevViewProjection{ 1.0f }; // unjittered
         glm::vec3          PrevCameraPosition{ 0.0f };
         // ViewFrame::PrevPreExposure: the scale the scene colour history (the screen trace's hit radiance) is
@@ -292,18 +297,20 @@ namespace Desert::Graphic::GlobalIllumination
         float PreExposure = 1.0f;
         // The temporal filter's reprojection: the view's velocity (FrameTransients::Velocity), this frame's and
         // last frame's jitter (ViewFrame::JitterNdc / PrevJitterNdc), and whether the view's previous frame is a
-        // previous frame of this one (ViewFrame::HistoryValid: false after a cut, a teleport, a resize).
+        // previous frame of this one (ViewFrame::HistoryValid: false after a cut, a teleport, a resize). Without
+        // that history the disocclusion pass is not added and the temporal filter is its no-history permutation
+        // (UE bIsHistoryValid): nothing stands in for the history.
         RDG::TextureRef Velocity;
         glm::vec2       JitterNdc{ 0.0f };
         glm::vec2       PrevJitterNdc{ 0.0f };
         bool            ViewHistoryValid = false;
-        RDG::TextureRef Black; // the system black texture: the history's binding when the view has none
         // The gather's denoiser (disocclusion, spatial filter, temporal filter) runs. False only where the view's
         // temporal method denoises the raw signals itself (DLSS Ray Reconstruction): the one decision point is
         // SceneRenderer's, this flag carries it.
         bool Denoise = true;
         // The screen trace's (SceneRenderer::FrameScreenTrace): this frame's closest-depth HZB and the view's
-        // scene colour history; the leg is skipped when either is invalid or the history is not last frame's.
+        // scene colour history, both valid when SceneColorHistoryReadable (the history is last frame's). Without
+        // that the screen leg is its no-walk permutation, which binds neither: invalid refs, no stand-in.
         RDG::TextureRef HZB;
         RDG::TextureRef SceneColorHistory;
         bool            SceneColorHistoryReadable = false;
@@ -467,9 +474,13 @@ namespace Desert::Graphic::GlobalIllumination
         {
             Place = 0,
             ShortRangeAO,
-            TraceScreen,
-            TraceNearField,   // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
-            TraceFarField,    // the same program's far-field leg
+            TraceScreen, // every texel traced: binds no disocclusion (no denoiser, no history or no sparse rays)
+            TraceScreenSparseStable, // ScreenProbeTraceScreen SP_TRACE_SCREEN_SPARSE_STABLE: the sparse stable
+                                     // probes skip texels of settled tiles (reads the disocclusion, FPS-SP-NEAR)
+            TraceScreenMarch, // SP_TRACE_SCREEN_MARCH: the view's screen trace walks the HZB
+            TraceScreenMarchSparseStable, // both (the order AddPasses' traceScreen pick relies on)
+            TraceNearField,          // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
+            TraceFarField,           // the same program's far-field leg
             TraceCacheMiss,   // the same program's leg past the radiance cache, for the rays it did not answer
             TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
             TraceCacheRead,   // the same program's leg reading the radiance cache for the rays the far field left
@@ -491,9 +502,18 @@ namespace Desert::Graphic::GlobalIllumination
                                     // the world radiance cache, on the graphics queue (FPS-SP-COMPOSITE-WAIT)
             // A denoised frame's two integrates: the same, with the temporal filter fused in (FPS-SP-INTEGRATE:
             // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE_TEMPORAL / SP_INTEGRATE_TEMPORAL write the view's
-            // new history set; the separate ScreenProbeTemporal pass is gone).
+            // new history set; the probes run no separate temporal pass).
             IntegrateSimpleDiffuseTemporal,
             IntegrateTemporal,
+            // The same two on a denoised frame without the view's history (+ SP_INTEGRATE_NO_HISTORY): they seed
+            // the set from this frame's lighting and bind no history, no taps (RESTIR-GI).
+            IntegrateSimpleDiffuseTemporalNoHistory,
+            IntegrateTemporalNoHistory,
+            // The ReSTIR final gather's temporal filter (ScreenProbeTemporal): its resolve writes the three
+            // intermediates, this pass blends them into the view's new history set.
+            Temporal,
+            TemporalNoHistory, // ScreenProbeTemporal SP_TEMPORAL_NO_HISTORY: a frame without the view's history
+                               // seeds it from this frame's lighting (binds no history, no taps)
             ProgramCount
         };
 
@@ -541,6 +561,11 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t                                m_AtlasProbesRow    = 0;
         uint32_t                                m_ImageTracedTexels = 0;
         uint32_t                                m_FrameIndex = 0;
+        // The one-time "[GI] ScreenProbes: no history" line was logged (the first frame without the view's
+        // history).
+        bool m_LoggedNoHistory = false;
+        // The ReSTIR final gather (ScreenProbeGatherInputs::ReSTIR): its programs and frame sequence.
+        ReSTIRGather m_ReSTIR;
 #if DESERT_DEV_INSTRUMENTS
         ScreenProbeMissCounts   m_MissCounts;
         ScreenProbeCensusCounts m_Census;

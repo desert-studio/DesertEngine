@@ -821,17 +821,17 @@ namespace Desert::Graphic
         gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
         gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
         gather.SparseStableRays     = m_ScreenProbeSparseStableRays;
+        gather.ReSTIR               = m_ReSTIRGather;
         gather.Downsample           = m_ScreenProbeDownsample;
         gather.TracedTexels         = m_ScreenProbeTracedTexels;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         gather.PrevPreExposure      = frame.PrevPreExposure;
         gather.PreExposure          = frame.PreExposure;
-        // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
-        // system black texture with the leg off when the view has no screen trace.
-        gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
-        gather.SceneColorHistory =
-             screenTrace.SceneHistory.IsValid() ? screenTrace.SceneHistory : refs.System.Black;
+        // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history; without a
+        // screen trace both stay invalid and the leg is its no-walk permutation (nothing stands in for them).
+        gather.HZB               = screenTrace.HZB;
+        gather.SceneColorHistory = screenTrace.SceneHistory;
         gather.SceneColorHistoryReadable =
              screenTrace.HZB.IsValid() && screenTrace.SceneHistory.IsValid() && screenTrace.SceneHistoryReadable;
         // The temporal filter's reprojection and the view's own history (SceneViewState, never the gather's).
@@ -839,7 +839,6 @@ namespace Desert::Graphic
         gather.JitterNdc        = frame.JitterNdc;
         gather.PrevJitterNdc    = frame.PrevJitterNdc;
         gather.ViewHistoryValid = frame.HistoryValid();
-        gather.Black            = refs.System.Black;
         // The gather denoises on every temporal method, Ray Reconstruction too: its noise is the screen probes'
         // - probe-sized, spatially correlated - which RR (made for per-pixel ray noise) keeps as dark blobs that
         // come and go on a still wall (FIELD_Barn face under RR: a 170..721 px patch in 1 of 8 still shots

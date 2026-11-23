@@ -42,6 +42,9 @@ Shader "ScreenProbeIntegrate"
         // set (SPIntegrateWrite), so the three RGBA16F intermediates are neither written nor read again and the
         // separate per-pixel temporal pass (and its async slot) is gone. SP_INTEGRATE_TEMPORAL on the full
         // permutation; the simple-diffuse one takes SP_INTEGRATE_SIMPLE_DIFFUSE_TEMPORAL (one define a program).
+        // RESTIR-GI: a denoised frame without the view's history (UE ScreenProbeTemporalReprojectionCS without
+        // VALID_HISTORY) runs the same two permutations plus SP_INTEGRATE_NO_HISTORY: the taps and the previous
+        // set are not declared - nothing stands in for them - and the new set starts at this frame's value.
 #if defined( SP_INTEGRATE_SIMPLE_DIFFUSE_TEMPORAL )
         #define SP_INTEGRATE_SIMPLE_DIFFUSE
         #define SP_INTEGRATE_TEMPORAL
@@ -272,12 +275,14 @@ Shader "ScreenProbeIntegrate"
         #define RoughSpecularIndirect sampler2D(RoughSpecularIndirect, PointClampSampler)
         Uniform(19) texture2D BackfaceDiffuseIndirect;
         #define BackfaceDiffuseIndirect sampler2D(BackfaceDiffuseIndirect, PointClampSampler)
+#ifndef SP_INTEGRATE_NO_HISTORY
         Uniform(28) utexture2D ScreenProbeHistoryTaps;
         #define ScreenProbeHistoryTaps usampler2D(ScreenProbeHistoryTaps, PointClampSampler)
         Uniform(29) texture2D DiffuseIndirectHistory;
         Uniform(30) texture2D RoughSpecularIndirectHistory; // .a = the fast-update amount
         Uniform(31) texture2D BackfaceDiffuseIndirectHistory;
         Uniform(32) texture2D HistoryGuide;
+#endif
         layout(binding = 33, rgba16f) restrict writeonly uniform image2D NewHistoryDiffuseIndirect;
         layout(binding = 34, rgba16f) restrict writeonly uniform image2D NewHistoryRoughSpecularIndirect;
         layout(binding = 35, rgba16f) restrict writeonly uniform image2D NewHistoryBackfaceDiffuseIndirect;
@@ -313,7 +318,11 @@ Shader "ScreenProbeIntegrate"
         #define GBufferShadingWord usampler2D(GBufferShadingWord, PointClampSampler)
         #include <Generated/ShadingModels.glslh>
 #if defined( SP_INTEGRATE_TEMPORAL )
+#if defined( SP_INTEGRATE_NO_HISTORY )
+        #define SCREEN_PROBE_FOLIAGE_DECLARED
+#else
         #define SCREEN_PROBE_HISTORY_DECLARED
+#endif
         #include <Common/ScreenProbeTemporal.glslh>
 #endif
         ReadBuffer(1) ScreenProbeIndexUB
@@ -884,27 +893,26 @@ Shader "ScreenProbeIntegrate"
         void SPIntegrateWrite( ivec2 pixel, vec3 n, vec3 diffuse, float distance, vec3 specular, float lightIsMoving,
                                vec3 backface )
         {
-            const bool          foliage       = SPPixelIsFoliage( pixel );
-            const SPHistoryTaps taps          = SPUnpackHistoryTaps( texelFetch( ScreenProbeHistoryTaps, pixel, 0 ).xy );
-            float               frames        = 0.0;
-            float               fastUpdateOut = 0.0; // UE OutFastUpdateModeAmount: this frame's amount, kept
-            if ( ( screenProbeParams.atlas.z & SP_FLAG_HISTORY_VALID ) != 0u )
+            const bool foliage       = SPPixelIsFoliage( pixel );
+            float      frames        = 0.0;
+            float      fastUpdateOut = 0.0; // UE OutFastUpdateModeAmount: this frame's amount, kept
+#ifndef SP_INTEGRATE_NO_HISTORY
+            // UE (VALID_HISTORY): this frame's amount from the moving share, held at least at the history's.
+            const SPHistoryTaps taps = SPUnpackHistoryTaps( texelFetch( ScreenProbeHistoryTaps, pixel, 0 ).xy );
+            const vec4 historySpecular = SPHistoryAverage( RoughSpecularIndirectHistory, taps );
+            fastUpdateOut              = SPFastUpdateModeAmount( lightIsMoving );
+            const float fastUpdate =
+                 max( fastUpdateOut, min( historySpecular.a, SP_TEMPORAL_MAX_FAST_UPDATE_MODE_AMOUNT ) );
+            if ( SPHistoryAnyValid( taps ) )
             {
-                // UE (VALID_HISTORY): this frame's amount from the moving share, held at least at the history's.
-                const vec4 historySpecular = SPHistoryAverage( RoughSpecularIndirectHistory, taps );
-                fastUpdateOut              = SPFastUpdateModeAmount( lightIsMoving );
-                const float fastUpdate =
-                     max( fastUpdateOut, min( historySpecular.a, SP_TEMPORAL_MAX_FAST_UPDATE_MODE_AMOUNT ) );
-                if ( SPHistoryAnyValid( taps ) )
-                {
-                    frames = min( min( SPHistoryFrames( taps ) + 1.0, SP_TEMPORAL_MAX_FRAMES_ACCUMULATED ),
-                                  ( 1.0 - fastUpdate ) * SP_TEMPORAL_MAX_FRAMES_ACCUMULATED );
-                    const float alpha = 1.0 / ( 1.0 + frames );
-                    diffuse  = mix( SPHistoryAverage( DiffuseIndirectHistory, taps ).rgb, diffuse, alpha );
-                    specular = mix( historySpecular.rgb, specular, alpha );
-                    backface = mix( SPHistoryAverage( BackfaceDiffuseIndirectHistory, taps ).rgb, backface, alpha );
-                }
+                frames = min( min( SPHistoryFrames( taps ) + 1.0, SP_TEMPORAL_MAX_FRAMES_ACCUMULATED ),
+                              ( 1.0 - fastUpdate ) * SP_TEMPORAL_MAX_FRAMES_ACCUMULATED );
+                const float alpha = 1.0 / ( 1.0 + frames );
+                diffuse  = mix( SPHistoryAverage( DiffuseIndirectHistory, taps ).rgb, diffuse, alpha );
+                specular = mix( historySpecular.rgb, specular, alpha );
+                backface = mix( SPHistoryAverage( BackfaceDiffuseIndirectHistory, taps ).rgb, backface, alpha );
             }
+#endif
             imageStore( NewHistoryDiffuseIndirect, pixel, vec4( diffuse, distance ) );
             imageStore( NewHistoryRoughSpecularIndirect, pixel, vec4( specular, fastUpdateOut ) );
             imageStore( NewHistoryBackfaceDiffuseIndirect, pixel, vec4( backface, 1.0 ) );
