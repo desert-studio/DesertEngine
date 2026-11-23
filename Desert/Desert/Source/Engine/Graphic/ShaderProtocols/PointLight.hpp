@@ -85,7 +85,10 @@
     /* (Mesh/LightFunctionAtlas.glslh DesertOmniLightFunction). */                                                   \
     FIELD( int32_t, LightFunctionAtlasTexture, lightFunctionAtlasTexture, { 0 } ) /* 132 */                       \
     FIELD( int32_t, LightFunctionTile, lightFunctionTile, { -1 } )                /* 136 */                       \
-    FIELD( float, Pad7, pad7, { 0.0f } )                      /* 140 -> 144 */
+    /* UE ULocalLightComponent::SourceLength (cm): a capsule ("tube") emitter of SourceRadius around a */       \
+    /* segment this long along the light's forward, cross( AxisX, AxisY ), centred on Position; 0 = a sphere */ \
+    /* (Mesh/LightSources.glslh DesertPointLightAt). A rect states 0. */                                        \
+    FIELD( float, SourceLength, sourceLength, { 0.0f } )      /* 140 -> 144 */
 
 namespace Desert::Graphic::ShaderProtocols
 {

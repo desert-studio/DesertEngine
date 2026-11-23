@@ -179,13 +179,15 @@ vec3 DesertSlabBaseLight( DesertLight L, DesertSurface S, DesertSlab slab )
 {
     if ( DesertIsRectLight( L ) )
         return EvaluateRectLight( L, S.V, S.N, slab.F0, S.Metallic, S.Roughness, S.BaseColor );
-    // A punctual source on the plain slab: EvaluateDirectLight, the one text. A sphere's lobe aims elsewhere than
-    // its diffuse, so it takes the split below (DesertSlabLobe aims it).
-    if ( !DesertSlabHas( slab, kDesertSlabF90 | kDesertSlabAnisotropy ) && L.SphereRadius <= 0.0 )
+    // A punctual source on the plain slab: EvaluateDirectLight, the one text. A sphere's or a capsule's lobe aims
+    // elsewhere than its diffuse, so it takes the split below (DesertSlabLobe aims it).
+    const bool area = DesertIsAreaSpecularLight( L );
+    if ( !DesertSlabHas( slab, kDesertSlabF90 | kDesertSlabAnisotropy ) && !area )
         return EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, slab.F0, S.Metallic, S.Roughness, S.BaseColor );
-    // EvaluateDirectLight's Lambert under ( 1 - F ), F the slab's F0..F90 Fresnel.
+    // EvaluateDirectLight's Lambert under ( 1 - F ), F the slab's F0..F90 Fresnel. An emitter with a size still
+    // lights the lobe while its centre is under the horizon (DesertSphereSpecularLight wraps it).
     const float cosLi = max( dot( S.N, L.L ), 0.0 );
-    if ( cosLi <= 0.0 )
+    if ( cosLi <= 0.0 && !area )
         return vec3( 0.0 );
     const vec3  H              = normalize( S.V + L.L );
     const float cosLo          = max( dot( S.N, S.V ), 0.0 );

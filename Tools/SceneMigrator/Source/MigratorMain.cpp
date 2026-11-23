@@ -671,6 +671,9 @@ namespace
                                 Desert::Migration::kSceneVersionLandscapeSplineEntities,
                                 report.LandscapeSplineEntities.SplinesCreated,
                                 report.LandscapeSplineEntities.RootsCleared );
+        if ( report.TubeSourceLengthRaised && report.TubeSourceLengthsStated > 0 )
+            out << std::format( " scene ->v{} ({} PointLight / SpotLight block(s) given SourceLength 0)",
+                                Desert::Migration::kSceneVersionTubeSourceLength, report.TubeSourceLengthsStated );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

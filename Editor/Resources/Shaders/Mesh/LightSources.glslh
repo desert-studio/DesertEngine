@@ -10,7 +10,7 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// `struct PointLight` / `struct SpotLight` (std430, 144 / 128 bytes) are GENERATED from
+// `struct PointLight` / `struct SpotLight` (std430, 144 / 144 bytes) are GENERATED from
 // ShaderProtocols::PointLight / SpotLight's field lists (Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp)
 // by the shader includer.
 #include <Mesh/LightSourceLayouts.glslh>
@@ -67,6 +67,7 @@ DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow, float
     light.RectLtcTexture     = 0;
     light.SphereCenter       = light.L;
     light.SphereRadius       = clamp( sinAngularRadius, 0.0, 1.0 );
+    light.SphereAxis         = vec3( 0.0 );
     return light;
 }
 
@@ -136,6 +137,7 @@ DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
     light.RectLtcTexture     = 0;
     light.SphereCenter       = vec3( 0.0 ); // a rect's lobe is the LTC's
     light.SphereRadius       = 0.0;
+    light.SphereAxis         = vec3( 0.0 );
     const float distance     = length( fromLight );
     if ( depth <= 0.0 || x1 <= x0 || y1 <= y0 || distance >= source.radius )
         return light;
@@ -180,6 +182,39 @@ DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
     return light;
 }
 
+// A CAPSULE ("tube") source - UE ULocalLightComponent::SourceLength, DeferredLightingCommon.ush LineIrradiance: the
+// point light @p light built at the segment's centre (SphereCenter) becomes the segment of half-extent @p halfAxis.
+// Its L is the mean of the directions to the two ends and its Radiance carries the rest of UE's line irradiance:
+// the length of that mean (so dot( N, L ) * Radiance is the ends' averaged cosine, UE's NoL), and, under the
+// inverse-square falloff, the segment's irradiance InvLength0 * InvLength1 / ( ( CosSubtended + 1 ) / 2 ) over the
+// centre's 1 / d^2 that LightFalloffFactor already applied - 1 far away, finite beside the tube. Its specular lobe
+// is aimed by DesertSphereSpecularLight (SphereAxis).
+DesertLight DesertCapsuleLight( DesertLight light, vec3 halfAxis, int falloff )
+{
+    const vec3  end0       = light.SphereCenter - halfAxis;
+    const vec3  end1       = light.SphereCenter + halfAxis;
+    const float invLength0 = inversesqrt( max( dot( end0, end0 ), 1e-8 ) );
+    const float invLength1 = inversesqrt( max( dot( end1, end1 ), 1e-8 ) );
+    const vec3  mean       = ( end0 * invLength0 + end1 * invLength1 ) * 0.5;
+    const float meanLength = length( mean );
+    light.SphereAxis       = halfAxis;
+    if ( meanLength <= 1e-4 ) // on the segment itself: the two ends cancel, as UE's NoL does
+    {
+        light.Radiance = vec3( 0.0 );
+        return light;
+    }
+    float irradiance = meanLength;
+    if ( falloff == 2 )
+    {
+        const float cosSubtended = dot( end0, end1 ) * invLength0 * invLength1;
+        irradiance = irradiance * invLength0 * invLength1 * dot( light.SphereCenter, light.SphereCenter ) /
+                     max( cosSubtended * 0.5 + 0.5, 1e-4 );
+    }
+    light.L        = mean / meanLength;
+    light.Radiance = light.Radiance * irradiance;
+    return light;
+}
+
 DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
 {
     if ( source.rectHalfWidth > 0.0 )
@@ -204,6 +239,11 @@ DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
     // UE SourceRadius: the emitter sphere its specular lobe aims at (DesertSphereSpecularLight).
     light.SphereCenter       = toLight;
     light.SphereRadius       = source.sourceRadius;
+    light.SphereAxis         = vec3( 0.0 );
+    // UE SourceLength: a capsule along the light's forward.
+    if ( source.sourceLength > 0.0 )
+        light = DesertCapsuleLight( light, cross( source.axisX, source.axisY ) * ( 0.5 * source.sourceLength ),
+                                    source.falloff );
     return light;
 }
 
@@ -229,6 +269,10 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     // UE SourceRadius: the emitter sphere its specular lobe aims at (DesertSphereSpecularLight).
     light.SphereCenter       = toLight;
     light.SphereRadius       = source.sourceRadius;
+    light.SphereAxis         = vec3( 0.0 );
+    // UE SourceLength: a capsule along the cone's axis.
+    if ( source.sourceLength > 0.0 )
+        light = DesertCapsuleLight( light, source.direction * ( 0.5 * source.sourceLength ), source.falloff );
     return light;
 }
 

@@ -142,7 +142,9 @@ namespace Desert::Core
     // LandscapeSpline block {Landscape: the root's id, Splines}, spatially loaded by its band. The root's
     // Landscape block loses Splines: each connected group of its control points becomes one LandscapeSpline record
     // (Tools/SceneMigrator, MigrateLandscapeSplineEntitiesV75ToV76).
-    inline constexpr int kSceneVersion = 76;
+    // v77 (NG-AREA-LIGHTS): UE SourceLength - PointLight / SpotLight state SourceLength (cm; 0 = a sphere), the
+    // capsule ("tube") emitter along the light's forward (Tools/SceneMigrator, MigrateTubeSourceLengthV76ToV77).
+    inline constexpr int kSceneVersion = 77;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are

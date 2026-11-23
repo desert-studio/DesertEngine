@@ -523,7 +523,14 @@ namespace Desert::Migration
     //       become an entity of an instance (MigrateLandscapeSplineEntitiesV75ToV76).
     inline constexpr int kSceneVersionLandscapeSplineEntities = 76;
 
-    static_assert( kSceneVersionLandscapeSplineEntities == kSceneVersion,
+    //  77 - TUBE LIGHTS (NG-AREA-LIGHTS; UE ULocalLightComponent::SourceLength, the capsule light). PointLight and
+    //       SpotLight gained SourceLength (cm): the emitter is a capsule of SourceRadius around a segment of that
+    //       length along the light's forward. Every PointLight / SpotLight record that does not state it states 0
+    //       - a sphere, the meaning every older light had (MigrateTubeSourceLengthV76ToV77). A prefab override is
+    //       a delta and is left alone. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionTubeSourceLength = 77;
+
+    static_assert( kSceneVersionTubeSourceLength == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -749,6 +756,10 @@ namespace Desert::Migration
     // States kSourceAngleDefault in every DirectionLight record of @p entities that has no SourceAngle (prefab
     // overrides are deltas: untouched). Returns how many it stated. PURE.
     std::size_t MigrateSourceAngleV54ToV55( std::vector<Assets::EntityData>& entities );
+
+    // States SourceLength 0 (a sphere, the meaning every older light had) in every PointLight and SpotLight record
+    // of @p entities that has none (prefab overrides are deltas: untouched). Returns how many it stated. PURE.
+    std::size_t MigrateTubeSourceLengthV76ToV77( std::vector<Assets::EntityData>& entities );
 
     // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
     inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",
@@ -1568,6 +1579,8 @@ namespace Desert::Migration
         GrassRasterPathReport GrassRasterPath;
         bool                  LandscapeSplineEntitiesRaised = false; // below kSceneVersionLandscapeSplineEntities
         LandscapeSplineEntitiesReport LandscapeSplineEntities;
+        bool                          TubeSourceLengthRaised  = false; // below kSceneVersionTubeSourceLength
+        std::size_t                   TubeSourceLengthsStated = 0;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -1591,8 +1604,8 @@ namespace Desert::Migration
                    ReflectedAssetRefsRaised || SunRotationRaised || VolumetricFogRaised || TracedRequestRaised ||
                    ComposedGIRaised || FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
                    DebugColorsRaised || MiniMapRaised || LandscapeSplineEntitiesRaised ||
-                   HLODBuilderSettingsRaised || EntityHLODLayerRaised ||
-                   ImpostorLayersRaised;
+                   HLODBuilderSettingsRaised || EntityHLODLayerRaised || ImpostorLayersRaised ||
+                   TubeSourceLengthRaised;
         }
     };
 

@@ -2411,6 +2411,27 @@ namespace Desert::Migration
         return stated;
     }
 
+    std::size_t MigrateTubeSourceLengthV76ToV77( std::vector<Assets::EntityData>& entities )
+    {
+        std::size_t stated = 0;
+        for ( auto& entity : entities )
+        {
+            for ( const char* block : { "PointLight", "SpotLight" } )
+            {
+                const auto payload = entity.Components.get( block );
+                if ( !payload.has_value() )
+                    continue;
+                auto fields = payload.value().to_object();
+                if ( !fields.has_value() || fields.value().get( "SourceLength" ).has_value() )
+                    continue;
+                fields.value()["SourceLength"] = rfl::Generic( 0.0 );
+                entity.Components[block]       = rfl::Generic( std::move( fields.value() ) );
+                ++stated;
+            }
+        }
+        return stated;
+    }
+
     std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities )
     {
         std::size_t restated = 0;
@@ -5125,6 +5146,13 @@ namespace Desert::Migration
                     report.Refused = RefusedWhole( name, report.GrassRasterPath.Refused );
                     return;
                 }
+            }
+
+            // Tube lights (NG-AREA-LIGHTS): every PointLight / SpotLight record states its SourceLength.
+            if ( statedSceneVersion < kSceneVersionTubeSourceLength )
+            {
+                report.TubeSourceLengthRaised  = true;
+                report.TubeSourceLengthsStated = MigrateTubeSourceLengthV76ToV77( entities );
             }
 
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.

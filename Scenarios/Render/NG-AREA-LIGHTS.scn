@@ -1,0 +1,22 @@
+# NG-AREA-LIGHTS: UE5 area lights on FIELD_Barn at night over a wet/smooth floor - a rect 200x100 (LTC), an IES spot,
+# a tube (point light SourceLength 150, SourceRadius 3) and a sphere (SourceRadius 20). Specular is UE5's
+# (SphereMaxNoH + EnergyNormalization, capsule ClosestPointLineToRay); the sun's disc is SourceAngle 0.5357.
+# NEEDS: FIELD_Barn_AreaLights.desce (FIELD_Barn + the four lights + a 6x6 m floor of roughness 0.1 in front of the
+# barn wall, entities named AreaRect / AreaSpotIes / AreaTube / AreaSphere) - see NG-AREA-LIGHTS-REMAINDER PASS 2.
+Дано run Scene "Open Scene FIELD_Barn_AreaLights.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation -10
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,300,1400
+Дано --subject viewport set Camera.Direction 0,-0.35,-1
+Тогда-вид 1_area_lights_floor the rect gives a rectangular soft reflection on the floor, the tube a highlight stretched along its axis, the sphere a soft disc (not a needle), the IES spot its profile pattern (rings/scallops) on the barn wall
+Когда run Entity "AreaTube"
+Когда --subject selection set PointLightData.SourceLength 0
+Тогда-вид 2_tube_off_length the tube's highlight collapses to a round disc of its radius; total brightness of the highlight similar to 1
+Когда --subject selection set PointLightData.SourceLength 150
+Когда run Entity "AreaSphere"
+Когда --subject selection set PointLightData.SourceRadius 0
+Тогда-вид 3_sphere_point the sphere's reflection becomes a small sharp point; diffuse on the floor unchanged vs 1 (pixel-diff away from the highlight ~0)
+Когда --subject selection set PointLightData.SourceRadius 20
+Тогда-вид 4_restored identical to 1_area_lights_floor
