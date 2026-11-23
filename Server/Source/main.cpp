@@ -96,10 +96,11 @@ namespace Desert::Server
             std::optional<std::uint16_t> meshPort;
             std::string                  meshCa;
             std::string                  devCa; // --mesh-dev-ca <dir>: make a dev CA and the role certificates
-            // The coordinator's static region table (NET-MESH-2, §2M.3): --region <name>:<sim>:<minX>,<minZ>,<maxX>,
-            // <maxZ> (world cm on the ground plane) per region, with --border-band and --handover-margin (cm).
-            Net::MeshRegionTable         regions;
-            std::optional<float>         borderBand, handoverMargin;
+            // The coordinator's static region table (NET-MESH-2, §2M.3): --region
+            // <name>:<sim>:<minX>,<minZ>,<maxX>, <maxZ> (world cm on the ground plane) per region, with
+            // --border-band and --handover-margin (cm).
+            Net::MeshRegionTable regions;
+            std::optional<float> borderBand, handoverMargin;
         };
 
         constexpr double kStepHz = 60.0;
@@ -110,14 +111,20 @@ namespace Desert::Server
                    "[--steps <n>] "
                    "[--port <p> --server-id <id> --secret-file <file> --pawn <assets:...deprefab> --spawn <x,y,z> "
                    "[--spawn ...]]\n"
-                   "       DesertServer --project <p> --role coordinator --mesh-port <p> --mesh-ca <dir> [--steps <n>] "
-                   "[--region <name>:<sim>:<minX>,<minZ>,<maxX>,<maxZ> ... --border-band <cm> --handover-margin <cm>]\n"
-                   "       DesertServer --project <p> --role store --mesh-port <p> --coordinator <ip:port> --mesh-ca <dir>\n"
-                   "       DesertServer --project <p> --role sim [--index <n>] --mesh-port <p> --coordinator <ip:port> "
+                   "       DesertServer --project <p> --role coordinator --mesh-port <p> --mesh-ca <dir> [--steps "
+                   "<n>] "
+                   "[--region <name>:<sim>:<minX>,<minZ>,<maxX>,<maxZ> ... --border-band <cm> --handover-margin "
+                   "<cm>]\n"
+                   "       DesertServer --project <p> --role store --mesh-port <p> --coordinator <ip:port> "
+                   "--mesh-ca <dir>\n"
+                   "       DesertServer --project <p> --role sim [--index <n>] --mesh-port <p> --coordinator "
+                   "<ip:port> "
                    "--mesh-ca <dir> --world <w> --source <x,y,z> --spawn <x,y,z> [--spawn ...]\n"
-                   "       DesertServer --project <p> --role gateway [--index <n>] --coordinator <ip:port> --mesh-ca <dir> "
+                   "       DesertServer --project <p> --role gateway [--index <n>] --coordinator <ip:port> "
+                   "--mesh-ca <dir> "
                    "--world <w> --port <p> --server-id <id> --secret-file <file> --pawn <assets:...deprefab>\n"
-                   "       DesertServer --mesh-dev-ca <dir>   (a local dev CA + one certificate per role, never committed)";
+                   "       DesertServer --mesh-dev-ca <dir>   (a local dev CA + one certificate per role, never "
+                   "committed)";
         }
 
         Common::ResultStr<glm::vec3> ParsePoint( std::string_view text, std::string_view flag )
@@ -202,8 +209,9 @@ namespace Desert::Server
                 else if ( flag == "--region" )
                 {
                     // name:sim:minX,minZ,maxX,maxZ
-                    const std::size_t a = value.find( ':' ), b = a == std::string::npos ? a : value.find( ':', a + 1 );
-                    Net::MeshRegion   region;
+                    const std::size_t a = value.find( ':' ),
+                                      b = a == std::string::npos ? a : value.find( ':', a + 1 );
+                    Net::MeshRegion region;
                     region.Epoch     = 1;
                     bool        good = b != std::string::npos && a > 0;
                     float       bounds[4]{};
@@ -212,16 +220,17 @@ namespace Desert::Server
                     {
                         if ( good )
                         {
-                            region.Name = value.substr( 0, a );
+                            region.Name       = value.substr( 0, a );
                             std::size_t taken = 0;
-                            region.Sim = static_cast<std::uint32_t>( std::stoul( value.substr( a + 1, b - a - 1 ), &taken ) );
-                            good       = taken == b - a - 1 && region.Sim > 0;
+                            region.Sim        = static_cast<std::uint32_t>(
+                                 std::stoul( value.substr( a + 1, b - a - 1 ), &taken ) );
+                            good = taken == b - a - 1 && region.Sim > 0;
                         }
                         for ( int k = 0; good && k < 4; ++k )
                         {
                             const std::size_t end  = k < 3 ? value.find( ',', at ) : value.size();
                             std::size_t       took = 0;
-                            good = end != std::string::npos && end > at;
+                            good                   = end != std::string::npos && end > at;
                             if ( good )
                             {
                                 bounds[k] = std::stof( value.substr( at, end - at ), &took );
@@ -235,9 +244,10 @@ namespace Desert::Server
                         good = false;
                     }
                     if ( !good || bounds[0] >= bounds[2] || bounds[1] >= bounds[3] )
-                        return Common::MakeError<Options>( std::format(
-                             "--region '{}' is not <name>:<sim>:<minX>,<minZ>,<maxX>,<maxZ> (cm, min < max, sim >= 1)",
-                             value ) );
+                        return Common::MakeError<Options>(
+                             std::format( "--region '{}' is not <name>:<sim>:<minX>,<minZ>,<maxX>,<maxZ> (cm, min "
+                                          "< max, sim >= 1)",
+                                          value ) );
                     region.MinX = bounds[0];
                     region.MinZ = bounds[1];
                     region.MaxX = bounds[2];
@@ -257,7 +267,8 @@ namespace Desert::Server
                         taken = 0;
                     }
                     if ( taken != value.size() || cm < 0.f )
-                        return Common::MakeError<Options>( std::format( "{} '{}' is not a distance in cm", flag, value ) );
+                        return Common::MakeError<Options>(
+                             std::format( "{} '{}' is not a distance in cm", flag, value ) );
                     ( flag == "--border-band" ? options.borderBand : options.handoverMargin ) = cm;
                 }
                 else if ( flag == "--secret-file" )
@@ -312,16 +323,19 @@ namespace Desert::Server
                 return Common::MakeError<Options>( "--region is the coordinator's table (--role coordinator)" );
             if ( !options.regions.Regions.empty() && ( !options.borderBand || !options.handoverMargin ) )
                 return Common::MakeError<Options>(
-                     "a region table needs --border-band (cm a sim streams around its regions) and --handover-margin "
+                     "a region table needs --border-band (cm a sim streams around its regions) and "
+                     "--handover-margin "
                      "(cm inside a neighbour's region before an entity changes owner: half a cell)" );
             if ( options.regions.Regions.empty() && ( options.borderBand || options.handoverMargin ) )
-                return Common::MakeError<Options>( "--border-band and --handover-margin belong to a --region table" );
+                return Common::MakeError<Options>(
+                     "--border-band and --handover-margin belong to a --region table" );
             for ( std::size_t i = 0; i < options.regions.Regions.size(); ++i )
                 for ( std::size_t j = 0; j < i; ++j )
                 {
                     const Net::MeshRegion& a = options.regions.Regions[i];
                     const Net::MeshRegion& b = options.regions.Regions[j];
-                    if ( a.Name == b.Name || ( a.MinX < b.MaxX && b.MinX < a.MaxX && a.MinZ < b.MaxZ && b.MinZ < a.MaxZ ) )
+                    if ( a.Name == b.Name ||
+                         ( a.MinX < b.MaxX && b.MinX < a.MaxX && a.MinZ < b.MaxZ && b.MinZ < a.MaxZ ) )
                         return Common::MakeError<Options>(
                              std::format( "--region '{}' and '{}' overlap or share a name", a.Name, b.Name ) );
                 }
@@ -618,7 +632,7 @@ namespace Desert::Server
 
             if ( role == Net::EMeshRole::Coordinator )
             {
-                Net::MeshCoordinator coordinator( endpoint, options.regions, netLog );
+                Net::MeshCoordinator    coordinator( endpoint, options.regions, netLog );
                 const auto              period  = std::chrono::duration<double>( 1.0 / kStepHz );
                 const Clock::time_point started = Clock::now();
                 std::uint64_t           step    = 0;
@@ -756,8 +770,11 @@ namespace Desert::Server
                     transport->Poll( endpoint );
                     // Clients come in once every sim of the map has a link here (a handover may name any of them).
                     if ( !listening && replica.Synced() && !simLink.Regions().empty() &&
-                         std::ranges::all_of( simLink.Regions(), [&]( const Net::MeshRegion& region )
-                                              { return endpoint.PeerConnection( Net::EMeshRole::Sim, region.Sim ).has_value(); } ) )
+                         std::ranges::all_of(
+                              simLink.Regions(),
+                              [&]( const Net::MeshRegion& region ) {
+                                  return endpoint.PeerConnection( Net::EMeshRole::Sim, region.Sim ).has_value();
+                              } ) )
                     {
                         if ( !transport->Listen( *options.port, error ) )
                         {
@@ -821,7 +838,8 @@ namespace Desert::Server
                    {
                        if ( from == Net::EMeshRole::Store )
                        {
-                           if ( !handover.OnStoreMessage( type, body, sim, gatewayLink, replica, lastStep, 1.0 / kStepHz ) )
+                           if ( !handover.OnStoreMessage( type, body, sim, gatewayLink, replica, lastStep,
+                                                          1.0 / kStepHz ) )
                                replica.OnStoreMessage( type, body );
                        }
                        else if ( from == Net::EMeshRole::Gateway )
@@ -895,10 +913,11 @@ namespace Desert::Server
                     if ( owned != players || ( sources.size() > 1 && step % 300 == 0 ) )
                     {
                         players = owned;
-                        LOG_INFO( "[Server] sim {} step {}: {} player(s) owned, {} proxy(ies), residency union of {} "
-                                  "source(s): {} cell(s) activated, {} cell record(s) held",
-                                  options.index, step, players, sources.size() - 1 - owned, sources.size(),
-                                  server->ResidentCells().size(), server->HeldCellRecords() );
+                        LOG_INFO(
+                             "[Server] sim {} step {}: {} player(s) owned, {} proxy(ies), residency union of {} "
+                             "source(s): {} cell(s) activated, {} cell record(s) held",
+                             options.index, step, players, sources.size() - 1 - owned, sources.size(),
+                             server->ResidentCells().size(), server->HeldCellRecords() );
                     }
                 }
                 std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );

@@ -19,19 +19,19 @@ namespace Desert::Net
             Tick,                              // u32 step
             SimReady,
             LeaseRequest,
-            Lease,         // u32 first, u32 count
-            PawnWrite,     // pawn
-            PawnRemove,    // u32 id
-            StableWrite,   // u64 id, str component, str field, value             (sim -> store)
-            StableChanged, // u64 id, str component, str field, u32 version, value (store -> subscriber)
-            StableDestroy, // u64 id
-            Synced,        // the store sent a new subscriber its full state
-            PlayerJoined,  // u32 player, u64 account
-            PlayerLeft,    // u32 player
-            PlayerInput,   // u32 player, the client's Input message as received
-            InputAck,      // u32 player, u32 step
-            PawnSpawned,   // u32 owner, u32 player, pawn
-            PawnDestroyed, // u32 id
+            Lease,            // u32 first, u32 count
+            PawnWrite,        // pawn
+            PawnRemove,       // u32 id
+            StableWrite,      // u64 id, str component, str field, value             (sim -> store)
+            StableChanged,    // u64 id, str component, str field, u32 version, value (store -> subscriber)
+            StableDestroy,    // u64 id
+            Synced,           // the store sent a new subscriber its full state
+            PlayerJoined,     // u32 player, u64 account
+            PlayerLeft,       // u32 player
+            PlayerInput,      // u32 player, the client's Input message as received
+            InputAck,         // u32 player, u32 step
+            PawnSpawned,      // u32 owner, u32 player, pawn
+            PawnDestroyed,    // u32 id
             Handover,         // handover header (epoch = the sender's), handover pawn  (sim -> store)
             Adopt,            // handover header (epoch = the new one), handover pawn   (store -> new owner)
             AuthorityChanged, // u32 id, u32 sim, u32 epoch, u32 step, u32 gateway, u32 player (store -> gateways)
@@ -277,11 +277,14 @@ namespace Desert::Net
 
         std::string DescribeRegion( const MeshRegion& region )
         {
-            if ( region.MinX == -std::numeric_limits<float>::max() && region.MaxX == std::numeric_limits<float>::max() &&
-                 region.MinZ == -std::numeric_limits<float>::max() && region.MaxZ == std::numeric_limits<float>::max() )
+            if ( region.MinX == -std::numeric_limits<float>::max() &&
+                 region.MaxX == std::numeric_limits<float>::max() &&
+                 region.MinZ == -std::numeric_limits<float>::max() &&
+                 region.MaxZ == std::numeric_limits<float>::max() )
                 return std::format( "region '{}' -> sim {} (epoch {})", region.Name, region.Sim, region.Epoch );
-            return std::format( "region '{}' [x {:.0f}..{:.0f}, z {:.0f}..{:.0f} cm] -> sim {} (epoch {})", region.Name,
-                                region.MinX, region.MaxX, region.MinZ, region.MaxZ, region.Sim, region.Epoch );
+            return std::format( "region '{}' [x {:.0f}..{:.0f}, z {:.0f}..{:.0f} cm] -> sim {} (epoch {})",
+                                region.Name, region.MinX, region.MaxX, region.MinZ, region.MaxZ, region.Sim,
+                                region.Epoch );
         }
 
         // A handover in flight: who hands which pawn to whom, at which mesh step; the gateway the player is on.
@@ -301,8 +304,8 @@ namespace Desert::Net
 
         bool ReadInputStep( Reader& r, InputStep& input )
         {
-            return r.U32( input.Step ) && r.F32( input.Move.X ) && r.F32( input.Move.Y ) && r.F32( input.Move.Z ) &&
-                   r.F32( input.Yaw );
+            return r.U32( input.Step ) && r.F32( input.Move.X ) && r.F32( input.Move.Y ) &&
+                   r.F32( input.Move.Z ) && r.F32( input.Yaw );
         }
 
         std::vector<std::byte> EncodeHandover( EMesh type, const HandoverHeader& h,
@@ -327,15 +330,16 @@ namespace Desert::Net
             return w.Take();
         }
 
-        bool DecodeHandover( std::span<const std::byte> body, HandoverHeader& h, PawnSimulation::HandoverPawn& pawn )
+        bool DecodeHandover( std::span<const std::byte> body, HandoverHeader& h,
+                             PawnSimulation::HandoverPawn& pawn )
         {
             Reader        r( body );
             std::uint8_t  hasProcessed = 0;
             std::uint32_t processed = 0, pending = 0;
-            if ( !r.U32( h.From ) || !r.U32( h.Epoch ) || !r.U32( h.To ) || !r.U32( h.Step ) || !r.U32( h.Gateway ) ||
-                 !r.U32( pawn.Player ) || !r.U64( pawn.Account ) || !r.U32( pawn.Index ) || !r.Pawn( pawn.State ) ||
-                 !r.U8( hasProcessed ) || !r.U32( processed ) || !ReadInputStep( r, pawn.LastApplied ) ||
-                 !r.U32( pending ) || pending > InputRing::kCapacity )
+            if ( !r.U32( h.From ) || !r.U32( h.Epoch ) || !r.U32( h.To ) || !r.U32( h.Step ) ||
+                 !r.U32( h.Gateway ) || !r.U32( pawn.Player ) || !r.U64( pawn.Account ) || !r.U32( pawn.Index ) ||
+                 !r.Pawn( pawn.State ) || !r.U8( hasProcessed ) || !r.U32( processed ) ||
+                 !ReadInputStep( r, pawn.LastApplied ) || !r.U32( pending ) || pending > InputRing::kCapacity )
                 return false;
             if ( hasProcessed )
                 pawn.LastProcessed = processed;
@@ -719,7 +723,8 @@ namespace Desert::Net
                     map.Regions.push_back( region );
         bool mapChanged = map.Regions.size() != m_Map.Regions.size();
         for ( std::size_t i = 0; !mapChanged && i < map.Regions.size(); ++i )
-            mapChanged = map.Regions[i].Name != m_Map.Regions[i].Name || map.Regions[i].Sim != m_Map.Regions[i].Sim ||
+            mapChanged = map.Regions[i].Name != m_Map.Regions[i].Name ||
+                         map.Regions[i].Sim != m_Map.Regions[i].Sim ||
                          map.Regions[i].Epoch != m_Map.Regions[i].Epoch;
         m_Map = std::move( map );
         if ( mapChanged )
@@ -941,7 +946,7 @@ namespace Desert::Net
         {
             if ( sim == owner )
                 continue;
-            std::set<NetId>& proxies = m_Proxies[sim];
+            std::set<NetId>& proxies    = m_Proxies[sim];
             const auto       connection = m_Endpoint.PeerConnection( EMeshRole::Sim, sim );
             if ( !connection )
                 continue;
@@ -969,13 +974,14 @@ namespace Desert::Net
         if ( record == m_PawnAuthority.end() || record->second.Sim != from || record->second.Epoch != h.Epoch ||
              !target )
         {
-            m_Log( std::format( "store: handover of pawn net id {} from (sim {}, epoch {}) to sim {} at step {} "
-                                "refused - the record is {}",
-                                id, from, h.Epoch, h.To, h.Step,
-                                record == m_PawnAuthority.end()
-                                     ? std::string( "missing" )
-                                     : std::format( "(sim {}, epoch {}){}", record->second.Sim, record->second.Epoch,
-                                                    target ? "" : ", no link to the target sim" ) ) );
+            m_Log(
+                 std::format( "store: handover of pawn net id {} from (sim {}, epoch {}) to sim {} at step {} "
+                              "refused - the record is {}",
+                              id, from, h.Epoch, h.To, h.Step,
+                              record == m_PawnAuthority.end()
+                                   ? std::string( "missing" )
+                                   : std::format( "(sim {}, epoch {}){}", record->second.Sim, record->second.Epoch,
+                                                  target ? "" : ", no link to the target sim" ) ) );
             if ( record != m_PawnAuthority.end() && record->second.Sim == from )
             {
                 h.To    = from;
@@ -989,11 +995,12 @@ namespace Desert::Net
         m_Refused.erase( { id, h.To } );
         m_Proxies[h.To].erase( id );
         m_State.Write( pawn.State );
-        m_Log( std::format( "store: pawn net id {} (player {} of gateway {}) authority (sim {}, epoch {}) -> (sim {}, "
-                            "epoch {}) at step {} - full state at ({:.0f}, {:.0f}, {:.0f}) cm + {} unacked input(s) "
-                            "handed to sim {}",
-                            id, pawn.Player, h.Gateway, from, h.Epoch, h.To, h.Epoch + 1, h.Step, pawn.State.Position.X,
-                            pawn.State.Position.Y, pawn.State.Position.Z, pawn.Pending.size(), h.To ) );
+        m_Log( std::format(
+             "store: pawn net id {} (player {} of gateway {}) authority (sim {}, epoch {}) -> (sim {}, "
+             "epoch {}) at step {} - full state at ({:.0f}, {:.0f}, {:.0f}) cm + {} unacked input(s) "
+             "handed to sim {}",
+             id, pawn.Player, h.Gateway, from, h.Epoch, h.To, h.Epoch + 1, h.Step, pawn.State.Position.X,
+             pawn.State.Position.Y, pawn.State.Position.Z, pawn.Pending.size(), h.To ) );
         HandoverHeader adopt = h;
         adopt.Epoch          = h.Epoch + 1;
         m_Endpoint.Send( *target, EncodeHandover( EMesh::Adopt, adopt, pawn ) );
@@ -1184,19 +1191,20 @@ namespace Desert::Net
                                 player ) );
             return std::nullopt;
         }
-        const MeshRegion&                     entry     = m_Map.Regions.front();
-        const auto                            authority = m_Authority.find( player );
+        const MeshRegion&                             entry     = m_Map.Regions.front();
+        const auto                                    authority = m_Authority.find( player );
         const std::pair<std::uint32_t, std::uint32_t> routed =
              authority != m_Authority.end() ? authority->second : std::make_pair( entry.Sim, entry.Epoch );
         const auto connection = m_Endpoint.PeerConnection( EMeshRole::Sim, routed.first );
         const auto last       = m_Routed.find( player );
         if ( last == m_Routed.end() || last->second != routed )
         {
-            m_Log( std::format( "gateway: {} player {} -> sim {} ({}){}", what, player, routed.first,
-                                authority != m_Authority.end()
-                                     ? std::format( "authority of its pawn: epoch {}", routed.second )
-                                     : std::format( "authority map: region '{}', epoch {}", entry.Name, entry.Epoch ),
-                                connection ? std::string() : " - no link to that sim yet, dropped" ) );
+            m_Log( std::format(
+                 "gateway: {} player {} -> sim {} ({}){}", what, player, routed.first,
+                 authority != m_Authority.end()
+                      ? std::format( "authority of its pawn: epoch {}", routed.second )
+                      : std::format( "authority map: region '{}', epoch {}", entry.Name, entry.Epoch ),
+                 connection ? std::string() : " - no link to that sim yet, dropped" ) );
             if ( connection )
                 m_Routed[player] = routed;
         }
@@ -1267,13 +1275,14 @@ namespace Desert::Net
             return false;
         Reader        r( body );
         std::uint32_t id = 0, sim = 0, epoch = 0, step = 0, on = 0, player = 0;
-        if ( !r.U32( id ) || !r.U32( sim ) || !r.U32( epoch ) || !r.U32( step ) || !r.U32( on ) || !r.U32( player ) ||
-             on != gateway )
+        if ( !r.U32( id ) || !r.U32( sim ) || !r.U32( epoch ) || !r.U32( step ) || !r.U32( on ) ||
+             !r.U32( player ) || on != gateway )
             return true;
         m_Authority[player] = { sim, epoch };
-        m_Log( std::format( "gateway: player {} pawn net id {} - authority (sim {}, epoch {}) from step {}: its inputs "
-                            "re-routed to sim {}",
-                            player, id, sim, epoch, step, sim ) );
+        m_Log( std::format(
+             "gateway: player {} pawn net id {} - authority (sim {}, epoch {}) from step {}: its inputs "
+             "re-routed to sim {}",
+             player, id, sim, epoch, step, sim ) );
         return true;
     }
 
@@ -1407,7 +1416,7 @@ namespace Desert::Net
     {
         for ( const PawnSimulation::Source& source : sim.Sources() )
         {
-            const auto target = m_Map.HandoverTarget( m_Sim, source.Position.X, source.Position.Z );
+            const auto target  = m_Map.HandoverTarget( m_Sim, source.Position.X, source.Position.Z );
             const auto gateway = gateways.GatewayOf( source.Player );
             if ( !target || !gateway )
                 continue;
@@ -1417,14 +1426,16 @@ namespace Desert::Net
                 continue;
             const auto          epochIt = m_Epoch.find( source.Player );
             const std::uint32_t epoch   = epochIt == m_Epoch.end() ? 1 : epochIt->second;
-            m_Log( std::format( "sim {}: pawn net id {} (player {}) at ({:.0f}, {:.0f}) cm is {:.0f} cm inside region "
-                                "'{}' of sim {} (margin {:.0f}) - frozen at step {} and handed over through the store "
-                                "(epoch {}, {} unacked input(s))",
-                                m_Sim, source.Id, source.Player, source.Position.X, source.Position.Z,
-                                region->Depth( source.Position.X, source.Position.Z ), region->Name, *target,
-                                m_Map.HandoverMargin, step, epoch, pawn->Pending.size() ) );
-            m_Endpoint.SendToRole( EMeshRole::Store,
-                                   EncodeHandover( EMesh::Handover, { m_Sim, epoch, *target, step, *gateway }, *pawn ) );
+            m_Log( std::format(
+                 "sim {}: pawn net id {} (player {}) at ({:.0f}, {:.0f}) cm is {:.0f} cm inside region "
+                 "'{}' of sim {} (margin {:.0f}) - frozen at step {} and handed over through the store "
+                 "(epoch {}, {} unacked input(s))",
+                 m_Sim, source.Id, source.Player, source.Position.X, source.Position.Z,
+                 region->Depth( source.Position.X, source.Position.Z ), region->Name, *target,
+                 m_Map.HandoverMargin, step, epoch, pawn->Pending.size() ) );
+            m_Endpoint.SendToRole(
+                 EMeshRole::Store,
+                 EncodeHandover( EMesh::Handover, { m_Sim, epoch, *target, step, *gateway }, *pawn ) );
             gateways.ForwardInputs( source.Player, *target );
             replica.Forget( source.Id );
             m_Epoch.erase( source.Player );
@@ -1432,8 +1443,8 @@ namespace Desert::Net
     }
 
     bool SimHandover::OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
-                                      RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step,
-                                      double stepSeconds )
+                                      RemoteGatewayLink& gateways, RemoteReplicationStore& replica,
+                                      std::uint32_t step, double stepSeconds )
     {
         if ( type == Code( EMesh::Adopt ) )
         {
@@ -1446,12 +1457,13 @@ namespace Desert::Net
             replica.Promote( pawn.State.Id );
             m_Epoch[pawn.Player] = h.Epoch;
             gateways.Adopted( pawn.Player, h.Gateway );
-            m_Log( std::format( "sim {}: adopted pawn net id {} (player {}) from sim {} at epoch {} - {}; frozen at step "
-                                "{}, this sim is at step {}: {} catch-up step(s), {} unacked input(s)",
-                                m_Sim, pawn.State.Id, pawn.Player, h.From, h.Epoch,
-                                wasProxy ? "its proxy promoted to authoritative"
-                                         : "held no proxy of it (outside the border band), placed from the handed state",
-                                h.Step, step, catchUp, pawn.Pending.size() ) );
+            m_Log( std::format(
+                 "sim {}: adopted pawn net id {} (player {}) from sim {} at epoch {} - {}; frozen at step "
+                 "{}, this sim is at step {}: {} catch-up step(s), {} unacked input(s)",
+                 m_Sim, pawn.State.Id, pawn.Player, h.From, h.Epoch,
+                 wasProxy ? "its proxy promoted to authoritative"
+                          : "held no proxy of it (outside the border band), placed from the handed state",
+                 h.Step, step, catchUp, pawn.Pending.size() ) );
             sim.Adopt( std::move( pawn ), catchUp, stepSeconds );
             return true;
         }

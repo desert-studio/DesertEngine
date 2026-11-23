@@ -75,7 +75,7 @@ namespace Desert::Net
     // cell of the grid the table is cut on - no ping-pong on the line).
     struct MeshAuthorityMap
     {
-        std::vector<MeshRegion> Regions; // the first one is the entry: players join on its sim
+        std::vector<MeshRegion> Regions;              // the first one is the entry: players join on its sim
         float                   BorderBand     = 0.f; // cm
         float                   HandoverMargin = 0.f; // cm
 
@@ -208,14 +208,14 @@ namespace Desert::Net
             std::uint32_t Sim   = 0;
             std::uint32_t Epoch = 0;
         };
-        MeshEndpoint&                                m_Endpoint;
-        NetLogSink                                   m_Log;
-        InProcessReplicationStore                    m_State;
-        NetId                                        m_NextLease = 1;
-        std::map<NetId, Authority>                   m_PawnAuthority;
-        std::set<std::pair<NetId, std::uint32_t>>    m_Refused; // (id, sim) whose stale write was logged
-        std::map<std::uint32_t, std::set<NetId>>     m_Proxies; // sim -> the pawns it holds as proxies
-        MeshAuthorityMap                             m_Map;
+        MeshEndpoint&                             m_Endpoint;
+        NetLogSink                                m_Log;
+        InProcessReplicationStore                 m_State;
+        NetId                                     m_NextLease = 1;
+        std::map<NetId, Authority>                m_PawnAuthority;
+        std::set<std::pair<NetId, std::uint32_t>> m_Refused; // (id, sim) whose stale write was logged
+        std::map<std::uint32_t, std::set<NetId>>  m_Proxies; // sim -> the pawns it holds as proxies
+        MeshAuthorityMap                          m_Map;
     };
 
     // A replica of the store in a sim or gateway process: reads from the change stream, writes sent to the store.
@@ -316,7 +316,8 @@ namespace Desert::Net
         MeshEndpoint&                                               m_Endpoint;
         NetLogSink                                                  m_Log;
         MeshAuthorityMap                                            m_Map;
-        std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>> m_Authority; // player -> (sim, epoch) of its pawn
+        std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>>
+             m_Authority; // player -> (sim, epoch) of its pawn
         std::map<PlayerId, std::uint32_t>                           m_Acks;
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>> m_Routed; // player -> (sim, epoch) last logged
     };
