@@ -13,142 +13,23 @@
 #include <string_view>
 #include <vector>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
-#include <Engine/VFX/VFXStackCompiler.hpp>
+#include <Engine/Graphic/Systems/Scene/SceneFXSystem.hpp>
 
 namespace Desert::Graphic
 {
-    // The claiming view's simulation nodes of one tick stage's chain (Open, Compact 0, then per step Dispatch Args
-    // / Spawn+Update / Compact), every node with @p flags.
-    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer,
-                                            VFX::VFXTickStage stage, RDG::PassFlags flags );
-    // The claiming view's Debug / Light readbacks of the finished tick: after BOTH chains.
-    static void AddParticleReadbacks( RDG::Builder& graph, System::ParticleRenderer& renderer );
-
     void SceneRendererImpl::AddFrameParticlesSimulate( RDG::Builder& graph )
     {
-        // The world's particle pool (VFX-07): the frame's fixed VFX steps (the scene's VFXWorld; no timestep is
-        // read here) as Compute nodes outside any render pass, BEFORE the billboard draw. "Particles: Compact 0"
-        // builds every emitter's free / alive lists and draw slot from the pool; each step s then adds
-        // "Particles: Spawn+Update s" (reads the lists, writes the pool) and "Particles: Compact s+1" (reads the
-        // pool, writes the lists and the slot). Every node declares its buffers per emitter (ParticleRenderer
-        // Declare*Bindings), so the graph orders them and places the barriers; the draw (ParticlePass, a
-        // translucency raster node) reads the alive list StorageRead and the last slot IndirectArgs. Not
-        // NeverCull: a node is live because it writes the imported pool; with no emitter it declares nothing and
-        // the graph culls it. The graph executes before OnUpdate returns, so the imports held by the renderer
-        // outlive these passes.
-        auto* particles = m_Systems.Particle.get();
-        if ( particles == nullptr )
-            return;
-        // VFX-07b: the pool is the scene's (ParticleWorldGpu). Every view imports it for its draw; only the view
-        // that claimed the VFXWorld tick adds the simulation, so two views of one scene simulate once and draw
-        // twice. Spawn+Update s and compact s+1 are dispatched INDIRECT from what "Dispatch Args s" wrote from
-        // compact s's GPU counts.
-        particles->ImportFrameBuffers( graph );
-        // PORT-VFX-MODULES (UE Niagara tick stages): the PreOpaque chain here, before the base pass, on the async
-        // pipe; the PostOpaque chain (a stack reading the scene depth) after the scene depth resolve
-        // (AddFrameParticlesPostOpaque).
-        if ( particles->ClaimsSimulation() && particles->SimulatesStage( VFX::VFXTickStage::PreOpaque ) )
-            AddParticleSimulationSteps( graph, *particles, VFX::VFXTickStage::PreOpaque,
-                                        RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute );
-        // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
-        // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers. This
-        // phase sorts every draw but a simulated PostOpaque emitter's forward ones (DrawSortPhase).
-        particles->AddSortPasses( graph, VFX::VFXTickStage::PreOpaque );
-        // VFX-09: Mesh renderer rows as GPU instances of the mesh renderer (lit by the GBuffer, cast into the
-        // cascades) - submitted here, before the cascades and the base pass build their draws.
-        if ( auto* meshes = m_Systems.Mesh.get() )
-            particles->AddMeshInstances( graph, *meshes );
-    }
-
-    static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer,
-                                            const VFX::VFXTickStage stage, const RDG::PassFlags flags )
-    {
-        // PreOpaque - ASYNC COMPUTE (UE Niagara GPU simulation on the async pipe): every node reads and writes the
-        // particle pool and the emitters' host-written step tables only; the first graphics reader is the particle
-        // draw (translucency) or, for Mesh rows, the cascades. The sort and mesh-instance nodes after them run
-        // async as well, so the run is not joined by its own next node. Fork: the pool imports' first touch; join:
-        // that first reader. PostOpaque - the graphics queue: its Spawn+Update reads the scene depth just
-        // resolved.
-        System::ParticleRenderer* particles = &renderer;
-        const uint32_t            steps     = particles->SimulationStepCount( stage );
-        const std::string_view    name      = stage == VFX::VFXTickStage::PreOpaque ? "PreOpaque" : "PostOpaque";
-        graph.AddPass(
-             std::format( "Particles {}: Open", name ), flags,
-             [particles, stage]( RDG::PassBuilder& pass ) { particles->DeclareOpenBindings( pass, stage ); },
-             [particles, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return particles->OpenDrawSlots( context, stage ); } );
-        graph.AddPass(
-             std::format( "Particles {}: Compact 0", name ), flags,
-             [particles, stage]( RDG::PassBuilder& pass ) { particles->DeclareCompactBindings( pass, 0, stage ); },
-             [particles, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return particles->Compact( context, 0, stage ); } );
-        for ( uint32_t step = 0; step < steps; ++step )
-        {
-            graph.AddPass(
-                 std::format( "Particles {}: Dispatch Args {}", name, step ), flags,
-                 [particles, step, stage]( RDG::PassBuilder& pass )
-                 { particles->DeclareDispatchArgsBindings( pass, step, stage ); },
-                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->BuildDispatchArgs( context, step, stage ); } );
-            graph.AddPass(
-                 std::format( "Particles {}: Spawn+Update {}", name, step ), flags,
-                 [particles, step, stage]( RDG::PassBuilder& pass )
-                 { particles->DeclareSimulateBindings( pass, step, stage ); },
-                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->Simulate( context, step, stage ); } );
-            graph.AddPass(
-                 std::format( "Particles {}: Compact {}", name, step + 1 ), flags,
-                 [particles, step, stage]( RDG::PassBuilder& pass )
-                 { particles->DeclareCompactBindings( pass, step + 1, stage ); },
-                 [particles, step, stage]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->Compact( context, step + 1, stage ); } );
-        }
+        // UE PreRender: the FX system's PreOpaque chain, this view's sort and its Mesh rows' instances, before the
+        // cascades and the base pass build their draws (the VFX module's ISceneFXSystem::AddPreOpaque).
+        if ( auto* particles = m_Systems.Particle.get() )
+            particles->AddPreOpaque( graph, m_Systems.Mesh.get() );
     }
 
     void SceneRendererImpl::AddFrameParticlesPostOpaque( RDG::Builder& graph, const RDG::TextureRef sceneDepth )
     {
-        // UE Niagara PostOpaqueRender: the emitters whose stack reads the scene (depth collision) simulate after
-        // the opaque scene's depth is resolved, then this view's sort of their forward draws (current half); the
-        // G-buffer rows and Mesh instances recorded earlier drew their previous half. A capture face view neither
-        // simulates nor draws particles (AddFrameParticlesSimulate).
-        auto* particles = m_Systems.Particle.get();
-        if ( particles == nullptr )
-            return;
-        if ( particles->ClaimsSimulation() )
-        {
-            // False (logged inside): the PostOpaque emitters sit this frame out, their draws skip (HasDrawnHalf).
-            (void)particles->ImportCollisionInputs( graph, sceneDepth );
-            if ( particles->SimulatesStage( VFX::VFXTickStage::PostOpaque ) )
-                AddParticleSimulationSteps( graph, *particles, VFX::VFXTickStage::PostOpaque,
-                                            RDG::PassFlags::Compute );
-        }
-        particles->AddSortPasses( graph, VFX::VFXTickStage::PostOpaque );
-        if ( particles->ClaimsSimulation() )
-            AddParticleReadbacks( graph, *particles );
-    }
-
-    static void AddParticleReadbacks( RDG::Builder& graph, System::ParticleRenderer& renderer )
-    {
-        // After both chains' last compacts (the graph orders them from the buffers), on the graphics queue.
-        const RDG::PassFlags      kSimulationFlags = RDG::PassFlags::Compute;
-        System::ParticleRenderer* particles        = &renderer;
-        // VFX-16 (UE Niagara Debugger, dev only): the GPU counts and one attribute page, after the last compact (the
-        // graph orders it from the buffers), only while an editor debugger asks.
-        if ( particles->DebugReadbackRequested() )
-            graph.AddPass(
-                 "Particles: Debug Readback", kSimulationFlags,
-                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareDebugReadbackBindings( pass ); },
-                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->DebugReadback( context ); } );
-        // VFX-LIGHT (UE Niagara Light Renderer): the Light rows' particles, after the last compact, for the
-        // scene's particle point lights FramesInFlight frames later (ParticleWorldGpu::ReadLightReadbacks).
-        if ( particles->LightReadbackRequested() )
-            graph.AddPass(
-                 "Particles: Light Readback", kSimulationFlags,
-                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareLightReadbackBindings( pass ); },
-                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 { return particles->LightReadback( context ); } );
+        // UE PostRenderOpaque: the stacks that read the resolved scene depth, then the readbacks.
+        if ( auto* particles = m_Systems.Particle.get() )
+            particles->AddPostOpaque( graph, sceneDepth );
     }
 
     void SceneRendererImpl::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )

@@ -10,7 +10,7 @@
 //   - the system atlas holds every enabled particle-group curve at its own offset, nothing else.
 #include <gtest/gtest.h>
 
-#include <Engine/VFX/VFXCurveLUT.hpp>
+#include <VFX/Public/VFXCurveLUT.hpp>
 
 #include <cmath>
 #include <vector>

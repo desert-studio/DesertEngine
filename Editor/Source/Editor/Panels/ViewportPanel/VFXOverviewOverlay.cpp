@@ -1,7 +1,7 @@
 #include "VFXOverviewOverlay.hpp"
 
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <VFX/Public/ParticleRenderer.hpp>
+#include <VFX/Public/VFXWorld.hpp>
 
 #include <algorithm>
 

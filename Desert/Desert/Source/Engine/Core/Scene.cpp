@@ -13,7 +13,7 @@
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/World/Deformation/DeformationWorld.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Carry.hpp>
@@ -516,17 +516,16 @@ namespace Desert::Core
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
-           m_Weather( std::make_unique<WeatherState>() ),
-           m_GameMode( std::make_unique<GameMode>() ),
+           m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
-           m_Settings( std::make_unique<SceneSettings>() ),
-           m_Packages( std::make_shared<EntityPackages>() ),
-           m_File( std::make_unique<FileState>() ),
-           m_VFXWorld( std::make_unique<VFX::VFXWorld>() )
+           m_Settings( std::make_unique<SceneSettings>() ), m_Packages( std::make_shared<EntityPackages>() ),
+           m_File( std::make_unique<FileState>() )
     {
         // Engine's component serializers (Core's registry): this reference links the provider in.
         Serialize::LinkEngineComponentProvider();
         StartupEngineModules();
+        for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
+            m_ModuleStates.push_back( make() );
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
     }
@@ -549,18 +548,16 @@ namespace Desert::Core
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
-           m_Weather( std::make_unique<WeatherState>() ),
-           m_GameMode( std::make_unique<GameMode>() ),
+           m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
-           m_Settings( std::make_unique<SceneSettings>() ),
-           m_SceneName( std::move( sceneName ) ),
-           m_Packages( std::make_shared<EntityPackages>() ),
-           m_File( std::make_unique<FileState>() ),
-           m_VFXWorld( std::make_unique<VFX::VFXWorld>() )
+           m_Settings( std::make_unique<SceneSettings>() ), m_SceneName( std::move( sceneName ) ),
+           m_Packages( std::make_shared<EntityPackages>() ), m_File( std::make_unique<FileState>() )
     {
         // Engine's component serializers (Core's registry): this reference links the provider in.
         Serialize::LinkEngineComponentProvider();
         StartupEngineModules();
+        for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
+            m_ModuleStates.push_back( make() );
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
 
@@ -581,10 +578,12 @@ namespace Desert::Core
         if ( m_State == SceneState::Edit && state == SceneState::Play )
         {
             m_WorldTime->Reset();
-            m_VFXWorld->Reset();
+            for ( const auto& moduleState : m_ModuleStates )
+                moduleState->Reset();
         }
         else if ( m_State != SceneState::Edit && state == SceneState::Edit )
-            m_VFXWorld->Reset();
+            for ( const auto& moduleState : m_ModuleStates )
+                moduleState->Reset();
         m_State = state;
         if ( state == SceneState::Edit )
             m_Simulating = false; // a simulation ends with the session it ran in
@@ -1030,39 +1029,16 @@ namespace Desert::Core
         }
 #endif
 
-        // THE EFFECTS CLOCK, once per scene update and never per view: every SceneRenderer of this scene
-        // reads the plan made here. Its time is the scene's — the editor's delta in Edit (effects preview
-        // while authoring, as Niagara does), the gameplay delta in Play, nothing while paused — and
-        // never the wall clock, so a `--play` run is the same frames every time.
+        // THE MODULES' PER-SCENE STATE (the VFX module's effects clock among them), once per scene update and
+        // never per view: every SceneRenderer of this scene reads the plan made here. Its time is the scene's -
+        // the editor's delta in Edit (effects preview while authoring, as Niagara does), the gameplay delta in
+        // Play, nothing while paused - and never the wall clock, so a `--play` run is the same frames every time.
         {
-            DESERT_PROFILE_SCOPE( "VFX World" );
-            const Common::Timestep vfxTs = m_State == SceneState::Edit ? ts : gameplayTs;
-            m_VFXWorld->Tick( m_Registry, static_cast<double>( vfxTs.GetSeconds() ) );
+            DESERT_PROFILE_SCOPE( "Scene: Module States" );
+            const Common::Timestep moduleTs = m_State == SceneState::Edit ? ts : gameplayTs;
+            for ( const auto& moduleState : m_ModuleStates )
+                moduleState->Tick( *this, m_Registry, static_cast<double>( moduleTs.GetSeconds() ) );
         }
-#if DESERT_DEV_INSTRUMENTS
-        // VFX-16 (UE Niagara debugger "show bounds"): every system's fixed bounds, its local box through the
-        // entity's transform, as this frame's debug lines (DebugDraw ticked above, so they draw this frame).
-        if ( m_VFXWorld->GetDebugSettings().DrawBounds )
-            for ( const VFX::VFXSystemDebugStats& system : m_VFXWorld->GetDebugStats().Systems )
-                for ( const VFX::VFXEmitterDebugStats& emitter : system.Emitters )
-                {
-                    if ( emitter.Capacity == 0 )
-                        continue; // disabled: draws nothing, culls nothing
-                    // The box the renderer culls the emitter by (VFXBoundsAt: the entity's full transform).
-                    const Common::Math::AABB box =
-                         Assets::Serialization::VFXBoundsAt( emitter.Bounds, glm::mat4( system.Transform ) );
-                    glm::vec3 corner[8];
-                    for ( int i = 0; i < 8; ++i )
-                        corner[i] = glm::vec3( ( i & 1 ) ? box.Max.x : box.Min.x, ( i & 2 ) ? box.Max.y : box.Min.y,
-                                               ( i & 4 ) ? box.Max.z : box.Min.z );
-                    DebugDrawStyle style;
-                    style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
-                    for ( int i = 0; i < 8; ++i )
-                        for ( int axis = 1; axis < 8; axis <<= 1 )
-                            if ( ( i & axis ) == 0 )
-                                DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
-                }
-#endif
 
         // Dir lights
         {
@@ -1790,7 +1766,8 @@ namespace Desert::Core
         m_Simulating   = false;
 
         m_Entities.Clear();
-        m_VFXWorld->Clear();
+        for ( const auto& moduleState : m_ModuleStates )
+            moduleState->Clear();
 
         SetupRegistryCallbacks();
         m_Subsystems.Begin();

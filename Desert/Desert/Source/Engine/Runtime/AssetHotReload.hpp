@@ -111,7 +111,6 @@ namespace Desert::Runtime
         void PollVFXEffectTypes( Assets::AssetManager& assetManager );
         // No scene argument: VFXSystemService hands every VFXComponent the asset's current snapshot and follows
         // its EditSerial, so the re-read in place IS the whole of the reload.
-        void PollVFXSystems( Assets::AssetManager& assetManager );
 
         // What one probe found. Keys are WatchKey(path).
         struct Probe

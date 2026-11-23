@@ -1,0 +1,12 @@
+# BUILD-MOD-6V: VFX lives in Desert/VFX/Source/VFX; Engine reaches it only through hooks (per-scene module state,
+# ISceneFXSystem, sequencer effect drive, service / asset-root / asset-type / hot-reload rows). The demo scene's
+# emitters (ImpactUp -150,0,0; ImpactPlusX 150,0,0; looping 1.5 s bursts) are framed by the editor camera, played a few seconds and must draw as on dev. WP_Protocol opens streamed (no Load All user state).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, небо; стриминг (число items в editor.log как в dev); без падения и диалога ошибки
+Когда run Scene "Open Scene VFX_Demo_Impacts.desce"
+Когда wait-idle 60
+Когда --subject viewport set Camera.Position 0,40,500
+Когда --subject viewport set Camera.Direction 0,-0.0797,-0.9968
+Когда frames 120
+Тогда-вид 1_vfx эмиттеры VFX_Demo_Impacts рисуются (частицы видны), как в кадре dev той же сцены и времени; в editor.log нет "no VFX module" и "Particle system unavailable"

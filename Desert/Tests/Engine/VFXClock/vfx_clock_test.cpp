@@ -9,8 +9,8 @@
 //      over ticks of MaxSeekStepsPerTick, reporting Seeking until it lands.
 //   4. REPEAT. The same deltas give the same plans, spawn counts and random numbers, run after run.
 
-#include <Engine/VFX/VFXClock.hpp>
-#include <Engine/VFX/VFXRandom.hpp>
+#include <VFX/Public/VFXClock.hpp>
+#include <VFX/Public/VFXRandom.hpp>
 
 #include <gtest/gtest.h>
 

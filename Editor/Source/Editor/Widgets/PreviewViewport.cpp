@@ -40,8 +40,8 @@
 #include <Engine/ECS/SkyboxComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <VFX/Public/VFXComponent.hpp>
+#include <VFX/Public/VFXWorld.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/DebugViewState.hpp>
@@ -933,22 +933,22 @@ namespace Desert::Editor
     {
         if ( m_Effect )
             m_Effect.GetComponent<ECS::VFXComponent>().RequestRestart = true;
-        m_Scene->GetVFXWorld().Reset();
+        ::Desert::VFX::VFXWorld::Of( *m_Scene ).Reset();
     }
 
     void PreviewViewport::SetVFXDesiredAge( const std::optional<double> age )
     {
-        m_Scene->GetVFXWorld().SetDesiredAge( age );
+        ::Desert::VFX::VFXWorld::Of( *m_Scene ).SetDesiredAge( age );
     }
 
     double PreviewViewport::GetVFXAge() const
     {
-        return m_Scene->GetVFXWorld().GetClock().GetAge();
+        return ::Desert::VFX::VFXWorld::Of( *m_Scene ).GetClock().GetAge();
     }
 
     double PreviewViewport::GetVFXStepSeconds() const
     {
-        return m_Scene->GetVFXWorld().GetClock().GetSettings().StepSeconds;
+        return ::Desert::VFX::VFXWorld::Of( *m_Scene ).GetClock().GetSettings().StepSeconds;
     }
 
     void PreviewViewport::InvalidatePipelines( const void* shader )

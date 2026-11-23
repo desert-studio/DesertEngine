@@ -174,7 +174,6 @@ namespace Desert::Graphic
         class LightShaftRenderer;
         class LocalExposureRenderer;
         class MeshRenderer;
-        class ParticleRenderer;
         struct ParticleViewEmitterCull;
         class PathTracer;
         class SceneColorHistoryRenderer;
@@ -656,7 +655,7 @@ namespace Desert::Graphic
         virtual void SetQuality( const Common::Scalability::ResolvedQuality& quality ) = 0;
         // The GI / reflection / shadow methods this view renders and why any came out below its request — what
         // the viewport overlay draws (Graphic/RenderMethods.hpp). Refreshed every BeginScene.
-        // VFX-PORT-2: this view's particle cull (ParticleRenderer::ViewEmitterCulls); empty without the system.
+        // VFX-PORT-2: this view's particle cull (ISceneFXSystem::ViewEmitterCulls); empty without the system.
         [[nodiscard]] virtual std::span<const System::ParticleViewEmitterCull>
                                                    ParticleViewEmitterCulls() const = 0;
         [[nodiscard]] virtual const RenderMethods& GetRenderMethods() const         = 0;

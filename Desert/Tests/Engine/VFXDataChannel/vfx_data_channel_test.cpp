@@ -14,10 +14,10 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
-#include <Engine/VFX/VFXDataChannel.hpp>
-#include <Engine/VFX/VFXEmitterSpawn.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <VFX/Public/VFXSystem.hpp>
+#include <VFX/Public/VFXDataChannel.hpp>
+#include <VFX/Public/VFXEmitterSpawn.hpp>
+#include <VFX/Public/VFXWorld.hpp>
 
 #include <entt/entt.hpp>
 

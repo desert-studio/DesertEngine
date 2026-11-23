@@ -7,7 +7,7 @@
 
 #include <Editor/Core/CommandHistory.hpp>
 
-#include <Engine/VFX/VFXModuleFormat.hpp>
+#include <VFX/Public/VFXModuleFormat.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

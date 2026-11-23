@@ -15,10 +15,10 @@
 #include <type_traits>
 #include <vector>
 
-#include <Engine/VFX/VFXComponent.hpp>
-#include <Engine/VFX/VFXLibrary.hpp>
-#include <Engine/VFX/VFXPointSet.hpp>
-#include <Engine/VFX/VFXUserOverride.hpp>
+#include <VFX/Public/VFXComponent.hpp>
+#include <VFX/Public/VFXLibrary.hpp>
+#include <VFX/Public/VFXPointSet.hpp>
+#include <VFX/Public/VFXUserOverride.hpp>
 
 namespace Desert::Reflection
 {

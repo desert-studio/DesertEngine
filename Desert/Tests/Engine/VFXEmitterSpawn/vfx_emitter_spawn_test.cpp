@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include <Engine/VFX/VFXEmitterSpawn.hpp>
+#include <VFX/Public/VFXEmitterSpawn.hpp>
 
 #include <cstdint>
 #include <string>

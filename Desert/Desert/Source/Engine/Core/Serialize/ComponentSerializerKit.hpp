@@ -50,7 +50,6 @@
 #include <Engine/Assets/WorldParametersAsset.hpp>
 #include <Engine/Assets/WeatherPresetAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
-#include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>

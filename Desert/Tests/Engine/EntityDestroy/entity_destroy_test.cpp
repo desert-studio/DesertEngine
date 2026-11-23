@@ -14,7 +14,7 @@
 #include <Engine/Core/SceneEntityIndex.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleEmitterRetire.hpp>
+#include <VFX/Public/ParticleEmitterRetire.hpp>
 
 #include "../PhysicsFixture.hpp"
 
@@ -36,7 +36,7 @@
 #include <Engine/Physics/CharacterControllerComponent.hpp>
 #include <Engine/Physics/ColliderComponent.hpp>
 #include <Engine/Physics/RigidBodyComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <VFX/Public/VFXComponent.hpp>
 
 namespace
 {

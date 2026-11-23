@@ -11,6 +11,11 @@ namespace Desert::Destruction
     void StartupModule();
 } // namespace Desert::Destruction
 
+namespace Desert::VFX
+{
+    void StartupModule();
+} // namespace Desert::VFX
+
 namespace Desert::Water
 {
     void StartupModule();
@@ -23,6 +28,7 @@ namespace Desert::Core
         static const bool started = []
         {
             Destruction::StartupModule();
+            VFX::StartupModule();
             Water::StartupModule();
             return true;
         }();

@@ -15,7 +15,7 @@
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/Scripting/ScriptComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <Engine/ECS/SequencerEffectDrive.hpp>
 
 namespace Desert::ECS
 {
@@ -211,18 +211,12 @@ namespace Desert::ECS
                 m_Sounds.push_back( action.Target );
                 return;
             case T::EventActionKind::ActivateParticles:
-                if ( !bound || !m_Registry.has<VFXComponent>( entity ) )
-                {
+                // UE UNiagaraComponent::Activate(true): the placed system starts bearing, from the start (the VFX
+                // module's hook, SequencerEffectDrive.hpp).
+                if ( const auto activate = SequencerEffectHooks().Activate;
+                     !bound || activate == nullptr || !activate( m_Registry, entity ) )
                     m_Refusals.push_back( std::format(
                          "Event '{}': Activate Particles needs a bound entity with a VFX component", key->Name ) );
-                    return;
-                }
-                {
-                    // UE UNiagaraComponent::Activate(true): the placed system starts bearing, from the start.
-                    auto& vfx             = m_Registry.get<VFXComponent>( entity );
-                    vfx.Data.AutoActivate = true;
-                    vfx.RequestRestart    = true;
-                }
                 return;
             case T::EventActionKind::CallScript:
                 if ( !bound || !m_Registry.has<ScriptComponent>( entity ) )
@@ -308,13 +302,13 @@ namespace Desert::ECS
     void LevelSequenceEntityHost::DriveEffect( const T::ResolvedBinding& target, const T::VFXSample& sample )
     {
         const entt::entity entity = EntityOf( target );
-        auto*              vfx    = m_Registry.valid( entity ) ? m_Registry.try_get<VFXComponent>( entity ) : nullptr;
-        if ( vfx == nullptr )
+        auto* drive = m_Registry.valid( entity ) ? SequencerEffectDriveOf( m_Registry, entity ) : nullptr;
+        if ( drive == nullptr )
         {
             m_Refusals.push_back( "VFX track: the bound entity has no VFX component" );
             return;
         }
-        vfx->SequencerDrive = VFXSequencerDrive{ sample.Active, sample.Active ? sample.AgeSeconds : 0.0 };
+        *drive = VFXSequencerDrive{ sample.Active, sample.Active ? sample.AgeSeconds : 0.0 };
     }
 
     namespace

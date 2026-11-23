@@ -8,11 +8,13 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <vector>
 
 namespace Desert::Assets
 {
+    class AssetBase;
     class AssetManager;
     class AssetRootSet;
 } // namespace Desert::Assets
@@ -43,6 +45,30 @@ namespace Desert::Core
         /// that file. Null: the type is stored by path only.
         bool ( *IsRecorded )( const Assets::AssetManager& assets, std::uint64_t handle ) = nullptr;
     };
+    /// A module's hot-reloaded assets (Runtime/AssetHotReload.cpp): Watch adds its loaded assets to the probe's
+    /// watched files, Poll re-reads those whose file @p changed says changed.
+    struct HotReloadPoller
+    {
+        void ( *Watch )( Assets::AssetManager&                            assets,
+                         std::vector<std::shared_ptr<Assets::AssetBase>>& watched )          = nullptr;
+        void ( *Poll )( Assets::AssetManager&                                      assets,
+                        const std::function<bool( const std::filesystem::path& )>& changed ) = nullptr;
+    };
+
+    /// A module's per-scene state (UE UWorldSubsystem / FNiagaraWorldManager): one per Scene, made by the scene's
+    /// constructors in hook order, ticked once per scene update with the scene's clock (the editor's delta in
+    /// Edit, the gameplay delta in Play, nothing while paused), reset when Play begins or ends, cleared with the
+    /// scene's entities. The module reaches its own through Scene::GetModuleState( slot ), slot = its index here.
+    class ISceneModuleState
+    {
+    public:
+        virtual ~ISceneModuleState()                                                = default;
+        virtual void Tick( Scene& scene, entt::registry& registry, double seconds ) = 0;
+        virtual void Reset()                                                        = 0;
+        virtual void Clear()                                                        = 0;
+    };
+    using SceneModuleStateMaker = std::unique_ptr<ISceneModuleState> ( * )();
+
     /// A module's render-data collectors (ECS systems emitting render commands), added to every scene after the
     /// engine's own (Core/SceneRenderCollectors.cpp).
     using RenderCollectorAdder = void ( * )( Scene& scene );
@@ -54,6 +80,8 @@ namespace Desert::Core
         std::vector<RegistryPrepare> Prepares;
         std::vector<AssetAnnouncer>       AssetTypes;
         std::vector<RenderCollectorAdder> RenderCollectors;
+        std::vector<SceneModuleStateMaker> SceneStates;
+        std::vector<HotReloadPoller>       HotReloads;
     };
 
     inline ModuleHookLists& ModuleHooks()

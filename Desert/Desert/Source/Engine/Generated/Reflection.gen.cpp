@@ -30,8 +30,8 @@ namespace Desert::Reflection::Generated
     void RegisterReflection_Media();
     void RegisterReflection_Landscape();
     void RegisterReflection_Destruction();
-    void RegisterReflection_VFX();
     void RegisterReflection_Water();
+    void RegisterReflection_VFX();
     void RegisterReflection_Hair();
     void RegisterReflection_Foliage();
     void RegisterReflection_Scripting();
@@ -66,8 +66,8 @@ namespace
             ::Desert::Reflection::Generated::RegisterReflection_Media();
             ::Desert::Reflection::Generated::RegisterReflection_Landscape();
             ::Desert::Reflection::Generated::RegisterReflection_Destruction();
-            ::Desert::Reflection::Generated::RegisterReflection_VFX();
             ::Desert::Reflection::Generated::RegisterReflection_Water();
+            ::Desert::Reflection::Generated::RegisterReflection_VFX();
             ::Desert::Reflection::Generated::RegisterReflection_Hair();
             ::Desert::Reflection::Generated::RegisterReflection_Foliage();
             ::Desert::Reflection::Generated::RegisterReflection_Scripting();

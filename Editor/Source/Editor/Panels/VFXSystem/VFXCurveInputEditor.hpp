@@ -11,7 +11,7 @@
 // stop edit touches only the keys AT that time - a channel without a key there gets a Linear one - so the
 // interpolation and tangents of every other key survive (no rebuild from the stops).
 
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

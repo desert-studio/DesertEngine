@@ -39,7 +39,7 @@
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/Graphic/RDG/RDGAccess.hpp>
 #include <Engine/Scripting/ScriptComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <VFX/Public/VFXComponent.hpp>
 
 namespace
 {

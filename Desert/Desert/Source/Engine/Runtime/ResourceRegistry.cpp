@@ -20,7 +20,6 @@
 #include <Engine/Runtime/Services/Subsurface/SubsurfaceProfileService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
-#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
 #include <Engine/Runtime/Services/Video/VideoService.hpp>
 #include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 #include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
@@ -165,12 +164,6 @@ namespace Desert::Runtime
         return &physicsAssetService;
     }
 
-    VFXSystemService* ResourceRegistry::GetVFXSystemService()
-    {
-        static VFXSystemService vfxSystemService;
-        return &vfxSystemService;
-    }
-
     WorldParametersService* ResourceRegistry::GetWorldParametersService()
     {
         static WorldParametersService worldParametersService;
@@ -218,7 +211,6 @@ namespace Desert::Runtime
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Bind( assets );
         GetPhysicsAssetService()->BindAssetManager( assets );
-        GetVFXSystemService()->BindAssetManager( assets );
         GetWorldParametersService()->BindAssetManager( assets );
         GetWeatherPresetService()->BindAssetManager( assets );
         GetSubsurfaceProfileService()->BindAssetManager( assets );
@@ -253,7 +245,6 @@ namespace Desert::Runtime
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Clear();
         GetPhysicsAssetService()->Clear();
-        GetVFXSystemService()->Clear();
         GetImageService()->Clear();
     }
 

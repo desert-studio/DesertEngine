@@ -26,8 +26,8 @@
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystemService.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -155,7 +155,7 @@
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
 #include <Engine/UI/Ecs/UITreeViewComponent.hpp>
 #include <Engine/UI/Ecs/UITweenComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <VFX/Public/VFXComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 #include <Engine/World/Partition/DataLayersComponent.hpp>
@@ -163,7 +163,7 @@
 #include <Engine/World/Partition/LocationVolumeComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
-#include <Engine/VFX/VFXUserOverride.hpp>
+#include <VFX/Public/VFXUserOverride.hpp>
 #include <Common/Json/ReadWrite.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
@@ -868,7 +868,7 @@ namespace Desert::Editor
         namespace Ser = ::Desert::Assets::Serialization;
         if ( data.System == ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) )
             return;
-        auto* service = ::Desert::Runtime::ResourceRegistry::GetVFXSystemService();
+        auto* service = ::Desert::Runtime::GetVFXSystemService();
         if ( service == nullptr )
             return;
         const auto system = service->Get( data.System );

@@ -99,7 +99,7 @@
 #include <Engine/UI/Ecs/UISliderComponent.hpp>
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <VFX/Public/VFXWorld.hpp>
 #include <Common/Json/DocumentStruct.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
@@ -2413,8 +2413,8 @@ namespace Desert::Editor
                 if ( const auto& rtStats = renderer->GetRayTracingScene().GetStats(); rtStats.Built )
                     DrawRayTracingSceneOverlay( rtStats, renderer->TakeLedgerMemory(), viewportMin, viewportMax );
                 // VFX-16: the effects world's overview (Particle Debugger -> Viewport overview).
-                if ( m_Scene->GetVFXWorld().GetDebugSettings().Overview )
-                    DrawVFXOverviewOverlay( m_Scene->GetVFXWorld().GetDebugStats(),
+                if ( ::Desert::VFX::VFXWorld::Of( *m_Scene ).GetDebugSettings().Overview )
+                    DrawVFXOverviewOverlay( ::Desert::VFX::VFXWorld::Of( *m_Scene ).GetDebugStats(),
                                             renderer->ParticleViewEmitterCulls(), viewportMin, viewportMax );
             }
 

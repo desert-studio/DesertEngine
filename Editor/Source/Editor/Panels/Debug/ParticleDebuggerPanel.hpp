@@ -2,7 +2,7 @@
 
 #include "Editor/Core/IPanel.hpp"
 
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp>
+#include <VFX/Public/ParticleWorldGpu.hpp>
 
 #include <cstdint>
 #include <memory>
