@@ -484,6 +484,7 @@ namespace Desert::Graphic::System
         bool     CastShadows     = true;
         bool     ReceiveShadows  = true;
         bool     CastContactShadow = true; // UE bCastContactShadow: the G-buffer's NO_CONTACT_SHADOW bit (static)
+        bool     ReceivesDecals    = true; // UE bReceivesDecals: the G-buffer's DBuffer fetch (NO_DECALS bit)
         int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
@@ -533,6 +534,8 @@ namespace Desert::Graphic::System
             bool                   ReceiveShadows  = true;
             // UE bCastContactShadow: pushed with the G-buffer draw (PrimitiveFlags) into the shading word.
             bool                   CastContactShadow        = true;
+            // UE bReceivesDecals: pushed with the G-buffer draw (PrimitiveFlags NO_DECALS) and in the GpuScene row.
+            bool                   ReceivesDecals           = true;
             int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
             // WP-FAR-12F: the card side of an impostor pair (StaticSceneSection::ImpostorCard). A flat billboard
             // stands in for the mesh in raster only; it never enters the ray tracing scene (UE excludes the
@@ -681,6 +684,9 @@ namespace Desert::Graphic::System
             Animation::LeaderPoseLink   Leader;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
+            // UE bReceivesDecals (SkinnedMeshComponent::ReceivesDecals, off by default): a projected decal swims on
+            // a deforming surface. The GpuScene row's kNoDecals and the per-draw NO_DECALS push carry it.
+            bool                        ReceivesDecals = false;
         };
 
         // A UE-style Instanced Static Mesh: ONE mesh + ONE Lit material drawn N times. The material and the

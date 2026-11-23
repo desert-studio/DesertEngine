@@ -41,6 +41,7 @@ namespace Desert::ECS
         Assets::AssetHandle MeshHandle;
         std::vector<Assets::AssetHandle> MaterialSlots;
         bool CastShadows = true;
+        bool ReceivesDecals = false;
         std::shared_ptr<SkinnedMesh> RuntimeMesh;
         std::shared_ptr<Animation::Skeleton> RuntimeSkeleton;
 
@@ -78,6 +79,10 @@ namespace Desert::ECS
         [[nodiscard]] const bool& GetCastShadows() const
         {
             return CastShadows;
+        }
+        [[nodiscard]] const bool& GetReceivesDecals() const
+        {
+            return ReceivesDecals;
         }
         [[nodiscard]] const std::shared_ptr<SkinnedMesh>& GetRuntimeMesh() const
         {
@@ -145,6 +150,9 @@ namespace Desert::ECS
         const void*                               m_RuntimeSlotsMesh     = nullptr; // see RuntimeSlotsMesh
         uint32_t m_SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
+        // UE's bReceivesDecals, OFF by default here (UE characters turn it off by convention): a decal projected
+        // onto a deforming surface swims as the pose moves under it. On = the G-buffer write takes the DBuffer.
+        bool     ReceivesDecals       = false;
 
         // In-editor rig: a skinned mesh built at runtime by "Convert to Skinned" (from a static mesh + placed
         // bones, auto-weighted), NOT yet a cooked asset. When set, RuntimeMesh overrides MeshHandle in the
@@ -162,6 +170,7 @@ namespace Desert::ECS
         desc.MeshHandle = MeshHandle;
         desc.MaterialSlots = MaterialSlots;
         desc.CastShadows = CastShadows;
+        desc.ReceivesDecals = ReceivesDecals;
         desc.RuntimeMesh = RuntimeMesh;
         desc.RuntimeSkeleton = RuntimeSkeleton;
         return desc;
@@ -172,6 +181,7 @@ namespace Desert::ECS
         return MeshHandle == desc.MeshHandle
             && MaterialSlots == desc.MaterialSlots
             && CastShadows == desc.CastShadows
+            && ReceivesDecals == desc.ReceivesDecals
             && RuntimeMesh == desc.RuntimeMesh
             && RuntimeSkeleton == desc.RuntimeSkeleton;
     }
@@ -181,6 +191,7 @@ namespace Desert::ECS
         MeshHandle = desc.MeshHandle;
         MaterialSlots = desc.MaterialSlots;
         CastShadows = desc.CastShadows;
+        ReceivesDecals = desc.ReceivesDecals;
         RuntimeMesh = desc.RuntimeMesh;
         RuntimeSkeleton = desc.RuntimeSkeleton;
     }

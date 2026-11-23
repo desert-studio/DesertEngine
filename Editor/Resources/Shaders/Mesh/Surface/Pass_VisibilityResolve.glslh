@@ -239,7 +239,8 @@ void main()
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), 0.0,
                         ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u, true,
-                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u );
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_DECALS ) == 0u );
 }
 #elif defined( DESERT_SURFACE_VIRTUAL_GEOMETRY )
 // THE VIRTUAL GEOMETRY RESOLVE (VG-SW-RASTER; UE 5 Nanite's FetchNaniteMaterialPixelParameters): a pixel the
@@ -519,6 +520,7 @@ void main()
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), moved,
                         ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u, true,
-                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u );
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT ) != 0u,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_DECALS ) == 0u );
 }
 #endif

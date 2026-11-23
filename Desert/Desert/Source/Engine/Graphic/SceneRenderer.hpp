@@ -293,6 +293,8 @@ namespace Desert::Graphic
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
             bool                   CastContactShadow        = true; // UE bCastContactShadow (static meshes)
+            // UE bReceivesDecals: the component's (static: on by default; skinned: off by default).
+            bool                   ReceivesDecals           = true;
             int                    TranslucencySortPriority = 0; // lower draws first (translucency pass)
         };
 

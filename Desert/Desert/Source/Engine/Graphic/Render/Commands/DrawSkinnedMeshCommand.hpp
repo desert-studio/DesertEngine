@@ -40,6 +40,8 @@ namespace Desert::Graphic::Render
         uint64_t                        HiddenSubmeshes = 0;
         bool                            Outlined    = false;
         bool                            CastShadows = true;
+        // SkinnedMeshComponent::ReceivesDecals (UE bReceivesDecals; off by default on a skinned mesh).
+        bool                            ReceivesDecals = false;
 
         DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh,
                                 Graphic::MaterialSlotBindingPtr materialSlot, const glm::mat4& transform,
@@ -48,10 +50,12 @@ namespace Desert::Graphic::Render
                                 uint64_t morphRevision, bool outlined, bool castShadows,
                                 std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr,
                                 Animation::LeaderPoseLink                      leader      = {},
-                                uint64_t                                       hiddenSubmeshes = 0 )
+                                uint64_t                                       hiddenSubmeshes = 0,
+                                bool receivesDecals = false )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( std::move( bones ) ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
-               LodFeedback( std::move( lodFeedback ) ), Leader( leader ), HiddenSubmeshes( hiddenSubmeshes ), Outlined( outlined ), CastShadows( castShadows )
+               LodFeedback( std::move( lodFeedback ) ), Leader( leader ), HiddenSubmeshes( hiddenSubmeshes ), Outlined( outlined ), CastShadows( castShadows ),
+               ReceivesDecals( receivesDecals )
         {
         }
 

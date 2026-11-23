@@ -61,6 +61,9 @@ namespace Desert::Graphic::GpuDriven
         // complementary dither masks (DESERT_GPU_VISIBLE_LOD_FADE_OUT / _IN) so the switch never pops.
         inline constexpr uint32_t kImpostorSource = 1u << 8;
         inline constexpr uint32_t kImpostorCard   = 1u << 9;
+        // UE !bReceivesDecals: the binned G-buffer cell skips the DBuffer fetch (GLSL DESERT_GPU_PRIMITIVE_NO_DECALS;
+        // the per-draw twin is Graphic::PrimitiveFlag::NoDecals).
+        inline constexpr uint32_t kNoDecals = 1u << 10;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one

@@ -1,0 +1,16 @@
+# NG-DECALS: impact decals (World.spawnDecal -> World::DecalImpactPool -> "Deferred: Decals"; UE SpawnDecalAtLocation
+# + SetFadeOut) on FIELD_Barn. PRECONDITION (content, pass 2): FIELD_Barn needs one entity at the barn wall running
+# Scripts/Examples/DecalImpactsDemo.lua (Count 500, WallZ = the wall's offset) and a mesh-decal road strip; until then
+# this scenario FAILS at its first Тогда-вид by design. 500 spawns: 250 on the wall, 250 on the ground; every 4th
+# has Lifetime 2 s / FadeDuration 1 s. Effects.DecalImpactPoolSize at Epic = 1024 (>= 500, nothing recycled).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Когда run Action "Play"
+Когда advance 0.5
+Тогда-вид decals_impacts all 500 impact decals visible on the wall and the ground (a 25-wide grid of default-decal marks, rolled), none on any skinned mesh; editor.log has "DecalImpactsDemo: spawned 500 refused 0", 0 VUID, 0 "[Decals]" errors
+Когда advance 1.0
+Тогда-вид decals_fading every 4th mark (125) is half faded (FadeDuration window), the rest unchanged
+Когда advance 1.5
+Тогда-вид decals_faded the 125 short-lived marks are gone, 375 remain; frame time vs a run with Count 0 is within +0.1 ms (GPU "Deferred: Decals")

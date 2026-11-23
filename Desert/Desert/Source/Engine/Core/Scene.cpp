@@ -15,6 +15,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/World/Deformation/DeformationWorld.hpp>
+#include <Engine/World/Decals/DecalImpactPool.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Carry.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
@@ -516,6 +517,7 @@ namespace Desert::Core
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
+           m_DecalImpacts( std::make_unique<World::DecalImpactPool>() ),
            m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
            m_Settings( std::make_unique<SceneSettings>() ), m_Packages( std::make_shared<EntityPackages>() ),
@@ -548,6 +550,7 @@ namespace Desert::Core
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
+           m_DecalImpacts( std::make_unique<World::DecalImpactPool>() ),
            m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
            m_Settings( std::make_unique<SceneSettings>() ), m_SceneName( std::move( sceneName ) ),

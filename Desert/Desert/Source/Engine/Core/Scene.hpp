@@ -65,6 +65,7 @@ namespace Desert::Core
 namespace Desert::World
 {
     class DeformationWorld;
+    class DecalImpactPool;
 }
 
 namespace Desert::Debug
@@ -468,6 +469,12 @@ namespace Desert::Core
         [[nodiscard]] const World::DeformationWorld& GetDeformation() const
         {
             return *m_Deformation;
+        }
+        // The world's impact decals (NG-DECALS-MESH, Engine/World/Decals): the ring World.spawnDecal writes and
+        // ECS::DecalECSSystem draws, no entity per decal.
+        [[nodiscard]] World::DecalImpactPool& GetDecalImpacts()
+        {
+            return *m_DecalImpacts;
         }
         // Adopts (or keeps) the named collection. Refused with the reason when the collection cannot be read;
         // the instance then holds no parameters, so no material reads a stale value.
@@ -1012,6 +1019,7 @@ namespace Desert::Core
         std::unique_ptr<WorldTime> m_WorldTime;
         std::unique_ptr<WorldParameterInstance> m_WorldParameters;
         std::unique_ptr<World::DeformationWorld> m_Deformation;
+        std::unique_ptr<World::DecalImpactPool>  m_DecalImpacts;
         std::unique_ptr<WeatherState> m_Weather;
         bool                          m_PreviewRealtime    = true;
         bool                          m_SingleFramePending = false; // RequestSingleFrame, consumed by OnUpdate

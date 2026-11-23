@@ -44,6 +44,8 @@ namespace Desert::Core::Serialize::Builtins
                     meshSer.ReceiveShadows = smc.GetReceiveShadows();
                 if ( !smc.GetCastContactShadow() )
                     meshSer.CastContactShadow = smc.GetCastContactShadow();
+                if ( !smc.GetReceivesDecals() )
+                    meshSer.ReceivesDecals = smc.GetReceivesDecals();
                 if ( smc.GetTranslucencySortPriority() != 0 )
                     meshSer.TranslucencySortPriority = smc.GetTranslucencySortPriority();
                 if ( smc.GetMaxDrawDistance() > 0.0f )
@@ -92,6 +94,7 @@ namespace Desert::Core::Serialize::Builtins
                 desc.CastShadows       = meshData.CastShadows.value_or( desc.CastShadows );
                 desc.ReceiveShadows    = meshData.ReceiveShadows.value_or( desc.ReceiveShadows );
                 desc.CastContactShadow = meshData.CastContactShadow.value_or( desc.CastContactShadow );
+                desc.ReceivesDecals    = meshData.ReceivesDecals.value_or( desc.ReceivesDecals );
                 desc.TranslucencySortPriority =
                      meshData.TranslucencySortPriority.value_or( desc.TranslucencySortPriority );
                 desc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( desc.MaxDrawDistance );
@@ -399,6 +402,8 @@ namespace Desert::Core::Serialize::Builtins
                 // like the static mesh above.
                 if ( !smc.GetCastShadows() )
                     meshSer.CastShadows = smc.GetCastShadows();
+                if ( smc.GetReceivesDecals() )
+                    meshSer.ReceivesDecals = smc.GetReceivesDecals();
 
                 return Common::Json::FromStruct( meshSer );
             };
@@ -432,7 +437,8 @@ namespace Desert::Core::Serialize::Builtins
                     }
                 }
 
-                desc.CastShadows = meshData.CastShadows.value_or( desc.CastShadows );
+                desc.CastShadows    = meshData.CastShadows.value_or( desc.CastShadows );
+                desc.ReceivesDecals = meshData.ReceivesDecals.value_or( desc.ReceivesDecals );
                 ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
