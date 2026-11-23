@@ -36,8 +36,8 @@ namespace Desert::Net
         float AirControl                 = 0.35f;
         float Gravity                    = 980.0f;
         // UE ACharacter's CapsuleComponent (34 cm radius, 88 cm half height = 54 cm cylinder + the cap).
-        float CapsuleRadius              = 34.0f;
-        float CapsuleHalfHeight          = 54.0f; // the cylinder's half height, without the caps
+        float CapsuleRadius     = 34.0f;
+        float CapsuleHalfHeight = 54.0f; // the cylinder's half height, without the caps
     };
 
     // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where a capsule whose
@@ -52,14 +52,15 @@ namespace Desert::Net
             NetVec3 Velocity;
             bool    Grounded = false;
         };
-        virtual ~IPawnMoveWorld() = default;
+        virtual ~IPawnMoveWorld()                                                               = default;
         [[nodiscard]] virtual Outcome Move( const PawnMoveState& from, const NetVec3& velocity,
                                             const PawnMoveSettings& settings, float dtSeconds ) = 0;
     };
 
     // One fixed step of the own character (StepPawnMove's input is the player's InputStep).
     [[nodiscard]] PawnMoveState StepPawnMove( const PawnMoveState& from, const InputStep& input,
-                                              const PawnMoveSettings& settings, IPawnMoveWorld& world, float dtSeconds );
+                                              const PawnMoveSettings& settings, IPawnMoveWorld& world,
+                                              float dtSeconds );
 
     // True when two states differ by more than the reconciliation tolerance (UE MAXPOSITIONERRORSQUARED: the
     // server corrects only an error the client could see).
@@ -83,7 +84,8 @@ namespace Desert::Net
             return m_Started;
         }
         // Predicts one input step; the input's Step is its number on the wire.
-        void Predict( const InputStep& input, const PawnMoveSettings& settings, IPawnMoveWorld& world, float dtSeconds );
+        void Predict( const InputStep& input, const PawnMoveSettings& settings, IPawnMoveWorld& world,
+                      float dtSeconds );
         // The server's state after input step @p ackStep (UE ClientAdjustPosition / ClientAckGoodMove).
         EReconcile Reconcile( std::uint32_t ackStep, const PawnMoveState& server, const PawnMoveSettings& settings,
                               IPawnMoveWorld& world, float dtSeconds );

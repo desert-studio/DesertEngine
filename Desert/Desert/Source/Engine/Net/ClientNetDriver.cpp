@@ -719,12 +719,11 @@ namespace Desert::Core
                         : m_ServerQueue > kQueueHigh ? 1.0 + kDilation
                                                      : 1.0;
         const glm::vec3 drawnBefore = OwnDrawnPosition();
-        Net::IPawnMoveWorld* world = PredictionWorld();
+        Net::IPawnMoveWorld* world       = PredictionWorld();
         if ( world == nullptr )
             return;
-        const auto outcome =
-             predictor.Reconcile( authority->AckStep, authority->State, m_Prediction->Movement, *world,
-                                  Net::kNetStepSeconds );
+        const auto outcome = predictor.Reconcile( authority->AckStep, authority->State, m_Prediction->Movement,
+                                                  *world, Net::kNetStepSeconds );
         if ( outcome != Net::MovePredictor::EReconcile::Corrected )
             return;
         const glm::vec3 offset = drawnBefore - ( OwnDrawnPosition() - m_SmoothOffset );

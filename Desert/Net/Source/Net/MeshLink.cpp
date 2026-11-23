@@ -180,8 +180,7 @@ namespace Desert::Net
                 std::uint8_t grounded = 0;
                 if ( !( U32( m.Step ) && F32( m.State.Position.X ) && F32( m.State.Position.Y ) &&
                         F32( m.State.Position.Z ) && F32( m.State.Velocity.X ) && F32( m.State.Velocity.Y ) &&
-                        F32( m.State.Velocity.Z ) && F32( m.State.Yaw ) && U8( grounded ) &&
-                        U8( m.Buffered ) ) )
+                        F32( m.State.Velocity.Z ) && F32( m.State.Yaw ) && U8( grounded ) && U8( m.Buffered ) ) )
                     return false;
                 m.State.Grounded = grounded != 0;
                 return true;

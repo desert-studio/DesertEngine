@@ -139,7 +139,7 @@ namespace Desert::Net
             {
                 const auto next    = pawn.Pending.begin();
                 // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
-                pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, m_World, kNetStepSeconds );
+                pawn.Move = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, m_World, kNetStepSeconds );
                 pawn.LastProcessed = next->first;
                 pawn.Pending.erase( next );
             }

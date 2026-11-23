@@ -116,14 +116,14 @@ namespace Desert::Net
         state.Velocity.Z = velocity.Z;
         // A grounded walk keeps pressing the floor (UE: the walking move follows the floor; Jolt sticks the
         // capsule to it), so a step off a ledge is a fall from the next move on, not a hover.
-        const NetVec3 moveVelocity{ state.Velocity.X,
+        const NetVec3                 moveVelocity{ state.Velocity.X,
                                     state.Grounded ? -settings.Gravity * dtSeconds : state.Velocity.Y,
                                     state.Velocity.Z };
-        const IPawnMoveWorld::Outcome moved = world.Move( state, moveVelocity, settings, dtSeconds );
+        const IPawnMoveWorld::Outcome moved  = world.Move( state, moveVelocity, settings, dtSeconds );
         const bool                    rising = !state.Grounded && state.Velocity.Y > 0.f;
-        state.Position = moved.Position;
-        state.Velocity.X = moved.Velocity.X;
-        state.Velocity.Z = moved.Velocity.Z;
+        state.Position                       = moved.Position;
+        state.Velocity.X                     = moved.Velocity.X;
+        state.Velocity.Z                     = moved.Velocity.Z;
         if ( state.Grounded )
             state.Velocity.Y = 0.f;
         else if ( moved.Velocity.Y < state.Velocity.Y * 0.5f && rising )

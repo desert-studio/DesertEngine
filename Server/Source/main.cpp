@@ -750,8 +750,7 @@ namespace Desert::Server
                 return 5;
             }
             ServerCollision     world = collision.ExtractValue();
-            Net::PawnSimulation sim( replica, gatewayLink, *world.PawnMove, std::move( simSettings ),
-                                     netLog );
+            Net::PawnSimulation sim( replica, gatewayLink, *world.PawnMove, std::move( simSettings ), netLog );
             endpoint.SetHandler(
                  { [&]( Net::EMeshRole peerRole, std::uint32_t, Net::ConnectionId, std::uint16_t )
                    {
@@ -917,7 +916,7 @@ namespace Desert::Server
             std::unique_ptr<Net::INetTransport>        transport;
             std::unique_ptr<Net::InProcessReplicationStore> store;
             std::unique_ptr<Net::Gateway>              gateway;
-            ServerCollision                            collision;
+            ServerCollision                                 collision;
             std::unique_ptr<Net::PawnSimulation>       sim;
             if ( options.port )
             {
@@ -960,7 +959,7 @@ namespace Desert::Server
                 }
                 collision = made.ExtractValue();
                 sim       = std::make_unique<Net::PawnSimulation>( *store, *gateway, *collision.PawnMove,
-                                                                 std::move( simSettings ), netLog );
+                                                                   std::move( simSettings ), netLog );
                 gateway->Bind( *sim );
                 LOG_INFO(
                      "[Server] listening on port {} (server id {}, cook hash {:016x}); {} spawn point(s); pawn {} "

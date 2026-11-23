@@ -244,8 +244,8 @@ namespace Desert::Net
         {
             std::uint8_t grounded = 0;
             if ( !in.Vec( message.OwnState.Position ) || !in.Vec( message.OwnState.Velocity ) ||
-                 !in.F32( message.OwnState.Yaw ) || !in.U8( grounded ) ||
-                 grounded > 1 || !in.U8( message.InputBuffered ) )
+                 !in.F32( message.OwnState.Yaw ) || !in.U8( grounded ) || grounded > 1 ||
+                 !in.U8( message.InputBuffered ) )
                 return std::nullopt;
             message.OwnState.Grounded = grounded == 1;
         }
