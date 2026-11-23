@@ -234,7 +234,7 @@ namespace Desert::Graphic
     {
         m_ReservoirsCreated   = false;
         m_ReservoirWriterPass = UINT32_MAX;
-        const std::array<RDG::ExternalTexture, ReservoirCount>& previous =
+        std::array<RDG::ExternalTexture, ReservoirCount>& previous =
              m_ReservoirSlots[m_PreviousReservoirSlot];
         if ( !m_HasPreviousReservoirs || AnyMissing( previous ) ||
              m_PreviousReservoirExtent.Width != reservoirExtent.Width ||

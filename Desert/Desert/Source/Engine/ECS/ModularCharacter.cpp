@@ -1,6 +1,7 @@
 #include <Engine/ECS/ModularCharacter.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Animation/SkeletonReference.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>

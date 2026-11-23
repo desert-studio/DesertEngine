@@ -303,9 +303,13 @@ namespace Desert::Graphic::System
         if ( line == m_LoggedOutcome )
             return;
         if ( warning )
+        {
             LOG_WARN( "{}", line );
+        }
         else
+        {
             LOG_INFO( "{}", line );
+        }
         m_LoggedOutcome = std::move( line );
     }
 
