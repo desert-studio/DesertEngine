@@ -223,7 +223,6 @@
                 "Shadows.MapSize": 2048,
                 "Shadows.Distance": 15000,
                 "Shadows.DistanceFieldCascadeDistance": 6000,
-                "Shadows.FarDistance": 100000,
                 "Shadows.ContactShadowSteps": 12,
                 "Shadows.Method": "CascadedMaps",
                 "Shadows.LightGridPixelSize": 64,

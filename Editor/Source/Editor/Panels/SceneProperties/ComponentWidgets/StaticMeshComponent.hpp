@@ -22,10 +22,6 @@ namespace Desert::Editor
     private:
         std::string GetPrimitiveName( const ECS::StaticMeshComponent& staticMesh ) const;
 
-        // The mesh thumbnail on the asset row: the asset browser's cached PNG, a neutral framed glyph
-        // otherwise. Leaves the cursor on the same line for the slot field.
-        void DrawMeshThumbnail( const ECS::StaticMeshComponent& staticMesh, float size ) const;
-
         // In-editor rigging section: place bones on an asset-backed static mesh and "Convert to Skinned".
         void RenderRigging( ECS::Entity& entity, ECS::StaticMeshComponent& staticMesh );
 
