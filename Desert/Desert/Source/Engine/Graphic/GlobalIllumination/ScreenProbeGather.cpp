@@ -1586,6 +1586,9 @@ namespace Desert::Graphic::GlobalIllumination
                      return Renderer::DispatchComputeIndirect( bindings, *pipeline, args, argsOffset );
                  } );
         };
+        // FPS-SP-HALFRES-DIFFUSE: the simple-diffuse permutation interpolates the probes at half resolution (16
+        // samples a tile) and upsamples depth/normal-aware in the same group (ScreenProbeIntegrate.shader
+        // HALF-RESOLUTION SIMPLE DIFFUSE); the GGX tiles stay full resolution. Same bindings, same dispatch.
         integrate( IntegrateSimpleDiffuse, "ScreenProbes: Integrate Simple Diffuse", 0u );
         integrate( Integrate, "ScreenProbes: Integrate", kIntegrateFullArgsOffset );
 #if DESERT_DEV_INSTRUMENTS

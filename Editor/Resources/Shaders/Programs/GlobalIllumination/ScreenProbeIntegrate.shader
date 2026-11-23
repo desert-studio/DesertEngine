@@ -1,6 +1,7 @@
 // DesertAsset {"Kind":"Shader","Guid":"ad572b5fc8784311a2fcc5a2d28adc9a","Versions":{"SHDR":1},"Dependencies":[]}
 // THE SCREEN PROBE GATHER, 4/4 — INTEGRATE (UE ScreenProbeIntegrateCS, LumenScreenProbeGather.usf): one thread per
-// G-buffer pixel; the temporal filter that follows it is ScreenProbeTemporal.
+// G-buffer pixel; the temporal filter that follows it is ScreenProbeTemporal. A simple-diffuse tile interpolates
+// the probes at one pixel a 2x2 quad and upsamples depth/normal-aware (HALF-RESOLUTION SIMPLE DIFFUSE).
 //   probes    the four uniform probes around the pixel, bilinear x how well each lies on the pixel's plane and
 //             faces its normal; a corner that misses takes the best adaptive probe of its tile (SPInterpolate, UE
 //             CalculateUpsampleInterpolationWeights). The placement put an adaptive probe wherever this test
@@ -796,9 +797,59 @@ Shader "ScreenProbeIntegrate"
             return !( dot( heldW, vec4( 1.0 ) ) >= SP_ADAPTIVE_EPSILON );
         }
 #else
+        // The probes that hold the pixel (world position @p p, shading normal @p n, @p distance from the camera)
+        // and what they answer at the SH basis @p basis: the weighted sums of their irradiance, moving shares and
+        // backface (each over its own total: the diffuse and the moving share over the returned total, the
+        // backface already normalised), in the order SPIntegratePixel always summed them. A total below
+        // SP_ADAPTIVE_EPSILON: no probe holds the pixel and the sums are zero. @p heldId / @p heldW / @p heldEntry
+        // are the held probes the full permutation's GGX samples pick from.
+        float SPInterpolateHeld( ivec2 pixel, vec3 p, vec3 n, float distance, float basis[9], out vec3 diffuse,
+                                 out float lightIsMoving, out vec3 backface, out uvec4 heldId, out vec4 heldW,
+                                 out uvec4 heldEntry )
+        {
+            diffuse       = vec3( 0.0 );
+            lightIsMoving = 0.0;
+            backface      = vec3( 0.0 );
+            uvec4 heldSlot;
+            ivec2 heldCorner0;
+            SPInterpolateSlots( pixel, p, n, distance, SP_LEVELS, heldId, heldW, heldSlot, heldCorner0 );
+            // The held probes as vectors, each read only at a constant index of an unrolled loop, the GGX samples'
+            // pick by selects: no array indexed by a run-time value (a dynamically indexed local array of structs is
+            // placed in local memory, a scratch load a GGX sample - FPS-SP-INTEGRATE-2).
+            uvec4 heldNbTile = uvec4( SP_INVALID );
+            heldEntry        = uvec4( SP_INVALID );
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+            for ( int i = 0; i < 4; ++i )
+            {
+                const uint nbTile = SPNeighbourTile( heldCorner0 + ivec2( i & 1, i >> 1 ) );
+                heldNbTile[i]     = heldSlot[i] == 0u ? nbTile : SP_INVALID;
+                heldEntry[i]      = nbTile * SP_NB_SLOTS + heldSlot[i];
+            }
+#endif
+            const float total = dot( heldW, vec4( 1.0 ) );
+            if ( total < SP_ADAPTIVE_EPSILON )
+                return total;
+            // One pass over the held probes (was three): the diffuse, the moving share and the backface each in its
+            // own sum, each in the same order as before.
+            float backTotal = 0.0;
+            for ( int i = 0; i < 4; ++i )
+                if ( heldW[i] > 0.0 )
+                {
+                    const SPHeld held = SPHeld( heldId[i], heldNbTile[i], heldEntry[i] );
+                    diffuse += heldW[i] * ProbeIrradiance( held, basis );
+                    lightIsMoving += heldW[i] * SPHeldMoving( held );
+                    const vec4 back = SPHeldBackface( held );
+                    backface += heldW[i] * back.a * back.rgb;
+                    backTotal += heldW[i] * back.a;
+                }
+            backface /= max( backTotal, 1e-6 );
+            return total;
+        }
+
         // One pixel of the tile at @p tileOrigin from the probes that hold it: writes its three outputs (zero off the
         // G-buffer's surfaces). Not called for a pixel the uncovered mask lists (THE UNCOVERED PIXELS: the uncovered
-        // pass wrote it).
+        // pass wrote it). The simple-diffuse permutation calls it only for a pixel none of the tile's half-resolution
+        // samples lies on (HALF-RESOLUTION SIMPLE DIFFUSE below).
         void SPIntegratePixel( ivec2 pixel, ivec2 tileOrigin, bool shortRangeAO )
         {
             const vec2 extent = giFrame.screen.xy;
@@ -825,55 +876,28 @@ Shader "ScreenProbeIntegrate"
             const float roughness   = max( gb.a, 0.04 );
             const float diffuseLerp = SPRoughSpecularDiffuseLerp( roughness );
 
-            vec3  diffuse  = vec3( 0.0 );
-            vec3  specular = vec3( 0.0 );
-            vec3  backface = vec3( 0.0 );
+            vec3 specular = vec3( 0.0 );
+            // The probes that hold the pixel and their weights (SPInterpolateHeld): the diffuse reads every one,
+            // each GGX sample one of them picked by weight (UE r.Lumen.ScreenProbeGather.StochasticInterpolation) -
+            // four radiance fetches a pixel instead of four per probe (Bistro's backlit crown: 7.1 ms of integrate,
+            // then a GPU watchdog).
             // UE LightIsMoving (LumenScreenProbeGather.usf:1450-1454): the held probes' moving shares under the
             // diffuse's weights; 0 where no probe holds the pixel (UE: lighting not valid). It rides in the rough
             // specular's alpha, which nothing else reads, to the temporal filter's fast update.
-            float lightIsMoving = 0.0;
-            // The probes that hold the pixel and their weights: the diffuse reads every one, each GGX sample one of
-            // them picked by weight (UE r.Lumen.ScreenProbeGather.StochasticInterpolation) - four radiance fetches a
-            // pixel instead of four per probe (Bistro's backlit crown: 7.1 ms of integrate, then a GPU watchdog).
-            uvec4 heldId;
-            vec4  heldW;
-            uvec4 heldSlot;
-            ivec2 heldCorner0;
-            SPInterpolateSlots( pixel, p, n, distance, SP_LEVELS, heldId, heldW, heldSlot, heldCorner0 );
-            // The held probes as vectors, each read only at a constant index of an unrolled loop, the GGX samples'
-            // pick by selects: no array indexed by a run-time value (a dynamically indexed local array of structs is
-            // placed in local memory, a scratch load a GGX sample - FPS-SP-INTEGRATE-2).
-            uvec4 heldNbTile = uvec4( SP_INVALID );
-            uvec4 heldEntry  = uvec4( SP_INVALID );
-#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
-            for ( int i = 0; i < 4; ++i )
-            {
-                const uint nbTile = SPNeighbourTile( heldCorner0 + ivec2( i & 1, i >> 1 ) );
-                heldNbTile[i]     = heldSlot[i] == 0u ? nbTile : SP_INVALID;
-                heldEntry[i]      = nbTile * SP_NB_SLOTS + heldSlot[i];
-            }
-#endif
-            const float total = dot( heldW, vec4( 1.0 ) );
+            float basis[9];
+            SPSHBasisAll( bent, basis );
+            vec3        diffuse;
+            float       lightIsMoving;
+            vec3        backface;
+            uvec4       heldId;
+            vec4        heldW;
+            uvec4       heldEntry;
+            const float total = SPInterpolateHeld( pixel, p, n, distance, basis, diffuse, lightIsMoving, backface,
+                                                   heldId, heldW, heldEntry );
             if ( total >= SP_ADAPTIVE_EPSILON )
             {
-                float basis[9];
-                SPSHBasisAll( bent, basis );
-                // One pass over the held probes (was three): the diffuse, the moving share and the backface each
-                // in its own sum, each in the same order as before.
-                float backTotal = 0.0;
-                for ( int i = 0; i < 4; ++i )
-                    if ( heldW[i] > 0.0 )
-                    {
-                        const SPHeld held = SPHeld( heldId[i], heldNbTile[i], heldEntry[i] );
-                        diffuse += heldW[i] * ProbeIrradiance( held, basis );
-                        lightIsMoving += heldW[i] * SPHeldMoving( held );
-                        const vec4 back = SPHeldBackface( held );
-                        backface += heldW[i] * back.a * back.rgb;
-                        backTotal += heldW[i] * back.a;
-                    }
                 diffuse *= ao / total;
                 lightIsMoving /= total;
-                backface /= max( backTotal, 1e-6 );
 #if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
                 // A simple-diffuse tile: every pixel's rough specular IS its irradiance (diffuseLerp 1).
                 specular = diffuse;
@@ -947,6 +971,162 @@ Shader "ScreenProbeIntegrate"
             imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, lightIsMoving ) );
             imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
         }
+
+#if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
+        // HALF-RESOLUTION SIMPLE DIFFUSE (FPS-SP-HALFRES-DIFFUSE; UE r.Lumen.ScreenProbeGather.IntegrateDownsampleFactor
+        // 2 with its depth/normal-aware upsample): a simple-diffuse tile interpolates the probes - the integrate's
+        // whole cost: SPInterpolateSlots' plane and normal tests over every level, four probes' seven SH words, the
+        // backface and the moving share - at ONE pixel of each 2x2 quad, the 16 HALF SAMPLES, on the group's first
+        // 16 lanes (one wave; the second wave of the 8x8 group issues nothing until the upsample). Each sample is
+        // the pixel the short-range AO traced this frame (SPShortRangeAOOffset: the same quad corner, cycling over
+        // the four in four frames, so the temporal filter sees every pixel's own interpolation every fourth frame).
+        // A sample keeps the UNOCCLUDED irradiance at its bent normal, its backface and moving share, its position
+        // and normal. Then every pixel of the tile takes the samples of its bilinear footprint (inside the tile)
+        // weighted as the short-range AO's upsample weighs its texels - the PLANE weight (distance off this pixel's
+        // tangent plane, relative to the camera distance) times the NORMAL weight (facing ^ 8) - and multiplies by
+        // its OWN full-resolution AO: a crown before a wall and a wall-floor seam take nothing across, and the
+        // short-range occlusion keeps every pixel's detail. A sample pixel takes only itself (bilinear 1): its
+        // result is the full-resolution one. A pixel no sample of its surface reaches (thin geometry under a
+        // quad, total weight under SP_HALF_MIN_WEIGHT) integrates itself at full resolution (SPIntegratePixel):
+        // never another surface's light. The GGX tiles (the full permutation) stay full resolution: their four
+        // visible-GGX samples are per pixel by construction.
+        // UE upsamples the integrated irradiance at the low-resolution pixel's own bent normal, as here; the
+        // pixel's own SH evaluation would need the four samples' blended 27 coefficients a pixel (as many shared
+        // loads as the full-resolution probe reads it replaces) - REMAINDER if the flat-surface diff shows
+        // normal-map detail lost.
+        #define SP_HALF_SAMPLES 16u
+        #define SP_HALF_MIN_WEIGHT 0.01
+        shared vec4 s_HalfIrradiance[SP_HALF_SAMPLES]; // rgb: unoccluded irradiance (/ pi); a: 1 = a held surface
+        shared vec4 s_HalfBackface[SP_HALF_SAMPLES];   // rgb: backface irradiance; a: the moving share
+        shared vec3 s_HalfPosition[SP_HALF_SAMPLES];
+        shared vec3 s_HalfNormal[SP_HALF_SAMPLES];
+
+        // The half sample @p index (0..15, row-major over the tile's 4x4 quads) of the tile at @p tileOrigin: its
+        // pixel, the traced corner of its quad.
+        ivec2 SPHalfSamplePixel( ivec2 tileOrigin, uint index )
+        {
+            return tileOrigin + ivec2( int( index % 4u ), int( index / 4u ) ) * 2 +
+                   SPShortRangeAOOffset( screenProbeParams.atlas.y );
+        }
+
+        // Called by the group's first SP_HALF_SAMPLES lanes after SPShortRangeAOLoadTile (the tile's AO texels and
+        // probe neighbourhood in shared memory); the mask @p uncoveredWords is the tile's two words.
+        void SPHalfSampleIntegrate( ivec2 tileOrigin, uint index, bool shortRangeAO, uvec2 uncoveredWords )
+        {
+            const ivec2 pixel = SPHalfSamplePixel( tileOrigin, index );
+            const uint  local = uint( pixel.y - tileOrigin.y ) * 8u + uint( pixel.x - tileOrigin.x );
+            vec4        irradiance = vec4( 0.0 );
+            vec4        back       = vec4( 0.0 );
+            vec3        p          = vec3( 0.0 );
+            vec3        n          = vec3( 0.0 );
+            const bool  uncovered  = ( uncoveredWords[local >> 5u] & ( 1u << ( local & 31u ) ) ) != 0u;
+            if ( !uncovered && all( lessThan( pixel, ivec2( giFrame.screen.xy ) ) ) )
+            {
+                const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
+                if ( dot( gb.xyz, gb.xyz ) > 0.001 )
+                {
+                    const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+                    p                    = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
+                                                                     giFrame.invViewProjection );
+                    n                    = normalize( gb.xyz );
+                    const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
+                    vec3        bent     = n;
+                    float       ao       = 1.0;
+                    if ( shortRangeAO )
+                        SPShortRangeAOAt( pixel, tileOrigin, p, distance, n, bent, ao );
+                    float basis[9];
+                    SPSHBasisAll( bent, basis );
+                    vec3        diffuse;
+                    float       lightIsMoving;
+                    vec3        backface;
+                    uvec4       heldId;
+                    vec4        heldW;
+                    uvec4       heldEntry;
+                    const float total = SPInterpolateHeld( pixel, p, n, distance, basis, diffuse, lightIsMoving,
+                                                           backface, heldId, heldW, heldEntry );
+                    // A total that rounds under the epsilon (the uncovered pass's test in the other pipeline): no
+                    // sample, its pixel integrates itself (SPIntegratePixel writes zeros for it).
+                    if ( total >= SP_ADAPTIVE_EPSILON )
+                    {
+                        irradiance = vec4( diffuse / total, 1.0 );
+                        back       = vec4( backface, lightIsMoving / total );
+                    }
+                }
+            }
+            s_HalfIrradiance[index] = irradiance;
+            s_HalfBackface[index]   = back;
+            s_HalfPosition[index]   = p;
+            s_HalfNormal[index]     = n;
+        }
+
+        // One pixel of a simple-diffuse tile from the half samples (published by a barrier): writes its three
+        // outputs. Not called for a pixel the uncovered mask lists.
+        void SPHalfUpsamplePixel( ivec2 pixel, ivec2 tileOrigin, bool shortRangeAO )
+        {
+            if ( any( greaterThanEqual( pixel, ivec2( giFrame.screen.xy ) ) ) )
+                return;
+            const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
+            if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
+            {
+                imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( 0.0 ) );
+                imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( 0.0 ) );
+                imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( 0.0 ) );
+                return;
+            }
+            const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
+                                                             giFrame.invViewProjection );
+            const vec3  n        = normalize( gb.xyz );
+            const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
+            // The footprint: the samples at quad (b + i), tile-local, bilinear by where the pixel lies between their
+            // pixels (2 apart, from the frame's corner); a footprint quad outside the tile is skipped (the tile's
+            // own samples only - the other weights renormalise).
+            const vec2  c         = vec2( pixel - tileOrigin - SPShortRangeAOOffset( screenProbeParams.atlas.y ) ) *
+                                    0.5;
+            const ivec2 b         = ivec2( floor( c ) );
+            const vec2  f         = c - vec2( b );
+            const float tolerance = distance * SP_SHORT_RANGE_AO_PLANE_TOLERANCE;
+            vec3        irradiance = vec3( 0.0 );
+            vec4        back       = vec4( 0.0 );
+            float       total      = 0.0;
+            for ( int i = 0; i < 4; ++i )
+            {
+                const vec2  bilinear = mix( 1.0 - f, f, vec2( i & 1, i >> 1 ) );
+                const ivec2 quad     = b + ivec2( i & 1, i >> 1 );
+                if ( bilinear.x * bilinear.y <= 0.0 || any( lessThan( quad, ivec2( 0 ) ) ) ||
+                     any( greaterThan( quad, ivec2( 3 ) ) ) )
+                    continue;
+                const uint slot = uint( quad.y ) * 4u + uint( quad.x );
+                const vec4 s    = s_HalfIrradiance[slot];
+                if ( s.a <= 0.0 )
+                    continue;
+                const float facing = dot( s_HalfNormal[slot], n );
+                if ( facing <= 0.0 )
+                    continue;
+                const float plane = abs( dot( s_HalfPosition[slot] - p, n ) ) / tolerance;
+                const float w = bilinear.x * bilinear.y * exp2( -plane * plane ) * SPShortRangeAONormalWeight( facing );
+                irradiance += w * s.rgb;
+                back += w * s_HalfBackface[slot];
+                total += w;
+            }
+            if ( total < SP_HALF_MIN_WEIGHT )
+            {
+                // No sample of this surface reaches the pixel: its own full-resolution integrate.
+                SPIntegratePixel( pixel, tileOrigin, shortRangeAO );
+                return;
+            }
+            vec3  bent = n;
+            float ao   = 1.0;
+            if ( shortRangeAO )
+                SPShortRangeAOAt( pixel, tileOrigin, p, distance, n, bent, ao );
+            const vec3 diffuse = irradiance * ( ao / total );
+            back /= total;
+            // A simple-diffuse tile: every pixel's rough specular IS its irradiance (diffuseLerp 1).
+            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
+            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( diffuse, back.a ) );
+            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( back.rgb, 1.0 ) );
+        }
+#endif // SP_INTEGRATE_SIMPLE_DIFFUSE
 #endif // SP_INTEGRATE_UNCOVERED (SPPixelUncovered / SPIntegratePixel)
 
         // THE UNCOVERED PIXELS above: the group's pixels no probe holds, by local index (LocalSize 8x8).
@@ -1010,6 +1190,16 @@ Shader "ScreenProbeIntegrate"
                 SPIntegrateUncovered( tileOrigin + ivec2( int( local % 8u ), int( local / 8u ) ), tileOrigin,
                                       shortRangeAO );
             }
+#elif defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
+            // HALF-RESOLUTION SIMPLE DIFFUSE: the 16 half samples on the first lanes, then every pixel the uncovered
+            // pass did not list from them (the barrier is reached by the whole group: the tile is uniform over it).
+            if ( gl_LocalInvocationIndex < SP_HALF_SAMPLES )
+                SPHalfSampleIntegrate( tileOrigin, gl_LocalInvocationIndex, shortRangeAO,
+                                       uvec2( screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, 0u )],
+                                              screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, 1u )] ) );
+            barrier();
+            if ( ( screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, word )] & bit ) == 0u )
+                SPHalfUpsamplePixel( pixel, tileOrigin, shortRangeAO );
 #else
             // A pixel the uncovered pass listed is its: this pass writes every other one.
             if ( ( screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, word )] & bit ) == 0u )
