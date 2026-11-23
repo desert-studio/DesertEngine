@@ -29,11 +29,13 @@ namespace Desert::Graphic::RayTracing
 {
     RayTracingGeometryVariants::BuildFn MakeVariantBuild()
     {
-        return []( Mesh& mesh, const RayTracingSubmeshMasks& masks )
+        return []( Mesh& mesh, const RayTracingSubmeshMasks& masks,
+                   std::span<const RayTracingSegmentOpacityMicromap> micromaps )
                     -> Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>>
         {
-            auto built =
-                 API::Vulkan::VulkanRayTracingGeometry::BuildStatic( DescribeStaticMeshBlas( mesh, masks ) );
+            RayTracingMeshInput input = DescribeStaticMeshBlas( mesh, masks );
+            input.Micromaps.assign( micromaps.begin(), micromaps.end() );
+            auto built = API::Vulkan::VulkanRayTracingGeometry::BuildStatic( input );
             if ( !built )
                 return Common::MakeError<std::shared_ptr<RayTracingGeometryResource>>( built.GetError() );
             return Common::MakeSuccess( std::shared_ptr<RayTracingGeometryResource>( built.GetValue() ) );

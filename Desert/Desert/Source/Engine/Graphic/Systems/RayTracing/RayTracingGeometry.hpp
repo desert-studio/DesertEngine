@@ -170,10 +170,6 @@ namespace Desert::Graphic::RayTracing
         return DescribeMeshGeometry( submeshes, masks, kDeformedPositionLayout );
     }
 
-    // THE DEVICE-LEVEL BLAS INPUT OF ONE MESH (UE FRayTracingGeometryInitializer): the buffers a build reads and
-    // the segments over them (vertex stride, position offset and format, index type, per-segment ranges, opaque).
-    // The RenderCore builders take this and nothing above it; the side that knows the mesh fills it
-    // (Engine/Graphic/Render/RayTracingMeshInput.hpp), so the API layer never includes Mesh or SkinnedMesh.
     // A BAKED OPACITY MICROMAP OF ONE NON-OPAQUE SEGMENT (RT-OMM-SER; UE FRayTracingGeometrySegment's OMM): the
     // buffers Programs/RayTracing/OpacityMicromapBake.shader wrote on the GPU, named by device address, for the
     // BLAS build to turn into a VkMicromapEXT and attach to that segment's geometry. Built only where the catalog
@@ -190,6 +186,11 @@ namespace Desert::Graphic::RayTracing
         std::shared_ptr<void> Owner;
     };
 
+    // THE DEVICE-LEVEL BLAS INPUT OF ONE MESH (UE FRayTracingGeometryInitializer): the buffers a build reads and
+    // the segments over them (vertex stride, position offset and format, index type, per-segment ranges, opaque).
+    // The RenderCore builders take this and nothing above it; the side that knows the mesh fills it
+    // (Engine/Graphic/Render/RayTracingMeshInput.hpp), so the API layer never includes Mesh or SkinnedMesh.
+    struct RayTracingMeshInput
     {
         // The mesh's vertex buffer: what a static / procedural BLAS reads positions from, and what the skin pass
         // reads for a deformed one (its BLAS reads the cached positions instead).

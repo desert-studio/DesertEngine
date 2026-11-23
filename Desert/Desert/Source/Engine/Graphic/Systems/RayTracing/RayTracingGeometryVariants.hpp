@@ -3,12 +3,17 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingOpacityMicromaps.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
+#include <string>
+#include <vector>
 #include <unordered_map>
+#include <utility>
 
 namespace Desert
 {
@@ -28,6 +33,15 @@ namespace Desert
 //
 // A variant exists only for a mesh that has its own BLAS (Mesh::GetRayTracingGeometry): a mesh with none (not
 // resident, no ray-tracing device, a kind the uploader builds none for) traces nothing, hidden or not.
+//
+// OPACITY MICROMAPS (RT-OMM-SER; UE 5.4 r.RayTracing.OpacityMicromaps): a variant's non-opaque segments are the
+// only masked segments of a static mesh's BLAS, so the variant is where their micromaps live. Once per variant
+// upload, on the frame its metadata first names their alpha test (QueueOpacityMicromaps, frame N), the scene
+// renderer bakes them on the GPU (OpacityMicromapBake.shader); on the next frame's Resolve (N+1, the bake was
+// submitted before on the same queue) the variant is rebuilt with them and the new BLAS replaces the old one -
+// the same image, fewer any-hit candidates. A different alpha test for a baked segment (another texture or
+// cutoff in the section's material) drops the micromaps and rebuilds the plain BLAS first: a stale micromap would
+// answer OPAQUE where the new test lets the ray through. Without the catalog's OpacityMicromap nothing is queued.
 namespace Desert::Graphic::RayTracing
 {
     class RayTracingGeometryVariants
@@ -36,8 +50,12 @@ namespace Desert::Graphic::RayTracing
         // Builds the BLAS of @p mesh without the masks' hidden submeshes and with their non-opaque segments. Null
         // value: no BLAS by design (the device traces no ray, nothing left to build). Tests inject a fake;
         // production is MakeVariantBuild().
+        // @p micromaps: the baked micromaps of non-opaque segments (empty = a BLAS without micromaps).
         using BuildFn = std::function<Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>>(
-             Mesh&, const RayTracingSubmeshMasks& )>;
+             Mesh&, const RayTracingSubmeshMasks&, std::span<const RayTracingSegmentOpacityMicromap> micromaps )>;
+        // The output buffers of one segment's bake (VulkanRayTracingGeometry::AllocateOpacityMicromapBake).
+        using AllocateBakeFn =
+             std::function<Common::ResultStr<RayTracingSegmentOpacityMicromap>( uint32_t segment, uint32_t triangles )>;
 
         explicit RayTracingGeometryVariants( BuildFn build ) : m_Build( std::move( build ) )
         {
@@ -52,6 +70,28 @@ namespace Desert::Graphic::RayTracing
 
         // Drops every variant no Resolve asked for since the previous EndFrame.
         void EndFrame();
+
+        // THIS FRAME'S BAKES: the @p candidates (CollectOpacityMicromapCandidates over the frame's metadata) of the
+        // live variants that have no micromaps yet get their output buffers from @p allocate and are returned for
+        // the frame's bake pass; the variant is rebuilt with them on the next frame's Resolve. A candidate whose
+        // BLAS is no variant (a mesh's own BLAS, a procedural or skin-cache one) is not baked. Errors (an
+        // allocation, a rebuild that failed) are reported once through TakeOpacityMicromapErrors; the variant then
+        // keeps its plain BLAS.
+        [[nodiscard]] std::vector<OpacityMicromapBake>
+        QueueOpacityMicromaps( std::span<const OpacityMicromapCandidate> candidates, const AllocateBakeFn& allocate );
+
+        struct OpacityMicromapStats
+        {
+            uint32_t BakedSegments  = 0; // segments of the live variants whose BLAS carries a micromap
+            uint64_t BakedTriangles = 0;
+            uint64_t BakedBytes     = 0; // the bake outputs (data + triangle rows + indices) of those segments
+            uint32_t Failed         = 0; // variants whose bake or rebuild failed (plain BLAS kept)
+        };
+        [[nodiscard]] OpacityMicromapStats GetOpacityMicromapStats() const;
+        [[nodiscard]] std::vector<std::string> TakeOpacityMicromapErrors()
+        {
+            return std::exchange( m_OpacityErrors, {} );
+        }
 
         [[nodiscard]] std::size_t LiveVariants() const
         {
@@ -95,10 +135,28 @@ namespace Desert::Graphic::RayTracing
             MeshGeometryBinding                         Binding;
             std::shared_ptr<RayTracingGeometryResource> Geometry;
             bool                                        Used = false;
+            // RT-OMM-SER: None -> Baking (QueueOpacityMicromaps, frame BakeFrame) -> Built (Resolve, a later
+            // frame) or Failed. A new upload resets it to None.
+            enum class Opacity : uint8_t
+            {
+                None,
+                Baking,
+                Built,
+                Failed,
+            };
+            Opacity                                       OpacityState = Opacity::None;
+            uint64_t                                      BakeFrame    = 0;
+            std::vector<RayTracingSegmentOpacityMicromap> Micromaps;   // the bake outputs, by segment
+            std::vector<OpacityMicromapCandidate>         BakedFrom;   // the alpha test each was baked against
         };
+
+        // Variant @p variant of @p key rebuilt with its baked micromaps (Resolve, the frame after the bake).
+        void BuildWithMicromaps( Mesh& mesh, const RayTracingSubmeshMasks& masks, Variant& variant );
 
         BuildFn                                   m_Build;
         std::unordered_map<Key, Variant, KeyHash> m_Variants;
+        uint64_t                                  m_Frame = 0; // EndFrame count: a bake of frame k builds at > k
+        std::vector<std::string>                  m_OpacityErrors;
     };
 
     // The production build: the API's blocking BLAS build of the mesh's resident buffers

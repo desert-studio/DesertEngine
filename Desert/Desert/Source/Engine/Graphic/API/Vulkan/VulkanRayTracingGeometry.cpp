@@ -7,6 +7,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 
+#include <array>
+
 namespace Desert::Graphic::API::Vulkan
 {
 
@@ -262,6 +264,82 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>(
                  "vkGetAccelerationStructureDeviceAddressKHR answered 0 for a built BLAS" );
         return Common::MakeSuccess( std::move( geometry ) );
+    }
+
+    namespace
+    {
+        // The three bake outputs of one segment; released on the frame-retire ring (RT_DestroyBuffer) with the
+        // last reference (RayTracingSegmentOpacityMicromap::Owner, the BLAS build's submit lambda).
+        struct OpacityMicromapBakeBuffers
+        {
+            std::array<VkBuffer, 3>      Buffers{};
+            std::array<VmaAllocation, 3> Memory{};
+
+            OpacityMicromapBakeBuffers()                                               = default;
+            OpacityMicromapBakeBuffers( const OpacityMicromapBakeBuffers& )            = delete;
+            OpacityMicromapBakeBuffers& operator=( const OpacityMicromapBakeBuffers& ) = delete;
+            ~OpacityMicromapBakeBuffers()
+            {
+                const auto& allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                                             ->GetVulkanAllocator();
+                for ( std::size_t i = 0; i < Buffers.size(); ++i )
+                    if ( Buffers[i] != VK_NULL_HANDLE )
+                        allocator->RT_DestroyBuffer( Buffers[i], Memory[i] );
+            }
+        };
+    } // namespace
+
+    Common::ResultStr<RayTracing::RayTracingSegmentOpacityMicromap>
+    VulkanRayTracingGeometry::AllocateOpacityMicromapBake( const uint32_t segment, const uint32_t triangleCount )
+    {
+        using Result       = RayTracing::RayTracingSegmentOpacityMicromap;
+        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        if ( !logical )
+            return Common::MakeError<Result>( "opacity micromap bake: no Vulkan device" );
+        const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
+        if ( !functions.Complete() || !functions.MicromapsComplete() )
+            return Common::MakeError<Result>(
+                 "opacity micromap bake: the device has no micromap functions (OpacityMicromap off or hidden)" );
+        if ( triangleCount == 0 )
+            return Common::MakeError<Result>( "opacity micromap bake: a segment with no triangle" );
+
+        const VkDevice device = logical->GetVulkanLogicalDevice();
+        const auto&    allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        constexpr VkBufferUsageFlags kMicromapInput =
+             VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        constexpr VkBufferUsageFlags kBlasInput =
+             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        const std::array<VkDeviceSize, 3> bytes{
+             VkDeviceSize{ OpacityMicromapBytesPerTriangle( kOpacityMicromapLevel ) } * triangleCount,
+             VkDeviceSize{ sizeof( VkMicromapTriangleEXT ) } * triangleCount,
+             VkDeviceSize{ sizeof( uint32_t ) } * triangleCount };
+        const std::array<VkBufferUsageFlags, 3> usage{ kMicromapInput, kMicromapInput, kBlasInput };
+        const std::array<const char*, 3>        tags{ "OMM_bake_data", "OMM_bake_triangles", "OMM_bake_indices" };
+
+        auto                    buffers = std::make_shared<OpacityMicromapBakeBuffers>();
+        std::array<uint64_t, 3> address{};
+        for ( std::size_t i = 0; i < 3u; ++i )
+        {
+            VkBuffer   buffer = VK_NULL_HANDLE;
+            const auto memory = allocator->RT_AllocateBuffer(
+                 tags[i], DeviceAddressBufferInfo( bytes[i], usage[i] ), VMA_MEMORY_USAGE_GPU_ONLY, buffer );
+            if ( !memory.IsSuccess() )
+                return Common::MakeFormattedError<Result>( "opacity micromap bake {}: {}", tags[i],
+                                                           memory.GetError() ); // earlier ones: ~buffers
+            buffers->Buffers[i] = buffer;
+            buffers->Memory[i]  = memory.GetValue();
+            address[i]          = functions.BufferAddress( device, buffer );
+        }
+        Result result;
+        result.Segment          = segment;
+        result.TriangleCount    = triangleCount;
+        result.DataAddress      = address[0];
+        result.TrianglesAddress = address[1];
+        result.IndexAddress     = address[2];
+        result.Owner            = std::move( buffers );
+        return Common::MakeSuccess( std::move( result ) );
     }
 
     VulkanRayTracingGeometry::~VulkanRayTracingGeometry()

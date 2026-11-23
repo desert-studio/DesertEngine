@@ -22,24 +22,6 @@ Shader "OpacityMicromapBake"
     {
         LocalSize(64, 1, 1);
 
-        // Triangle t's 64 bytes at t * 64 (VulkanRayTracingBuildInput.hpp OpacityMicromapBytesPerTriangle(4)).
-        Buffer(0) MicromapData
-        {
-            uint MicromapWords[];
-        };
-
-        // VkMicromapTriangleEXT per triangle: x = dataOffset, y = subdivisionLevel | format << 16.
-        Buffer(1) MicromapTriangles
-        {
-            uvec2 MicromapTriangleRows[];
-        };
-
-        // The BLAS's per-triangle micromap index (VkAccelerationStructureTrianglesOpacityMicromapEXT, uint32).
-        Buffer(2) MicromapIndices
-        {
-            int MicromapIndexRows[];
-        };
-
         PushConstant PushConstants
         {
             uvec2 VertexAddress; // lo, hi: the buffer the BLAS reads positions from
@@ -53,6 +35,11 @@ Shader "OpacityMicromapBake"
             uint  OpacitySampler;
             float OpacityCutoff;
             uint  MaterialFlags;
+            // The three outputs, by device address (OpacityMicromapBakeBuffers, VulkanRayTracingGeometry.hpp): the
+            // micromap build and the BLAS build read them by address, so no descriptor names them.
+            uvec2 DataAddress;      // 64 B of 2-bit states per triangle (OpacityMicromapBytesPerTriangle(4))
+            uvec2 TrianglesAddress; // VkMicromapTriangleEXT per triangle: x = dataOffset, y = level | format << 16
+            uvec2 IndicesAddress;   // int per triangle: its micromap triangle or a special index (uint32 index type)
         };
 
         #extension GL_EXT_buffer_reference : require
@@ -68,6 +55,18 @@ Shader "OpacityMicromapBake"
         layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer OmmVec2Ref
         {
             vec2 Value;
+        };
+        layout( buffer_reference, std430, buffer_reference_align = 4 ) writeonly buffer OmmUintOut
+        {
+            uint Value;
+        };
+        layout( buffer_reference, std430, buffer_reference_align = 8 ) writeonly buffer OmmUvec2Out
+        {
+            uvec2 Value;
+        };
+        layout( buffer_reference, std430, buffer_reference_align = 4 ) writeonly buffer OmmIntOut
+        {
+            int Value;
         };
 
         const uint kLevel            = 4u;  // VulkanRayTracingBuildInput.hpp kOpacityMicromapLevel
@@ -221,18 +220,20 @@ Shader "OpacityMicromapBake"
                     bits |= state << ( 2u * i );
                     seen |= 1u << state;
                 }
-                MicromapWords[triangle * kWordsPerTriangle + word] = bits;
+                OmmUintOut( OmmAddressAdd( DataAddress, ( triangle * kWordsPerTriangle + word ) * 4u ) ).Value = bits;
                 atomicOr( s_Seen[local], seen );
             }
             barrier();
 
             if ( triangle < TriangleCount && word == 0u )
             {
-                MicromapTriangleRows[triangle] = uvec2( triangle * kWordsPerTriangle * 4u, kLevel | ( kFormat4State << 16u ) );
-                const uint seen                = s_Seen[local];
-                MicromapIndexRows[triangle]    = seen == ( 1u << kStateTransparent ) ? kSpecialFullyTransparent
-                                                 : seen == ( 1u << kStateOpaque )    ? kSpecialFullyOpaque
-                                                                                     : int( triangle );
+                OmmUvec2Out( OmmAddressAdd( TrianglesAddress, triangle * 8u ) ).Value =
+                     uvec2( triangle * kWordsPerTriangle * 4u, kLevel | ( kFormat4State << 16u ) );
+                const uint seen = s_Seen[local];
+                OmmIntOut( OmmAddressAdd( IndicesAddress, triangle * 4u ) ).Value =
+                     seen == ( 1u << kStateTransparent ) ? kSpecialFullyTransparent
+                     : seen == ( 1u << kStateOpaque )    ? kSpecialFullyOpaque
+                                                         : int( triangle );
             }
         }
     }
