@@ -5,7 +5,9 @@
 // reservoir texel, kept only when its surface is this one (RESTIRSimilarSurface: distance to the camera and normal,
 // UE's depth / normal rejection). The previous M is capped (ReSTIRParams.tuning.x, UE
 // r.Lumen.ReSTIRGather.TemporalResampling.MaxHistory-like) so a sample whose lighting changed is replaced within a
-// few frames. Written into the view's reservoir history (ScreenProbeGatherHistory::Reservoir), which next frame
+// few frames, and a previous reservoir the initial pass re-traced and found changed (its validation ray: an
+// occluder, a moved surface, a light switched or moved - RESTIR_HISTORY_DROP in InitialRadiance.a) is not reused
+// at all, so the indirect light follows within two frames. Written into the view's reservoir history (ScreenProbeGatherHistory::Reservoir), which next frame
 // reads back here; the spatial pass reads it this frame.
 Shader "ReSTIRGITemporal"
 {
@@ -74,18 +76,16 @@ Shader "ReSTIRGITemporal"
             RESTIRUpdate( r, initial, RESTIRTargetPdf( initial, p, n ) * initial.W * initial.M,
                           RESTIRRandom( texel, frame, 2u ) );
 
-            if ( ( restirParams.extent.w & RESTIR_FLAG_PREVIOUS_VALID ) != 0u )
+            // The initial pass's verdict on the history reservoir this texel reprojects to (its validation ray,
+            // RESTIRHistoryStillValid): dropped = the light or the occluder changed - M and W start over from this
+            // frame's sample alone (UE's ReSTIR gather history validation).
+            const bool historyKept = texelFetch( InitialRadiance, texel, 0 ).a > 0.5;
+            if ( historyKept && ( restirParams.extent.w & RESTIR_FLAG_PREVIOUS_VALID ) != 0u )
             {
-                // Last frame's jittered NDC of this surface: this frame's unjittered NDC minus the velocity
-                // (View/Velocity.hpp: NDC current - previous), plus last frame's jitter.
-                const vec3 velocity = texelFetch( Velocity, pixel, 0 ).xyz;
-                const vec2 ndc      = vec2( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0 ) - restirParams.jitter.xy -
-                                 velocity.xy + restirParams.jitter.zw;
-                const vec2 previousUv = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
-                if ( all( greaterThanEqual( previousUv, vec2( 0.0 ) ) ) && all( lessThan( previousUv, vec2( 1.0 ) ) ) )
+                ivec2 previousTexel;
+                if ( RESTIRPreviousTexel( uv, texelFetch( Velocity, pixel, 0 ).xy, restirParams.jitter,
+                                          giFrame.screen.xy, extent, previousTexel ) )
                 {
-                    const ivec2 previousTexel =
-                         clamp( ivec2( previousUv * giFrame.screen.xy ) / RESTIR_DOWNSAMPLE, ivec2( 0 ), extent - 1 );
                     const vec4 previousState = texelFetch( PreviousState, previousTexel, 0 );
                     if ( previousState.y > 0.0 &&
                          RESTIRSimilarSurface( viewDistance, n, previousState.z,

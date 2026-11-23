@@ -638,9 +638,8 @@ namespace Desert::Graphic::GlobalIllumination
                                           CountedTraceVariant( tracer, leg, downsample, tracedTexels ) } );
 #endif
             }
-        // The ReSTIR final gather's programs (ScreenProbeGatherInputs::ReSTIR): layout-independent.
-        for ( Core::CookedProgramVariant& variant : ReSTIRGather::ProgramVariants() )
-            variants.push_back( std::move( variant ) );
+        // The ReSTIR final gather's programs are layout-independent: the cook lists them once
+        // (ReSTIRGather::ProgramVariants), not under every layout this list is asked for.
         return variants;
     }
 

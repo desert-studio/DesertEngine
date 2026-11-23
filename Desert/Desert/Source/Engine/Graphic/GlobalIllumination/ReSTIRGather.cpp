@@ -50,15 +50,20 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, ReSTIRRadianceOut );
         DESERT_SHADER_PARAMETER( StorageTexture, ReSTIRStateOut );
     };
-    struct ReSTIRGITemporalShaderParameters
+    // The view's previous reservoirs and the velocity that finds them: the temporal pass reuses them, the initial
+    // pass's validation rays re-trace them (both RESTIRPreviousTexel).
+    struct ReSTIRGIHistoryShaderParameters
     {
         DESERT_SHADER_PARAMETER( Texture, Velocity );
-        DESERT_SHADER_PARAMETER( Texture, InitialHit );
-        DESERT_SHADER_PARAMETER( Texture, InitialRadiance );
-        DESERT_SHADER_PARAMETER( Texture, InitialState );
         DESERT_SHADER_PARAMETER( Texture, PreviousHit );
         DESERT_SHADER_PARAMETER( Texture, PreviousRadiance );
         DESERT_SHADER_PARAMETER( Texture, PreviousState );
+    };
+    struct ReSTIRGITemporalShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, InitialHit );
+        DESERT_SHADER_PARAMETER( Texture, InitialRadiance );
+        DESERT_SHADER_PARAMETER( Texture, InitialState );
     };
     struct ReSTIRGISpatialShaderParameters
     {
@@ -169,7 +174,7 @@ namespace Desert::Graphic::GlobalIllumination
             return programs;
         if ( !m_Logged )
         {
-            LOG_INFO( "[GI] ReSTIR temporal=on spatial={}", kReSTIRSpatialSamples );
+            LOG_INFO( "[GI] ReSTIR temporal=on spatial={} validate=on", kReSTIRSpatialSamples );
             m_Logged = true;
         }
 
@@ -191,7 +196,9 @@ namespace Desert::Graphic::GlobalIllumination
         params.Tuning =
              glm::vec4( kReSTIRTemporalMaxM, kReSTIRSpatialRadius, kReSTIRDepthTolerance, kReSTIRNormalTolerance );
         params.Jitter   = glm::vec4( inputs.JitterNdc, inputs.PrevJitterNdc );
-        params.RayClamp = glm::vec4( rayClamp, 0.0f, 0.0f, 0.0f );
+        params.RayClamp   = glm::vec4( rayClamp, 0.0f, 0.0f, 0.0f );
+        params.Validation = glm::vec4( kReSTIRValidationLuminance, kReSTIRValidationDistance,
+                                       kReSTIRValidationFloor * rayClamp, 0.0f );
         const RDG::BufferRef paramsBuffer =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( params ) }, "ReSTIR.Params" );
         graph.QueueBufferUpload( paramsBuffer, std::as_bytes( std::span( &params, 1 ) ) );
@@ -216,8 +223,21 @@ namespace Desert::Graphic::GlobalIllumination
             block.Storage( P::ReSTIRParamsUB, paramsBuffer, kR )
                  .Storage( P::GIFrameUB, inputs.GIFrame, kR )
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
-                 .Texture( P::GBufferDepthTexture, inputs.GBufferDepth, kS, all )
-                 .Texture( P::GBufferBTexture, inputs.GBufferB, kS, all );
+                 .Texture( P::GBufferDepthTexture, inputs.GBufferDepth, kS, all );
+        };
+        // The G-buffer's normal: only the initial and the resolve shaders declare it (the temporal and the
+        // spatial pass read the normal packed in State.w) - ValidatePassBindings refuses a slot a shader lacks.
+        const auto gbufferNormal = [&]( RDG::BindingBlockBuilder& block )
+        { block.Texture( P::GBufferBTexture, inputs.GBufferB, kS, all ); };
+        // What the initial pass's validation rays and the temporal pass both read: the view's previous reservoirs
+        // (black when there are none - the flag tells the shaders not to read them) and the velocity.
+        const auto historyReads = [&]( RDG::BindingBlockBuilder& block )
+        {
+            using H = ReSTIRGIHistoryShaderParameters;
+            block.Texture( H::Velocity, inputs.Velocity, kS, all )
+                 .Texture( H::PreviousHit, previousOrBlack( History::ReservoirHit ), kS, all )
+                 .Texture( H::PreviousRadiance, previousOrBlack( History::ReservoirRadiance ), kS, all )
+                 .Texture( H::PreviousState, previousOrBlack( History::ReservoirState ), kS, all );
         };
         const glm::uvec2 reservoirGroups( DivideRoundUp( reservoirs.x, 8u ), DivideRoundUp( reservoirs.y, 8u ) );
         const glm::uvec2 pixelGroups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
@@ -267,6 +287,8 @@ namespace Desert::Graphic::GlobalIllumination
                       .Storage( I::ReSTIRHitOut, initial[History::ReservoirHit], kW )
                       .Storage( I::ReSTIRRadianceOut, initial[History::ReservoirRadiance], kW )
                       .Storage( I::ReSTIRStateOut, initial[History::ReservoirState], kW );
+                 gbufferNormal( block );
+                 historyReads( block );
                  DeclareTracerReads( block, inputs.Tracer, kS, TracerPointClamp::Bind );
                  if ( readsCards )
                      DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
@@ -284,13 +306,10 @@ namespace Desert::Graphic::GlobalIllumination
                  using I    = ReSTIRGIInitialShaderParameters;
                  auto block = bindings( builder, Temporal );
                  common( block );
-                 block.Texture( T::Velocity, inputs.Velocity, kS, all )
-                      .Texture( T::InitialHit, initial[History::ReservoirHit], kS, all )
+                 historyReads( block );
+                 block.Texture( T::InitialHit, initial[History::ReservoirHit], kS, all )
                       .Texture( T::InitialRadiance, initial[History::ReservoirRadiance], kS, all )
                       .Texture( T::InitialState, initial[History::ReservoirState], kS, all )
-                      .Texture( T::PreviousHit, previousOrBlack( History::ReservoirHit ), kS, all )
-                      .Texture( T::PreviousRadiance, previousOrBlack( History::ReservoirRadiance ), kS, all )
-                      .Texture( T::PreviousState, previousOrBlack( History::ReservoirState ), kS, all )
                       .Storage( I::ReSTIRHitOut, current[History::ReservoirHit], kW )
                       .Storage( I::ReSTIRRadianceOut, current[History::ReservoirRadiance], kW )
                       .Storage( I::ReSTIRStateOut, current[History::ReservoirState], kW );
@@ -323,6 +342,7 @@ namespace Desert::Graphic::GlobalIllumination
                  using R    = ReSTIRGIResolveShaderParameters;
                  auto block = bindings( builder, Resolve );
                  common( block );
+                 gbufferNormal( block );
                  block.Storage( R::RadianceCacheParamsUB, inputs.RadianceCache.Params, kR )
                       .Storage( R::RadianceCacheIndirectionUB, inputs.RadianceCache.Indirection, kR )
                       .Storage( R::RadianceCacheProbesUB, inputs.RadianceCache.Probes, kR )

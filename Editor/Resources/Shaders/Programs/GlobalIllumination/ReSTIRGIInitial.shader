@@ -85,6 +85,15 @@ Shader "ReSTIRGIInitial"
         layout(binding = 18, rgba32f) restrict writeonly uniform image2D ReSTIRHitOut;
         layout(binding = 19, rgba16f) restrict writeonly uniform image2D ReSTIRRadianceOut;
         layout(binding = 20, rgba32f) restrict writeonly uniform image2D ReSTIRStateOut;
+        // The validation ray's inputs: the view's previous reservoirs, found as ReSTIRGITemporal finds them.
+        Uniform(21) texture2D Velocity;
+        #define Velocity sampler2D(Velocity, PointClampSampler)
+        Uniform(22) texture2D PreviousHit;
+        #define PreviousHit sampler2D(PreviousHit, PointClampSampler)
+        Uniform(23) texture2D PreviousRadiance;
+        #define PreviousRadiance sampler2D(PreviousRadiance, PointClampSampler)
+        Uniform(24) texture2D PreviousState;
+        #define PreviousState sampler2D(PreviousState, PointClampSampler)
 
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
@@ -100,6 +109,55 @@ Shader "ReSTIRGIInitial"
         #define RESTIR_RAY_CONE_ANGLE 0.02
         // The screen probes' full trace distance (Common/ScreenProbeTracing.glslh SP_TRACE_DISTANCE).
         #define RESTIR_TRACE_DISTANCE 20000.0
+
+        // THE HISTORY'S VALIDATION RAY (UE's ReSTIR gather history validation; Ouyang 2021 §5 "stale samples"):
+        // the history reservoir the temporal pass will reuse for this texel (RESTIRPreviousTexel, the same surface
+        // test) is re-traced from this frame's visible point toward its stored hit and lit again there. A changed
+        // hit or a changed light drops it (RESTIR_HISTORY_DROP); a history the temporal pass would not reuse anyway
+        // (off screen, another surface, empty, below this surface) is kept untouched.
+        float ValidateHistory( ivec2 pixel, vec2 uv, vec3 p, vec3 n, GITraceBias bias )
+        {
+            ivec2 previousTexel;
+            if ( !RESTIRPreviousTexel( uv, texelFetch( Velocity, pixel, 0 ).xy, restirParams.jitter,
+                                       giFrame.screen.xy, ivec2( restirParams.extent.xy ), previousTexel ) )
+                return RESTIR_HISTORY_KEEP;
+            const vec4 previousState = texelFetch( PreviousState, previousTexel, 0 );
+            if ( previousState.y <= 0.0 ||
+                 !RESTIRSimilarSurface( length( p - giFrame.camera.xyz ), n, previousState.z,
+                                        RESTIRUnpackNormal( floatBitsToUint( previousState.w ) ),
+                                        restirParams.tuning.z, restirParams.tuning.w ) )
+                return RESTIR_HISTORY_KEEP;
+            const ReSTIRReservoir history = RESTIRLoad( texelFetch( PreviousHit, previousTexel, 0 ),
+                                                        texelFetch( PreviousRadiance, previousTexel, 0 ),
+                                                        previousState );
+            const vec3  origin   = p + n * bias.nearOffset;
+            const vec3  toHit    = history.hitPosition - origin;
+            const float expected = length( toHit );
+            const vec3  dir      = toHit / max( expected, 1e-4 );
+            if ( dot( n, dir ) <= 0.0 )
+                return RESTIR_HISTORY_KEEP; // its target function is zero here: the temporal pass weighs it 0
+            const bool  sky   = dot( history.hitNormal, history.hitNormal ) < 0.5;
+            const float slack = bias.nearOffset + bias.farOffset;
+
+            GITraceInput ray;
+            ray.origin    = origin;
+            ray.tMin      = 0.0;
+            ray.farTMin   = GIFarFieldTMin( bias, n, dir );
+            ray.direction = dir;
+            ray.tMax      = sky ? RESTIR_TRACE_DISTANCE : expected * ( 1.0 + restirParams.validation.y ) + slack;
+            ray.coneAngle = RESTIR_RAY_CONE_ANGLE;
+            ray.flags     = 0u;
+            const GITraceResult result = GITraceRay( ray );
+            if ( !RESTIRHistoryHitUnchanged( history, origin, result.hit, result.surface.distance,
+                                             restirParams.validation, slack ) )
+                return RESTIR_HISTORY_DROP;
+            const vec3 radianceNow = RESTIRClampRadiance(
+                 max( result.hit ? GIHitRadiance( result.surface, dir ) : GIMissRadiance( dir ), vec3( 0.0 ) ),
+                 restirParams.rayClamp.x );
+            return RESTIRHistoryLightingUnchanged( history, radianceNow, restirParams.validation )
+                        ? RESTIR_HISTORY_KEEP
+                        : RESTIR_HISTORY_DROP;
+        }
 
         void main()
         {
@@ -152,8 +210,15 @@ Shader "ReSTIRGIInitial"
             }
             radiance = RESTIRClampRadiance( max( radiance, vec3( 0.0 ) ), restirParams.rayClamp.x );
 
+            // This frame's checkerboard half re-traces its history (RESTIRValidatesThisFrame); the verdict rides in
+            // Radiance.a to ReSTIRGITemporal.
+            const float verdict = ( restirParams.extent.w & RESTIR_FLAG_PREVIOUS_VALID ) != 0u &&
+                                            RESTIRValidatesThisFrame( texel, frame )
+                                       ? ValidateHistory( pixel, uv, p, n, bias )
+                                       : RESTIR_HISTORY_KEEP;
+
             imageStore( ReSTIRHitOut, texel, vec4( hitPosition, uintBitsToFloat( RESTIRPackNormal( hitNormal ) ) ) );
-            imageStore( ReSTIRRadianceOut, texel, vec4( radiance, 1.0 ) );
+            imageStore( ReSTIRRadianceOut, texel, vec4( radiance, verdict ) );
             imageStore( ReSTIRStateOut, texel,
                         vec4( 1.0 / pdf, 1.0, length( p - giFrame.camera.xyz ),
                               uintBitsToFloat( RESTIRPackNormal( n ) ) ) );

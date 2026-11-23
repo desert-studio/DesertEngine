@@ -18,7 +18,9 @@
 // gather's alternative on the hardware tracer (ScreenProbeGatherInputs::ReSTIR, ReSTIRGatherRuns): instead of
 // probes on a grid and their filtered radiance, one ray a reservoir texel (the G-buffer's extent /
 // kReSTIRDownsample), its sample streamed through reservoirs:
-//   ReSTIRGI: Initial   the reservoir's pixel this frame traces one cosine ray (GITraceRay, lit by GIHitRadiance)
+//   ReSTIRGI: Initial   the reservoir's pixel this frame traces one cosine ray (GITraceRay, lit by GIHitRadiance);
+//                       half the texels (a checkerboard flipped per frame) also re-trace the history sample the
+//                       temporal pass would reuse and drop it when its hit or its light changed (validation rays)
 //   ReSTIRGI: Temporal  + the view's previous reservoir of the same surface (reprojected; history in
 //                       ScreenProbeGatherHistory::Reservoir, the gather's existing per-view history)
 //   ReSTIRGI: Spatial   + kReSTIRSpatialSamples neighbours (Jacobian-corrected, visibility-tested)
@@ -47,10 +49,20 @@ namespace Desert::Graphic::GlobalIllumination
     inline constexpr float    kReSTIRDepthTolerance  = 0.1f;  // relative distance to the camera
     inline constexpr float    kReSTIRNormalTolerance = 0.9f;  // cosine
 
+    // THE HISTORY'S VALIDATION RAYS (UE's ReSTIR gather validation; ReSTIRGIInitial.shader ValidateHistory): every
+    // frame a checkerboard half of the reservoir texels re-traces the history sample the temporal pass would reuse
+    // and drops it (M and W start over) when the hit moved by more than kReSTIRValidationDistance relative or its
+    // luminance changed by more than kReSTIRValidationLuminance relative - so a light switched or moved, an
+    // occluder added or removed, reaches the indirect light within two frames instead of kReSTIRTemporalMaxM.
+    // A luminance under kReSTIRValidationFloor x the ray clamp is noise, not a light.
+    inline constexpr float kReSTIRValidationLuminance = 0.25f;
+    inline constexpr float kReSTIRValidationDistance  = 0.05f;
+    inline constexpr float kReSTIRValidationFloor     = 1.0e-4f;
+
     // ReSTIRParams.extent.w — must match Common/ReSTIRGI.glslh RESTIR_FLAG_*.
     inline constexpr uint32_t kReSTIRFlagPreviousValid = 1u;
 
-    // std430 — must match `struct ReSTIRParams` in Common/ReSTIRGI.glslh. 80 bytes.
+    // std430 — must match `struct ReSTIRParams` in Common/ReSTIRGI.glslh. 96 bytes.
     struct ReSTIRParamsPayload
     {
         glm::uvec4 Extent{ 0u };     // xy = reservoir extent, z = spatial samples, w = kReSTIRFlag*
@@ -58,8 +70,9 @@ namespace Desert::Graphic::GlobalIllumination
         glm::vec4  Tuning{ 0.0f };   // x = temporal M cap, y = spatial radius, z = depth tolerance, w = normal cos
         glm::vec4  Jitter{ 0.0f };   // xy = this frame's NDC jitter, zw = last frame's
         glm::vec4  RayClamp{ 0.0f }; // x = the largest radiance a ray carries (absolute)
+        glm::vec4  Validation{ 0.0f }; // x = luminance change, y = hit distance change (relative), z = floor (abs)
     };
-    static_assert( sizeof( ReSTIRParamsPayload ) == 80 );
+    static_assert( sizeof( ReSTIRParamsPayload ) == 96 );
 
     // The reservoir extent of a G-buffer extent (rounded up).
     [[nodiscard]] constexpr glm::uvec2 ReSTIRReservoirExtent( const glm::uvec2 extent )

@@ -7,6 +7,9 @@
 //   Hit       xyz = the hit point (world cm; the sky: the visible point + direction * RESTIR_SKY_DISTANCE),
 //             w   = uintBitsToFloat( RESTIRPackNormal( hit normal ) ), 0 for the sky
 //   Radiance  rgb = the outgoing radiance toward the visible point (absolute, clamped as a screen probe ray is)
+//             a   = 1, except the initial reservoirs': the verdict on the history reservoir the texel reprojects
+//                   to (RESTIR_HISTORY_KEEP / RESTIR_HISTORY_DROP; ReSTIRGIInitial's validation ray, read by
+//                   ReSTIRGITemporal) - no buffer of its own
 //   State     x = W, y = M, z = the visible point's distance to the camera (cm), w = its packed normal
 // The target function p^ is the luminance of the sample's radiance times the cosine at the visible point (the
 // diffuse integrand, the paper's choice and UE's), so the reservoirs converge on the diffuse irradiance and the
@@ -168,16 +171,68 @@ float RESTIRRandom( ivec2 texel, uint frameIndex, uint use )
 #define RESTIR_PI 3.14159265358979
 
 // THE PASSES' PARAMETERS ("ReSTIRParamsUB"). std430 — must match GlobalIllumination::ReSTIRParamsPayload
-// (ReSTIRGather.hpp). 80 bytes.
+// (ReSTIRGather.hpp). 96 bytes.
 struct ReSTIRParams {
-    uvec4 extent;   // xy = the reservoir extent, z = the spatial samples, w = RESTIR_FLAG_*
-    uvec4 frame;    // x = the frame index (the reservoir pixel's jitter, the random sequence)
-    vec4  tuning;   // x = temporal M cap, y = spatial radius (reservoir texels), z = depth tolerance, w = normal cos
-    vec4  jitter;   // xy = this frame's NDC jitter, zw = last frame's (the temporal reprojection)
-    vec4  rayClamp; // x = the largest radiance a ray carries (absolute; ScreenProbeParams.rayClamp.x)
+    uvec4 extent;     // xy = the reservoir extent, z = the spatial samples, w = RESTIR_FLAG_*
+    uvec4 frame;      // x = the frame index (the reservoir pixel's jitter, the random sequence)
+    vec4  tuning;     // x = temporal M cap, y = spatial radius (reservoir texels), z = depth tolerance, w = normal cos
+    vec4  jitter;     // xy = this frame's NDC jitter, zw = last frame's (the temporal reprojection)
+    vec4  rayClamp;   // x = the largest radiance a ray carries (absolute; ScreenProbeParams.rayClamp.x)
+    vec4  validation; // x = relative luminance change, y = relative hit distance change, z = luminance floor (abs)
 };
 // ReSTIRParams.extent.w — must match GlobalIllumination::kReSTIRFlag* (ReSTIRGather.hpp).
 #define RESTIR_FLAG_PREVIOUS_VALID 1u // the view's previous reservoirs are last frame's, of this extent
+
+// The initial reservoir's Radiance.a: what ReSTIRGITemporal does with the history reservoir it reprojects to.
+#define RESTIR_HISTORY_KEEP 1.0 // not validated this frame, or validated and unchanged
+#define RESTIR_HISTORY_DROP 0.0 // re-traced and changed: M and W start over from this frame's sample
+
+// THE HISTORY'S TEXEL (UE GetHistoryScreenPosition): the previous reservoir texel of the surface at @p uv - this
+// frame's unjittered NDC minus the velocity (View/Velocity.hpp: NDC current - previous) plus last frame's jitter.
+// The initial pass (validation) and the temporal pass (reuse) call it with the same inputs, so the verdict the
+// initial pass writes is about the very reservoir the temporal pass reads. False off the previous screen.
+bool RESTIRPreviousTexel( vec2 uv, vec2 velocityNdc, vec4 jitter, vec2 screenSize, ivec2 extent,
+                          out ivec2 previousTexel )
+{
+    const vec2 ndc        = vec2( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0 ) - jitter.xy - velocityNdc + jitter.zw;
+    const vec2 previousUv = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
+    previousTexel         = ivec2( 0 );
+    if ( any( lessThan( previousUv, vec2( 0.0 ) ) ) || any( greaterThanEqual( previousUv, vec2( 1.0 ) ) ) )
+        return false;
+    previousTexel = clamp( ivec2( previousUv * screenSize ) / RESTIR_DOWNSAMPLE, ivec2( 0 ), extent - 1 );
+    return true;
+}
+
+// THE VALIDATED FRACTION (UE's ReSTIR gather re-traces a share of its history every frame): a checkerboard of the
+// reservoir texels, flipped every frame, so every history reservoir is re-traced at least every other frame and a
+// changed light or occluder drops it within two frames - one extra ray on half the texels, no buffer of its own.
+bool RESTIRValidatesThisFrame( ivec2 texel, uint frameIndex )
+{
+    return ( ( uint( texel.x + texel.y ) + frameIndex ) & 1u ) == 0u;
+}
+
+// THE VERDICT, 1/2 - VISIBILITY: a history sample re-traced from this frame's visible point (@p origin) toward its
+// stored hit still lands there (@p hit, @p hitDistance along the ray). Changed: an occluder in front, nothing where
+// the surface was (moved or removed), a surface in front of a stored sky. @p slack = the tracer's own distance
+// imprecision (GITraceBias), on top of validation.y relative.
+bool RESTIRHistoryHitUnchanged( ReSTIRReservoir history, vec3 origin, bool hit, float hitDistance, vec4 validation,
+                                float slack )
+{
+    if ( dot( history.hitNormal, history.hitNormal ) < 0.5 ) // a sky sample: nothing may be hit now
+        return !hit;
+    const float expected = length( history.hitPosition - origin );
+    return hit && abs( hitDistance - expected ) <= validation.y * expected + slack;
+}
+
+// THE VERDICT, 2/2 - LIGHTING: the same hit lit now (@p radianceNow, clamped as the stored radiance was) differs
+// from the stored radiance by at most validation.x relative; a change under the floor validation.z is noise, not
+// a light switched or moved.
+bool RESTIRHistoryLightingUnchanged( ReSTIRReservoir history, vec3 radianceNow, vec4 validation )
+{
+    const float before = RESTIRLuminance( history.radiance );
+    const float now    = RESTIRLuminance( radianceNow );
+    return abs( now - before ) <= validation.x * max( max( now, before ), validation.z );
+}
 
 // A cosine-distributed direction about @p n (pdf = cos / pi) from two uniform numbers.
 vec3 RESTIRCosineDirection( vec3 n, vec2 xi )
