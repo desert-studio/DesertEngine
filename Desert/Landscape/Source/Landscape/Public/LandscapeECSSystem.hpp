@@ -4,7 +4,7 @@
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 
-#include "System.hpp"
+#include <Engine/ECS/System/System.hpp>
 
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>

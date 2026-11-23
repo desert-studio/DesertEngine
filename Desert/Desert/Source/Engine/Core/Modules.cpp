@@ -20,13 +20,8 @@ namespace Desert::VFX
 {
     void StartupModule();
 } // namespace Desert::VFX
-{
-    void StartupModule();
-} // namespace Desert::Landscape
 
-namespace Desert::VFX
-
-     namespace Desert::Water
+namespace Desert::Water
 {
     void StartupModule();
 } // namespace Desert::Water
