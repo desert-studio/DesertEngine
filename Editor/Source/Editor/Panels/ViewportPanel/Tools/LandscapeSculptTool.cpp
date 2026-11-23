@@ -246,7 +246,7 @@ namespace Desert::Editor::Tools
             return Common::MakeError( target.GetError() );
         auto rootEntity = ECS::FindLandscapeRootEntity( scene.GetRegistry(), *landscape );
         auto rules = ECS::LandscapeLayerRulesOf( scene.GetRegistry().get<ECS::LandscapeComponent>( rootEntity ),
-                                                 *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
+                                                 *Runtime::GetLandscapeLayerInfoService() );
         if ( !rules )
             return Common::MakeError( std::format( "landscape sculpt: {}", rules.GetError() ) );
         auto layer = ECS::FindLandscapeEditLayerTarget( scene.GetRegistry(), *landscape, rules.ExtractValue(),

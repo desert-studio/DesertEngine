@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets
@@ -69,6 +71,23 @@ namespace Desert::Core
     };
     using SceneModuleStateMaker = std::unique_ptr<ISceneModuleState> ( * )();
 
+    /// The assets a module's asset names (Assets/AssetEviction.cpp's reachability walk): Visit calls @p visitGuid
+    /// with each asset-GUID text the asset under @p handle stores, when that asset is the module's type.
+    struct AssetReferenceVisitor
+    {
+        void ( *Visit )( Assets::AssetManager& assets, std::uint64_t handle,
+                         const std::function<void( const std::string& guidText, const char* why )>& visitGuid ) =
+             nullptr;
+    };
+    /// A material parameter naming a module's asset by kind (DShader `Asset(<Kind>)`): the label the renderer
+    /// matches by (the terrain's layer inputs match a `LandscapeLayerInfoAsset` by its layer name,
+    /// Graphic/Systems/Scene/Terrain/TerrainLayerInputs.cpp). Label is null while the asset is not read.
+    struct AssetParamLabel
+    {
+        std::string_view AssetKind;
+        const std::string* ( *Label )( std::uint64_t handle ) = nullptr;
+    };
+
     /// A module's render-data collectors (ECS systems emitting render commands), added to every scene after the
     /// engine's own (Core/SceneRenderCollectors.cpp).
     using RenderCollectorAdder = void ( * )( Scene& scene );
@@ -82,6 +101,8 @@ namespace Desert::Core
         std::vector<RenderCollectorAdder> RenderCollectors;
         std::vector<SceneModuleStateMaker> SceneStates;
         std::vector<HotReloadPoller>       HotReloads;
+        std::vector<AssetReferenceVisitor> AssetReferences;
+        std::vector<AssetParamLabel>       AssetParamLabels;
     };
 
     inline ModuleHookLists& ModuleHooks()

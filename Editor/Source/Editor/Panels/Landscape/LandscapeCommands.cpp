@@ -21,7 +21,7 @@
 #include <algorithm>
 #include <initializer_list>
 #include <utility>
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Landscape/Public/LandscapeLayerInfoService.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 
 namespace Desert::Editor
@@ -313,7 +313,7 @@ namespace Desert::Editor
             if ( root != entt::null )
             {
                 // A layer whose `.delayerinfo` is not read yet has no name to offer; it appears once it is.
-                auto& layers = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                auto& layers = *Runtime::GetLandscapeLayerInfoService();
                 for ( const Assets::AssetHandle& handle : registry.get<ECS::LandscapeComponent>( root ).Layers )
                 {
                     const auto* info = layers.Get( handle );

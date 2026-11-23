@@ -1,4 +1,4 @@
-#include <Engine/Runtime/Services/Landscape/LandscapeGrassTypeService.hpp>
+#include <Landscape/Public/LandscapeGrassTypeService.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -57,5 +57,11 @@ namespace Desert::Runtime
                 handles.push_back( row->Handle );
         }
         return handles;
+    }
+
+    LandscapeGrassTypeService* GetLandscapeGrassTypeService()
+    {
+        static LandscapeGrassTypeService service;
+        return &service;
     }
 } // namespace Desert::Runtime

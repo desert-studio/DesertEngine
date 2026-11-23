@@ -70,8 +70,8 @@ namespace Desert::ECS
             // recreated only when the sample count changes (LandscapeTileImage.hpp): its address keys the
             // tile's terrain material, so a new image per sculpt frame was a new material per frame (L8-leak).
             std::shared_ptr<Graphic::Image2D> Heightmap;
-            uint32_t                          SamplesX = 0u;
-            uint32_t                          SamplesZ = 0u;
+            uint32_t                          SamplesX      = 0u;
+            uint32_t                          SamplesZ      = 0u;
             uint32_t                          NeighbourMask = 0u; // whose ring rows the copy carries
             // The RGBA8 copy of the tile's weight layers, pages stacked along the height
             // (LandscapeWeightmapAtlasTexels); null while it has none. WeightmapZ counts the stacked rows.
@@ -229,23 +229,23 @@ namespace Desert::ECS
             // The key. Types: re-parsed when the layers or the content registry moved; Complete: every type,
             // mesh and material was ready or failed for good (a pending one is asked for again next frame; a
             // failed mesh or type is not, until the content registry or its service's revision moves).
-            std::vector<GrassTypeSlot>                                        Types;
-            uint64_t                                                          LayerSignature  = 0u;
-            uint64_t                                                          ContentSerial   = 0u;
-            uint64_t                                                          MeshRevision    = 0u;
-            uint32_t                                                          MaterialVersion = 0u;
-            bool                                                              TypesResolved   = false;
-            bool                                                              Complete        = false;
+            std::vector<GrassTypeSlot> Types;
+            uint64_t                   LayerSignature  = 0u;
+            uint64_t                   ContentSerial   = 0u;
+            uint64_t                   MeshRevision    = 0u;
+            uint32_t                   MaterialVersion = 0u;
+            bool                       TypesResolved   = false;
+            bool                       Complete        = false;
         };
         std::unordered_map<uint64_t, GrassDrawCache> m_GrassDraws;
         // This frame's grass layers of the root EmitGrass works on (the Surface's layers that name a grass type).
         std::vector<const Assets::Serialization::LandscapeLayerInfoData*> m_GrassLayers;
-        std::unordered_map<uint64_t, GrassRootCache> m_Grass;
-        std::unordered_map<uint64_t, GrassSections>  m_GrassSections;
-        uint64_t                                     m_GrassRevision   = 0;
-        double                                       m_WindSeconds     = 0.0;
-        double                                       m_PrevWindSeconds = 0.0;
-        std::unordered_set<std::string>              m_WarnedGrass;
+        std::unordered_map<uint64_t, GrassRootCache>                      m_Grass;
+        std::unordered_map<uint64_t, GrassSections>                       m_GrassSections;
+        uint64_t                                                          m_GrassRevision   = 0;
+        double                                                            m_WindSeconds     = 0.0;
+        double                                                            m_PrevWindSeconds = 0.0;
+        std::unordered_set<std::string>                                   m_WarnedGrass;
         // GRASS-FIELD: per root, per grass layer (by LayerName), the far cover its grass types give the ground
         // (TerrainInstance::GrassCover*): EmitGrass derives it from the varieties it resolves, the tile rows of
         // the next frame carry it to the landscape's shading (Common/LandscapeGrassCover.glslh).
@@ -282,7 +282,7 @@ namespace Desert::ECS
             uint32_t                                          InvalidationVersion = 0u;
             uint64_t                                          ContentSerial       = 0u;
             uint32_t                                          ValuesEditSerial    = 0u; // in-place value edits
-            std::shared_ptr<const Graphic::MaterialOverrides> Overrides;            // never null once resolved
+            std::shared_ptr<const Graphic::MaterialOverrides> Overrides;                // never null once resolved
         };
         std::unordered_map<uint64_t, ResolvedOverrides> m_RootOverrides;
     };
