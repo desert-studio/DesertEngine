@@ -159,15 +159,19 @@ vec3 DesertSlabLobe( DesertLight L, DesertSurface S, DesertSlab slab, float roug
     const float cosLi = max( dot( S.N, L.L ), 0.0 );
     if ( cosLi <= 0.0 )
         return vec3( 0.0 );
+    const float cosLo = max( dot( S.N, S.V ), 0.0 );
+    // ANISOTROPY too: the same W = 1 + F0 (1/E - 1) from the isotropic table at the lobe's base roughness (UE
+    // Substrate ComputeGGXSpecEnergyTermsRGB at the slab's roughness for an anisotropic slab; the sky light's split
+    // sum, DesertSlabAmbientReflection, compensates with the same E at S.Roughness), so anisotropy 0 is the isotropic lobe exactly and a rough stretched metal keeps
+    // its energy.
+    const vec3 compensation = GGXEnergyCompensation( slab.F0, GGXSpecularAlbedo( cosLo, roughness ) );
     if ( DesertSlabHas( slab, kDesertSlabAnisotropy ) )
     {
         const vec3 F = DesertSlabFresnel( slab, max( dot( normalize( S.V + L.L ), S.V ), 0.0 ) );
-        return DesertSlabAnisotropicLobe( L, S, slab, roughness, F, cosLi );
+        return DesertSlabAnisotropicLobe( L, S, slab, roughness, F, cosLi ) * compensation;
     }
-    const vec3  H            = normalize( S.V + L.L );
-    const float cosLh        = max( dot( S.N, H ), 0.0 );
-    const float cosLo        = max( dot( S.N, S.V ), 0.0 );
-    const vec3  compensation = GGXEnergyCompensation( slab.F0, GGXSpecularAlbedo( cosLo, roughness ) );
+    const vec3  H     = normalize( S.V + L.L );
+    const float cosLh = max( dot( S.N, H ), 0.0 );
     return DistributionGGX( cosLh, roughness ) * VisibilitySmith( cosLi, cosLo, roughness ) *
            DesertSlabFresnel( slab, max( dot( H, S.V ), 0.0 ) ) * compensation * L.Radiance * cosLi;
 }
@@ -183,13 +187,10 @@ vec3 DesertSlabBaseLight( DesertLight L, DesertSurface S, DesertSlab slab )
     const float cosLi = max( dot( S.N, L.L ), 0.0 );
     if ( cosLi <= 0.0 )
         return vec3( 0.0 );
-    const vec3  H              = normalize( S.V + L.L );
-    const float cosLo          = max( dot( S.N, S.V ), 0.0 );
-    const vec3  F              = DesertSlabFresnel( slab, max( dot( H, S.V ), 0.0 ) );
-    // The anisotropic lobe has no multiple-scattering table of its own: its diffuse is the plain ( 1 - F ) split.
-    if ( DesertSlabHas( slab, kDesertSlabAnisotropy ) )
-        return ( 1.0 - F ) * ( 1.0 - S.Metallic ) * S.BaseColor / PI * L.Radiance * cosLi +
-               DesertSlabAnisotropicLobe( L, S, slab, S.Roughness, F, cosLi );
+    const vec3  H     = normalize( S.V + L.L );
+    const float cosLo = max( dot( S.N, S.V ), 0.0 );
+    const vec3  F     = DesertSlabFresnel( slab, max( dot( H, S.V ), 0.0 ) );
+    // Isotropic and anisotropic lobes alike: the diffuse gives up what DesertSlabLobe's compensation adds.
     const float specularAlbedo = GGXSpecularAlbedo( cosLo, S.Roughness );
     const vec3  kd =
          ( 1.0 - F ) * ( 1.0 - S.Metallic ) * ( vec3( 1.0 ) - GGXMultipleScatteringShare( slab.F0, specularAlbedo ) );
