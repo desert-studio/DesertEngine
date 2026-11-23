@@ -299,7 +299,7 @@ namespace Desert::Net
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
-        [[nodiscard]] std::optional<std::uint32_t> LastProcessedInput( PlayerId player ) const override;
+        [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
         // The coordinator's authority map and the sims' acks; true when @p type was a mesh message for this link.
         bool OnMeshMessage( std::uint8_t type, std::span<const std::byte> body );
@@ -318,7 +318,7 @@ namespace Desert::Net
         MeshAuthorityMap                                            m_Map;
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>>
              m_Authority; // player -> (sim, epoch) of its pawn
-        std::map<PlayerId, std::uint32_t>                           m_Acks;
+        std::map<PlayerId, AckedMove>                               m_Acks;
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>> m_Routed; // player -> (sim, epoch) last logged
     };
 
@@ -363,8 +363,7 @@ namespace Desert::Net
         // The store's Adopt and ForwardedInput; true when @p type was one of them. @p step: the last mesh step
         // this sim ran.
         bool OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
-                             RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step,
-                             double stepSeconds );
+                             RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step );
         // After mesh step @p step: hands over the pawns that crossed into a neighbour's region.
         void AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
                         RemoteReplicationStore& replica );

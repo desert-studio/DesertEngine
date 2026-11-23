@@ -13,6 +13,7 @@
 // replicated to every relevant connection, autonomous proxy for its owner, simulated proxy for the others.
 
 #include <Net/NetTransport.hpp>
+#include <Net/PawnMovement.hpp>
 #include <Net/Replication.hpp>
 
 #include <cstdint>
@@ -91,8 +92,15 @@ namespace Desert::Net
         virtual void PlayerJoined( PlayerId player, std::uint64_t account )    = 0;
         virtual void PlayerLeft( PlayerId player )                             = 0;
         virtual void PlayerInput( PlayerId player, const InputMessage& input ) = 0;
-        // The last of @p player's input steps the sim has processed (the ack of §5.1), nullopt before the first.
-        [[nodiscard]] virtual std::optional<std::uint32_t> LastProcessedInput( PlayerId player ) const = 0;
+        // The ack of §5.1: the last of @p player's input steps the sim has processed, the own pawn's movement state
+        // after it, and the input steps still queued (the client's clock sync); nullopt before the first.
+        struct AckedMove
+        {
+            std::uint32_t Step = 0;
+            PawnMoveState State;
+            std::uint8_t  Buffered = 0;
+        };
+        [[nodiscard]] virtual std::optional<AckedMove> LastProcessedInput( PlayerId player ) const = 0;
     };
 
     class InProcessReplicationStore final : public IReplicationStore
@@ -131,20 +139,20 @@ namespace Desert::Net
     public:
         struct Settings
         {
-            std::vector<NetVec3> SpawnPoints;       // world cm; the n-th player takes point n % size
-            float                WalkSpeed = 600.f; // cm/s (UE MaxWalkSpeed default)
+            std::vector<NetVec3> SpawnPoints; // world cm; the n-th player takes point n % size
+            PawnMoveSettings     Movement;    // the pawns' CharacterMovement (the client predicts with the same)
         };
         PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, Settings settings, NetLogSink log );
 
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
-        [[nodiscard]] std::optional<std::uint32_t> LastProcessedInput( PlayerId player ) const override;
+        [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
         // Server authority moves @p player's pawn to @p position (UE TeleportTo); false when it has no pawn.
         bool Teleport( PlayerId player, const NetVec3& position );
-        // One fixed step of every pawn; writes the moved states to the store.
-        void Step( double dtSeconds );
+        // One fixed step of every pawn (its queued input steps); writes the moved states to the store.
+        void Step();
         // The pawns' positions: the server's streaming sources (NET-ARCH §4.1), with the player they belong to.
         struct Source
         {
@@ -169,14 +177,14 @@ namespace Desert::Net
             PawnState                    State;
             std::vector<InputStep>       Pending; // by client step
             std::optional<std::uint32_t> LastProcessed;
-            InputStep                    LastApplied;
+            PawnMoveState                Move; // the CharacterMovement state the next step starts from
         };
         // Freezes @p player's pawn and hands it out: it is no longer stepped or written here (not destroyed - its
         // net id lives on in the next owner). nullopt when this simulation has no pawn for @p player.
         [[nodiscard]] std::optional<HandoverPawn> Release( PlayerId player );
         // Takes a pawn handed over by another simulation and runs @p catchUpSteps steps of it, the mesh steps
         // that passed here between the release and now; writes its state.
-        void Adopt( HandoverPawn pawn, std::uint32_t catchUpSteps, double dtSeconds );
+        void Adopt( HandoverPawn pawn, std::uint32_t catchUpSteps );
 
     private:
         struct Pawn
@@ -184,11 +192,14 @@ namespace Desert::Net
             std::uint64_t                      Account = 0;
             std::uint32_t                      Index   = 0;
             PawnState                          State;
+            PawnMoveState                      Move; // the movement state State is the replicated part of
             std::map<std::uint32_t, InputStep> Pending; // by client step (wrap: a session is < 2^31 steps)
             std::optional<std::uint32_t>       LastProcessed;
-            InputStep                          LastApplied;
+            // The queue as the last Step found it, BEFORE it consumed: the clock sync's measure (one waiting step
+            // each server step = the client exactly on time; after consumption a punctual client reads 0).
+            std::uint8_t                       QueuedAtStep = 0;
         };
-        void StepPawn( Pawn& pawn, double dtSeconds ) const;
+        void StepPawn( Pawn& pawn ) const;
 
         IReplicationStore&       m_Store;
         IGatewayLink&            m_Gateway;
