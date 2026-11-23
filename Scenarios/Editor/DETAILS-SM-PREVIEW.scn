@@ -1,0 +1,14 @@
+# DETAILS-SM-PREVIEW: the Static Mesh component's Details draws the mesh's thumbnail INSIDE the reflected Static Mesh
+# row (UE SObjectPropertyEntryBox: thumbnail left, picker right, the row as tall as the thumbnail). Before: a separate
+# "Preview" row whose 64 px thumbnail ended with SameLine, so the row's columns never grew past one line and the
+# Static Mesh row below was drawn over the picture (owner 11-23: "3d preview перекрывает static mesh").
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+Дано set 6018453462564557835 StaticMeshComponent.MeshHandle assets:Meshes/Modeling/Blockout.stmesh
+# Blockout.stmesh's centre is 100,200,350 with the entity at 0,50,150 (SLICE-01c); a click at the view centre selects it.
+Дано --subject viewport set Camera.Position 100,330,900
+Дано --subject viewport set Camera.Direction 0,-0.236,-1
+Когда --subject viewport drag 717,428 717,428
+Тогда 0_before Details of the 3D Model component: thumbnail and the Static Mesh picker both fully visible, nothing drawn over the picker (on dev the Preview thumbnail overlaps the Static Mesh row)
+Когда set 6018453462564557835 StaticMeshComponent.MeshHandle assets:Meshes/Modeling/Blockout.stmesh
+Тогда 1_after the Static Mesh row: the Blockout thumbnail at its left, the picker naming Blockout at its right, the row as tall as the thumbnail; the rows below it (LOD: Impostor Mesh with its own thumbnail) not overlapped
