@@ -4,6 +4,7 @@
 #include "PropertyUndoPolicy.hpp"
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/MultiEdit.hpp>
+#include <Editor/Core/MaterialAssetUtils.hpp>
 
 #include <Engine/Reflection/FieldValue.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
@@ -235,6 +236,40 @@ namespace Desert::Editor
             }
         }
 
+        // PROPERTY(EditCondition("Type == River")) — the ENUM form (UE EditCondition="Type ==
+        // EWaterBodyType::River"): open while the named enum field of the same block holds (==) or does not hold
+        // (!=) that enumerator. A setting that belongs to one kind of the object (a river's spline on an ocean) is
+        // then inert in the panel, not a silent no-op. An unknown field or enumerator name evaluates to TRUE, as
+        // the bool form.
+        bool EnumConditionMet( const void* object, const TypeInfo& type, const std::string_view condition,
+                               const size_t op )
+        {
+            const auto trim = []( std::string_view s )
+            {
+                while ( !s.empty() && s.front() == ' ' )
+                    s.remove_prefix( 1 );
+                while ( !s.empty() && s.back() == ' ' )
+                    s.remove_suffix( 1 );
+                return s;
+            };
+            const bool             equal = condition[op] == '=';
+            const std::string_view name  = trim( condition.substr( 0, op ) );
+            std::string_view       value = trim( condition.substr( op + 2 ) );
+            if ( const size_t scope = value.rfind( "::" ); scope != std::string_view::npos )
+                value.remove_prefix( scope + 2 ); // "WaterBodyType::River" names the same enumerator as "River"
+            for ( const auto& f : type.Fields )
+            {
+                if ( f.Name != name || f.Type != FieldType::Enum )
+                    continue;
+                const int64_t current = ReadEnum( static_cast<const std::byte*>( object ) + f.Offset, f.Size );
+                for ( const auto& ev : f.EnumValues )
+                    if ( ev.Name == value )
+                        return ( ev.Value == current ) == equal;
+                return true;
+            }
+            return true;
+        }
+
         // PROPERTY(EditCondition("Foo")) — is the gate open? Looks the named BOOL up in the same block;
         // a leading '!' inverts. An unknown or non-bool name evaluates to TRUE on purpose: a typo in an
         // annotation must not silently freeze a field nobody can then explain.
@@ -242,6 +277,9 @@ namespace Desert::Editor
         {
             if ( condition.empty() || !object )
                 return true;
+            if ( const size_t op = condition.find_first_of( "=!", 1 );
+                 op != std::string::npos && op + 1 < condition.size() && condition[op + 1] == '=' )
+                return EnumConditionMet( object, type, condition, op );
 
             const bool             invert = condition.front() == '!';
             const std::string_view name( condition.data() + ( invert ? 1 : 0 ),
@@ -379,7 +417,8 @@ namespace Desert::Editor
         // template declares that role (ContentRegistry::TemplateRoleOf, UE meta=(AllowedClasses)): a row that
         // resolves to another role or to none is not listed and not accepted as a drop. Empty = every row.
         bool DrawRegistryRowPicker( uint64_t* handle, Common::Content::ContentKind kind, const char* id,
-                                    const char* noneLabel, const char* kindNoun, std::string_view role )
+                                    const char* noneLabel, const char* kindNoun, std::string_view role,
+                                    const Assets::AssetManager* assetMgr )
         {
             const auto accepts = [role]( const Assets::ContentRegistry::PickerRow& row ) {
                 return role.empty() ||
@@ -423,10 +462,45 @@ namespace Desert::Editor
                 // An empty role-narrowed list says why, instead of a bare "None" an author reads as a broken
                 // picker: no .demat in Content is of a template declaring the role (Content Browser > New).
                 if ( listed == 0 && !role.empty() )
-                    ImGui::TextDisabled(
-                         "%s", std::format( "(no {} {} in Content: the Content Browser's New menu creates one)",
-                                            role, kindNoun )
-                                    .c_str() );
+                    ImGui::TextDisabled( "%s",
+                                         std::format( "(no {} {} in Content yet)", role, kindNoun ).c_str() );
+                // UE's picker "Create New Asset": a new material of the slot's role, written beside the one set
+                // (else in the Content's Materials folder), entered into the registry and assigned here - the
+                // same route as the Content Browser's New menu (MaterialAssetUtils::CreateRoleMaterial).
+                if ( !role.empty() && kind == Common::Content::ContentKind::Material )
+                {
+                    std::string spaced; // "WaterMaterial" -> "Water Material"
+                    for ( const char c : role )
+                    {
+                        if ( !spaced.empty() && c >= 'A' && c <= 'Z' )
+                            spaced += ' ';
+                        spaced += c;
+                    }
+                    ImGui::Separator();
+                    const bool canCreate = assetMgr != nullptr;
+                    if ( ImGui::Selectable( std::format( "+ New {}", spaced ).c_str(), false,
+                                            canCreate ? ImGuiSelectableFlags_None
+                                                      : ImGuiSelectableFlags_Disabled ) )
+                    {
+                        std::filesystem::path folder =
+                             Common::Constants::Path::FullPath( Common::Constants::Path::ASSETS_PATH ) /
+                             "Materials";
+                        if ( *handle != 0 )
+                            if ( const auto current = Assets::ContentRegistry::RowOf( kind, *handle ) )
+                                folder = Common::Constants::Path::FullPath( current->Path ).parent_path();
+                        const auto created = ::Desert::Editor::MaterialAssetUtils::CreateRoleMaterial(
+                             *assetMgr, role, folder, std::format( "New{}", role ) );
+                        if ( created )
+                        {
+                            *handle = created.GetValue();
+                            changed = true;
+                            LOG_INFO( "[Details] Created and assigned a new {} {} in '{}'.", role, kindNoun,
+                                      folder.generic_string() );
+                        }
+                        else
+                            LOG_ERROR( "[Details] New {}: {}", spaced, created.GetError() );
+                    }
+                }
                 ImGui::EndCombo();
             }
             if ( ImGui::BeginDragDropTarget() )
@@ -1222,8 +1296,9 @@ namespace Desert::Editor
                                              field.Meta.AssetType.c_str() );
                         break;
                     }
-                    changed = DrawRegistryRowPicker( static_cast<uint64_t*>( p ), *kind, picker->Id,
-                                                     picker->NoneLabel, picker->Noun, field.Meta.AssetRole );
+                    changed =
+                         DrawRegistryRowPicker( static_cast<uint64_t*>( p ), *kind, picker->Id, picker->NoneLabel,
+                                                picker->Noun, field.Meta.AssetRole, assetMgr );
                     break;
                 }
 

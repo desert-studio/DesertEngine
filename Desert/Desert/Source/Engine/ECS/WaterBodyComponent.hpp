@@ -27,7 +27,7 @@ namespace Desert::ECS
                            "Play by name." ) )
         Assets::AssetHandle WaterWaves;
 
-        PROPERTY( DisplayName( "Ocean Extents" ), Category( "Water" ), Length,
+        PROPERTY( DisplayName( "Ocean Extents" ), Category( "Water" ), Length, EditCondition( "Type == Ocean" ),
                   Tooltip( "The footprint of the ocean around the entity, X by Z (UE OceanExtents). A point "
                            "outside it is not in this body." ) )
         glm::vec2 OceanExtents{ 51200.0f, 51200.0f };
@@ -54,20 +54,24 @@ namespace Desert::ECS
         // x, y, z per point, flat: the reflection serializes a vector of scalars (a std::vector<glm::vec3> field
         // is not a container to it - VolumeComponent::HullPoints). Relative to the entity's location.
         PROPERTY( DisplayName( "River Spline" ), Category( "River" ), Advanced, Length,
+                  EditCondition( "Type == River" ),
                   Tooltip( "The river's centre line, x y z per point relative to the entity, cm; the water flows "
                            "from the first point to the last. Fewer than two points draw no river." ) )
         std::vector<float> RiverSpline;
 
         PROPERTY( DisplayName( "River Width" ), Category( "River" ), Length, Range( 1.0f, 1000000.0f ),
+                  EditCondition( "Type == River" ),
                   Tooltip( "The river's width across its spline, cm (UE the spline's RiverWidth)." ) )
         float RiverWidth = 800.0f;
 
         PROPERTY( DisplayName( "River Flow Speed" ), Category( "River" ), Range( 0.0f, 10000.0f ),
+                  EditCondition( "Type == River" ),
                   Tooltip( "The surface speed on the centre line, cm/s (UE WaterVelocity); it eases to still "
                            "water at the banks." ) )
         float RiverFlowSpeed = 150.0f;
 
         PROPERTY( DisplayName( "River Flow Period" ), Category( "River" ), Range( 0.05f, 60.0f ),
+                  EditCondition( "Type == River" ),
                   Tooltip( "The two-phase flow's period, s: how long one ripple texture is advected before it "
                            "cross-fades to the other phase. Shorter stretches less, longer pulses less." ) )
         float RiverFlowPeriod = 1.0f;

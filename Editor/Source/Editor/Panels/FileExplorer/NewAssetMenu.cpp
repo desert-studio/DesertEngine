@@ -285,30 +285,18 @@ namespace Desert::Editor
     // property defaults until the user edits them; a WaterBody's Water Material slot takes it.
     void NewAssetMenu::CreateNewWaterMaterial( const DirectoryInformation& folder )
     {
-        const auto path = UniqueIn( folder, "NewWaterMaterial",
-                                    std::string( Common::Constants::Extensions::MATERIAL_EXTENSION ) );
         if ( m_AssetManager == nullptr )
         {
-            LOG_ERROR( "[Content] '{}' was not created: no asset manager is bound", path.generic_string() );
+            LOG_ERROR( "[Content] NewWaterMaterial was not created: no asset manager is bound" );
             return;
         }
-        Assets::MaterialData data;
-        const auto water = Assets::FindTemplateByRole( *m_AssetManager, Common::Content::kWaterMaterialRole );
-        if ( !water )
+        // The one creation route, shared with the WaterBody picker's "New Water Material" entry
+        // (PropertyEditorBuilder DrawRegistryRowPicker).
+        if ( const auto created = MaterialAssetUtils::CreateRoleMaterial(
+                  *m_AssetManager, Common::Content::kWaterMaterialRole, folder.AssetPath, "NewWaterMaterial" );
+             !created )
         {
-            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), water.GetError() );
-            return;
-        }
-        if ( const auto stated =
-                  Assets::SurfaceMaterialAsset::StateShader( data, *m_AssetManager, water.GetValue() );
-             !stated )
-        {
-            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), stated.GetError() );
-            return;
-        }
-        if ( const auto written = Assets::WriteMaterialFile( path, data ); !written )
-        {
-            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), written.GetError() );
+            LOG_ERROR( "[Content] {}", created.GetError() );
             return;
         }
         m_On.OnRefresh();
