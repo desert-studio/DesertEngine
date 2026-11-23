@@ -9,7 +9,7 @@
 #include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/ToastManager.hpp>
-#include <Engine/ECS/LandscapeLayerRules.hpp>
+#include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>

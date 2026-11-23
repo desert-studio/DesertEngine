@@ -10,7 +10,7 @@
 #include <Editor/Core/ToastManager.hpp>
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/ECS/LandscapeLayerRules.hpp>
+#include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>

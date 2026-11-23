@@ -1,7 +1,7 @@
-#include "LandscapeECSSystem.hpp"
+#include <Engine/ECS/System/LandscapeECSSystem.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/ECS/System/LandscapeTileImage.hpp>
+#include <Landscape/Public/LandscapeTileImage.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -18,7 +18,7 @@
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeWeightmap.hpp>
+#include <Landscape/Public/LandscapeWeightmap.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
