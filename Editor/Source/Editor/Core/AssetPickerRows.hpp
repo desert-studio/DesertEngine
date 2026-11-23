@@ -80,6 +80,9 @@ namespace Desert::Editor
              // PROPERTY(Role(...)) (PropertyMetadata::AssetRole, ContentRegistry::TemplateRoleOf). Mesh material
              // slots keep their own widget (MaterialsPanelComponent).
              { "MaterialAsset", "##material", "None", "material" },
+             // A game's data asset (UE TSoftObjectPtr<UPrimaryDataAsset>): the registry's .dasset rows, whatever
+             // type each carries.
+             { "DataAsset", "##dataasset", "None", "data asset" },
         };
         for ( const RegistryPickerSpec& spec : SPECS )
             if ( spec.AssetType == assetType )

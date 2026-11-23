@@ -5,6 +5,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Reflection/FieldValue.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -94,6 +95,50 @@ namespace Desert::Reflection
 
     namespace
     {
+        // Whether an object of @p type holds an asset reference anywhere inside it: a handle, a vector of
+        // handles, a nested struct or a vector of structs that does. Only such a vector of structs takes the
+        // per-element reference form below; a handle-free one keeps the JSON lambda's form, byte for byte.
+        // The walk keeps a visited list: a struct may hold a vector of itself (a tree's children).
+        [[nodiscard]] bool HoldsReferences( const TypeInfo& root )
+        {
+            std::vector<const TypeInfo*> visited{ &root };
+            std::vector<const TypeInfo*> stack{ &root };
+            auto push = [&]( const TypeInfo* t )
+            {
+                if ( t != nullptr && std::find( visited.begin(), visited.end(), t ) == visited.end() )
+                {
+                    visited.push_back( t );
+                    stack.push_back( t );
+                }
+            };
+            while ( !stack.empty() )
+            {
+                const TypeInfo* type = stack.back();
+                stack.pop_back();
+                for ( const FieldInfo& field : type->Fields )
+                {
+                    if ( field.Type == FieldType::AssetHandle || field.ContainerHandles )
+                        return true;
+                    if ( field.IsContainer )
+                        push( field.ElementStruct );
+                    else if ( field.Type == FieldType::Struct )
+                        push( field.StructType );
+                }
+            }
+            return false;
+        }
+
+        // A vector of a reflected struct that holds references, under a resolver: written element by element
+        // through SerializeReflected, so a handle inside an element takes the reference form a single handle
+        // field takes ({Guid,Path} / the stable key) instead of the raw id the JSON lambda writes.
+        [[nodiscard]] bool ElementsTakeReferenceForm( const FieldInfo& field, const AssetResolver* resolver )
+        {
+            return resolver != nullptr && field.IsContainer && field.ElementStruct != nullptr &&
+                   field.ContainerSize != nullptr && field.ContainerResize != nullptr &&
+                   field.ContainerElementAt != nullptr && field.ContainerElementMut != nullptr &&
+                   HoldsReferences( *field.ElementStruct );
+        }
+
         // Writes one field that is not a nested struct (SerializeReflected walks those).
         void WriteField( Common::Json::Object& out, const FieldInfo& field, const void* p,
                          const AssetResolver* resolver )
@@ -113,6 +158,16 @@ namespace Desert::Reflection
                     WriteField( one, element, &handle, resolver );
                     array.push_back( std::move( one["Element"] ) );
                 }
+                out[field.Name] = Common::Json::Value( std::move( array ) );
+                return;
+            }
+            if ( ElementsTakeReferenceForm( field, resolver ) )
+            {
+                Common::Json::Value::Array array;
+                const std::size_t          count = field.ContainerSize( p );
+                for ( std::size_t i = 0; i < count; ++i )
+                    array.push_back( Common::Json::Value(
+                         SerializeReflected( *field.ElementStruct, field.ContainerElementAt( p, i ), resolver ) ) );
                 out[field.Name] = Common::Json::Value( std::move( array ) );
                 return;
             }
@@ -284,6 +339,26 @@ namespace Desert::Reflection
                      } );
                 if ( issues.size() == before )
                     field.AssignHandles( p, read );
+                return;
+            }
+            // The reader of the per-element form above. Every element is rebuilt from the struct's defaults (a
+            // field an element does not state is the default, never a value left over from the old vector) and
+            // read under the field rule of a nested struct. A raw id inside an element - the JSON lambda's form,
+            // what a file written before this reader holds - takes ReadField's raw-handle route.
+            if ( ElementsTakeReferenceForm( field, resolver ) )
+            {
+                if ( !g.ExpectKind( Kind::Array, issues ) )
+                    return;
+                std::size_t count = 0;
+                g.ForEachElement( [&]( std::size_t, const Common::Json::Node& ) { ++count; } );
+                field.ContainerResize( p, 0 );
+                field.ContainerResize( p, count );
+                g.ForEachElement(
+                     [&]( std::size_t i, const Common::Json::Node& node )
+                     {
+                         if ( void* element = field.ContainerElementMut( p, i ) )
+                             DeserializeReflected( *field.ElementStruct, element, node, issues, resolver );
+                     } );
                 return;
             }
             if ( field.IsContainer && field.DeserializeContainer )

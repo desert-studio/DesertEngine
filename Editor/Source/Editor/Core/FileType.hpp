@@ -143,12 +143,16 @@ namespace Desert::Editor
         /// A baked sparse volume (`.dsvol`, UE USparseVolumeTexture) and the `.vol` grid it is imported from -
         /// one kind for both, as the IES profile and its `.ies`. Its picture is the class icon: a medium has no
         /// surface to render without the heterogeneous-volume march.
-        SparseVolume
+        SparseVolume,
+
+        /// A game's typed data asset (`.dasset`, UE UPrimaryDataAsset): one kind for every type a game module
+        /// registers (DataAssetTypeRegistry) - colour, icon and filter; a reflected struct has no picture.
+        DataAsset
     };
 
     /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
     /// is one edit of this line rather than a bound hidden in each suite.
-    inline constexpr FileType kLastFileType = FileType::SparseVolume;
+    inline constexpr FileType kLastFileType = FileType::DataAsset;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -227,6 +231,8 @@ namespace Desert::Editor
          // The sparse volume ASSET and its simulation grid (Editor/Import/SparseVolumeImporter).
          { "dsvol", FileType::SparseVolume },
          { "vol", FileType::SparseVolume },
+         // A game's data asset, whatever type it carries (Engine/Assets/DataAssetTypeRegistry).
+         { "dasset", FileType::DataAsset },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

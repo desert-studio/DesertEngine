@@ -186,6 +186,16 @@ namespace Desert::Reflection
         Value ( *ContainerGet )( const void* /*field*/, std::size_t /*index*/ ) = nullptr;
         bool ( *ContainerSet )( void* /*field*/, std::size_t /*index*/, const Value& /*value*/ ) = nullptr;
 
+        // A std::vector OF A REFLECTED STRUCT (UE TArray<FStruct>, ElementType Struct): the element's own
+        // TypeInfo and the element's address, so a walker that is not the JSON lambda - the reference
+        // serializer, the dependency gatherer of a data asset (UE's asset registry walking every nested
+        // property) - reaches the fields INSIDE each element. ElementStruct is resolved lazily from TypeName's
+        // element spelling (ReflectionRegistry::ResolveStructLinks), as StructType is; the accessors are
+        // codegen'd only for a Struct element (ContainerAccess.hpp) and answer null past the end.
+        const TypeInfo* ElementStruct                                                          = nullptr;
+        const void* ( *ContainerElementAt )( const void* /*field*/, std::size_t /*index*/ )   = nullptr;
+        void* ( *ContainerElementMut )( void* /*field*/, std::size_t /*index*/ )              = nullptr;
+
         const std::string& DisplayName() const
         {
             return Meta.DisplayName.empty() ? Name : Meta.DisplayName;

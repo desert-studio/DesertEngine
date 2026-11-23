@@ -168,6 +168,11 @@ namespace Desert::Assets
     // stated nothing - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );
     inline constexpr uint32_t kShaderSchemaVersion = 1;
+    // A .dasset: a game's typed data asset - `Type` (the payload's reflected struct name) and `Data` (its fields),
+    // stated from its first version (ASSET-TYPES-OPEN; Serialization/DataAsset.hpp). The payload struct's own
+    // field changes are NOT counted here: a field the file lacks keeps the struct's default.
+    inline constexpr uint32_t kDataAssetSchemaTag     = Common::Content::FourCC( "DATA" );
+    inline constexpr uint32_t kDataAssetSchemaVersion = 1;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.

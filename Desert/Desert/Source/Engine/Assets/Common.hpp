@@ -138,8 +138,8 @@ namespace Desert::Assets
         // A WEATHER PRESET (`.dweatherpreset`): one weather as data, named by weather zones and SetWeather.
         // See Engine/Assets/WeatherPresetAsset.hpp.
         WeatherPreset,
-        // A VFX EFFECT TYPE (`.dfxtype`): UE's UNiagaraEffectType - the per-Effects-level scalability (MaxDistance,
-        // SpawnCountScale) a family of VFX systems shares; a `.dfx` names it by stem. See
+        // A VFX EFFECT TYPE (`.dfxtype`): UE's UNiagaraEffectType - the per-Effects-level scalability
+        // (MaxDistance, SpawnCountScale) a family of VFX systems shares; a `.dfx` names it by stem. See
         // Engine/Assets/VFXEffectTypeAsset.hpp.
         VFXEffectType,
         // A SUBSURFACE PROFILE (`.dsssprofile`): UE USubsurfaceProfile - the Burley parameters a material of the
@@ -156,6 +156,11 @@ namespace Desert::Assets
         // bricks that hold medium plus a page table, sampled by a HeterogeneousVolumeComponent. See
         // Engine/Assets/SparseVolumeAsset.hpp.
         SparseVolume,
+        // A GAME'S TYPED DATA ASSET (`.dasset`): UE's UPrimaryDataAsset - ONE kind whose payload is any reflected
+        // struct a game module registers by name (DataAssetTypeRegistry), so a weapon, an ability or a loot table
+        // is an asset without a new enumerator here or a case in any switch (COUPLING-AUDIT #6). This is the LAST
+        // engine enumerator a game's data needs. See Engine/Assets/DataAsset.hpp.
+        DataAsset,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -292,6 +297,9 @@ namespace Desert::Assets
             // A SPARSE VOLUME IS SCENE-SCOPED for the profile's reason: a heterogeneous volume names it by handle and
             // the renderer's brick residency reads the file on the first sight; no asset object is held.
             case AssetTypeID::SparseVolume:
+            // A DATA ASSET IS SCENE-SCOPED for the retarget's reason: a component's `AssetHandle` field names it
+            // (a weapon component's WeaponDef), so the reachability walk sees it while a live entity holds it.
+            case AssetTypeID::DataAsset:
             case AssetTypeID::Count:
                 return false;
         }
@@ -390,6 +398,8 @@ namespace Desert::Assets
                 return "IesProfile";
             case AssetTypeID::SparseVolume:
                 return "SparseVolume";
+            case AssetTypeID::DataAsset:
+                return "DataAsset";
             case AssetTypeID::Count:
                 return "Count";
         }
