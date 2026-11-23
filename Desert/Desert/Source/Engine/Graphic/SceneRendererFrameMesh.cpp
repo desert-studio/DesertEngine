@@ -80,16 +80,27 @@ namespace Desert::Graphic
         // whose target or reads the graph cannot declare is refused with its error, never half-declared.
         // NeverCull: a pass body may change state outside the graph - per-frame material state - which no
         // declaration shows.
+        // A pass on ONE LAYER of a graph depth array (TargetDepthArray) is a target of its own per layer: the
+        // first node on each (array, layer) clears it as the first on a framebuffer does (the far shadow cascades).
         const RenderPassSpecification defaults;
         std::shared_ptr<Framebuffer>  previous;
+        std::optional<std::pair<RDG::TextureRef, uint32_t>> previousLayer;
         for ( SystemRasterPass& pass : passes )
         {
             // A system whose pipeline or target failed to build hands back a pass with no target (it logged why).
             if ( ( !pass.TargetFramebuffer && !pass.TargetDepthArray.IsValid() ) || !pass.ExecuteFunc )
                 continue;
-            const std::shared_ptr<Framebuffer>& target = pass.TargetFramebuffer;
-            const bool                          clears = clearFirst && target != previous;
-            previous                                   = target;
+            const std::shared_ptr<Framebuffer>& target  = pass.TargetFramebuffer;
+            const bool                          layered = pass.TargetDepthArray.IsValid();
+            const bool newTarget = layered ? !previousLayer || !( previousLayer->first == pass.TargetDepthArray ) ||
+                                                  previousLayer->second != pass.TargetLayer
+                                           : target != previous;
+            const bool clears    = clearFirst && newTarget;
+            previous             = target;
+            if ( layered )
+                previousLayer.emplace( pass.TargetDepthArray, pass.TargetLayer );
+            else
+                previousLayer.reset();
 
             const glm::vec4   clearColor = pass.ClearColor.value_or( defaults.ClearColor.Color );
             const RDG::LoadOp color =
@@ -197,6 +208,10 @@ namespace Desert::Graphic
                      { return Renderer::CopyGraphDepthToLayer( context, cache, maps, layer, regions ); } );
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
+            // Each light's FAR CASCADE (UE's far shadow cascade), past the cascades in the same array: a layer
+            // whose static casters or placement changed is cleared and drawn again; the rest keep their depth.
+            std::vector<SystemRasterPass> farShadow = mesh.FarShadowPasses( maps );
+            AddSystemRasters( graph, textures, farShadow, true );
         }
     }
 

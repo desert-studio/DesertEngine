@@ -18,7 +18,8 @@ const float kDistanceFieldShadowRayStartOffsetDepthScale = 0.003;
 // many voxels of the clipmap holding it: the field's march stops on its expanded surface, up to half a voxel in front
 // of the mesh, and a thin far occluder below one voxel is not in the field at all (UE's global-SDF surface bias).
 const float kDistanceFieldShadowGlobalStartVoxels = 2.0;
-// Sphere-trace steps of the global field (the coarse clipmaps cover the 500 m in few long steps).
+// Sphere-trace steps of the global field (the coarse clipmaps cover the ray's reach, DISTANCE_FIELD_SHADOW_RAY, in few
+// long steps; past the cascades the far shadow cascade, Shadows.FarDistance, shadows the receivers first).
 const int kDistanceFieldShadowGlobalSteps = 64;
 // The ray's reach, cm (UE DistanceFieldShadowing's far-field trace distance).
 #define DISTANCE_FIELD_SHADOW_RAY 50000.0
