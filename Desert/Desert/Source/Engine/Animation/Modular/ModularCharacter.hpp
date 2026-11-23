@@ -19,16 +19,17 @@
 //   * it runs once per fixed step AFTER AnimationECSSystem has produced this frame's pose and BEFORE
 //     AttachmentSystem (sockets) and rendering, so nothing worn lags the body by a frame;
 //   * cloth created on a follower is stepped inside ApplyLeaderPose, with that same pose, at that same dt;
-//   * a follower's draw names its leader (LeaderPoseLink): the renderer grows and places it with the leader's
-//     draw (the far figure's minimum screen size), never by its own bounds.
+//   * a follower entity carries its leader in a runtime LeaderPoseLink component, which its draw names: the
+//     renderer draws it at the leader's level (clamped to its own), on the leader's path (skeletal / baked
+//     crowd) and grown with the leader's draw (the far figure's minimum screen size), never by its own bounds.
 //
 // Why Engine/Animation/Modular: every mechanism here is a consequence of sharing ONE animated pose; the
 // socket half already lives next to it (ECS SocketAttachmentComponent, driven by AttachmentSystem), and
 // AttachToSocket is expected to be implemented on top of that component, not beside it.
 //
 // NOT HERE: EQP1 — the implementation (ECS side: follower mesh entities, section visibility on the mesh
-// renderer, cloth lifetime) and the Lua bindings of these mechanisms. No ECS component is declared, so no
-// reflection, serialization or scene format moves with CLO0.
+// renderer, cloth lifetime) and the Lua bindings of these mechanisms. No reflected ECS component is declared (the
+// follower's LeaderPoseLink is runtime-only), so no reflection, serialization or scene format moves with CLO0.
 
 #include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 #include <PhysicsCore/Cloth/ClothingSimulation.hpp>
