@@ -65,13 +65,17 @@ namespace Desert::Net
              std::clamp( 2.0 * interval + m_Jitter, kInterpolationDelaySeconds, kMaxInterpolationDelaySeconds );
         m_Delay += std::clamp( target - m_Delay, -0.05 * dt, 0.5 * dt );
         const double wanted = local - m_FastestOffset - m_Delay;
-        if ( !m_RenderSeconds || std::abs( wanted - *m_RenderSeconds ) > kClockSnapSeconds )
+        // The error is measured against where the clock lands at local rate (render + dt), not where it was: the
+        // old form counted the frame's own dt as error, ran the clock 10 % fast every frame and drifted it seconds
+        // ahead until it snapped. The correction closes the error smoothly, never faster than kClockDilation of
+        // dt.
+        const double predicted = m_RenderSeconds ? *m_RenderSeconds + dt : wanted;
+        const double error     = wanted - predicted;
+        if ( !m_RenderSeconds || std::abs( error ) > kClockSnapSeconds )
             m_RenderSeconds = wanted;
         else
-        {
-            const double rate = 1.0 + std::clamp( ( wanted - *m_RenderSeconds ) * 4.0, -kClockDilation, kClockDilation );
-            *m_RenderSeconds += dt * rate;
-        }
+            m_RenderSeconds = predicted + std::clamp( error * std::min( 1.0, 4.0 * dt ), -kClockDilation * dt,
+                                                      kClockDilation * dt );
         if ( local >= m_NextDelayLog )
         {
             m_NextDelayLog = local + 1.0;
