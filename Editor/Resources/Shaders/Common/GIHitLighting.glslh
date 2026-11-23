@@ -311,6 +311,15 @@ vec3 GIHitLightResponse( GIHitSurface surface, vec3 P, vec3 N, vec3 V, vec3 L, v
     light.Radiance           = radiance;
     light.Shadow             = 1.0;
     light.TransmissionShadow = 1.0;
+    // A punctual source: every field of the contract written (an unwritten RectExtentX would read as a rect).
+    light.RectCenter         = vec3( 0.0 );
+    light.RectExtentX        = vec3( 0.0 );
+    light.RectExtentY        = vec3( 0.0 );
+    light.RectLuminance      = vec3( 0.0 );
+    light.RectLtcTexture     = 0;
+    light.SphereCenter       = vec3( 0.0 );
+    light.SphereRadius       = 0.0;
+    light.SphereAxis         = vec3( 0.0 );
     return DesertEvaluateShadingModel( DesertShadingModelIndex( surface.ShadingWord ), light, S,
                                        DesertUnpackPayload( surface.ShadingWord ) );
 }

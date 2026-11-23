@@ -243,7 +243,7 @@ Shader "DeferredLighting"
 
         Uniform(0) DeferredUB
         {
-        	vec4 LightDirection;   // xyz = direction the light travels (away from the sun); w unused
+        	vec4 LightDirection;   // xyz = direction the light travels (away from the sun); w = sin(SourceAngle / 2)
         	vec4 LightColor; // rgb = colour, a = intensity
         	vec4 Params;     // x = debug mode (0..9), y unused, z = SSAO enabled, w = GI mode (0, 2, 3)
         	vec4 CameraPosition;  // xyz = camera world position (for the view vector); w = REFLECTION_INPUT_* of SsrTexture
@@ -253,7 +253,8 @@ Shader "DeferredLighting"
         	                    // y = ViewFrame::PreExposure; z = 1 when the view scatters (SSS-PROFILE,
         	                    // SubsurfaceDiffuseTexture); w = 1 when light 1's distance-field
         	                    // channel is this frame's
-        	vec4 Light1Direction; // atmosphere light 1 (UE Atmosphere Sun Light Index 1, the moon): xyz = travel
+        	vec4 Light1Direction; // atmosphere light 1 (UE Atmosphere Sun Light Index 1, the moon): xyz = travel,
+        	                      // w = sin(its SourceAngle / 2), its disc's specular as the sun's
         	vec4 Light1Color;     // rgb = colour, a = intensity (after the atmosphere's transmittance); a == 0: none
         };
 
@@ -599,7 +600,8 @@ Shader "DeferredLighting"
         	const DesertSurface surface =
         	     DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness, DesertShadingWordSpecular(word));
 
-        	const DesertLight sunLight = DesertSunLight(LightDirection.xyz, radiance, shadow, transmissionShadow);
+        	const DesertLight sunLight = DesertSunLight(LightDirection.xyz, radiance, shadow, transmissionShadow,
+        	                                             LightDirection.w);
         	vec3 result   = DesertEvaluateShadingModel(shadingModel, sunLight, surface, payload);
         	// The specular half of `result`, summed only for a scattered texel (diffuse = result - specular).
         	vec3 specular = scatters ? DesertEvaluateShadingModelSpecular(shadingModel, sunLight, surface, payload)
@@ -628,7 +630,8 @@ Shader "DeferredLighting"
         		                                                   ContactShadowSubsurfaceDensity(subsurfaceOpacity))
         		               : 1.0;
         		const DesertLight light1 =
-        		     DesertSunLight(Light1Direction.xyz, Light1Color.rgb * Light1Color.a, shadow1, transmission1);
+        		     DesertSunLight(Light1Direction.xyz, Light1Color.rgb * Light1Color.a, shadow1, transmission1,
+        		                    Light1Direction.w);
         		result += DesertEvaluateShadingModel(shadingModel, light1, surface, payload);
         		if (scatters)
         			specular += DesertEvaluateShadingModelSpecular(shadingModel, light1, surface, payload);

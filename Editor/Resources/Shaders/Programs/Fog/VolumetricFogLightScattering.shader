@@ -118,6 +118,7 @@ Shader "VolumetricFogLightScattering"
         // A froxel has no fragment and no ShadowUB: its froxel keys the PCF rotation, one tap per froxel.
         #define LOCAL_SHADOW_FILTER_PIXEL vec2(gl_GlobalInvocationID.xy)
         #define LOCAL_SHADOW_FILTER_TAPS 1.0
+        #define LOCAL_SHADOW_BLOCKER_SEARCH_TAPS 0.0
         #include <Mesh/LocalLightShadowLookup.glslh>
 
         LocalSize(4, 4, 4);

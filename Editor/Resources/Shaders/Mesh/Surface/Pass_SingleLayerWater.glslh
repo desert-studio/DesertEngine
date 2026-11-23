@@ -290,7 +290,8 @@ void main()
     const DesertSurface S = DesertMakeSurface( i.WorldPosition, N, V, vec3( 0.0 ), 0.0, s.Roughness, s.Specular );
     const DesertPayload P = DesertQuantizePayload( DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
     // L points toward the sun; DesertSunLight takes the direction its light travels.
-    const DesertLight   sunLight = DesertSunLight( -L, sunLit, sunShadow, sunShadow );
+    const DesertLight   sunLight = DesertSunLight( -L, sunLit, sunShadow, sunShadow,
+                                                         directionLights.directionLights.Direction.w );
     // ...and each point and spot light of the froxel under its shadow (or the MegaLights volume's), through the same
     // model. The volume's scattering stays the sun's and the sky's (UE SingleLayerWater's), so the local lights'
     // isotropic remainder (Indirect) has no diffuse surface to light here.

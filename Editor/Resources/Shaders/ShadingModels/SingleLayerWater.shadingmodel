@@ -23,12 +23,16 @@ Inputs
 
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness ) * L.Shadow;
+    // A sphere (or the sun's disc) is aimed at its point nearest the reflection (DesertSphereSpecularLight).
+    const DesertLight Ls = DesertSphereSpecularLight( L, S.N, S.V, S.Roughness );
+    return EvaluateDirectLightSpecular( Ls.L, Ls.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness ) * L.Shadow;
 }
 
 vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness ) * L.Shadow;
+    // A sphere (or the sun's disc) is aimed at its point nearest the reflection (DesertSphereSpecularLight).
+    const DesertLight Ls = DesertSphereSpecularLight( L, S.N, S.V, S.Roughness );
+    return EvaluateDirectLightSpecular( Ls.L, Ls.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness ) * L.Shadow;
 }
 
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )

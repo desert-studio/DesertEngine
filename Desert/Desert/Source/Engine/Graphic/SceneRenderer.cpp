@@ -3733,7 +3733,9 @@ namespace Desert::Graphic
                  .Position          = point.Position,
                  .AttenuationRadius = point.Radius,
                  .SourceRadius      = point.SourceRadius,
-                 .SourceId          = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u } );
+                 // Mesh/LightSources.glslh LightSourceHalfAxis: a point light's tube along cross(AxisX, AxisY).
+                 .SourceHalfAxis = glm::cross( point.AxisX, point.AxisY ) * ( 0.5f * point.SourceLength ),
+                 .SourceId       = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u } );
         }
         uint32_t spotsIn = 0u;
         for ( std::size_t i = 0; i < m_SpotLight.SpotLights.size(); ++i )
@@ -3760,9 +3762,11 @@ namespace Desert::Graphic
                  .Position          = spot.Position,
                  .AttenuationRadius = spot.Range,
                  .SourceRadius      = spot.SourceRadius,
-                 .SpotDirection     = spot.Direction,
-                 .CosOuter          = spot.CosOuter,
-                 .SourceId          = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u } );
+                 // Mesh/LightSources.glslh LightSourceHalfAxis: a spot's tube along its cone axis.
+                 .SourceHalfAxis = spot.Direction * ( 0.5f * spot.SourceLength ),
+                 .SpotDirection  = spot.Direction,
+                 .CosOuter       = spot.CosOuter,
+                 .SourceId       = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u } );
         }
         // The frame's one answer to "the local lights have virtual pages" (RenderMethods' rule over this view's
         // lights): every page reader of the frame - the page passes, MegaLights, the surface cache's cards - reads
@@ -4312,9 +4316,10 @@ namespace Desert::Graphic
                 }
                 else
                     visibility = traced.GetValue().Mask;
-                // A point emitter (SourceRadius 0) casts a hard shadow from one ray: nothing to denoise. A light
-                // with no identity (SourceId 0) has no history to keep: its mask is shaded as traced.
-                if ( traced && light.SourceRadius > 0.0f && light.SourceId != 0 )
+                // A point emitter (SourceRadius 0, no tube) casts a hard shadow from one ray: nothing to denoise.
+                // A light with no identity (SourceId 0) has no history to keep: its mask is shaded as traced.
+                const float halfLength = glm::length( light.SourceHalfAxis );
+                if ( traced && ( light.SourceRadius > 0.0f || halfLength > 0.0f ) && light.SourceId != 0 )
                 {
                     if ( !velocity.IsValid() )
                     {
@@ -4346,14 +4351,16 @@ namespace Desert::Graphic
                             const RDG::TextureRef denoised = denoiser->DenoiseShadowVisibility(
                                  graph,
                                  System::ShadowVisibilityDenoiserInputs{
-                                      .Mask                 = traced.GetValue().Mask,
-                                      .ClosestOccluder      = traced.GetValue().ClosestOccluder,
-                                      .LocalLight           = glm::vec4( light.Position, light.SourceRadius ),
+                                      .Mask            = traced.GetValue().Mask,
+                                      .ClosestOccluder = traced.GetValue().ClosestOccluder,
+                                      // The denoiser's penumbra kernel is isotropic: a tube's reach is its
+                                      // radius plus its half-length (the bound along the tube).
+                                      .LocalLight = glm::vec4( light.Position, light.SourceRadius + halfLength ),
                                       .ReconstructionRadius = m_ShadowDenoiserRadius },
                                  System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
                                                                 .GBufferDepth  = depth,
                                                                 .Velocity      = velocity,
-                                                                .Black         = textures.GraphRefs().System.Black },
+                                                                .Black = textures.GraphRefs().System.Black },
                                  frame, width, height );
                             if ( denoised.IsValid() )
                                 visibility = denoised;
