@@ -1,12 +1,22 @@
-# BUILD-MOD-6 pass 2: Engine no longer includes Destruction; the module registers itself at startup
-# (Destruction::StartupModule: physics scene feature, fracture stand-in draw, FractureService, asset roots/types,
-# component pools; Engine/Core/Modules.cpp). Files live in Desert/Destruction/Source/Destruction/{Public,Private}.
-# boundary_error (outside the editor, Mac configure log): an injected #include <Destruction/Public/DestructionWorld.hpp>
-#   in an Engine .cpp fails configure naming module 'Engine' and module 'Destruction' (MODULE BOUNDARY).
+# BUILD-MOD-6 pass 3: Engine includes neither Destruction nor Water; both modules register at startup
+# (Engine/Core/Modules.cpp -> Destruction::StartupModule, Water::StartupModule). Water lives in
+# Desert/Water/Source/Water/{Public,Private}; the Renderer schedules its pass through ISingleLayerWaterPass.
+# WP_Protocol has NO destructible (no .deent names one), so the break is proven on DST_RuntimeWitness's crate:
+# a Strain Field is added to it and fired by its palette command during Play.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
-Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, небо, разрушаемые объекты сцены целые на месте; без падения и диалога ошибки
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, небо; без падения и диалога ошибки
+Когда run Scene "Open Scene Water_Ocean.desce"
+Когда wait-idle 60
+Когда frames 30
+Тогда-вид 2_water вода Water_Ocean рисуется как в dev (поверхность, волны, отражение неба); в editor.log нет отказа модуля Water
+Когда run Scene "Open Scene DST_RuntimeWitness.desce"
+Когда wait-idle 60
+Когда add-component 4101 "Strain Field"
+Когда set 4101 StrainFieldData.Magnitude 100000000
+Когда set 4101 StrainFieldData.Radius 400
 Когда run Action "Play"
+Когда advance 1
+Когда run Action "Fire Field 'CrateOnLoadA'"
 Когда advance 2
-Когда advance 2
-Тогда-вид 1_wp_play WP_Protocol в Play: разрушаемый объект после удара разбит на куски (куски рисуются на месте, не исходная целая сетка); в editor.log нет отказа фрактуры
+Тогда-вид 1_wp_break ящик CrateOnLoadA разбит на куски (не целая сетка); в editor.log строка "[Play] Fire Field: acted on N bodies/pieces" с N > 0
