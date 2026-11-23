@@ -1165,11 +1165,33 @@ namespace Desert::Core
                  "plan holds {} (slice {}..{})",
                  m_SceneName, unit, unitRecords->size(), planned, firstMember, firstMember + records.size() ) );
         }
-        auto made =
-             SceneSerializer( m_Scene, m_Assets )
-                  .InstantiateRecords(
-                       std::span<const Assets::EntityData>( *unitRecords ).subspan( firstMember, records.size() ),
-                       m_SceneName, nullptr );
+        std::span<const Assets::EntityData> slice =
+             std::span<const Assets::EntityData>( *unitRecords ).subspan( firstMember, records.size() );
+        // The server's destroyed records are never made (and a child goes with its parent); the slice keeps its
+        // order, and HideMade finds no entity for a skipped record.
+        std::vector<Assets::EntityData> kept;
+        if ( !m_NetDestroyed.empty() )
+        {
+            const auto skipped = [&]( const Assets::EntityData& record )
+            {
+                return ( record.id && m_NetDestroyed.contains( static_cast<std::uint64_t>( *record.id ) ) ) ||
+                       ( record.parent && m_NetDestroyed.contains( static_cast<std::uint64_t>( *record.parent ) ) );
+            };
+            if ( std::any_of( slice.begin(), slice.end(), skipped ) )
+            {
+                for ( const Assets::EntityData& record : slice )
+                {
+                    if ( !skipped( record ) )
+                        kept.push_back( record );
+                    else if ( record.id )
+                        m_NetDestroyed.insert( static_cast<std::uint64_t>( *record.id ) );
+                }
+                LOG_INFO( "[WorldStreamer] unit {} ({}): {} record(s) the server destroyed not made",
+                          unit, Rules::DescribeResidencyUnit( Executor().Plan(), unit ), slice.size() - kept.size() );
+                slice = kept;
+            }
+        }
+        auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( slice, m_SceneName, nullptr );
         if ( made )
         {
             HideMade( *m_Scene, m_RecordIds, records, m_Made[unit] );
@@ -1222,6 +1244,21 @@ namespace Desert::Core
         return unitRecords != nullptr && member < unitRecords->size()
                     ? Rules::ActivationKindOf( ( *unitRecords )[member] )
                     : Rules::ActivationRecordKind::Plain;
+    }
+
+    void WorldStreamer::DestroyRecordsForNet( std::span<const std::uint64_t> ids )
+    {
+        for ( const std::uint64_t id : ids )
+        {
+            if ( !m_NetDestroyed.insert( id ).second )
+                continue;
+            // Its children go with its tree (Scene::DestroyEntityAtFence).
+            if ( const auto entity = m_Scene->FindEntityByID( Common::UUID( id ) ) )
+            {
+                m_Scene->DestroyEntityAtFence( entity->get() );
+                LOG_INFO( "[WorldStreamer] record {} destroyed by the server: its entity is gone", id );
+            }
+        }
     }
 
     void WorldStreamer::Destroy( std::span<const std::size_t> records )

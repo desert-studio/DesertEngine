@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <vector>
@@ -45,6 +46,27 @@ namespace Desert::Net
         // Every stable object that differs from its record: its fields in first-write order (a field's index is
         // its change-mask bit, stable for the session).
         [[nodiscard]] virtual const std::map<StableNetId, std::vector<FieldUpdate>>& StableObjects() const = 0;
+
+        // THE WORLD DELTA TABLE's destroyed part (§3.3, UE DestroyedStartupOrDormantActors): a stable id destroyed
+        // on the server stays destroyed for the session whatever streams in or out, and is replayed to every
+        // client that loads its cell. Its changed fields are dropped with it. False when it already was.
+        virtual bool                                           DestroyStable( StableNetId id ) = 0;
+        [[nodiscard]] virtual const std::set<StableNetId>& DestroyedStable() const       = 0;
+    };
+
+    // THE RELEVANCY GRID (§3.5): the cooked World Partition grid, the same one residency runs on, so relevancy and
+    // residency are one geometry (Iris keeps a NetObjectGridFilter grid of its own; we reuse the WP one). Unit
+    // indices are the cooked index's, which client and server share (the cook hash is checked at connect).
+    struct NetRelevancyGrid
+    {
+        struct Cell
+        {
+            std::string              Name; // the index's unit name, for logs
+            float                    MinX = 0.f, MinZ = 0.f, MaxX = 0.f, MaxZ = 0.f; // its square, world cm
+            std::vector<StableNetId> Records;
+        };
+        std::map<std::uint32_t, Cell>         Cells;        // every spatially loaded cell unit, by unit index
+        std::map<StableNetId, std::uint32_t> UnitOfRecord; // cell records only: an always-loaded one has none
     };
 
     class IGatewayLink
@@ -79,12 +101,18 @@ namespace Desert::Net
         {
             return m_Stable;
         }
+        bool                                       DestroyStable( StableNetId id ) override;
+        [[nodiscard]] const std::set<StableNetId>& DestroyedStable() const override
+        {
+            return m_Destroyed;
+        }
 
     private:
         NetId                                           m_Next = 1;
         std::map<NetId, PawnState>                      m_States;
         std::map<StableNetId, std::vector<FieldUpdate>> m_Stable;
         std::uint32_t                                   m_StableVersion = 0;
+        std::set<StableNetId>                           m_Destroyed;
     };
 
     // THE SIMULATION ROLE for player pawns: one pawn per joined player at the next spawn point, moved by its
@@ -106,6 +134,8 @@ namespace Desert::Net
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
         [[nodiscard]] std::optional<std::uint32_t> LastProcessedInput( PlayerId player ) const override;
 
+        // Server authority moves @p player's pawn to @p position (UE TeleportTo); false when it has no pawn.
+        bool Teleport( PlayerId player, const NetVec3& position );
         // One fixed step of every pawn; writes the moved states to the store.
         void Step( double dtSeconds );
         // The pawns' positions: the server's streaming sources (NET-ARCH §4.1), with the player they belong to.
@@ -136,14 +166,15 @@ namespace Desert::Net
     };
 
     // THE GATEWAY ROLE: client connections, the connect handshake (token + cook hash), routing input to the sim,
-    // Spawn/Destroy and Snapshots out of the store. Relevancy is "every pawn" until the WP-grid relevancy of §3.5.
+    // Spawn/Destroy and Snapshots out of the store, for each connection's relevant set (§3.5): its own pawn, the
+    // pawns standing in a cell the client reports resident, and the stable objects of those cells (+ always-loaded).
     class Gateway final : public INetTransportEvents, public IGatewayLink
     {
     public:
         // @p pawnPrefab: the server GameMode's pawn (UE DefaultPawnClass), named to every admitted client in the
         // Welcome; never 0.
         Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy, std::uint64_t pawnPrefab,
-                 NetLogSink log );
+                 NetRelevancyGrid grid, NetLogSink log );
         void Bind( ISimLink& sim )
         {
             m_Sim = &sim;
@@ -169,6 +200,8 @@ namespace Desert::Net
             std::uint64_t StableFields  = 0; // field updates in them (a resend counts again)
             std::uint64_t Resent        = 0; // field updates sent again because their packet was lost
             std::uint64_t Acked         = 0; // field updates the clients acked
+            std::uint64_t Irrelevant    = 0; // pawns removed from a connection's relevant set (Destroy NotRelevant)
+            std::uint64_t DeltaReplays  = 0; // destroyed stable ids replayed to a client loading their cell
         };
         [[nodiscard]] const Stats& ReplicationStats() const
         {
@@ -200,7 +233,21 @@ namespace Desert::Net
             std::map<StableNetId, ObjectBaseline> Baselines;
             std::map<std::uint32_t, SentPacket>   InFlight; // by ObjectState sequence
             std::uint32_t                         NextStateSequence = 1;
+            std::set<std::uint32_t>               Resident;     // cell units the client reports resident
+            std::set<NetId>                       Relevant;     // pawns this client has (Spawn sent, no Destroy)
+            std::set<StableNetId>                 DeltaSent;    // destroyed stable ids replayed to it
         };
+        struct PawnInfo
+        {
+            PlayerId      Owner  = 0;
+            std::uint32_t Player = 0;
+        };
+        [[nodiscard]] bool StableRelevant( const Peer& peer, StableNetId id ) const;
+        // The resident cell of @p peer the position stands in, or nullptr.
+        [[nodiscard]] const NetRelevancyGrid::Cell* ResidentCellAt( const Peer& peer, const NetVec3& p ) const;
+        void OnCellResidency( ConnectionId connection, Peer& peer, const CellResidencyMessage& message );
+        void UpdateRelevancy( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns );
+        void ReplayWorldDelta( ConnectionId connection, Peer& peer );
         void SendStableState( ConnectionId connection, Peer& peer, std::uint32_t serverStep );
         void OnStateAck( Peer& peer, const StateAckMessage& ack, std::uint32_t serverStep );
         void ExpireLost( Peer& peer, std::uint32_t newestAcked, std::uint32_t serverStep, bool byAck );
@@ -210,7 +257,9 @@ namespace Desert::Net
         IReplicationStore&               m_Store;
         HelloPolicy                      m_Policy;
         std::uint64_t                    m_PawnPrefab = 0;
+        NetRelevancyGrid                 m_Grid;
         NetLogSink                       m_Log;
+        std::map<NetId, PawnInfo>        m_PawnInfo;
         ISimLink*                        m_Sim = nullptr;
         std::map<ConnectionId, Peer>     m_Peers;
         std::map<PlayerId, ConnectionId> m_Connections;

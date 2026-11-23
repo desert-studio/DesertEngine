@@ -181,6 +181,15 @@ namespace Desert::Core
         {
             return m_Executor->State(); // NOLINT(bugprone-unchecked-optional-access): see Executor() below
         }
+        // The id the entity of executor record @p record carries (Rules::ResidencyUnitMembers names records).
+        [[nodiscard]] const Common::UUID& RecordId( std::size_t record ) const
+        {
+            return m_RecordIds.at( record );
+        }
+        // THE NETWORK'S WORLD DELTA (NET-ARCH §3.3, UE DestroyedStartupOrDormantActors): stable records the server
+        // destroyed. Their entities (and their child records') are destroyed now if resident, and from then on
+        // Activate never makes them, whichever cell brings them back. For the session.
+        void DestroyRecordsForNet( std::span<const std::uint64_t> ids );
         [[nodiscard]] const WorldPartitionSerialized& Partition() const
         {
             return m_Partition;
@@ -312,6 +321,8 @@ namespace Desert::Core
         double      m_WorstUnitMs      = 0.0; // a unit's slices and finish, summed over its frames
         // Per Activating unit: the entities its slices made, hidden until it is whole (THE SLICES).
         std::unordered_map<std::size_t, std::vector<std::uint32_t>> m_Made;
+        // DestroyRecordsForNet's ids, and the child records Activate skipped with them.
+        std::unordered_set<std::uint64_t> m_NetDestroyed;
         std::size_t m_MostResident     = 0;
 
         TickReport m_LastTick;

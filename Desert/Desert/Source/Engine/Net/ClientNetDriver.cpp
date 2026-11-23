@@ -6,6 +6,7 @@
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneSettings.hpp>
+#include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
@@ -15,6 +16,7 @@
 #include <Engine/Reflection/FieldValue.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Reflection/Value.hpp>
+#include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 #include <Net/NetTransport.hpp>
 #include <Net/ReplicationClient.hpp>
@@ -149,7 +151,9 @@ namespace Desert::Core
 
         ApplySpawnsAndDestroys( scene, assets );
         WriteTransforms( scene );
+        ApplyStableDestroyed( scene );
         ApplyStableState( scene );
+        ReportResidency( scene );
 
         // The input on the server's fixed step: one numbered step per 1/60 s of this client's clock.
         m_StepClock += deltaSeconds;
@@ -271,6 +275,11 @@ namespace Desert::Core
                 continue;
             }
             const entt::entity pawn = spawned.GetValue().GetHandle();
+            // A client streams only around its own pawn (NET-ARCH §4.3): another player's pawn is no source here,
+            // or the cells around it would stay resident and keep it relevant (UE: only the local PlayerController
+            // is a streaming source).
+            if ( reg.has<ECS::StreamingSourceComponent>( pawn ) )
+                reg.remove<ECS::StreamingSourceComponent>( pawn );
             reg.emplace_or_replace<ECS::NetRoleComponent>( pawn, ECS::ENetRole::Simulated, id, replicated.Player );
             scene.AddRemotePlayer( pawn, replicated.Player );
             m_Entities[id] = pawn;
@@ -327,6 +336,59 @@ namespace Desert::Core
     namespace
     {
         bool ApplyStableChange( Scene& scene, const Net::ReplicationClient::StableChange& change );
+    }
+
+    void ClientNetDriver::ReportResidency( Scene& scene )
+    {
+        const auto* of = scene.GetRegistry().try_ctx<WorldStreamerOfScene>();
+        if ( of == nullptr || of->Streamer == nullptr )
+            return; // the played world is not streamed: nothing is a cell
+        const WorldStreamer&               streamer = *of->Streamer;
+        const Rules::WorldPartitionPlan&   plan     = streamer.Plan();
+        const auto&                        units    = streamer.Residency().Units;
+        std::set<std::uint32_t>            now;
+        for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < units.size(); ++unit )
+            if ( units[unit].State == Rules::Residency::Activated )
+                now.insert( static_cast<std::uint32_t>( unit ) );
+        if ( now == m_ReportedUnits )
+            return;
+        Net::CellResidencyMessage     change;
+        std::vector<Net::StableNetId> gone;
+        std::string                   loaded, unloaded;
+        for ( const std::uint32_t unit : now )
+            if ( !m_ReportedUnits.contains( unit ) )
+            {
+                change.Loaded.push_back( unit );
+                loaded += std::format( "{}{}", loaded.empty() ? "" : ", ", Rules::DescribeResidencyUnit( plan, unit ) );
+            }
+        for ( const std::uint32_t unit : m_ReportedUnits )
+            if ( !now.contains( unit ) )
+            {
+                change.Unloaded.push_back( unit );
+                unloaded +=
+                     std::format( "{}{}", unloaded.empty() ? "" : ", ", Rules::DescribeResidencyUnit( plan, unit ) );
+                for ( const std::size_t record : Rules::ResidencyUnitMembers( plan, unit ) )
+                    gone.push_back( static_cast<std::uint64_t>( streamer.RecordId( record ) ) );
+            }
+        m_Client->ReportResidency( change, gone );
+        m_ReportedUnits = std::move( now );
+        if ( !change.Loaded.empty() )
+            LOG_INFO( "[Net] residency report: {} cell(s) resident here: {}", change.Loaded.size(), loaded );
+        if ( !change.Unloaded.empty() )
+            LOG_INFO( "[Net] residency report: {} cell(s) unloaded here ({} record(s) leave the relevant set): {}",
+                      change.Unloaded.size(), gone.size(), unloaded );
+    }
+
+    void ClientNetDriver::ApplyStableDestroyed( Scene& scene )
+    {
+        for ( const Net::StableNetId id : m_Client->TakeStableDestroyed() )
+            m_StableDestroyed.push_back( id );
+        if ( m_StableDestroyed.empty() )
+            return;
+        const auto* of = scene.GetRegistry().try_ctx<WorldStreamerOfScene>();
+        if ( of == nullptr || of->Streamer == nullptr )
+            return; // the server names only records of cells this client reported, so a streamer made them
+        of->Streamer->DestroyRecordsForNet( std::exchange( m_StableDestroyed, {} ) );
     }
 
     void ClientNetDriver::ApplyStableState( Scene& scene )
