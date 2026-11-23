@@ -381,7 +381,9 @@ namespace Desert::Graphic
                     m_Systems.Water = std::move( created );
                 }
                 if ( !m_Systems.Water )
+                {
                     LOG_INFO( "[SceneRenderer] no Water module: the scene has no water pass" );
+                }
                 else if ( const auto init = m_Systems.Water->Initialize(); !init )
                 {
                     LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",
