@@ -62,6 +62,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::VFXSystem:      // the `.dfx` System | Preview | Stack editor (VFX-12)
             case Assets::AssetTypeID::WorldParameters: // the `.dworldparams` parameter-list editor (WTH-PARAMS)
             case Assets::AssetTypeID::VFXModule:      // the `.dfxmod` module editor (VFXModuleDocument)
+            case Assets::AssetTypeID::DataAsset:      // the `.dasset` reflected-struct editor (DataAssetDocument)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
@@ -77,7 +78,6 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::WaterWaves:         // edited in the water body's Details (WATER-W2)
             case Assets::AssetTypeID::Sound:              // picked into slots; UE's sound wave has no editor here
             case Assets::AssetTypeID::IesProfile:         // imported from a .ies and picked into a light's slot
-            case Assets::AssetTypeID::DataAsset:          // ASSET-TYPES-OPEN pass 2: the data asset editor
             case Assets::AssetTypeID::SparseVolume:       // imported from a .vol and picked into a volume's slot
             case Assets::AssetTypeID::WeatherPreset:      // a JSON file for now; the Weather panel is WTH-STATE's
                                                           // REMAINDER

@@ -1,17 +1,90 @@
 #include <Engine/Assets/Serialization/DataAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/ReadWrite.hpp>
 
+#include <algorithm>
+#include <cstddef>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace Desert::Assets::Serialization
 {
+    Reflection::AssetResolver DataAssetReferenceResolver()
+    {
+        // All four members assigned, as the AssetResolver invariant asks (a resolver that exists is whole).
+        Reflection::AssetResolver r;
+        r.ToPath = []( uint64_t handle, const std::string& /*assetType*/ ) -> std::string
+        { return ContentRegistry::KeyForHandle( handle ); };
+        r.ToGuid = []( uint64_t handle, const std::string& /*assetType*/ ) -> std::string
+        {
+            const auto guid = ContentRegistry::GuidForHandle( handle );
+            return guid ? Common::Content::AssetGuidToText( *guid ) : std::string{};
+        };
+        // ResolveGuidRef hands over HandleForGuid of the stated GUID: known when the registry has a row for it.
+        r.FromGuid = []( uint64_t expected, const std::string& /*assetType*/ ) -> uint64_t
+        { return ContentRegistry::GuidForHandle( expected ).has_value() ? expected : 0; };
+        r.FromPath = []( const std::string& key, const std::string& /*assetType*/ ) -> uint64_t
+        { return ContentRegistry::HandleForKey( key ); };
+        return r;
+    }
+
+    std::vector<std::string> DataAssetReferencedGuids( const Reflection::TypeInfo& type, const void* payload,
+                                                       std::vector<uint64_t>& unnamed )
+    {
+        std::vector<std::string> guids;
+        if ( payload == nullptr )
+            return guids;
+        auto take = [&]( const uint64_t handle )
+        {
+            if ( handle == 0 )
+                return;
+            if ( const auto guid = ContentRegistry::GuidForHandle( handle ) )
+                guids.push_back( Common::Content::AssetGuidToText( *guid ) );
+            else
+                unnamed.push_back( handle );
+        };
+
+        // The same explicit stack SerializeReflected walks nested structs with, so a reference two structs
+        // deep is a dependency exactly when it is written.
+        struct Frame
+        {
+            const Reflection::TypeInfo* Type;
+            const std::byte*            Base;
+        };
+        std::vector<Frame> stack{ { &type, static_cast<const std::byte*>( payload ) } };
+        while ( !stack.empty() )
+        {
+            const Frame top = stack.back();
+            stack.pop_back();
+            for ( const Reflection::FieldInfo& field : top.Type->Fields )
+            {
+                const void* p = top.Base + field.Offset;
+                if ( field.IsContainer )
+                {
+                    if ( field.ContainerHandles )
+                        for ( const uint64_t handle : field.ContainerHandles( p ) )
+                            take( handle );
+                    continue;
+                }
+                if ( field.Type == Reflection::FieldType::Struct && field.StructType != nullptr )
+                    stack.push_back( { field.StructType, static_cast<const std::byte*>( p ) } );
+                else if ( field.Type == Reflection::FieldType::AssetHandle )
+                    take( *static_cast<const uint64_t*>( p ) );
+            }
+        }
+        std::sort( guids.begin(), guids.end() );
+        guids.erase( std::unique( guids.begin(), guids.end() ), guids.end() );
+        return guids;
+    }
+
     Common::ResultStr<DataAssetContents> ParseDataAsset( const std::string& text )
     {
         if ( text.empty() )
@@ -49,9 +122,10 @@ namespace Desert::Assets::Serialization
         contents.Payload = type->Make();
 
         const Common::Json::Value data( std::move( file.Data ) );
-        Common::Json::Issues      issues;
+        Common::Json::Issues            issues;
+        const Reflection::AssetResolver resolver = DataAssetReferenceResolver();
         Reflection::DeserializeReflected( *reflected.GetValue(), contents.Payload.get(),
-                                          Common::Json::Root( data ), issues );
+                                          Common::Json::Root( data ), issues, &resolver );
         if ( !issues.empty() )
             return Common::MakeFormattedError<DataAssetContents>( "'{}' Data: {}", file.Type,
                                                                   Common::Json::ReportIssues( issues, text ) );
@@ -71,8 +145,20 @@ namespace Desert::Assets::Serialization
         DataAssetFileData out;
         out.Header =
              Assets::StampTextHeader( header, Common::Content::ContentKind::DataAsset, DataAssetTextSubsystems() );
+        // EVERY OUTGOING REFERENCE IN THE HEADER, as a material states its textures (StampMaterialHeader): the
+        // registry's Closure and the chunk plan read these edges, so a packaged game carries the mesh a
+        // WeaponDef names. A set handle the registry cannot name would be written empty - refused instead, so
+        // the reference is never lost silently.
+        std::vector<uint64_t> unnamed;
+        out.Header->Dependencies = DataAssetReferencedGuids( *reflected.GetValue(), payload, unnamed );
+        if ( !unnamed.empty() )
+            return Common::MakeFormattedError<std::string>(
+                 "the '{}' payload references {} asset(s) the content registry does not name (first handle {}); "
+                 "saving would write the reference empty - restart the editor so the registry gathers the file",
+                 type.Name, unnamed.size(), unnamed.front() );
         out.Type = type.Name;
-        out.Data = Reflection::SerializeReflected( *reflected.GetValue(), payload );
+        const Reflection::AssetResolver resolver = DataAssetReferenceResolver();
+        out.Data = Reflection::SerializeReflected( *reflected.GetValue(), payload, &resolver );
         return Common::MakeSuccess( Common::Json::Write( out ) );
     }
 

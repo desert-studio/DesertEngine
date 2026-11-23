@@ -6,8 +6,11 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Json.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <Engine/Reflection/ReflectionTypes.hpp>
 
 #include <array>
+#include <vector>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -50,6 +53,21 @@ namespace Desert::Assets::Serialization
         const DataAssetType*                                      Type = nullptr;
         std::shared_ptr<void>                                     Payload;
     };
+
+    /// THE REFERENCE RESOLVER OF A DATA ASSET'S PAYLOAD (UE's soft object paths gathered by the cooker). An
+    /// AssetHandle field is written in the reference form a scene uses for its type - {"Guid","Path"} for a
+    /// GUID-identified type, the stable key otherwise - and read back to HandleForGuid / the registry row's
+    /// handle. It answers from the cooked ContentRegistry, not the AssetManager: a data asset NAMES what it
+    /// points at, the reader loads it when it plays (UE TSoftObjectPtr), so parsing a weapon never loads a mesh.
+    [[nodiscard]] Reflection::AssetResolver DataAssetReferenceResolver();
+
+    /// The GUID texts of every asset @p payload (an object of @p type) references - single handles, handles in
+    /// nested structs and vectors of handles - sorted and unique: the header's `Dependencies`, which the
+    /// registry's Closure, the chunk plan and the packager walk. A set handle the registry cannot name is
+    /// returned in @p unnamed so the writer can say so.
+    [[nodiscard]] std::vector<std::string> DataAssetReferencedGuids( const Reflection::TypeInfo& type,
+                                                                     const void*                 payload,
+                                                                     std::vector<uint64_t>&      unnamed );
 
     /// Parses a `.dasset`. Refused: no header, another kind or version, a `Type` no loaded module registered, or
     /// a `Data` member of the wrong type for its field (every such field named). A field the file does not state

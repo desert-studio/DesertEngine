@@ -20,6 +20,8 @@
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
+#include <Engine/Assets/DataAsset.hpp>
+#include <Engine/Assets/DataAssetTypeRegistry.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
@@ -126,6 +128,33 @@ namespace Desert::Editor
         if ( ImGui::Selectable( std::string( kNewVFXModuleLabel ).c_str() ) )
             if ( const auto created = CreateNewVFXModule( &folder ); !created )
                 LOG_ERROR( "[Content] {}", created.GetError() );
+
+        // UE's "Miscellaneous > Data Asset" class picker (ASSET-TYPES-OPEN): one item per struct a loaded module
+        // registered in DataAssetTypeRegistry, so a game's WeaponDef appears here with no editor edit. Disabled
+        // (not hidden) when nothing is registered, so the owner sees that the game module did not register.
+        if ( const auto names = Assets::DataAssetTypeRegistry::Get().Names();
+             ImGui::BeginMenu( "New Data Asset", !names.empty() ) )
+        {
+            for ( const std::string& name : names )
+                if ( ImGui::MenuItem( name.c_str() ) )
+                {
+                    const std::filesystem::path path = UniqueIn( folder, "New" + name, ".dasset" );
+                    if ( const auto created = Assets::DataAsset::CreateDefault( path, name ); !created )
+                    {
+                        LOG_ERROR( "[Content] {}", created.GetError() );
+                        if ( m_On.OnStatus )
+                            m_On.OnStatus( created.GetError() );
+                    }
+                    else
+                    {
+                        if ( m_On.OnRefresh )
+                            m_On.OnRefresh();
+                        if ( m_On.OnSelectAfterRefresh )
+                            m_On.OnSelectAfterRefresh( path.generic_string() );
+                    }
+                }
+            ImGui::EndMenu();
+        }
 
         // Pick the domain up front (like Unreal's Material Domain / Godot's Mode): it decides the output node,
         // vertex contract and palette of the new graph.

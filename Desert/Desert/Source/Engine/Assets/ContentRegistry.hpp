@@ -338,6 +338,19 @@ namespace Desert::Assets
             return std::nullopt;
         }
 
+        // The inverse of KeyForHandle over the cooked registry: the handle of the row whose stable key is `key`
+        // (EffectiveHandle, so a GUID-identified file answers HandleForGuid); 0 when no row names it.
+        inline uint64_t HandleForKey( const std::string& key )
+        {
+            if ( key.empty() )
+                return 0;
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            if ( const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByKey( key ) )
+                return row->EffectiveHandle();
+            return 0;
+        }
+
         inline std::string KeyForHandle( uint64_t handle )
         {
             if ( handle == 0 )
