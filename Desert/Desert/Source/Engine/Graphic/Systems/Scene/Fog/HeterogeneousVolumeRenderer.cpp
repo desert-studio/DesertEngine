@@ -30,11 +30,11 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr const char* kCacheShaderName    = "HeterogeneousVolumeLightingCache";
-        constexpr const char* kMarchShaderName    = "HeterogeneousVolumeMarch";
-        constexpr const char* kUpsampleShaderName = "HeterogeneousVolumeUpsample";
+        constexpr const char* kVolumeCacheShaderName    = "HeterogeneousVolumeLightingCache";
+        constexpr const char* kVolumeMarchShaderName    = "HeterogeneousVolumeMarch";
+        constexpr const char* kVolumeUpsampleShaderName = "HeterogeneousVolumeUpsample";
         // The same over-operator as the clouds (CloudComposite.shader): scene = rgb x PreExposure + scene x a.
-        constexpr const char* kCompositeShaderName = "CloudComposite";
+        constexpr const char* kVolumeCompositeShaderName = "CloudComposite";
 
         constexpr uint32_t kCacheGroup  = 4; // LocalSize(4, 4, 4)
         constexpr uint32_t kScreenGroup = 8; // LocalSize(8, 8, 1)
@@ -104,7 +104,8 @@ namespace Desert::Graphic::System
             return Common::MakeError(
                  std::format( "HeterogeneousVolumeRenderer: the programs could not be resolved "
                               "({} / {} / {} / {})",
-                              kCacheShaderName, kMarchShaderName, kUpsampleShaderName, kCompositeShaderName ) );
+                              kVolumeCacheShaderName, kVolumeMarchShaderName, kVolumeUpsampleShaderName,
+                              kVolumeCompositeShaderName ) );
         // Non-persistent: one copy per (frame x recording renderer slot), Docs/RENDERER_FRAME_STATE.md.
         m_LightingParams = ShaderResources::StorageBuffer::Create(
              "HeterogeneousVolumes.LightingParams", static_cast<uint32_t>( sizeof( VolumetricFogGpuPayload ) ),
@@ -148,7 +149,7 @@ namespace Desert::Graphic::System
 
     std::vector<Core::CookedProgramVariant> HeterogeneousVolumeRenderer::ProgramVariants()
     {
-        return { { std::string( kCacheShaderName ), LightingCacheVsmVariant() } };
+        return { { std::string( kVolumeCacheShaderName ), LightingCacheVsmVariant() } };
     }
 
     Common::BoolResultStr HeterogeneousVolumeRenderer::EnsureLightingCacheVsmPipeline()
@@ -167,12 +168,12 @@ namespace Desert::Graphic::System
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaderService )
             return refuse( "no shader service" );
-        auto acquired = shaderService->AcquireVariant( kCacheShaderName, LightingCacheVsmVariant() );
+        auto acquired = shaderService->AcquireVariant( kVolumeCacheShaderName, LightingCacheVsmVariant() );
         if ( !acquired )
-            return refuse( std::format( "{} ({}) was refused: {}", kCacheShaderName, kLocalShadowVsmDefine,
+            return refuse( std::format( "{} ({}) was refused: {}", kVolumeCacheShaderName, kLocalShadowVsmDefine,
                                         acquired.GetError() ) );
         const auto  shader    = acquired.ExtractValue();
-        std::string debugName = std::string( kCacheShaderName ) + "|DESERT_LOCAL_SHADOW_VSM";
+        std::string debugName = std::string( kVolumeCacheShaderName ) + "|DESERT_LOCAL_SHADOW_VSM";
         const auto  pipeline  = ComputePipeline::Create( { .Shader = shader, .DebugName = debugName } );
         if ( !pipeline )
             return refuse( pipeline.GetError() );
@@ -208,14 +209,16 @@ namespace Desert::Graphic::System
             out = pipeline.GetValue();
             return true;
         };
-        if ( !create( kCacheShaderName, m_CachePipeline ) || !create( kMarchShaderName, m_MarchPipeline ) ||
-             !create( kUpsampleShaderName, m_UpsamplePipeline ) )
+        if ( !create( kVolumeCacheShaderName, m_CachePipeline ) ||
+             !create( kVolumeMarchShaderName, m_MarchPipeline ) ||
+             !create( kVolumeUpsampleShaderName, m_UpsamplePipeline ) )
             return false;
 
-        const auto compositeShader = shaderService->GetByName( kCompositeShaderName );
+        const auto compositeShader = shaderService->GetByName( kVolumeCompositeShaderName );
         if ( !compositeShader )
         {
-            LOG_ERROR( "[HeterogeneousVolume] Graphics shader '{}' is not registered.", kCompositeShaderName );
+            LOG_ERROR( "[HeterogeneousVolume] Graphics shader '{}' is not registered.",
+                       kVolumeCompositeShaderName );
             return false;
         }
         GraphicsPipelineSpecification spec;

@@ -2,6 +2,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 
+#include <cstddef>
 #include <memory>
 
 namespace Desert::Assets
@@ -11,7 +12,7 @@ namespace Desert::Assets
     template <typename T>
     using Asset = std::shared_ptr<T>;
 
-    using NullAsset = nullptr_t;
+    using NullAsset = std::nullptr_t;
 
     enum class AssetTypeID
     {
