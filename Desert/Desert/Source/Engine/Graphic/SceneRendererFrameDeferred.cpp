@@ -840,7 +840,6 @@ namespace Desert::Graphic
         gather.JitterNdc        = frame.JitterNdc;
         gather.PrevJitterNdc    = frame.PrevJitterNdc;
         gather.ViewHistoryValid = frame.HistoryValid();
-        gather.Black            = refs.System.Black;
         // The gather denoises on every temporal method, Ray Reconstruction too: its noise is the screen probes'
         // - probe-sized, spatially correlated - which RR (made for per-pixel ray noise) keeps as dark blobs that
         // come and go on a still wall (FIELD_Barn face under RR: a 170..721 px patch in 1 of 8 still shots
