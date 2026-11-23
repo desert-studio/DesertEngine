@@ -74,7 +74,7 @@ Shader "FoliageWindRayTracing"
 
             if (invocation < counts.x)
             {
-                const FoliageWindSourceWords vertices = FoliageWindSourceWords(uvec2(sources.x, sources.y));
+                FoliageWindSourceWords       vertices = FoliageWindSourceWords(uvec2(sources.x, sources.y));
                 const uint                   first    = invocation * kFoliageWindVertexWords;
                 const mat4 model = mat4(uintBitsToFloat(JobRows[base + 2u]), uintBitsToFloat(JobRows[base + 3u]),
                                         uintBitsToFloat(JobRows[base + 4u]), uintBitsToFloat(JobRows[base + 5u]));
@@ -97,7 +97,7 @@ Shader "FoliageWindRayTracing"
 
             if (Job.y == 0u || invocation >= counts.w)
                 return;
-            const FoliageWindSourceWords indices = FoliageWindSourceWords(uvec2(sources.z, sources.w));
+            FoliageWindSourceWords indices = FoliageWindSourceWords(uvec2(sources.z, sources.w));
             uint                         before  = 0u;
             for (uint copy = 0u; copy < counts.z; ++copy)
             {
