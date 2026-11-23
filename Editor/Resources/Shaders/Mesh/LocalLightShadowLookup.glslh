@@ -21,6 +21,12 @@
 #ifndef LOCAL_SHADOW_FILTER_TAPS
 #define LOCAL_SHADOW_FILTER_TAPS ShadowFilter.y
 #endif
+// The PCSS blocker search's taps (LocalShadowPCSS): the view's Shadows.BlockerSearchTaps (ShadowUB's ShadowFilter.x)
+// unless the includer names a count. 0 = no search: the light's source size is not read and every lookup is the
+// fixed-width LocalShadowPCF (the froxel fog: one bilinear tap, its temporal reprojection filtering the rest).
+#ifndef LOCAL_SHADOW_BLOCKER_SEARCH_TAPS
+#define LOCAL_SHADOW_BLOCKER_SEARCH_TAPS ShadowFilter.x
+#endif
 #include <Common/ShadowFilterDisk.glslh>
 #include <Mesh/LightSources.glslh>
 #include <Mesh/LocalLightShadowView.glslh>
@@ -37,18 +43,25 @@ const float kLocalShadowFilterRadiusTexels = 1.5;
 // Bilinear percentage-closer comparison at the atlas texel position `texel` (texel centres at .5 removed): 1 lit,
 // 0 shadowed. Each of the four texels is clamped into [lo, hi], the view's own tile, so a filter at its edge never
 // reads the neighbouring view.
-float LocalShadowCompare2x2(LocalShadowView v, vec2 texel, vec2 lo, vec2 hi, float receiverDepth)
+// The linear depths (world cm along the view's axis) of the 2x2 atlas texels a bilinear tap at `texel` reads, in
+// the order x = (0,0), y = (1,0), z = (0,1), w = (1,1), each clamped into [lo, hi] - the view's own tile.
+vec4 LocalShadowOccluders2x2(LocalShadowView v, vec2 texel, vec2 lo, vec2 hi)
 {
     const vec2 base = floor(texel);
-    const vec2 f    = texel - base;
-    vec4       lit;
+    vec4       occluder;
     for (int k = 0; k < 4; ++k)
     {
-        const vec2  t        = clamp(base + vec2(float(k & 1), float(k >> 1)), lo, hi);
-        const float occluder = LocalShadowLinearDepth(texelFetch(LocalShadowAtlasTexture, ivec2(t), 0).r, v.params.x,
-                                                      v.params.y);
-        lit[k] = receiverDepth <= occluder ? 1.0 : 0.0;
+        const vec2 t = clamp(base + vec2(float(k & 1), float(k >> 1)), lo, hi);
+        occluder[k]  = LocalShadowLinearDepth(texelFetch(LocalShadowAtlasTexture, ivec2(t), 0).r, v.params.x,
+                                              v.params.y);
     }
+    return occluder;
+}
+
+float LocalShadowCompare2x2(LocalShadowView v, vec2 texel, vec2 lo, vec2 hi, float receiverDepth)
+{
+    const vec2 f   = texel - floor(texel);
+    const vec4 lit = step(vec4(receiverDepth), LocalShadowOccluders2x2(v, texel, lo, hi)); // receiver <= occluder
     return mix(mix(lit.x, lit.y, f.x), mix(lit.z, lit.w, f.x), f.y);
 }
 
@@ -70,12 +83,100 @@ float LocalShadowPCF(LocalShadowView v, vec2 tileUV, float receiverDepth)
     return lit / float(taps);
 }
 
+// SOFT SHADOWS FROM THE LIGHT'S SIZE - PCSS on the atlas (UE r.Shadow.FilterMethod 1, PCSS for local lights from
+// their SourceRadius; the sun's form is Mesh/CascadedShadow.glslh sampleCascade, this is its port to a perspective
+// tile). The emitter is a sphere of `sourceRadius` cm, stretched into a capsule along `halfAxisTexels` (UE
+// SourceLength: the tile-texel image, at the receiver, of the capsule's half-segment). An occluder at view depth
+// d_b casts on a receiver at d_r a penumbra the source's size x (d_r - d_b) / d_b wide in world, which is that
+// over texelAt tile texels (texelAt = params.z * d_r, one texel's world size at the receiver): sharp where the pole
+// meets the floor, soft where its shadow lands far away. The kernel is the Vogel disc mapped onto that shape - a
+// disc of the sphere's radius widened along the capsule's axis by its half-length - so a tube's shadow blurs along
+// the tube and stays sharp across it.
+//   1. blocker search - the mean depth of the occluders inside the widest kernel the receiver could need (an
+//      occluder on the near plane), LOCAL_SHADOW_BLOCKER_SEARCH_TAPS taps;
+//   2. filter         - LocalShadowCompare2x2 over the kernel that mean gives, its taps by the kernel's area
+//      (kMinFilterTaps .. LOCAL_SHADOW_FILTER_TAPS, as the sun's adaptive kernel).
+// Both are capped at kMaxSoftKernelTexels (UE r.Shadow.MaxSoftKernelSize) and read only the view's own tile (each
+// texel clamped into it). The narrowest kernel is LocalShadowPCF's, so at contact the shadow is the PCF's.
+// The receiver plane across the kernel: a tap r texels out reads the receiver's own surface up to
+// r * texelAt * tan(theta) cm nearer the light (theta: the receiver's angle to it), forgiven per tap as the sun does.
+float LocalShadowPCSS(LocalShadowView v, vec2 tileUV, float receiverDepth, float NdotL, float sourceRadius,
+                      vec2 halfAxisTexels)
+{
+    const float side       = 1.0 / v.params2.y;
+    const vec2  lo         = v.atlasRect.xy * side;
+    const vec2  hi         = lo + v.atlasRect.zw * side - 1.0;
+    const vec2  texel      = (v.atlasRect.xy + tileUV * v.atlasRect.zw) * side - 0.5;
+    const float nearPlane  = v.params.x;
+    const float texelAt    = v.params.z * receiverDepth;
+    const float tanTheta   = min(sqrt(max(1.0 - NdotL * NdotL, 0.0)) / max(NdotL, 1e-3), 4.0);
+    const float slackScale = texelAt * tanTheta;
+    const float phi        = 6.28318531 * shadowInterleavedGradientNoise(LOCAL_SHADOW_FILTER_PIXEL);
+    const int   searchTaps = int(LOCAL_SHADOW_BLOCKER_SEARCH_TAPS + 0.5);
+    const int   filterTaps = int(LOCAL_SHADOW_FILTER_TAPS + 0.5);
+
+    // The kernel's shape per unit of (d_r - d_b) / d_b: the sphere's radius and the capsule's half-axis, in texels.
+    const float radiusTexels = sourceRadius / max(texelAt, 1e-6);
+    const float axisLength   = length(halfAxisTexels);
+    const vec2  axisDir      = axisLength > 1e-6 ? halfAxisTexels / axisLength : vec2(0.0);
+
+    // 1. BLOCKER SEARCH, as wide as an occluder on the near plane could make the penumbra - capped by the kernel.
+    const float searchScale  = max(receiverDepth - nearPlane, 0.0) / max(nearPlane, 1e-3);
+    float       searchRadius = max(radiusTexels * searchScale, kLocalShadowFilterRadiusTexels);
+    float       searchAxis   = axisLength * searchScale;
+    const float searchFit    = min(kMaxSoftKernelTexels / (searchRadius + searchAxis), 1.0);
+    searchRadius *= searchFit;
+    searchAxis *= searchFit;
+    float blockerSum   = 0.0;
+    float blockerCount = 0.0;
+    for (int i = 0; i < searchTaps; ++i)
+    {
+        const vec2  o         = shadowVogelDisk(i, searchTaps, phi);
+        const vec2  offset    = o * searchRadius + axisDir * (dot(o, axisDir) * searchAxis);
+        const float slack     = length(offset) * slackScale;
+        const vec4  d         = LocalShadowOccluders2x2(v, texel + offset, lo, hi);
+        const vec4  isBlocker = step(d, vec4(receiverDepth - slack - 1e-3));
+        blockerSum += dot(d, isBlocker);
+        blockerCount += dot(isBlocker, vec4(1.0));
+    }
+    // No occluder under the search: fully lit (the filter's kernel never reaches past the search's). All of them:
+    // the umbra.
+    if (blockerCount < 0.5)
+        return 1.0;
+    if (blockerCount > 4.0 * float(searchTaps) - 0.5)
+        return 0.0;
+    const float blockerDepth = max(blockerSum / blockerCount, max(nearPlane, 1e-3));
+
+    // 2. THE PENUMBRA from the occluder-receiver distance.
+    const float scale        = max(receiverDepth - blockerDepth, 0.0) / blockerDepth;
+    float       kernelRadius = max(radiusTexels * scale, kLocalShadowFilterRadiusTexels);
+    float       kernelAxis   = axisLength * scale;
+    const float kernelFit    = min(kMaxSoftKernelTexels / (kernelRadius + kernelAxis), 1.0);
+    kernelRadius *= kernelFit;
+    kernelAxis *= kernelFit;
+    // The filter's taps by the kernel's area (pi x the ellipse's two semi-axes).
+    const int taps = clamp(int(ceil(3.14159265 * kernelRadius * (kernelRadius + kernelAxis))),
+                           min(kMinFilterTaps, filterTaps), filterTaps);
+    float     lit  = 0.0;
+    for (int i = 0; i < taps; ++i)
+    {
+        const vec2  o      = shadowVogelDisk(i, taps, phi);
+        const vec2  offset = o * kernelRadius + axisDir * (dot(o, axisDir) * kernelAxis);
+        const float slack  = length(offset) * slackScale;
+        lit += LocalShadowCompare2x2(v, texel + offset, lo, hi, receiverDepth - slack);
+    }
+    return lit / float(max(taps, 1));
+}
+
 // One view's verdict on a receiver. The receiver is moved along its normal by a fraction of a texel at its own
 // distance (more as the light grazes it): one texel of a perspective map grows with the distance from the light,
 // so the offset is measured in it rather than in centimetres. The depth bias is not applied here: every caster
 // of the view drew its depth already pushed back by the light's Shadow Bias / Shadow Slope Bias
 // (Graphic::LocalCasterBias, Common/ShadowCasterBias.glslh), the mesh cells and the terrain by one rule.
-float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L)
+// The light's size - `sourceRadius` cm (UE SourceRadius) and `sourceHalfAxis` (UE SourceLength / 2 along the tube,
+// cm; 0 = a sphere) - softens the shadow by LocalShadowPCSS; a point source (both 0) or a reader with no blocker
+// search (LOCAL_SHADOW_BLOCKER_SEARCH_TAPS 0) takes the fixed-width LocalShadowPCF.
+float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L, float sourceRadius, vec3 sourceHalfAxis)
 {
     const LocalShadowView v       = localShadowViews[viewIndex];
     const float           NdotL   = clamp(dot(N, L), 0.0, 1.0);
@@ -89,7 +190,22 @@ float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L)
     const vec2 uv  = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
         return 1.0;
-    return LocalShadowPCF(v, uv, clip.w);
+    const float halfLength = length(sourceHalfAxis);
+    if (int(LOCAL_SHADOW_BLOCKER_SEARCH_TAPS + 0.5) <= 0 || (sourceRadius <= 0.0 && halfLength <= 0.0))
+        return LocalShadowPCF(v, uv, clip.w);
+    // The capsule's half-segment as the tile sees it at the receiver: the tile texels the receiver's image moves by
+    // for one texel's world length along the axis (foreshortened where the axis turns toward the light), times the
+    // half-length in such steps.
+    vec2 halfAxisTexels = vec2(0.0);
+    if (halfLength > 0.0)
+    {
+        const float step_   = v.params.z * clip.w;
+        const vec4  clipA   = v.viewProj * vec4(sample_ + sourceHalfAxis * (step_ / halfLength), 1.0);
+        const vec2  uvA     = vec2(clipA.x / clipA.w * 0.5 + 0.5, 0.5 - clipA.y / clipA.w * 0.5);
+        const vec2  perStep = (uvA - uv) * v.atlasRect.zw / v.params2.y;
+        halfAxisTexels      = clipA.w > v.params.x ? perStep * (halfLength / step_) : vec2(0.0);
+    }
+    return LocalShadowPCSS(v, uv, clip.w, NdotL, max(sourceRadius, 0.0), halfAxisTexels);
 }
 
 // THE LIGHT THROUGH A SUBSURFACE RECEIVER'S OCCLUDERS (DesertLight::TransmissionShadow) for one view: the
@@ -158,7 +274,8 @@ float PointLightShadow(PointLight source, vec3 worldPosition, vec3 N)
     if (source.shadowView < 0)
         return 1.0;
     const vec3 fromLight = worldPosition - source.position;
-    return LocalShadowAt(source.shadowView + PointShadowFace(fromLight), worldPosition, N, normalize(-fromLight));
+    return LocalShadowAt(source.shadowView + PointShadowFace(fromLight), worldPosition, N, normalize(-fromLight),
+                         source.sourceRadius, LightSourceHalfAxis(source));
 #endif
 }
 
@@ -174,7 +291,8 @@ float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
 #else
     if (source.shadowView < 0)
         return 1.0;
-    return LocalShadowAt(source.shadowView, worldPosition, N, normalize(source.position - worldPosition));
+    return LocalShadowAt(source.shadowView, worldPosition, N, normalize(source.position - worldPosition),
+                         source.sourceRadius, LightSourceHalfAxis(source));
 #endif
 }
 

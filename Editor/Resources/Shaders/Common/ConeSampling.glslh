@@ -20,6 +20,15 @@ vec2 ConeRandom2( uvec2 pixel, uint frame, uint sampleIndex )
     return vec2( float( first ), float( second ) ) * ( 1.0 / 4294967296.0 );
 }
 
+// Three: ConeRandom2's two and a third from the same stream (a local light's capsule: the point along its tube).
+vec3 ConeRandom3( uvec2 pixel, uint frame, uint sampleIndex )
+{
+    const uint first  = ConePcg( pixel.x + ConePcg( pixel.y + ConePcg( frame * 16u + sampleIndex ) ) );
+    const uint second = ConePcg( first );
+    const uint third  = ConePcg( second );
+    return vec3( float( first ), float( second ), float( third ) ) * ( 1.0 / 4294967296.0 );
+}
+
 // A direction inside the cone of half-angle @p halfAngle around @p axis, uniform over its solid angle.
 vec3 ConeDirection( vec3 axis, float halfAngle, vec2 u )
 {

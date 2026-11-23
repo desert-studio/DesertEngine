@@ -23,6 +23,7 @@
 #include <Common/ReconstructPosition.glslh>
 #include <Common/RisReservoir.glslh>
 #include <Mesh/LightSources.glslh>
+#include <Common/LightSourceSampling.glslh> // SampleLightSourceCapsule: the froxel's ray over the emitter
 #include <Mesh/PointLight.glslh> // binding 6
 #include <Mesh/Spotlight.glslh>  // binding 16
 
@@ -134,36 +135,43 @@ vec4 VolumeLightReach(int light, vec3 p)
 	                      : vec4(spotLights[light - points].position - p, spotLights[light - points].sourceRadius);
 }
 
-// The shadow ray of a froxel sample: toward a point of @p light's source sphere, uniform in the solid angle the
-// sphere subtends (UE UniformSampleCone), from @p p (a froxel point has no surface to leave: its first bias
-// skipped) to the sphere, stopped short of it by the bias. False when @p p is on or inside the emitter (lit).
+// UE SourceLength: the capsule's half-segment, cm (Mesh/LightSources.glslh LightSourceHalfAxis); 0 = the sphere.
+vec3 VolumeLightHalfAxis(int light)
+{
+	const int points = int(Counts.x);
+	return light < points ? LightSourceHalfAxis(pointLights[light]) : LightSourceHalfAxis(spotLights[light - points]);
+}
+
+// The shadow ray of a froxel sample: toward a point of @p light's emitter - its source sphere, uniform in the solid
+// angle the sphere subtends (UE UniformSampleCone), around a point of its tube's segment for a capsule (UE
+// SourceLength) - drawn by the ray-traced shadows' one sampler (Common/LightSourceSampling.glslh
+// SampleLightSourceCapsule: cone angle, azimuth, then the point along the segment), from @p p (a froxel point has no
+// surface to leave: its first bias skipped) to the emitter, stopped short of it by the bias. False when @p p is on
+// or inside the emitter (lit).
 bool VolumeLightRay(int light, vec3 p, inout uint random, out vec3 origin, out vec3 dir, out float reachOut)
 {
 	const vec4  reachTo  = VolumeLightReach(light, p);
-	const float distance = length(reachTo.xyz);
+	const vec3  halfAxis = VolumeLightHalfAxis(light);
+	const float axis2    = dot(halfAxis, halfAxis);
 	const float radius   = reachTo.w;
 	const float bias     = Params.y;
 	origin               = p;
 	dir                  = vec3(0.0, 0.0, 1.0);
 	reachOut             = 0.0;
-	if (distance <= max(2.0 * bias, radius))
+	const float along    = axis2 > 0.0 ? clamp(dot(-reachTo.xyz, halfAxis) / axis2, -1.0, 1.0) : 0.0;
+	if (length(reachTo.xyz + halfAxis * along) <= max(2.0 * bias, radius))
 		return false;
-	const vec3 axis  = reachTo.xyz / distance;
-	float      reach = distance;
-	dir              = axis;
+	vec2  u       = vec2(0.0);
+	float uLength = 0.5;
 	if (radius > 0.0)
 	{
-		const float sinMax2 = (radius * radius) / (distance * distance);
-		const float cosMax  = sqrt(max(1.0 - sinMax2, 0.0));
-		const float cosT    = 1.0 - VolumeRandom(random) * (1.0 - cosMax);
-		const float sinT    = sqrt(max(1.0 - cosT * cosT, 0.0));
-		const float phi     = 6.28318530718 * VolumeRandom(random);
-		const vec3  up      = abs(axis.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-		const vec3  t       = normalize(cross(up, axis));
-		const vec3  b       = cross(axis, t);
-		dir                 = normalize(t * (cos(phi) * sinT) + b * (sin(phi) * sinT) + axis * cosT);
-		reach = distance * cosT - sqrt(max(radius * radius - distance * distance * sinT * sinT, 0.0));
+		u.x = VolumeRandom(random);
+		u.y = VolumeRandom(random);
 	}
+	if (axis2 > 0.0)
+		uLength = VolumeRandom(random);
+	float reach = 0.0;
+	dir         = SampleLightSourceCapsule(reachTo.xyz, halfAxis, radius, u, uLength, reach);
 	origin   = p + dir * bias;
 	reachOut = max(reach - 2.0 * bias, 0.0);
 	return true;

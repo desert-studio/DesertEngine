@@ -10,6 +10,13 @@
 
 const float kGoldenAngle = 2.39996323;
 
+// UE's r.Shadow.MaxSoftKernelSize: the widest a soft-shadow kernel may get, in texels of the map it filters - the
+// sun's PCSS (Mesh/CascadedShadow.glslh) and the point and spot lights' (Mesh/LocalLightShadowLookup.glslh).
+const float kMaxSoftKernelTexels = 40.0;
+// The fewest filter taps a soft-shadow penumbra gets (the adaptive kernel of both): a one-texel disc's four bilinear
+// taps.
+const int kMinFilterTaps = 4;
+
 // Jimenez 2014, the noise UE's shadow filters turn their discs by: InterleavedGradientNoise(SvPosition,
 // View.StateFrameIndexMod8). The frame (the sun's: ContactShadowView.z, the view's dither frame 0..7, the one the
 // contact march offsets by) turns the disc every frame, so the temporal filter averages eight discs into the

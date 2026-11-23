@@ -952,13 +952,15 @@ namespace Desert::Graphic::ShaderPush
         glm::vec4 LightSphere{};
         glm::vec4 TraceParams{};
         glm::vec4 SpotCone{};
+        glm::vec4 SourceAxis{};
     };
-    static_assert( sizeof( RayTracedLocalShadow ) == 112u, "RayTracedLocalShadow: std430 push block size" );
+    static_assert( sizeof( RayTracedLocalShadow ) == 128u, "RayTracedLocalShadow: std430 push block size" );
     template <> inline constexpr bool IsBlock<RayTracedLocalShadow> = true;
     static_assert( offsetof( RayTracedLocalShadow, InverseJitteredViewProjection ) == 0u, "RayTracedLocalShadow::InverseJitteredViewProjection: std430 offset" );
     static_assert( offsetof( RayTracedLocalShadow, LightSphere ) == 64u, "RayTracedLocalShadow::LightSphere: std430 offset" );
     static_assert( offsetof( RayTracedLocalShadow, TraceParams ) == 80u, "RayTracedLocalShadow::TraceParams: std430 offset" );
     static_assert( offsetof( RayTracedLocalShadow, SpotCone ) == 96u, "RayTracedLocalShadow::SpotCone: std430 offset" );
+    static_assert( offsetof( RayTracedLocalShadow, SourceAxis ) == 112u, "RayTracedLocalShadow::SourceAxis: std430 offset" );
 
     // Programs/Shadows/RayTracedLocalShadowPack.shader (Compute)
     struct RayTracedLocalShadowPack

@@ -38,6 +38,20 @@ vec4 LightContactShadow(SpotLight source)
                 source.contactShadowNonCastingIntensity);
 }
 
+// THE TUBE (UE SourceLength): the capsule's half-segment from the light's centre, cm; 0 = a sphere. A point light's
+// tube lies along its forward (cross(AxisX, AxisY): the entity's -Z, UE's light forward), a spot's along its cone
+// axis. The one rule every reader of the capsule takes - the shading (DesertCapsuleLight), the shadow map's PCSS
+// (Mesh/LocalLightShadowLookup.glslh) and the traced shadows' sampler (Common/LightSourceSampling.glslh).
+vec3 LightSourceHalfAxis(PointLight source)
+{
+    return cross(source.axisX, source.axisY) * (0.5 * source.sourceLength);
+}
+
+vec3 LightSourceHalfAxis(SpotLight source)
+{
+    return source.direction * (0.5 * source.sourceLength);
+}
+
 // Cone angular falloff: 1 inside the inner cone, smooth to 0 between inner and outer, 0 outside.
 float SpotConeFactor(SpotLight light, vec3 L)
 {
@@ -242,8 +256,7 @@ DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
     light.SphereAxis         = vec3( 0.0 );
     // UE SourceLength: a capsule along the light's forward.
     if ( source.sourceLength > 0.0 )
-        light = DesertCapsuleLight( light, cross( source.axisX, source.axisY ) * ( 0.5 * source.sourceLength ),
-                                    source.falloff );
+        light = DesertCapsuleLight( light, LightSourceHalfAxis( source ), source.falloff );
     return light;
 }
 
@@ -272,7 +285,7 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     light.SphereAxis         = vec3( 0.0 );
     // UE SourceLength: a capsule along the cone's axis.
     if ( source.sourceLength > 0.0 )
-        light = DesertCapsuleLight( light, source.direction * ( 0.5 * source.sourceLength ), source.falloff );
+        light = DesertCapsuleLight( light, LightSourceHalfAxis( source ), source.falloff );
     return light;
 }
 
