@@ -1,0 +1,12 @@
+# NET-MESH-1 pass 1: the server roles split into processes (NET-ARCH §2M.2) - DesertServer --role coordinator |
+# store | sim | gateway, linked over GNS mesh links that require a CA-signed certificate (a dev CA generated
+# locally by `DesertServer --mesh-dev-ca <dir>`, never committed); the coordinator owns the authority map and the
+# mesh step clock; clients connect to the gateway only, which routes each player's input to the sim the authority
+# map names. `--role all` (the mesh of one) is unchanged.
+# Runner: <scratch>/NET-MESH-1/run_mesh1.sh (base NET-1 run_net1e.sh + NET-2 run_net2.sh): 4 server processes,
+# the editor is one client, the others are DesertNetProbe bots; console lines go to the sim's stdin.
+# Дано: Editor + DesertServer + DesertNetProbe from task/NET-MESH-1; mesh = coordinator, store, sim 1, gateway as 4 processes.
+# Когда: bot A walks 2000 cm along +X (--walk-cm 2000); the editor is B, standing at spawn 0.
+# Тогда [mesh1_split_roles] mesh1-walk/clientB_view.png: B's frame shows A's pawn moved 20 m (as net1_two_clients); gateway.log "input player 1 -> sim 1 (authority map"; ps.txt lists the four --role processes.
+# Когда: the sim console lifts the cube 200977 (the NET-2 "door"); the editor C joins 30 s later.
+# Тогда [mesh1_door_latejoin] mesh1-latejoin/clientC_after.png: C's first frame shows the cube lifted (as net2_door_latejoin); store.log "stable 200977 Transform.Transform ... -> gateway 1 as state".
