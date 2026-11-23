@@ -66,47 +66,91 @@ namespace Desert::Water
 
     bool WaterQuadTree::BuildRibbonLeaves( const RiverFlowField& flow, TileRange& range ) const noexcept
     {
-        // Every leaf one of the ribbon's in-bank flow texels lies in (texels of kRiverFlowCmPerTexel are far
-        // finer than a leaf, so no touched leaf is missed).
+        // A texel's bank mask reaches every point of its bilinear support, the open square one texel out from its
+        // centre (WaterFlowAt / SampleRiverFlowBilinear). A leaf is TOUCHED when an in-bank texel's support
+        // overlaps it (the clipped surface may draw there), and covered WHOLE when no out-of-bank texel's support
+        // overlaps it and it lies within the outermost texel centres (a neighbour off the field counts as zero):
+        // then every bilinear sample in it is 1 and the clip (mask < kRiverBankClip) discards nothing there.
         const glm::ivec2     span  = range.Max - range.Min;
         const auto           sx    = static_cast<size_t>( span.x );
         const auto           sy    = static_cast<size_t>( span.y );
         const size_t         width = sx + 1u;
         std::vector<uint8_t> touched( sx * sy, 0u );
+        std::vector<uint8_t> broken( sx * sy, 0u ); // an out-of-bank texel's support overlaps the leaf
         const glm::vec2      step = flow.Extent / glm::vec2( glm::max( flow.Size, glm::uvec2( 1u ) ) );
+        // Every leaf the square [lo, hi] (world XZ) overlaps, in the range's leaves, gets @p mark.
+        const auto markLeaves = [&]( const glm::vec2 lo, const glm::vec2 hi, std::vector<uint8_t>& mark )
+        {
+            const glm::ivec2 a = glm::max( glm::ivec2( glm::floor( ( lo - m_RootMin ) / m_LeafSize ) ) - range.Min,
+                                           glm::ivec2( 0 ) );
+            const glm::ivec2 b =
+                 glm::min( glm::ivec2( glm::floor( ( hi - m_RootMin ) / m_LeafSize ) ) - range.Min, span - 1 );
+            for ( int32_t y = a.y; y <= b.y; ++y )
+                for ( int32_t x = a.x; x <= b.x; ++x )
+                    mark[static_cast<size_t>( y ) * sx + static_cast<size_t>( x )] = 1u;
+        };
         for ( uint32_t z = 0; z < flow.Size.y; ++z )
             for ( uint32_t x = 0; x < flow.Size.x; ++x )
             {
-                if ( flow.Texels[static_cast<size_t>( z ) * flow.Size.x + x].z < 0.5f )
-                    continue;
-                const glm::vec2  centre = flow.Min + ( glm::vec2( x, z ) + 0.5f ) * step;
-                const glm::ivec2 leaf =
-                     glm::ivec2( glm::floor( ( centre - m_RootMin ) / m_LeafSize ) ) - range.Min;
-                if ( leaf.x < 0 || leaf.y < 0 || leaf.x >= span.x || leaf.y >= span.y )
-                    continue;
-                touched[static_cast<size_t>( leaf.y ) * sx + static_cast<size_t>( leaf.x )] = 1u;
+                const glm::vec2 centre = flow.Min + ( glm::vec2( x, z ) + 0.5f ) * step;
+                const bool inBank = flow.Texels[static_cast<size_t>( z ) * flow.Size.x + x].z >= kRiverBankClip;
+                markLeaves( centre - step, centre + step, inBank ? touched : broken );
             }
-        range.LeafSums.assign( width * ( sy + 1u ), 0 );
+        // The leaves past the outermost texel centres read an off-field (zero) neighbour.
+        const glm::vec2 inLo = flow.Min + 0.5f * step;
+        const glm::vec2 inHi = flow.Min + flow.Extent - 0.5f * step;
         for ( size_t y = 0; y < sy; ++y )
             for ( size_t x = 0; x < sx; ++x )
-                range.LeafSums[( y + 1u ) * width + x + 1u] =
-                     touched[y * sx + x] + range.LeafSums[y * width + x + 1u] +
-                     range.LeafSums[( y + 1u ) * width + x] - range.LeafSums[y * width + x];
+            {
+                const glm::vec2 leafLo =
+                     m_RootMin +
+                     glm::vec2( range.Min + glm::ivec2( static_cast<int32_t>( x ), static_cast<int32_t>( y ) ) ) *
+                          m_LeafSize;
+                const glm::vec2 leafHi = leafLo + glm::vec2( m_LeafSize );
+                if ( leafLo.x < inLo.x || leafLo.y < inLo.y || leafHi.x > inHi.x || leafHi.y > inHi.y )
+                    broken[y * sx + x] = 1u;
+            }
+        range.LeafSums.assign( width * ( sy + 1u ), 0 );
+        range.FullSums.assign( width * ( sy + 1u ), 0 );
+        for ( size_t y = 0; y < sy; ++y )
+            for ( size_t x = 0; x < sx; ++x )
+            {
+                const int32_t isTouched                     = touched[y * sx + x];
+                const int32_t isFull                        = isTouched != 0 && broken[y * sx + x] == 0u ? 1 : 0;
+                range.LeafSums[( y + 1u ) * width + x + 1u] = isTouched + range.LeafSums[y * width + x + 1u] +
+                                                              range.LeafSums[( y + 1u ) * width + x] -
+                                                              range.LeafSums[y * width + x];
+                range.FullSums[( y + 1u ) * width + x + 1u] = isFull + range.FullSums[y * width + x + 1u] +
+                                                              range.FullSums[( y + 1u ) * width + x] -
+                                                              range.FullSums[y * width + x];
+            }
         return range.LeafSums.back() > 0;
+    }
+
+    int32_t WaterQuadTree::TileRange::SumOver( const std::vector<int32_t>& sums, const glm::ivec2 rangeMin,
+                                               const glm::ivec2 rangeMax, const glm::ivec2 lo,
+                                               const glm::ivec2 hi ) noexcept
+    {
+        const glm::ivec2 a = glm::clamp( lo, rangeMin, rangeMax ) - rangeMin;
+        const glm::ivec2 b = glm::clamp( hi, rangeMin, rangeMax ) - rangeMin;
+        if ( a.x >= b.x || a.y >= b.y )
+            return 0;
+        if ( sums.empty() )
+            return ( b.x - a.x ) * ( b.y - a.y );
+        const auto width = static_cast<size_t>( rangeMax.x - rangeMin.x ) + 1u;
+        const auto at    = [&]( const int32_t x, const int32_t y )
+        { return sums[static_cast<size_t>( y ) * width + static_cast<size_t>( x )]; };
+        return at( b.x, b.y ) - at( a.x, b.y ) - at( b.x, a.y ) + at( a.x, a.y );
     }
 
     int32_t WaterQuadTree::TileRange::CountLeaves( const glm::ivec2 lo, const glm::ivec2 hi ) const noexcept
     {
-        const glm::ivec2 a = glm::clamp( lo, Min, Max ) - Min;
-        const glm::ivec2 b = glm::clamp( hi, Min, Max ) - Min;
-        if ( a.x >= b.x || a.y >= b.y )
-            return 0;
-        if ( LeafSums.empty() )
-            return ( b.x - a.x ) * ( b.y - a.y );
-        const auto width = static_cast<size_t>( Max.x - Min.x ) + 1u;
-        const auto at    = [&]( const int32_t x, const int32_t y )
-        { return LeafSums[static_cast<size_t>( y ) * width + static_cast<size_t>( x )]; };
-        return at( b.x, b.y ) - at( a.x, b.y ) - at( b.x, a.y ) + at( a.x, a.y );
+        return SumOver( LeafSums, Min, Max, lo, hi );
+    }
+
+    int32_t WaterQuadTree::TileRange::CountFullLeaves( const glm::ivec2 lo, const glm::ivec2 hi ) const noexcept
+    {
+        return SumOver( FullSums, Min, Max, lo, hi );
     }
 
     float WaterQuadTree::GetLODDistance( const int32_t lodLevel, const float lodScale )
@@ -195,26 +239,33 @@ namespace Desert::Water
 
     // A node is Complete when one body covers it whole and no body of a higher priority touches it (a river
     // inside an ocean splits the ocean's node down to the river's leaves). A partial node - and so a leaf - is
-    // drawn as the highest-priority body touching it, the first of equals.
+    // drawn as the highest-priority body touching it, the first of equals; when that is a ribbon its banks cut,
+    // the highest-priority non-ribbon body touching it is drawn under it (TileOwner::HasUnder).
     WaterQuadTree::Coverage WaterQuadTree::Classify( const Node& node, TileOwner& owner ) const
     {
         const glm::ivec2 lo       = node.Tile;
         const glm::ivec2 hi       = node.Tile + glm::ivec2( 1 << node.Level );
         const TileRange* touching = nullptr; // the highest priority touching the node
         const TileRange* covering = nullptr; // the highest priority covering it whole
+        const TileRange* under    = nullptr; // the highest-priority body touching it that is not a ribbon
         for ( const TileRange& body : m_Bodies )
         {
             if ( lo.x >= body.Max.x || lo.y >= body.Max.y || hi.x <= body.Min.x || hi.y <= body.Min.y )
                 continue;
-            // A ribbon touches a node only through a leaf it owns and covers it only when it owns every leaf.
-            const int32_t owned = body.LeafSums.empty() ? -1 : body.CountLeaves( lo, hi );
+            // A ribbon touches a node only through a leaf it touches, and covers it only when it covers every
+            // leaf WHOLE (its clip discards nothing there): a leaf its banks cut is never the ribbon's alone, or
+            // the ocean under the cut would be a hole.
+            const int32_t owned = body.IsRibbon() ? body.CountLeaves( lo, hi ) : -1;
             if ( owned == 0 )
                 continue;
             if ( touching == nullptr || body.Priority > touching->Priority )
                 touching = &body;
+            if ( !body.IsRibbon() && ( under == nullptr || body.Priority > under->Priority ) )
+                under = &body;
             const bool inside =
                  lo.x >= body.Min.x && lo.y >= body.Min.y && hi.x <= body.Max.x && hi.y <= body.Max.y;
-            const bool whole = inside && ( owned < 0 || owned == ( hi.x - lo.x ) * ( hi.y - lo.y ) );
+            const bool whole = inside && ( !body.IsRibbon() ||
+                                           body.CountFullLeaves( lo, hi ) == ( hi.x - lo.x ) * ( hi.y - lo.y ) );
             if ( whole && ( covering == nullptr || body.Priority > covering->Priority ) )
                 covering = &body;
         }
@@ -222,10 +273,18 @@ namespace Desert::Water
             return Coverage::Empty;
         if ( covering != nullptr && covering->Priority >= touching->Priority )
         {
-            owner = TileOwner{ covering->SurfaceY, covering->BodyIndex };
+            owner = TileOwner{ .SurfaceY = covering->SurfaceY, .BodyIndex = covering->BodyIndex };
             return Coverage::Complete;
         }
-        owner = TileOwner{ touching->SurfaceY, touching->BodyIndex };
+        owner = TileOwner{ .SurfaceY = touching->SurfaceY, .BodyIndex = touching->BodyIndex };
+        // A ribbon on top that does not cover the node whole, over an ocean: the ocean is drawn too, under it, on
+        // the far side of the bank (UE draws the ocean under the river). Only a leaf is drawn Partial.
+        if ( touching->IsRibbon() && under != nullptr )
+        {
+            owner.HasUnder       = true;
+            owner.UnderSurfaceY  = under->SurfaceY;
+            owner.UnderBodyIndex = under->BodyIndex;
+        }
         return Coverage::Partial;
     }
 
@@ -370,6 +429,15 @@ namespace Desert::Water
         tile.ShouldMorph   = tile.DensityIndex != m_DensityCount - 1;
         tile.CanMorphTwice = tile.DensityIndex < m_DensityCount - 2;
         tile.HeightMorph   = lodLevel == t.LOD.LowestLOD ? t.LOD.HeightLODFactor : 0.0f;
+        if ( owner.HasUnder )
+        {
+            // The ocean under a river's cut leaf: the same tile, its own body, clipped to the bank's far side.
+            WaterTileInstance under = tile;
+            under.SurfaceY          = owner.UnderSurfaceY;
+            under.BodyIndex         = owner.UnderBodyIndex;
+            under.UnderRiver        = true;
+            t.Output->push_back( under );
+        }
         t.Output->push_back( tile );
     }
 } // namespace Desert::Water

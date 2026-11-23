@@ -127,7 +127,9 @@ namespace Desert::Water
     [[nodiscard]] WaterInfoGround BakeWaterInfoGround( std::span<const World::Landscape::LandscapeRayTile> ground,
                                                        glm::vec2 centre, float extentCm, uint32_t size );
 
-    /// The body the point is deepest in, of those that cover it; nullopt when it is in none.
+    /// The body the point is deepest in, of those of the highest WaterBodyPriority that cover it (the surface the
+    /// renderer draws there: inside a river's banks the river, never the ocean under it); nullopt when it is in
+    /// none of them.
     [[nodiscard]] std::optional<WaterQueryHit>
     QueryWater( std::span<const WaterBodyState> bodies, std::span<const World::Landscape::LandscapeRayTile> ground,
                 const glm::vec3& point, float time );

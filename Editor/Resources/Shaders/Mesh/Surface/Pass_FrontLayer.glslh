@@ -34,8 +34,9 @@ void main()
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN, v_Surface.UV1,
                               DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
 #ifdef DESERT_SURFACE_PATH_WaterMesh
-    // A river's tile past its banks is no water (Pass_SingleLayerWater clips it the same way).
-    if ( WaterOutsideBank( i.WorldPosition.xz, i.VertexColor.b ) )
+    // A river's tile past its banks is no water, nor an under-river ocean inside them (Pass_SingleLayerWater clips
+    // both the same way, WaterBankClipped).
+    if ( WaterBankClipped( i.WorldPosition.xz, i.VertexColor.b ) )
         discard;
     // The FFT ocean's normal per pixel, as Pass_SingleLayerWater shades with (WaterPixelWaveFrame): the trace
     // starts from the normal the water mirrors with.

@@ -163,14 +163,28 @@ namespace Desert::Water
                                              std::span<const World::Landscape::LandscapeRayTile> ground,
                                              const glm::vec3& point, float time )
     {
-        // Of several bodies, the one the point is deepest in (UE BuoyancyComponentSimulation.h:199-231).
+        // The drawn surface's rule first: of the bodies covering the point only the highest WaterBodyPriority is
+        // there (a river inside its banks is drawn over the ocean, the ocean under a river's cut leaf is clipped
+        // to the banks' far side - WaterQuadTree::Classify, WaterMeshTiles.glslh WaterBankClipped - so inside
+        // the banks the river answers, outside them the ocean). Of several of that priority, the one the point is
+        // deepest in (UE BuoyancyComponentSimulation.h:199-231). A point above a river inside its banks is NOT in
+        // the ocean below: the ocean is not drawn there.
         std::optional<WaterQueryHit> best;
+        std::optional<int32_t>       topPriority;
         std::optional<float>         groundHeight;
         bool                         groundSampled = false;
         for ( std::size_t i = 0; i < bodies.size(); ++i )
         {
             if ( !WaterBodyCovers( bodies[i], point ) )
                 continue;
+            const int32_t priority = WaterBodyPriority( bodies[i].Type );
+            if ( topPriority && priority < *topPriority )
+                continue;
+            if ( !topPriority || priority > *topPriority )
+            {
+                topPriority = priority;
+                best.reset();
+            }
             if ( !groundSampled )
             {
                 groundHeight  = GroundHeightAt( ground, point.x, point.z );

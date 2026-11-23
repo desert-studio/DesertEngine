@@ -72,6 +72,11 @@ namespace Desert::Water
         int32_t   DensityIndex  = 0;
         bool      ShouldMorph   = false;
         bool      CanMorphTwice = false;
+        /// An ocean drawn UNDER a river in a leaf the river's banks only partly cover (UE: the ocean under the
+        /// river, the river-to-ocean transition): this tile is clipped to the complement of the river's bank mask
+        /// (WaterMeshTiles.glslh WaterBankClipped), the river's own tile in the same leaf to the mask, so the two
+        /// partition the leaf by the one mask the CPU query answers by (Water::QueryWater).
+        bool UnderRiver = false;
         /// The lowest LOD's global morph toward the next one, from the camera's height (0 on every other LOD).
         float HeightMorph = 0.0f;
     };
@@ -156,8 +161,18 @@ namespace Desert::Water
             int32_t    Priority  = 0;
             // A ribbon's leaves (WaterQuadTreeBody::Ribbon): the summed-area table of the leaves it touches over
             // [Min, Max], (Max - Min + 1) per side, so a node's owned-leaf count is four reads. Empty = all.
-            std::vector<int32_t>  LeafSums;
+            std::vector<int32_t> LeafSums;
+            // The same table of the leaves the ribbon covers WHOLE: no bilinear sample of the bank mask inside the
+            // leaf falls below kRiverBankClip, so its surface there is never clipped. Empty = all.
+            std::vector<int32_t> FullSums;
+            [[nodiscard]] bool   IsRibbon() const noexcept
+            {
+                return !LeafSums.empty();
+            }
             [[nodiscard]] int32_t CountLeaves( glm::ivec2 lo, glm::ivec2 hi ) const noexcept;
+            [[nodiscard]] int32_t        CountFullLeaves( glm::ivec2 lo, glm::ivec2 hi ) const noexcept;
+            [[nodiscard]] static int32_t SumOver( const std::vector<int32_t>& sums, glm::ivec2 rangeMin,
+                                                  glm::ivec2 rangeMax, glm::ivec2 lo, glm::ivec2 hi ) noexcept;
         };
 
         // The body a node's tiles are drawn as.
@@ -165,6 +180,11 @@ namespace Desert::Water
         {
             float    SurfaceY  = 0.0f;
             uint32_t BodyIndex = 0;
+            // A leaf a ribbon owns but does not cover whole, over a non-ribbon body (an ocean): that body is drawn
+            // too, under the ribbon, clipped to the bank mask's complement (WaterTileInstance::UnderRiver).
+            bool     HasUnder       = false;
+            float    UnderSurfaceY  = 0.0f;
+            uint32_t UnderBodyIndex = 0;
         };
 
         // A node: its level (leaf = 0) and first leaf tile; it spans 2^Level tiles per side.

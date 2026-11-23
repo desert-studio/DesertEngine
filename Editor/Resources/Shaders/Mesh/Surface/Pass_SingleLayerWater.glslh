@@ -211,8 +211,9 @@ void main()
     SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN, v_Surface.UV1,
                               DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
-    // A river's tile past its banks (the quadtree leaf overshoots the ribbon): no water there.
-    if ( WaterOutsideBank( i.WorldPosition.xz, i.VertexColor.b ) )
+    // A river's tile past its banks (the quadtree leaf overshoots the ribbon): no water there; an ocean drawn under
+    // a river's cut leaf inside them: the river is drawn there (WaterBankClipped).
+    if ( WaterBankClipped( i.WorldPosition.xz, i.VertexColor.b ) )
         discard;
     // The FFT ocean's normal per pixel (WaterPixelWaveFrame): the glint is as sharp as the finest cascade, not the
     // grid. The ripple maps then bend THIS frame (EvaluateSurface's tangent-space normal goes through i.TBN).

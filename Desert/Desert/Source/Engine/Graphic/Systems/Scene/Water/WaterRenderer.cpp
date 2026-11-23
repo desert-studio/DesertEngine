@@ -110,6 +110,7 @@ namespace Desert::Graphic::System
             glm::vec4 Lod;  // x = LOD level, y = morphs, z = can morph twice, w = height LOD factor
             glm::vec4 Zone; // xy = the zone's world (X, Z) origin, z = LOD scale (cm), w = quads per side
             // The tile's body (UE WaterBodyIndex; TileWalk::Bodies): x = its material's row, y = 1 for a river,
+            // -1 for an ocean drawn under a river's cut leaf (Water::WaterTileInstance::UnderRiver),
             // z = 1 + its wave set in WaterWavesBlock::Sets (0 = flat), w = the body's index in its zone.
             glm::vec4 Body;
         };
@@ -905,7 +906,10 @@ namespace Desert::Graphic::System
                 row.Lod  = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
                                      tile.CanMorphTwice ? 1.0f : 0.0f, tile.HeightMorph );
                 row.Zone = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
-                row.Body        = body;
+                row.Body = body;
+                // An ocean drawn under a river's cut leaf: -1, clipped to the bank's far side (WaterBankClipped).
+                if ( tile.UnderRiver )
+                    row.Body.y = -1.0f;
                 const size_t at = m_Upload.size();
                 m_Upload.resize( at + sizeof( WaterTileRow ) );
                 std::memcpy( m_Upload.data() + at, &row, sizeof( WaterTileRow ) );
