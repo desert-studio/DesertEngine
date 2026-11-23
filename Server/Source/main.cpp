@@ -101,6 +101,9 @@ namespace Desert::Server
             // --border-band and --handover-margin (cm).
             Net::MeshRegionTable regions;
             std::optional<float> borderBand, handoverMargin;
+            // --lag-ms / --jitter-ms / --loss: the development link simulator on what the server sends its clients
+            // (GNS FakePacketLag/Jitter/Loss_Send) - the snapshots a scenario's remote smoothing has to absorb.
+            Net::NetSimulator simulator;
         };
 
         constexpr double kStepHz = 60.0;
@@ -110,7 +113,7 @@ namespace Desert::Server
             return "usage: DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> "
                    "[--steps <n>] "
                    "[--port <p> --server-id <id> --secret-file <file> --pawn <assets:...deprefab> --spawn <x,y,z> "
-                   "[--spawn ...]]\n"
+                   "[--spawn ...] [--lag-ms <ms> --jitter-ms <ms> --loss <pct>]]\n"
                    "       DesertServer --project <p> --role coordinator --mesh-port <p> --mesh-ca <dir> [--steps "
                    "<n>] "
                    "[--region <name>:<sim>:<minX>,<minZ>,<maxX>,<maxZ> ... --border-band <cm> --handover-margin "
@@ -300,6 +303,20 @@ namespace Desert::Server
                         return Common::MakeError<Options>(
                              std::format( "--steps '{}' is not a positive count", value ) );
                     options.steps = n;
+                }
+                else if ( flag == "--lag-ms" || flag == "--jitter-ms" || flag == "--loss" )
+                {
+                    char*       end = nullptr;
+                    const float n   = std::strtof( value.c_str(), &end );
+                    if ( end != value.c_str() + value.size() || value.empty() || !( n >= 0.f ) )
+                        return Common::MakeError<Options>(
+                             std::format( "{} '{}' is not a non-negative number", flag, value ) );
+                    if ( flag == "--lag-ms" )
+                        options.simulator.SendLagMs = static_cast<int>( n );
+                    else if ( flag == "--jitter-ms" )
+                        options.simulator.SendJitterAverageMs = n;
+                    else
+                        options.simulator.SendLossPercent = n;
                 }
                 else
                     return Common::MakeError<Options>( std::format( "unknown argument '{}'", flag ) );
@@ -1021,6 +1038,16 @@ namespace Desert::Server
                     return 7;
                 }
                 transport = Net::CreateGnsTransport( netLog );
+                if ( transport && !transport->SetSimulator( options.simulator, error ) )
+                {
+                    LOG_ERROR( "[Server] network simulator: {}", error );
+                    return 7;
+                }
+                if ( options.simulator.SendLagMs > 0 || options.simulator.SendJitterAverageMs > 0.f ||
+                     options.simulator.SendLossPercent > 0.f )
+                    LOG_INFO( "[Server] simulated link to clients: send lag {} ms, jitter avg {:.0f} ms, loss {}%",
+                              options.simulator.SendLagMs, options.simulator.SendJitterAverageMs,
+                              options.simulator.SendLossPercent );
                 if ( !transport || !transport->Listen( *options.port, error ) )
                 {
                     LOG_ERROR( "[Server] cannot listen on port {}: {}", *options.port, error );

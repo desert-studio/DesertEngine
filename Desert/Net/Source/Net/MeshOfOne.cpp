@@ -138,7 +138,10 @@ namespace Desert::Net
         pawn.State.Position.X += move.X * distance;
         pawn.State.Position.Y += move.Y * distance;
         pawn.State.Position.Z += move.Z * distance;
-        pawn.State.Yaw = pawn.LastApplied.Yaw;
+        pawn.State.Yaw      = pawn.LastApplied.Yaw;
+        pawn.State.Velocity = { move.X * m_Settings.WalkSpeed, move.Y * m_Settings.WalkSpeed,
+                                move.Z * m_Settings.WalkSpeed };
+        pawn.State.Movement = kPawnGrounded; // the kinematic walker never leaves the ground
     }
 
     void PawnSimulation::Step( double dtSeconds )
@@ -190,6 +193,7 @@ namespace Desert::Net
         if ( it == m_Pawns.end() )
             return false;
         it->second.State.Position = position;
+        ++it->second.State.TeleportCount;
         m_Store.Write( it->second.State );
         m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
                             it->second.State.Id, position.X, position.Y, position.Z ) );

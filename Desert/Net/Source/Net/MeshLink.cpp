@@ -82,6 +82,11 @@ namespace Desert::Net
                 F32( p.Position.Y );
                 F32( p.Position.Z );
                 F32( p.Yaw );
+                F32( p.Velocity.X );
+                F32( p.Velocity.Y );
+                F32( p.Velocity.Z );
+                U8( p.Movement );
+                U8( p.TeleportCount );
             }
             void Value( const ReplicatedValue& value )
             {
@@ -165,7 +170,8 @@ namespace Desert::Net
             bool Pawn( PawnState& p )
             {
                 return U32( p.Id ) && F32( p.Position.X ) && F32( p.Position.Y ) && F32( p.Position.Z ) &&
-                       F32( p.Yaw );
+                       F32( p.Yaw ) && F32( p.Velocity.X ) && F32( p.Velocity.Y ) && F32( p.Velocity.Z ) &&
+                       U8( p.Movement ) && U8( p.TeleportCount );
             }
             bool Value( ReplicatedValue& value )
             {

@@ -1,5 +1,7 @@
 #include "ReplicationClient.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <format>
 #include <utility>
 #include <string_view>
@@ -20,6 +22,59 @@ namespace Desert::Net
     void ReplicationClient::Poll()
     {
         m_Transport.Poll( *this );
+        AdvanceRenderClock();
+    }
+
+    double ReplicationClient::LocalSeconds() const
+    {
+        return std::chrono::duration<double>( Clock::now() - m_Epoch ).count();
+    }
+
+    void ReplicationClient::MeasureArrival( double serverSeconds )
+    {
+        const double local = LocalSeconds();
+        m_Arrivals.emplace_back( local, local - serverSeconds );
+        while ( m_Arrivals.size() > 8 && m_Arrivals.front().first < local - kJitterWindowSeconds )
+            m_Arrivals.pop_front();
+        std::vector<double> offsets;
+        offsets.reserve( m_Arrivals.size() );
+        for ( const auto& [at, offset] : m_Arrivals )
+            offsets.push_back( offset );
+        std::sort( offsets.begin(), offsets.end() );
+        m_FastestOffset = offsets.front();
+        m_Jitter = offsets[static_cast<std::size_t>( 0.95 * static_cast<double>( offsets.size() - 1 ) )] -
+                   m_FastestOffset;
+    }
+
+    void ReplicationClient::AdvanceRenderClock()
+    {
+        const double local = LocalSeconds();
+        const double dt    = std::clamp( local - m_LastAdvance, 0.0, 0.25 );
+        m_LastAdvance      = local;
+        if ( m_Arrivals.empty() )
+            return;
+        // Two snapshot intervals (the pair the pawn is drawn between) plus the jitter, never below the one-lost-
+        // snapshot floor; the delay grows quickly (a late snapshot is a visible hold) and shrinks slowly.
+        constexpr double interval = kSnapshotEverySteps / kNetStepHz;
+        const double     target =
+             std::clamp( 2.0 * interval + m_Jitter, kInterpolationDelaySeconds, kMaxInterpolationDelaySeconds );
+        m_Delay += std::clamp( target - m_Delay, -0.05 * dt, 0.5 * dt );
+        const double wanted = local - m_FastestOffset - m_Delay;
+        if ( !m_RenderSeconds || std::abs( wanted - *m_RenderSeconds ) > kClockSnapSeconds )
+            m_RenderSeconds = wanted;
+        else
+        {
+            const double rate = 1.0 + std::clamp( ( wanted - *m_RenderSeconds ) * 4.0, -kClockDilation, kClockDilation );
+            *m_RenderSeconds += dt * rate;
+        }
+        if ( local >= m_NextDelayLog )
+        {
+            m_NextDelayLog = local + 1.0;
+            m_Log( std::format( "interpolation buffer: delay {:.0f} ms (target {:.0f}), arrival jitter p95 {:.0f} ms over "
+                                "{} snapshots, render clock {:+.1f} ms off",
+                                m_Delay * 1e3, target * 1e3, m_Jitter * 1e3, m_Arrivals.size(),
+                                ( *m_RenderSeconds - wanted ) * 1e3 ) );
+        }
     }
 
     void ReplicationClient::SendInput( const NetVec3& move, float yaw )
@@ -131,7 +186,6 @@ namespace Desert::Net
                     if ( !m_NewestServerStep || StepAfter( snapshot->ServerStep, *m_NewestServerStep ) )
                     {
                         m_NewestServerStep = snapshot->ServerStep;
-                        m_NewestArrival    = Clock::now();
                     }
                     if ( snapshot->HasAck && ( !m_LastAck || StepAfter( snapshot->AckInputStep, *m_LastAck ) ) )
                     {
@@ -139,6 +193,7 @@ namespace Desert::Net
                         m_Inputs.DropUpTo( snapshot->AckInputStep );
                     }
                     const double time = snapshot->ServerStep / kNetStepHz;
+                    MeasureArrival( time );
                     for ( const PawnState& state : snapshot->Pawns )
                         if ( auto it = m_Pawns.find( state.Id ); it != m_Pawns.end() )
                             it->second.History.Push( time, state );
@@ -180,10 +235,7 @@ namespace Desert::Net
 
     double ReplicationClient::RenderServerSeconds() const
     {
-        if ( !m_NewestServerStep )
-            return 0.0;
-        const double sinceArrival = std::chrono::duration<double>( Clock::now() - m_NewestArrival ).count();
-        return *m_NewestServerStep / kNetStepHz + sinceArrival - kInterpolationDelaySeconds;
+        return m_RenderSeconds.value_or( 0.0 );
     }
 
     std::optional<PawnState> ReplicationClient::Sample( NetId id ) const

@@ -1,0 +1,15 @@
+# NET-5 (NET-REMOTE): remote smoothing - per-pawn interpolation buffer drawn an ADAPTIVE delay behind the estimated
+# server clock (two snapshot intervals + the arrivals' p95 jitter, floor 100 ms, cap 350 ms; the render clock slews by
+# at most 10 % time dilation, Overwatch-style), cubic Hermite between snapshots with the replicated velocity as
+# tangents, extrapolation past the newest snapshot capped at 250 ms, teleports cut (replicated teleport count).
+# Replicated locomotion (velocity, movement mode) drives the remote pawn's AnimGraph locally (Speed / IsFalling of
+# Humanoid_Locomotion's blend space), never replicated poses (UE simulated proxy).
+# Runner: <scratch>/NET-REMOTE/run_all.sh (base NET-3 run_all.sh). Server sends with 75 ms lag + 30 ms jitter
+# (--lag-ms/--jitter-ms), clients send with 75 ms: 150 ms round trip. Pawn = Prefabs/Pawn_Character.deprefab
+# (engine Humanoid skinned mesh + Humanoid_Locomotion graph).
+# Дано: DesertServer --role all on WP_Protocol + Editor client B (observer, player 1, --shot-player-view) + probe A
+#       (DesertNetProbe --bot, player 2) from task/NET-REMOTE; 150 ms + 30 ms jitter.
+# Когда: A walks a circle (r 477 cm, 300 cm/s, --dir 0,0,-0.5 --turn-deg-s 36) in front of B for 20 s.
+# Тогда [net5_remote_walk] net5/strip.png: B's consecutive sequence frames show A's skinned character on a smooth
+#       arc, facing its walk, walk cycle matching speed (no foot skating, no jumps between frames); B's log
+#       "interpolation buffer: delay ... arrival jitter p95 ..." shows the delay rising above 100 ms to cover the jitter.

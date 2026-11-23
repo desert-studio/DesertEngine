@@ -22,6 +22,7 @@
 #include <set>
 #include <vector>
 #include <string>
+#include <string_view>
 
 #include <entt/entt.hpp>
 
@@ -29,6 +30,7 @@ namespace Desert::Net
 {
     class INetTransport;
     class ReplicationClient;
+    struct PawnState;
 } // namespace Desert::Net
 
 namespace Desert::Core
@@ -81,6 +83,12 @@ namespace Desert::Core
         void      LoadPawnPrefab( Assets::AssetManager& assets );
         void      ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
+        // NET-5: a remote pawn's locomotion variables from its interpolated replicated movement - the proxy's
+        // CharacterControllerComponent Velocity/CurrentSpeed and the anim graph parameters kLocomotion* of every
+        // AnimationComponent in its hierarchy.
+        void      WriteLocomotion( Scene& scene, entt::entity pawn, const Net::PawnState& sample );
+        static constexpr std::string_view kLocomotionSpeed   = "Speed";     // planar cm/s
+        static constexpr std::string_view kLocomotionFalling = "IsFalling"; // not on the ground
         // NET-2: the server's state of stable objects (cooked records, never spawned) written into the entities
         // this client's streamer made from the same records; a change whose entity is not streamed in waits for
         // it.

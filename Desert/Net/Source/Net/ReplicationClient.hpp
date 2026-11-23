@@ -13,6 +13,7 @@
 #include <Net/Replication.hpp>
 
 #include <chrono>
+#include <deque>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -45,7 +46,7 @@ namespace Desert::Net
 
         // Connects to "ip:port"; false + @p error when the address cannot be used.
         bool Connect( std::string_view address, std::string& error );
-        // Pumps the transport (call every frame).
+        // Pumps the transport and advances the remote pawns' render clock (call every frame).
         void Poll();
         // One client fixed step of input (call at kNetStepHz while InSession).
         void SendInput( const NetVec3& move, float yaw );
@@ -76,8 +77,8 @@ namespace Desert::Net
         {
             return m_PawnPrefab;
         }
-        // The pawn drawn at the interpolation time (estimated server clock - kInterpolationDelaySeconds). The own
-        // pawn is drawn the same way until NET-4 predicts it.
+        // The pawn drawn at the interpolation time (the render clock: estimated server clock - InterpolationDelay).
+        // The own pawn is drawn the same way until NET-4 predicts it.
         [[nodiscard]] std::optional<PawnState> Sample( NetId id ) const;
         // Spawns / destroys since the last call (the engine creates and releases the entities).
         [[nodiscard]] std::vector<NetId> TakeSpawned();
@@ -109,10 +110,25 @@ namespace Desert::Net
         {
             return m_LastAck;
         }
+        // NET-5 (§5.3) THE ADAPTIVE INTERPOLATION DELAY: how far behind the estimated server clock remote pawns are
+        // drawn now, and the snapshots' arrival jitter it covers (95th percentile of each arrival's transit above
+        // the fastest one over the last kJitterWindowSeconds).
+        [[nodiscard]] double InterpolationDelay() const
+        {
+            return m_Delay;
+        }
+        [[nodiscard]] double ArrivalJitter() const
+        {
+            return m_Jitter;
+        }
+        static constexpr double kJitterWindowSeconds = 2.0;
 
     private:
         using Clock = std::chrono::steady_clock;
         [[nodiscard]] double RenderServerSeconds() const;
+        [[nodiscard]] double LocalSeconds() const;
+        void                 MeasureArrival( double serverSeconds );
+        void                 AdvanceRenderClock();
 
         INetTransport&               m_Transport;
         HelloMessage                 m_Hello;
@@ -132,8 +148,20 @@ namespace Desert::Net
         std::vector<StableChange>                                    m_StableChanges;
         std::vector<StableNetId>                                     m_StableDestroyed;
         std::vector<std::uint32_t>                                   m_AcknowledgedUnits;
-        // The server clock: the newest snapshot's step time and the local time it arrived.
+        // The newest snapshot's server step (a spawn's first sample is placed at it).
         std::optional<std::uint32_t> m_NewestServerStep;
-        Clock::time_point            m_NewestArrival{};
+        // NET-5: the render clock (Overwatch-style adaptive interpolation). Every snapshot's transit offset (local
+        // arrival - server time) over the jitter window; the fastest one maps the server clock to local time, the
+        // spread above it is the jitter the delay covers. The render clock runs at local rate dilated by at most
+        // kClockDilation towards (estimated server clock - delay), so a changing delay or a jittered estimate never
+        // jumps the pawns; it snaps only on an error above kClockSnapSeconds (a new session, a long stall).
+        static constexpr double kClockDilation   = 0.1;
+        static constexpr double kClockSnapSeconds = 0.5;
+        Clock::time_point                        m_Epoch = Clock::now();
+        std::deque<std::pair<double, double>>    m_Arrivals; // (local seconds, local - server seconds)
+        double                                   m_FastestOffset = 0.0, m_Jitter = 0.0;
+        double                                   m_Delay         = kInterpolationDelaySeconds;
+        std::optional<double>                    m_RenderSeconds;
+        double                                   m_LastAdvance = 0.0, m_NextDelayLog = 0.0;
     };
 } // namespace Desert::Net
