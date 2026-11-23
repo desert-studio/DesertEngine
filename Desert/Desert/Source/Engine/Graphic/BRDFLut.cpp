@@ -38,10 +38,14 @@ namespace Desert::Graphic
             return { sinTheta * std::cos( phi ), sinTheta * std::sin( phi ), cosTheta };
         }
 
-        // Smith geometry term with the IBL k remapping (k = alpha / 2, alpha = roughness^2).
-        float GeometrySchlickGGX( float NdotX, float k )
+        // G / (4 NdotL NdotV), height-correlated Smith (Heitz 2014) for GGX with alpha2 = roughness^4: the term
+        // Mesh/BRDF.glslh VisibilitySmith evaluates for every analytic light, so the split sum integrates the lobe
+        // the lights draw. Change both together (and regenerate kGGXSpecularAlbedo).
+        float VisibilitySmithCorrelated( float NdotV, float NdotL, float alpha2 )
         {
-            return NdotX / ( NdotX * ( 1.0f - k ) + k );
+            const float smithV = NdotL * std::sqrt( NdotV * NdotV * ( 1.0f - alpha2 ) + alpha2 );
+            const float smithL = NdotV * std::sqrt( NdotL * NdotL * ( 1.0f - alpha2 ) + alpha2 );
+            return 0.5f / std::max( smithV + smithL, 1e-12f );
         }
 
         // One texel: integrate (scale, bias) for F0 over the GGX-importance-sampled hemisphere.
@@ -49,16 +53,15 @@ namespace Desert::Graphic
         {
             const Vec3 V = { std::sqrt( std::max( 0.0f, 1.0f - NdotV * NdotV ) ), 0.0f, NdotV };
 
-            // Karis 2013's IBL remapping k = alpha / 2 with alpha = roughness^2 (LearnOpenGL's k = roughness^2 /
-            // 2, UE's preintegrated EnvBRDF). It was alpha^2 / 2 = roughness^4 / 2: G barely attenuated a grazing
-            // view, and the LUT's scale + bias reached 1.44 at N.V -> 0, roughness 0.74 - a split sum that
-            // reflected 44 % more than it received and doubled every grazing reflection (FOLIAGE-LOOK-3: the pale
-            // sheen of Bistro's bush leaves).
-            const float a = roughness * roughness;
+            // alpha = roughness^2 and the GGX alpha2 = alpha^2 of the visibility term. (An earlier separable G took
+            // its Schlick k from alpha^2 / 2 instead of alpha / 2, so the LUT's scale + bias reached 1.44 at N.V -> 0,
+            // roughness 0.74 and doubled every grazing reflection - FOLIAGE-LOOK-3; the correlated term is bounded by
+            // the white furnace by construction.)
+            const float a      = roughness * roughness;
+            const float alpha2 = a * a;
             // Mesh/BRDF.glslh kGGXSpecularAlbedo is this integrand's scale + bias at F0 = 1 on a 16 x 16 grid (the
             // multiple-scattering compensation of the lobes that bind no LUT);
             // scripts/Dev/ggx_specular_albedo_table.py regenerates it - change both together.
-            const float k = a / 2.0f;
 
             float scale = 0.0f, bias = 0.0f;
             for ( uint32_t i = 0; i < samples; ++i )
@@ -78,8 +81,9 @@ namespace Desert::Graphic
                 const float NdotH = std::max( H.z, 0.0f );
                 const float VoH   = std::max( VdotH, 0.0f );
 
-                const float G     = GeometrySchlickGGX( NdotL, k ) * GeometrySchlickGGX( NdotV, k );
-                const float GVis  = ( G * VoH ) / std::max( NdotH * NdotV, 1e-5f );
+                // UE EnvBRDF: NoL * Vis * 4 VoH / NoH = G VoH / (NoH NoV), the estimator of the GGX-sampled lobe.
+                const float Vis   = VisibilitySmithCorrelated( NdotV, NdotL, alpha2 );
+                const float GVis  = NdotL * Vis * 4.0f * VoH / std::max( NdotH, 1e-5f );
                 const float Fc    = std::pow( 1.0f - VoH, 5.0f );
 
                 scale += ( 1.0f - Fc ) * GVis;
