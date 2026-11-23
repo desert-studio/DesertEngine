@@ -57,6 +57,11 @@ namespace Desert::Assets
         std::optional<int>                          TranslucencySortPriority;
         std::optional<uint64_t>                     HiddenSubmeshes;
         std::optional<float>                        MaxDrawDistance; // cm; written only when set (> 0)
+        // THE FAR CARD (WP-FAR-12E): reflected fields like MeshHandle, written and read by reflection; declared
+        // here so the scene reader knows the keys. Absent = no impostor.
+        std::optional<AssetGuidRef>                 ImpostorMesh;
+        std::optional<AssetGuidRef>                 ImpostorMaterial;
+        std::optional<float>                        ImpostorScreenSize;
     };
 
     struct SkinnedMeshComponentSer

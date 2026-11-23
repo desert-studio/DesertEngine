@@ -41,6 +41,16 @@ namespace Desert::Graphic::Render
         bool               CastShadows              = true;
         bool               ReceiveShadows           = true;
         bool               CastContactShadow        = true;
+        // THE IMPOSTOR PAIR (WP-FAR-12E; UE ImpostorBaker's far card as a mesh's last level, the SpeedTree
+        // billboard LOD): a StaticMeshComponent naming an Impostor draws as TWO slots - the source sections and
+        // the card (Core::HLODImpostorCardMesh with its M_I ImpostorSurface material) - and every view admits
+        // exactly one side: the card below ImpostorScreenSize, the source at or above it. Both sides measure the
+        // SAME box, the source mesh's local bounds (ImpostorBounds), through the LOD policy
+        // (Geometry::SelectLODFromBounds over {LOD 0, ImpostorScreenSize}, LODDistanceScale applied), so no
+        // distance draws both or neither. ImpostorScreenSize 0 = no pair (the section is admitted as before).
+        float              ImpostorScreenSize = 0.0f;
+        bool               ImpostorCard       = false; // true: the card side, false: the source side
+        Common::Math::AABB ImpostorBounds{};
         // The entity's PERSISTENT PRIMITIVE SLOT (MeshECSSystem; UE FPrimitiveSceneInfo::PackedIndex): the key
         // GpuSceneRegistry keeps the section's primitive under across frames (GpuSceneRegistry::SyncStatic).
         // Every section of one slot is one entity and shares its world. Set by the chunk rebuild.
@@ -114,6 +124,9 @@ namespace Desert::Graphic::Render
             uint32_t  PreviewEntity                   = 0; // the LOD preview's entity (PreviewLevel < 0: none)
             int       PreviewLevel                    = -1;
             bool      HasCamera                       = false; // no camera: no draw-distance cull, no demand
+            // The impostor switch's LOD distance scale (MeshRenderer::GetLODDistanceScale), 0 while the
+            // renderer's LOD is off (MeshRenderer::IsLODEnabled: every pair draws its source side).
+            float LODDistanceScale = 1.0f;
             bool      operator==( const View& ) const = default;
         };
         struct MaterialDemand

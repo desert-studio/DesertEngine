@@ -645,7 +645,9 @@ namespace Desert::ECS
                      x.TranslucencySortPriority != y.TranslucencySortPriority ||
                      x.MaxDrawDistance != y.MaxDrawDistance || x.Outlined != y.Outlined ||
                      x.CastShadows != y.CastShadows || x.ReceiveShadows != y.ReceiveShadows ||
-                     x.CastContactShadow != y.CastContactShadow )
+                     x.CastContactShadow != y.CastContactShadow ||
+                     x.ImpostorScreenSize != y.ImpostorScreenSize || x.ImpostorCard != y.ImpostorCard ||
+                     x.ImpostorBounds.Min != y.ImpostorBounds.Min || x.ImpostorBounds.Max != y.ImpostorBounds.Max )
                     return false;
             }
             return true;
@@ -700,6 +702,7 @@ namespace Desert::ECS
                     RemoveStaticPrimitive( found->second );
                     m_StaticSlotOf.erase( found );
                 }
+                PlaceImpostorCard( entity, ImpostorPairing{} );
                 return;
             }
             uint32_t slot = 0;
@@ -732,17 +735,135 @@ namespace Desert::ECS
             ClearStaticPrimitive( primitive );
             const bool polls = BuildStaticPrimitive( registry, entity, *mesh, *transform, materialsVersion,
                                                      drawnAsPieces, primitive );
+            const ImpostorPairing impostor = ResolveImpostor( *mesh, primitive );
             if ( !primitive.Generic )
                 RetireGenericDraw( primitive );
             if ( primitive.Slots != previousSlots || !SameSections( m_StaticPrevious, primitive.Sections ) )
                 MarkStaticChunk( slot );
             m_StaticPrevious.clear();
-            SetSlotMembership( m_StaticPolls, slot, polls );
+            SetSlotMembership( m_StaticPolls, slot, polls || impostor.Polls );
             // A section material not registered yet: asked again only when a registration or a content-registry
             // write could have named it (RecordStaticScene), never per update.
             SetSlotMembership( m_StaticAdoptWait, slot,
                                primitive.Mesh != nullptr && HasUnadoptedSlot( mesh->GetMaterialSlots() ) );
             SetSlotMembership( m_StaticImmediate, slot, primitive.Generic || !primitive.SlotDraws.empty() );
+            // Last: the card's slot may grow m_StaticPrimitives, which `primitive` points into.
+            PlaceImpostorCard( entity, impostor );
+        }
+
+        // THE IMPOSTOR PAIR (WP-FAR-12E; UE ImpostorBaker's card as a mesh's far level): what the source slot's
+        // rebuild found of its component's Impostor. Ready = the card mesh and its material instance exist and the
+        // source drew sections on the batched path; then the source sections carry the switch and the card gets
+        // its own persistent slot (a second GpuScene primitive: its own mesh and material), else the card slot is
+        // freed and the source draws at every size - an impostor still loading never leaves a hole.
+        struct ImpostorPairing
+        {
+            bool                                         Ready = false;
+            bool                                         Polls = false; // a side still loading: asked again
+            Desert::Mesh*                                Card  = nullptr;
+            Graphic::MaterialSlotBindingPtr              Slots;
+            Graphic::Render::StaticSceneSection          Section; // the card's, complete
+        };
+
+        ImpostorPairing ResolveImpostor( StaticMeshComponent& mesh, StaticPrimitive& source )
+        {
+            ImpostorPairing pairing;
+            if ( source.Generic || source.Sections.empty() || source.Mesh == nullptr ||
+                 mesh.GetImpostorScreenSize() <= 0.0f || !mesh.GetImpostorMesh() || !mesh.GetImpostorMaterial() )
+                return pairing;
+            pairing.Card = Runtime::ResourceRegistry::GetMeshService()->Get( mesh.GetImpostorMesh() );
+            if ( pairing.Card != nullptr && !mesh.RuntimeImpostorSlots() )
+            {
+                if ( auto instance = Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance(
+                          mesh.GetImpostorMaterial() ) )
+                {
+                    auto binding = std::make_shared<Graphic::MaterialSlotBinding>();
+                    binding->Owned.push_back( std::move( instance ) );
+                    binding->Slots.push_back( binding->Owned[0].get() );
+                    mesh.RuntimeImpostorSlots() = std::move( binding );
+                }
+            }
+            pairing.Slots = mesh.RuntimeImpostorSlots();
+            pairing.Ready = pairing.Card != nullptr && pairing.Slots != nullptr;
+            pairing.Polls = !pairing.Ready || pairing.Card->IsGpuStale();
+            if ( !pairing.Ready )
+                return pairing;
+
+            const Graphic::Render::StaticSceneSection& first = source.Sections.front();
+            for ( Graphic::Render::StaticSceneSection& section : source.Sections )
+            {
+                section.ImpostorScreenSize = mesh.GetImpostorScreenSize();
+                section.ImpostorCard       = false;
+                section.ImpostorBounds     = first.LocalBounds;
+            }
+            pairing.Section = { .Mesh                     = pairing.Card,
+                                .Transform                = first.Transform,
+                                .LocalBounds              = Geometry::LocalBounds( pairing.Card->GetSubmeshes() ),
+                                .BoundsRevision           = pairing.Card->GetRenderRevision(),
+                                .HiddenSubmeshes          = 0,
+                                .Entity                   = first.Entity,
+                                .SectionSlot              = 0,
+                                .Owner                    = 0,
+                                .ForcedLOD                = -1,
+                                .LODBias                  = 0,
+                                .TranslucencySortPriority = first.TranslucencySortPriority,
+                                .MaxDrawDistance          = first.MaxDrawDistance,
+                                .Outlined                 = first.Outlined,
+                                .CastShadows              = mesh.GetCastShadows(),
+                                .ReceiveShadows           = first.ReceiveShadows,
+                                .CastContactShadow        = first.CastContactShadow,
+                                .ImpostorScreenSize       = mesh.GetImpostorScreenSize(),
+                                .ImpostorCard             = true,
+                                .ImpostorBounds           = first.LocalBounds };
+            return pairing;
+        }
+
+        // The card's persistent slot (m_ImpostorSlotOf): rebuilt from @p pairing, or freed when it is not Ready.
+        void PlaceImpostorCard( const entt::entity entity, const ImpostorPairing& pairing )
+        {
+            const auto found = m_ImpostorSlotOf.find( entity );
+            if ( !pairing.Ready )
+            {
+                if ( found != m_ImpostorSlotOf.end() )
+                {
+                    RemoveStaticPrimitive( found->second );
+                    m_ImpostorSlotOf.erase( found );
+                }
+                return;
+            }
+            uint32_t slot = 0;
+            if ( found != m_ImpostorSlotOf.end() )
+                slot = found->second;
+            else
+            {
+                if ( !m_StaticFree.empty() )
+                {
+                    slot = m_StaticFree.back();
+                    m_StaticFree.pop_back();
+                }
+                else
+                {
+                    slot = static_cast<uint32_t>( m_StaticPrimitives.size() );
+                    m_StaticPrimitives.emplace_back();
+                }
+                m_ImpostorSlotOf.emplace( entity, slot );
+            }
+            StaticPrimitive&                                 card = m_StaticPrimitives[slot];
+            std::vector<Graphic::Render::StaticSceneSection> previous;
+            previous.swap( card.Sections );
+            const Graphic::MaterialSlotBindingPtr previousSlots = std::move( card.Slots );
+            ClearStaticPrimitive( card );
+            card.Rebuilt     = m_StaticUpdate;
+            card.Entity      = entity;
+            card.Mesh        = pairing.Card;
+            card.World       = pairing.Section.Transform;
+            card.Outlined    = pairing.Section.Outlined;
+            card.CastShadows = pairing.Section.CastShadows;
+            card.MaxDrawDistance = pairing.Section.MaxDrawDistance;
+            card.Slots       = pairing.Slots;
+            card.Sections.push_back( pairing.Section );
+            if ( card.Slots != previousSlots || !SameSections( previous, card.Sections ) )
+                MarkStaticChunk( slot );
         }
 
         // The chunk's sections from its slots, into a chunk no snapshot names (a spare whose last holder is gone,
@@ -1295,6 +1416,7 @@ namespace Desert::ECS
                 m_StaticPrimitives.clear();
                 m_StaticFree.clear();
                 m_StaticSlotOf.clear();
+                m_ImpostorSlotOf.clear();
                 m_StaticPolls.clear();
                 m_StaticAdoptWait.clear();
                 m_StaticImmediate.clear();
@@ -1463,6 +1585,7 @@ namespace Desert::ECS
             {
                 mesh.RuntimeMaterialInstances().clear();
                 mesh.SeenMaterialsVersion() = materialsVersion;
+                mesh.RuntimeImpostorSlots().reset();
             }
 
             // Ensure runtime material instances are initialized and match the slots
@@ -1628,6 +1751,7 @@ namespace Desert::ECS
         std::vector<StaticPrimitive>                                       m_StaticPrimitives; // by slot
         std::vector<uint32_t>                                              m_StaticFree;       // freed slots
         std::unordered_map<entt::entity, uint32_t>                         m_StaticSlotOf;     // entity -> slot
+        std::unordered_map<entt::entity, uint32_t> m_ImpostorSlotOf; // entity -> its impostor card's slot (WP-FAR-12E)
         std::vector<uint32_t>                                              m_StaticPolls;      // pending meshes
         std::vector<uint32_t> m_StaticAdoptWait; // slots waiting for a section material (MaterialService serials)
         uint64_t              m_StaticContentWrites = 0; // ContentRegistry::WriteSerial at the last update
