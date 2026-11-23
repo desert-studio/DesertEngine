@@ -227,7 +227,7 @@ namespace Desert::Net
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
-        [[nodiscard]] std::optional<std::uint32_t> LastProcessedInput( PlayerId player ) const override;
+        [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
         // The coordinator's authority map; true when @p type was a mesh message for this link.
         bool OnMeshMessage( std::uint8_t type, std::span<const std::byte> body );
@@ -242,7 +242,7 @@ namespace Desert::Net
         MeshEndpoint&                                               m_Endpoint;
         NetLogSink                                                  m_Log;
         std::vector<MeshRegion>                                     m_Regions;
-        std::map<PlayerId, std::uint32_t>                           m_Acks;
+        std::map<PlayerId, AckedMove>                               m_Acks;
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>> m_Routed; // player -> (sim, epoch) last logged
     };
 
