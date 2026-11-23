@@ -84,8 +84,11 @@
             "High": {
                 "ViewDistance.DisplacementPoolMiB": 256
             },
-            "Epic": {},
+            "Epic": {
+                "VirtualGeometry.SoftwareRaster": 1
+            },
             "Cinematic": {
+                "VirtualGeometry.SoftwareRaster": 1,
                 "ViewDistance.LODDistanceScalePercent": 50,
                 "ViewDistance.VirtualGeometryMaxPixelsPerEdge": 5,
                 "ViewDistance.DisplacementDicingRate": 1,
@@ -96,6 +99,7 @@
             "Low": {
                 "Effects.CloudQuality": 0,
                 "Effects.CloudLightLocalSamples": 4,
+                "Effects.WaterCaustics": 0,
                 "Effects.SkinCache": 0,
                 "Effects.SpawnCountScalePercent": 25,
                 "Effects.QualityLevel": 0,
@@ -108,6 +112,7 @@
             "Medium": {
                 "Effects.CloudQuality": 1,
                 "Effects.CloudLightLocalSamples": 6,
+                "Effects.WaterCaustics": 0,
                 "Effects.SpawnCountScalePercent": 50,
                 "Effects.QualityLevel": 1,
                 "Effects.MaxWorldParticles": 32768,

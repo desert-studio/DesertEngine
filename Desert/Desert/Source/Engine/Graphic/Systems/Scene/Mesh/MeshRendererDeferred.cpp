@@ -1,12 +1,15 @@
 // MeshRenderer's deferred half: the manual G-buffer pass and its pipeline.
 #include "MeshRendererInternal.hpp"
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Common/Core/JobSystem.hpp>
 
 #include <cassert>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Graphic/PipelineCache.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -795,6 +798,121 @@ namespace Desert::Graphic::System
         if ( path == MeshVertexPath::Instanced )
             return m_GrassMeshVisibilityResolveDraws.Record( context );
         return m_GrassVisibilityResolveDraws.Record( context );
+    }
+
+    const GraphicsPipeline* MeshRenderer::VirtualGeometryResolvePipeline( const GraphicsPipeline& group )
+    {
+        if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch(); epoch != m_VgResolvePipelinesEpoch )
+        {
+            m_VgResolvePipelines.clear();
+            m_VgResolvePipelinesEpoch = epoch;
+        }
+        if ( const auto known = m_VgResolvePipelines.find( &group ); known != m_VgResolvePipelines.end() )
+            return known->second;
+        const std::shared_ptr<Shader>& groupShader = group.GetSpecification().Shader;
+        if ( !groupShader )
+            return nullptr;
+        const std::optional<std::string> cell = VisibilityResolveCellOf( groupShader->GetName() );
+        // No resolve twin by construction (another pass, a parallax cell): a known answer, kept.
+        if ( !cell )
+        {
+            m_VgResolvePipelines.emplace( &group, nullptr );
+            return nullptr;
+        }
+        // A template without the VG permutation registers no resolve cell either (DeclaresVirtualGeometryTwin's
+        // rule); its clusters never reach the software raster's words through this group.
+        const std::shared_ptr<Shader> shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( *cell );
+        if ( !shader )
+        {
+            m_VgResolvePipelines.emplace( &group, nullptr );
+            return nullptr;
+        }
+        GraphicsPipelineSpecification spec = group.GetSpecification();
+        spec.Shader                        = shader;
+        spec.DebugName                     = std::format( "VgVisibilityResolve {}", *cell );
+        // The tiles cover the screen from either side; the material depth target is tested EQUAL to the group's
+        // own value (Common/VisibilityTiles.glslh DesertVisibilityVgMaterialDepth) and never written.
+        spec.CullMode          = CullMode::None;
+        spec.DepthTestEnabled  = true;
+        spec.DepthCompareOp    = DepthCompare::Equal;
+        spec.DepthWriteEnabled = false;
+        const GraphicsPipeline* const pipeline = BinnedSpecPipeline( *cell, std::move( spec ), false );
+        if ( pipeline != nullptr ) // null while compiling: asked again next frame
+            m_VgResolvePipelines.emplace( &group, pipeline );
+        return pipeline;
+    }
+
+    void MeshRenderer::DeclareVirtualGeometryVisibilityResolve( RDG::PassBuilder& pass, const SceneViewInputs& view,
+                                                                const VirtualGeometryResolveInputs& inputs )
+    {
+        m_VgVisibilityResolveDraws.Clear();
+        if ( inputs.RowCount == 0u || !inputs.Visibility.IsValid() || !inputs.ResolveArgs.IsValid() ||
+             !inputs.VisibleClusters.IsValid() || !inputs.Clusters.IsValid() || !inputs.Dags.IsValid() ||
+             !inputs.PrimitiveDraws.IsValid() || m_SceneRenderer == nullptr )
+            return;
+        const FrameBinnedView* binned = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
+        if ( binned == nullptr || binned->Issue.Table == nullptr )
+            return;
+        const GpuDriven::PassDrawTable& table = *binned->Issue.Table;
+        // The camera's phase-1 issue's tables (instances, draw slots, submesh transforms: the binned vertex
+        // stage's, which the resolve cell reads through the VG row's draw) and no bin: only the resolve draws.
+        MeshRendererDetail::BinnedIssue issue = binned->Issue;
+        issue.BinsIssued                      = false;
+        issue.GroupPipelines.clear();
+        issue.GroupCarriers.assign( table.Groups.size(), nullptr );
+        MeshRendererDetail::VirtualGeometryIssue resolve{ .GroupArgs       = inputs.ResolveArgs,
+                                                          .VisibleClusters = inputs.VisibleClusters,
+                                                          .Clusters        = inputs.Clusters,
+                                                          .Dags            = inputs.Dags,
+                                                          .PrimitiveDraws  = inputs.PrimitiveDraws,
+                                                          .GroupCount = static_cast<uint32_t>( table.Groups.size() ) };
+        resolve.GroupCarriers.assign( table.Groups.size(), nullptr );
+        resolve.GroupPipelines.assign( table.Groups.size(), nullptr );
+        resolve.ResolveRows       = glm::uvec2( inputs.FirstRow, inputs.RowCount );
+        resolve.ResolveArgsOffset = GpuInstanceArgsOffset( 0 );
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        bool                    any        = false;
+        for ( size_t group = 0; group < table.Groups.size(); ++group )
+        {
+            // Every G-buffer group with a resolve cell: a group none of whose clusters went SW draws its tiles and
+            // the EQUAL test rejects every pixel (the tiles' vertex work only, UE Nanite's empty material bins).
+            const GpuDriven::IndirectGroup& indirect = table.Groups[group];
+            if ( indirect.Pipeline == nullptr || indirect.VirtualGeometryPipeline == nullptr )
+                continue;
+            const GraphicsPipeline* const pipeline = VirtualGeometryResolvePipeline( *indirect.Pipeline );
+            if ( pipeline == nullptr )
+                continue;
+            std::string                   error;
+            const MaterialExecutor* const carrier =
+                 PrepareBinnedCarrier( pipeline->GetSpecification().Shader, kBinnedMainView, frameState, error );
+            if ( carrier == nullptr )
+            {
+                if ( m_BinnedRefused.insert( error ).second )
+                    LOG_ERROR( "[MeshRenderer] VG visibility resolve of group {}: {}", group, error );
+                continue;
+            }
+            resolve.GroupCarriers[group]  = carrier;
+            resolve.GroupPipelines[group] = pipeline;
+            any                           = true;
+        }
+        if ( !any )
+            return;
+        issue.VirtualGeometry = std::move( resolve );
+        m_VgVisibilityResolveDraws.SetBinned( std::move( issue ) );
+        m_VgVisibilityResolveDraws.Declare(
+             pass, view,
+             [visibility = inputs.Visibility]( RDG::BindingBlockBuilder& block, const SlottedLayout& slotted )
+             {
+                 if ( slotted.Slots.Has( SceneViewSlot::VisibilityBuffer ) )
+                     block.Storage( SceneResources::kVisibilityBuffer, visibility, RDG::Access::StorageRead );
+             } );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderVirtualGeometryVisibilityResolve( const RDG::PassContext& context ) const
+    {
+        if ( m_VgVisibilityResolveDraws.BlockCount() == 0u ) // nothing declared this frame
+            return BOOLSUCCESS;
+        return m_VgVisibilityResolveDraws.Record( context );
     }
 
     void MeshRenderer::DeclareGrassDepthPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )

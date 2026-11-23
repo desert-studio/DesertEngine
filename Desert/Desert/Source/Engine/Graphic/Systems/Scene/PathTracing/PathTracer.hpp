@@ -220,6 +220,35 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
     };
 
+    // A registered program and its ShaderService::ProgramGeneration (PathTracer::ProgramStamp; at namespace
+    // scope so SceneRenderer.hpp can name PathTracer::RadianceCacheStatus without the path tracer).
+    struct PathTracerProgramStamp
+    {
+        std::string Program;
+        uint64_t    Generation = 0;
+
+        bool operator==( const PathTracerProgramStamp& ) const = default;
+    };
+
+    // PathTracing.RadianceCache as the last frame ran it: Requested the setting, Effective what the paths ran
+    // (Off when the cache was refused), Reason the standing refusal (empty when the cache ran or was not
+    // asked), RetryOn what the held refusal waits for - the inputs whose change builds the cache again, with
+    // the values it holds at (empty with no refusal).
+    struct PathTracerRadianceCacheStatus
+    {
+        Common::Scalability::PathTracingRadianceCacheMethod Requested =
+             Common::Scalability::PathTracingRadianceCacheMethod::Off;
+        Common::Scalability::PathTracingRadianceCacheMethod Effective =
+             Common::Scalability::PathTracingRadianceCacheMethod::Off;
+        std::string Reason;
+        std::string RetryOn;
+        uint32_t    Rebuilds = 0; ///< running caches rebuilt because their inputs changed (RetireRadianceCache)
+        /// The ProgramGeneration of NeuralRadianceCache::kPrograms the running cache was built under (a held
+        /// refusal: refused under; neither: empty) - Rebuilds moves exactly when one of these does (or the
+        /// kernel path).
+        std::vector<PathTracerProgramStamp> ProgramGenerations;
+    };
+
     // THE PATH TRACER (GIMethod / ReflectionMethod PathTraced). UE 5.8
     // Renderer/Private/PathTracing/PathTracing.cpp (FPathTracingState, RenderPathTracing) is the model: the view
     // keeps ONE running sum of paths per pixel and how many were summed; each frame adds
@@ -597,13 +626,7 @@ namespace Desert::Graphic::System
         static constexpr const char* kTraceProgram = "PathTracer/PathTracing";
 
         // A registered program and its ShaderService::ProgramGeneration.
-        struct ProgramStamp
-        {
-            std::string Program;
-            uint64_t    Generation = 0;
-
-            bool operator==( const ProgramStamp& ) const = default;
-        };
+        using ProgramStamp = PathTracerProgramStamp;
         // "<program> <generation>, ..." (the log and state nrc).
         [[nodiscard]] static std::string FormatStamps( const std::vector<ProgramStamp>& stamps )
         {
@@ -938,24 +961,7 @@ namespace Desert::Graphic::System
             return m_Summed;
         }
 
-        // PathTracing.RadianceCache as the last frame ran it: Requested the setting, Effective what the paths ran
-        // (Off when the cache was refused), Reason the standing refusal (empty when the cache ran or was not
-        // asked), RetryOn what the held refusal waits for - the inputs whose change builds the cache again, with
-        // the values it holds at (empty with no refusal).
-        struct RadianceCacheStatus
-        {
-            Common::Scalability::PathTracingRadianceCacheMethod Requested =
-                 Common::Scalability::PathTracingRadianceCacheMethod::Off;
-            Common::Scalability::PathTracingRadianceCacheMethod Effective =
-                 Common::Scalability::PathTracingRadianceCacheMethod::Off;
-            std::string Reason;
-            std::string RetryOn;
-            uint32_t    Rebuilds = 0; ///< running caches rebuilt because their inputs changed (RetireRadianceCache)
-            /// The ProgramGeneration of NeuralRadianceCache::kPrograms the running cache was built under (a held
-            /// refusal: refused under; neither: empty) - Rebuilds moves exactly when one of these does (or the
-            /// kernel path).
-            std::vector<ProgramStamp> ProgramGenerations;
-        };
+        using RadianceCacheStatus = PathTracerRadianceCacheStatus;
         [[nodiscard]] RadianceCacheStatus GetRadianceCacheStatus() const
         {
             using Method = Common::Scalability::PathTracingRadianceCacheMethod;

@@ -22,6 +22,7 @@
 #include <tuple>
 #include <iterator>
 #include <utility>
+#include <Engine/Graphic/PipelineCache.hpp>
 
 namespace
 {

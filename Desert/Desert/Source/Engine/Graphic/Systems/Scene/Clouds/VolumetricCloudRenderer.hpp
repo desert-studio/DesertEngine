@@ -514,7 +514,11 @@ namespace Desert::Graphic::System
          * the sky renderer and is compiled under the same variant, carried out through
          * CloudEnvironmentBake::Medium.
          */
-        void ResolveMedium();
+        /// @return whether the pipeline set in use is the one built for the material's medium (or no set is in
+        ///         use yet) — i.e. whether this frame may resolve the medium's own values. False while a changed
+        ///         medium compiles in the background and the previous set keeps drawing: that set is fed the
+        ///         values it was built for, not the new schema's.
+        bool ResolveMedium();
 
         /**
          * @brief Resolves the medium's OWN properties out of the same `.demat` — its values into
@@ -543,11 +547,42 @@ namespace Desert::Graphic::System
         RenderPassDeclaration::BlockDeclaration
         SampledMedium( RenderPassDeclaration::BlockDeclaration block ) const;
 
-        /// Creates the three pipelines whose programs carry the medium, from the variant currently held
-        /// (or from the registered programs when it is default). Split out of CreatePipelines because
-        /// ResolveMedium has to do exactly this again when the authored medium changes, and two
-        /// constructions of one pipeline set is how they come to disagree.
-        bool BuildMediumPipelines();
+        /**
+         * The pipelines whose programs carry the medium (march, shadow map, sky occlusion), plus — on the
+         * first build only — the medium-independent reconstruct (resolve + upsample in one pass), all built OFF THE FRAME (UE PSO
+         * precache, r.PSOPrecache): the variant compile and the driver compile of the march are minutes on a
+         * cold Metal cache, and the game thread must not stop for them.
+         *
+         * ONE SET, ADOPTED WHOLE. The three medium programs must agree on which medium they hold, so the frame
+         * never sees half a set: the job builds a MediumPipelineSet, the game thread adopts it at the start of a
+         * frame (ResolveMedium), and the replaced pipelines retire past the frames in flight through their own
+         * destructor (VulkanPipelineCompute: RetirePastFramesInFlight) — no WaitDeviceIdle.
+         */
+        struct MediumPipelineSet
+        {
+            std::shared_ptr<ComputePipeline> March;
+            std::shared_ptr<ComputePipeline> ShadowMap;
+            std::shared_ptr<ComputePipeline> SkyOcclusion;
+            // Built only by the first set (WithFrameStatics); null in a medium change, which keeps the held ones.
+            std::shared_ptr<ComputePipeline> Resolve;
+            // The strong references to the variant programs (see m_MarchMediumShader); null for the default
+            // medium.
+            std::shared_ptr<Shader> MarchShader;
+            std::shared_ptr<Shader> ShadowMapShader;
+            std::shared_ptr<Shader> SkyOcclusionShader;
+            Core::ShaderVariant     Variant;
+            uint64_t                Hash = 0;
+        };
+        using MediumPipelineBuild = Common::ResultStr<MediumPipelineSet>;
+
+        /// The job body: everything it reads is captured by value (the variant, the shader service), nothing of
+        /// this renderer, so it is safe on any worker. A refusal is the error value; the fallbacks of a variant
+        /// that does not compile (the shipped program) are logged inside, once per (program, variant).
+        static MediumPipelineBuild BuildMediumPipelineSet( Core::ShaderVariant variant, uint64_t hash,
+                                                           bool withFrameStatics ) noexcept;
+
+        /// Adopts a landed m_MediumBuild, if one landed. Game thread, start of frame (ResolveMedium).
+        void AdoptLandedMediumBuild();
 
         /**
          * Turns this frame's hero clouds into the instance buffer the two cloud passes read, and points
@@ -575,6 +610,16 @@ namespace Desert::Graphic::System
         uint64_t m_MediumVariantHash = 0;
         // The shipped medium (no authored graph): the field is rigid in the wind (CloudWindIsRigid).
         bool m_MediumIsDefault = true;
+        // m_MediumVariant / m_MediumVariantHash / the three medium pipelines describe an ADOPTED set. False
+        // until the first background build lands: until then the layer does not march (the readers' null checks).
+        bool m_MediumSetAdopted = false;
+        // The one build in flight (JobSystem::Async), and the medium hash it builds. A medium that changes again
+        // while it runs waits for it to land and is started then: one set compiling at a time.
+        std::future<MediumPipelineBuild> m_MediumBuild;
+        uint64_t                         m_MediumBuildHash = 0;
+        // The hash whose build was refused, so a medium that cannot be built is reported once and not rebuilt
+        // every frame; cleared when the material's medium moves on.
+        std::optional<uint64_t> m_MediumRefusedHash;
 
         // THE STRONG REFERENCES, and they are what keeps the variant programs alive: ShaderService holds
         // variants only weakly, precisely so that a medium nobody uses any more releases its

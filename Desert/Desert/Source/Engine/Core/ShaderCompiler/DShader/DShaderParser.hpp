@@ -140,6 +140,10 @@ namespace Desert::Core::Preprocess
     // Depth (GRASS-VIS-12): the deferred early-Z pass rasters a G-buffer group's clusters through
     // "<T>/<Path>.Depth.Binned.VirtualGeometry" first, then the G-buffer's cluster cell EQUAL
     // (MeshRenderer::EarlyZBinTwinsOf).
+    // VG-SW-RASTER: the VG visibility resolve cell "<Path>.VisibilityResolve.Binned.VirtualGeometry" of every
+    // kSurfaceVirtualGeometryPaths path (Mesh/Surface/VgVisibilityResolve.glslh): the material pass of the pixels
+    // the software raster won, one draw per main-view GBuffer IndirectGroup, tested EQUAL on the material depth.
+    inline constexpr std::string_view kSurfaceVirtualGeometryResolvePass = "VisibilityResolve";
     inline constexpr std::array<std::string_view, kSurfaceBinnedCellPasses.size()> kSurfaceVirtualGeometryCellPasses =
          kSurfaceBinnedCellPasses;
     // The index the generated `#define Material MaterialRows[...]` reads: the push block's MaterialIndex unless

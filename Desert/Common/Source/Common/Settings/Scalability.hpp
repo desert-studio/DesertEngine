@@ -379,6 +379,11 @@ namespace Common::Scalability
         // virtual-geometry cluster may show before the cluster cut refines below it
         // (VirtualGeometryRenderer::AddClusterCull's threshold, x the view's LOD scale). Lower = finer. 1..1000
         ViewDistanceVirtualGeometryMaxPixelsPerEdge,
+        // VG-SW-RASTER (UE r.Nanite's SW raster, MinPixelsPerEdgeHW): 0/1, the main view's small virtual-geometry
+        // clusters (MaxEdgeLength under kSwRasterMaxEdgePixels) drawn by the compute raster into the view's
+        // visibility buffer (VirtualGeometryRenderer::AddSoftwareRaster) instead of the material cells. Needs the
+        // visibility buffer (64-bit buffer atomics, the grass's GRASS-VIS path): without it every cluster is HW.
+        VirtualGeometrySoftwareRaster,
         // 0/1: the view graph's AsyncCompute passes run on the device's compute queue family, overlapping the
         // graphics queue (UE r.RDG.AsyncCompute and the per-feature r.*.AsyncCompute). 0 = every pass records on
         // the graphics queue in AddPass order. Narrowed by the catalog: a device without a separate compute family
@@ -570,6 +575,13 @@ namespace Common::Scalability
         // SelectLODsFromBounds. 25..400; 100 = the meshes' screen sizes as authored. Cinematic 50 (MeshLOD stays
         // 1 at every level: UE never forces LOD 0, MeshLOD 0 is a debug/machine override).
         ViewDistanceLODDistanceScalePercent,
+        // 0/1: the water's caustics (WATER-CAUSTICS; UE's water caustics under sg.EffectsQuality): each frame the
+        // sun is refracted through the drawn wave field onto the floor (Programs/Water/WaterCausticsSplat +
+        // WaterCausticsResolve, a 512^2 map around the camera) and the deferred direct pass multiplies the sun on
+        // the texels under a water body's surface by it (Common/WaterCaustics.glslh). 0 = no pass, and the
+        // receiver's factor is exactly 1 (the frame without caustics, bit for bit). Read by SceneRenderer::OnUpdate
+        // -> WaterCaustics::SetEnabled. Key "Effects.WaterCaustics": off at Low and Medium.
+        EffectsWaterCaustics,
         // WATER-RIVERS-FFT (UE has no FFT ocean; the tier follows sg.EffectsQuality as UE's r.Water.* do): the
         // ceiling of the water's wave source - an FFT wave set draws its Tessendorf cascades at FFT (Epic,
         // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values: WaterWaveMethod

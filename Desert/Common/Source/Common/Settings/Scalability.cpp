@@ -452,6 +452,10 @@ namespace Common::Scalability
                "cut, "
                "tenths of a pixel)",
                10, Vis::Advanced },
+             { P::VirtualGeometrySoftwareRaster, G::ViewDistance, "VirtualGeometry.SoftwareRaster", 0, 1, CL::None,
+               "SceneRenderer::AddFrameVirtualGeometry -> ClusterCullView::SwRasterMaxEdgePixels (the HW/SW split) "
+               "-> VirtualGeometryRenderer::AddSoftwareRaster",
+               0, Vis::Advanced },
              { P::AsyncCompute, G::Effects, "RenderPipeline.AsyncCompute", 0, 1, CL::AsyncCompute,
                "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on "
                "the "
@@ -588,6 +592,10 @@ namespace Common::Scalability
                "selection "
                "distance, percent)",
                100, Vis::Advanced },
+             { P::EffectsWaterCaustics, G::Effects, "Effects.WaterCaustics", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> WaterCaustics::SetEnabled (the sun refracted through the water's waves "
+               "into a 512^2 caustics map the deferred direct pass multiplies the sun under the water by)",
+               1, Vis::Advanced },
              { P::EffectsWaterWaveMethod, G::Effects, "Effects.WaterWaveMethod", 0,
                LastOf( kWaterWaveMethodNames.size() ), CL::None,
                "WaterRenderer::PrepareFrame (an FFT wave set's Tessendorf cascades, or its Gerstner generator)",

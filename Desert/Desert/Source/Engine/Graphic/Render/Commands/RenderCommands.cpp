@@ -18,6 +18,7 @@
 #include "VolumetricCloudCommand.hpp"
 #include "WaterZoneCommand.hpp"
 #include "WindGustCommand.hpp"
+#include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 namespace Desert::Graphic::Render

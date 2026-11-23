@@ -23,7 +23,7 @@
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/SceneRendererImpl.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/PixelPack.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
@@ -82,7 +82,7 @@
 
 namespace Desert::Graphic
 {
-    void SceneRenderer::Init()
+    void SceneRendererImpl::Init()
     {
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // Init runs on the first scene AND on every scene after it — see the header for the two lifetimes
@@ -162,7 +162,7 @@ namespace Desert::Graphic
 #endif
     }
 
-    void SceneRenderer::ApplySceneSampleCount( const uint32_t samples )
+    void SceneRendererImpl::ApplySceneSampleCount( const uint32_t samples )
     {
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetSpecification().Samples == samples )
             return;
@@ -187,7 +187,7 @@ namespace Desert::Graphic
         LOG_INFO( "[SceneRenderer] scene samples {}x -> {}x (anti-aliasing method)", before, samples );
     }
 
-    bool SceneRenderer::EnsureRendererResources()
+    bool SceneRendererImpl::EnsureRendererResources()
     {
         if ( m_RendererResourcesBuilt )
             return false;
@@ -201,7 +201,7 @@ namespace Desert::Graphic
         return true;
     }
 
-    bool SceneRenderer::AdvanceRendererBuild()
+    bool SceneRendererImpl::AdvanceRendererBuild()
     {
         if ( m_RendererBuildDone )
             return true;
@@ -225,7 +225,7 @@ namespace Desert::Graphic
         return false;
     }
 
-    const char* SceneRenderer::BuildRendererStage( std::size_t stage )
+    const char* SceneRendererImpl::BuildRendererStage( std::size_t stage )
     {
         // EVERYTHING BUILT BELOW BELONGS TO THIS RENDERER, and one scope says so for all of it. This
         // function and the twenty render systems it constructs create roughly a hundred and twenty device
@@ -378,6 +378,15 @@ namespace Desert::Graphic
                 if ( const auto init = m_Systems.Water->Initialize(); !init )
                 {
                     LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",
+                               init.GetError() );
+                }
+                // The water's caustics (WATER-CAUSTICS): two compute passes before the deferred direct lighting,
+                // and every sun receiver multiplies the sun under the water by their map (AddFrameWaterCaustics).
+                RegisterSystem<System::WaterCaustics>( m_Systems.WaterCaustics, this, m_TargetFramebuffer );
+                if ( const auto init = m_Systems.WaterCaustics->Initialize(); !init )
+                {
+                    LOG_ERROR( "[SceneRenderer] the water caustics did not initialise; the sun under water has "
+                               "none: {}",
                                init.GetError() );
                 }
                 return "Terrain";
@@ -626,7 +635,7 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::RebindScene()
+    void SceneRendererImpl::RebindScene()
     {
         // Everything below releases render-system state (OnSceneReplaced), and a render system owns pipelines and
         // descriptor pools the last submitted frame may still be executing against. Same rule, same reason, as the
@@ -675,7 +684,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::CheckWriteBetweenRecordings( const std::string_view site ) const
+    void SceneRendererImpl::CheckWriteBetweenRecordings( const std::string_view site ) const
     {
 #if defined( DESERT_CONFIG_DEBUG )
         if ( ::Desert::Engine::RenderTask::OnRenderThread() ||
@@ -697,12 +706,12 @@ namespace Desert::Graphic
 #endif
     }
 
-    void SceneRenderer::ResetTemporalHistory()
+    void SceneRendererImpl::ResetTemporalHistory()
     {
         BetweenRecordings(
              [this]
              {
-                 CheckWriteBetweenRecordings( "SceneRenderer::ResetTemporalHistory" );
+                 CheckWriteBetweenRecordings( "SceneRendererImpl::ResetTemporalHistory" );
                  // In registration order, as RebindScene walks them.
                  for ( IRenderSystem* const system : m_RenderSystemOrder )
                      system->OnTemporalHistoryReset();
@@ -715,7 +724,7 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::ReleaseWorldResources()
+    void SceneRendererImpl::ReleaseWorldResources()
     {
         // What is released below is what this view's job reads (RenderTask::JoinOnGameThread: a fence for a
         // mutation of what a job reads; between frames nothing is in flight and it returns at once).
@@ -760,9 +769,9 @@ namespace Desert::Graphic
             static std::mutex mutex;
             return mutex;
         }
-        std::vector<const SceneRenderer*>& LiveRenderers()
+        std::vector<const SceneRendererImpl*>& LiveRenderers()
         {
-            static std::vector<const SceneRenderer*> live;
+            static std::vector<const SceneRendererImpl*> live;
             return live;
         }
     } // namespace
@@ -778,7 +787,7 @@ namespace Desert::Graphic
                             static_cast<double>( memory.Scene.Bytes ) / kMiB );
     }
 
-    uint64_t SceneRenderer::HeldBytes() const
+    uint64_t SceneRendererImpl::HeldBytes() const
     {
         // READ FROM THE ROWS (RT-LEDGER-3), and only from them: every entry point that can allocate opens the
         // view's ledger scope, so the targets, the history, the per-view copies and the RT rows all carry the
@@ -791,7 +800,7 @@ namespace Desert::Graphic
         return ResourceLedger::TakeFor( m_LedgerView.Instance ).Bytes;
     }
 
-    ViewLedgerMemory SceneRenderer::TakeLedgerMemory() const
+    ViewLedgerMemory SceneRendererImpl::TakeLedgerMemory() const
     {
         return ViewLedgerMemory{ .View  = ResourceLedger::TakeFor( m_LedgerView.Instance ),
                                  .Scene = ResourceLedger::TakeFor( m_SceneLedgerInstance ) };
@@ -807,7 +816,7 @@ namespace Desert::Graphic
         return held;
     }
 
-    SceneRenderer::LedgerView::~LedgerView()
+    SceneRendererImpl::LedgerView::~LedgerView()
     {
         // A view accounting under its scene's instance has no rows of its own to check: the scene's rows are
         // held by the scene and outlive this view by design.
@@ -856,7 +865,7 @@ namespace Desert::Graphic
         const std::scoped_lock                    lock( LiveRenderersMutex() );
         std::vector<Engine::ViewBudget::HeldView> held;
         held.reserve( LiveRenderers().size() );
-        for ( const SceneRenderer* renderer : LiveRenderers() )
+        for ( const SceneRendererImpl* renderer : LiveRenderers() )
         {
             // A capture face view's rows are its scene's entry (SceneHoldings): listing it here would count them
             // twice, or list a view at 0 bytes that no viewer opened.
@@ -872,7 +881,7 @@ namespace Desert::Graphic
         const std::scoped_lock lock( LiveRenderersMutex() );
         uint64_t               held = 0;
         // The same entries as LiveHoldings: a capture face view (Borrowed) holds 0 of its own (HeldBytes).
-        for ( const SceneRenderer* renderer : LiveRenderers() )
+        for ( const SceneRendererImpl* renderer : LiveRenderers() )
             held += renderer->HeldBytes();
         return held;
     }
@@ -894,8 +903,14 @@ namespace Desert::Graphic
                             static_cast<double>( shared ) / ( 1024.0 * 1024.0 ) );
     }
 
-    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile,
-                                  const ResourceOwnerInstance accountUnder )
+    std::unique_ptr<SceneRenderer> SceneRenderer::Create( const ViewExtent& extent, const ViewProfile& profile,
+                                                          ResourceOwnerInstance accountUnder )
+    {
+        return std::make_unique<SceneRendererImpl>( extent, profile, accountUnder );
+    }
+
+    SceneRendererImpl::SceneRendererImpl( const ViewExtent& extent, const ViewProfile& profile,
+                                          const ResourceOwnerInstance accountUnder )
          : m_LedgerView( accountUnder ), m_ViewResources( NameView( profile ) ), m_ViewProfile( profile ),
            m_ViewExtent( extent ), m_RenderExtent( extent ),
            m_EmissiveLights( std::make_unique<RayTracing::EmissiveLightsRenderer>() ),
@@ -930,7 +945,7 @@ namespace Desert::Graphic
         LOG_INFO( "[SceneRenderer] Created view '{}' ({}).", m_ViewResources.GetName(), DescribeLiveViews() );
     }
 
-    SceneRenderer::EmissiveLightCounters SceneRenderer::GetEmissiveLightCounters() const
+    SceneRendererImpl::EmissiveLightCounters SceneRendererImpl::GetEmissiveLightCounters() const
     {
         return { .GatherFullRebuilds = m_RayTracingScene.GetSceneGatherCount(),
                  .GatherMoves        = m_RayTracingScene.GetSceneGatherMoveCount(),
@@ -944,7 +959,7 @@ namespace Desert::Graphic
                  .TlasMovedRows      = m_RayTracingScene.GetTlasMovedRowCount() };
     }
 
-    SceneRenderer::~SceneRenderer()
+    SceneRendererImpl::~SceneRendererImpl()
     {
         // A job of this view may still be recording on the render task.
         ::Desert::Engine::RenderTask::Get().Join();
@@ -957,7 +972,7 @@ namespace Desert::Graphic
                   DescribeLiveViews() );
     }
 
-    float SceneRenderer::GetWorldParameterScalar( std::string_view name ) const
+    float SceneRendererImpl::GetWorldParameterScalar( std::string_view name ) const
     {
         for ( const auto& value : m_WorldParameterValues )
             if ( value.Type == Assets::Serialization::WorldParameterType::Scalar && value.Name == name )
@@ -965,7 +980,7 @@ namespace Desert::Graphic
         return 0.0f;
     }
 
-    Common::BoolResultStr SceneRenderer::UploadWorldParameters( const Desert::Core::Scene& scene )
+    Common::BoolResultStr SceneRendererImpl::UploadWorldParameters( const Desert::Core::Scene& scene )
     {
         // A Texture parameter's slot carries its texture's bindless image and sampler (x, y as uint bits) and w =
         // 1 once the texture is resident; until then the slot is zero and the surface reads no such texture.
@@ -1026,8 +1041,8 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    NO_DISCARD Common::BoolResultStr SceneRenderer::BeginScene( const Desert::Core::Scene& scene,
-                                                                Core::Camera*              camera )
+    NO_DISCARD Common::BoolResultStr SceneRendererImpl::BeginScene( const Desert::Core::Scene& scene,
+                                                                    Core::Camera*              camera )
     {
         // ONE BRACKET AT A TIME (see Scene::OnUpdate's view loop): a view still recording on the render task
         // closes before this one opens. THE VIEWS ONLY, NOT THE QUEUE (CPU-GT-OVERLAP; UE: the game thread opens
@@ -1250,6 +1265,8 @@ namespace Desert::Graphic
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         m_CloudFootprintSteps = quality.As<int>( Parameter::CloudFootprintSteps ) != 0;
         m_CloudLightLocalSamples = quality.As<int>( Parameter::CloudLightLocalSamples );
+        if ( m_Systems.WaterCaustics )
+            m_Systems.WaterCaustics->SetEnabled( quality.As<int>( Parameter::EffectsWaterCaustics ) != 0 );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // A shader recompiled since the standing program refusals were made: every refused method is resolved and
         // asked for again this frame (a fixed program draws, one still broken is refused again without a new
@@ -1318,6 +1335,7 @@ namespace Desert::Graphic
         m_VirtualGeometryMaxPixelsPerEdge =
              static_cast<float>( quality.As<int>( Parameter::ViewDistanceVirtualGeometryMaxPixelsPerEdge ) ) /
              10.0f;
+        m_VirtualGeometrySoftwareRaster = quality.As<int>( Parameter::VirtualGeometrySoftwareRaster ) != 0;
         m_DisplacementDicingRate = quality.As<int>( Parameter::DisplacementDicingRate );
         m_DisplacementPoolMiB    = static_cast<uint32_t>( quality.As<int>( Parameter::DisplacementPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
@@ -1687,8 +1705,8 @@ namespace Desert::Graphic
     // frame is planned.
     // The DF-shadow sun is a third key (ShadowQualityOf, SunDistanceFieldShadowBudget): its cascades end at
     // Shadows.DistanceFieldCascadeDistance.
-    void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
-                                            const bool sunRayTraced, const bool sunDistanceField )
+    void SceneRendererImpl::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
+                                                const bool sunRayTraced, const bool sunDistanceField )
     {
         if ( quality.Generation == m_ShadowBudgetGeneration && sunRayTraced == m_ShadowBudgetSunRayTraced &&
              sunDistanceField == m_ShadowBudgetSunDistanceField )
@@ -1706,9 +1724,9 @@ namespace Desert::Graphic
                        m_ViewResources.GetName(), budget->CascadeCount, budget->ShadowMapSize );
     }
 
-    void SceneRenderer::OnUpdate( const UpdateInfo& sceneRenderInfo )
+    void SceneRendererImpl::OnUpdate( const UpdateInfo& sceneRenderInfo )
     {
-        DESERT_PROFILE_SCOPE( "SceneRenderer::OnUpdate" );
+        DESERT_PROFILE_SCOPE( "SceneRendererImpl::OnUpdate" );
 
         // The Debug write check's window opens (CheckWriteBetweenRecordings); EndScene closes it.
         if ( ::Desert::Engine::RenderTask::OnRenderThread() )
@@ -2662,6 +2680,9 @@ namespace Desert::Graphic
         }
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
         textures.Transients.Lights.LightFunctionAtlas = lightFunctionAtlas;
+        // The water's caustics, read by every sun receiver of both paths (the forward base pass, the deferred
+        // direct lighting, the glass, the forward terrain) through the scene/view inputs.
+        AddFrameWaterCaustics( graph, textures, frame );
         DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: World grid + distance field" );
         // The MegaLights translucency volume the forward and glass cells read starts OFF (the neutral block); it is
         // lit by AddFrameMegaLightsVolume once its visibility source is drawn - before the base pass on the forward
@@ -2750,10 +2771,16 @@ namespace Desert::Graphic
                            "visibility-buffer rows than a visibility word addresses (32 - kVisTriangleBits bits)",
                            m_ViewResources.GetName() );
             m_GrassVisibilityRowsOverflow = m_GrassVisibilityBuffer && rowsOverflow;
-            if ( m_GrassVisibilityBuffer && !rowsOverflow && meshRenderer != nullptr )
+            // VG-SW-RASTER R2: the view keeps the buffer for the grass, for the VG's SW clusters, or for both; the
+            // grass's sections join it only when the grass draws through it (an empty span: no grass section).
+            const bool grassOnVisibility = m_GrassVisibilityBuffer && !rowsOverflow;
+            const bool vgOnVisibility    = m_FrameVirtualGeometry && m_FrameVirtualGeometry->SoftwareRaster;
+            if ( ( grassOnVisibility || vgOnVisibility ) && meshRenderer != nullptr )
             {
-                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height,
-                                                        m_Systems.Grass->VisibilitySectionFirstRows() );
+                auto made =
+                     m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height,
+                                                 grassOnVisibility ? m_Systems.Grass->VisibilitySectionFirstRows()
+                                                                   : std::span<const uint32_t>{} );
                 if ( made )
                 {
                     grassVisibility = made.GetValue();
@@ -2766,6 +2793,71 @@ namespace Desert::Graphic
                                m_ViewResources.GetName(), m_GrassVisibilityError );
                 }
             }
+            // VG-SW-RASTER: the main cut's SW clusters (AddFrameVirtualGeometry split them only when this view
+            // keeps a visibility buffer) atomic-maxed into the same words after their clear, their rows past
+            // every grass row (GrassRenderer::VisibilityRows), so the grass's depth pass and HZB see them.
+            if ( grassVisibility.IsValid() && vgOnVisibility && m_FrameDrawBins && m_VirtualGeometry )
+            {
+                const FrameDrawBins&        bins = *m_FrameDrawBins;
+                const FrameVirtualGeometry& cut  = *m_FrameVirtualGeometry;
+                const ViewFrame* const      view = GetViewFrame();
+                VirtualGeometry::ClusterCullResult culled;
+                culled.VisibleClusters = cut.VisibleClusters;
+                culled.RasterArgs      = cut.RasterArgs;
+                culled.VisibleCapacity = cut.VisibleCapacity;
+                // The VG rows follow the grass's when the grass shares the buffer, else they start at 0: the row
+                // base of the gate the main cut asked before its HW/SW split (one gate, one row base; it passed
+                // there, so cut.SoftwareRaster is set only when it passes here too).
+                const Common::ResultStr<uint32_t> rows = VirtualGeometrySwRasterRowBase( cut.VisibleCapacity );
+                if ( !rows && rows.GetError() != m_VirtualGeometrySwRasterError )
+                {
+                    LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), rows.GetError() );
+                    m_VirtualGeometrySwRasterError = rows.GetError();
+                }
+                if ( rows && view != nullptr && cut.Pass < GpuDriven::kMeshPassCount )
+                {
+                    const uint32_t rowBase  = rows.GetValue();
+                    const auto vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+                    const GpuDriven::PassDrawBuffers& passSlots = bins.Upload.Passes[cut.Pass];
+                    const GpuDriven::PassDrawTable&   passTable =
+                         meshRenderer->GetDrawCommandCache()->Passes()[cut.Pass];
+                    const Common::BoolResultStr sw = m_VirtualGeometry->AddSoftwareRaster(
+                         graph, bins.Scene, vgMeshes, passSlots, bins.Upload.SubmeshTransforms, culled,
+                         grassVisibility.Words, view->JitteredViewProjection, rowBase, false );
+                    // R2: the frame now carries VG rows - its depth, classify, material depth and the VG resolve
+                    // run for them with or without a grass section (SceneRendererFrameMesh.cpp); R1: the tables
+                    // "Grass: Visibility Material Depth" walks from a VG row to its IndirectGroup.
+                    if ( sw )
+                    {
+                        grassVisibility.VgFirstRow        = rowBase;
+                        grassVisibility.VgRowCount        = cut.VisibleCapacity;
+                        grassVisibility.VgVisibleClusters = cut.VisibleClusters;
+                        grassVisibility.VgGroups          = {
+                                      .Instances      = bins.Scene.Instances,
+                                      .PrimitiveDraws = passSlots.PrimitiveDraws,
+                                      .DrawSlots      = passSlots.DrawSlots,
+                                      .Bins           = passSlots.Bins,
+                                      .Clusters       = vgMeshes.Clusters,
+                                      .Dags           = vgMeshes.Dags,
+                                      .PrimitiveRows  = static_cast<uint32_t>( passTable.PrimitiveDraws.size() ),
+                                      .DrawSlotRows   = static_cast<uint32_t>( passTable.DrawSlots.size() ),
+                                      .BinRows        = static_cast<uint32_t>( passTable.Bins.size() ),
+                                      .GroupCount     = static_cast<uint32_t>( passTable.Groups.size() ) };
+                    }
+                    if ( !sw && sw.GetError() != m_VirtualGeometrySwRasterError )
+                    {
+                        LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), sw.GetError() );
+                        m_VirtualGeometrySwRasterError = sw.GetError();
+                    }
+                }
+            }
+            // VG-SW-RASTER: the post cut splits HW/SW by FrameVirtualGeometry::SoftwareRaster
+            // (AddFrameVirtualGeometryPostOcclusion); without the main SW raster's rows in the visibility buffer
+            // (refused above, logged) no "Software Raster Post" runs, so the post cut keeps every cluster on the
+            // hardware raster instead of handing clusters to a raster that never comes.
+            if ( m_FrameVirtualGeometry && m_FrameVirtualGeometry->SoftwareRaster &&
+                 !grassVisibility.HasVirtualGeometryRows() )
+                m_FrameVirtualGeometry->SoftwareRaster = false;
             // THE MESHES' EARLY-Z MODE (UE r.EarlyZPass; RenderPipeline.EarlyZPass, default Masked). UE DBuffer
             // decals force the full early-Z (r.EarlyZPass 2 when r.DBuffer is on): "Deferred: Decals" runs between
             // the prepass and the base pass and reconstructs every receiver from that depth, so a frame with a
@@ -2778,7 +2870,9 @@ namespace Desert::Graphic
                 earlyZ = Common::Scalability::EarlyZPassMode::All;
             if ( meshRenderer != nullptr )
             {
-                meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
+                // The grass's sections leave the G-buffer path only when the grass itself chose the buffer: a
+                // frame made for the VG's SW rows alone keeps every blade on its cells (R2).
+                meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() && grassOnVisibility );
                 // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
                 meshRenderer->SetEarlyZPass( earlyZ );
                 // UE r.MinScreenRadiusForDepthPrepass: the large opaque occluders written before the masked
@@ -2827,6 +2921,35 @@ namespace Desert::Graphic
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Grass" );
             AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
+            // VG-SW-RASTER (UE Nanite: one SW raster per pass into the same VisBuffer64): the post cut's SW
+            // clusters, appended to the main cut's VisibleClusters (AddFrameVirtualGeometryPostOcclusion), into the
+            // same words at the same row base, before "Grass: Visibility Classify" reads them; their depth reaches
+            // the G-buffer through "Grass: Visibility Depth Post-Occlusion" and their material through the VG
+            // resolve, whose rows [VgFirstRow, + VgRowCount) already span the whole shared list.
+            if ( grassVisibility.HasVirtualGeometryRows() && m_FrameVirtualGeometry &&
+                 m_FrameVirtualGeometry->PostRasterArgs.IsValid() && m_FrameDrawBins && m_VirtualGeometry &&
+                 meshRenderer != nullptr && m_FrameVirtualGeometry->Pass < GpuDriven::kMeshPassCount )
+            {
+                const FrameDrawBins&        bins = *m_FrameDrawBins;
+                const FrameVirtualGeometry& cut  = *m_FrameVirtualGeometry;
+                if ( const ViewFrame* const view = GetViewFrame(); view != nullptr )
+                {
+                    VirtualGeometry::ClusterCullResult culled;
+                    culled.VisibleClusters = cut.VisibleClusters;
+                    culled.RasterArgs      = cut.PostRasterArgs;
+                    culled.VisibleCapacity = cut.VisibleCapacity;
+                    const Common::BoolResultStr sw = m_VirtualGeometry->AddSoftwareRaster(
+                         graph, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
+                         bins.Upload.Passes[cut.Pass], bins.Upload.SubmeshTransforms, culled, grassVisibility.Words,
+                         view->JitteredViewProjection, grassVisibility.VgFirstRow, true );
+                    if ( !sw && sw.GetError() != m_VirtualGeometrySwRasterError )
+                    {
+                        LOG_ERROR( "[SceneRenderer] {}: {}; the post cut's SW clusters are not drawn this frame",
+                                   m_ViewResources.GetName(), sw.GetError() );
+                        m_VirtualGeometrySwRasterError = sw.GetError();
+                    }
+                }
+            }
             if ( grassVisibility.IsValid() )
                 AddFrameGrassVisibilityResolve( graph, textures, meshRenderer, grassVisibility );
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Forward depth + normal" );
@@ -3327,20 +3450,20 @@ namespace Desert::Graphic
     }
 
 #if DESERT_DEV_INSTRUMENTS
-    void SceneRenderer::WatchPrimitive( const uint32_t entity )
+    void SceneRendererImpl::WatchPrimitive( const uint32_t entity )
     {
         // The frame the request was made in, taken now: a deferred write still names it (EndScene's freshness).
         const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         BetweenRecordings(
              [this, entity, frame]
              {
-                 CheckWriteBetweenRecordings( "SceneRenderer::WatchPrimitive" );
+                 CheckWriteBetweenRecordings( "SceneRendererImpl::WatchPrimitive" );
                  m_PrimitiveWatch = PrimitiveWatch{ entity, frame };
              } );
     }
 #endif
 
-    NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
+    NO_DISCARD Common::BoolResultStr SceneRendererImpl::EndScene()
     {
         const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
@@ -3435,7 +3558,7 @@ namespace Desert::Graphic
     // WaitDeviceIdle before touching GPU resources, matching what Resize() below does. A failure is non-fatal and
     // latched, so a broken shader cannot make this retry every frame.
 
-    bool SceneRenderer::SunShadowIsRayTraced() const
+    bool SceneRendererImpl::SunShadowIsRayTraced() const
     {
         // Stochastic's sun follows its visibility source: ray traced with the ray query (MegaLights shades the
         // local lights), the virtual map's clipmap with vsm+screen (SunShadowIsVirtual), the cascades with screen.
@@ -3445,23 +3568,23 @@ namespace Desert::Graphic
                  m_RenderMethods.Visibility == Common::Scalability::StochasticVisibility::RayQuery );
     }
 
-    bool SceneRenderer::LocalLightsAreStochastic() const
+    bool SceneRendererImpl::LocalLightsAreStochastic() const
     {
         return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic;
     }
 
-    bool SceneRenderer::LocalShadowsAreRayTraced() const
+    bool SceneRendererImpl::LocalShadowsAreRayTraced() const
     {
         return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::HardwareTraced &&
                !PathTraced( m_RenderMethods );
     }
 
-    bool SceneRenderer::LocalShadowsAreVirtual() const
+    bool SceneRendererImpl::LocalShadowsAreVirtual() const
     {
         return LocalShadowsVirtual( m_RenderMethods );
     }
 
-    Common::Scalability::StochasticSources SceneRenderer::StochasticTraceSources() const
+    Common::Scalability::StochasticSources SceneRendererImpl::StochasticTraceSources() const
     {
         using Common::Scalability::StochasticSources;
         using Common::Scalability::StochasticVisibility;
@@ -3479,12 +3602,12 @@ namespace Desert::Graphic
                                            : m_RenderMethods.Visibility );
     }
 
-    bool SceneRenderer::LocalLightsReadVirtualPages() const
+    bool SceneRendererImpl::LocalLightsReadVirtualPages() const
     {
         return m_LocalLightsVirtualPages;
     }
 
-    bool SceneRenderer::LocalShadowsAreScreenMask() const
+    bool SceneRendererImpl::LocalShadowsAreScreenMask() const
     {
         return LocalShadowsAreRayTraced() || LocalShadowsAreVirtual();
     }
@@ -3512,7 +3635,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    std::span<const System::ParticleViewEmitterCull> SceneRenderer::ParticleViewEmitterCulls() const
+    std::span<const System::ParticleViewEmitterCull> SceneRendererImpl::ParticleViewEmitterCulls() const
     {
         const auto& particles = m_Systems.Particle;
         if ( !particles )
@@ -3520,7 +3643,7 @@ namespace Desert::Graphic
         return particles->ViewEmitterCulls();
     }
 
-    bool SceneRenderer::LocalShadowMapsRead() const
+    bool SceneRendererImpl::LocalShadowMapsRead() const
     {
         const auto& meshes = m_Systems.Mesh;
         if ( meshes && meshes->LocalShadowMapReadersQueued() )
@@ -3528,7 +3651,7 @@ namespace Desert::Graphic
         return ShadowMapReadersOutsideMeshes( m_Systems, kSceneViewLocalShadowAtlasName );
     }
 
-    bool SceneRenderer::SunCascadesRead() const
+    bool SceneRendererImpl::SunCascadesRead() const
     {
         const auto& meshes = m_Systems.Mesh;
         if ( meshes && meshes->SunCascadeReadersQueued() )
@@ -3536,7 +3659,7 @@ namespace Desert::Graphic
         return ShadowMapReadersOutsideMeshes( m_Systems, kSceneViewShadowCascadesName );
     }
 
-    void SceneRenderer::AssignLocalShadowMaskSlots( const Core::Frustum& view )
+    void SceneRendererImpl::AssignLocalShadowMaskSlots( const Core::Frustum& view )
     {
         // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
         // draws shadows), whether or not a map was drawn for it.
@@ -3660,7 +3783,7 @@ namespace Desert::Graphic
              LocalLightsVirtualPages( m_RenderMethods, m_StochasticSourceLights[kVirtualMapsSource] );
     }
 
-    bool SceneRenderer::EnsureMegaLightsResources()
+    bool SceneRendererImpl::EnsureMegaLightsResources()
     {
         if ( m_MegaLightsReady )
             return true;
@@ -3678,7 +3801,7 @@ namespace Desert::Graphic
         return true;
     }
 
-    bool SceneRenderer::EnsureSSGIResources()
+    bool SceneRendererImpl::EnsureSSGIResources()
     {
         if ( m_SSGIReady )
             return true;
@@ -3704,9 +3827,9 @@ namespace Desert::Graphic
         return true;
     }
 
-    System::MegaLightsLighting SceneRenderer::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
-                                                                  const std::vector<RDG::TextureRef>& gbuffer,
-                                                                  const ViewFrame&                    frame )
+    System::MegaLightsLighting SceneRendererImpl::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
+                                                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                                                      const ViewFrame&                    frame )
     {
         using Common::Scalability::StochasticVisibility;
         if ( !EnsureMegaLightsResources() )
@@ -3796,9 +3919,10 @@ namespace Desert::Graphic
         return lighting.GetValue();
     }
 
-    void SceneRenderer::AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame, const LightGridParamsPayload& lightGrid,
-                                                  const RDG::TextureRef hzbDepth )
+    void SceneRendererImpl::AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures,
+                                                      const ViewFrame&              frame,
+                                                      const LightGridParamsPayload& lightGrid,
+                                                      const RDG::TextureRef         hzbDepth )
     {
         const FrameGraphRefs refs            = textures.GraphRefs();
         const auto           pointCount      = static_cast<uint32_t>( GetPointLights().PointLights.size() );
@@ -3847,19 +3971,19 @@ namespace Desert::Graphic
         textures.Transients.MegaLightsVolume = volume.GetValue();
     }
 
-    bool SceneRenderer::SunShadowIsVirtual() const
+    bool SceneRendererImpl::SunShadowIsVirtual() const
     {
         return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps ||
                ( m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic &&
                  m_RenderMethods.Visibility == Common::Scalability::StochasticVisibility::VirtualMapsAndScreen );
     }
 
-    bool SceneRenderer::SunShadowIsScreenMask() const
+    bool SceneRendererImpl::SunShadowIsScreenMask() const
     {
         return SunShadowIsRayTraced() || SunShadowIsVirtual();
     }
 
-    bool SceneRenderer::DistanceFieldShadowRuns() const
+    bool SceneRendererImpl::DistanceFieldShadowRuns() const
     {
         if ( !m_RenderMethods.DistanceFieldShadows || m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer ||
              SunShadowIsScreenMask() )
@@ -3873,13 +3997,13 @@ namespace Desert::Graphic
         return false;
     }
 
-    bool SceneRenderer::SunDistanceFieldShadowBudget() const
+    bool SceneRendererImpl::SunDistanceFieldShadowBudget() const
     {
         return m_RenderMethods.DistanceFieldShadows && m_RenderPath == Core::RenderPath::Deferred &&
                !SunShadowIsScreenMask() && !m_DistanceFieldShadowFailed;
     }
 
-    bool SceneRenderer::EnsureDistanceFieldShadowResources()
+    bool SceneRendererImpl::EnsureDistanceFieldShadowResources()
     {
         if ( m_DistanceFieldShadowReady )
             return true;
@@ -3897,9 +4021,9 @@ namespace Desert::Graphic
         return true;
     }
 
-    void SceneRenderer::AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                     const std::vector<RDG::TextureRef>& gbuffer,
-                                                     const glm::vec3& directionToSun, const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameDistanceFieldShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                         const std::vector<RDG::TextureRef>& gbuffer,
+                                                         const glm::vec3& directionToSun, const ViewFrame& frame )
     {
         if ( !EnsureDistanceFieldShadowResources() )
             return;
@@ -3949,7 +4073,7 @@ namespace Desert::Graphic
         t.DistanceFieldShadowLights = written;
     }
 
-    bool SceneRenderer::EnsureVirtualShadowResources()
+    bool SceneRendererImpl::EnsureVirtualShadowResources()
     {
         if ( m_VirtualShadowReady )
             return true;
@@ -3968,10 +4092,10 @@ namespace Desert::Graphic
         return true;
     }
 
-    SceneRenderer::FrameVirtualShadows SceneRenderer::AddFrameVirtualShadows(
+    SceneRendererImpl::FrameVirtualShadows SceneRendererImpl::AddFrameVirtualShadows(
          RDG::Builder& graph, FrameTextures& textures, const RDG::TextureRef viewDepth,
-         const std::vector<RDG::TextureRef>& gbuffer,
-         const glm::vec3& directionToSun, const ViewFrame& frame, const std::span<const RDG::TextureRef> receiverDepths )
+         const std::vector<RDG::TextureRef>& gbuffer, const glm::vec3& directionToSun, const ViewFrame& frame,
+         const std::span<const RDG::TextureRef> receiverDepths )
     {
         if ( !EnsureVirtualShadowResources() )
             return {};
@@ -4088,7 +4212,7 @@ namespace Desert::Graphic
         return result;
     }
 
-    bool SceneRenderer::EnsureRayTracedShadowResources()
+    bool SceneRendererImpl::EnsureRayTracedShadowResources()
     {
         if ( m_RayTracedShadowReady )
             return true;
@@ -4111,10 +4235,10 @@ namespace Desert::Graphic
         return true;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                               const std::vector<RDG::TextureRef>& gbuffer,
-                                                               const glm::vec3&                    directionToSun,
-                                                               const ViewFrame&                    frame )
+    RDG::TextureRef SceneRendererImpl::AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
+                                                                   const std::vector<RDG::TextureRef>& gbuffer,
+                                                                   const glm::vec3& directionToSun,
+                                                                   const ViewFrame& frame )
     {
         // The frame resolved to a ray-traced sun only with this frame's TLAS built (OnUpdate,
         // LowerShadowsForFrame).
@@ -4161,9 +4285,9 @@ namespace Desert::Graphic
              frame, width, height );
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameRayTracedLocalShadows( RDG::Builder& graph, FrameTextures& textures,
-                                                                  const std::vector<RDG::TextureRef>& gbuffer,
-                                                                  const ViewFrame&                    frame )
+    RDG::TextureRef SceneRendererImpl::AddFrameRayTracedLocalShadows( RDG::Builder& graph, FrameTextures& textures,
+                                                                      const std::vector<RDG::TextureRef>& gbuffer,
+                                                                      const ViewFrame&                    frame )
     {
         // As the sun: the frame resolved to HardwareTraced only with this frame's TLAS built and the renderers
         // initialised (LowerShadowsForFrame, EnsureRayTracedShadowResources).
@@ -4274,7 +4398,7 @@ namespace Desert::Graphic
         return masks;
     }
 
-    bool SceneRenderer::EnsureSSRResources()
+    bool SceneRendererImpl::EnsureSSRResources()
     {
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_SSRResourcesReady )
@@ -4320,35 +4444,36 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::GIMethod> methods,
-                                              const std::string_view program, const std::string_view error )
+    void SceneRendererImpl::RefuseProgramMethods( const std::span<const Common::Scalability::GIMethod> methods,
+                                                  const std::string_view program, const std::string_view error )
     {
         RefuseMethods( m_ProgramRefusals.GlobalIllumination, m_RetriedProgramRefusals.GlobalIllumination, methods,
                        "GI", Common::Scalability::kGIMethodNames, program, error );
     }
 
-    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
-                                              const std::string_view program, const std::string_view error )
+    void
+    SceneRendererImpl::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
+                                             const std::string_view program, const std::string_view error )
     {
         RefuseMethods( m_ProgramRefusals.Reflections, m_RetriedProgramRefusals.Reflections, methods, "Reflections",
                        Common::Scalability::kReflectionMethodNames, program, error );
     }
 
-    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ShadowMethod> methods,
-                                              const std::string_view program, const std::string_view error )
+    void SceneRendererImpl::RefuseProgramMethods( const std::span<const Common::Scalability::ShadowMethod> methods,
+                                                  const std::string_view program, const std::string_view error )
     {
         RefuseMethods( m_ProgramRefusals.Shadows, m_RetriedProgramRefusals.Shadows, methods, "Shadows",
                        Common::Scalability::kShadowMethodNames, program, error );
     }
 
-    void SceneRenderer::RefuseShadowPrograms( const ProgramRefusals& deferred )
+    void SceneRendererImpl::RefuseShadowPrograms( const ProgramRefusals& deferred )
     {
         for ( const MethodRefusal<Common::Scalability::ShadowMethod>& refusal : deferred.Shadows )
             RefuseProgramMethods( std::span<const Common::Scalability::ShadowMethod>( &refusal.Refused, 1 ),
                                   refusal.Program, refusal.Reason );
     }
 
-    void SceneRenderer::RefusePathTracer( const std::string_view program, const std::string_view error )
+    void SceneRendererImpl::RefusePathTracer( const std::string_view program, const std::string_view error )
     {
         using Common::Scalability::GIMethod;
         using Common::Scalability::ReflectionMethod;
@@ -4364,7 +4489,7 @@ namespace Desert::Graphic
                  m_ViewResources.GetName(), program, error );
     }
 
-    void SceneRenderer::RetryRefusedProgramsAfterRecompile()
+    void SceneRendererImpl::RetryRefusedProgramsAfterRecompile()
     {
         const std::uint64_t generation = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
         if ( generation == m_ProgramRefusalsGeneration )
@@ -4393,7 +4518,7 @@ namespace Desert::Graphic
         m_ScreenTraceResourcesFailed = false;
     }
 
-    bool SceneRenderer::EnsurePathTracerResources()
+    bool SceneRendererImpl::EnsurePathTracerResources()
     {
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_PathTracerReady )
@@ -4420,7 +4545,7 @@ namespace Desert::Graphic
         return true;
     }
 
-    bool SceneRenderer::EnsureScreenTraceResources()
+    bool SceneRendererImpl::EnsureScreenTraceResources()
     {
         if ( m_ScreenTraceResourcesReady )
             return true;
@@ -4450,7 +4575,7 @@ namespace Desert::Graphic
         return true;
     }
 
-    void SceneRenderer::Resize( const uint32_t width, const uint32_t height )
+    void SceneRendererImpl::Resize( const uint32_t width, const uint32_t height )
     {
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         // A SIZE THAT NO TARGET CAN BE BUILT AT IS SKIPPED, and `width == 0 && height == 0` was not that
@@ -4507,7 +4632,7 @@ namespace Desert::Graphic
             ResizeRenderTargets( m_ViewExtent );
     }
 
-    void SceneRenderer::ResizeRenderTargets( const ViewExtent render )
+    void SceneRendererImpl::ResizeRenderTargets( const ViewExtent render )
     {
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( !m_TargetFramebuffer || m_RenderExtent == render )
@@ -4555,9 +4680,9 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}", uploaded.GetError() );
     }
 
-    float SceneRenderer::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
-                                            const std::span<const Material* const> materials,
-                                            const MaterialOverrides*               overrides ) const
+    float SceneRendererImpl::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
+                                                const std::span<const Material* const> materials,
+                                                const MaterialOverrides*               overrides ) const
     {
         const auto* camera = GetMainCamera();
         if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
@@ -4566,10 +4691,10 @@ namespace Desert::Graphic
                                           overrides );
     }
 
-    float SceneRenderer::NoteTextureDemandOfBounds( const Common::Math::AABB&              local,
-                                                    const std::span<const glm::mat4>       transforms,
-                                                    const std::span<const Material* const> materials,
-                                                    const MaterialOverrides*               overrides ) const
+    float SceneRendererImpl::NoteTextureDemandOfBounds( const Common::Math::AABB&              local,
+                                                        const std::span<const glm::mat4>       transforms,
+                                                        const std::span<const Material* const> materials,
+                                                        const MaterialOverrides*               overrides ) const
     {
         const auto* camera = GetMainCamera();
         if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
@@ -4594,9 +4719,10 @@ namespace Desert::Graphic
         return pixels;
     }
 
-    float SceneRenderer::NoteInstanceFieldDemand( const Mesh&                                          mesh,
-                                                  const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
-                                                  const std::span<const Material* const> materials ) const
+    float
+    SceneRendererImpl::NoteInstanceFieldDemand( const Mesh&                                          mesh,
+                                                const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                                const std::span<const Material* const> materials ) const
     {
         const auto* camera = GetMainCamera();
         if ( camera == nullptr || !transforms || transforms->empty() || GetViewExtent().Height == 0 )
@@ -4614,8 +4740,8 @@ namespace Desert::Graphic
         return pixels;
     }
 
-    bool SceneRenderer::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
-                                                 float maxDrawDistance ) const
+    bool SceneRendererImpl::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
+                                                     float maxDrawDistance ) const
     {
         const auto* camera = GetMainCamera();
         if ( maxDrawDistance <= 0.0f || mesh == nullptr || camera == nullptr )
@@ -4624,7 +4750,7 @@ namespace Desert::Graphic
                                      transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
     }
 
-    void SceneRenderer::SetLODPreview( const uint32_t entity, const int level )
+    void SceneRendererImpl::SetLODPreview( const uint32_t entity, const int level )
     {
         // THE LEASE CHANGES BETWEEN RECORDINGS (UE: ENQUEUE_RENDER_COMMAND): the Modeling panel renews it while it
         // is drawn, which is when this view may be recording on the render task and reading the lease
@@ -4632,7 +4758,7 @@ namespace Desert::Graphic
         BetweenRecordings(
              [this, entity, level]
              {
-                 CheckWriteBetweenRecordings( "SceneRenderer::SetLODPreview" );
+                 CheckWriteBetweenRecordings( "SceneRendererImpl::SetLODPreview" );
                  if ( level < 0 )
                  {
                      m_LODPreview = {};
@@ -4643,15 +4769,15 @@ namespace Desert::Graphic
              } );
     }
 
-    int SceneRenderer::LODPreviewFor( const uint32_t entity, const int authoredForcedLOD ) const
+    int SceneRendererImpl::LODPreviewFor( const uint32_t entity, const int authoredForcedLOD ) const
     {
         if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 && m_LODPreview.Entity == entity )
             return m_LODPreview.Level;
         return authoredForcedLOD;
     }
 
-    void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
-                                    const glm::mat4& transform, const RenderSubmissionExtra& extra )
+    void SceneRendererImpl::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
+                                        const glm::mat4& transform, const RenderSubmissionExtra& extra )
     {
         if ( !mesh || !materialSlots || materialSlots->Slots.empty() )
         {
@@ -4714,9 +4840,9 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot& scene )
+    void SceneRendererImpl::SubmitStaticScene( const Render::StaticSceneSnapshot& scene )
     {
-        DESERT_PROFILE_SCOPE( "SceneRenderer::SubmitStaticScene" );
+        DESERT_PROFILE_SCOPE( "SceneRendererImpl::SubmitStaticScene" );
         // THE VIEW'S ADMISSION IS RETAINED PER CHUNK AND RE-WALKED ON EVENTS ONLY (UE FScene: per-frame work over
         // the dirty set; Render::StaticSceneViewAdmission names the events): a chunk MeshECSSystem rebuilt (its
         // pointer), a view that moved (camera position / projection, target height, LOD preview), a section that
@@ -4909,10 +5035,10 @@ namespace Desert::Graphic
         m_Systems.Mesh->SubmitStaticScene( scene, m_StaticAdmitted, m_StaticAdmittedRevision );
     }
 
-    void SceneRenderer::SubmitLandscapeTile( const std::shared_ptr<Image2D>&    heightmap,
-                                             const System::LandscapeTileDraw&   tile,
-                                             const std::shared_ptr<const MaterialOverrides>& overrides,
-                                             const System::LandscapeWeightDraw&               weights )
+    void SceneRendererImpl::SubmitLandscapeTile( const std::shared_ptr<Image2D>&                 heightmap,
+                                                 const System::LandscapeTileDraw&                tile,
+                                                 const std::shared_ptr<const MaterialOverrides>& overrides,
+                                                 const System::LandscapeWeightDraw&              weights )
     {
         // TEX-STREAMING: the tile's layer textures are asked for at the size the tile covers; its sphere spans the
         // tile's square around its base height, so a camera over the tile asks for everything.
@@ -4936,23 +5062,23 @@ namespace Desert::Graphic
              { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
     }
 
-    void SceneRenderer::SubmitLandscapeGrass( const System::GrassFieldDraw& draw )
+    void SceneRendererImpl::SubmitLandscapeGrass( const System::GrassFieldDraw& draw )
     {
         m_Systems.Grass->Submit( draw );
     }
 
-    void SceneRenderer::SubmitWaterZone( const System::WaterZoneDraw& zone )
+    void SceneRendererImpl::SubmitWaterZone( const System::WaterZoneDraw& zone )
     {
         m_Systems.Water->Submit( zone );
     }
 
-    void SceneRenderer::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
-                                           const std::string& shaderName, const MaterialOverrides& overrides,
-                                           bool outlined, Image2D* directTexture,
-                                           const std::string& directTextureSampler, bool castShadows,
-                                           bool                                    visibleInRayTracing,
-                                           const RayTracing::RayTracingProgramHit& rayHit,
-                                           const GenericValuesRevision             revision )
+    void SceneRendererImpl::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
+                                               const std::string& shaderName, const MaterialOverrides& overrides,
+                                               bool outlined, Image2D* directTexture,
+                                               const std::string& directTextureSampler, bool castShadows,
+                                               bool                                    visibleInRayTracing,
+                                               const RayTracing::RayTracingProgramHit& rayHit,
+                                               const GenericValuesRevision             revision )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -4976,9 +5102,9 @@ namespace Desert::Graphic
                                              .DirectTexture           = directTexture } );
     }
 
-    void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
-                                                Material* material, uint64_t visibleSubmeshMask, bool outlined,
-                                                bool castShadows, const uint32_t motionPart )
+    void SceneRendererImpl::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
+                                                    Material* material, uint64_t visibleSubmeshMask, bool outlined,
+                                                    bool castShadows, const uint32_t motionPart )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -4999,7 +5125,7 @@ namespace Desert::Graphic
                .VisibleSubmeshMask  = visibleSubmeshMask } );
     }
 
-    uint32_t SceneRenderer::GetIsmInstancesDrawn() const
+    uint32_t SceneRendererImpl::GetIsmInstancesDrawn() const
     {
         const auto& found = m_Systems.Mesh;
         if ( !found )
@@ -5007,7 +5133,7 @@ namespace Desert::Graphic
         return found->GetIsmInstancesDrawn();
     }
 
-    const Engine::Neural::NrcStats* SceneRenderer::GetRadianceCacheStats() const
+    const Engine::Neural::NrcStats* SceneRendererImpl::GetRadianceCacheStats() const
     {
         const auto& found = m_Systems.PathTracer;
         if ( !found )
@@ -5015,7 +5141,7 @@ namespace Desert::Graphic
         return found->GetRadianceCacheStats();
     }
 
-    System::PathTracer::RadianceCacheStatus SceneRenderer::GetRadianceCacheStatus() const
+    System::PathTracer::RadianceCacheStatus SceneRendererImpl::GetRadianceCacheStatus() const
     {
         // REQUESTED IS THE VIEW'S SETTING, NOT THE PATH TRACER'S LAST RUN. The path tracer learns
         // PathTracing.RadianceCache only on a frame it traces, so on a view whose GI / reflections did not resolve
@@ -5036,7 +5162,7 @@ namespace Desert::Graphic
         return status;
     }
 
-    const GpuDriven::DrawCommandCache* SceneRenderer::GetDrawCommandCache() const
+    const GpuDriven::DrawCommandCache* SceneRendererImpl::GetDrawCommandCache() const
     {
         const auto& found = m_Systems.Mesh;
         if ( !found )
@@ -5044,7 +5170,7 @@ namespace Desert::Graphic
         return found->GetDrawCommandCache();
     }
 
-    uint32_t SceneRenderer::GetStandInDraws() const
+    uint32_t SceneRendererImpl::GetStandInDraws() const
     {
         const auto& found = m_Systems.Mesh;
         if ( !found )
@@ -5052,12 +5178,12 @@ namespace Desert::Graphic
         return found->GetStandInDraws();
     }
 
-    uint64_t SceneRenderer::GetViewTrianglesDrawn() const
+    uint64_t SceneRendererImpl::GetViewTrianglesDrawn() const
     {
         return m_PublishedViewTriangles.load( std::memory_order_relaxed );
     }
 
-    System::ForwardPrepassStats SceneRenderer::GetForwardPrepassStats() const
+    System::ForwardPrepassStats SceneRendererImpl::GetForwardPrepassStats() const
     {
         const auto& found = m_Systems.Mesh;
         if ( !found )
@@ -5065,10 +5191,10 @@ namespace Desert::Graphic
         return found->GetForwardPrepassStats();
     }
 
-    void SceneRenderer::SubmitInstancedScene( const Render::InstancedSceneSnapshot& scene,
-                                              const Render::InstancedSceneFrame&    frame )
+    void SceneRendererImpl::SubmitInstancedScene( const Render::InstancedSceneSnapshot& scene,
+                                                  const Render::InstancedSceneFrame&    frame )
     {
-        DESERT_PROFILE_SCOPE( "SceneRenderer::SubmitInstancedScene" );
+        DESERT_PROFILE_SCOPE( "SceneRendererImpl::SubmitInstancedScene" );
         // Index for index (MeshECSSystem writes both in one walk); a shorter frame array draws only its rows.
         const std::size_t count = std::min( scene.Rows.size(), frame.Rows.size() );
         for ( std::size_t i = 0; i < count; ++i )
@@ -5087,13 +5213,14 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::SetOutlineSettings( const glm::vec3& color, float width, float smoothness, bool enabled )
+    void SceneRendererImpl::SetOutlineSettings( const glm::vec3& color, float width, float smoothness,
+                                                bool enabled )
     {
         // Between recordings (SetDebugView's note): the outline system reads these while the view records.
         BetweenRecordings(
              [this, color, width, smoothness, enabled]
              {
-                 CheckWriteBetweenRecordings( "SceneRenderer::SetOutlineSettings" );
+                 CheckWriteBetweenRecordings( "SceneRendererImpl::SetOutlineSettings" );
                  const auto& jumpFloodSystem = m_Systems.JumpFlood.get();
                  jumpFloodSystem->SetEnabled( enabled );
                  jumpFloodSystem->SetOutlineColor( color );
@@ -5102,56 +5229,56 @@ namespace Desert::Graphic
              } );
     }
 
-    void SceneRenderer::SetDebugView( const DebugViewState& state )
+    void SceneRendererImpl::SetDebugView( const DebugViewState& state )
     {
         BetweenRecordings(
              [this, state]
              {
-                 CheckWriteBetweenRecordings( "SceneRenderer::SetDebugView" );
+                 CheckWriteBetweenRecordings( "SceneRendererImpl::SetDebugView" );
                  m_DebugView = state;
              } );
     }
 
-    void SceneRenderer::SetQuality( const Common::Scalability::ResolvedQuality& quality )
+    void SceneRendererImpl::SetQuality( const Common::Scalability::ResolvedQuality& quality )
     {
         BetweenRecordings(
              [this, quality]
              {
-                 CheckWriteBetweenRecordings( "SceneRenderer::SetQuality" );
+                 CheckWriteBetweenRecordings( "SceneRendererImpl::SetQuality" );
                  m_Quality = quality;
              } );
     }
 
-    void SceneRenderer::SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look )
+    void SceneRendererImpl::SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look )
     {
         m_Systems.Skybox->PrepareMaterial( material, look );
     }
 
-    void SceneRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
-                                          const SkySettings& sky, const SunLightFx& fx,
-                                          const AtmosphereLight1& light1 )
+    void SceneRendererImpl::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
+                                              const SkySettings& sky, const SunLightFx& fx,
+                                              const AtmosphereLight1& light1 )
     {
         m_SunLightFx = fx;
         m_Systems.Skybox->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx, light1 );
     }
 
-    const AtmosphereEnv& SceneRenderer::GetAtmosphere() const
+    const AtmosphereEnv& SceneRendererImpl::GetAtmosphere() const
     {
         return m_Systems.Skybox->GetAtmosphere();
     }
 
-    CloudEnvironmentBake SceneRenderer::BuildCloudEnvironmentBake()
+    CloudEnvironmentBake SceneRendererImpl::BuildCloudEnvironmentBake()
     {
         return m_Systems.VolumetricCloud->BuildEnvironmentBake();
     }
 
-    bool SceneRenderer::DrawsVolumetricClouds() const
+    bool SceneRendererImpl::DrawsVolumetricClouds() const
     {
         const auto& it = m_Systems.VolumetricCloud;
         return it && it->IsPresent();
     }
 
-    bool SceneRenderer::IsCloudVolumeBaking() const
+    bool SceneRendererImpl::IsCloudVolumeBaking() const
     {
         // `find` rather than `operator[]`, exactly as GetCloudShadowInput does it: this is a const observer
         // and must not insert an empty system into the map on the way to answering "is there one".
@@ -5163,7 +5290,7 @@ namespace Desert::Graphic
         return clouds && clouds->IsModellingVolumeBaking();
     }
 
-    SkyLightState SceneRenderer::GetSkyLightState() const
+    SkyLightState SceneRendererImpl::GetSkyLightState() const
     {
         const auto& it = m_Systems.Skybox;
         if ( !it )
@@ -5173,7 +5300,7 @@ namespace Desert::Graphic
         return sky ? sky->GetSkyLightState() : SkyLightState::NoSky;
     }
 
-    bool SceneRenderer::SkyLightRecapturesFor( const glm::vec3& sunDir ) const
+    bool SceneRendererImpl::SkyLightRecapturesFor( const glm::vec3& sunDir ) const
     {
         const auto& it = m_Systems.Skybox;
         if ( !it )
@@ -5183,7 +5310,7 @@ namespace Desert::Graphic
         return sky && sky->SkyLightRecapturesFor( sunDir );
     }
 
-    float SceneRenderer::CloudVolumeBakeProgress() const
+    float SceneRendererImpl::CloudVolumeBakeProgress() const
     {
         const auto& it = m_Systems.VolumetricCloud;
         if ( !it )
@@ -5193,27 +5320,27 @@ namespace Desert::Graphic
         return clouds ? clouds->ModellingBakeProgress() : 0.0f;
     }
 
-    std::optional<Environment> SceneRenderer::GetEnvironment()
+    std::optional<Environment> SceneRendererImpl::GetEnvironment()
     {
         return m_Systems.Skybox->GetEnvironment();
     }
 
-    void SceneRenderer::BorrowEnvironment( std::optional<Environment> environment )
+    void SceneRendererImpl::BorrowEnvironment( std::optional<Environment> environment )
     {
         m_Systems.Skybox->BorrowEnvironment( std::move( environment ) );
     }
 
-    void SceneRenderer::ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field )
+    void SceneRendererImpl::ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field )
     {
         m_SharedGlobalDistanceField = field;
     }
 
-    void SceneRenderer::ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache )
+    void SceneRendererImpl::ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache )
     {
         m_SharedSurfaceCache = cache;
     }
 
-    std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( const uint32_t cascade ) const
+    std::shared_ptr<Image2D> SceneRendererImpl::GetShadowCascadeCacheImage( const uint32_t cascade ) const
     {
         const std::scoped_lock lock( m_PublishedCascadesMutex );
         if ( cascade >= m_PublishedCascadeCaches.size() )
@@ -5221,13 +5348,13 @@ namespace Desert::Graphic
         return m_PublishedCascadeCaches[cascade];
     }
 
-    uint32_t SceneRenderer::GetShadowCascadeCount() const
+    uint32_t SceneRendererImpl::GetShadowCascadeCount() const
     {
         const std::scoped_lock lock( m_PublishedCascadesMutex );
         return static_cast<uint32_t>( m_PublishedCascadeCaches.size() );
     }
 
-    void SceneRenderer::EnsureTemporalUpscaler( const TemporalMethod method )
+    void SceneRendererImpl::EnsureTemporalUpscaler( const TemporalMethod method )
     {
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         const TemporalMethod held = m_TemporalUpscaler ? m_TemporalUpscaler->Method() : TemporalMethod::None;
@@ -5236,8 +5363,8 @@ namespace Desert::Graphic
     }
 
 #if DESERT_DEV_INSTRUMENTS
-    void SceneRenderer::AddFrameDebugDraw( RDG::Builder& graph, FrameTextures& textures,
-                                           const RDG::TextureRef display, const OverlayTargets& overlay )
+    void SceneRendererImpl::AddFrameDebugDraw( RDG::Builder& graph, FrameTextures& textures,
+                                               const RDG::TextureRef display, const OverlayTargets& overlay )
     {
         // THE GAMEPLAY DEBUG DRAWING (Core/DebugDraw.hpp) OVER THE DISPLAY-REFERRED FINAL IMAGE (UE: the editor
         // primitives - ULineBatchComponent's lines, DrawDebugPoint's squares - composite after the tonemapper,
@@ -5281,10 +5408,9 @@ namespace Desert::Graphic
     }
 #endif // DESERT_DEV_INSTRUMENTS
 
-    SceneRenderer::OverlayTargets SceneRenderer::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures,
-                                                                   const ViewFrame&      frame,
-                                                                   const RDG::TextureRef exposure,
-                                                                   const RDG::TextureRef opaqueLuma )
+    SceneRendererImpl::OverlayTargets
+    SceneRendererImpl::AddFrameTemporal( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                         const RDG::TextureRef exposure, const RDG::TextureRef opaqueLuma )
     {
         // The resolve of this frame: the temporal method's, the spatial upscale (below 100 % without one), and
         // above 100 % the fixed SSAA downsample after the temporal method, or alone without one
@@ -5448,7 +5574,7 @@ namespace Desert::Graphic
     // The view reads the captures when its profile has them and its resolved reflection method is Captures or
     // above (ScreenSpace composes over them, UE's SSR-then-reflection-environment); Off reads the sky alone. The
     // scene asks before this frame's BeginScene, so a method change reaches the capture schedule one frame later.
-    bool SceneRenderer::ReadsReflectionCaptures() const
+    bool SceneRendererImpl::ReadsReflectionCaptures() const
     {
         // The profile admits captures for the view; the resolved method decides whether this view reflects them
         // (Off is the sky's environment only - ReflectionMethod). A path-traced view reads none: its reflections are
@@ -5460,17 +5586,17 @@ namespace Desert::Graphic
                !PathTraced( m_RenderMethods );
     }
 
-    uint64_t SceneRenderer::GetEnvironmentIdentity()
+    uint64_t SceneRendererImpl::GetEnvironmentIdentity()
     {
         return EnvironmentIdentity( GetEnvironment() );
     }
 
-    std::shared_ptr<Image2D> SceneRenderer::GetSceneColorImage() const
+    std::shared_ptr<Image2D> SceneRendererImpl::GetSceneColorImage() const
     {
         return m_TargetFramebuffer ? m_TargetFramebuffer->GetColorAttachmentImage( 0 ) : nullptr;
     }
 
-    std::shared_ptr<Image2D> SceneRenderer::GetHdrRenditionImage() const
+    std::shared_ptr<Image2D> SceneRendererImpl::GetHdrRenditionImage() const
     {
         const auto& it = m_Systems.Tonemap;
         if ( !it )
@@ -5478,7 +5604,7 @@ namespace Desert::Graphic
         return it->GetHdrRenditionImage();
     }
 
-    void SceneRenderer::LogHdrRenditionPeak() const
+    void SceneRendererImpl::LogHdrRenditionPeak() const
     {
         // On an HDR output the captured PNG is the SDR rendition (Graphic::SetSdrCaptureRendition); the HDR
         // transform of the same frame is the tonemap's second target, and its peak is read here.
@@ -5514,7 +5640,7 @@ namespace Desert::Graphic
                   image->GetWidth(), image->GetHeight(), CurrentDisplayOutput().Headroom );
     }
 
-    std::shared_ptr<Desert::Graphic::Framebuffer> SceneRenderer::GetDisplayFramebuffer() const
+    std::shared_ptr<Desert::Graphic::Framebuffer> SceneRendererImpl::GetDisplayFramebuffer() const
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
         System::RenderSystem* finalSystem = m_Systems.Tonemap.get();
@@ -5531,15 +5657,15 @@ namespace Desert::Graphic
         return finalSystem->GetSystemFramebuffer();
     }
 
-    const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
+    const std::shared_ptr<Desert::Graphic::Image2D> SceneRendererImpl::GetFinalImage()
     {
         const std::shared_ptr<Framebuffer> display = GetDisplayFramebuffer();
         return display ? display->GetColorAttachmentImage() : nullptr;
     }
 
-    void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
-                                       const LocalLightShadowSettings&           shadow,
-                                       const System::LightFunctionProxy& function )
+    void SceneRendererImpl::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
+                                           const LocalLightShadowSettings&           shadow,
+                                           const System::LightFunctionProxy&         function )
     {
         m_PointLight.PointLights.push_back( pointLight );
         // The light's tile in this frame's light function atlas (-1 = none); the atlas slot is stamped before the
@@ -5559,14 +5685,14 @@ namespace Desert::Graphic
         m_PointLightShadows.push_back( shadow );
     }
 
-    void SceneRenderer::AddDecal( const System::DecalProxy& decal )
+    void SceneRendererImpl::AddDecal( const System::DecalProxy& decal )
     {
         m_Decals.Add( decal );
     }
 
-    void SceneRenderer::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
-                                      const LocalLightShadowSettings&          shadow,
-                                       const System::LightFunctionProxy& function )
+    void SceneRendererImpl::AddSpotLight( const ShaderProtocols::SpotLightPayload& spotLight,
+                                          const LocalLightShadowSettings&          shadow,
+                                          const System::LightFunctionProxy&        function )
     {
         m_SpotLight.SpotLights.push_back( spotLight );
         m_SpotLight.SpotLights.back().LightFunctionTile =
@@ -5579,7 +5705,7 @@ namespace Desert::Graphic
         m_SpotLightShadows.push_back( shadow );
     }
 
-    void SceneRenderer::AddHeterogeneousVolume( const HeterogeneousVolumeInstance& volume )
+    void SceneRendererImpl::AddHeterogeneousVolume( const HeterogeneousVolumeInstance& volume )
     {
         if ( m_HeterogeneousVolumes.capacity() < kHeterogeneousVolumeMaxVolumes )
             m_HeterogeneousVolumes.reserve( kHeterogeneousVolumeMaxVolumes );
@@ -5587,7 +5713,7 @@ namespace Desert::Graphic
             m_HeterogeneousVolumes.push_back( volume );
     }
 
-    void SceneRenderer::AddLocalFogVolume( const LocalFogVolumeGpu& volume )
+    void SceneRendererImpl::AddLocalFogVolume( const LocalFogVolumeGpu& volume )
     {
         // Reserved once; the gatherer (HeightFogECSSystem) emits at most the cap, so the list never grows.
         if ( m_LocalFogVolumes.capacity() < kVolumetricFogMaxLocalVolumes )
@@ -5596,7 +5722,7 @@ namespace Desert::Graphic
             m_LocalFogVolumes.push_back( volume );
     }
 
-    void SceneRenderer::TrackRenderSystem( const IRenderSystem* replaced, IRenderSystem* system ) noexcept
+    void SceneRendererImpl::TrackRenderSystem( const IRenderSystem* replaced, IRenderSystem* system ) noexcept
     {
         // Replacing a system keeps the place its predecessor held in the registration order: a pass re-registered
         // when a setting changes must not walk to the back of the queue and start drawing over neighbours it
@@ -5610,15 +5736,16 @@ namespace Desert::Graphic
         m_RenderSystemOrder.push_back( system );
     }
 
-    void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )
+    void SceneRendererImpl::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data,
+                                          float fogHeightY )
     {
         m_Systems.HeightFog->SetFogSettings( present, data, fogHeightY );
         m_Systems.VolumetricFog->SetFogSettings( present, data, fogHeightY );
     }
 
-    void SceneRenderer::SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data,
-                                             const glm::vec3& windOffset, const glm::vec3& windDirection,
-                                             const std::vector<HeroCloudInstance>& heroClouds )
+    void SceneRendererImpl::SetVolumetricClouds( bool present, const ECS::VolumetricCloudData& data,
+                                                 const glm::vec3& windOffset, const glm::vec3& windDirection,
+                                                 const std::vector<HeroCloudInstance>& heroClouds )
     {
         m_Systems.VolumetricCloud->SetCloudSettings(
              present && m_ViewProfile.VolumetricClouds, data, windOffset, windDirection, m_CloudQuality,
@@ -5626,8 +5753,8 @@ namespace Desert::Graphic
              heroClouds ); // a profile without clouds never allocates their targets
     }
 
-    SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
-                                                                                   bool hasOpaqueDepth ) const
+    SceneResources::ContactShadowSettings SceneRendererImpl::GetContactShadowSettings( const ViewFrame& frame,
+                                                                                       bool hasOpaqueDepth ) const
     {
         // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip. The view's PostProcess Contact
         // Shadows (m_RenderMethods.ContactShadows) gates the march for every light, as UE's r.ContactShadows does;
@@ -5642,7 +5769,7 @@ namespace Desert::Graphic
              .SunNonCastingIntensity = m_SunContactShadowNonCastingIntensity };
     }
 
-    SceneResources::ShadowFilterSettings SceneRenderer::GetShadowFilterSettings() const
+    SceneResources::ShadowFilterSettings SceneRendererImpl::GetShadowFilterSettings() const
     {
         // The hand-over to the distance-field mask: the same predicate the frame records the pass by (a renderer
         // latched failed records none, binds System.White and hands over nothing).
@@ -5651,7 +5778,7 @@ namespace Desert::Graphic
         return filter;
     }
 
-    CloudShadowInput SceneRenderer::GetCloudShadowInput() const
+    CloudShadowInput SceneRendererImpl::GetCloudShadowInput() const
     {
         CloudShadowInput cloudShadow;
 

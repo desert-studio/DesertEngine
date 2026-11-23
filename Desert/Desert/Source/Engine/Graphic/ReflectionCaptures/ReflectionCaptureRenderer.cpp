@@ -31,6 +31,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Common/Json/DocumentStruct.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 
 namespace
 {
@@ -615,8 +616,8 @@ namespace Desert::Graphic
             m_Faces[face] = std::make_unique<FaceView>();
             // The face views render the SCENE's captures, not a viewer's picture: their rows are the scene's
             // ("scene #N", RT-LEDGER-4), so a capture is in the scene's budget entry and in no view's.
-            m_Faces[face]->Renderer = std::make_unique<SceneRenderer>( ViewExtent{ faceSize, faceSize },
-                                                                       kReflectionCaptureViewProfile, m_Scene );
+            m_Faces[face]->Renderer =
+                 SceneRenderer::Create( ViewExtent{ faceSize, faceSize }, kReflectionCaptureViewProfile, m_Scene );
             m_Faces[face]->Renderer->Init();
             m_Faces[face]->Renderer->Resize( faceSize, faceSize );
         }

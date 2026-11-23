@@ -55,6 +55,8 @@ namespace Desert::Graphic
         DeformHeight1,
         DeformDetail0,
         DeformDetail1,
+        // The water's caustics map (FrameGraphRefs.hpp SceneViewInputs::WaterCausticsMap), the sun receivers'.
+        WaterCausticsMap,
         // A pass's own textures, bound by the pass (not BindSceneViewInputs) where its cell declares them.
         SceneColorTexture,
         FrontLayerReflectionTexture,
@@ -72,6 +74,7 @@ namespace Desert::Graphic
         RadianceCacheProbes,
         FogParams,
         DeformationFieldParams,
+        WaterCausticsFrame, // its frame row (SceneViewInputs::WaterCausticsFrame)
         GpuSceneInstances,
         GpuSceneVisibleInstances,
         GpuSceneDrawSlots,

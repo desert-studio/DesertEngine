@@ -105,8 +105,8 @@ namespace Desert::Editor
         // never drawn a shadow and never will. See Graphic::ShadowQuality.
         if ( !m_Renderer )
         {
-            m_Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ kRenderSize, kRenderSize },
-                                                                   Graphic::kThumbnailViewProfile );
+            m_Renderer = Graphic::SceneRenderer::Create( Graphic::ViewExtent{ kRenderSize, kRenderSize },
+                                                         Graphic::kThumbnailViewProfile );
         }
 
         // THE VIEW IS BUILT ONE STAGE PER TICK, not in the tick that first wants a picture. Built whole it was

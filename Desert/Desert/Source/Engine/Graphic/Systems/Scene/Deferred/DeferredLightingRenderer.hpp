@@ -130,7 +130,8 @@ namespace Desert::Graphic::System
         // not scatter): written by "Deferred: Direct Lighting", read by "Deferred: Composite".
         RDG::TextureRef DirectLighting;
         RDG::TextureRef DirectSpecular;
-        // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
+        // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map, the
+        // water's caustics.
         SceneViewInputs View;
     };
 

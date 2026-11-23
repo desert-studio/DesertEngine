@@ -131,6 +131,11 @@ namespace Desert::Graphic::GpuDriven
         // The submesh's material has Emissive Lights Scene on: its slots carry kDrawSlotEmissionIsLight, so the
         // G-buffer marks its emission as a MegaLights light source (screen GI takes none of it).
         bool                    EmissionIsLight = false;
+        // VG-SW-RASTER: the bin's cell has a VG visibility resolve twin (MeshVertexPath.hpp VisibilityResolveCellOf
+        // registered: a G-buffer Static / Instanced cell, no `.Parallax`), so the words the software raster writes
+        // for its clusters are shaded by "VirtualGeometry: Visibility Resolve". Only then may its slots carry
+        // kDrawSlotSoftwareRaster; a cell without the twin keeps its clusters on the hardware raster.
+        bool                    SoftwareRaster = false;
     };
 
     // One pass's cached state: what the cull and the draw need, as host mirrors of the GPU tables.
@@ -277,6 +282,8 @@ namespace Desert::Graphic::GpuDriven
             std::array<std::vector<uint8_t>, kMeshPassCount> DitheredLod;
             // [pass][submesh]: PassPipelineResolution::EmissionIsLight of a non-null Pipelines entry (1), else 0.
             std::array<std::vector<uint8_t>, kMeshPassCount> EmissionIsLight;
+            // [pass][submesh]: PassPipelineResolution::SoftwareRaster of a non-null Pipelines entry (1), else 0.
+            std::array<std::vector<uint8_t>, kMeshPassCount> SoftwareRaster;
         };
         struct MeshTransformRows
         {

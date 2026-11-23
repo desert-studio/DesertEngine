@@ -208,6 +208,18 @@ namespace Desert::Graphic
         return shaderName.ends_with( Core::Preprocess::kSurfaceVirtualGeometryCellSuffix );
     }
 
+    std::optional<std::string> VisibilityResolveCellOf( const std::string_view binnedCell )
+    {
+        const std::string gbufferBinned =
+             std::format( ".GBuffer{}", Core::Preprocess::kSurfaceBinnedCellSuffix );
+        if ( !binnedCell.ends_with( gbufferBinned ) )
+            return std::nullopt;
+        const std::string_view base = binnedCell.substr( 0, binnedCell.size() - gbufferBinned.size() );
+        return std::format( "{}.{}{}{}", base, Core::Preprocess::kSurfaceVirtualGeometryResolvePass,
+                            Core::Preprocess::kSurfaceBinnedCellSuffix,
+                            Core::Preprocess::kSurfaceVirtualGeometryCellSuffix );
+    }
+
     bool HasVirtualGeometryPermutation( const MeshVertexPath path )
     {
         const std::string_view name = MeshVertexPathName( path );

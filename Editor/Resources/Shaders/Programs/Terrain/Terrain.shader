@@ -194,6 +194,19 @@ Shader "Terrain"
 
         // THE receiver, shared verbatim with the deferred composite and the mesh shaders.
         #include <Common/CloudShadowReceiver.glslh>
+
+        // The water's caustics on the sun under a water body (Common/WaterCaustics.glslh; SceneViewInputs::
+        // WaterCausticsMap / WaterCausticsFrame, bound by name). Set 1 after ViewIndirect's 0..6.
+        layout(set = 1, binding = 7) uniform texture2D WaterCausticsTexture;
+        #define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+        layout(std430, set = 1, binding = 8) readonly buffer WaterCausticsFrameUB
+        {
+        	vec4 WaterCausticsWindow;
+        	vec4 WaterCausticsShape;
+        	vec4 WaterCausticsBodies[];
+        };
+        #define WATER_CAUSTICS_FRAME
+        #include <Common/WaterCaustics.glslh>
         // FORWARD ONLY: in the Deferred path the composite applies it to the terrain's G-buffer texels.
 
         // THE FORWARD GROUND IS SHADED AS A FORWARD MESH IS (Mesh/Surface/Pass_Forward.glslh), through the same
@@ -306,13 +319,14 @@ Shader "Terrain"
             const DesertPayload payload = cover > 0.0 ? DesertPayload( sss.r, sss.g, sss.b, opacity )
                                                       : DesertPayload( 0.0, 0.0, 0.0, 0.0 );
 
-            // The sun, occluded by the cascades and its contact shadow, then by the cloud layer - the order
-            // Pass_Forward and the deferred composite assemble it in. The ground always receives sun shadows.
+            // The sun, occluded by the cascades and its contact shadow, then by the cloud layer, then focused by
+            // the water's caustics - the order Pass_Forward and the deferred composite assemble it in. The ground
+            // always receives sun shadows.
             const vec3  sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
             int         cascade;
             const float shadow = ShadowFactor( kShadowLightSun, v_WorldPos, N, sunDir, cascade ) *
                                  ContactShadowFactor( v_WorldPos, N, sunDir, SunContactShadow, -1.0 ) *
-                                 CloudShadowFactor( v_WorldPos );
+                                 CloudShadowFactor( v_WorldPos ) * WaterCausticsFactor( v_WorldPos );
 
             vec3 light = vec3( 0.0 );
             for ( uint d = 0u; d < lightsMetadata.DirectionLightCount; d++ )

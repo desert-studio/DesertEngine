@@ -519,8 +519,8 @@ namespace Desert::Editor
                 if ( !m_Renderer )
                 {
                     const auto side = CaptureSide( m_Cells.front() );
-                    m_Renderer      = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ side, side },
-                                                                                Graphic::kThumbnailViewProfile );
+                    m_Renderer      = Graphic::SceneRenderer::Create( Graphic::ViewExtent{ side, side },
+                                                                      Graphic::kThumbnailViewProfile );
                 }
                 if ( !m_Renderer->AdvanceRendererBuild() )
                     return false;

@@ -1242,6 +1242,17 @@ namespace Desert::Graphic::ShaderPush
     template <> inline constexpr bool IsBlock<SkyViewLut> = true;
     static_assert( offsetof( SkyViewLut, CameraPositionWorld ) == 0u, "SkyViewLut::CameraPositionWorld: std430 offset" );
 
+    // Programs/VirtualGeometry/SoftwareRaster.shader (Compute)
+    struct SoftwareRaster
+    {
+        glm::mat4 ViewProjection{};
+        glm::uvec4 Params{};
+    };
+    static_assert( sizeof( SoftwareRaster ) == 80u, "SoftwareRaster: std430 push block size" );
+    template <> inline constexpr bool IsBlock<SoftwareRaster> = true;
+    static_assert( offsetof( SoftwareRaster, ViewProjection ) == 0u, "SoftwareRaster::ViewProjection: std430 offset" );
+    static_assert( offsetof( SoftwareRaster, Params ) == 64u, "SoftwareRaster::Params: std430 offset" );
+
     // Programs/TemporalAA/SpatialUpscale.shader (Compute)
     struct SpatialUpscale
     {
@@ -1523,6 +1534,28 @@ namespace Desert::Graphic::ShaderPush
     static_assert( sizeof( VisibilityClear ) == 16u, "VisibilityClear: std430 push block size" );
     template <> inline constexpr bool IsBlock<VisibilityClear> = true;
     static_assert( offsetof( VisibilityClear, Extent ) == 0u, "VisibilityClear::Extent: std430 offset" );
+
+    // Programs/VirtualGeometry/VisibilityMaterialDepth.shader (Fragment)
+    struct VisibilityMaterialDepth
+    {
+        glm::uvec4 VgRows{};
+        glm::uvec4 VgTables{};
+    };
+    static_assert( sizeof( VisibilityMaterialDepth ) == 32u, "VisibilityMaterialDepth: std430 push block size" );
+    template <> inline constexpr bool IsBlock<VisibilityMaterialDepth> = true;
+    static_assert( offsetof( VisibilityMaterialDepth, VgRows ) == 0u, "VisibilityMaterialDepth::VgRows: std430 offset" );
+    static_assert( offsetof( VisibilityMaterialDepth, VgTables ) == 16u, "VisibilityMaterialDepth::VgTables: std430 offset" );
+
+    // Programs/Water/WaterCausticsSplat.shader (Compute)
+    struct WaterCausticsSplat
+    {
+        glm::vec4 Window{};
+        glm::vec4 Sun{};
+    };
+    static_assert( sizeof( WaterCausticsSplat ) == 32u, "WaterCausticsSplat: std430 push block size" );
+    template <> inline constexpr bool IsBlock<WaterCausticsSplat> = true;
+    static_assert( offsetof( WaterCausticsSplat, Window ) == 0u, "WaterCausticsSplat::Window: std430 offset" );
+    static_assert( offsetof( WaterCausticsSplat, Sun ) == 16u, "WaterCausticsSplat::Sun: std430 offset" );
 
 } // namespace Desert::Graphic::ShaderPush
 
