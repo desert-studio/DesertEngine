@@ -27,6 +27,9 @@
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -92,6 +95,9 @@ namespace Desert::Editor
 
         if ( ImGui::Selectable( "New Material" ) )
             CreateNewMaterial( folder );
+
+        if ( ImGui::Selectable( "New Water Material" ) )
+            CreateNewWaterMaterial( folder );
 
         if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
             if ( const auto created = CreateNewLevelSequence( &folder ); !created )
@@ -262,6 +268,40 @@ namespace Desert::Editor
             return;
         }
         if ( const auto stated = MaterialAssetUtils::StateDefaultSurface( data, *m_AssetManager ); !stated )
+        {
+            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), stated.GetError() );
+            return;
+        }
+        if ( const auto written = Assets::WriteMaterialFile( path, data ); !written )
+        {
+            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), written.GetError() );
+            return;
+        }
+        m_On.OnRefresh();
+    }
+
+    // UE: a material of the water domain (SingleLayerWater) - the project's water template, found by its Role
+    // (WaterSurface.shader `Role WaterMaterial`), never the default surface. Its values are the template's
+    // property defaults until the user edits them; a WaterBody's Water Material slot takes it.
+    void NewAssetMenu::CreateNewWaterMaterial( const DirectoryInformation& folder )
+    {
+        const auto path = UniqueIn( folder, "NewWaterMaterial",
+                                    std::string( Common::Constants::Extensions::MATERIAL_EXTENSION ) );
+        if ( m_AssetManager == nullptr )
+        {
+            LOG_ERROR( "[Content] '{}' was not created: no asset manager is bound", path.generic_string() );
+            return;
+        }
+        Assets::MaterialData data;
+        const auto water = Assets::FindTemplateByRole( *m_AssetManager, Common::Content::kWaterMaterialRole );
+        if ( !water )
+        {
+            LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), water.GetError() );
+            return;
+        }
+        if ( const auto stated =
+                  Assets::SurfaceMaterialAsset::StateShader( data, *m_AssetManager, water.GetValue() );
+             !stated )
         {
             LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), stated.GetError() );
             return;

@@ -10,6 +10,8 @@ Shader "WaterSurface"
     Domain Surface
     Usage WaterMesh
     TwoSided
+    // A new water material's template (Content Browser "New Water Material", Common::Content::kWaterMaterialRole).
+    Role WaterMaterial
 
     Properties Binding(2)
     {

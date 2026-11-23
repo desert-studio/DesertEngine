@@ -114,6 +114,7 @@ layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWord
 #include <Common/ThinGeometryCoverage.glslh>
 // The body's waves (binding 24, ahead of the tiles): the foam reads the same Gerstner sum the vertex path moved.
 #include <Mesh/Surface/WaterMeshTiles.glslh>
+#include <Water/WaterUnderwater.glslh>
 // The scene's air (WIND-FIELD-GPU): the gust fronts and the local sources the foliage sways by roughen the
 // ripples.
 #include <Common/WindGust.glslh>
@@ -339,6 +340,70 @@ void main()
     const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );
     const vec3  foamLit   = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );
+
+    // --- THE SURFACE SEEN FROM BELOW (WATER-UNDERWATER; UE SingleLayerWater's back face): the eye is in the water,
+    // so the interface refracts the air above into Snell's window (the sky and the scene over the water, bent toward
+    // the zenith) and past the critical angle (48.6 deg off the normal) reflects the water below in full (total
+    // internal reflection). Then the same medium as the underwater volume (Water/WaterUnderwater.glslh) from the eye
+    // to the surface. No shore fade and no air fog: the eye is under the water.
+    if ( !gl_FrontFacing )
+    {
+        // N faces the eye (WaterFacingNormal): down, into the water. Water to air: eta = 1.333 / 1.0.
+        const vec3  up     = -V;
+        const vec3  T      = refract( up, N, 1.333 );
+        const bool  tir    = dot( T, T ) < 1e-6;
+        const float F0w    = 0.0204; // ((1.333 - 1) / (1.333 + 1))^2
+        const float cosAir = tir ? 0.0 : clamp( dot( T, -N ), 0.0, 1.0 );
+        const float Fw     = tir ? 1.0 : F0w + ( 1.0 - F0w ) * pow( 1.0 - cosAir, 5.0 );
+
+        // What the window lets through: the scene over the water where the bent ray meets it (the opaque copy at
+        // that point's projection, when it is in view and above the water), else the sky along the bent ray; plus
+        // the sun's disc seen through the rough interface.
+        vec3 window = vec3( 0.0 );
+        if ( !tir )
+        {
+            window = ApplySkyGain(
+                          textureLod( EnvironmentSpecularTexture, SkyLookDirection( T, skyLook.YawCosSin.xy ), 0.0 ).rgb,
+                          skyLook.Gain.rgb ) *
+                     exposure;
+            if ( baseDev > 0.0 && baseBack.y > i.WorldPosition.y )
+            {
+                const vec3 aboveAt = i.WorldPosition + T * distance( i.WorldPosition, baseBack );
+                const vec4 aClip   = cameraUB.JitteredViewProjection * vec4( aboveAt, 1.0 );
+                const vec2 aUv     = vec2( 0.5, -0.5 ) * ( aClip.xy / aClip.w ) + 0.5;
+                if ( aClip.w > 0.0 && all( greaterThanEqual( aUv, vec2( 0.0 ) ) ) && all( lessThanEqual( aUv, vec2( 1.0 ) ) ) )
+                {
+                    const float aDev = texture( WaterSceneDepth, aUv ).r;
+                    if ( aDev > 0.0 && WaterWorldAt( aUv, aDev ).y > i.WorldPosition.y )
+                        window = texture( SceneColorTexture, aUv ).rgb; // pre-exposed
+                }
+            }
+            const float r2   = max( s.Roughness * s.Roughness, 2e-3 );
+            const float lobe = exp( ( dot( T, L ) - 1.0 ) / r2 ) / ( kWaterPi * r2 );
+            window += sunLit * sunShadow * lobe * exposure;
+        }
+        // What the interface reflects back down: the water itself (its light scattered at the surface, looking down).
+        const vec3 sigmaSw  = w.ScatteringCoefficients;
+        const vec3 sigmaTw  = max( w.AbsorptionCoefficients + sigmaSw, vec3( 1e-5 ) );
+        const vec3 skyIrrW  = DesertAmbientIrradiance( vec3( 0.0, 1.0, 0.0 ) );
+        const vec3 mirrored = UnderwaterInscatterRadiance( sigmaSw, sigmaTw, w.PhaseG, reflect( up, N ), L, sun,
+                                                           skyIrrW, 0.0 ) *
+                              exposure;
+        vec3 under = window * ( 1.0 - Fw ) + mirrored * Fw;
+        // The foam on top, seen against the light: its lit layer over the window.
+        under = mix( under, foamLit * exposure, foam );
+        // The medium from the eye up to the surface.
+        vec3       fogIn;
+        const vec3 fogT = UnderwaterSegment( sigmaSw, sigmaTw, w.PhaseG, up,
+                                             max( i.WorldPosition.y - i.CameraPosition.y, 0.0 ),
+                                             distance( i.CameraPosition, i.WorldPosition ), L, sun, skyIrrW, fogIn );
+        oColor = vec4( under * fogT + fogIn * exposure, 1.0 );
+        if ( w.DebugFoamMask > 0.5 )
+            oColor = vec4( vec3( amount ) * exposure * 4.0, 1.0 );
+        oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
+        oThinGeometryCoverage = kThinGeometryCoverageSurface;
+        return;
+    }
 
     // --- The shore (UE's water material depth fade): where the surface meets the ground or a mesh, the water
     // column along the view ray goes to zero and the surface fades into the unbent scene behind it, so the

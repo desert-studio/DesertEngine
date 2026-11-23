@@ -75,6 +75,7 @@ namespace Desert::Editor
 
         void CreateNewFolder( const DirectoryInformation& folder ) const;
         void CreateNewMaterial( const DirectoryInformation& folder );
+        void CreateNewWaterMaterial( const DirectoryInformation& folder );
         /// UE's "Add Level Sequence": an empty `.dseq` in @p folder, selected once the folder is re-listed. The
         /// ONE creation route: the background menu and the palette's "Assets / New Level Sequence" both land here.
         Common::BoolResultStr CreateNewLevelSequence( const DirectoryInformation* folder ) const;
