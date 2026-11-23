@@ -79,12 +79,18 @@ namespace Desert::Core
         void      LoadPawnPrefab( Assets::AssetManager& assets );
         void      ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
+        // NET-2: the server's state of stable objects (cooked records, never spawned) written into the entities
+        // this client's streamer made from the same records; a change whose entity is not streamed in waits for
+        // it.
+        void      ApplyStableState( Scene& scene );
         glm::vec3 InputMove( Scene& scene );
 
         ClientNetOptions                        m_Options;
         std::unique_ptr<Net::INetTransport>     m_Transport;
         std::unique_ptr<Net::ReplicationClient> m_Client;
         std::map<std::uint32_t, entt::entity>   m_Entities; // NetId -> pawn root
+        struct PendingStable; // the changes whose entity is not resident yet (ClientNetDriver.cpp)
+        std::shared_ptr<PendingStable>          m_PendingStable;
         std::optional<glm::vec3>                m_OwnFirstServerPosition;
         bool                                    m_Walking   = false;
         bool                                    m_InSession = false;

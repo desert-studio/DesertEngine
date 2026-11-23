@@ -35,6 +35,16 @@ namespace Desert::Net
         virtual void                                 Write( const PawnState& s ) = 0;
         virtual void                                 Remove( NetId id )          = 0;
         [[nodiscard]] virtual std::vector<PawnState> All() const                 = 0; // by net id
+
+        // STABLE OBJECTS (§3.2-§3.4): the replicated fields of cooked records, by record id. A write that changes
+        // a value bumps that field's version (the push model's dirty bit; the store's counter is session-wide and
+        // never reused, so a version also orders writes); an equal value is no change and keeps the version.
+        // Returns the field's version after the write.
+        virtual std::uint32_t WriteStable( StableNetId id, std::string_view component, std::string_view field,
+                                           const ReplicatedValue& value ) = 0;
+        // Every stable object that differs from its record: its fields in first-write order (a field's index is
+        // its change-mask bit, stable for the session).
+        [[nodiscard]] virtual const std::map<StableNetId, std::vector<FieldUpdate>>& StableObjects() const = 0;
     };
 
     class IGatewayLink
@@ -63,10 +73,18 @@ namespace Desert::Net
         void                   Write( const PawnState& state ) override;
         void                   Remove( NetId id ) override;
         std::vector<PawnState> All() const override;
+        std::uint32_t          WriteStable( StableNetId id, std::string_view component, std::string_view field,
+                                            const ReplicatedValue& value ) override;
+        [[nodiscard]] const std::map<StableNetId, std::vector<FieldUpdate>>& StableObjects() const override
+        {
+            return m_Stable;
+        }
 
     private:
-        NetId                      m_Next = 1;
-        std::map<NetId, PawnState> m_States;
+        NetId                                           m_Next = 1;
+        std::map<NetId, PawnState>                      m_States;
+        std::map<StableNetId, std::vector<FieldUpdate>> m_Stable;
+        std::uint32_t                                   m_StableVersion = 0;
     };
 
     // THE SIMULATION ROLE for player pawns: one pawn per joined player at the next spawn point, moved by its
@@ -142,12 +160,50 @@ namespace Desert::Net
         void                      SendSnapshots( std::uint32_t serverStep );
         [[nodiscard]] std::size_t Players() const;
 
+        // What the gateway has sent, for the server's stat line: dynamic objects go as Spawn (reliable lane),
+        // stable objects only ever as state (State lane, against each connection's acked baseline).
+        struct Stats
+        {
+            std::uint64_t Spawns        = 0; // Spawn messages (dynamic pawns), all connections
+            std::uint64_t StablePackets = 0; // ObjectState packets
+            std::uint64_t StableFields  = 0; // field updates in them (a resend counts again)
+            std::uint64_t Resent        = 0; // field updates sent again because their packet was lost
+            std::uint64_t Acked         = 0; // field updates the clients acked
+        };
+        [[nodiscard]] const Stats& ReplicationStats() const
+        {
+            return m_Stats;
+        }
+
     private:
+        // PER CONNECTION x STABLE OBJECT: the version each field was last acked at (the baseline) and the version
+        // in flight (0 = none), by the field's index in the store's object.
+        struct ObjectBaseline
+        {
+            std::vector<std::uint32_t> Acked, InFlight;
+        };
+        struct SentField
+        {
+            StableNetId   Id      = 0;
+            std::size_t   Index   = 0;
+            std::uint32_t Version = 0;
+        };
+        struct SentPacket
+        {
+            std::uint32_t          Step = 0; // the server step it went out on
+            std::vector<SentField> Fields;
+        };
         struct Peer
         {
-            bool     Admitted = false;
-            PlayerId Player   = 0;
+            bool                                  Admitted = false;
+            PlayerId                              Player   = 0;
+            std::map<StableNetId, ObjectBaseline> Baselines;
+            std::map<std::uint32_t, SentPacket>   InFlight; // by ObjectState sequence
+            std::uint32_t                         NextStateSequence = 1;
         };
+        void SendStableState( ConnectionId connection, Peer& peer, std::uint32_t serverStep );
+        void OnStateAck( Peer& peer, const StateAckMessage& ack, std::uint32_t serverStep );
+        void ExpireLost( Peer& peer, std::uint32_t newestAcked, std::uint32_t serverStep, bool byAck );
         void Admit( ConnectionId connection, Peer& peer, std::span<const std::byte> hello );
 
         INetTransport&                   m_Transport;
@@ -159,5 +215,7 @@ namespace Desert::Net
         std::map<ConnectionId, Peer>     m_Peers;
         std::map<PlayerId, ConnectionId> m_Connections;
         PlayerId                         m_NextPlayer = 1;
+        std::uint32_t                    m_ServerStep = 0;
+        Stats                            m_Stats;
     };
 } // namespace Desert::Net

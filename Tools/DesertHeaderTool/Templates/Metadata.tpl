@@ -18,6 +18,7 @@ PropertyMetadata{ {% if f.meta.displayName %}.DisplayName = "{{ f.meta.displayNa
 {% if f.meta.temperature %}.Temperature = true, {% endif -%}
 {% if f.meta.preview %}.Preview = true, {% endif -%}
 {% if f.meta.saveGame %}.SaveGame = true, {% endif -%}
+{% if f.meta.replicated %}.Replicated = true, {% endif -%}
 {% if f.meta.editCondition %}.EditCondition = "{{ f.meta.editCondition }}", {% endif -%}
 {% if f.meta.refuse %}.Refuse = &::{{ f.meta.refuse }}, {% endif -%}
 }

@@ -60,6 +60,7 @@
 #include <iostream>
 #include <iterator>
 #include <set>
+#include <tuple>
 #include <stdexcept>
 #include <utility>
 #include <optional>
@@ -122,6 +123,7 @@ namespace
         bool        temperature = false; // PROPERTY(Temperature) — Kelvin slider on a Color field
         bool        preview     = false; // PROPERTY(Preview) — inline asset preview instead of a name button
         bool        saveGame    = false; // PROPERTY(SaveGame) — written to / restored from SaveGame slots
+        bool        replicated  = false; // PROPERTY(Replicated) — network state (NET-ARCH §3.4)
         std::string editCondition;       // PROPERTY(EditCondition("Foo")) — grey out while Foo is false
         std::string refuse; // PROPERTY(Refuse("Ns::Fn")) — the value check every setter applies (FieldInfo::Meta)
     };
@@ -557,6 +559,8 @@ namespace
                 m.preview = true;
             else if ( tok == "SaveGame" )
                 m.saveGame = true;
+            else if ( tok == "Replicated" )
+                m.replicated = true;
             else if ( tok.rfind( "EditCondition", 0 ) == 0 )
                 m.editCondition = ExtractStringLiteral( tok );
             else if ( tok.rfind( "Refuse", 0 ) == 0 )
@@ -1214,6 +1218,7 @@ namespace
         flag( "temperature", m.temperature );
         flag( "preview", m.preview );
         flag( "saveGame", m.saveGame );
+        flag( "replicated", m.replicated );
         text( "editCondition", m.editCondition );
         text( "refuse", m.refuse );
         return b.Build();
@@ -1417,6 +1422,49 @@ namespace
              .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
              .Set( "components", Common::Json::Value( std::move( rows ) ) )
              .Set( "module", module )
+             .Build();
+    }
+
+    // The replication layout (ReplicatedFields.gen.cpp.tpl): every PROPERTY(Replicated) field of a component block's
+    // reflected type, named by the block's key, ordered by key then field. A Replicated field of a type no block
+    // carries is not network state of any component, so it is an error rather than a row nobody can address.
+    std::optional<Common::Json::Value> ReplicatedFieldsModel( const std::vector<ComponentBlock>& components,
+                                                              const std::vector<ReflectedType>&  types )
+    {
+        std::vector<std::tuple<std::string, std::string, std::string>> rows;
+        std::set<std::string>                                           carried;
+        for ( const ComponentBlock& c : components )
+        {
+            const auto type = std::find_if( types.begin(), types.end(), [&]( const ReflectedType& t )
+                                            { return t.registryName == c.typeName; } );
+            if ( type == types.end() )
+                continue;
+            carried.insert( type->registryName );
+            for ( const Field& f : type->fields )
+                if ( f.meta.replicated )
+                    rows.emplace_back( c.key, f.name, f.fieldType );
+        }
+        for ( const ReflectedType& t : types )
+            for ( const Field& f : t.fields )
+                if ( f.meta.replicated && !carried.contains( t.registryName ) )
+                {
+                    std::cerr << std::format( "[DesertHeaderTool] {}::{} is PROPERTY(Replicated) but {} is the data "
+                                              "of no COMPONENT block, so no record can carry it\n",
+                                              t.fqn, f.name, t.registryName );
+                    return std::nullopt;
+                }
+        std::sort( rows.begin(), rows.end() );
+        Common::Json::Value::Array values;
+        for ( const auto& [component, field, type] : rows )
+            values.emplace_back( Common::Json::ObjectBuilder()
+                                      .Set( "component", component )
+                                      .Set( "field", field )
+                                      .Set( "type", type )
+                                      .Build() );
+        const std::string count = std::to_string( values.size() );
+        return Common::Json::ObjectBuilder()
+             .Set( "count", count )
+             .Set( "rows", Common::Json::Value( std::move( values ) ) )
              .Build();
     }
 
@@ -1679,6 +1727,10 @@ namespace
             if ( !Emit( templateDir, "Components.gen.cpp.tpl",
                         Common::Json::ObjectBuilder().Set( "modules", Common::Json::Value( listed ) ).Build(),
                         outputDir / "Components.gen.cpp" ) )
+                return 1;
+            const std::optional<Common::Json::Value> replicated = ReplicatedFieldsModel( components, types );
+            if ( !replicated ||
+                 !Emit( templateDir, "ReplicatedFields.gen.cpp.tpl", *replicated, outputDir / "ReplicatedFields.gen.cpp" ) )
                 return 1;
         }
 

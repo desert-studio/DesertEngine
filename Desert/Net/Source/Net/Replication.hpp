@@ -27,6 +27,9 @@
 #include <deque>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 namespace Desert::Net
@@ -47,6 +50,9 @@ namespace Desert::Net
         Snapshot = kFirstSessionMessage + 17,
         Spawn    = kFirstSessionMessage + 18,
         Destroy  = kFirstSessionMessage + 19,
+        // NET-2 (§3.2-§3.4): the replicated state of stable objects, and the client's ack of it.
+        ObjectState = kFirstSessionMessage + 20,
+        StateAck    = kFirstSessionMessage + 21,
     };
 
     struct NetVec3
@@ -145,6 +151,97 @@ namespace Desert::Net
             PawnState State;
         };
         std::deque<Sample_> m_Samples; // ascending time, the last ~1 s
+    };
+
+    // ---- STABLE OBJECTS: STATE, NEVER SPAWNED (NET-ARCH §3.2-§3.4) ---------------------------------------------
+    //
+    // A stable object is a record of the cooked world (a cell entity or an always-loaded one). Its net id IS the
+    // record id the cooked index lists and the entity carries as its UUID, so every machine with the same cook
+    // (the handshake checks the cook hash) already has the entity: the server never spawns it, it sends only the
+    // fields that differ from the authored record. Each such field has a change VERSION in the server's store
+    // (a write bumps it: the push model's dirty bit, Iris); per connection the gateway keeps the version each
+    // field was last ACKED at - the acked baseline - and sends a field while its version is newer than that
+    // baseline and not already in flight. A lost packet clears its in-flight marks, so exactly its fields go again
+    // (Iris), never a whole snapshot; a new connection has an empty baseline and so receives the full state.
+    using StableNetId = std::uint64_t;
+
+    // The component key of the dedicated transform fragment (§3.1): position + rotation of the record's entity.
+    inline constexpr std::string_view kTransformFragment = "Transform";
+
+    struct NetTransform
+    {
+        NetVec3              Position;                       // world cm
+        std::array<float, 4> Rotation{ 0.f, 0.f, 0.f, 1.f }; // unit quaternion x, y, z, w
+    };
+
+    // §3.1's quantization: position in whole millimetres (int32: +-21 km, the world's extent), rotation
+    // smallest-three - the index of the largest quaternion component in 2 bits, the other three in 10 bits each
+    // over [-1/sqrt2, 1/sqrt2] (about 0.08 degree).
+    struct QuantizedTransform
+    {
+        std::array<std::int32_t, 3> Millimetres{};
+        std::uint32_t               Rotation = 0;
+
+        friend bool operator==( const QuantizedTransform&, const QuantizedTransform& ) = default;
+    };
+    [[nodiscard]] QuantizedTransform QuantizeTransform( const NetTransform& transform );
+    [[nodiscard]] NetTransform       DequantizeTransform( const QuantizedTransform& quantized );
+
+    // A replicated field's value: the quantizers of this pass (bool, int, float as themselves; the transform).
+    using ReplicatedValue = std::variant<bool, std::int32_t, float, QuantizedTransform>;
+    [[nodiscard]] std::string ReplicatedValueText( const ReplicatedValue& value );
+
+    // One field of a stable object: its reflection row key ("DirectionLight") and field name ("Intensity"), or
+    // kTransformFragment twice for the transform; the store's version of the value.
+    struct FieldUpdate
+    {
+        std::string     Component;
+        std::string     Field;
+        std::uint32_t   Version = 0;
+        ReplicatedValue Value;
+    };
+
+    struct ObjectUpdate
+    {
+        StableNetId              Id = 0;
+        std::vector<FieldUpdate> Fields;
+    };
+
+    // Server -> client, State lane (unreliable). Sequence numbers the packet for the client's ack.
+    struct ObjectStateMessage
+    {
+        std::uint32_t             Sequence = 0;
+        std::vector<ObjectUpdate> Objects;
+    };
+
+    // Client -> server, State lane: the newest ObjectState sequence received and, in bit i of Previous, whether
+    // Newest - 1 - i was received too - every ack is repeated 32 times, so a lost ack loses nothing.
+    struct StateAckMessage
+    {
+        std::uint32_t Newest   = 0;
+        std::uint32_t Previous = 0;
+    };
+
+    std::vector<std::byte>            EncodeObjectState( const ObjectStateMessage& message );
+    std::vector<std::byte>            EncodeStateAck( const StateAckMessage& message );
+    std::optional<ObjectStateMessage> DecodeObjectState( std::span<const std::byte> data );
+    std::optional<StateAckMessage>    DecodeStateAck( std::span<const std::byte> data );
+
+    // THE CLIENT'S ACK WINDOW over ObjectState sequences.
+    class StateAckWindow
+    {
+    public:
+        void                          Received( std::uint32_t sequence );
+        [[nodiscard]] StateAckMessage Message() const
+        {
+            return { m_Newest, m_Previous };
+        }
+        // Whether sequence @p s is acked by @p ack (it is Newest, or one of the 32 before it with its bit set).
+        [[nodiscard]] static bool Acks( const StateAckMessage& ack, std::uint32_t s );
+
+    private:
+        std::uint32_t m_Newest = 0, m_Previous = 0;
+        bool          m_Any = false;
     };
 
     // Wrap-safe "a is after b" for 32-bit step numbers.

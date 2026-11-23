@@ -28,21 +28,32 @@
 
 #include <Projects/WorldPartitionSettings.hpp>
 
+#include <Engine/Reflection/ReplicatedFields.hpp>
+
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include <algorithm>
 #include <charconv>
+#include <cmath>
+#include <cstdlib>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <mutex>
+#include <sstream>
+#include <unordered_set>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
+#include <variant>
 #include <vector>
 
 namespace Desert::Server
@@ -182,6 +193,153 @@ namespace Desert::Server
             return Common::MakeSuccess( std::move( options ) );
         }
 
+        // THE SERVER CONSOLE (UE's server console commands): lines on stdin, read on their own thread and run on
+        // the step thread between two steps. NET-2's commands write the replicated state of stable objects (§3.2):
+        //   set <record id> <Component>.<Field> <true|false|int|float>   a reflected field marked Replicated
+        //   transform <record id> <x> <y> <z> [<rx> <ry> <rz>]            the transform fragment, cm and degrees
+        //   stat                                                         the replication stat line
+        class ServerConsole
+        {
+        public:
+            void Start()
+            {
+                std::thread(
+                     [this]
+                     {
+                         std::string line;
+                         while ( std::getline( std::cin, line ) )
+                         {
+                             const std::scoped_lock lock( m_Mutex );
+                             m_Lines.push_back( line );
+                         }
+                     } )
+                     .detach();
+            }
+            std::vector<std::string> Take()
+            {
+                const std::scoped_lock lock( m_Mutex );
+                return std::exchange( m_Lines, {} );
+            }
+
+        private:
+            std::mutex               m_Mutex;
+            std::vector<std::string> m_Lines;
+        };
+
+        // true / false, an int, or a float (strtof: libc++ has no floating from_chars); nullopt = none of them.
+        std::optional<Net::ReplicatedValue> ParseReplicatedValue( const std::string& text )
+        {
+            if ( text == "true" || text == "false" )
+                return Net::ReplicatedValue( text == "true" );
+            if ( text.find_first_of( ".eE" ) == std::string::npos )
+            {
+                std::int32_t value      = 0;
+                const auto [end, error] = std::from_chars( text.data(), text.data() + text.size(), value );
+                if ( error == std::errc() && end == text.data() + text.size() )
+                    return Net::ReplicatedValue( value );
+            }
+            char*       end   = nullptr;
+            const float value = std::strtof( text.c_str(), &end );
+            if ( end == text.c_str() + text.size() && !text.empty() && std::isfinite( value ) )
+                return Net::ReplicatedValue( value );
+            return std::nullopt;
+        }
+
+        // One console line; the answer (or the refusal) is logged.
+        void RunConsoleLine( const std::string& line, const std::unordered_set<std::uint64_t>& records,
+                             Net::IReplicationStore& store, const Net::Gateway& gateway )
+        {
+            std::istringstream words( line );
+            std::string        command;
+            words >> command;
+            if ( command.empty() )
+                return;
+            if ( command == "stat" )
+            {
+                const Net::Gateway::Stats& s = gateway.ReplicationStats();
+                LOG_INFO(
+                     "[Server] net stat: {} spawn(s) sent (dynamic pawns); {} stable object(s) replicated as "
+                     "state, 0 as spawns: {} ObjectState packet(s), {} field update(s), {} acked, {} lost and "
+                     "re-sent",
+                     s.Spawns, store.StableObjects().size(), s.StablePackets, s.StableFields, s.Acked, s.Resent );
+                return;
+            }
+            std::uint64_t id = 0;
+            std::string   idText;
+            words >> idText;
+            const auto [idEnd, idError] = std::from_chars( idText.data(), idText.data() + idText.size(), id );
+            if ( idError != std::errc() || idEnd != idText.data() + idText.size() || !records.contains( id ) )
+            {
+                LOG_ERROR( "[Server] console '{}': '{}' is not a record id of the cooked world", line, idText );
+                return;
+            }
+            if ( command == "set" )
+            {
+                std::string path, valueText;
+                words >> path >> valueText;
+                const std::size_t dot = path.find( '.' );
+                if ( dot == std::string::npos || dot == 0 || dot + 1 == path.size() || valueText.empty() )
+                {
+                    LOG_ERROR( "[Server] console '{}': usage set <record id> <Component>.<Field> <value>", line );
+                    return;
+                }
+                // UE replicates only UPROPERTY(Replicated): the server refuses any other field by name, before
+                // it versions anything, so a typo or an unmarked field never reaches a client (the client's own
+                // check in ClientNetDriver stays as the second gate).
+                const std::string component = path.substr( 0, dot ), field = path.substr( dot + 1 );
+                const Reflection::ReplicatedField* replicated = Reflection::FindReplicatedField( component, field );
+                if ( replicated == nullptr )
+                {
+                    LOG_ERROR( "[Server] console '{}': refused - {}.{} is not a Replicated field (PROPERTY(Replicated) "
+                               "of a component block); nothing sent",
+                               line, component, field );
+                    return;
+                }
+                const std::optional<Net::ReplicatedValue> value = ParseReplicatedValue( valueText );
+                if ( !value )
+                {
+                    LOG_ERROR( "[Server] console '{}': '{}' is not true, false, an int or a float", line,
+                               valueText );
+                    return;
+                }
+                const bool boolField = replicated->Type == Reflection::FieldType::Bool;
+                if ( boolField != std::holds_alternative<bool>( *value ) )
+                {
+                    LOG_ERROR( "[Server] console '{}': refused - {}.{} is {}, '{}' is not; nothing sent", line,
+                               component, field, boolField ? "a bool" : "a number", valueText );
+                    return;
+                }
+                const std::uint32_t version =
+                     store.WriteStable( id, component, field, *value );
+                LOG_INFO( "[Server] console: stable {} {} = {} (version {})", id, path,
+                          Net::ReplicatedValueText( *value ), version );
+                return;
+            }
+            if ( command == "transform" )
+            {
+                float v[6] = { 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+                int   read = 0;
+                while ( read < 6 && ( words >> v[read] ) )
+                    ++read;
+                if ( read != 3 && read != 6 )
+                {
+                    LOG_ERROR( "[Server] console '{}': usage transform <record id> <x> <y> <z> [<rx> <ry> <rz>]",
+                               line );
+                    return;
+                }
+                // The editor's Rotation: Euler degrees, composed as the entity's LocalTransform does (glm::quat).
+                const glm::quat            q = glm::quat( glm::radians( glm::vec3( v[3], v[4], v[5] ) ) );
+                Net::NetTransform          transform{ { v[0], v[1], v[2] }, { q.x, q.y, q.z, q.w } };
+                const Net::ReplicatedValue value( Net::QuantizeTransform( transform ) );
+                const std::uint32_t        version =
+                     store.WriteStable( id, Net::kTransformFragment, Net::kTransformFragment, value );
+                LOG_INFO( "[Server] console: stable {} transform = {} (version {})", id,
+                          Net::ReplicatedValueText( value ), version );
+                return;
+            }
+            LOG_ERROR( "[Server] console '{}': unknown command (set, transform, stat)", line );
+        }
+
         int Run( const std::vector<std::string>& args )
         {
             auto parsed = Parse( args );
@@ -288,6 +446,14 @@ namespace Desert::Server
                      options.pawn, static_cast<std::uint64_t>( pawnPrefab ) );
             }
 
+            // THE STABLE NET IDS (§3.2): every record id of the cooked index - what the console may address.
+            std::unordered_set<std::uint64_t> records;
+            for ( const auto& unit : server->World().Index->Units )
+                records.insert( unit.Ids.begin(), unit.Ids.end() );
+            ServerConsole console;
+            if ( transport )
+                console.Start();
+
             // THE SOURCES: the server's own + every player's pawn (§4.1 - the residency union of all of them).
             Core::Rules::StreamingSource serverSource;
             serverSource.Position = options.source;
@@ -343,6 +509,8 @@ namespace Desert::Server
                 const Clock::time_point begin = Clock::now();
                 if ( transport )
                 {
+                    for ( const std::string& line : console.Take() )
+                        RunConsoleLine( line, records, *store, *gateway );
                     transport->Poll( *gateway );
                     sim->Step( 1.0 / kStepHz );
                     if ( step % Net::kSnapshotEverySteps == 0 )
@@ -366,6 +534,8 @@ namespace Desert::Server
                     logUnion( std::format( "step {}: {} player(s)", step, sources.size() - 1 ) );
                 else if ( sources.size() > 1 && step % 300 == 0 )
                     logUnion( std::format( "step {}", step ) );
+                if ( transport && sources.size() > 1 && step % 300 == 0 )
+                    RunConsoleLine( "stat", records, *store, *gateway );
             }
             const double wall = std::chrono::duration<double>( Clock::now() - started ).count();
             LOG_INFO( "[Server] {} step(s) at {:.0f} Hz: {:.2f} s of server time in {:.2f} s wall; step {:.3f} ms "
@@ -374,6 +544,8 @@ namespace Desert::Server
                       worstMs, activated, deactivated, server->LoadsInFlight() );
 
             logUnion( "final" );
+            if ( transport )
+                RunConsoleLine( "stat", records, *store, *gateway );
             return 0;
         }
     } // namespace
