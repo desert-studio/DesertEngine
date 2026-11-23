@@ -76,5 +76,16 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
         VertexBufferRange                                  m_Vertices;
         IndexBufferRange                                   m_Indices;
+        // The opacity micromaps the BLAS was built with (RayTracingMeshInput::Micromaps): each must outlive every
+        // trace of the BLAS (VK_EXT_opacity_micromap), so it is released with it, on the same frame ring.
+        struct Micromap
+        {
+            VkMicromapEXT     Handle        = VK_NULL_HANDLE;
+            VkBuffer          Storage       = VK_NULL_HANDLE;
+            VmaAllocation     StorageMemory = nullptr;
+            ResourceOwnership Ledger;
+        };
+        std::vector<Micromap>    m_Micromaps;
+        PFN_vkDestroyMicromapEXT m_DestroyMicromap = nullptr;
     };
 } // namespace Desert::Graphic::API::Vulkan

@@ -174,7 +174,22 @@ namespace Desert::Graphic::RayTracing
     // the segments over them (vertex stride, position offset and format, index type, per-segment ranges, opaque).
     // The RenderCore builders take this and nothing above it; the side that knows the mesh fills it
     // (Engine/Graphic/Render/RayTracingMeshInput.hpp), so the API layer never includes Mesh or SkinnedMesh.
-    struct RayTracingMeshInput
+    // A BAKED OPACITY MICROMAP OF ONE NON-OPAQUE SEGMENT (RT-OMM-SER; UE FRayTracingGeometrySegment's OMM): the
+    // buffers Programs/RayTracing/OpacityMicromapBake.shader wrote on the GPU, named by device address, for the
+    // BLAS build to turn into a VkMicromapEXT and attach to that segment's geometry. Built only where the catalog
+    // offers RayTracingFeature::OpacityMicromap; elsewhere no input carries one and every candidate of a
+    // non-opaque segment reaches the alpha test, as before.
+    struct RayTracingSegmentOpacityMicromap
+    {
+        uint32_t Segment       = 0; // index into RayTracingMeshInput::Segments (a non-opaque one)
+        uint32_t TriangleCount = 0; // == that segment's PrimitiveCount
+        uint64_t DataAddress      = 0; // 64 B of 2-bit states per triangle (kOpacityMicromapLevel 4)
+        uint64_t TrianglesAddress = 0; // VkMicromapTriangleEXT per triangle
+        uint64_t IndexAddress     = 0; // uint32 per triangle: its micromap triangle or a special index
+        // Holds the three buffers until the build that reads them has finished on the GPU.
+        std::shared_ptr<void> Owner;
+    };
+
     {
         // The mesh's vertex buffer: what a static / procedural BLAS reads positions from, and what the skin pass
         // reads for a deformed one (its BLAS reads the cached positions instead).
@@ -189,6 +204,8 @@ namespace Desert::Graphic::RayTracing
         uint32_t VertexCount = 0;
         // Empty: nothing to build (no visible triangle, or a skinned mesh asked for a static BLAS).
         std::vector<RayTracingGeometrySegment> Segments;
+        // The baked micromaps of non-opaque segments (at most one per segment); empty = a BLAS without micromaps.
+        std::vector<RayTracingSegmentOpacityMicromap> Micromaps;
     };
 
     // Which level an acceleration structure is. The ledger keeps the two under their own kinds (a mesh BLAS and a

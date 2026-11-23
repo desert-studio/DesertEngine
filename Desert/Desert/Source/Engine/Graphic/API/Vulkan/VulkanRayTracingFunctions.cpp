@@ -9,6 +9,12 @@ namespace Desert::Graphic::API::Vulkan
                GetAccelerationStructureDeviceAddress != nullptr && GetBufferDeviceAddress != nullptr;
     }
 
+    bool RayTracingDeviceFunctions::MicromapsComplete() const
+    {
+        return Complete() && CreateMicromap != nullptr && DestroyMicromap != nullptr &&
+               GetMicromapBuildSizes != nullptr && CmdBuildMicromaps != nullptr;
+    }
+
     RayTracingDeviceFunctions LoadRayTracingDeviceFunctions( const DeviceCaps&         caps,
                                                              const DeviceProcResolver& resolve )
     {
@@ -37,6 +43,24 @@ namespace Desert::Graphic::API::Vulkan
         functions.GetAccelerationStructureDeviceAddress =
              reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(
                   resolve( "vkGetAccelerationStructureDeviceAddressKHR" ) );
+        if ( !caps.Has( Capability::OpacityMicromap ) )
+            return functions;
+        functions.CreateMicromap =
+             reinterpret_cast<PFN_vkCreateMicromapEXT>( resolve( "vkCreateMicromapEXT" ) );
+        functions.DestroyMicromap =
+             reinterpret_cast<PFN_vkDestroyMicromapEXT>( resolve( "vkDestroyMicromapEXT" ) );
+        functions.GetMicromapBuildSizes =
+             reinterpret_cast<PFN_vkGetMicromapBuildSizesEXT>( resolve( "vkGetMicromapBuildSizesEXT" ) );
+        functions.CmdBuildMicromaps =
+             reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>( resolve( "vkCmdBuildMicromapsEXT" ) );
+        // All or none: a half-resolved table would let a caller create a micromap it cannot build.
+        if ( !functions.MicromapsComplete() )
+        {
+            functions.CreateMicromap        = nullptr;
+            functions.DestroyMicromap       = nullptr;
+            functions.GetMicromapBuildSizes = nullptr;
+            functions.CmdBuildMicromaps     = nullptr;
+        }
         return functions;
     }
 } // namespace Desert::Graphic::API::Vulkan
