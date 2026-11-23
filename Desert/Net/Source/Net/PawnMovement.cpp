@@ -114,9 +114,15 @@ namespace Desert::Net
         state.Velocity.X = velocity.X;
         state.Velocity.Z = velocity.Z;
         // A grounded walk keeps pressing the floor (UE: the walking move follows the floor; Jolt sticks the
-        // capsule to it), so a step off a ledge is a fall from the next move on, not a hover.
-        const NetVec3                 moveVelocity{ state.Velocity.X,
-                                    state.Grounded ? -settings.Gravity * dtSeconds : state.Velocity.Y,
+        // capsule to it), so a step off a ledge is a fall from the next move on, not a hover. A grounded pawn
+        // with no planar velocity does not press: UE PhysWalking moves nothing along a walkable floor and only
+        // re-finds it, while a press into a slope would slide down it (the collide-and-slide keeps the press's
+        // tangential part) - an idle pawn on a walkable slope stays put on both sides. A floor that went away
+        // still ends the stand: the move's contacts find no floor and the pawn falls from the next step.
+        const bool                    idleOnFloor = state.Grounded && state.Velocity.Y == 0.f &&
+                                                    velocity.X == 0.f && velocity.Z == 0.f;
+        const float                   pressY      = idleOnFloor ? 0.f : -settings.Gravity * dtSeconds;
+        const NetVec3                 moveVelocity{ state.Velocity.X, state.Grounded ? pressY : state.Velocity.Y,
                                     state.Velocity.Z };
         const IPawnMoveWorld::Outcome moved  = world.Move( state, moveVelocity, settings, dtSeconds );
         const bool                    rising = !state.Grounded && state.Velocity.Y > 0.f;

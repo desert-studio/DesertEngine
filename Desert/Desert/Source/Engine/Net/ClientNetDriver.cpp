@@ -277,10 +277,21 @@ namespace Desert::Core
                 if ( const auto sample = m_Client->Sample( id ) )
                     line += std::format( " {}{}(player {})=({:.0f},{:.0f},{:.0f})", id, pawn.Owned ? "*" : "",
                                          pawn.Player, sample->Position.X, sample->Position.Y, sample->Position.Z );
+            // What this player is shown: the own pawn as drawn (its entity's world position) and the view point
+            // (UE GetPlayerViewPoint) - a view that does not travel with the pawn reads here, not in a frame.
+            std::string shown;
+            if ( const auto own = m_Entities.find( m_Client->OwnPawn() );
+                 own != m_Entities.end() && scene.GetRegistry().valid( own->second ) )
+            {
+                const glm::vec3 drawn = ECS::Entity( own->second, scene.GetRegistry() ).GetWorldTransform()[3];
+                shown += std::format( "; drawn own ({:.0f},{:.0f},{:.0f})", drawn.x, drawn.y, drawn.z );
+            }
+            if ( const auto view = scene.PlayerViewPoint() )
+                shown += std::format( "; view ({:.0f},{:.0f},{:.0f})", ( *view )[3].x, ( *view )[3].y, ( *view )[3].z );
             LOG_INFO( "[Net] t={:.1f}s pawns{}; scene players {}; unacked inputs {}; corrections {}; server input "
-                      "queue {:.1f}, clock x{:.2f}",
+                      "queue {:.1f}, clock x{:.2f}{}",
                       m_Clock, line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
-                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation );
+                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation, shown );
         }
     }
 
