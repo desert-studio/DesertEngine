@@ -680,7 +680,7 @@ namespace Desert::Graphic::System
         }
 
         set.Variant = std::move( variant );
-        return MediumPipelineBuild( std::move( set ) ); // ResultStr's value constructor is explicit
+        return Common::MakeSuccess( std::move( set ) ); // ResultStr's value constructor is private (clang)
     }
 
     void VolumetricCloudRenderer::AdoptLandedMediumBuild()
