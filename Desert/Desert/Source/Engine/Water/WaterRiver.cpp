@@ -110,16 +110,34 @@ namespace Desert::Water
         return box;
     }
 
-    glm::vec4 SampleRiverFlow( const RiverFlowField& field, const glm::vec2 xz ) noexcept
+    glm::vec3 SampleRiverFlowBilinear( const RiverFlowField& field, const glm::vec2 xz ) noexcept
     {
-        if ( field.Size.x == 0u || field.Size.y == 0u || field.Texels.empty() )
-            return glm::vec4( 0.0f );
-        const glm::vec2 uv = ( xz - field.Min ) / field.Extent;
-        if ( !( uv.x >= 0.0f && uv.x < 1.0f && uv.y >= 0.0f && uv.y < 1.0f ) )
-            return glm::vec4( 0.0f );
-        const auto x = std::min( static_cast<uint32_t>( uv.x * static_cast<float>( field.Size.x ) ), field.Size.x - 1u );
-        const auto z = std::min( static_cast<uint32_t>( uv.y * static_cast<float>( field.Size.y ) ), field.Size.y - 1u );
-        return field.Texels[static_cast<size_t>( z ) * field.Size.x + x];
+        if ( field.Size.x == 0u || field.Size.y == 0u ||
+             field.Texels.size() != static_cast<size_t>( field.Size.x ) * field.Size.y )
+            return glm::vec3( 0.0f );
+        // The texel space the GPU reads in (WaterRiverTexelSpace): texel centres on integers.
+        const glm::vec2 p   = ( xz - field.Min ) / field.Extent * glm::vec2( field.Size ) - 0.5f;
+        const glm::vec2 lo  = glm::floor( p );
+        const glm::vec2 f   = p - lo;
+        glm::vec3       sum = glm::vec3( 0.0f );
+        for ( int dz = 0; dz < 2; ++dz )
+            for ( int dx = 0; dx < 2; ++dx )
+            {
+                const int64_t x = static_cast<int64_t>( lo.x ) + dx;
+                const int64_t z = static_cast<int64_t>( lo.y ) + dz;
+                if ( x < 0 || z < 0 || x >= int64_t{ field.Size.x } || z >= int64_t{ field.Size.y } )
+                    continue; // off the field: zero, as WaterRiverTexel returns off the region
+                const glm::vec4 t =
+                     field.Texels[static_cast<size_t>( z ) * field.Size.x + static_cast<size_t>( x )];
+                const float w = ( dx == 1 ? f.x : 1.0f - f.x ) * ( dz == 1 ? f.y : 1.0f - f.y );
+                sum += w * glm::vec3( t );
+            }
+        return sum;
+    }
+
+    bool RiverInsideBank( const RiverFlowField& field, const glm::vec2 xz ) noexcept
+    {
+        return SampleRiverFlowBilinear( field, xz ).z >= kRiverBankClip;
     }
 
     std::optional<float> SampleRiverSurfaceY( const RiverFlowField& field, const glm::vec2 xz ) noexcept

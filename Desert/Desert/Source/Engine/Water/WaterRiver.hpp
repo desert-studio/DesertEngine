@@ -78,15 +78,26 @@ namespace Desert::Water
     /// The largest side a flow field is baked at (texels): a longer river gets coarser texels, not a bigger image.
     inline constexpr uint32_t kRiverFlowMaxSize = 1024;
 
-    /// Bakes @p points (already in world space) into a flow field of about @p cmPerTexel (clamped so neither side
-    /// exceeds kRiverFlowMaxSize). An empty field (Size 0) for fewer than two points or a non-positive width.
-    /// The field's texel nearest @p xz (world XZ, cm); zero outside the field or for an empty one.
-    [[nodiscard]] glm::vec4 SampleRiverFlow( const RiverFlowField& field, glm::vec2 xz ) noexcept;
+    /// THE BANK CLIP (UE: the river's WaterInfo mask cuts its surface at the spline's width): the bilinear bank
+    /// mask at or above this is water, below it is no water - for the drawn surface (WaterMeshTiles.glslh
+    /// WaterOutsideBank, `WATER_RIVER_BANK_CLIP`) and for every CPU query (WaterBodyCovers) alike.
+    inline constexpr float kRiverBankClip = 0.5f;
+
+    /// The flow at @p xz (world XZ, cm) exactly as the water surface reads it (WaterMeshTiles.glslh WaterFlowAt):
+    /// xy = the surface velocity (cm/s), z = the bank mask, bilinear between the texel centres, a neighbour off
+    /// the field counting as zero. Zero for an empty field.
+    [[nodiscard]] glm::vec3 SampleRiverFlowBilinear( const RiverFlowField& field, glm::vec2 xz ) noexcept;
+
+    /// Whether @p xz (world XZ, cm) is inside the banks: SampleRiverFlowBilinear's mask >= kRiverBankClip, the
+    /// very test the surface discards by, so the CPU never answers water where no water is drawn.
+    [[nodiscard]] bool RiverInsideBank( const RiverFlowField& field, glm::vec2 xz ) noexcept;
 
     /// The still surface's height at @p xz (world XZ, cm): SurfaceHeightCm filtered bilinearly over the texels
     /// inside the banks only (a bank texel's 0 never drags the level down); nullopt outside the banks or the field.
     [[nodiscard]] std::optional<float> SampleRiverSurfaceY( const RiverFlowField& field, glm::vec2 xz ) noexcept;
 
+    /// Bakes @p points (already in world space) into a flow field of about @p cmPerTexel (clamped so neither side
+    /// exceeds kRiverFlowMaxSize). An empty field (Size 0) for fewer than two points or a non-positive width.
     [[nodiscard]] RiverFlowField BakeRiverFlow( std::span<const glm::vec3> points, float width, float flowSpeed,
                                                 float flowPeriod, float cmPerTexel ) noexcept;
 

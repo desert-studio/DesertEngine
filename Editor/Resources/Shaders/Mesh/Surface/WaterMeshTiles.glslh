@@ -370,10 +370,14 @@ float WaterRiverBankBand( vec2 worldXZ, float riverTile )
 
 // A river tile's fragment outside its banks (UE draws a river as a spline mesh of the ribbon's width; here the
 // quadtree leaf overshoots the banks and is clipped to the baked mask). `riverTile` = WaterTileRow.Body.y, carried
-// to the fragment in VertexColor.b (Vertex_WaterMesh.glslh).
+// to the fragment in VertexColor.b (Vertex_WaterMesh.glslh). The clip is THE one the CPU queries answer by
+// (Water::RiverInsideBank: the same bilinear mask, Water::SampleRiverFlowBilinear, against Water::kRiverBankClip),
+// so a body is never told it floats where no water is drawn. The bank band's outer edge (WaterRiverBankBand = 1)
+// sits on this line: the foam runs along the cut.
+#define WATER_RIVER_BANK_CLIP 0.5
 bool WaterOutsideBank( vec2 worldXZ, float riverTile )
 {
-    return riverTile > 0.5 && WaterFlowAt( worldXZ ).z < 0.5;
+    return riverTile > 0.5 && WaterFlowAt( worldXZ ).z < WATER_RIVER_BANK_CLIP;
 }
 
 // THE TWO-PHASE FLOW (UE's water material FlowMap: two copies of a texture advected along the flow, half a period

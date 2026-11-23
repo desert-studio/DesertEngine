@@ -16,9 +16,11 @@ namespace Desert::Water
         const glm::vec2 half = body.Extents * 0.5f;
         if ( std::abs( point.x - body.Location.x ) > half.x || std::abs( point.z - body.Location.z ) > half.y )
             return false;
-        // A river is its ribbon, not its box: the baked bank mask (a river without a bake covers nothing).
+        // A river is its ribbon, not its box: the baked bank mask, clipped by the very test the drawn surface
+        // discards by (RiverInsideBank = WaterOutsideBank's complement), so no water is answered where none is
+        // drawn. A river without a bake covers nothing.
         if ( body.Type == WaterBodyType::River )
-            return body.Flow != nullptr && SampleRiverFlow( *body.Flow, glm::vec2( point.x, point.z ) ).z > 0.5f;
+            return body.Flow != nullptr && RiverInsideBank( *body.Flow, glm::vec2( point.x, point.z ) );
         return true;
     }
 
@@ -82,7 +84,8 @@ namespace Desert::Water
                                         -along( glm::vec2( 0.0f, texel.y ) ) );
                 result.PlaneNormal = glm::normalize( normal );
             }
-            const glm::vec4 f = SampleRiverFlow( flow, xz );
+            // The current the surface advects its flow map by (WaterFlowAt), the same bilinear texels.
+            const glm::vec3 f = SampleRiverFlowBilinear( flow, xz );
             result.Velocity   = glm::vec3( f.x, 0.0f, f.y );
         }
         result.SurfaceLocation = result.PlaneLocation;
