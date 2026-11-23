@@ -9,6 +9,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <cstdint>
 #include <mutex>
 
 #include <memory>
@@ -20,7 +21,8 @@
 // caller of Get() does not compile the Gerstner generator (BUILD-MOD-1).
 namespace Desert::Water
 {
-    struct GerstnerWave; // Engine/Water/GerstnerWaterWaves.hpp
+    struct GerstnerWave;          // Engine/Water/GerstnerWaterWaves.hpp
+    struct GerstnerWaveGenerator; // Engine/Water/GerstnerWaterWaves.hpp
 }
 
 namespace Desert::Assets
@@ -46,7 +48,8 @@ namespace Desert::Runtime
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
 
         /// The generated waves when the set is read; success with null while pending; an error, said once,
-        /// when it fails.
+        /// when it fails. The waves run with the set's wind (SetWind; +X in still air): a turned wind gives a
+        /// new pointer, so the renderer re-uploads and the physics re-keys, both on the same waves.
         Common::ResultStr<Waves> Get( const Assets::AssetHandle& handle );
 
         /// WATER-RIVERS-FFT: the set's FFT ocean (every cascade's initial spectrum, built ONCE per load from its
@@ -72,10 +75,25 @@ namespace Desert::Runtime
     private:
         void Request( const Assets::AssetHandle& handle );
         void Adopt( const Assets::AssetHandle& handle, const Assets::Asset<Assets::WaterWavesAsset>& asset );
+        /// THE SAVED `.dwaves` (UE's asset reload on change): the sets ContentRegistry says were written since
+        /// the last look (AssetHotReload's probe -> ContentRegistry::Update) are re-read and re-adopted, so a
+        /// saved edit is on the water the next frame, without a restart.
+        void FollowWrites();
+        /// The wind angle (degrees from +X toward +Z) the set's waves run with: SetWind's, 0 in still air.
+        [[nodiscard]] float WindAngleOf( const Assets::AssetHandle& handle );
+
+        // A set's waves as last generated, and the wind angle they were generated for.
+        struct BuiltWaves
+        {
+            Waves Set;
+            float AngleDeg = 0.0f;
+        };
 
         std::weak_ptr<Assets::AssetManager>                          m_Assets;
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
-        std::unordered_map<Assets::AssetHandle, Waves>               m_Ready;
+        std::unordered_map<Assets::AssetHandle, std::shared_ptr<const Water::GerstnerWaveGenerator>> m_Generators;
+        std::unordered_map<Assets::AssetHandle, BuiltWaves>                                          m_Ready;
+        uint64_t m_SeenWrites = 0; // ContentRegistry::WriteSerial at the last FollowWrites
         std::unordered_map<Assets::AssetHandle, Spectrum>            m_Spectra; // FFT sets only
         std::unordered_map<Assets::AssetHandle, Water::FFTOceanSpectrumParams> m_Shapes;  // FFT sets only
         // Written by the (parallel) zone collector, read wherever GetSpectrum is asked: its own lock.

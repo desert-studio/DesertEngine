@@ -56,8 +56,6 @@ namespace Desert::Assets::Serialization
             return ok;
         if ( auto ok = CheckAtLeastZero( "DirectionAngularSpreadDeg", g.DirectionAngularSpreadDeg ); !ok )
             return ok;
-        if ( !std::isfinite( g.WindAngleDeg ) )
-            return Common::MakeFormattedError<bool>( "Generator.WindAngleDeg {} must be finite", g.WindAngleDeg );
         if ( auto ok = CheckUnit( "Randomness", g.Randomness ); !ok )
             return ok;
         if ( auto ok = CheckUnit( "SmallWaveSteepness", g.SmallWaveSteepness ); !ok )
