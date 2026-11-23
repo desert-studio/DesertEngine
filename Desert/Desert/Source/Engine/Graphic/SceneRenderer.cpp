@@ -1,4 +1,4 @@
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/SceneFXSystem.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
@@ -567,9 +567,22 @@ namespace Desert::Graphic
             case 18:
             {
                 // GPU particles: compute-simulated sprites drawn by AddFrameTranslucency. Non-fatal.
-                RegisterSystem<System::ParticleRenderer>( m_Systems.Particle, this, m_TargetFramebuffer );
-                if ( !m_Systems.Particle->Initialize() )
-                    LOG_WARN( "[SceneRenderer] Particle system unavailable." );
+                // The VFX module's FX system (SceneFXSystem.hpp); none registered = no particles in this
+                // executable.
+                if ( const System::SceneFXSystemFactory make = System::SceneFXSystemFactorySlot() )
+                {
+                    std::shared_ptr<System::ISceneFXSystem> created = make( this, m_TargetFramebuffer );
+                    TrackRenderSystem( m_Systems.Particle.get(), created.get() );
+                    m_Systems.Particle = std::move( created );
+                }
+                if ( !m_Systems.Particle )
+                {
+                    LOG_INFO( "[SceneRenderer] no VFX module: the scene has no particle system" );
+                }
+                else if ( const auto init = m_Systems.Particle->Initialize(); !init )
+                {
+                    LOG_WARN( "[SceneRenderer] Particle system unavailable: {}", init.GetError() );
+                }
                 return "Particle";
             }
             case 19:
@@ -1452,42 +1465,14 @@ namespace Desert::Graphic
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
         // A reflection capture's face view neither draws nor simulates them (AddFrameParticlesSimulate).
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            // VFX-11: this view's origin and Effects particle rows go to the world's next scalability decision
-            // (VFXWorld::Tick) - the world decides once for all views, not here.
-            if ( const auto* cam = GetMainCamera() )
-            {
-                ::Desert::VFX::VFXViewReport report{
-                     .Origin          = cam->GetPosition(),
-                     .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
-                     .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ),
-                     .MaxWorldParticles =
-                          static_cast<std::uint32_t>( quality.As<int>( Parameter::EffectsMaxWorldParticles ) ) };
-                // The view's frustum (Gribb-Hartmann on clip = P * V, depth 0..1): six inward planes, normalized;
-                // a degenerate plane (an infinite far plane) culls nothing.
-                const glm::mat4 clip = glm::mat4( cam->GetProjectionMatrix() ) * glm::mat4( cam->GetViewMatrix() );
-                const auto      row  = [&clip]( const int r )
-                { return glm::vec4( clip[0][r], clip[1][r], clip[2][r], clip[3][r] ); };
-                const std::array<glm::vec4, 6> planes = {
-                     row( 3 ) + row( 0 ), row( 3 ) - row( 0 ), row( 3 ) + row( 1 ), row( 3 ) - row( 1 ), row( 2 ),
-                     row( 3 ) - row( 2 ) };
-                for ( std::size_t i = 0; i < planes.size(); ++i )
-                {
-                    const float length = glm::length( glm::vec3( planes[i] ) );
-                    report.FrustumPlanes[i] =
-                         length > 1.0e-6f ? planes[i] / length : glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f );
-                }
-                report.HasFrustum = true;
-                scene.GetVFXWorld().SubmitView( report );
-            }
-            m_Systems.Particle->PrepareFrame( scene );
-            // VFX-LIGHT (UE Niagara Light Renderer): the scene's particle lights join this view's local lights -
-            // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
+        // VFX-11 / VFX-LIGHT (UE FFXSystemInterface): this view's report to the scene's next scalability decision,
+        // the frame's emitters, and the scene's particle lights joining this view's local lights - the same light
+        // grid, composite and forward paths as a PointLightComponent's, casting no shadow.
+        if ( !m_ViewProfile.SceneCapture && m_Systems.Particle )
             for ( const ShaderProtocols::PointLightPayload& light :
-                  System::ParticleWorldGpu::Of( scene.GetVFXWorld() ).ParticleLights() )
-                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false }, System::LightFunctionProxy{} );
-        }
+                  m_Systems.Particle->PrepareView( scene, GetMainCamera(), quality ) )
+                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false },
+                               System::LightFunctionProxy{} );
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.

@@ -47,7 +47,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>

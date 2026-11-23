@@ -1,7 +1,7 @@
 // ParticleSortKey (VFX-08): the key the GPU sort orders a translucent sprite emitter by. Ascending keys must be
 // back to front (far first), behind-the-camera depths last, and the padding past the alive count after all.
 
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleSortKey.hpp>
+#include <VFX/Public/ParticleSortKey.hpp>
 
 #include <gtest/gtest.h>
 

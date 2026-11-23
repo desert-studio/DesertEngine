@@ -3,8 +3,8 @@
 #include <ImGui/imgui.h>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp>
+#include <VFX/Public/VFXWorld.hpp>
+#include <VFX/Public/ParticleWorldGpu.hpp>
 
 #include <string>
 #include <string_view>
@@ -51,7 +51,7 @@ namespace Desert::Editor
         auto                                     apply  = [target, request]()
         {
             if ( const std::shared_ptr<Desert::Core::Scene> live = target.lock() )
-                ParticleWorldGpu::Of( live->GetVFXWorld() ).SetDebugRequest( request );
+                ParticleWorldGpu::Of( ::Desert::VFX::VFXWorld::Of( *live ) ).SetDebugRequest( request );
         };
         if ( ::Desert::Engine::RenderTask::OnRenderThread() )
         {
@@ -79,7 +79,7 @@ namespace Desert::Editor
             ImGui::End();
             return;
         }
-        VFX::VFXWorld&          world = scene->GetVFXWorld();
+        VFX::VFXWorld&          world = ::Desert::VFX::VFXWorld::Of( *scene );
         const ParticleWorldGpu& gpu   = ParticleWorldGpu::Of( world );
 
         // UE Niagara Debugger's playback and HUD controls, held by the world so every view agrees.

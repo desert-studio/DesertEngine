@@ -83,6 +83,7 @@
 #include "Systems/Scene/Mesh/VirtualShadowInvalidation.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
 #include "Systems/Scene/Terrain/TerrainRenderer.hpp"
+#include "Systems/Scene/SceneFXSystem.hpp"
 #include "Systems/Scene/SingleLayerWaterPass.hpp"
 #include "Systems/Scene/PostProcessing/TonemapRenderer.hpp"
 #include "Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp"
@@ -170,7 +171,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::HeterogeneousVolumeRenderer>        HeterogeneousVolume;
         std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
         std::shared_ptr<System::VolumetricCloudRenderer>            VolumetricCloud;
-        std::shared_ptr<System::ParticleRenderer>                   Particle;
+        std::shared_ptr<System::ISceneFXSystem>                     Particle;
         std::shared_ptr<System::DeferredLightingRenderer>           DeferredLighting;
         std::shared_ptr<System::SubsurfaceRenderer>                 Subsurface;
         std::shared_ptr<System::AutoExposureRenderer>               AutoExposure;

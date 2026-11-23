@@ -48,7 +48,7 @@
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/Clouds/CloudSkyOcclusionPayload.hpp>
 #include <Engine/Graphic/SkyPayload.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleGpuLayout.hpp>
+#include <VFX/Public/ParticleGpuLayout.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 
 #include <Common/Core/Constants.hpp>

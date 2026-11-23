@@ -61,7 +61,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <VFX/Public/VFXComponent.hpp>
 
 namespace Desert::Editor
 {

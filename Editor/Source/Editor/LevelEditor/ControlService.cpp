@@ -85,7 +85,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <VFX/Public/VFXWorld.hpp>
 #include <Common/Json/ReadWrite.hpp>
 #include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
@@ -2382,7 +2382,7 @@ namespace Desert::Editor
         // Particle Debugger and the viewport overview draw); no readback of its own.
         for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )
         {
-            const VFX::VFXDebugStats stats = scene->GetVFXWorld().GetDebugStats();
+            const VFX::VFXDebugStats stats = ::Desert::VFX::VFXWorld::Of( *scene ).GetDebugStats();
             if ( stats.Systems.empty() )
                 continue;
             Control::VFXSceneSnapshot& out = snapshot.Vfx.emplace_back();

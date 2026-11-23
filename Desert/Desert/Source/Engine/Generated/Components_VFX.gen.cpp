@@ -6,7 +6,7 @@
 
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
 
-#include <Engine/VFX/VFXComponent.hpp>
+#include <VFX/Public/VFXComponent.hpp>
 
 namespace Desert::Core::Serialize::Generated
 {

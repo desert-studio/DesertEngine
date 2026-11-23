@@ -8,9 +8,9 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/VFXModuleAsset.hpp>
-#include <Engine/VFX/VFXEmitterSpawn.hpp>
-#include <Engine/VFX/VFXStackCompiler.hpp>
+#include <VFX/Public/VFXModuleAsset.hpp>
+#include <VFX/Public/VFXEmitterSpawn.hpp>
+#include <VFX/Public/VFXStackCompiler.hpp>
 
 #include <Common/Core/Logger.hpp>
 

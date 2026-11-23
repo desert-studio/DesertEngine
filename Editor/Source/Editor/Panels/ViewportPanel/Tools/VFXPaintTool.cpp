@@ -16,8 +16,8 @@
 #include <memory>
 #include <utility>
 #include <Engine/ECS/TagComponent.hpp>
-#include <Engine/VFX/VFXPointSet.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <VFX/Public/VFXPointSet.hpp>
+#include <VFX/Public/VFXComponent.hpp>
 #include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor::Tools

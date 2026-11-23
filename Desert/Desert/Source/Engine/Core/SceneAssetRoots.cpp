@@ -26,7 +26,6 @@
 #include <Engine/UI/Ecs/UIImageComponent.hpp>
 #include <Engine/UI/Ecs/UIPanelComponent.hpp>
 #include <Engine/UI/Ecs/UITextComponent2D.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
@@ -141,10 +140,6 @@ namespace Desert::Core
         // reachable only through `RetargetAsset`'s own dependency, exactly as a `.skeleton` is reachable
         // only through the `.skmesh` that names it, so dropping the retarget drops the rig behind it and
         // nothing can bring either back.
-        // A VFX system is named only by the entities that play it: without this row the eviction sweep drops
-        // the `.dfx` under a live entity and VFXWorld finds a handle the manager no longer has.
-        for ( const auto entity : registry.view<ECS::VFXComponent>() )
-            roots.Mark( registry.get<ECS::VFXComponent>( entity ).Data.System, "an entity plays it" );
         // The feature modules' components name assets of their own (a destructible's `.dfrac`): each module marks
         // them (ModuleHooks.hpp, AssetRootWalker).
         for ( const Core::AssetRootWalker walk : Core::ModuleHooks().AssetRoots )

@@ -49,14 +49,14 @@
 #include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
-#include <Engine/Assets/VFXSystemAsset.hpp>
+#include <VFX/Public/VFXSystemAsset.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Destruction/Public/FractureAsset.hpp>
 #include <Water/Public/WaterWavesAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
-#include <Engine/Assets/VFXModuleAsset.hpp>
+#include <VFX/Public/VFXModuleAsset.hpp>
 #include <Engine/Assets/IesProfileAsset.hpp>
 #include <Engine/Assets/SparseVolumeAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>

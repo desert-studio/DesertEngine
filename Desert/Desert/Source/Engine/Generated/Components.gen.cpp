@@ -30,8 +30,8 @@ namespace Desert::Core::Serialize::Generated
     void RegisterComponents_Media( ComponentRegistrar& r );
     void RegisterComponents_Landscape( ComponentRegistrar& r );
     void RegisterComponents_Destruction( ComponentRegistrar& r );
-    void RegisterComponents_VFX( ComponentRegistrar& r );
     void RegisterComponents_Water( ComponentRegistrar& r );
+    void RegisterComponents_VFX( ComponentRegistrar& r );
     void RegisterComponents_Hair( ComponentRegistrar& r );
     void RegisterComponents_Foliage( ComponentRegistrar& r );
     void RegisterComponents_Scripting( ComponentRegistrar& r );
@@ -61,8 +61,8 @@ namespace Desert::Core::Serialize::Generated
         RegisterComponents_Media( registrar );
         RegisterComponents_Landscape( registrar );
         RegisterComponents_Destruction( registrar );
-        RegisterComponents_VFX( registrar );
         RegisterComponents_Water( registrar );
+        RegisterComponents_VFX( registrar );
         RegisterComponents_Hair( registrar );
         RegisterComponents_Foliage( registrar );
         RegisterComponents_Scripting( registrar );

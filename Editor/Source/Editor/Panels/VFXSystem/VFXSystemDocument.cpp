@@ -1,5 +1,5 @@
 #include "VFXSystemDocument.hpp"
-#include <Engine/Assets/VFXModuleAsset.hpp>
+#include <VFX/Public/VFXModuleAsset.hpp>
 #include <charconv>
 #include "VFXCurveInputEditor.hpp"
 
@@ -15,8 +15,8 @@
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/VFXSystemAsset.hpp>
-#include <Engine/VFX/VFXStackCompiler.hpp>
+#include <VFX/Public/VFXSystemAsset.hpp>
+#include <VFX/Public/VFXStackCompiler.hpp>
 
 #include <Common/Core/Logger.hpp>
 

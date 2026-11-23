@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>

@@ -57,9 +57,9 @@ namespace Desert::ECS
     class System;
 }
 
-namespace Desert::VFX
+namespace Desert::Core
 {
-    class VFXWorld;
+    class ISceneModuleState;
 }
 
 namespace Desert::World
@@ -201,15 +201,15 @@ namespace Desert::Core
          */
         [[nodiscard]] static const std::vector<Scene*>& LiveScenes();
 
-        // The scene's effects world: the one clock and the per-instance administration every view of
-        // this scene simulates from (plan 02 §3.3-1). Ticked by OnUpdate.
-        [[nodiscard]] VFX::VFXWorld& GetVFXWorld()
+        // A feature module's per-scene state (ModuleHooks().SceneStates[slot]; e.g. the VFX module's effects
+        // world, VFX::VFXWorld::Of). Never null for a registered slot: made by both constructors.
+        [[nodiscard]] ISceneModuleState& GetModuleState( std::size_t slot )
         {
-            return *m_VFXWorld;
+            return *m_ModuleStates[slot];
         }
-        [[nodiscard]] const VFX::VFXWorld& GetVFXWorld() const
+        [[nodiscard]] const ISceneModuleState& GetModuleState( std::size_t slot ) const
         {
-            return *m_VFXWorld;
+            return *m_ModuleStates[slot];
         }
 
         template <typename T>
@@ -1059,7 +1059,8 @@ namespace Desert::Core
         struct FileState;
         std::unique_ptr<FileState> m_File;
 
-        std::unique_ptr<VFX::VFXWorld> m_VFXWorld; // see GetVFXWorld; never null: made by both constructors
+        // see GetModuleState; one per ModuleHooks().SceneStates row, made by both constructors
+        std::vector<std::unique_ptr<ISceneModuleState>> m_ModuleStates;
 
         Common::WorldSubsystems<Scene> m_Subsystems{ *this };
     };

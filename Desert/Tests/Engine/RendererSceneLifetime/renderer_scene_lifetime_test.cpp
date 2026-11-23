@@ -507,7 +507,7 @@ TEST( RendererSceneLifetime, ParticlesAndCloudWindReadNoClockOfTheirOwn )
          StripComments( EngineSource( "Graphic/Systems/Scene/Particles/ParticleWorldGpu.cpp" ) );
     const std::string prepare = BodyAfter( particles, "ParticleWorldGpu::PrepareTick(" );
     ASSERT_FALSE( prepare.empty() );
-    EXPECT_NE( prepare.find( "scene.GetVFXWorld()" ), std::string::npos )
+    EXPECT_NE( prepare.find( "::Desert::VFX::VFXWorld::Of( scene )" ), std::string::npos )
          << "the particles' steps no longer come from the scene's VFXWorld.";
     // VFX-HOST: each emitter's step table is filled by a helper PrepareTick calls per system instance.
     EXPECT_NE( particles.find( "instance->Steps" ), std::string::npos )

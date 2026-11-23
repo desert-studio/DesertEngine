@@ -7,7 +7,7 @@
 
 #include <array>
 #include <Engine/Assets/AssetMetadata.hpp>
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 
 #include <cstddef>
 #include <memory>

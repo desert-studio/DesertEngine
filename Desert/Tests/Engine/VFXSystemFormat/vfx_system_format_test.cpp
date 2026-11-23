@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Json/Json.hpp>

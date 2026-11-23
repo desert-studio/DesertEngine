@@ -417,19 +417,6 @@ namespace Desert::Core::Serialize
                 }
                 return static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) );
             }
-            if ( type == "VFXSystemAsset" )
-            {
-                // A VFX component's `.dfx` system. Announced, not read, as the wave set above: VFXSystemService
-                // requests the read from the registry row on the first tick that asks for it, and the asset's
-                // constructor adopts the handle its header GUID names, so the row and this shell agree.
-                const std::filesystem::path full = FileForStoredReference( path, type );
-                if ( full.empty() )
-                    return 0;
-                auto a = mgr.FindByPath<Assets::VFXSystemAsset>( full );
-                if ( !a )
-                    a = m.CreateAsset<Assets::VFXSystemAsset>( full, /*loadAfterCreate=*/false );
-                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
-            }
             if ( type == "PrefabAsset" )
             {
                 // The locator half of the Default Pawn's {Guid, Path}: ResolveGuidRef reaches it only when
