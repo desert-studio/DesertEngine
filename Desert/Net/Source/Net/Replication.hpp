@@ -38,6 +38,8 @@ namespace Desert::Net
     inline constexpr NetId  kInvalidNetId    = 0;
     inline constexpr double kNetStepHz       = 60.0; // the server's fixed step (§2); the net frame number
     inline constexpr int    kInputRedundancy = 3;    // input steps per Input message (§2)
+    // One input step's length - the move both the server and the predicting client simulate (PawnMovement.hpp).
+    inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
     // Snapshots go out every second step: 30 Hz per connection (§2). A project setting once §3.6 lands.
     inline constexpr int kSnapshotEverySteps = 2;
     // How far behind the server clock remote pawns are drawn at least: three snapshot intervals, so one lost
@@ -72,11 +74,16 @@ namespace Desert::Net
 
     // One fixed step of a player's input: the world-space direction the player asks to move in (length 0..1,
     // already turned by its view on the client) and the yaw it faces, in degrees.
+    // InputStep::Buttons (UE FSavedMove_Character compressed flags): held / pressed this step.
+    inline constexpr std::uint8_t kInputSprint = 1u << 0;
+    inline constexpr std::uint8_t kInputJump   = 1u << 1; // pressed: a jump starts on this step when grounded
+
     struct InputStep
     {
         std::uint32_t Step = 0; // the client's fixed-step number
         NetVec3       Move;
-        float         Yaw = 0.f;
+        float         Yaw     = 0.f;
+        std::uint8_t  Buttons = 0;
     };
 
     struct InputMessage
@@ -102,11 +109,28 @@ namespace Desert::Net
         std::uint8_t TeleportCount = 0;
     };
 
+    // The own character's whole movement state (PawnMovement.hpp): what the server sends back for the acked input
+    // step so the predicting client can compare and replay (UE ClientAdjustPosition's location + velocity + base +
+    // movement mode). Raw floats on the wire - the client compares them with its own, bit-exact path.
+    struct PawnMoveState
+    {
+        NetVec3 Position;
+        NetVec3 Velocity;
+        float   Yaw      = 0.f;
+        float   FloorY   = 0.f; // the floor plane the pawn stands on (PawnMovement.hpp)
+        bool    Grounded = true;
+    };
+
     struct SnapshotMessage
     {
         std::uint32_t          ServerStep   = 0;
         std::uint32_t          AckInputStep = 0; // the last of this connection's input steps the server processed
         bool                   HasAck       = false;
+        // With the ack: the own pawn's state after AckInputStep, and how many of this connection's input steps
+        // wait in the server's queue - the client's clock sync dilates its step rate to keep it at a small target
+        // (Overwatch / Rocket League input buffer feedback).
+        PawnMoveState          OwnState;
+        std::uint8_t           InputBuffered = 0;
         std::vector<PawnState> Pawns;
     };
 

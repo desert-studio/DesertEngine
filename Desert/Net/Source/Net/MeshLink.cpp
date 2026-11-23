@@ -29,7 +29,7 @@ namespace Desert::Net
             PlayerJoined,     // u32 player, u64 account
             PlayerLeft,       // u32 player
             PlayerInput,      // u32 player, the client's Input message as received
-            InputAck,         // u32 player, u32 step
+            InputAck,         // u32 player, acked move (step, own movement state, queued steps)
             PawnSpawned,      // u32 owner, u32 player, pawn
             PawnDestroyed,    // u32 id
             Handover,         // handover header (epoch = the sender's), handover pawn  (sim -> store)
@@ -87,6 +87,20 @@ namespace Desert::Net
                 F32( p.Velocity.Z );
                 U8( p.Movement );
                 U8( p.TeleportCount );
+            }
+            void Move( const ISimLink::AckedMove& m )
+            {
+                U32( m.Step );
+                F32( m.State.Position.X );
+                F32( m.State.Position.Y );
+                F32( m.State.Position.Z );
+                F32( m.State.Velocity.X );
+                F32( m.State.Velocity.Y );
+                F32( m.State.Velocity.Z );
+                F32( m.State.Yaw );
+                F32( m.State.FloorY );
+                U8( m.State.Grounded ? 1 : 0 );
+                U8( m.Buffered );
             }
             void Value( const ReplicatedValue& value )
             {
@@ -172,6 +186,17 @@ namespace Desert::Net
                 return U32( p.Id ) && F32( p.Position.X ) && F32( p.Position.Y ) && F32( p.Position.Z ) &&
                        F32( p.Yaw ) && F32( p.Velocity.X ) && F32( p.Velocity.Y ) && F32( p.Velocity.Z ) &&
                        U8( p.Movement ) && U8( p.TeleportCount );
+            }
+            bool Move( ISimLink::AckedMove& m )
+            {
+                std::uint8_t grounded = 0;
+                if ( !( U32( m.Step ) && F32( m.State.Position.X ) && F32( m.State.Position.Y ) &&
+                        F32( m.State.Position.Z ) && F32( m.State.Velocity.X ) && F32( m.State.Velocity.Y ) &&
+                        F32( m.State.Velocity.Z ) && F32( m.State.Yaw ) && F32( m.State.FloorY ) &&
+                        U8( grounded ) && U8( m.Buffered ) ) )
+                    return false;
+                m.State.Grounded = grounded != 0;
+                return true;
             }
             bool Value( ReplicatedValue& value )
             {
@@ -308,6 +333,30 @@ namespace Desert::Net
             w.F32( input.Yaw );
         }
 
+        void WriteMoveState( Writer& w, const PawnMoveState& move )
+        {
+            w.F32( move.Position.X );
+            w.F32( move.Position.Y );
+            w.F32( move.Position.Z );
+            w.F32( move.Velocity.X );
+            w.F32( move.Velocity.Y );
+            w.F32( move.Velocity.Z );
+            w.F32( move.Yaw );
+            w.F32( move.FloorY );
+            w.U8( move.Grounded ? 1 : 0 );
+        }
+
+        bool ReadMoveState( Reader& r, PawnMoveState& move )
+        {
+            std::uint8_t grounded = 0;
+            if ( !( r.F32( move.Position.X ) && r.F32( move.Position.Y ) && r.F32( move.Position.Z ) &&
+                    r.F32( move.Velocity.X ) && r.F32( move.Velocity.Y ) && r.F32( move.Velocity.Z ) &&
+                    r.F32( move.Yaw ) && r.F32( move.FloorY ) && r.U8( grounded ) ) )
+                return false;
+            move.Grounded = grounded != 0;
+            return true;
+        }
+
         bool ReadInputStep( Reader& r, InputStep& input )
         {
             return r.U32( input.Step ) && r.F32( input.Move.X ) && r.F32( input.Move.Y ) &&
@@ -329,7 +378,7 @@ namespace Desert::Net
             w.Pawn( pawn.State );
             w.U8( pawn.LastProcessed ? 1 : 0 );
             w.U32( pawn.LastProcessed.value_or( 0 ) );
-            WriteInputStep( w, pawn.LastApplied );
+            WriteMoveState( w, pawn.Move );
             w.U32( static_cast<std::uint32_t>( pawn.Pending.size() ) );
             for ( const InputStep& input : pawn.Pending )
                 WriteInputStep( w, input );
@@ -345,7 +394,7 @@ namespace Desert::Net
             if ( !r.U32( h.From ) || !r.U32( h.Epoch ) || !r.U32( h.To ) || !r.U32( h.Step ) ||
                  !r.U32( h.Gateway ) || !r.U32( pawn.Player ) || !r.U64( pawn.Account ) || !r.U32( pawn.Index ) ||
                  !r.Pawn( pawn.State ) || !r.U8( hasProcessed ) || !r.U32( processed ) ||
-                 !ReadInputStep( r, pawn.LastApplied ) || !r.U32( pending ) || pending > InputRing::kCapacity )
+                 !ReadMoveState( r, pawn.Move ) || !r.U32( pending ) || pending > InputRing::kCapacity )
                 return false;
             if ( hasProcessed )
                 pawn.LastProcessed = processed;
@@ -1250,10 +1299,10 @@ namespace Desert::Net
         }
     }
 
-    std::optional<std::uint32_t> RemoteSimLink::LastProcessedInput( PlayerId player ) const
+    std::optional<ISimLink::AckedMove> RemoteSimLink::LastProcessedInput( PlayerId player ) const
     {
         const auto it = m_Acks.find( player );
-        return it == m_Acks.end() ? std::nullopt : std::optional<std::uint32_t>( it->second );
+        return it == m_Acks.end() ? std::nullopt : std::optional<AckedMove>( it->second );
     }
 
     bool RemoteSimLink::OnMeshMessage( std::uint8_t type, std::span<const std::byte> body )
@@ -1268,9 +1317,10 @@ namespace Desert::Net
         }
         if ( type == Code( EMesh::InputAck ) )
         {
-            std::uint32_t player = 0, step = 0;
-            if ( r.U32( player ) && r.U32( step ) )
-                m_Acks[player] = step;
+            std::uint32_t player = 0;
+            AckedMove     move;
+            if ( r.U32( player ) && r.Move( move ) )
+                m_Acks[player] = move;
             return true;
         }
         return false;
@@ -1376,7 +1426,7 @@ namespace Desert::Net
                 continue;
             Writer w( EMesh::InputAck );
             w.U32( player );
-            w.U32( *ack );
+            w.Move( *ack );
             if ( const auto connection = m_Endpoint.PeerConnection( EMeshRole::Gateway, gateway ) )
                 m_Endpoint.Send( *connection, w.Take() );
         }
@@ -1451,7 +1501,7 @@ namespace Desert::Net
 
     bool SimHandover::OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
                                       RemoteGatewayLink& gateways, RemoteReplicationStore& replica,
-                                      std::uint32_t step, double stepSeconds )
+                                      std::uint32_t step )
     {
         if ( type == Code( EMesh::Adopt ) )
         {
@@ -1471,7 +1521,7 @@ namespace Desert::Net
                  wasProxy ? "its proxy promoted to authoritative"
                           : "held no proxy of it (outside the border band), placed from the handed state",
                  h.Step, step, catchUp, pawn.Pending.size() ) );
-            sim.Adopt( std::move( pawn ), catchUp, stepSeconds );
+            sim.Adopt( std::move( pawn ), catchUp );
             return true;
         }
         if ( type == Code( EMesh::ForwardedInput ) )

@@ -48,8 +48,21 @@ namespace Desert::Net
         bool Connect( std::string_view address, std::string& error );
         // Pumps the transport and advances the remote pawns' render clock (call every frame).
         void Poll();
-        // One client fixed step of input (call at kNetStepHz while InSession).
-        void SendInput( const NetVec3& move, float yaw );
+        // One client fixed step of input (call at kNetStepHz while InSession): the step as sent (numbered) - the
+        // input the client's prediction runs - or nullopt outside the session.
+        std::optional<InputStep> SendInput( const NetVec3& move, float yaw, std::uint8_t buttons = 0 );
+        // THE OWN PAWN'S AUTHORITY (§5.1): the newest ack with the server's state after that step, once per new
+        // ack (UE ClientAdjustPosition / ClientAckGoodMove), and the server's input queue length with it.
+        struct OwnAuthority
+        {
+            std::uint32_t AckStep = 0;
+            PawnMoveState State;
+            std::uint8_t  InputBuffered = 0;
+        };
+        [[nodiscard]] std::optional<OwnAuthority> TakeOwnAuthority()
+        {
+            return std::exchange( m_OwnAuthority, std::nullopt );
+        }
 
         void OnConnected( ConnectionId connection, std::string_view address ) override;
         void OnClosed( ConnectionId connection, const DisconnectInfo& info ) override;
@@ -144,6 +157,7 @@ namespace Desert::Net
         InputRing                    m_Inputs;
         std::uint32_t                m_NextStep = 1, m_NextSequence = 1;
         std::optional<std::uint32_t> m_LastAck;
+        std::optional<OwnAuthority>                                  m_OwnAuthority;
         StateAckWindow                                               m_StateAcks;
         std::map<std::pair<StableNetId, std::string>, std::uint32_t> m_StableVersions; // newest version per field
         std::vector<StableChange>                                    m_StableChanges;

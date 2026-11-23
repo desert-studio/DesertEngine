@@ -9,7 +9,8 @@
 // Every frame: pump, apply spawns/destroys, write each pawn's transform from the replicated state (Sample), and
 // send this client's input on the fixed 60 Hz net step - the own pawn's CharacterControllerComponent::MoveInput
 // resolved against the view (the same basis PhysicsECSSystem uses), or the scripted walk (--net-walk-cm, the
-// headless proof). Input keeps the step + ack path (InputRing) NET-4 replays from; nothing here predicts yet.
+// headless proof). NET-4: the own pawn is PREDICTED - every input step is simulated here as it is sent (Net::
+// MovePredictor, the server runs the same Net::StepPawnMove) and reconciled against the server's acked state.
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -46,6 +47,9 @@ namespace Desert::Core
         // position of the own pawn has moved D cm, then stand (DesertNetProbe --bot's walk).
         float     WalkCm = 0.0f;
         glm::vec3 WalkDir{ 1.0f, 0.0f, 0.0f };
+        // --net-walk-mode sprint / --net-jump-every S: the scripted walk sprints, and jumps every S seconds.
+        bool      WalkSprint           = false;
+        float     WalkJumpEverySeconds = 0.0f;
         // --net-lag-ms / --net-loss: the transport's simulated link (GNS FakePacketLag/Loss).
         int   LagMs       = 0;
         float LossPercent = 0.0f;
@@ -63,9 +67,19 @@ namespace Desert::Core
         }
     };
 
+    // The own pawn's prediction as the client sees it (the viewport HUD's "Net" row; UE stat net's corrections).
+    struct NetPredictionStats
+    {
+        std::uint32_t Corrections   = 0; // server corrections taken this session (ClientAdjustPosition)
+        std::size_t   Unacked       = 0; // predicted input steps the server has not acknowledged yet
+        double        ClockDilation = 1.0; // the input step's rate against real time (clock sync)
+    };
+
     class ClientNetDriver
     {
     public:
+        // The running session's prediction, nullopt while no client session runs (like MemoryWatch::LastBindless).
+        [[nodiscard]] static std::optional<NetPredictionStats> LastStats();
         // Connects (asynchronously: the session begins on a later Tick). Refuses a malformed token, a cooked world
         // without its index, or an address the transport cannot use.
         static Common::ResultStr<std::unique_ptr<ClientNetDriver>> Connect( const ClientNetOptions& options );
@@ -99,6 +113,11 @@ namespace Desert::Core
         void      ReportResidency( Scene& scene );
         void      ApplyStableDestroyed( Scene& scene );
         glm::vec3 InputMove( Scene& scene );
+        std::uint8_t InputButtons( Scene& scene );
+        // NET-4 (§5.1): the server's newest state for the own pawn against the saved moves; a correction moves the
+        // simulation at once and the drawn pawn by a decaying offset (UE smoothed ClientAdjustPosition).
+        void         ReconcileOwnPawn();
+        [[nodiscard]] glm::vec3 OwnDrawnPosition() const;
 
         ClientNetOptions                        m_Options;
         std::unique_ptr<Net::INetTransport>     m_Transport;
@@ -116,5 +135,12 @@ namespace Desert::Core
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
         bool m_Closed = false;
         double                                  m_StepClock = 0.0, m_Clock = 0.0, m_NextLog = 1.0;
+        // The own pawn's prediction (NET-4): its saved moves, the movement both sides run, the drawn offset a
+        // correction left, and the clock sync (the server's input queue, averaged, and this client's step rate).
+        // (Desert/Net is private to the engine: the predictor lives in ClientNetDriver.cpp.)
+        struct Prediction;
+        std::shared_ptr<Prediction> m_Prediction;
+        glm::vec3                   m_SmoothOffset{ 0.0f };
+        double                      m_ServerQueue = 2.0, m_Dilation = 1.0, m_NextJump = 0.0;
     };
 } // namespace Desert::Core

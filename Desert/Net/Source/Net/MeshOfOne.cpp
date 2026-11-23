@@ -75,6 +75,8 @@ namespace Desert::Net
         pawn.Index          = m_Joined++;
         pawn.State.Id       = m_Store.AllocateNetId();
         pawn.State.Position = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
+        pawn.Move.Position  = pawn.State.Position;
+        pawn.Move.FloorY    = pawn.State.Position.Y;
         m_Store.Write( pawn.State );
         m_Log( std::format( "player {} (account {}): pawn net id {} spawned at ({:.0f}, {:.0f}, {:.0f}) cm",
                             player, account, pawn.State.Id, pawn.State.Position.X, pawn.State.Position.Y,
@@ -115,40 +117,41 @@ namespace Desert::Net
             pawn.Pending.erase( std::prev( pawn.Pending.end() ) );
     }
 
-    std::optional<std::uint32_t> PawnSimulation::LastProcessedInput( PlayerId player ) const
+    std::optional<ISimLink::AckedMove> PawnSimulation::LastProcessedInput( PlayerId player ) const
     {
         const auto it = m_Pawns.find( player );
-        return it == m_Pawns.end() ? std::nullopt : it->second.LastProcessed;
+        if ( it == m_Pawns.end() || !it->second.LastProcessed )
+            return std::nullopt;
+        return AckedMove{ *it->second.LastProcessed, it->second.Move, it->second.QueuedAtStep };
     }
 
-    void PawnSimulation::StepPawn( Pawn& pawn, double dtSeconds ) const
+    // The server moves a pawn only by its player's input steps, one per step in step order (UE ServerMove: the
+    // server simulates the client's moves, never moves of its own) - so its state after step N is the client's
+    // prediction of N. A starved pawn holds; a queue above the clock sync's target drains two per step.
+    void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
-        if ( !pawn.Pending.empty() )
+        constexpr std::size_t kDrainAbove = 4;
+        pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
+        const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
+        for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
         {
             const auto next    = pawn.Pending.begin();
-            pawn.LastApplied   = next->second;
+            // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
+            pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, kNetStepSeconds );
             pawn.LastProcessed = next->first;
             pawn.Pending.erase( next );
         }
-        NetVec3     move   = pawn.LastApplied.Move;
-        const float length = std::sqrt( move.X * move.X + move.Y * move.Y + move.Z * move.Z );
-        if ( length > 1.f )
-            move = { move.X / length, move.Y / length, move.Z / length };
-        const float distance = m_Settings.WalkSpeed * static_cast<float>( dtSeconds );
-        pawn.State.Position.X += move.X * distance;
-        pawn.State.Position.Y += move.Y * distance;
-        pawn.State.Position.Z += move.Z * distance;
-        pawn.State.Yaw      = pawn.LastApplied.Yaw;
-        pawn.State.Velocity = { move.X * m_Settings.WalkSpeed, move.Y * m_Settings.WalkSpeed,
-                                move.Z * m_Settings.WalkSpeed };
-        pawn.State.Movement = kPawnGrounded; // the kinematic walker never leaves the ground
+        pawn.State.Position = pawn.Move.Position;
+        pawn.State.Yaw      = pawn.Move.Yaw;
+        pawn.State.Velocity = pawn.Move.Velocity;
+        pawn.State.Movement = pawn.Move.Grounded ? kPawnGrounded : std::uint8_t{ 0 };
     }
 
-    void PawnSimulation::Step( double dtSeconds )
+    void PawnSimulation::Step()
     {
         for ( auto& [player, pawn] : m_Pawns )
         {
-            StepPawn( pawn, dtSeconds );
+            StepPawn( pawn );
             m_Store.Write( pawn.State );
         }
     }
@@ -164,25 +167,25 @@ namespace Desert::Net
         out.Index         = it->second.Index;
         out.State         = it->second.State;
         out.LastProcessed = it->second.LastProcessed;
-        out.LastApplied   = it->second.LastApplied;
+        out.Move          = it->second.Move;
         for ( const auto& [step, input] : it->second.Pending )
             out.Pending.push_back( input );
         m_Pawns.erase( it );
         return out;
     }
 
-    void PawnSimulation::Adopt( HandoverPawn handed, std::uint32_t catchUpSteps, double dtSeconds )
+    void PawnSimulation::Adopt( HandoverPawn handed, std::uint32_t catchUpSteps )
     {
         Pawn pawn;
         pawn.Account       = handed.Account;
         pawn.Index         = handed.Index;
         pawn.State         = handed.State;
         pawn.LastProcessed = handed.LastProcessed;
-        pawn.LastApplied   = handed.LastApplied;
+        pawn.Move          = handed.Move;
         for ( const InputStep& input : handed.Pending )
             pawn.Pending.emplace( input.Step, input );
         for ( std::uint32_t i = 0; i < catchUpSteps; ++i )
-            StepPawn( pawn, dtSeconds );
+            StepPawn( pawn );
         m_Store.Write( pawn.State );
         m_Pawns.insert_or_assign( handed.Player, std::move( pawn ) );
     }
@@ -194,6 +197,11 @@ namespace Desert::Net
             return false;
         it->second.State.Position = position;
         ++it->second.State.TeleportCount;
+        // UE TeleportTo on a character: it stands at the new place, still; the floor is where it stands.
+        it->second.Move.Position = position;
+        it->second.Move.Velocity = {};
+        it->second.Move.FloorY   = position.Y;
+        it->second.Move.Grounded = true;
         m_Store.Write( it->second.State );
         m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
                             it->second.State.Id, position.X, position.Y, position.Z ) );
@@ -465,10 +473,15 @@ namespace Desert::Net
             for ( const PawnState& pawn : pawns )
                 if ( peer.Relevant.contains( pawn.Id ) )
                     snapshot.Pawns.push_back( pawn );
-            const std::optional<std::uint32_t> ack =
+            const std::optional<ISimLink::AckedMove> ack =
                  m_Sim != nullptr ? m_Sim->LastProcessedInput( player ) : std::nullopt;
-            snapshot.HasAck       = ack.has_value();
-            snapshot.AckInputStep = ack.value_or( 0 );
+            snapshot.HasAck = ack.has_value();
+            if ( ack )
+            {
+                snapshot.AckInputStep  = ack->Step;
+                snapshot.OwnState      = ack->State;
+                snapshot.InputBuffered = ack->Buffered;
+            }
             // State lane: unreliable; a full send queue drops this snapshot, the next one supersedes it.
             m_Transport.Send( connection, EncodeSnapshot( snapshot ), ENetLane::State );
         }

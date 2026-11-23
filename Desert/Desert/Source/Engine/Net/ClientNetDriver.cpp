@@ -21,6 +21,7 @@
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 #include <Net/NetTransport.hpp>
+#include <Net/PawnMovement.hpp>
 #include <Net/ReplicationClient.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -90,7 +91,34 @@ namespace Desert::Core
             if ( glm::length( right ) > 1e-4f )
                 right = glm::normalize( right );
         }
+
+        // UE NetworkNoSmoothUpdateDistance: a correction farther than this is a relocation, drawn at once.
+        constexpr float  kNoSmoothDistanceCm = 384.0f;
+        // UE NetworkSimulatedSmoothLocationTime: the drawn offset a correction leaves decays with this time.
+        constexpr double kSmoothSeconds = 0.1;
+        // The clock sync's target: input steps waiting on the server when its step starts (measured BEFORE it
+        // consumes - PawnSimulation::Step): 1 = each step's input arrives just in time, the band's upper edge is
+        // one lost packet of slack; the step rate dilates either side of it (Overwatch: a few percent, never a
+        // visible speed change).
+        constexpr double kQueueLow = 1.0, kQueueHigh = 2.0, kDilation = 0.03;
+
+        std::optional<NetPredictionStats>& StatsSlot()
+        {
+            static std::optional<NetPredictionStats> stats;
+            return stats;
+        }
     } // namespace
+
+    struct ClientNetDriver::Prediction
+    {
+        Net::MovePredictor    Predictor;
+        Net::PawnMoveSettings Movement;
+    };
+
+    std::optional<NetPredictionStats> ClientNetDriver::LastStats()
+    {
+        return StatsSlot();
+    }
 
     Common::ResultStr<std::unique_ptr<ClientNetDriver>> ClientNetDriver::Connect( const ClientNetOptions& options )
     {
@@ -153,26 +181,41 @@ namespace Desert::Core
         }
         m_InSession = true;
 
+        if ( !m_Prediction )
+            m_Prediction = std::make_shared<Prediction>();
         ApplySpawnsAndDestroys( scene, assets );
+        ReconcileOwnPawn();
         WriteTransforms( scene );
         ApplyStableDestroyed( scene );
         ApplyStableState( scene );
         ReportResidency( scene );
 
-        // The input on the server's fixed step: one numbered step per 1/60 s of this client's clock.
+        // The input on the server's fixed step: one numbered step per 1/60 s of this client's clock, dilated by the
+        // clock sync; each step is simulated here as it is sent (the prediction) - none before the own pawn is.
+        Net::MovePredictor& predictor = m_Prediction->Predictor;
         m_StepClock += deltaSeconds;
-        const double period = 1.0 / Net::kNetStepHz;
+        const double period = m_Dilation / Net::kNetStepHz;
         int          steps  = 0;
-        while ( m_StepClock >= period && steps < 8 )
+        while ( predictor.Started() && m_StepClock >= period && steps < 8 )
         {
             m_StepClock -= period;
             ++steps;
-            const glm::vec3 move = InputMove( scene );
-            const float     yaw  = glm::length( move ) > 1e-4f ? std::atan2( -move.x, -move.z ) : 0.0f;
-            m_Client->SendInput( { move.x, move.y, move.z }, yaw );
+            const glm::vec3    move    = InputMove( scene );
+            const float        yaw     = glm::length( move ) > 1e-4f ? std::atan2( -move.x, -move.z ) : 0.0f;
+            const std::uint8_t buttons = InputButtons( scene );
+            if ( const auto sent = m_Client->SendInput( { move.x, move.y, move.z }, yaw, buttons ) )
+                predictor.Predict( *sent, m_Prediction->Movement, Net::kNetStepSeconds );
         }
-        if ( m_StepClock >= period ) // a hitch longer than 8 steps: the server's clock is not ours to catch up
+        if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than 8 steps is not caught up
             m_StepClock = 0.0;
+
+        // The own pawn is drawn between its last two predicted steps, plus what is left of a correction's offset.
+        m_SmoothOffset *= static_cast<float>( std::exp( -deltaSeconds / kSmoothSeconds ) );
+        if ( predictor.Started() )
+            if ( const auto own = m_Entities.find( m_Client->OwnPawn() ); own != m_Entities.end() &&
+                                                                          scene.GetRegistry().valid( own->second ) )
+                ECS::SetLocalTranslation( scene.GetRegistry(), own->second, OwnDrawnPosition() );
+        StatsSlot() = NetPredictionStats{ predictor.Corrections(), predictor.Unacked(), 1.0 / m_Dilation };
 
         if ( m_Clock >= m_NextLog )
         {
@@ -182,9 +225,10 @@ namespace Desert::Core
                 if ( const auto sample = m_Client->Sample( id ) )
                     line += std::format( " {}{}(player {})=({:.0f},{:.0f},{:.0f})", id, pawn.Owned ? "*" : "",
                                          pawn.Player, sample->Position.X, sample->Position.Y, sample->Position.Z );
-            LOG_INFO( "[Net] t={:.1f}s pawns{}; scene players {}; unacked inputs {}", m_Clock,
-                      line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
-                      m_Client->PendingInputs() );
+            LOG_INFO( "[Net] t={:.1f}s pawns{}; scene players {}; unacked inputs {}; corrections {}; server input "
+                      "queue {:.1f}, clock x{:.2f}",
+                      m_Clock, line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
+                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation );
         }
     }
 
@@ -333,8 +377,10 @@ namespace Desert::Core
             {
                 if ( !m_OwnFirstServerPosition )
                     m_OwnFirstServerPosition = position;
-                ECS::SetLocalTranslation( reg, entity, position );
-                continue; // the own pawn faces where its controller script turns it
+                // Predicted: Tick draws it after this frame's steps. It faces where its controller script turns it.
+                if ( !m_Prediction->Predictor.Started() )
+                    ECS::SetLocalTranslation( reg, entity, position );
+                continue;
             }
             ECS::LocalTransform local = reg.get<ECS::TransformComponent>( entity ).GetLocal();
             local.Translation         = position;
@@ -612,8 +658,87 @@ namespace Desert::Core
         return forward * intent.y + right * intent.x;
     }
 
+    std::uint8_t ClientNetDriver::InputButtons( Scene& scene )
+    {
+        std::uint8_t buttons = 0;
+        if ( m_Walking )
+        {
+            if ( m_Options.WalkSprint )
+                buttons |= Net::kInputSprint;
+            if ( m_Options.WalkJumpEverySeconds > 0.0f && m_Clock >= m_NextJump )
+            {
+                buttons |= Net::kInputJump;
+                m_NextJump = m_Clock + m_Options.WalkJumpEverySeconds;
+            }
+            return buttons;
+        }
+        if ( m_Options.WalkCm > 0.0f )
+            return buttons;
+        auto&              reg  = scene.GetRegistry();
+        const entt::entity pawn = scene.GetPlayerPawn();
+        if ( pawn == entt::null || !reg.valid( pawn ) || !reg.has<ECS::CharacterControllerComponent>( pawn ) )
+            return buttons;
+        // The script's one-shot jump (self:jump) is this step's Jump; the physics step that would consume it skips
+        // a replicated pawn.
+        if ( auto& cc = reg.get<ECS::CharacterControllerComponent>( pawn ); cc.JumpRequested )
+        {
+            buttons |= Net::kInputJump;
+            cc.JumpRequested = false;
+        }
+        return buttons;
+    }
+
+    glm::vec3 ClientNetDriver::OwnDrawnPosition() const
+    {
+        const Net::MovePredictor& predictor = m_Prediction->Predictor;
+        const float alpha = static_cast<float>( std::clamp( m_StepClock * Net::kNetStepHz / m_Dilation, 0.0, 1.0 ) );
+        return glm::mix( ToGlm( predictor.Previous().Position ), ToGlm( predictor.Current().Position ), alpha ) +
+               m_SmoothOffset;
+    }
+
+    void ClientNetDriver::ReconcileOwnPawn()
+    {
+        Net::MovePredictor& predictor = m_Prediction->Predictor;
+        if ( !predictor.Started() )
+        {
+            // The prediction starts where the server spawned the pawn, standing (the server's own start).
+            const auto own = m_Client->Pawns().find( m_Client->OwnPawn() );
+            if ( own == m_Client->Pawns().end() )
+                return;
+            Net::PawnMoveState start;
+            start.Position = own->second.History.Sample( 1e12 ).Position;
+            start.FloorY   = start.Position.Y;
+            predictor.Reset( start );
+            m_NextJump = m_Clock + m_Options.WalkJumpEverySeconds;
+            LOG_INFO( "[Net] predicting own pawn net id {} from ({:.0f}, {:.0f}, {:.0f}) cm", own->first,
+                      start.Position.X, start.Position.Y, start.Position.Z );
+        }
+        const auto authority = m_Client->TakeOwnAuthority();
+        if ( !authority )
+            return;
+        // Clock sync: keep the server's queue of this client's input steps between kQueueLow and kQueueHigh.
+        m_ServerQueue = m_ServerQueue * 0.9 + static_cast<double>( authority->InputBuffered ) * 0.1;
+        m_Dilation    = m_ServerQueue < kQueueLow    ? 1.0 - kDilation
+                        : m_ServerQueue > kQueueHigh ? 1.0 + kDilation
+                                                     : 1.0;
+        const glm::vec3 drawnBefore = OwnDrawnPosition();
+        const auto      outcome =
+             predictor.Reconcile( authority->AckStep, authority->State, m_Prediction->Movement, Net::kNetStepSeconds );
+        if ( outcome != Net::MovePredictor::EReconcile::Corrected )
+            return;
+        const glm::vec3 offset = drawnBefore - ( OwnDrawnPosition() - m_SmoothOffset );
+        const bool      smooth = glm::length( offset ) <= kNoSmoothDistanceCm;
+        m_SmoothOffset         = smooth ? offset : glm::vec3( 0.0f );
+        LOG_INFO( "[Net] correction {} at input step {}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
+                  "{} unacked step(s) replayed; drawn offset {:.1f} cm {}",
+                  predictor.Corrections(), authority->AckStep, authority->State.Position.X,
+                  authority->State.Position.Y, authority->State.Position.Z, predictor.Unacked(),
+                  glm::length( offset ), smooth ? "smoothed" : "beyond the smoothing distance - drawn at once" );
+    }
+
     void ClientNetDriver::Shutdown( Scene& scene )
     {
+        StatsSlot().reset();
         for ( const auto& [id, entity] : m_Entities )
             if ( entity != scene.GetPlayerPawn() )
                 scene.RemoveRemotePlayer( entity );

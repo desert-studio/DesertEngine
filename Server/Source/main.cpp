@@ -855,8 +855,7 @@ namespace Desert::Server
                    {
                        if ( from == Net::EMeshRole::Store )
                        {
-                           if ( !handover.OnStoreMessage( type, body, sim, gatewayLink, replica, lastStep,
-                                                          1.0 / kStepHz ) )
+                           if ( !handover.OnStoreMessage( type, body, sim, gatewayLink, replica, lastStep ) )
                                replica.OnStoreMessage( type, body );
                        }
                        else if ( from == Net::EMeshRole::Gateway )
@@ -900,7 +899,7 @@ namespace Desert::Server
                 {
                     for ( const std::string& line : console.Take() )
                         RunConsoleLine( line, records, replica, nullptr, sim );
-                    sim.Step( 1.0 / kStepHz );
+                    sim.Step();
                     lastStep = step;
                     handover.AfterStep( step, sim, gatewayLink, replica );
                     gatewayLink.SendAcks( sim );
@@ -1146,7 +1145,7 @@ namespace Desert::Server
                     for ( const std::string& line : console.Take() )
                         RunConsoleLine( line, records, *store, gateway.get(), *sim );
                     transport->Poll( *gateway );
-                    sim->Step( 1.0 / kStepHz );
+                    sim->Step();
                     if ( step % Net::kSnapshotEverySteps == 0 )
                         gateway->SendSnapshots( static_cast<std::uint32_t>( step ) );
                 }
