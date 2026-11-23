@@ -28,6 +28,7 @@
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/Serialization/ControlRig.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
@@ -3796,7 +3797,54 @@ namespace Desert::Migration
         return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
     }
 
-    Common::ResultStr<std::string> MigrateMeshBinaryToV9( const std::string_view path, const std::string_view bytes )
+    namespace
+    {
+        // A v7-v9 DAG's generators, recovered from the records alone: BuildClusterDag copies the generating
+        // group's LodBounds + ParentLodError into every cluster it simplified to (ClusterRecord::LodBounds /
+        // LodError), so a level-L+1 cluster's generator is the one non-terminal level-L group whose sphere and
+        // parent error are bit-equal to its own. None or more than one is refused, never guessed.
+        Common::BoolResultStr RecoverClusterGenerators( Geometry::ClusterDag& dag )
+        {
+            using Key        = std::array<uint32_t, 6>; // level, sphere centre xyz, radius, error (float bits)
+            const auto KeyOf = []( const uint32_t level, const Geometry::ClusterSphere& s, const float error )
+            {
+                return Key{ level,
+                            std::bit_cast<uint32_t>( s.Center[0] ),
+                            std::bit_cast<uint32_t>( s.Center[1] ),
+                            std::bit_cast<uint32_t>( s.Center[2] ),
+                            std::bit_cast<uint32_t>( s.Radius ),
+                            std::bit_cast<uint32_t>( error ) };
+            };
+            constexpr uint32_t      kAmbiguous = Geometry::kClusterHierarchyNone - 1u;
+            std::map<Key, uint32_t> groupOf;
+            for ( uint32_t g = 0; g < dag.Groups.size(); ++g )
+            {
+                const Geometry::ClusterGroupRecord& group = dag.Groups[g];
+                if ( group.ParentLodError >= Geometry::kClusterRootError )
+                    continue; // terminal: generated nothing
+                const auto [it, fresh] =
+                     groupOf.try_emplace( KeyOf( group.Level, group.LodBounds, group.ParentLodError ), g );
+                if ( !fresh )
+                    it->second = kAmbiguous;
+            }
+            dag.Generators.assign( dag.Clusters.size(), Geometry::kClusterHierarchyNone );
+            for ( uint32_t c = 0; c < dag.Clusters.size(); ++c )
+            {
+                const Geometry::ClusterRecord& cluster = dag.Clusters[c];
+                if ( cluster.Level == 0 )
+                    continue;
+                const auto it = groupOf.find( KeyOf( cluster.Level - 1u, cluster.LodBounds, cluster.LodError ) );
+                if ( it == groupOf.end() || it->second == kAmbiguous )
+                    return Common::MakeError( std::format(
+                         "level-{} cluster {} has {} generating group at level {} with its LOD sphere and error",
+                         cluster.Level, c, it == groupOf.end() ? "no" : "more than one", cluster.Level - 1u ) );
+                dag.Generators[c] = it->second;
+            }
+            return BOOLSUCCESS;
+        }
+    }
+
+    Common::ResultStr<std::string> MigrateMeshBinaryToV10( const std::string_view path, const std::string_view bytes )
     {
         namespace C = Common::Content;
         if ( bytes.size() < sizeof( C::MeshBinaryFileHeader ) ||
@@ -3804,15 +3852,30 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>( "'{}' is not a cooked mesh", path );
         C::MeshBinaryFileHeader header{};
         std::memcpy( &header, bytes.data(), sizeof( header ) );
-        if ( header.Version < 6u || header.Version > 8u )
-            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 6, 7 and 8",
+        if ( header.Version < 6u || header.Version > 9u )
+            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 6 to 9",
                                                             path, header.Version );
-        static_assert( C::kMeshBinaryVersion == 9u, "the raise re-states the file at the version written" );
+        static_assert( C::kMeshBinaryVersion == 10u, "the raise re-states the file at the version written" );
         auto decoded = Assets::Serialization::DecodeMeshBinary( bytes, path );
         if ( !decoded )
             return Common::MakeFormattedError<std::string>( "'{}': the v{} mesh does not read: {}", path,
                                                             header.Version, decoded.GetError() );
-        return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
+        // v10 (VG-STREAMING): every DAG states its streaming pages and generators. A v7-v9 DAG has neither; the
+        // generators are recovered from its records and the cook's own PaginateClusterDag cuts the pages, so the
+        // file reads exactly as a fresh cook of the same DAG would (the VG DDC key re-derives it anyway).
+        Assets::Serialization::MeshAssetData data = decoded.ExtractValue();
+        for ( size_t s = 0; s < data.Submeshes.size(); ++s )
+        {
+            Geometry::ClusterDag& dag = data.Submeshes[s].ClusterDag;
+            if ( dag.Clusters.empty() )
+                continue;
+            if ( const Common::BoolResultStr recovered = RecoverClusterGenerators( dag ); !recovered )
+                return Common::MakeFormattedError<std::string>( "'{}' submesh {}: {}", path, s,
+                                                                recovered.GetError() );
+            if ( const Common::BoolResultStr paged = Geometry::PaginateClusterDag( dag ); !paged )
+                return Common::MakeFormattedError<std::string>( "'{}' submesh {}: {}", path, s, paged.GetError() );
+        }
+        return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( data ) );
     }
 
     Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( const std::string_view path, const std::string_view bytes )

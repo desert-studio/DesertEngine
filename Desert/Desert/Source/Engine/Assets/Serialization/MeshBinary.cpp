@@ -93,6 +93,14 @@ namespace Desert::Assets::Serialization
         };
         static_assert( sizeof( BinClusterDagRange ) == 48 );
 
+        // One row per submesh (version 10): its slice of the ClusterPages section (all zero = no DAG). Its
+        // generators are sliced like its clusters (BinClusterDagRange::ClustersFirst / ClustersCount).
+        struct BinClusterPageRange
+        {
+            uint32_t PagesFirst, PagesCount;
+        };
+        static_assert( sizeof( BinClusterPageRange ) == 8 );
+
         struct BinMorphTarget
         {
             uint32_t NameOffset;
@@ -161,10 +169,14 @@ namespace Desert::Assets::Serialization
             SecClusterTriangles,  // version 7: uint32
             SecSubmeshLodChains,  // version 8: uint32 per submesh, kSubmeshLodChainCooked or 0
             SecLodCutErrors,      // version 9: float per LOD range (SecLODRanges order), the level's cut error
+            SecClusterPageRanges, // version 10: BinClusterPageRange per submesh (rows as SecClusterDagRanges)
+            SecClusterPages,      // version 10: Geometry::ClusterPageRecord
+            SecClusterGenerators, // version 10: uint32 per cluster (SecClusterRecords order), its generating group
             SecCount_             // one past the last id; also the number of rows in the table
         };
         static_assert( SecSubmeshes == Common::Content::kMeshBinarySubmeshSectionId );
         constexpr uint32_t kSectionCount   = SecCount_ - 1; // the current version has every row
+        constexpr uint32_t kSectionCountV9 = SecLodCutErrors;     // version 9: no cluster pages / generators
         constexpr uint32_t kSectionCountV8 = SecSubmeshLodChains; // version 8: no LOD cut-error row
         constexpr uint32_t kSectionCountV7 = SecClusterTriangles; // version 7: no submesh LOD-chain row
         constexpr uint32_t kSectionCountV6 = SecUV1;              // version 6: through UV1, no cluster DAG
@@ -215,9 +227,14 @@ namespace Desert::Assets::Serialization
                 case SecClusterVertexRefs:
                 case SecClusterTriangles:
                 case SecSubmeshLodChains:
+                case SecClusterGenerators:
                     return sizeof( uint32_t );
                 case SecLodCutErrors:
                     return sizeof( float );
+                case SecClusterPageRanges:
+                    return sizeof( BinClusterPageRange );
+                case SecClusterPages:
+                    return sizeof( Geometry::ClusterPageRecord );
                 default:
                     return 0;
             }
@@ -267,6 +284,12 @@ namespace Desert::Assets::Serialization
                     return "SubmeshLodChains";
                 case SecLodCutErrors:
                     return "LodCutErrors";
+                case SecClusterPageRanges:
+                    return "ClusterPageRanges";
+                case SecClusterPages:
+                    return "ClusterPages";
+                case SecClusterGenerators:
+                    return "ClusterGenerators";
                 default:
                     return "<unknown>";
             }
@@ -396,6 +419,9 @@ namespace Desert::Assets::Serialization
         std::vector<Geometry::ClusterGroupRecord>   dagGroups;
         std::vector<Geometry::ClusterHierarchyNode> dagHierarchy;
         std::vector<uint32_t>                       dagVertexRefs, dagTriangles;
+        std::vector<BinClusterPageRange>            pageRanges;
+        std::vector<Geometry::ClusterPageRecord>    dagPages;
+        std::vector<uint32_t>                       dagGenerators;
         if ( std::ranges::any_of( data.Submeshes,
                                   []( const SubmeshData& s ) { return !s.ClusterDag.Clusters.empty(); } ) )
             for ( const SubmeshData& s : data.Submeshes )
@@ -411,6 +437,11 @@ namespace Desert::Assets::Serialization
                 dagHierarchy.insert( dagHierarchy.end(), d.Hierarchy.begin(), d.Hierarchy.end() );
                 dagVertexRefs.insert( dagVertexRefs.end(), d.VertexRefs.begin(), d.VertexRefs.end() );
                 dagTriangles.insert( dagTriangles.end(), d.Triangles.begin(), d.Triangles.end() );
+                // The streaming pages and every cluster's generator (v10): a page's group / ref / triangle
+                // offsets are DAG-relative, so they are written as built, sliced by the row like the rest.
+                pageRanges.push_back( { Count( dagPages ), Count( d.Pages ) } );
+                dagPages.insert( dagPages.end(), d.Pages.begin(), d.Pages.end() );
+                dagGenerators.insert( dagGenerators.end(), d.Generators.begin(), d.Generators.end() );
             }
 
         const Payload payloads[kSectionCount] = {
@@ -436,6 +467,9 @@ namespace Desert::Assets::Serialization
              { SecClusterTriangles, AsBytes( dagTriangles.data(), dagTriangles.size() ), dagTriangles.size() },
              { SecSubmeshLodChains, AsBytes( lodChains.data(), lodChains.size() ), lodChains.size() },
              { SecLodCutErrors, AsBytes( lodCutErrors.data(), lodCutErrors.size() ), lodCutErrors.size() },
+             { SecClusterPageRanges, AsBytes( pageRanges.data(), pageRanges.size() ), pageRanges.size() },
+             { SecClusterPages, AsBytes( dagPages.data(), dagPages.size() ), dagPages.size() },
+             { SecClusterGenerators, AsBytes( dagGenerators.data(), dagGenerators.size() ), dagGenerators.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
@@ -536,7 +570,8 @@ namespace Desert::Assets::Serialization
                  who, header.FileSize, bytes.size() );
         }
 
-        const uint32_t sectionCount = header.Version >= 9u   ? kSectionCount
+        const uint32_t sectionCount = header.Version >= 10u  ? kSectionCount
+                                      : header.Version >= 9u ? kSectionCountV9
                                       : header.Version >= 8u ? kSectionCountV8
                                       : header.Version >= 7u ? kSectionCountV7
                                                              : kSectionCountV6;
@@ -894,6 +929,16 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<MeshAssetData>(
                  "'{}' has {} cluster-DAG range rows for {} submeshes.", who, N( SecClusterDagRanges ),
                  data.Submeshes.size() );
+        // THE STREAMING PAGES (version 10): one page-range row per DAG range row, and one generator per cluster.
+        // A v7-v9 file states neither (N() reads 0): its DAGs read without pages, and only Tools/SceneMigrator
+        // (MigrateMeshBinaryToV10) gives them some - nothing at runtime paginates a loaded DAG.
+        const bool statesPages = header.Version >= 10u;
+        if ( statesPages && ( N( SecClusterPageRanges ) != N( SecClusterDagRanges ) ||
+                              N( SecClusterGenerators ) != N( SecClusterRecords ) ) )
+            return Common::MakeFormattedError<MeshAssetData>(
+                 "'{}' has {} cluster-page range rows for {} cluster-DAG rows and {} generators for {} clusters.",
+                 who, N( SecClusterPageRanges ), N( SecClusterDagRanges ), N( SecClusterGenerators ),
+                 N( SecClusterRecords ) );
         for ( size_t i = 0; i < N( SecClusterDagRanges ); ++i )
         {
             BinClusterDagRange r{};
@@ -929,6 +974,26 @@ namespace Desert::Assets::Serialization
                          "'{}' submesh {} cluster {} names a group, vertex refs or triangles outside its DAG.",
                          who, i, c );
             }
+            if ( !statesPages )
+                continue;
+            BinClusterPageRange pageRange{};
+            std::memcpy( &pageRange, At( SecClusterPageRanges ) + i * sizeof( pageRange ), sizeof( pageRange ) );
+            if ( !Slice( SecClusterPages, pageRange.PagesFirst, pageRange.PagesCount, dag.Pages ) ||
+                 !Slice( SecClusterGenerators, r.ClustersFirst, r.ClustersCount, dag.Generators ) )
+                return Common::MakeFormattedError<MeshAssetData>(
+                     "'{}' submesh {} names a cluster-page or generator slice outside its section.", who, i );
+            // The page rules every consumer of a loaded DAG relies on (one level per page, contiguous words,
+            // the root set closed upwards, generators one level down) - judged here, once, by the same function
+            // the cook paginated with, so a loaded DAG carries exactly the pages its build made.
+            if ( dag.Clusters.empty() )
+            {
+                if ( !dag.Pages.empty() )
+                    return Common::MakeFormattedError<MeshAssetData>(
+                         "'{}' submesh {} states {} cluster pages and no cluster DAG.", who, i, dag.Pages.size() );
+            }
+            else if ( const Common::BoolResultStr valid = Geometry::ValidateClusterPages( dag ); !valid )
+                return Common::MakeFormattedError<MeshAssetData>( "'{}' submesh {} cluster pages: {}", who, i,
+                                                                  valid.GetError() );
         }
 
         return Common::MakeSuccess( std::move( data ) );
