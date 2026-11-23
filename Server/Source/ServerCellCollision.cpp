@@ -123,7 +123,9 @@ namespace Desert::Server
             frame.SpacingCm    = root->SpacingCm.value_or( frame.SpacingCm );
             frame.ZScale       = root->ZScale.value_or( frame.ZScale );
             if ( const auto valid = Landscape::ValidateLandscapeRoot( frame ); !valid )
+            {
                 LOG_ERROR( "[Server] landscape {}: {}", data.id->ToString(), valid.GetError() );
+            }
             else
             {
                 const std::string id = data.id->ToString();
