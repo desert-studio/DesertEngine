@@ -1,0 +1,31 @@
+# NET-3 pass 1: WP coupling - clients report their resident WP cells (reliable lane, UE ServerUpdateLevelVisibility);
+# the gateway's relevant set per connection = own pawn + dynamic objects whose grid cell the client has resident +
+# stable objects of resident cells (WP grid = relevancy grid, Iris NetObjectGridFilter equivalent); objects that
+# leave the set are removed on the client (Remove message) and come back with full state when the cell returns.
+# World delta table in the store (destroyed / detached / changed stable ids), replayed to a client when it loads a
+# cell; server console `destroy <id>`. Rotation quantization grid is centred (odd level count) so identity is exact.
+# Runner: <scratch>/NET-3/run_all.sh (base NET-2 run_net2.sh): A = Editor, B = DesertNetProbe bot; A's pawn is
+# moved by the server console `transform <A pawn> ...` (1.5 km away, then back).
+# Дано: DesertServer + Editor client A and bot B from task/NET-3 on WP_Protocol.
+# Тогда [net3_start] net3-start/clientA_start.png: A's frame shows B's pawn and the barrel at the start.
+# Когда: A goes 1.5 km away; server console `destroy <barrel id>`.
+# Тогда [net3_far] net3-far/clientA_far.png: no B pawn; A's log shows the start cells unloaded and B removed from relevancy.
+# Когда: A returns to the start.
+# Тогда [net3_back] net3-back/clientA_back.png: B's pawn again and no barrel; server log shows the delta replayed for that cell.
+# Pass 2: a pawn is relevant by the FINEST cell of the main grid (G0L0) within the grid's loading range of the
+# viewer's own pawn (Iris grid filter on the WP grid) - a coarse cell resident far away no longer keeps B. A streamed
+# cell is revealed only after the server acknowledged its residency report with its world delta (UE MakingVisible +
+# ClientAckUpdateLevelVisibility), so the destroyed cube is never drawn. Runner waits for sequence frames before start.
+# Тогда [net3_start] net3-start/clientA_start.png: B's pawn and cube 200977.
+# Тогда [net3_far] net3-far/clientA_far.png: no B pawn; "removed from relevancy - its finest cell is out of the client's loading range".
+# Тогда [net3_back] net3-back/clientA_back.png: B's pawn and no cube; no seq/ frame around the cell load shows the cube; A's log "acknowledged by the server: revealed with its world delta applied".
+# Pass 3: on a network client the only streaming source is the client's own player (the possessed pawn; level
+# stand-ins such as WP_Protocol's 'Player' 9000001, script providers and the editor view are not sources while the
+# session holds the reveal gate), and the client looks through the possessed pawn's camera (Possess -> view target);
+# frames come from that view (--shot-player-view). The bot B streams its own cells from the cooked plan and reports them.
+# Дано: DesertServer + Editor client A (--shot-player-view) + probe B on WP_Protocol (run_all.sh).
+# Тогда [net3_start] net3-start/clientA_start.png: A's view (its pawn camera) shows B's pawn and cube 200977.
+# Когда: A teleports 1.5 km away; server `destroy 200977`.
+# Тогда [net3_far] net3-far/clientA_far.png: A's view has no B; A's log shows cell G1L0(0,-1) unloaded.
+# Когда: A returns.
+# Тогда [net3_back] net3-back/clientA_back.png: B and no cube; A's log shows G1L0(0,-1) revealed with its world delta applied; no seq/ frame around that load shows the cube; B's log has its residency reports.

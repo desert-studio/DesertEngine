@@ -864,6 +864,42 @@ namespace Desert::Core
                            m_Scene->GetRegistry()
                                 .get<ECS::StreamingSourceComponent>( static_cast<entt::entity>( entity ) )
                                 .Data.SectorAngle );
+        // A NETWORK CLIENT STREAMS FROM ITS OWN PLAYER ONLY (UE: on a client the local player controller's view
+        // is the streaming source; NET-ARCH §4.3). The server decides what is relevant to this client from its
+        // pawn's cell, so a second source here - a level's stand-in player, a script's provider, the editor's
+        // view - would keep cells resident that the server no longer deems relevant, and the client would show
+        // a world the server stopped telling it about. While the session holds the reveal gate, the sources are
+        // the possessed pawn's (its camera rides on it), or the player's view point when it carries none.
+        if ( m_NetRevealHold )
+            if ( const entt::entity pawn = m_Scene->GetPlayerPawn(); pawn != entt::null )
+            {
+                std::vector<Rules::StreamingSource> own;
+                std::vector<std::uint32_t>          ownEntities;
+                for ( std::size_t i = 0; i < entities.size(); ++i )
+                    if ( entities[i] == static_cast<std::uint32_t>( pawn ) )
+                    {
+                        own.push_back( std::move( gathered[i] ) );
+                        ownEntities.push_back( entities[i] );
+                    }
+                if ( own.empty() )
+                    if ( const std::optional<glm::mat4> view = m_Scene->PlayerViewPoint() )
+                    {
+                        Rules::StreamingSource player;
+                        player.Position = glm::vec3( ( *view )[3] );
+                        player.Facing   = -glm::vec3( ( *view )[2] );
+                        own.push_back( std::move( player ) );
+                    }
+                if ( own.size() != gathered.size() && !m_SaidNetOwnSources )
+                {
+                    m_SaidNetOwnSources = true;
+                    LOG_INFO( "[WorldStreamer] '{}': a network client streams from its own player only - {} other "
+                              "streaming source(s) of this world (level entities, script providers, the editor's "
+                              "view) are not sources while the session lasts",
+                              m_SceneName, gathered.size() - std::min( gathered.size(), own.size() ) );
+                }
+                gathered = std::move( own );
+                entities = std::move( ownEntities );
+            }
         StampVelocities( gathered, entities, nowSeconds );
         UseSources( std::move( gathered ) );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
@@ -1130,6 +1166,28 @@ namespace Desert::Core
     {
         m_Loader->Unload( unit );
         m_Made.erase( unit ); // what it made was destroyed by the Deactivate before this
+        m_NetAcknowledged.erase( unit );
+    }
+
+    void WorldStreamer::SetNetRevealHold( bool hold )
+    {
+        if ( hold != m_NetRevealHold )
+            LOG_INFO( "[WorldStreamer] '{}': cells {} the server's acknowledgement before they are revealed",
+                      m_SceneName, hold ? "now wait for" : "no longer wait for" );
+        m_NetRevealHold = hold;
+    }
+
+    void WorldStreamer::AcknowledgeUnitsForNet( std::span<const std::uint32_t> units )
+    {
+        for ( const std::uint32_t unit : units )
+        {
+            if ( !m_NetAcknowledged.insert( unit ).second )
+                continue;
+            if ( m_NetRevealHold && m_Made.contains( unit ) )
+                LOG_INFO( "[WorldStreamer] unit {} ({}) acknowledged by the server: revealed with its world delta "
+                          "applied",
+                          unit, Rules::DescribeResidencyUnit( Executor().Plan(), unit ) );
+        }
     }
 
     std::vector<Rules::LoadOutcome> WorldStreamer::TakeLoadOutcomes()
@@ -1165,11 +1223,33 @@ namespace Desert::Core
                  "plan holds {} (slice {}..{})",
                  m_SceneName, unit, unitRecords->size(), planned, firstMember, firstMember + records.size() ) );
         }
-        auto made =
-             SceneSerializer( m_Scene, m_Assets )
-                  .InstantiateRecords(
-                       std::span<const Assets::EntityData>( *unitRecords ).subspan( firstMember, records.size() ),
-                       m_SceneName, nullptr );
+        std::span<const Assets::EntityData> slice =
+             std::span<const Assets::EntityData>( *unitRecords ).subspan( firstMember, records.size() );
+        // The server's destroyed records are never made (and a child goes with its parent); the slice keeps its
+        // order, and HideMade finds no entity for a skipped record.
+        std::vector<Assets::EntityData> kept;
+        if ( !m_NetDestroyed.empty() )
+        {
+            const auto skipped = [&]( const Assets::EntityData& record )
+            {
+                return ( record.id && m_NetDestroyed.contains( static_cast<std::uint64_t>( *record.id ) ) ) ||
+                       ( record.parent && m_NetDestroyed.contains( static_cast<std::uint64_t>( *record.parent ) ) );
+            };
+            if ( std::any_of( slice.begin(), slice.end(), skipped ) )
+            {
+                for ( const Assets::EntityData& record : slice )
+                {
+                    if ( !skipped( record ) )
+                        kept.push_back( record );
+                    else if ( record.id )
+                        m_NetDestroyed.insert( static_cast<std::uint64_t>( *record.id ) );
+                }
+                LOG_INFO( "[WorldStreamer] unit {} ({}): {} record(s) the server destroyed not made",
+                          unit, Rules::DescribeResidencyUnit( Executor().Plan(), unit ), slice.size() - kept.size() );
+                slice = kept;
+            }
+        }
+        auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( slice, m_SceneName, nullptr );
         if ( made )
         {
             HideMade( *m_Scene, m_RecordIds, records, m_Made[unit] );
@@ -1196,6 +1276,10 @@ namespace Desert::Core
     Common::ResultStr<bool> WorldStreamer::FinishActivation( std::size_t unit,
                                                              std::span<const std::size_t> /*records*/ )
     {
+        // MAKING VISIBLE: held hidden until the server acknowledged the cell with its world delta.
+        if ( m_NetRevealHold && unit >= Executor().Plan().AlwaysLoaded.size() &&
+             !m_NetAcknowledged.contains( unit ) )
+            return Common::MakeSuccess( false );
         std::vector<std::uint32_t>& made = m_Made[unit];
         // ACTIVATED = COLLIDABLE. A scene with no physics system, or one whose Play refused to simulate (no
         // collision profiles, said once by the system), has no body to wait for.
@@ -1222,6 +1306,21 @@ namespace Desert::Core
         return unitRecords != nullptr && member < unitRecords->size()
                     ? Rules::ActivationKindOf( ( *unitRecords )[member] )
                     : Rules::ActivationRecordKind::Plain;
+    }
+
+    void WorldStreamer::DestroyRecordsForNet( std::span<const std::uint64_t> ids )
+    {
+        for ( const std::uint64_t id : ids )
+        {
+            if ( !m_NetDestroyed.insert( id ).second )
+                continue;
+            // Its children go with its tree (Scene::DestroyEntityAtFence).
+            if ( const auto entity = m_Scene->FindEntityByID( Common::UUID( id ) ) )
+            {
+                m_Scene->DestroyEntityAtFence( entity->get() );
+                LOG_INFO( "[WorldStreamer] record {} destroyed by the server: its entity is gone", id );
+            }
+        }
     }
 
     void WorldStreamer::Destroy( std::span<const std::size_t> records )

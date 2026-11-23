@@ -109,6 +109,7 @@ namespace Desert::Editor
          { "--gpu-profile-frame-only", false, nullptr },
          { "--gpu-order-trace", false, nullptr },
          { "--play", false, nullptr },
+         { "--shot-player-view", false, nullptr, "--play" },
          { "--console", false, nullptr }, // Windows: opens a console window (Engine/EntryPoint.hpp)
          { "--crash-test", true, "segv" },
          { "--ui-pointer", true, "640,360" },
@@ -135,7 +136,8 @@ namespace Desert::Editor
          { "--builder", true, "HLODs", "--run WorldPartitionBuilder --scene Scene.desce" },
          { "--builder-cell-size", true, "102400",
            "--run WorldPartitionBuilder --builder ResaveEntities --scene Scene.desce" },
-         { "--only-dirty", false, nullptr, "--run WorldPartitionBuilder --builder ResaveEntities --scene Scene.desce" },
+         { "--only-dirty", false, nullptr,
+           "--run WorldPartitionBuilder --builder ResaveEntities --scene Scene.desce" },
     };
 
     /// Everything the command line resolved to. Held by value and copied into the process-wide singletons
@@ -400,6 +402,8 @@ namespace Desert::Editor
                     options.Shot.GpuOrderTrace = true;
                 else if ( arg == "--play" )
                     options.Shot.Play = true;
+                else if ( arg == "--shot-player-view" )
+                    options.Shot.PlayerView = true;
                 else if ( arg == "--only-dirty" )
                     options.Builder.OnlyDirty = true;
                 // `--console` is acted on in main(), before the application exists; nothing to record here.
@@ -722,6 +726,12 @@ namespace Desert::Editor
         // The HDR dump is the --shot frame's: without --shot there is no final frame to take it of.
         if ( !shot.HdrOutput.empty() && shot.Output.empty() )
             return Common::MakeError<CommandLineOptions>( "--shot-hdr needs --shot: it is the same final frame" );
+        // The player's view is Play's own: without Play there is no player, and a placed camera would be
+        // overridden by it.
+        if ( shot.PlayerView && ( !shot.Play || shot.HasCamera || shot.HasLook || shot.FlightRoute.has_value() ) )
+            return Common::MakeError<CommandLineOptions>( "--shot-player-view needs --play and no --camera, "
+                                                          "--look, --camera-to, --look-to or --flight: the "
+                                                          "frames are taken from the player's own view" );
         const bool         flying  = shot.FlightRoute.has_value();
         const bool         partial = shot.FlightSpeed > 0.0 || !shot.FlightCsv.empty();
         if ( !flying && partial )

@@ -188,6 +188,11 @@ namespace Desert::Editor
         // what a plain `--shot` does would invalidate the whole existing corpus at once.
         bool Play = false;
 
+        // --shot-player-view (with --play): the frames are taken from the player's view - Play's view target,
+        // the possessed pawn's camera - instead of a camera pinned at --camera. A network client's frames are
+        // then what its player sees from its own pawn, wherever the server moves it.
+        bool PlayerView = false;
+
         // --flight <route> --flight-speed <cm/s> --flight-csv <out.csv>: the camera flies the route during
         // Play and every frame's cost is written to the CSV (Editor/Core/FlightRules.hpp). The route
         // replaces --camera/--look for the whole run, and it sets Frames: the flight is as long as the

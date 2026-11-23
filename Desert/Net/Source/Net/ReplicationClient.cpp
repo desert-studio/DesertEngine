@@ -92,13 +92,38 @@ namespace Desert::Net
                 }
                 break;
             case EReplicationMessage::Destroy:
-                if ( const auto id = DecodeDestroy( data ); id && m_Pawns.erase( *id ) > 0 )
+                if ( const auto destroy = DecodeDestroy( data ) )
                 {
-                    if ( m_Own == *id )
+                    const auto it = m_Pawns.find( destroy->Id );
+                    if ( it == m_Pawns.end() )
+                        break;
+                    const std::uint32_t player = it->second.Player;
+                    m_Pawns.erase( it );
+                    if ( m_Own == destroy->Id )
                         m_Own = kInvalidNetId;
-                    m_Destroyed.push_back( *id );
-                    m_Log( std::format( "destroy: pawn net id {}", *id ) );
+                    m_Destroyed.push_back( destroy->Id );
+                    if ( destroy->Reason == EDestroyReason::NotRelevant )
+                        m_Log( std::format( "relevancy: pawn net id {} (player {}) removed from relevancy - the "
+                                            "server finds its finest cell out of this client's loading range",
+                                            destroy->Id, player ) );
+                    else
+                        m_Log( std::format( "destroy: pawn net id {}", destroy->Id ) );
                 }
+                break;
+            case EReplicationMessage::StableDestroy:
+                if ( const auto delta = DecodeStableDestroy( data ) )
+                {
+                    std::string ids;
+                    for ( const StableNetId id : delta->Ids )
+                        ids += std::format( "{}{}", ids.empty() ? "" : ", ", id );
+                    if ( !delta->Ids.empty() )
+                        m_Log( std::format( "world delta: cell unit {} - stable {} destroyed on the server",
+                                            delta->Unit, ids ) );
+                    m_AcknowledgedUnits.push_back( delta->Unit );
+                    m_StableDestroyed.insert( m_StableDestroyed.end(), delta->Ids.begin(), delta->Ids.end() );
+                }
+                else
+                    m_Log( "malformed StableDestroy dropped" );
                 break;
             case EReplicationMessage::Snapshot:
                 if ( const auto snapshot = DecodeSnapshot( data ) )
@@ -177,5 +202,28 @@ namespace Desert::Net
     std::vector<NetId> ReplicationClient::TakeDestroyed()
     {
         return std::exchange( m_Destroyed, {} );
+    }
+
+    std::vector<StableNetId> ReplicationClient::TakeStableDestroyed()
+    {
+        return std::exchange( m_StableDestroyed, {} );
+    }
+
+    std::vector<std::uint32_t> ReplicationClient::TakeAcknowledgedUnits()
+    {
+        return std::exchange( m_AcknowledgedUnits, {} );
+    }
+
+    void ReplicationClient::ReportResidency( const CellResidencyMessage& change, std::span<const StableNetId> gone )
+    {
+        if ( m_State != EState::InSession || ( change.Loaded.empty() && change.Unloaded.empty() ) )
+            return;
+        // The records of an unloaded cell are gone here with it: the server's full baseline of them, when the cell
+        // returns, carries the same versions this client already took, so they must be taken again.
+        for ( const StableNetId id : gone )
+            for ( auto it = m_StableVersions.lower_bound( { id, std::string() } );
+                  it != m_StableVersions.end() && it->first.first == id; )
+                it = m_StableVersions.erase( it );
+        m_Transport.Send( m_Connection, EncodeCellResidency( change ), ENetLane::Rpc );
     }
 } // namespace Desert::Net

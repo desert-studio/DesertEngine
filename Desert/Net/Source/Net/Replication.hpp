@@ -53,6 +53,11 @@ namespace Desert::Net
         // NET-2 (§3.2-§3.4): the replicated state of stable objects, and the client's ack of it.
         ObjectState = kFirstSessionMessage + 20,
         StateAck    = kFirstSessionMessage + 21,
+        // NET-3 (§3.3, §4.3): client -> server, the WP cell units that became resident / unloaded on the client
+        // (UE ServerUpdateLevelVisibility); server -> client, the world delta table's destroyed stable ids of the
+        // cells the client has resident (UE DestroyedStartupOrDormantActors, replayed when the level streams in).
+        CellResidency  = kFirstSessionMessage + 22,
+        StableDestroy  = kFirstSessionMessage + 23,
     };
 
     struct NetVec3
@@ -100,7 +105,18 @@ namespace Desert::Net
     std::vector<std::byte> EncodeInput( const InputMessage& message );
     std::vector<std::byte> EncodeSnapshot( const SnapshotMessage& message );
     std::vector<std::byte> EncodeSpawn( const SpawnMessage& message );
-    std::vector<std::byte> EncodeDestroy( NetId id );
+    // Why a dynamic object leaves a client (UE: actor destroyed vs. its channel closed for relevancy).
+    enum class EDestroyReason : std::uint8_t
+    {
+        Destroyed   = 0, // the object is gone on the server
+        NotRelevant = 1, // it left this connection's relevant set (§3.5); it comes back as a Spawn when relevant
+    };
+    struct DestroyMessage
+    {
+        NetId          Id     = kInvalidNetId;
+        EDestroyReason Reason = EDestroyReason::Destroyed;
+    };
+    std::vector<std::byte> EncodeDestroy( const DestroyMessage& message );
 
     // The message type of a session message, or nullopt for an empty message.
     std::optional<EReplicationMessage> PeekReplicationMessage( std::span<const std::byte> data );
@@ -108,7 +124,7 @@ namespace Desert::Net
     std::optional<InputMessage>    DecodeInput( std::span<const std::byte> data );
     std::optional<SnapshotMessage> DecodeSnapshot( std::span<const std::byte> data );
     std::optional<SpawnMessage>    DecodeSpawn( std::span<const std::byte> data );
-    std::optional<NetId>           DecodeDestroy( std::span<const std::byte> data );
+    std::optional<DestroyMessage>  DecodeDestroy( std::span<const std::byte> data );
 
     // THE CLIENT'S SENT INPUTS (NET-4's replay buffer): every step's input is pushed; the server's ack drops the
     // ones it processed; Latest(n) is what the next Input message carries.
@@ -221,6 +237,26 @@ namespace Desert::Net
         std::uint32_t Newest   = 0;
         std::uint32_t Previous = 0;
     };
+
+    // CELL RESIDENCY (§4.3): residency unit indices of the cooked index both ends share (the cook hash is checked
+    // at connect, so a unit index names the same cell on both). Reliable lane, so only changes are sent.
+    struct CellResidencyMessage
+    {
+        std::vector<std::uint32_t> Loaded, Unloaded;
+    };
+    // THE WORLD DELTA TABLE's destroyed part for one cell unit (§3.3): the client destroys those records of the
+    // cell and skips them when its streamer makes the cell again. Reliable lane. It is also the server's answer to
+    // a residency report of the cell (UE ClientAckUpdateLevelVisibility), with no ids when nothing was destroyed:
+    // the client reveals the cell only once it has it.
+    struct StableDestroyMessage
+    {
+        std::uint32_t            Unit = 0;
+        std::vector<StableNetId> Ids;
+    };
+    std::vector<std::byte>              EncodeCellResidency( const CellResidencyMessage& message );
+    std::vector<std::byte>              EncodeStableDestroy( const StableDestroyMessage& message );
+    std::optional<CellResidencyMessage> DecodeCellResidency( std::span<const std::byte> data );
+    std::optional<StableDestroyMessage> DecodeStableDestroy( std::span<const std::byte> data );
 
     std::vector<std::byte>            EncodeObjectState( const ObjectStateMessage& message );
     std::vector<std::byte>            EncodeStateAck( const StateAckMessage& message );

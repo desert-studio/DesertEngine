@@ -16,6 +16,9 @@
 #include "Net/NetTransport.hpp"
 
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 
 #include <Net/ReplicationClient.hpp>
 
@@ -31,6 +34,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <set>
 #include <optional>
 #include <string>
 #include <thread>
@@ -160,6 +164,102 @@ namespace
                                                 std::istreambuf_iterator<char>() );
         return Desert::Core::CookHashOf( bytes );
     }
+
+    // ---------------------------------------------------------------- the bot's cells
+
+    // THE BOT'S STREAMING (NET-3): the cells a client would have resident around its own pawn - the cooked world's
+    // plan (WorldCells::PlanFromIndex, the plan the cook made and the client's streamer runs) queried with one
+    // streaming source at the pawn's server position (QueryStreamingCells, the query the client's residency
+    // steps). A headless player has no reads to wait on, so a wanted cell is resident at once; what changes is
+    // reported to the server (CellResidencyMessage) as the editor client's ClientNetDriver::ReportResidency does,
+    // with the unloaded cells' record ids leaving the relevant set.
+    class BotCells
+    {
+    public:
+        static std::optional<BotCells> Open( const std::string& directory )
+        {
+            namespace Core = Desert::Core;
+            const std::filesystem::path path =
+                 std::filesystem::path( directory ) / std::string( Core::WorldCells::kIndexFileName );
+            std::ifstream file( path, std::ios::binary );
+            if ( !file )
+            {
+                Log( "cooked world '{}' has no {}", directory, Core::WorldCells::kIndexFileName );
+                return std::nullopt;
+            }
+            const std::vector<unsigned char> bytes( ( std::istreambuf_iterator<char>( file ) ),
+                                                    std::istreambuf_iterator<char>() );
+            auto index = Core::WorldCells::ReadWorldIndex( path.generic_string(), bytes );
+            if ( !index )
+            {
+                Log( "cooked world '{}': {}", directory, index.GetError() );
+                return std::nullopt;
+            }
+            auto planned = Core::WorldCells::PlanFromIndex( index.GetValue() );
+            if ( !planned )
+            {
+                Log( "cooked world '{}': {}", directory, planned.GetError() );
+                return std::nullopt;
+            }
+            BotCells cells;
+            cells.m_Partition = index.GetValue().WorldPartition;
+            cells.m_World     = planned.ExtractValue();
+            return cells;
+        }
+
+        // The report for the pawn at @p at (cm), or nullopt when the resident cells did not change. @p said
+        // receives the line to log; an error of the query is said and changes nothing.
+        std::optional<std::pair<CellResidencyMessage, std::vector<StableNetId>>> Update( const NetVec3& at,
+                                                                                         std::string&   said )
+        {
+            namespace Rules = Desert::Core::Rules;
+            Rules::StreamingSource source;
+            source.Position = { at.X, at.Y, at.Z };
+            auto wish       = Rules::QueryStreamingCells( m_World.Plan, m_Partition, std::span( &source, 1 ) );
+            if ( !wish )
+            {
+                said = "streaming query: " + wish.GetError();
+                return std::nullopt;
+            }
+            const Rules::WorldPartitionPlan& plan = m_World.Plan;
+            std::set<std::uint32_t>          now;
+            for ( const Rules::WantedCell& cell : wish.GetValue().Cells )
+                now.insert( static_cast<std::uint32_t>( plan.AlwaysLoaded.size() + cell.Cell ) );
+            if ( now == m_Resident )
+                return std::nullopt;
+            CellResidencyMessage     change;
+            std::vector<StableNetId> gone;
+            std::string              loaded, unloaded;
+            for ( const std::uint32_t unit : now )
+                if ( !m_Resident.contains( unit ) )
+                {
+                    change.Loaded.push_back( unit );
+                    loaded += std::format( "{}{}", loaded.empty() ? "" : ", ",
+                                           Rules::DescribeResidencyUnit( plan, unit ) );
+                }
+            for ( const std::uint32_t unit : m_Resident )
+                if ( !now.contains( unit ) )
+                {
+                    change.Unloaded.push_back( unit );
+                    unloaded += std::format( "{}{}", unloaded.empty() ? "" : ", ",
+                                             Rules::DescribeResidencyUnit( plan, unit ) );
+                    for ( const std::size_t record : Rules::ResidencyUnitMembers( plan, unit ) )
+                        gone.push_back( m_World.RecordIds.at( record ) );
+                }
+            said = std::format(
+                 "residency report at ({:.0f}, {:.0f}, {:.0f}) cm: {} cell(s) resident; {} loaded{}{}; "
+                 "{} unloaded{}{}",
+                 at.X, at.Y, at.Z, now.size(), change.Loaded.size(), loaded.empty() ? "" : ": ", loaded,
+                 change.Unloaded.size(), unloaded.empty() ? "" : ": ", unloaded );
+            m_Resident = std::move( now );
+            return std::make_pair( std::move( change ), std::move( gone ) );
+        }
+
+    private:
+        Desert::Core::WorldPartitionSerialized m_Partition;
+        Desert::Core::WorldCells::IndexedWorld m_World;
+        std::set<std::uint32_t>                m_Resident;
+    };
 
     // ---------------------------------------------------------------- options
 
@@ -744,6 +844,9 @@ namespace
         const std::optional<std::uint64_t> cookHash = ReadCookHash( cooked );
         if ( !cookHash )
             return 1;
+        std::optional<BotCells> cells = BotCells::Open( cooked );
+        if ( !cells )
+            return 1;
         const std::string tag = name;
         const NetLogSink  log = [tag]( std::string_view line ) { Log( "[{}] {}", tag, line ); };
         std::unique_ptr<INetTransport> transport = CreateGnsTransport( log );
@@ -797,6 +900,16 @@ namespace
                 }
             }
             client.SendInput( walking ? dir : NetVec3{}, 0.f );
+            // The cells around the SERVER's position of the own pawn, reported when they change.
+            if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
+            {
+                const PawnState newest = client.Pawns().at( client.OwnPawn() ).History.Sample( 1e12 );
+                std::string     said;
+                if ( auto report = cells->Update( newest.Position, said ) )
+                    client.ReportResidency( report->first, report->second );
+                if ( !said.empty() )
+                    Log( "[{}] {}", name, said );
+            }
             if ( now >= nextLog )
             {
                 nextLog += 0.5;

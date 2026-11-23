@@ -4,6 +4,7 @@
 #include <cmath>
 #include <format>
 #include <string_view>
+#include <utility>
 
 namespace Desert::Net
 {
@@ -40,6 +41,12 @@ namespace Desert::Net
         }
         fields.push_back( { std::string( component ), std::string( field ), ++m_StableVersion, value } );
         return fields.back().Version;
+    }
+
+    bool InProcessReplicationStore::DestroyStable( StableNetId id )
+    {
+        m_Stable.erase( id );
+        return m_Destroyed.insert( id ).second;
     }
 
     std::vector<PawnState> InProcessReplicationStore::All() const
@@ -138,6 +145,18 @@ namespace Desert::Net
         }
     }
 
+    bool PawnSimulation::Teleport( PlayerId player, const NetVec3& position )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() )
+            return false;
+        it->second.State.Position = position;
+        m_Store.Write( it->second.State );
+        m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
+                            it->second.State.Id, position.X, position.Y, position.Z ) );
+        return true;
+    }
+
     std::vector<PawnSimulation::Source> PawnSimulation::Sources() const
     {
         std::vector<Source> sources;
@@ -149,9 +168,9 @@ namespace Desert::Net
     // ---- gateway -----------------------------------------------------------------------------------------------
 
     Gateway::Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy,
-                      std::uint64_t pawnPrefab, NetLogSink log )
+                      std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log )
          : m_Transport( transport ), m_Store( store ), m_Policy( policy ), m_PawnPrefab( pawnPrefab ),
-           m_Log( std::move( log ) )
+           m_Grid( std::move( grid ) ), m_Log( std::move( log ) )
     {
     }
 
@@ -205,12 +224,8 @@ namespace Desert::Net
         m_Transport.Send( connection, EncodeWelcome( m_Policy.CookHash, m_PawnPrefab ), ENetLane::Control );
         m_Log( std::format( "connection {}: admitted as player {} (account {}), pawn prefab {:016x}", connection,
                             peer.Player, verdict.Token.Account, m_PawnPrefab ) );
-        // UE's initial replication of the actors already relevant: the pawns of the players already in.
-        for ( const PawnState& pawn : m_Store.All() )
-        {
-            m_Transport.Send( connection, EncodeSpawn( { pawn, false, 0 } ), ENetLane::Rpc );
-            ++m_Stats.Spawns;
-        }
+        // Nothing else is relevant yet: the other pawns and the cells' stable objects follow the client's first
+        // residency report (UE: actors replicate once the client has made their level visible).
         // Stable objects are NOT spawned: the new connection's baselines are empty, so the next state send carries
         // every changed field of every stable object in full (§3.4).
         if ( m_Sim != nullptr )
@@ -230,6 +245,14 @@ namespace Desert::Net
             return;
         }
         const std::optional<EReplicationMessage> type = PeekReplicationMessage( data );
+        if ( type == EReplicationMessage::CellResidency )
+        {
+            if ( const std::optional<CellResidencyMessage> report = DecodeCellResidency( data ) )
+                OnCellResidency( connection, peer, *report );
+            else
+                m_Log( std::format( "connection {}: malformed CellResidency dropped", connection ) );
+            return;
+        }
         if ( type == EReplicationMessage::StateAck )
         {
             if ( const std::optional<StateAckMessage> ack = DecodeStateAck( data ) )
@@ -250,28 +273,154 @@ namespace Desert::Net
             m_Sim->PlayerInput( peer.Player, *input );
     }
 
+    // The own pawn is relevant to its owner from the start (§3.5 rule 1); every other connection gets it when it
+    // stands in a cell that connection has resident (UpdateRelevancy).
     void Gateway::PawnSpawned( PlayerId owner, std::uint32_t player, const PawnState& pawn )
     {
-        for ( const auto& [id, connection] : m_Connections )
-        {
-            m_Transport.Send( connection, EncodeSpawn( { pawn, id == owner, player } ), ENetLane::Rpc );
-            ++m_Stats.Spawns;
-        }
+        m_PawnInfo[pawn.Id] = { owner, player };
+        const auto connection = m_Connections.find( owner );
+        if ( connection == m_Connections.end() )
+            return;
+        m_Transport.Send( connection->second, EncodeSpawn( { pawn, true, player } ), ENetLane::Rpc );
+        ++m_Stats.Spawns;
+        m_Peers[connection->second].Relevant.insert( pawn.Id );
     }
 
     void Gateway::PawnDestroyed( NetId id )
     {
-        for ( const auto& [player, connection] : m_Connections )
-            m_Transport.Send( connection, EncodeDestroy( id ), ENetLane::Rpc );
+        m_PawnInfo.erase( id );
+        for ( auto& [connection, peer] : m_Peers )
+            if ( peer.Relevant.erase( id ) > 0 )
+                m_Transport.Send( connection, EncodeDestroy( { id, EDestroyReason::Destroyed } ), ENetLane::Rpc );
+    }
+
+    bool Gateway::StableRelevant( const Peer& peer, StableNetId id ) const
+    {
+        const auto unit = m_Grid.UnitOfRecord.find( id );
+        return unit == m_Grid.UnitOfRecord.end() || peer.Resident.contains( unit->second ); // always-loaded: always
+    }
+
+    void Gateway::OnCellResidency( ConnectionId connection, Peer& peer, const CellResidencyMessage& message )
+    {
+        const auto nameOf = [&]( std::uint32_t unit )
+        {
+            const auto cell = m_Grid.Cells.find( unit );
+            return cell != m_Grid.Cells.end() ? cell->second.Name : std::format( "unit {} (not a cell)", unit );
+        };
+        for ( const std::uint32_t unit : message.Unloaded )
+        {
+            if ( peer.Resident.erase( unit ) == 0 )
+                continue;
+            // The client's entities of the cell went with it (§4.4): its baselines and replayed deltas are void,
+            // so the cell's return gets the full changed state and the destroyed list again (§4.3).
+            std::size_t dropped = 0;
+            if ( const auto cell = m_Grid.Cells.find( unit ); cell != m_Grid.Cells.end() )
+                for ( const StableNetId id : cell->second.Records )
+                {
+                    dropped += peer.Baselines.erase( id );
+                    peer.DeltaSent.erase( id );
+                }
+            m_Log( std::format( "player {} (connection {}): cell {} unloaded on the client - its stable objects "
+                                "leave the relevant set ({} baseline(s) dropped)",
+                                peer.Player, connection, nameOf( unit ), dropped ) );
+        }
+        for ( const std::uint32_t unit : message.Loaded )
+            peer.AwaitingAck.insert( unit ); // even one already resident: the client waits for every report
+        for ( const std::uint32_t unit : message.Loaded )
+            if ( peer.Resident.insert( unit ).second )
+                m_Log( std::format( "player {}: cell {} resident on the client", peer.Player, nameOf( unit ) ) );
+    }
+
+    void Gateway::UpdateRelevancy( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns )
+    {
+        // The viewer is the client's own pawn (its streaming source): without one only its own pawn is.
+        std::optional<NetVec3> viewer;
+        for ( const PawnState& pawn : pawns )
+            if ( const auto info = m_PawnInfo.find( pawn.Id );
+                 info != m_PawnInfo.end() && info->second.Owner == peer.Player )
+                viewer = pawn.Position;
+        std::set<NetId> now;
+        for ( const PawnState& pawn : pawns )
+        {
+            const auto info = m_PawnInfo.find( pawn.Id );
+            if ( info == m_PawnInfo.end() )
+                continue; // a state with no spawn yet
+            const bool                 own = info->second.Owner == peer.Player;
+            std::optional<std::string> cell;
+            if ( !own && viewer && m_Grid.PawnCellInRange )
+                cell = m_Grid.PawnCellInRange( *viewer, pawn.Position );
+            if ( !own && !cell )
+                continue;
+            now.insert( pawn.Id );
+            if ( peer.Relevant.contains( pawn.Id ) )
+                continue;
+            m_Transport.Send( connection, EncodeSpawn( { pawn, own, info->second.Player } ), ENetLane::Rpc );
+            ++m_Stats.Spawns;
+            m_Log( std::format( "player {}: pawn {} (player {}) relevant - its finest cell {} is in the client's "
+                                "loading range",
+                                peer.Player, pawn.Id, info->second.Player, cell ? *cell : std::string( "own" ) ) );
+        }
+        for ( const NetId id : peer.Relevant )
+        {
+            if ( now.contains( id ) )
+                continue;
+            m_Transport.Send( connection, EncodeDestroy( { id, EDestroyReason::NotRelevant } ), ENetLane::Rpc );
+            ++m_Stats.Irrelevant;
+            const auto info = m_PawnInfo.find( id );
+            m_Log( std::format( "player {}: pawn {} (player {}) removed from relevancy - its finest cell is out "
+                                "of the client's loading range",
+                                peer.Player, id, info != m_PawnInfo.end() ? info->second.Player : 0 ) );
+        }
+        peer.Relevant = std::move( now );
+    }
+
+    // THE WORLD DELTA REPLAY (§3.3): the destroyed stable ids of every cell the client has resident, once per
+    // residency (an unload clears them from DeltaSent, so the next load replays them again).
+    void Gateway::ReplayWorldDelta( ConnectionId connection, Peer& peer )
+    {
+        std::map<std::uint32_t, StableDestroyMessage> byUnit;
+        for ( const StableNetId id : m_Store.DestroyedStable() )
+        {
+            if ( peer.DeltaSent.contains( id ) || !StableRelevant( peer, id ) )
+                continue;
+            const auto          unit = m_Grid.UnitOfRecord.find( id );
+            const std::uint32_t key  = unit != m_Grid.UnitOfRecord.end() ? unit->second : 0xFFFFFFFFu;
+            byUnit[key].Unit         = key;
+            byUnit[key].Ids.push_back( id );
+            peer.DeltaSent.insert( id );
+        }
+        // Every reported cell is acknowledged (UE ClientAckUpdateLevelVisibility), carrying its delta: the client
+        // reveals the cell only then, so nothing the server destroyed is ever seen. An empty list is the bare ack.
+        for ( const std::uint32_t unit : std::exchange( peer.AwaitingAck, {} ) )
+            byUnit[unit].Unit = unit;
+        for ( const auto& [unit, message] : byUnit )
+        {
+            m_Transport.Send( connection, EncodeStableDestroy( message ), ENetLane::Rpc );
+            if ( message.Ids.empty() )
+                continue;
+            m_Stats.DeltaReplays += message.Ids.size();
+            const auto  cell = m_Grid.Cells.find( unit );
+            std::string ids;
+            for ( const StableNetId id : message.Ids )
+                ids += std::format( "{}{}", ids.empty() ? "" : ", ", id );
+            m_Log( std::format( "player {}: world delta replayed for cell {} - stable {} destroyed", peer.Player,
+                                cell != m_Grid.Cells.end() ? cell->second.Name : std::string( "always-loaded" ),
+                                ids ) );
+        }
     }
 
     void Gateway::SendSnapshots( std::uint32_t serverStep )
     {
-        SnapshotMessage snapshot;
-        snapshot.ServerStep = serverStep;
-        snapshot.Pawns      = m_Store.All();
+        const std::vector<PawnState> pawns = m_Store.All();
         for ( const auto& [player, connection] : m_Connections )
         {
+            Peer& peer = m_Peers[connection];
+            UpdateRelevancy( connection, peer, pawns );
+            SnapshotMessage snapshot;
+            snapshot.ServerStep = serverStep;
+            for ( const PawnState& pawn : pawns )
+                if ( peer.Relevant.contains( pawn.Id ) )
+                    snapshot.Pawns.push_back( pawn );
             const std::optional<std::uint32_t> ack =
                  m_Sim != nullptr ? m_Sim->LastProcessedInput( player ) : std::nullopt;
             snapshot.HasAck       = ack.has_value();
@@ -284,6 +433,7 @@ namespace Desert::Net
             if ( peer.Admitted )
             {
                 ExpireLost( peer, 0, serverStep, false );
+                ReplayWorldDelta( connection, peer );
                 SendStableState( connection, peer, serverStep );
             }
     }
@@ -315,6 +465,8 @@ namespace Desert::Net
         };
         for ( const auto& [id, fields] : m_Store.StableObjects() )
         {
+            if ( !StableRelevant( peer, id ) )
+                continue; // its cell is not resident on the client: it has no entity to apply it to
             ObjectBaseline& baseline = peer.Baselines[id];
             baseline.Acked.resize( fields.size(), 0 );
             baseline.InFlight.resize( fields.size(), 0 );

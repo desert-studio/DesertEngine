@@ -191,10 +191,11 @@ namespace Desert::Net
         return out.Take();
     }
 
-    std::vector<std::byte> EncodeDestroy( NetId id )
+    std::vector<std::byte> EncodeDestroy( const DestroyMessage& message )
     {
         Writer out( EReplicationMessage::Destroy );
-        out.U32( id );
+        out.U32( message.Id );
+        out.U8( static_cast<std::uint8_t>( message.Reason ) );
         return out.Take();
     }
 
@@ -252,13 +253,85 @@ namespace Desert::Net
         return message;
     }
 
-    std::optional<NetId> DecodeDestroy( std::span<const std::byte> data )
+    std::optional<DestroyMessage> DecodeDestroy( std::span<const std::byte> data )
     {
-        Reader in( data, EReplicationMessage::Destroy );
-        NetId  id = kInvalidNetId;
-        if ( !in.U32( id ) || !in.Done() || id == kInvalidNetId )
+        Reader         in( data, EReplicationMessage::Destroy );
+        DestroyMessage message;
+        std::uint8_t   reason = 0;
+        if ( !in.U32( message.Id ) || !in.U8( reason ) || !in.Done() || message.Id == kInvalidNetId ||
+             reason > static_cast<std::uint8_t>( EDestroyReason::NotRelevant ) )
             return std::nullopt;
-        return id;
+        message.Reason = static_cast<EDestroyReason>( reason );
+        return message;
+    }
+
+    namespace
+    {
+        // A residency report or a delta lists at most this many entries (a world has a few thousand cells).
+        constexpr std::uint32_t kMaxListEntries = 65536;
+
+        void WriteUnits( Writer& out, const std::vector<std::uint32_t>& units )
+        {
+            out.U32( static_cast<std::uint32_t>( units.size() ) );
+            for ( const std::uint32_t unit : units )
+                out.U32( unit );
+        }
+        bool ReadUnits( Reader& in, std::vector<std::uint32_t>& units )
+        {
+            std::uint32_t count = 0;
+            if ( !in.U32( count ) || count > kMaxListEntries )
+                return false;
+            units.resize( count );
+            for ( std::uint32_t& unit : units )
+                if ( !in.U32( unit ) )
+                    return false;
+            return true;
+        }
+    } // namespace
+
+    std::vector<std::byte> EncodeCellResidency( const CellResidencyMessage& message )
+    {
+        Writer out( EReplicationMessage::CellResidency );
+        WriteUnits( out, message.Loaded );
+        WriteUnits( out, message.Unloaded );
+        return out.Take();
+    }
+
+    std::optional<CellResidencyMessage> DecodeCellResidency( std::span<const std::byte> data )
+    {
+        Reader               in( data, EReplicationMessage::CellResidency );
+        CellResidencyMessage message;
+        if ( !in.Ok() || !ReadUnits( in, message.Loaded ) || !ReadUnits( in, message.Unloaded ) || !in.Done() )
+            return std::nullopt;
+        return message;
+    }
+
+    std::vector<std::byte> EncodeStableDestroy( const StableDestroyMessage& message )
+    {
+        Writer out( EReplicationMessage::StableDestroy );
+        out.U32( message.Unit );
+        out.U32( static_cast<std::uint32_t>( message.Ids.size() ) );
+        for ( const StableNetId id : message.Ids )
+            out.U64( id );
+        return out.Take();
+    }
+
+    std::optional<StableDestroyMessage> DecodeStableDestroy( std::span<const std::byte> data )
+    {
+        Reader               in( data, EReplicationMessage::StableDestroy );
+        StableDestroyMessage message;
+        std::uint32_t        count = 0;
+        // No ids is the bare residency acknowledgement of the unit (nothing destroyed there), not a malformed
+        // list.
+        if ( !in.Ok() || !in.U32( message.Unit ) || !in.U32( count ) || count > kMaxListEntries )
+            return std::nullopt;
+        message.Ids.resize( count );
+        for ( StableNetId& id : message.Ids )
+            if ( !in.U64( id ) )
+                return std::nullopt;
+        if ( !in.Done() )
+            return std::nullopt;
+        return message;
     }
 
     void InputRing::Push( const InputStep& step )
@@ -319,7 +392,7 @@ namespace Desert::Net
     {
         constexpr float         kSmallestThreeRange = 0.70710678f; // 1/sqrt(2): the three smaller components
         constexpr std::uint32_t kRotationBits       = 10;
-        constexpr std::uint32_t kRotationMax        = ( 1u << kRotationBits ) - 1;
+        constexpr std::uint32_t kRotationMax        = ( 1u << kRotationBits ) - 2; // odd level count: 0 is exact (511)
         constexpr std::uint32_t kMaxObjectsPerState = 1024;
         constexpr std::uint8_t  kMaxFieldsPerObject = 64; // one change-mask bit per field (the gateway's baseline)
 

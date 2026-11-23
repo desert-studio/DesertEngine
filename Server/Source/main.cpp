@@ -28,6 +28,8 @@
 
 #include <Projects/WorldPartitionSettings.hpp>
 
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 #include <Engine/Reflection/ReplicatedFields.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -197,6 +199,9 @@ namespace Desert::Server
         // the step thread between two steps. NET-2's commands write the replicated state of stable objects (§3.2):
         //   set <record id> <Component>.<Field> <true|false|int|float>   a reflected field marked Replicated
         //   transform <record id> <x> <y> <z> [<rx> <ry> <rz>]            the transform fragment, cm and degrees
+        //   destroy <record id>                                          NET-3: the world delta table's destroyed
+        //                                                                id, replayed to every client with its cell
+        //   teleport <player> <x> <y> <z>                                NET-3: server authority moves a pawn, cm
         //   stat                                                         the replication stat line
         class ServerConsole
         {
@@ -247,7 +252,7 @@ namespace Desert::Server
 
         // One console line; the answer (or the refusal) is logged.
         void RunConsoleLine( const std::string& line, const std::unordered_set<std::uint64_t>& records,
-                             Net::IReplicationStore& store, const Net::Gateway& gateway )
+                             Net::IReplicationStore& store, const Net::Gateway& gateway, Net::PawnSimulation& sim )
         {
             std::istringstream words( line );
             std::string        command;
@@ -260,8 +265,25 @@ namespace Desert::Server
                 LOG_INFO(
                      "[Server] net stat: {} spawn(s) sent (dynamic pawns); {} stable object(s) replicated as "
                      "state, 0 as spawns: {} ObjectState packet(s), {} field update(s), {} acked, {} lost and "
-                     "re-sent",
-                     s.Spawns, store.StableObjects().size(), s.StablePackets, s.StableFields, s.Acked, s.Resent );
+                     "re-sent; world delta: {} destroyed stable id(s), {} replay(s) to clients; {} pawn(s) "
+                     "removed from a client's relevancy",
+                     s.Spawns, store.StableObjects().size(), s.StablePackets, s.StableFields, s.Acked, s.Resent,
+                     store.DestroyedStable().size(), s.DeltaReplays, s.Irrelevant );
+                return;
+            }
+            if ( command == "teleport" )
+            {
+                Net::PlayerId player = 0;
+                float         v[3]   = { 0.f, 0.f, 0.f };
+                if ( !( words >> player >> v[0] >> v[1] >> v[2] ) )
+                {
+                    LOG_ERROR( "[Server] console '{}': usage teleport <player> <x> <y> <z>", line );
+                    return;
+                }
+                if ( !sim.Teleport( player, { v[0], v[1], v[2] } ) )
+                {
+                    LOG_ERROR( "[Server] console '{}': player {} has no pawn", line, player );
+                }
                 return;
             }
             std::uint64_t id = 0;
@@ -337,7 +359,58 @@ namespace Desert::Server
                           Net::ReplicatedValueText( value ), version );
                 return;
             }
-            LOG_ERROR( "[Server] console '{}': unknown command (set, transform, stat)", line );
+            if ( command == "destroy" )
+            {
+                if ( store.DestroyStable( id ) )
+                {
+                    LOG_INFO( "[Server] console: stable {} destroyed - kept in the world delta table, replayed to "
+                              "every client that has or loads its cell",
+                              id );
+                }
+                else
+                {
+                    LOG_ERROR( "[Server] console '{}': stable {} is already destroyed", line, id );
+                }
+                return;
+            }
+            LOG_ERROR( "[Server] console '{}': unknown command (set, transform, destroy, teleport, stat)", line );
+        }
+
+        // THE RELEVANCY GRID (NET-ARCH §3.5) of the cooked world: every cell unit's square and records, by the
+        // index's unit order - the units the clients' residency reports name.
+        Net::NetRelevancyGrid RelevancyGridOf( const Core::CookedWorldStart& world )
+        {
+            Net::NetRelevancyGrid grid;
+            const auto&           units = world.Index->Units;
+            for ( std::size_t unit = world.Indexed.Plan.AlwaysLoaded.size(); unit < units.size(); ++unit )
+            {
+                const Core::WorldCells::IndexUnit& row = units[unit];
+                if ( !row.Square )
+                    continue;
+                Net::NetRelevancyGrid::Cell cell{ row.Name, row.Square->MinX, row.Square->MinZ, row.Square->MaxX,
+                                                  row.Square->MaxZ, row.Ids };
+                for ( const std::uint64_t id : row.Ids )
+                    grid.UnitOfRecord[id] = static_cast<std::uint32_t>( unit );
+                grid.Cells.emplace( static_cast<std::uint32_t>( unit ), std::move( cell ) );
+            }
+            // Pawns by the finest cell of the main grid (the first partition: what a record naming none streams
+            // on), measured the way residency measures a cell square against a source's loading range.
+            const auto& partitions = world.Index->WorldPartition.RuntimePartitions;
+            if ( !partitions.empty() && partitions.front().LHGrid )
+            {
+                const Core::RuntimePartitionLHGridSerialized main = *partitions.front().LHGrid;
+                grid.PawnCellInRange                              = [main]( const Net::NetVec3& viewer,
+                                               const Net::NetVec3& at ) -> std::optional<std::string>
+                {
+                    const double                  size   = Core::Rules::LevelCellSize( main.CellSize, 0 );
+                    const Core::Rules::CellCoord  coord  = Core::Rules::CellOf( at.X, at.Z, size );
+                    const Core::Rules::CellBounds square = Core::Rules::GridSquareOf( coord, size );
+                    if ( Core::Rules::DistanceToCellSquare( viewer.X, viewer.Z, square ) > main.LoadingRange )
+                        return std::nullopt;
+                    return std::format( "G0L0({},{})", coord.X, coord.Z );
+                };
+            }
+            return grid;
         }
 
         int Run( const std::vector<std::string>& args )
@@ -433,7 +506,7 @@ namespace Desert::Server
                 store   = std::make_unique<Net::InProcessReplicationStore>();
                 gateway                              = std::make_unique<Net::Gateway>(
                      *transport, *store, Net::HelloPolicy{ server->World().CookHash, options.serverId, secret, 0 },
-                     static_cast<std::uint64_t>( pawnPrefab ), netLog );
+                     static_cast<std::uint64_t>( pawnPrefab ), RelevancyGridOf( server->World() ), netLog );
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
@@ -510,7 +583,7 @@ namespace Desert::Server
                 if ( transport )
                 {
                     for ( const std::string& line : console.Take() )
-                        RunConsoleLine( line, records, *store, *gateway );
+                        RunConsoleLine( line, records, *store, *gateway, *sim );
                     transport->Poll( *gateway );
                     sim->Step( 1.0 / kStepHz );
                     if ( step % Net::kSnapshotEverySteps == 0 )
@@ -535,7 +608,7 @@ namespace Desert::Server
                 else if ( sources.size() > 1 && step % 300 == 0 )
                     logUnion( std::format( "step {}", step ) );
                 if ( transport && sources.size() > 1 && step % 300 == 0 )
-                    RunConsoleLine( "stat", records, *store, *gateway );
+                    RunConsoleLine( "stat", records, *store, *gateway, *sim );
             }
             const double wall = std::chrono::duration<double>( Clock::now() - started ).count();
             LOG_INFO( "[Server] {} step(s) at {:.0f} Hz: {:.2f} s of server time in {:.2f} s wall; step {:.3f} ms "
@@ -545,7 +618,7 @@ namespace Desert::Server
 
             logUnion( "final" );
             if ( transport )
-                RunConsoleLine( "stat", records, *store, *gateway );
+                RunConsoleLine( "stat", records, *store, *gateway, *sim );
             return 0;
         }
     } // namespace

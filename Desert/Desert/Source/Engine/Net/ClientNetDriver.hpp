@@ -19,6 +19,8 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
+#include <vector>
 #include <string>
 
 #include <entt/entt.hpp>
@@ -83,6 +85,11 @@ namespace Desert::Core
         // this client's streamer made from the same records; a change whose entity is not streamed in waits for
         // it.
         void      ApplyStableState( Scene& scene );
+        // NET-3 (§4.3): the WP cell units this client's streamer has Activated, reported to the server as changes
+        // (it replicates only what stands in them); and the server's destroyed stable records (§3.3), handed to
+        // the streamer, which destroys them and never makes them again.
+        void      ReportResidency( Scene& scene );
+        void      ApplyStableDestroyed( Scene& scene );
         glm::vec3 InputMove( Scene& scene );
 
         ClientNetOptions                        m_Options;
@@ -91,6 +98,9 @@ namespace Desert::Core
         std::map<std::uint32_t, entt::entity>   m_Entities; // NetId -> pawn root
         struct PendingStable; // the changes whose entity is not resident yet (ClientNetDriver.cpp)
         std::shared_ptr<PendingStable>          m_PendingStable;
+        std::set<std::uint32_t>                 m_ReportedUnits;   // what the server was last told is resident
+        std::vector<std::uint64_t>              m_StableDestroyed; // waiting for the streamer to exist
+        std::vector<std::uint32_t> m_AcknowledgedUnits;            // the server's cell acknowledgements, likewise
         std::optional<glm::vec3>                m_OwnFirstServerPosition;
         bool                                    m_Walking   = false;
         bool                                    m_InSession = false;
