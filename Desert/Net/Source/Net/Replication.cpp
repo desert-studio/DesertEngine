@@ -321,7 +321,9 @@ namespace Desert::Net
         Reader               in( data, EReplicationMessage::StableDestroy );
         StableDestroyMessage message;
         std::uint32_t        count = 0;
-        if ( !in.Ok() || !in.U32( message.Unit ) || !in.U32( count ) || count == 0 || count > kMaxListEntries )
+        // No ids is the bare residency acknowledgement of the unit (nothing destroyed there), not a malformed
+        // list.
+        if ( !in.Ok() || !in.U32( message.Unit ) || !in.U32( count ) || count > kMaxListEntries )
             return std::nullopt;
         message.Ids.resize( count );
         for ( StableNetId& id : message.Ids )
