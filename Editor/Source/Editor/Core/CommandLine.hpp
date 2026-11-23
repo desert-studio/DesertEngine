@@ -128,6 +128,8 @@ namespace Desert::Editor
          { "--net-cooked", true, "World.dwworld", "--connect 127.0.0.1:27031 --net-token HEX" },
          { "--net-walk-cm", true, "2000", "--play --connect 127.0.0.1:27031 --net-walk-dir 1,0,0" },
          { "--net-walk-dir", true, "1,0,0", "--play --connect 127.0.0.1:27031 --net-walk-cm 2000" },
+         { "--net-walk-mode", true, "sprint", "--play --connect 127.0.0.1:27031 --net-walk-cm 2000" },
+         { "--net-jump-every", true, "1.5", "--play --connect 127.0.0.1:27031 --net-walk-cm 2000" },
          { "--net-lag-ms", true, "75", "--connect 127.0.0.1:27031" },
          { "--net-loss", true, "2", "--connect 127.0.0.1:27031" },
          // A builder run (UE: -run=WorldPartitionBuilderCommandlet -Builder=<Class>): no window, the builder runs
@@ -161,7 +163,8 @@ namespace Desert::Editor
         /// one would have them answering each other's clients, and the client could not tell.
         std::string ControlSocket;
 
-        /// `--connect ip:port --net-token HEX --net-cooked DIR [--net-walk-cm D --net-walk-dir x,y,z]
+        /// `--connect ip:port --net-token HEX --net-cooked DIR [--net-walk-cm D --net-walk-dir x,y,z
+        /// --net-walk-mode walk|sprint --net-jump-every S]
         /// [--net-lag-ms L --net-loss P]`: Play runs as a client of that server (Engine/Net/ClientNetDriver).
         Desert::Core::ClientNetOptions NetClient;
 
@@ -678,7 +681,15 @@ namespace Desert::Editor
                     return Common::MakeFormattedError<CommandLineOptions>(
                          "--net-walk-dir '{}' is not a direction (three comma-separated numbers).", value );
             }
-            else if ( arg == "--net-walk-cm" || arg == "--net-lag-ms" || arg == "--net-loss" )
+            else if ( arg == "--net-walk-mode" )
+            {
+                if ( value != "walk" && value != "sprint" )
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--net-walk-mode '{}' is not walk or sprint.", value );
+                options.NetClient.WalkSprint = value == "sprint";
+            }
+            else if ( arg == "--net-walk-cm" || arg == "--net-lag-ms" || arg == "--net-loss" ||
+                      arg == "--net-jump-every" )
             {
                 char*        end    = nullptr;
                 const double number = std::strtod( value.c_str(), &end );
@@ -687,6 +698,8 @@ namespace Desert::Editor
                                                                            value );
                 if ( arg == "--net-walk-cm" )
                     options.NetClient.WalkCm = static_cast<float>( number );
+                else if ( arg == "--net-jump-every" )
+                    options.NetClient.WalkJumpEverySeconds = static_cast<float>( number );
                 else if ( arg == "--net-lag-ms" )
                     options.NetClient.LagMs = static_cast<int>( number );
                 else

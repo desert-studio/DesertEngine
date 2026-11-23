@@ -473,16 +473,19 @@ namespace Desert::Graphic::GlobalIllumination
             TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
             TraceCacheRead,   // the same program's leg reading the radiance cache for the rays the far field left
                               // there
-            TraceNearHitLighting, // the same program's leg lighting the software near field's hits (FPS-NEAR-FIELD)
+            TraceNearHitLighting, // the same program's leg lighting the software near field's hits
+                                  // (FPS-NEAR-FIELD)
             Disocclusion,
             SpatialFilter,
-            SpatialFilterFill,      // ScreenProbeSpatialFilter SP_SPATIAL_FILTER_FILLS_SKIPPED: the first pass,
-                                    // rebuilding the texels the sparse stable probes skipped (FPS-SP-NEAR)
+            SpatialFilterFill, // ScreenProbeSpatialFilter SP_SPATIAL_FILTER_FILLS_SKIPPED: the first pass,
+                               // rebuilding the texels the sparse stable probes skipped (FPS-SP-NEAR)
             Filter,
             FilterSpatial,          // ScreenProbeFilter SP_FILTER_SPATIAL: the spatial filter's last pass first
             IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists
             IntegrateSimpleDiffuse, // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE: the simple tiles
             Integrate,              // the full permutation: the tiles that evaluate GGX samples
+            IntegrateUncovered,     // ScreenProbeIntegrate SP_INTEGRATE_UNCOVERED: the pixels no probe holds, from
+                                    // the world radiance cache, on the graphics queue (FPS-SP-COMPOSITE-WAIT)
             Temporal,
             ProgramCount
         };

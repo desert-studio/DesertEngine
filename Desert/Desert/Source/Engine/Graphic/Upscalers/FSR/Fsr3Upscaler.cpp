@@ -310,12 +310,11 @@ namespace Desert::Graphic
         const Common::ResultStr<RDG::TextureRef> exposure = m_Exposure.AddPass( graph, inputs.Exposure );
         if ( !exposure )
             return Common::MakeFormattedError<TemporalUpscalerOutputs>( "FSR3: {}", exposure.GetError() );
-        // FSR reprojects every pixel by the vectors it is given: the sky's must carry the camera's motion, or its
-        // history stays glued to the screen under a turn (UpscalerVelocity.hpp).
-        const Common::ResultStr<RDG::TextureRef> combinedVelocity =
-             m_Velocity.AddPass( graph, frame, inputs.Velocity, inputs.SceneDepth );
-        if ( !combinedVelocity )
-            return Common::MakeFormattedError<TemporalUpscalerOutputs>( "FSR3: {}", combinedVelocity.GetError() );
+        // FSR reprojects every pixel by the vectors it is given: the view's velocity carries the camera's motion on
+        // every texel, the sky's included (the sky draw writes it, Common/Velocity.glslh DesertSkyVelocity).
+        if ( !inputs.Velocity.IsValid() )
+            return Common::MakeFormattedError<TemporalUpscalerOutputs>(
+                 "FSR3: {}", "the velocity is not a texture of this graph" );
 
         RDG::TextureDesc outputDesc;
         outputDesc.Size              = { split.Output.Width, split.Output.Height, 1 };
@@ -348,7 +347,7 @@ namespace Desert::Graphic
         const ViewExtent             upscaled = split.Output;
         const ViewExtent             unit{ 1, 1 };
         TemporalUpscalerInputs       in   = inputs;
-        in.Velocity                       = combinedVelocity.GetValue();
+        in.Velocity                       = inputs.Velocity;
         const RDG::TextureRef exposureRef = exposure.GetValue();
         graph.AddPass(
              "FSR3.Upscale", RDG::PassFlags::Compute | RDG::PassFlags::NeverParallel,
