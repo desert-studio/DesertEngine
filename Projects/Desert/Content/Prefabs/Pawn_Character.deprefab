@@ -9,7 +9,7 @@
             "UNIT": 1,
             "WPAR": 14
         },
-        "Dependencies": []
+        "Dependencies": ["b6d4fee95b042ebf87fed0333d18e59b"]
     },
     "Name": "Pawn_Character",
     "Entities": [
@@ -41,7 +41,9 @@
             },
             "SkinnedMesh": {
                 "MeshPath": "engine:Engine/Meshes/Skinned/Humanoid.skmesh",
-                "MeshGuid": "6d3a1f0e2b8c4e579a41c7d25e0b3f18"
+                "MeshGuid": "6d3a1f0e2b8c4e579a41c7d25e0b3f18",
+                "MaterialPaths": ["assets:Materials/M_Mannequin.demat"],
+                "MaterialGuids": ["b6d4fee95b042ebf87fed0333d18e59b"]
             }
         },
         {
