@@ -149,6 +149,23 @@ namespace Desert::Graphic::System
                                      const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context );
 
+        // THE UNDERWATER VOLUME (WATER-UNDERWATER; UE Water: the body's underwater post process volume, its
+        // material reading the body's own scattering / absorption). PrepareFrame finds the body the camera is
+        // under (the waves' surface at the camera's (X, Z) above the camera, or within the near plane's reach
+        // below it: the waterline crossing) and reads the medium from that body's `.demat` (its
+        // ScatteringCoefficients / AbsorptionCoefficients / PhaseG, the values its surface's volume uses). True
+        // after PrepareFrame when such a body was found - whether or not any tile of it is in view.
+        [[nodiscard]] bool HasUnderwater() const
+        {
+            return m_Underwater.Active;
+        }
+        // SETUP of the underwater node ("Deferred: Underwater", drawn on the scene target BEFORE the water
+        // surface): the opaque scene's copy @p sceneCopy (the target as it is: no feedback), the G-buffer depth
+        // and the sky's diffuse cube of @p view, the sky look and sun of @p frame.
+        void DeclareUnderwater( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
+                                const SceneFrameBinding& frame );
+        [[nodiscard]] Common::BoolResultStr RenderUnderwaterManual( const RDG::PassContext& context );
+
         // By reference, as GrassRenderer::Submit: @p zone is the recorded command's, held until ClearQueue.
         void Submit( WaterZoneDraw&& ) = delete; // the queue keeps a reference: a temporary would dangle
         void Submit( const WaterZoneDraw& zone )
@@ -292,6 +309,8 @@ namespace Desert::Graphic::System
             FFTPipelinesMissing,
             SpectrumMalformed,
             FFTReadbackUnreadable,
+            UnderwaterMediumMissing,
+            UnderwaterPipelineMissing,
         };
         [[nodiscard]] bool FirstWarning( const Assets::AssetHandle& material, WaterWarning cause );
         void WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
@@ -370,6 +389,42 @@ namespace Desert::Graphic::System
 
         std::vector<std::reference_wrapper<const WaterZoneDraw>> m_Queue;
         std::vector<FrameDraw>                                   m_FrameDraws;
+
+        // THE UNDERWATER VOLUME of this frame (PrepareUnderwater; HasUnderwater): the body the camera is under,
+        // its surface height at the camera and its medium (1/m), the view's pre-exposure and jittered inverse.
+        struct UnderwaterFrame
+        {
+            bool      Active   = false;
+            float     SurfaceY = 0.0f;
+            glm::vec3 Camera{ 0.0f };
+            glm::vec3 Scattering{ 0.0f };
+            glm::vec3 Absorption{ 0.0f };
+            float     PhaseG      = 0.0f;
+            float     PreExposure = 1.0f;
+            glm::mat4 InvViewProjection{ 1.0f };
+            // The frame's sun and sky look, taken by DeclareUnderwater (the frame binding the surface reads).
+            glm::vec4 ToSun{ 0.0f, 1.0f, 0.0f, 0.0f };
+            glm::vec4 SunRadiance{ 0.0f };
+            glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
+            glm::vec4 SkyGain{ 1.0f };
+        };
+        UnderwaterFrame m_Underwater;
+        // The medium read from a body `.demat` (its named values), re-read only when that material or the
+        // material stamp moved (UE: the underwater post process MID's parameters copied from the water MID).
+        struct UnderwaterMedium
+        {
+            uint64_t      Material = 0;
+            MaterialStamp Stamp;
+            bool          Readable = false;
+            glm::vec3     Scattering{ 0.0f };
+            glm::vec3     Absorption{ 0.0f };
+            float         PhaseG = 0.0f;
+        };
+        UnderwaterMedium                  m_UnderwaterMedium;
+        std::shared_ptr<GraphicsPipeline> m_UnderwaterPipeline;
+        bool                              m_UnderwaterPipelineTried = false;
+        void                              PrepareUnderwater( const glm::vec3& camera, const MaterialStamp& stamp );
+        [[nodiscard]] bool ReadUnderwaterMedium( const Assets::AssetHandle& material, const MaterialStamp& stamp );
 
         // THE RETAINED QUADTREES (UE: FWaterQuadTree is built once per water body set and only traversed per
         // view): one per submitted zone, in queue order, rebuilt only when that zone's desc or its WaterZoneBodies

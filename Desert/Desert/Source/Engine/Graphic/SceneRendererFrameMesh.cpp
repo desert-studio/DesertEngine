@@ -1004,7 +1004,7 @@ namespace Desert::Graphic
                                        const FrameFrontLayer& frontLayer )
     {
         auto* water = m_Systems.Water.get();
-        if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
+        if ( water == nullptr || ( !water->HasDraws() && !water->HasUnderwater() ) || !sceneCopy.IsValid() )
             return;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Water" );
         if ( !targets )
@@ -1031,6 +1031,17 @@ namespace Desert::Graphic
         const RDG::TextureRef black           = textures.GraphRefs().System.Black;
         const RDG::TextureRef frontReflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black;
         const RDG::TextureRef frontDepth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black;
+        // THE UNDERWATER VOLUME (WATER-UNDERWATER) first: over the opaque scene where the near plane is under the
+        // water, reading the copy (the target as it is) and the G-buffer depth; the surface is drawn over it.
+        if ( water->HasUnderwater() )
+            AddRaster(
+                 graph, "Deferred: Underwater", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+                 RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return water->RenderUnderwaterManual( context ); },
+                 [water, sceneCopy, view, frame]( RDG::PassBuilder& pass )
+                 { water->DeclareUnderwater( pass, sceneCopy, view, frame ); } );
+        if ( !water->HasDraws() )
+            return;
         const RDG::TextureRef waves           = FrameWaterWaves( graph, textures );
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),

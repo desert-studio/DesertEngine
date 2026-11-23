@@ -1,0 +1,59 @@
+// THE WATER VOLUME SEEN FROM INSIDE (WATER-UNDERWATER; UE Water: the underwater post process volume of a water body,
+// whose material reads the body's own scattering / absorption, and SingleLayerWater's volume seen from below). One
+// statement of the medium for both readers, so the fog in front of the surface seen from below and the fog over the
+// opaque scene under the water are the same water:
+//   - Programs/Water/WaterUnderwater.shader: the full-screen pass over every pixel whose ray STARTS under the water
+//     (the near plane's point below the surface at the camera: the waterline across the screen);
+//   - Mesh/Surface/Pass_SingleLayerWater.glslh: the surface's underside (Snell's window, total internal reflection),
+//     fogged from the eye to the surface.
+// Units: coefficients 1/m, distances and depths cm. Radiances NOT pre-exposed (the callers multiply).
+#ifndef WATER_UNDERWATER_GLSLH
+#define WATER_UNDERWATER_GLSLH
+
+const float kUnderwaterPi = 3.14159265;
+
+float UnderwaterPhaseHG( float cosTheta, float g )
+{
+    const float g2 = g * g;
+    return ( 1.0 - g2 ) / ( 4.0 * kUnderwaterPi * pow( max( 1.0 + g2 - 2.0 * g * cosTheta, 1e-4 ), 1.5 ) );
+}
+
+// The light that reaches a point @p depthCm under the surface (Beer-Lambert on the way down): the sun along its
+// refracted path (Snell, n = 1.333: the sun's cosine under the water), the sky straight down.
+// @p toSun: unit vector toward the sun (world), @p sun: its colour * intensity, @p skyIrradiance: the sky's
+// irradiance from above (the environment's diffuse cube toward +Y).
+// @p rayDir: the eye ray's direction (the sun's phase is taken along it).
+vec3 UnderwaterInscatterRadiance( vec3 sigmaS, vec3 sigmaT, float phaseG, vec3 rayDir, vec3 toSun, vec3 sun,
+                                  vec3 skyIrradiance, float depthCm )
+{
+    const vec3  albedo  = sigmaS / sigmaT;
+    const float sunUp   = max( toSun.y, 0.0 );
+    // The sun's direction under the surface: Snell from air (1.0) into water (1.333).
+    const float sinAir  = sqrt( max( 1.0 - sunUp * sunUp, 0.0 ) );
+    const float cosSea  = sqrt( max( 1.0 - ( sinAir / 1.333 ) * ( sinAir / 1.333 ), 0.0 ) );
+    const vec3  sunSea  = normalize( vec3( toSun.x * ( sinAir > 1e-4 ? ( sinAir / 1.333 ) / sinAir : 0.0 ), cosSea,
+                                           toSun.z * ( sinAir > 1e-4 ? ( sinAir / 1.333 ) / sinAir : 0.0 ) ) );
+    const float d       = max( depthCm, 0.0 ) * 0.01;
+    const vec3  sunDown = exp( -sigmaT * ( d / max( cosSea, 0.05 ) ) );
+    const vec3  skyDown = exp( -sigmaT * d );
+    const float phase   = UnderwaterPhaseHG( dot( rayDir, sunSea ), phaseG );
+    return albedo * ( sun * sunUp * phase * sunDown + skyIrradiance / ( 4.0 * kUnderwaterPi ) * skyDown );
+}
+
+// The segment of an eye ray that runs under the water, from @p origin (depth @p originDepthCm under the surface)
+// along @p rayDir for @p lengthCm: what of the light behind survives (rgb, the return) and the light the segment
+// scatters toward the eye (@p inscatter). The medium's light is taken at the segment's mean depth, the segment's
+// length capped where the water is opaque (past 4 / min(sigmaT) nothing behind counts).
+vec3 UnderwaterSegment( vec3 sigmaS, vec3 sigmaT, float phaseG, vec3 rayDir, float originDepthCm, float lengthCm,
+                        vec3 toSun, vec3 sun, vec3 skyIrradiance, out vec3 inscatter )
+{
+    const vec3  trans     = exp( -sigmaT * ( lengthCm * 0.01 ) );
+    const float opaqueCm  = 400.0 / max( min( sigmaT.r, min( sigmaT.g, sigmaT.b ) ), 1e-4 );
+    const float seen      = min( lengthCm, opaqueCm );
+    const float meanDepth = max( originDepthCm - rayDir.y * 0.5 * seen, 0.0 );
+    inscatter = UnderwaterInscatterRadiance( sigmaS, sigmaT, phaseG, rayDir, toSun, sun, skyIrradiance, meanDepth ) *
+                ( vec3( 1.0 ) - trans );
+    return trans;
+}
+
+#endif

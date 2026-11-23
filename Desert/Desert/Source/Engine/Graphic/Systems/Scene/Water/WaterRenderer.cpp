@@ -21,6 +21,10 @@
 #include <Engine/Water/GerstnerWaterWaves.hpp>
 #include <Engine/Water/WaterRiver.hpp>
 #include <Engine/Water/FFTSurfaceMirror.hpp>
+#include <Engine/Water/WaterBodyQuery.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Common/Core/Profiler.hpp>
 
@@ -624,6 +628,7 @@ namespace Desert::Graphic::System
         m_FFTFrame.reset();
         m_FrameWavesTexture = RDG::TextureRef{};
         m_FrameWavesGraph   = nullptr;
+        m_Underwater        = UnderwaterFrame{};
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -667,6 +672,8 @@ namespace Desert::Graphic::System
             stamp.ValuesEditSerial    = materials->GetValuesEditSerial();
         }
         stamp.ContentSerial = Assets::ContentRegistry::WriteSerial();
+        // The body the camera is under (its tiles may all be out of view: the volume is drawn regardless).
+        PrepareUnderwater( glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] ), stamp );
         // Under Shadows.Method VirtualMaps no atlas is drawn: each cell's virtual-map permutation draws, as every
         // forward local-shadow reader's does (SceneRenderer::LocalShadowsAreVirtual, settled by BeginScene).
         const bool                          virtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
@@ -850,6 +857,199 @@ namespace Desert::Graphic::System
                                           .LensScale      = lensScale,
                                           .VerticalExtent = verticalExtent,
                                           .Rows           = 0 };
+    }
+
+    namespace
+    {
+        // The slot names of Programs/Water/WaterUnderwater.shader, spelled once.
+        struct WaterUnderwaterShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+            DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+            DESERT_SHADER_PARAMETER( Texture, EnvironmentIrradianceTexture );
+        };
+    } // namespace
+
+    bool WaterRenderer::ReadUnderwaterMedium( const Assets::AssetHandle& material, const MaterialStamp& stamp )
+    {
+        if ( m_UnderwaterMedium.Material == static_cast<uint64_t>( material ) && m_UnderwaterMedium.Stamp == stamp )
+            return m_UnderwaterMedium.Readable;
+        m_UnderwaterMedium          = UnderwaterMedium{};
+        m_UnderwaterMedium.Material = static_cast<uint64_t>( material );
+        m_UnderwaterMedium.Stamp    = stamp;
+        auto* const materials       = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr )
+            return false;
+        MaterialOverrides overrides;
+        (void)materials->ResolveOverrides( material, overrides );
+        const glm::vec4* scattering = nullptr;
+        const glm::vec4* absorption = nullptr;
+        const glm::vec4* phase      = nullptr;
+        for ( const auto& [name, value] : overrides.Params )
+        {
+            if ( name == "ScatteringCoefficients" )
+                scattering = &value;
+            else if ( name == "AbsorptionCoefficients" )
+                absorption = &value;
+            else if ( name == "PhaseG" )
+                phase = &value;
+        }
+        if ( scattering == nullptr || absorption == nullptr || phase == nullptr )
+            return false;
+        m_UnderwaterMedium.Scattering = glm::max( glm::vec3( *scattering ), glm::vec3( 0.0f ) );
+        m_UnderwaterMedium.Absorption = glm::max( glm::vec3( *absorption ), glm::vec3( 0.0f ) );
+        m_UnderwaterMedium.PhaseG     = glm::clamp( phase->x, -0.9f, 0.9f );
+        m_UnderwaterMedium.Readable   = true;
+        return true;
+    }
+
+    void WaterRenderer::PrepareUnderwater( const glm::vec3& camera, const MaterialStamp& stamp )
+    {
+        const ViewFrame* const viewFrame = m_SceneRenderer->GetViewFrame();
+        auto* const            service   = Runtime::ResourceRegistry::GetWaterWavesService();
+        if ( viewFrame == nullptr )
+            return;
+        // The near plane's lowest corner (reversed-Z: device depth 1): a camera just above the water whose near
+        // plane dips under it is half under (the waterline crosses the screen).
+        const glm::mat4 inv     = viewFrame->InvJitteredViewProjection;
+        float           nearLow = camera.y;
+        for ( const glm::vec2 ndc : { glm::vec2( -1.0f, -1.0f ), glm::vec2( 1.0f, -1.0f ), glm::vec2( -1.0f, 1.0f ),
+                                      glm::vec2( 1.0f, 1.0f ) } )
+        {
+            const glm::vec4 w = inv * glm::vec4( ndc, 1.0f, 1.0f );
+            nearLow           = std::min( nearLow, w.y / w.w );
+        }
+        const float         time     = static_cast<float>( viewFrame->TimeSeconds );
+        float               best     = 0.0f; // how far the near plane reaches under the chosen body's surface, cm
+        Assets::AssetHandle chosen   = Assets::AssetHandle::Null();
+        float               surfaceY = 0.0f;
+        for ( const WaterZoneDraw& zone : m_Queue )
+        {
+            const WaterZoneBodies& bodies = *zone.Bodies;
+            for ( size_t b = 0; b < bodies.Materials.size(); ++b )
+            {
+                const Water::WaterQuadTreeBody& footprint = bodies.Footprints[b];
+                if ( static_cast<uint64_t>( bodies.Materials[b] ) == 0 || camera.x < footprint.FootprintMin.x ||
+                     camera.x > footprint.FootprintMax.x || camera.z < footprint.FootprintMin.y ||
+                     camera.z > footprint.FootprintMax.y )
+                    continue;
+                // The body as the physics step sees it (ECS::WaterBodyGather), around the camera.
+                Water::WaterBodyState state;
+                state.Location = glm::vec3( bodies.WaveOrigins[b].x, footprint.SurfaceY, bodies.WaveOrigins[b].y );
+                state.Extents  = 2.0f * glm::max( glm::abs( footprint.FootprintMax - bodies.WaveOrigins[b] ),
+                                                  glm::abs( bodies.WaveOrigins[b] - footprint.FootprintMin ) ) +
+                                glm::vec2( 1.0f );
+                state.TargetWaveMaskDepth = bodies.WaveMaskDepths[b];
+                state.Type                = bodies.Types[b];
+                state.Flow                = bodies.Flows[b];
+                if ( state.Type == Water::WaterBodyType::River && state.Flow != nullptr )
+                    state.Location = glm::vec3( state.Flow->Min.x + 0.5f * state.Flow->Extent.x, state.Flow->SurfaceY,
+                                                state.Flow->Min.y + 0.5f * state.Flow->Extent.y );
+                if ( service != nullptr && static_cast<uint64_t>( bodies.Waves[b] ) != 0 )
+                {
+                    auto waves = service->Get( bodies.Waves[b] );
+                    if ( waves && waves.GetValue() )
+                        state.Waves = waves.GetValue();
+                    auto spectrum = service->GetSpectrum( bodies.Waves[b] );
+                    if ( spectrum && spectrum.GetValue() )
+                        state.FFTSurface = service->Surfaces().Latest( spectrum.GetValue().get() );
+                }
+                if ( !Water::WaterBodyCovers( state, camera ) )
+                    continue;
+                const Water::WaterQueryResult hit   = Water::QueryWaterBody( state, camera, time, std::nullopt );
+                const float                   reach = hit.SurfaceLocation.y - nearLow;
+                if ( reach > best )
+                {
+                    best     = reach;
+                    chosen   = bodies.Materials[b];
+                    surfaceY = hit.SurfaceLocation.y;
+                }
+            }
+        }
+        if ( best <= 0.0f )
+            return; // the near plane is in the air: no pixel's ray starts under the water
+        if ( !ReadUnderwaterMedium( chosen, stamp ) )
+        {
+            WarnOnce( chosen, WaterWarning::UnderwaterMediumMissing,
+                      "its .demat states no ScatteringCoefficients / AbsorptionCoefficients / PhaseG: the "
+                      "underwater volume is not drawn under it" );
+            return;
+        }
+        if ( !m_UnderwaterPipelineTried )
+        {
+            m_UnderwaterPipelineTried = true;
+            if ( const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "WaterUnderwater" ) )
+            {
+                GraphicsPipelineSpecification spec;
+                spec.DebugName         = "WaterUnderwater";
+                spec.Shader            = shader;
+                spec.TargetLayout      = SceneTargetLayout();
+                spec.DepthTestEnabled  = false;
+                spec.DepthWriteEnabled = false;
+                spec.CullMode          = CullMode::None;
+                spec.Topology          = PrimitiveTopology::Triangles;
+                spec.BlendEnable       = false;
+                if ( const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec ) )
+                    m_UnderwaterPipeline = pipeline.GetValue();
+            }
+        }
+        if ( m_UnderwaterPipeline == nullptr )
+        {
+            WarnOnce( chosen, WaterWarning::UnderwaterPipelineMissing,
+                      "the WaterUnderwater program did not build: the underwater volume is not drawn" );
+            return;
+        }
+        m_Underwater.Active            = true;
+        m_Underwater.SurfaceY          = surfaceY;
+        m_Underwater.Camera            = camera;
+        m_Underwater.Scattering        = m_UnderwaterMedium.Scattering;
+        m_Underwater.Absorption        = m_UnderwaterMedium.Absorption;
+        m_Underwater.PhaseG            = m_UnderwaterMedium.PhaseG;
+        m_Underwater.PreExposure       = viewFrame->PreExposure;
+        m_Underwater.InvViewProjection = inv;
+    }
+
+    void WaterRenderer::DeclareUnderwater( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
+                                           const SceneViewInputs& view, const SceneFrameBinding& frame )
+    {
+        if ( !m_Underwater.Active || m_UnderwaterPipeline == nullptr || !sceneCopy.IsValid() )
+            return;
+        const auto sun            = m_SceneRenderer->GetFrameSun();
+        m_Underwater.ToSun        = glm::vec4( -glm::vec3( sun.Direction ), 0.0f );
+        m_Underwater.SunRadiance  = glm::vec4( glm::vec3( sun.ColorIntensity ) * sun.ColorIntensity.a, 0.0f );
+        const SkyLookGPU look     = ToGPU( frame.EnvironmentLook );
+        m_Underwater.SkyYawCosSin = look.YawCosSin;
+        m_Underwater.SkyGain      = look.Gain;
+        using P                   = WaterUnderwaterShaderParameters;
+        pass.Bindings( m_Layout.GetSlotted( m_UnderwaterPipeline->GetSpecification().Shader ).Layout,
+                       RDG::NoOtherRouteFill() )
+             .Texture( P::SceneColorTexture, sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( P::SceneDepthTexture, view.SceneDepth, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Texture( P::EnvironmentIrradianceTexture, view.EnvIrradiance, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .PushConstants<ShaderPush::WaterUnderwater>();
+    }
+
+    Common::BoolResultStr WaterRenderer::RenderUnderwaterManual( const RDG::PassContext& context )
+    {
+        if ( !m_Underwater.Active || m_UnderwaterPipeline == nullptr )
+            return BOOLSUCCESS;
+        const ShaderPush::WaterUnderwater push{ .InvViewProjection = m_Underwater.InvViewProjection,
+                                                .CameraSurface = glm::vec4( m_Underwater.Camera, m_Underwater.SurfaceY ),
+                                                .Scattering    = glm::vec4( m_Underwater.Scattering, m_Underwater.PhaseG ),
+                                                .Absorption = glm::vec4( m_Underwater.Absorption, m_Underwater.PreExposure ),
+                                                .ToSun        = m_Underwater.ToSun,
+                                                .SunRadiance  = m_Underwater.SunRadiance,
+                                                .SkyYawCosSin = m_Underwater.SkyYawCosSin,
+                                                .SkyGain      = m_Underwater.SkyGain };
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( push );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_UnderwaterPipeline, nullptr );
     }
 
     void WaterRenderer::PrepareTiles() noexcept
