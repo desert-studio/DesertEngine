@@ -1,0 +1,11 @@
+# BUILD-MOD-6 pass 2: Engine no longer includes Destruction; the module registers itself at startup
+# (Destruction::StartupModule: physics scene feature, fracture stand-in draw, FractureService, asset roots/types,
+# component pools; Engine/Core/Modules.cpp). Files live in Desert/Destruction/Source/Destruction/{Public,Private}.
+# boundary_error (outside the editor, Mac configure log): an injected #include <Destruction/Public/DestructionWorld.hpp>
+#   in an Engine .cpp fails configure naming module 'Engine' and module 'Destruction' (MODULE BOUNDARY).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, небо, разрушаемые объекты сцены целые на месте; без падения и диалога ошибки
+Когда run Action "Play"
+Когда advance 4
+Тогда-вид 1_wp_play WP_Protocol в Play: разрушаемый объект после удара разбит на куски (куски рисуются на месте, не исходная целая сетка); в editor.log нет отказа фрактуры
