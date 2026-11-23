@@ -550,12 +550,27 @@ namespace Desert::Server
                 return 0;
             }
 
-            // Every other role lives while its coordinator link does (the coordinator stopping stops the mesh).
-            bool       coordinatorSeen = false;
-            const auto coordinatorGone = [&]
+            // Every other role lives while its coordinator link does (the coordinator stopping stops the mesh),
+            // and a role that never reaches its coordinator stops at the connect deadline instead of holding its
+            // ports forever (a stale role from an earlier run blocks the next mesh's ports).
+            constexpr auto          kCoordinatorConnectDeadline = std::chrono::seconds( 30 );
+            const Clock::time_point roleStarted                 = Clock::now();
+            bool                    coordinatorSeen             = false;
+            bool                    deadlineReported            = false;
+            const auto              coordinatorGone             = [&]
             {
                 const bool up   = endpoint.PeerConnection( Net::EMeshRole::Coordinator, 1 ).has_value();
                 coordinatorSeen = coordinatorSeen || up;
+                if ( !coordinatorSeen && Clock::now() - roleStarted > kCoordinatorConnectDeadline )
+                {
+                    if ( !deadlineReported )
+                    {
+                        LOG_ERROR( "[Server] {}: no coordinator link within {} s - stopping",
+                                   Net::MeshRoleName( role ), kCoordinatorConnectDeadline.count() );
+                        deadlineReported = true;
+                    }
+                    return true;
+                }
                 return coordinatorSeen && !up;
             };
             if ( role == Net::EMeshRole::Store )
