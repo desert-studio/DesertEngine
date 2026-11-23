@@ -9,6 +9,7 @@
 #include <vector>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Net/ClientNetDriver.hpp>
 
 namespace Desert::Editor
 {
@@ -52,6 +53,8 @@ namespace Desert::Editor
         // The bindless table as the renderer's last memory sample saw it; no row (not "0 / 0") before the table
         // exists or when the dev instruments do not sample (Renderer::BeginFrame).
         const std::optional<Graphic::BindlessOccupancy> bindless = Graphic::MemoryWatch::LastBindless();
+        // The own pawn's prediction while Play runs as a network client (NET-4): no row offline.
+        const std::optional<Core::NetPredictionStats> net = Core::ClientNetDriver::LastStats();
 
         constexpr float kPad    = 8.0f;
         constexpr float kWidth  = 240.0f;
@@ -60,7 +63,8 @@ namespace Desert::Editor
         // +lineH для строки отрисовок: рамка считается по тому, ЧТО рисуется, иначе новая строка
         // вылезает за подложку — и это видно только на кадре, чего ни один тест не скажет.
         const float height = kPad * 2.0f + lineH /*fps*/ + kGraphH + 4.0f + lineH /*draws*/ +
-                             ( bindless ? lineH : 0.0f ) + static_cast<float>( scopeRows ) * lineH;
+                             ( bindless ? lineH : 0.0f ) + ( net ? lineH : 0.0f ) +
+                             static_cast<float>( scopeRows ) * lineH;
 
         const ImVec2 p0( viewportMax.x - kWidth - 12.0f, viewportMin.y + 12.0f );
         const ImVec2 p1( p0.x + kWidth, p0.y + height );
@@ -127,6 +131,16 @@ namespace Desert::Editor
             const auto written = std::format_to_n( row, sizeof( row ), "Bindless: {} live / {}", bindless->Live,
                                                    bindless->Capacity );
             dl->AddText( ImVec2( p0.x + kPad, y ), IM_COL32( 190, 200, 235, 255 ), row, written.out );
+            y += lineH;
+        }
+
+        if ( net )
+        {
+            char       row[96];
+            const auto written =
+                 std::format_to_n( row, sizeof( row ), "Net: corrections {}  unacked {}  clock x{:.2f}",
+                                   net->Corrections, net->Unacked, net->ClockDilation );
+            dl->AddText( ImVec2( p0.x + kPad, y ), IM_COL32( 190, 235, 200, 255 ), row, written.out );
             y += lineH;
         }
 
