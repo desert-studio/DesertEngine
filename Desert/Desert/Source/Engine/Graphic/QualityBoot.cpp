@@ -121,19 +121,24 @@ namespace Desert::Graphic::QualityBoot
         const auto&                                  capabilities = EngineContext::GetInstance().GetCapabilities();
         const Common::Scalability::BenchmarkCacheKey device =
              Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version );
-        // Only where StartFrom would read the recommendation (no saved selection, or a group whose saved level did
-        // not read), and never in an unattended run (its machine.json stays byte-for-byte as it was).
+        // Only where StartFrom reads the recommendation (no saved selection, or a group the file does not choose:
+        // machine.json keeps only the groups chosen away from the preset). An unattended run measures too, so it
+        // runs on this device's preset like an interactive one, but keeps the answer in this process: its
+        // machine.json stays byte-for-byte as it was (KeepInSession first, so the measure's Save writes nothing).
+        const bool thisProcess = persistence == Persistence::ThisProcess;
+        if ( thisProcess )
+            MachineSettings::KeepInSession( "unattended run" );
         const bool startsFromRecommendation =
              !machine.Quality.has_value() || MachineSettings::UnreadLevels().any();
-        if ( persistence == Persistence::MachineFile && startsFromRecommendation &&
-             !Common::Scalability::CacheValid( machine.Recommended, device ) )
+        if ( startsFromRecommendation && !Common::Scalability::CacheValid( machine.Recommended, device ) )
             MeasureRecommendation( table.GetValue(), device );
         const MachineSettings::StartingQuality start =
              MachineSettings::StartFrom( machine, MachineSettings::UnreadLevels(), device );
         // Load named each refused level (ERROR); this is the level the group actually starts on.
         for ( std::size_t g = 0; g < Common::Scalability::kGroupCount; ++g )
             if ( MachineSettings::UnreadLevels().test( g ) )
-                LOG_INFO( "[Scalability] the {} group's saved level did not read: it starts at {}",
+                LOG_INFO( "[Scalability] the {} group has no saved choice (or it did not read): it starts on the "
+                          "preset, {}",
                           Common::Scalability::GroupKey( static_cast<Common::Scalability::Group>( g ) ),
                           Common::Scalability::LevelKey( start.Selection.Levels[g] ) );
         // A first run with a valid recommendation starts on High and then APPLIES the recommendation, so the
@@ -144,12 +149,8 @@ namespace Desert::Graphic::QualityBoot
              start.FromRecommended ? MachineSettings::HighSelection() : start.Selection;
         Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
                                                        std::move( initial ), &SaveSelection );
-        const bool thisProcess = persistence == Persistence::ThisProcess;
         if ( thisProcess )
-        {
             Common::Scalability::QualityState::KeepInSession( "unattended run" );
-            MachineSettings::KeepInSession( "unattended run" );
-        }
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
         // The recommended upscaler for this device at the display's refresh rate (RecommendUpscaler): its reason
         // is logged on every start; ApplyRecommended applies it with the benchmark's levels only (the first run

@@ -32,10 +32,10 @@ namespace Desert::Core
         /**
          * @brief The same compile for an EXPLICIT SPIR-V debug-info profile.
          *
-         * The overload above compiles the way THIS build runs (debug info in Debug). The game
-         * packager instead cooks for the runtime the player will launch — a Debug editor packaging a
-         * Release game must produce Release artifacts under Release cache keys, or the shipped cache
-         * never hits. Pass Core::SpirvDebugInfoForConfigName(<target config>) here.
+         * The overload above compiles the way THIS build runs (debug info in every developer
+         * configuration, none in Shipping). The game packager instead cooks for the runtime the player
+         * will launch — an editor packaging a Shipping game must produce Shipping artifacts under
+         * Shipping cache keys, or the shipped cache never hits. Pass Core::SpirvDebugInfoForConfigName(<target config>) here.
          */
         static Common::ResultStr<std::vector<uint32_t>>
         CompileGLSLToSPIRVForProfile( Formats::ShaderStage stage, const std::string& source,
