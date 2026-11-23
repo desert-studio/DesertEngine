@@ -15,6 +15,9 @@
 #include <ShadingModels/ShadingModelContract.glslh> // kDesertMinRoughness, the normal slot's roughness floor
 #ifdef DESERT_SURFACE_PATH_WaterMesh
 #include <Mesh/Surface/WaterInterface.glslh>
+// The bank clip and the FFT pixel frame the fragment below shares with Pass_SingleLayerWater (the vertex stage's
+// include of this header does not reach the fragment stage).
+#include <Mesh/Surface/WaterMeshTiles.glslh>
 #endif
 
 DESERT_SURFACE_VARYINGS( in )
