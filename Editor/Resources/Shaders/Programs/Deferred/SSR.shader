@@ -585,6 +585,7 @@ Shader "SSR"
         RayGen
         {
             #include <Common/SSRTrace.glslh> // its CameraUB is also the view block the hit groups read
+            #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
 
             void main()
             {

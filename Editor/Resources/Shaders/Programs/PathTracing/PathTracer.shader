@@ -46,6 +46,7 @@ Shader "PathTracer"
         RayGen
         {
             #include <Common/CameraUB.glslh> // the view block: the raygen's camera, and what the hit groups read of the view
+            #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
             #include <Common/GIFrame.glslh>
             #include <Common/SkyLook.glslh>
             #include <Common/ReconstructPosition.glslh>

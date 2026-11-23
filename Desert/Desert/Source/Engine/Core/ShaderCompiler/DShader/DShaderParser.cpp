@@ -1913,14 +1913,19 @@ namespace Desert::Core::Preprocess
             const std::string cellDecls =
                  binned ? std::format( "#define {} g_SurfaceMaterialRow\n{}", kSurfaceMaterialRowMacro, autoDecls )
                         : autoDecls;
-            // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
-            const bool wets =
-                 weather && ( pass == "Forward" || pass == "GBuffer" || pass == "VisibilityResolve" ) && !particle && path != kSurfaceRayHitPath;
+            // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine), and its
+            // ray tracing hit (Pass_RayHit.glslh: reflections, hit-lit GI and the path tracer see the same wet
+            // surface; the ray generations declare the world's table and the rain occlusion,
+            // Common/RayTracingSceneReads.glslh).
+            const bool wets = weather &&
+                              ( pass == "Forward" || pass == "GBuffer" || pass == "VisibilityResolve" ||
+                                ( path == kSurfaceRayHitPath && pass == kSurfaceRayHitPass ) ) &&
+                              !particle;
+            // The world's values the weather reads (Wetness, PuddleLevel, RainIntensity...) are keyed in
+            // Common/WeatherRain.glslh, one text with the landscape's G-buffer (pinned in
+            // WorldParameterTable.hpp).
             const std::string weatherDefines =
-                 wets ? std::format( "#define {} 1\n#define {} {:#010x}u\n", kSurfaceWeatherDefine,
-                                     kSurfaceWetnessKeyDefine,
-                                     Assets::Serialization::WorldParameterKey( kSurfaceWetnessParameter ) )
-                      : std::string();
+                 wets ? std::format( "#define {} 1\n", kSurfaceWeatherDefine ) : std::string();
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
             const bool        rayHit      = path == kSurfaceRayHitPath;

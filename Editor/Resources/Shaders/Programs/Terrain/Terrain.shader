@@ -31,6 +31,9 @@ Shader "Terrain"
         Float       DetailNormalStrength ("Detail Normal Strength", Range(0,4), Category("Layers")) = 0
         Float       MacroHueSize ("Macro Hue Size (cm)", Range(100,100000), Category("Layers")) = 6000
         Float       MacroHueStrength ("Macro Hue Strength (radians)", Range(0,1.5), Category("Layers")) = 0
+        // The ground's response to the world's rain (Programs/Terrain/TerrainRain.glslh): how much water it soaks up
+        // when wet, as a mesh material's engine-owned Porosity (1 = soil, asphalt: darker, glossier).
+        Float       Porosity ("Porosity", Range(0,1), Category("Weather")) = 0.8
         // DISPLACEMENT (UE 5.4+ landscape displacement: the material's Displacement output, LandscapeDisplacement.glslh):
         // the layers' blended height moves the ground by (height - Center) x Magnitude along its normal, full up to
         // FadeStart from the camera and gone by FadeEnd. 0 cm = a flat ground; the dicing follows Scalability
@@ -173,6 +176,7 @@ Shader "Terrain"
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Common/WeatherSnow.glslh>
+        #include <Programs/Terrain/TerrainRain.glslh>
 
         // THE CLOUD LAYER'S SHADOW ON THE WORLD. The terrain is the surface this feature is FOR — a deck
         // of cumulus drifting over open ground is the whole picture — and it is the surface that never
@@ -295,6 +299,13 @@ Shader "Terrain"
             float          cover;
             float          opacity;
             TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover, opacity );
+            // The world's rain first (Programs/Terrain/TerrainRain.glslh: the film, puddles in the ground's dips,
+            // ripples while it rains), then its snow over it, as a mesh surface takes them (SurfaceWeather.glslh).
+            // The ground is a dielectric at UE's default Specular until water stands on it.
+            float metallic = 0.0;
+            float specular = 0.5;
+            DesertApplyLandscapeRain( s, v_WorldPos, normalize( v_Normal ), Material.Porosity, metallic, specular, cover,
+                                      transmission );
             // The world's snow (Common/WeatherSnow.glslh) over the ground and the grass's far cover alike: where it
             // lies the ground is snow, DefaultLit, and the cover's transmission is buried with it. The layer reads the
             // GEOMETRIC normal (v_Normal), never s.N: the far cover bends s.N towards the eye (a grazing canopy's
@@ -305,6 +316,8 @@ Shader "Terrain"
             s.Roughness = mix( s.Roughness, snow.Roughness, snow.Weight );
             s.AO        = mix( s.AO, snow.AO, snow.Weight );
             s.N         = normalize( mix( s.N, snow.NormalWS, snow.Weight ) );
+            metallic    = mix( metallic, snow.Metallic, snow.Weight );
+            specular    = mix( specular, 0.5, snow.Weight ); // the snow is UE's default dielectric, as before the rain
             cover        = snow.Weight > 0.5 ? 0.0 : cover * ( 1.0 - snow.Weight );
             transmission *= 1.0 - snow.Weight;
             vec3 N           = s.N;
@@ -313,8 +326,8 @@ Shader "Terrain"
             // The eye: the view block's (CameraUB).
             const vec3          eye     = cameraUB.CameraPos;
             const float         roughness = DesertSpecularAA( s.Roughness, N );
-            const DesertSurface surface   = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, 0.0, roughness,
-                                                               0.5 ); // UE's default Specular, as TerrainGBuffer packs
+            const DesertSurface surface   = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, metallic,
+                                                               roughness, specular ); // as TerrainGBuffer packs
             const vec3          sss     = sqrt( clamp( transmission, 0.0, 1.0 ) );
             const DesertPayload payload = cover > 0.0 ? DesertPayload( sss.r, sss.g, sss.b, opacity )
                                                       : DesertPayload( 0.0, 0.0, 0.0, 0.0 );

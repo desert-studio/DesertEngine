@@ -1,0 +1,42 @@
+# NG-PUDDLES (WTH-PUDDLES, Lagarde 2013 "Water drop 3a"): the world's rain on every lit surface and the landscape,
+# one text (Common/WeatherRain.glslh): the film soaked into the pores (Wetness), standing water in the ground's dips
+# read from the view's rain occlusion heightfield (PuddleLevel, PuddleShape), the ripple map on standing water and wet
+# level faces and streaks down wet walls while it rains (RainIntensity, RainRipple*, RainStreak*). Every value is a
+# row of WP_Weather; nothing is set here but the world's values.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 25
+Дано --subject selection set SunAzimuth 110
+Дано set world SceneSettings.WorldParameters assets:WorldParameters/WP_Weather.dworldparams
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.25,-1
+Тогда-вид 1_dry dry field and barn, identical to FIELD_Barn without WP_Weather (every rain value 0); editor.log has no shader compile error
+Когда lua "WorldParameters.setScalar('Wetness', 1)"
+Тогда-вид 2_wet the same view: ground and barn walls darker and glossier (porosity), no standing water anywhere, the ground under the barn roof dry
+Когда lua "WorldParameters.setScalar('PuddleLevel', 1)"
+Тогда-вид 3_puddles mirror-like puddles only in the ground's low spots (ruts, dips), sky reflected in them, none on slopes, none under the roof, none on the roof
+Когда lua "WorldParameters.setScalar('RainIntensity', 1)"
+Когда 30 frames render
+Тогда-вид 4_puddles_rain the puddles now rippled (moving between frames 4 and 5), wet level ground carries faint ripples, the barn's sunlit walls show vertical streaks; still nothing under the roof
+Когда 30 frames render
+Тогда-вид 5_puddles_rain_later same as 4 with the ripples and streaks moved (pixel-diff 4 vs 5 only in water and on walls)
+Когда --subject viewport set Camera.Position -300,2221,-3600
+Когда --subject viewport set Camera.Direction -0.53,-0.51,-0.7
+Тогда-вид 6_overview from above: puddles in the field's low ground and along the track, roof dry of puddles, no tile pattern visible in the water
+Когда lua "WorldParameters.setScalar('PuddleLevel', 0)"
+Тогда-вид 7_drained the puddles gone the next frame, the ground still wet and rippling
+# [puddles_reflect] (pass 3): the falling rain (Programs/Weather/RainStreaks.shader, RainDrops/RainDropShape rows)
+# and the puddle's reflection of the barn, screen-traced and hardware-traced alike (the hit groups are wet, pass 2).
+Когда lua "WorldParameters.setScalar('PuddleLevel', 1)"
+Когда lua "WorldParameters.setScalar('RainIntensity', 1)"
+Когда --subject viewport set Camera.Position 0,170,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.25,-1
+Когда set machine Reflections.Method ScreenSpace
+Когда 30 frames render
+Тогда-вид 8_puddles_reflect_ssr [puddles_reflect] the puddle in front of the barn mirrors the barn (SSR); thin rain streaks across the whole view, slanted with the scene wind, none inside the barn's doorway under the roof
+Когда set machine Reflections.Method HardwareTraced
+Когда 30 frames render
+Тогда-вид 9_puddles_reflect_rt [puddles_reflect] the same puddle shows the same barn (RT hit groups wet); pixel-diff vs 8 only in reflections and moving streaks; streaks still absent under the roof
+Когда lua "WorldParameters.setScalar('RainIntensity', 0)"
+Тогда-вид 10_rain_stopped no streak anywhere the next frame (RainIntensity 0 = no pass), puddles stay
