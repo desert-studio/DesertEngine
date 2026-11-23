@@ -59,7 +59,11 @@ set(_sources
     common/crypto.cpp
     common/crypto_textencode.cpp
     common/keypair.cpp)
-set(_defines VALVE_CRYPTO_ENABLE_25519 GOOGLE_PROTOBUF_NO_RTTI STEAMNETWORKINGSOCKETS_FOREXPORT ENABLE_OPENSSLCONNECTION)
+# STEAMNETWORKINGSOCKETS_ALLOW_DYNAMIC_SELFSIGNED_CERTS: the certificate store trusts a self-signed root added at run
+# time - the mesh CA (Desert/Net MeshCertificates.cpp) - instead of only Valve's hardcoded Steam root, which our own
+# servers have no certificates from. Only that file adds roots; client connections stay as they were.
+set(_defines VALVE_CRYPTO_ENABLE_25519 GOOGLE_PROTOBUF_NO_RTTI STEAMNETWORKINGSOCKETS_FOREXPORT ENABLE_OPENSSLCONNECTION
+    STEAMNETWORKINGSOCKETS_ALLOW_DYNAMIC_SELFSIGNED_CERTS)
 if(DESERT_IS_WINDOWS)
     list(APPEND _sources
         common/crypto_bcrypt.cpp

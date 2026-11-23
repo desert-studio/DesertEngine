@@ -85,7 +85,12 @@ namespace Desert::Net
             cert.set_key_type( CMsgSteamDatagramCertificate_EKeyType_ED25519 );
             key.GetRawDataAsStdString( cert.mutable_key_data() );
             if ( !identity.empty() )
+            {
                 cert.set_identity_string( "str:" + identity );
+                // GNS accepts a peer certificate only when it is bound to the process's AppID; our servers run
+                // outside Steam, where that AppID is 0 (the root stays unrestricted).
+                cert.add_app_ids( 0 );
+            }
             cert.set_time_created( static_cast<uint32>( std::time( nullptr ) ) );
             cert.set_time_expiry( cert.time_created() + static_cast<uint32>( days ) * 24u * 3600u );
 
@@ -104,6 +109,7 @@ namespace Desert::Net
     bool CreateMeshDevCa( const std::filesystem::path& directory, const std::vector<std::string>& identities,
                           int days, std::string& error )
     {
+        CCrypto::Init(); // no transport exists in this mode: GameNetworkingSockets_Init would have done it
         std::error_code ec;
         std::filesystem::create_directories( directory, ec );
         if ( ec )
