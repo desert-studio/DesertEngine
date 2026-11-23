@@ -1,7 +1,8 @@
 """Prints Mesh/BRDF.glslh kGGXSpecularAlbedo: the GGX lobe's directional albedo E(N.V, roughness) for F0 = 1.
 
 The integrand is Graphic/BRDFLut.cpp IntegrateBRDF's scale + bias at F0 = 1 (GGX importance sampling over a
-Hammersley set, Smith-Schlick G with k = roughness^2 / 2), evaluated at the 16 x 16 texel centres (i + 0.5) / 16 of
+Hammersley set, the exact height-correlated Smith term of Mesh/BRDF.glslh VisibilitySmith with
+alpha = roughness^2), evaluated at the 16 x 16 texel centres (i + 0.5) / 16 of
 u = N.V and v = roughness. Change the LUT's integrand and this script together, then paste the rows.
 Usage: python scripts/Dev/ggx_specular_albedo_table.py
 """
@@ -27,7 +28,6 @@ def main():
     for j in range(N):
         roughness = (j + 0.5) / N
         a = roughness * roughness
-        k = a / 2.0
         phi = 2.0 * np.pi * u1
         cos_t = np.sqrt((1.0 - u2) / (1.0 + (a * a - 1.0) * u2))
         sin_t = np.sqrt(np.maximum(0.0, 1.0 - cos_t * cos_t))
@@ -40,8 +40,10 @@ def main():
             L = 2.0 * voh * H - V[:, None]
             nol = L[2]
             valid = (nol > 0.0) & (voh > 0.0)
-            G = (nol / (nol * (1.0 - k) + k)) * (nov / (nov * (1.0 - k) + k))
-            weight = np.where(valid, G * voh / np.maximum(H[2] * nov, 1e-5), 0.0)
+            # UE5 EnvBRDF: NoL * Vis * 4 VoH / NoH, Vis = G / (4 NoL NoV) height-correlated (exact, as VisibilitySmith).
+            a2 = a * a
+            vis = 0.5 / np.maximum(nol * np.sqrt(nov * nov * (1.0 - a2) + a2) + nov * np.sqrt(nol * nol * (1.0 - a2) + a2), 1e-12)
+            weight = np.where(valid, nol * vis * 4.0 * voh / np.maximum(H[2], 1e-5), 0.0)
             row.append(weight.sum() / SAMPLES)
         values = ["%.4ff" % v for v in row]
         print("\t" + ", ".join(values[:8]) + ",")

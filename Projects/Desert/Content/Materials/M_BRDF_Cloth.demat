@@ -1,0 +1,38 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "14920244ca0349d1aa0d240b8e6e4b12",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4a6b6a2dc6baa81a187cac5272098a82"]
+    },
+    "Shader": {
+        "Guid": "4a6b6a2dc6baa81a187cac5272098a82",
+        "Path": "engine:Shaders/Programs/Surface/ClothSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.03999999910593033, 0.05999999865889549, 0.25, 1.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.800000011920929, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "FuzzColor",
+            "Value": [0.800000011920929, 0.800000011920929, 0.8999999761581421, 1.0]
+        },
+        {
+            "Name": "Cloth",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": []
+}
