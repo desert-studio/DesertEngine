@@ -233,15 +233,18 @@ namespace Desert::Core
         }
     }
 
-    // THE SERVER'S PAWN PREFAB, LOADED BEFORE ANY PAWN IS SPAWNED. The Welcome names it by handle; the open level
-    // references only its own assets, so a pawn the level does not name is not registered yet. The handle is
-    // resolved to its file through the content registry (handle -> stable key, no type and no prior registration
-    // needed) and registered + loaded here, once per session - UE's client loads the GameMode's DefaultPawnClass
-    // the same way.
+    // THE SERVER'S PAWN PREFAB, READ OFF THE FRAME BEFORE ANY PAWN IS SPAWNED. The Welcome names it by handle;
+    // the open level references only its own assets, so a pawn the level does not name is not registered yet.
+    // The handle is resolved to its file through the content registry (handle -> stable key, no type and no prior
+    // registration needed), registered as an UNREAD shell and read on the AsyncAssetLoader's workers; its
+    // dependency closure is requested when the read lands (RequestPawnClosure), and spawns wait for both - UE's
+    // client streams the GameMode's DefaultPawnClass and its references (FStreamableManager) the same way,
+    // never inside a frame.
     void ClientNetDriver::LoadPawnPrefab( Assets::AssetManager& assets )
     {
         const Assets::AssetHandle handle( m_Client->PawnPrefab() );
-        if ( assets.FindByHandle<Assets::PrefabAsset>( handle ) )
+        if ( const auto resident = assets.FindByHandle<Assets::PrefabAsset>( handle );
+             resident && resident->IsReadyForUse() )
         {
             m_PawnPrefab = handle;
             RequestPawnClosure();
@@ -254,19 +257,46 @@ namespace Desert::Core
                        m_Client->PawnPrefab() );
             return;
         }
-        const std::filesystem::path path   = Common::AssetHandle::PathForStableKey( key );
-        const auto                  prefab = assets.CreateAsset<Assets::PrefabAsset>( path );
-        if ( !prefab || !prefab->IsReadyForUse() )
+        // The shell, not the bytes: CreateAsset without a load reads the header only, so the shell already
+        // carries the prefab's own identity. The Welcome's number is the path-derived one; a prefab that declares
+        // its own identity is registered under that, and the spawns name the asset by the handle it was
+        // registered with (which is why this is not CreateFromRegistryRow, which refuses that disagreement).
+        const std::filesystem::path path = Common::AssetHandle::PathForStableKey( key );
+        const auto prefab = assets.CreateAsset<Assets::PrefabAsset>( path, /*loadAfterCreate=*/false );
+        if ( !prefab )
         {
-            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load", m_Client->PawnPrefab(), key );
+            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') could not be created", m_Client->PawnPrefab(),
+                       key );
             return;
         }
-        // The Welcome's number is the path-derived one; a prefab that declares its own identity is registered
-        // under that, so the spawns below name the asset by the handle it was registered with.
-        m_PawnPrefab = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
-        LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}', handle {:016x} here)",
-                  m_Client->PawnPrefab(), key, static_cast<std::uint64_t>( m_PawnPrefab ) );
-        RequestPawnClosure();
+        const auto here = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
+        m_PawnPrefabReading = true;
+        m_PawnPrefabRead    = Assets::AsyncAssetLoader::Get().Request(
+             prefab,
+             [this, here, key, welcome = m_Client->PawnPrefab()]( const Assets::Asset<Assets::AssetBase>& read,
+                                                                  const Assets::LoadOutcome outcome,
+                                                                  const std::string&        error )
+             {
+                 m_PawnPrefabReading = false;
+                 if ( outcome == Assets::LoadOutcome::Failed || !read || !read->IsReadyForUse() )
+                 {
+                     LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load: {}", welcome, key,
+                                error );
+                     return;
+                 }
+                 m_PawnPrefab = here;
+                 LOG_INFO( "[Net] read the server's pawn prefab {:016x} off the frame ('{}', handle {:016x} here)",
+                           welcome, key, static_cast<std::uint64_t>( here ) );
+                 RequestPawnClosure();
+             },
+             [this] { m_PawnPrefabReading = false; } );
+        if ( !m_PawnPrefabRead.IsValid() )
+        {
+            m_PawnPrefabReading = false; // the loader refused and logged why
+            return;
+        }
+        LOG_INFO( "[Net] reading the server's pawn prefab {:016x} ('{}') off the frame", m_Client->PawnPrefab(),
+                  key );
     }
 
     // What a pawn spawn waits for: the rows of the prefab's closure that a spawn binds at once - meshes and their
@@ -290,6 +320,8 @@ namespace Desert::Core
 
     bool ClientNetDriver::PawnClosureLanded()
     {
+        if ( m_PawnPrefabReading )
+            return false; // the prefab file itself is still on a worker
         if ( !m_PawnClosure )
             return true; // no prefab loaded: the spawn says why (SpawnPawnPrefabAt's error), nothing to wait for
         if ( m_PawnClosure->Landed )

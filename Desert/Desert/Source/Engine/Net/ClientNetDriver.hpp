@@ -13,6 +13,7 @@
 // MovePredictor, the server runs the same Net::StepPawnMove) and reconciled against the server's acked state.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <glm/glm.hpp>
 
@@ -135,6 +136,10 @@ namespace Desert::Core
         bool                                    m_InSession = false;
         // The server's pawn prefab as THIS client's AssetManager knows it (LoadPawnPrefab); null until it loaded.
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
+        // The prefab file's own read, on the loader's workers (UE FStreamableManager::RequestAsyncLoad of the
+        // DefaultPawnClass): pawn spawns wait while it is in flight; destroying the driver releases it.
+        Assets::LoadRequest                     m_PawnPrefabRead;
+        bool                                    m_PawnPrefabReading = false;
         // The pawn prefab's dependency closure, read on the loader's workers from the Welcome on; pawn spawns wait
         // in m_AwaitingSpawn until it has landed (UE FStreamableManager: a replicated actor's class and its
         // references are streamed before the spawn, never loaded inside a frame). ClientNetDriver.cpp.
