@@ -375,6 +375,18 @@ namespace Common::Scalability
         // moving scene's tree degrades until the next build; 0 = built every frame. A cost/quality knob of every
         // ray-traced method; in the GlobalIllumination group, whose tracer reads the TLAS most. 0..240
         GlobalIlluminationTlasUpdatesBeforeRebuild,
+        // RT-FOLIAGE-LOD (UE: a static mesh's ray-tracing LOD / r.RayTracing.Geometry LOD bias, and WPO in ray
+        // tracing - r.RayTracing.Geometry.SupportsWPO with its distance cutoff and the dynamic geometry budget;
+        // RayTracing::RayTracingFoliageSettings). The error an ISM / foliage instance's RT-LOD may show, in
+        // 1/10000 cm per cm of distance from the view (50 = 0.005, ~0.3 degrees); 0 = every instance traces LOD 0.
+        // 0..1000
+        GlobalIlluminationRayTracingLodError,
+        // Swaying instances whose own BLAS is refit from the raster's wind per frame, all views together, nearest
+        // first; the rest trace their rest pose. 0 = none. 0..4096
+        GlobalIlluminationFoliageWindRefitBudget,
+        // The distance (cm) past which a swaying instance traces its rest pose (the raster's casters past their
+        // shadow wind distance cast the rest pose too). 0..100000
+        GlobalIlluminationFoliageWindDistance,
         // VIRT-GEOM (UE r.Nanite.MaxPixelsPerEdge): the screen-space error, in TENTHS of a pixel, a
         // virtual-geometry cluster may show before the cluster cut refines below it
         // (VirtualGeometryRenderer::AddClusterCull's threshold, x the view's LOD scale). Lower = finer. 1..1000

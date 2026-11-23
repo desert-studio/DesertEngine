@@ -630,6 +630,15 @@ namespace Desert::Graphic::RayTracing
         {
             m_TlasUpdatesBeforeRebuild = updates;
         }
+        // The foliage's RT-LOD threshold, wind refit budget and distance (RayTracingFoliage.hpp; Scalability
+        // GlobalIllumination.RayTracingLodError / FoliageWindRefitBudget / FoliageWindDistance). Another RT-LOD
+        // threshold regathers: a kept gather's instances hold the levels the old one picked.
+        void SetFoliageSettings( const RayTracingFoliageSettings& settings )
+        {
+            if ( settings.LodErrorPerCm != m_FoliageSettings.LodErrorPerCm )
+                m_GatherHasBlas = false;
+            m_FoliageSettings = settings;
+        }
         // Since the view was made: frames whose TLAS was built, frames whose TLAS was updated in place, and rows
         // an update frame patched with other bytes (a moving primitive: one per frame it moves).
         [[nodiscard]] uint64_t GetTlasFullBuildCount() const
@@ -763,6 +772,7 @@ namespace Desert::Graphic::RayTracing
         std::optional<RayTracingMetadataBuild> m_Metadata;      // the kept metadata (rebuilt with the list)
         uint32_t                            m_TlasUpdatesBeforeRebuild = 0;
         RayTracingFoliageLod   m_FoliageLod;   // the view's RT-LOD hysteresis (RayTracingFoliage.hpp)
+        RayTracingFoliageSettings m_FoliageSettings; // SetFoliageSettings (Scalability)
         RayTracingFoliageStats m_FoliageStats; // this frame's
         RayTracingFoliageStats m_LoggedFoliage; // the last one the [RT] foliage line said
         uint32_t                            m_UpdatesSinceBuild        = 0;

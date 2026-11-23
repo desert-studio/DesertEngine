@@ -535,6 +535,7 @@ namespace Desert::Graphic::RayTracing
         m_DynamicBuilds.clear();
         RayTracingGatherInputs inputs = GatherInputsOf( meshes, viewOrigin, drawDistanceScale );
         inputs.FoliageLod             = &m_FoliageLod; // a TLAS gather picks each ISM instance's RT-LOD
+        inputs.FoliageLodErrorPerCm   = m_FoliageSettings.LodErrorPerCm;
         const GpuDriven::GpuScene*   scene    = meshes.GetGpuScene();
         bool                         relisted = !m_ListValid; // the instance list is laid out anew this frame
         {
@@ -609,7 +610,7 @@ namespace Desert::Graphic::RayTracing
             m_FoliageStats = {};
             if ( const Common::BoolResultStr wind = cache.GetFoliageWind().AddPasses(
                       graph, meshes, m_Gather.Primitives, m_DynamicPrimitives, windCamera, viewOrigin,
-                      cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas, m_FoliageStats );
+                      cache.GetFrame(), m_FoliageSettings, m_DynamicBuilds, m_DynamicBlas, m_FoliageStats );
                  !wind )
                 return wind;
             CountRayTracingFoliage( m_Gather.Primitives, m_FoliageStats );

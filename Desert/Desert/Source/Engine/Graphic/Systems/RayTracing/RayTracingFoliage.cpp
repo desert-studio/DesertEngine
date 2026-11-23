@@ -82,13 +82,12 @@ namespace Desert::Graphic::RayTracing
     }
 
     uint8_t SelectRayTracingLod( const std::span<const float> errors, const float distance, const float scale,
-                                 const uint8_t previous )
+                                 const uint8_t previous, const float errorPerCm )
     {
         uint8_t lod = 0;
         for ( std::size_t level = 1; level <= errors.size(); ++level )
         {
-            const float reach =
-                 kRayTracingLodErrorPerCm * distance * ( level <= previous ? 1.0f : kRayTracingLodHysteresis );
+            const float reach = errorPerCm * distance * ( level <= previous ? 1.0f : kRayTracingLodHysteresis );
             if ( !( errors[level - 1u] * scale <= reach ) )
                 break;
             lod = static_cast<uint8_t>( level );
@@ -104,12 +103,12 @@ namespace Desert::Graphic::RayTracing
 
     uint8_t RayTracingFoliageLod::Select( const uint32_t entity, const uint32_t instance,
                                           const std::span<const float> errors, const float distance,
-                                          const float scale )
+                                          const float scale, const float errorPerCm )
     {
         const uint64_t key      = InstanceKey( entity, instance );
         const auto     found    = m_Previous.find( key );
         const uint8_t  previous = found != m_Previous.end() ? found->second : 0u;
-        const uint8_t  lod      = SelectRayTracingLod( errors, distance, scale, previous );
+        const uint8_t  lod      = SelectRayTracingLod( errors, distance, scale, previous, errorPerCm );
         m_Current[key]          = lod;
         return lod;
     }
@@ -154,14 +153,19 @@ namespace Desert::Graphic::RayTracing
     Common::BoolResultStr RayTracingFoliageWind::AddPasses(
          RDG::Builder& graph, const System::MeshRenderer& meshes, const std::span<RayTracingPrimitive> primitives,
          const std::span<const uint32_t> windPrimitives, const RDG::BufferRef camera, const glm::vec3& viewOrigin,
-         const uint64_t frame, std::vector<RayTracingDynamicGeometryBuild>& buildsOut,
-         std::vector<RDG::BufferRef>& blasOut, RayTracingFoliageStats& stats )
+         const uint64_t frame, const RayTracingFoliageSettings& settings,
+         std::vector<RayTracingDynamicGeometryBuild>& buildsOut, std::vector<RDG::BufferRef>& blasOut,
+         RayTracingFoliageStats& stats )
     {
         if ( m_BudgetFrame != frame )
         {
             m_BudgetFrame = frame;
             m_BudgetUsed  = 0;
         }
+        stats.Budget = settings.RefitBudget;
+        // No budget or no distance (the Scalability level turns the wind off in RT): every swaying instance below
+        // traces its rest pose.
+        const bool refits = settings.RefitBudget > 0u && settings.WindDistance > 0.0f;
 
         // Every swaying instance traces its rest pose unless taken below; the nearest are the candidates.
         struct Candidate
@@ -181,7 +185,7 @@ namespace Desert::Graphic::RayTracing
             primitive.Geometry = primitive.Wind.Rest;
             ++stats.Swaying;
             const float distance = glm::length( glm::vec3( primitive.World[3] ) - viewOrigin );
-            if ( distance <= kRayTracingFoliageWindDistance )
+            if ( refits && distance <= settings.WindDistance )
                 candidates.push_back( { p, distance } );
         }
         if ( candidates.empty() )
@@ -237,7 +241,7 @@ namespace Desert::Graphic::RayTracing
                 }
                 continue;
             }
-            if ( m_BudgetUsed >= kRayTracingFoliageRefitBudget )
+            if ( m_BudgetUsed >= settings.RefitBudget )
                 break;
             const auto wind = windOf.find(
                  InstanceKey( primitive.Wind.Entity, 0u ) ^

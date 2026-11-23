@@ -138,9 +138,11 @@ namespace Desert::Graphic::RayTracing
 
         // Resolves @p mesh's BLAS for @p masks; false: the row is skipped (counted, the error kept). A SCENE gather
         // (@p variants null: no TLAS is built from it) resolves nothing and keeps every row, Geometry null.
+        // @p countsSkip false: the caller traces the row anyway (a coarser RT-LOD falling back to LOD 0), only the
+        // error is kept.
         bool ResolveGeometry( RayTracingGeometryVariants* variants, Mesh& mesh,
                               const RayTracingSubmeshMasks& masks, RayTracingGatherResult& out,
-                              const void*& geometry )
+                              const void*& geometry, const bool countsSkip = true )
         {
             geometry = nullptr;
             if ( variants == nullptr )
@@ -149,7 +151,8 @@ namespace Desert::Graphic::RayTracing
             if ( !resolved )
             {
                 out.Errors.push_back( resolved.GetError() );
-                Count( out, RayTracingSkip::NoGeometry );
+                if ( countsSkip )
+                    Count( out, RayTracingSkip::NoGeometry );
                 return false;
             }
             geometry = resolved.GetValue();
@@ -268,18 +271,34 @@ namespace Desert::Graphic::RayTracing
                 Count( out, RayTracingSkip::NothingVisible );
                 continue;
             }
-            const void* geometry = nullptr;
-            if ( !ResolveGeometry( variants, *data.Mesh, masks, out, geometry ) )
-                continue;
-            // RT-FOLIAGE-BLAS (RayTracingFoliage.hpp): each instance traces the shared BLAS of its RT-LOD, resolved
-            // once per level the field uses; a swaying one is handed to the wind refit. A TLAS gather only.
-            const std::vector<float> lodErrors = variants != nullptr && inputs.FoliageLod != nullptr
-                                                      ? RayTracingLodErrors( *data.Mesh, masks.Hidden )
-                                                      : std::vector<float>{};
+            // RT-FOLIAGE-BLAS / RT-FOLIAGE-LOD (RayTracingFoliage.hpp): each instance traces the shared BLAS of its
+            // RT-LOD, resolved on the first instance at that level - LOD 0 included, so a field whose every
+            // instance is past LOD 0 asks for no LOD-0 BLAS variant (UE: only the RT LOD's geometry is built). A
+            // coarser level that does not resolve (its error kept) or has no BLAS falls back to LOD 0, the instance
+            // still traced; LOD 0 not resolving skips the field's LOD-0 instances (counted once). A swaying instance
+            // is handed to the wind refit. RT-LOD selection in a TLAS gather only.
+            const std::vector<float> lodErrors =
+                 variants != nullptr && inputs.FoliageLod != nullptr && inputs.FoliageLodErrorPerCm > 0.0f
+                      ? RayTracingLodErrors( *data.Mesh, masks.Hidden )
+                      : std::vector<float>{};
             std::array<const void*, kRayTracingMaxLod + 1u> lodGeometry{};
             std::array<bool, kRayTracingMaxLod + 1u>        lodResolved{};
-            lodGeometry[0]   = geometry;
-            lodResolved[0]   = true;
+            std::array<bool, kRayTracingMaxLod + 1u>        lodFailed{};
+            const auto resolveLevel = [&]( const uint8_t lod ) -> bool
+            {
+                if ( !lodResolved[lod] )
+                {
+                    lodResolved[lod]                = true;
+                    RayTracingSubmeshMasks lodMasks = masks;
+                    lodMasks.Lod                    = lod;
+                    const void* resolved            = nullptr;
+                    if ( ResolveGeometry( variants, *data.Mesh, lodMasks, out, resolved, lod == 0u ) )
+                        lodGeometry[lod] = resolved;
+                    else
+                        lodFailed[lod] = true;
+                }
+                return !lodFailed[lod];
+            };
             const bool sways = variants != nullptr && data.Wind.Sways();
             const auto                    firstRecord  = static_cast<uint32_t>( out.SegmentRecords.size() );
             uint32_t                      recordCount  = 0;
@@ -294,29 +313,22 @@ namespace Desert::Graphic::RayTracing
                 const uint32_t component = data.InstanceIds && instance < data.InstanceIds->size()
                                                 ? ( *data.InstanceIds )[instance]
                                                 : static_cast<uint32_t>( instance );
-                RayTracingSubmeshMasks instanceMasks    = masks;
-                const void*            instanceGeometry = geometry;
+                uint8_t lod = 0;
                 if ( !lodErrors.empty() )
                 {
                     const glm::vec3 origin( transforms[instance][3] );
-                    const uint8_t   lod = inputs.FoliageLod->Select(
-                         data.Entity, component, lodErrors, glm::length( origin - inputs.ViewOrigin ),
-                         RayTracingInstanceScale( transforms[instance] ) );
-                    if ( lod > 0u && !lodResolved[lod] )
-                    {
-                        RayTracingSubmeshMasks lodMasks = masks;
-                        lodMasks.Lod                    = lod;
-                        lodResolved[lod]                = true;
-                        const void* resolved            = nullptr;
-                        if ( ResolveGeometry( variants, *data.Mesh, lodMasks, out, resolved ) )
-                            lodGeometry[lod] = resolved;
-                    }
-                    if ( lod > 0u && lodGeometry[lod] != nullptr )
-                    {
-                        instanceMasks.Lod = lod;
-                        instanceGeometry  = lodGeometry[lod];
-                    }
+                    lod = inputs.FoliageLod->Select( data.Entity, component, lodErrors,
+                                                     glm::length( origin - inputs.ViewOrigin ),
+                                                     RayTracingInstanceScale( transforms[instance] ),
+                                                     inputs.FoliageLodErrorPerCm );
                 }
+                if ( lod > 0u && ( !resolveLevel( lod ) || lodGeometry[lod] == nullptr ) )
+                    lod = 0u;
+                if ( lod == 0u && !resolveLevel( 0u ) )
+                    continue;
+                RayTracingSubmeshMasks instanceMasks    = masks;
+                instanceMasks.Lod                       = lod;
+                const void*            instanceGeometry = lodGeometry[lod];
                 RayTracingPrimitive& primitive = out.Primitives.emplace_back();
                 primitive.Geometry             = instanceGeometry;
                 primitive.World                = transforms[instance];
@@ -331,7 +343,7 @@ namespace Desert::Graphic::RayTracing
                                        .Rest     = instanceGeometry,
                                        .Entity   = data.Entity,
                                        .Instance = component };
-                if ( variants != nullptr && geometry == nullptr && IsResident( *data.Mesh ) )
+                if ( variants != nullptr && instanceGeometry == nullptr && IsResident( *data.Mesh ) )
                     primitive.ProceduralMesh = data.Mesh;
                 if ( !recordsAdded )
                 {
