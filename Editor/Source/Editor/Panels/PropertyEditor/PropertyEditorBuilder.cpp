@@ -560,6 +560,10 @@ namespace Desert::Editor
         // two or three values you actually tune are always in reach. Shown while the row is hovered, and
         // permanently once pinned. Needs a stable identity, so only reflected rows get it.
         float rightEdge = ImGui::GetColumnWidth();
+        // The pin's slot is reserved on every reflected row, shown or not: the reset button left of it must
+        // not jump sideways when the hover reveals the pin (aiming at reset used to land on the pin).
+        if ( ownerType )
+            rightEdge -= ImGui::GetFrameHeight() + 2.0f;
         // Skip the whole thing when there is nothing to draw and nothing to look up — otherwise every
         // row of every component would build a key string each frame just to find an empty list.
         if ( ownerType && ( rowHovered || !EditorPreferences::Get().FavouriteFields.empty() ) )
@@ -568,8 +572,6 @@ namespace Desert::Editor
             const bool        pinned = EditorPreferences::IsFavouriteField( key );
             if ( pinned || rowHovered )
             {
-                const float bw = ImGui::GetFrameHeight();
-                rightEdge -= bw + 2.0f;
                 ImGui::SameLine( rightEdge );
                 ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.0f, 0.0f, 0.0f, 0.0f ) );
                 ImGui::PushStyleColor( ImGuiCol_Text, pinned ? ThemeManager::GetSelectedColor()
