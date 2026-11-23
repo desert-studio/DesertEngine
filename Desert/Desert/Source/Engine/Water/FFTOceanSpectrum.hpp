@@ -17,6 +17,7 @@
 // Common/GerstnerWave.glslh), amplitudes are centimetres. Axes: the plane is (world X, world Z) relative to the
 // body's WaveOrigin, Y up.
 
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 
 #include <array>
@@ -38,7 +39,7 @@ namespace Desert::Water
     /// set is its Tessendorf ocean where the tier allows (Scalability Effects.WaterWaveMethod = FFT) and its
     /// Gerstner generator - the same file's - below that tier and for the CPU's queries (REMAINDER: the GPU
     /// cascades read back for buoyancy).
-    enum class WaterWaveSource : uint8_t
+    enum class WaterWaveSource
     {
         Gerstner,
         FFT,

@@ -803,10 +803,14 @@ namespace Desert::Graphic::System
         {
             m_LoggedWaveSource = source;
             if ( fft )
+            {
                 LOG_INFO( "[Water] waves=FFT cascades={} rivers={} readback=on", Water::kFFTOceanCascades,
                           riverCount );
+            }
             else
+            {
                 LOG_INFO( "[Water] waves=Gerstner rivers={}", riverCount );
+            }
         }
 
         // The waves block is whole here (its WaterInfo lanes name the atlas's two regions FinishPrepare composes
