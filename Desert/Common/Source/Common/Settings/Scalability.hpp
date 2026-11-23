@@ -114,6 +114,9 @@ namespace Common::Scalability
         DistanceFieldPoolMiB,    // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
         AmbientOcclusionSamples, // GTAO horizon taps per direction (SSAORenderer). 4..32, SSAO.shader kMaxTaps
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
+        // The bloom method (UE r.Bloom.Method): Values: BloomMethod (CapabilityCatalog.hpp) - Gaussian below Epic,
+        // Convolution (FFT, the volume's kernel image) at Epic and Cinematic. BloomRenderer::SetMethod.
+        BloomMethod,
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
         ReflectionCaptureSize,  // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,

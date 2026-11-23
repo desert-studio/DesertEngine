@@ -85,6 +85,9 @@ namespace Desert::Graphic::ViewTargetFormats
     // survive it and the game UI drawn on the final image (ExtensionPoint::UI) has one display format.
     inline constexpr ImageFormat kSMAABlend      = kTonemap;
     inline constexpr ImageFormat kBloom          = ImageFormat::RGBA16F;
+    // Convolution bloom (PostProcess.BloomMethod Convolution, BloomRenderer): the frame's and the kernel's 2D
+    // spectra - FFT butterflies accumulate in full float (UE's FFT targets are 32F too); BloomFFT.glslh's rgba32f.
+    inline constexpr ImageFormat kBloomSpectrum  = ImageFormat::RGBA32F;
     inline constexpr ImageFormat kLightShaft     = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kLensFlare      = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kHeightFog      = ImageFormat::RGBA16F;

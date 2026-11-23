@@ -1,3 +1,6 @@
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Texture/TextureService.hpp>
+#include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
@@ -353,7 +356,36 @@ namespace Desert::Graphic
         if ( !desc )
             return;
         // A transient of this graph, sized from this frame's view; the tonemap reads its mip 0.
-        const RDG::TextureRef chain = graph.CreateTexture( *desc, "Bloom" );
+        // CONVOLUTION BLOOM (Scalability PostProcess.BloomMethod; UE PostProcessFFTBloom): the chain keeps only its
+        // mip 0 - the downsample's first pass (threshold, Karis, local exposure) is the convolution's input, and the
+        // convolution's result replaces it there, the one texture the tonemap adds in for either method.
+        RDG::TextureDesc                                        chainDesc = *desc;
+        std::optional<System::BloomRenderer::ConvolutionPlan> convolution;
+        RDG::TextureRef                                         kernelImage;
+        RDG::TextureRef                                         kernelSpectrum;
+        {
+            auto*                     textureService = Runtime::ResourceRegistry::GetTextureService();
+            const Assets::AssetHandle kernelHandle   = bloom->GetConvolutionKernel();
+            const bool       named  = static_cast<uint64_t>( kernelHandle ) != 0 && textureService != nullptr;
+            const Texture2D* kernel = named ? textureService->Get( kernelHandle ) : nullptr;
+            convolution             = bloom->PrepareConvolution(
+                 *desc, kernel, named ? textureService->GetSourcePath( kernelHandle ) : std::string{} );
+            if ( convolution )
+                kernelImage = textures.Import(
+                     Runtime::ResourceRegistry::GetImageService()->Share( kernel->GetImageHandle() ), "Bloom.Kernel" );
+            if ( convolution )
+                kernelSpectrum = textures.Import( bloom->GetKernelSpectrum(), "Bloom.KernelSpectrum" );
+            if ( convolution && ( !kernelImage.IsValid() || !kernelSpectrum.IsValid() ) )
+            {
+                // Warned once per reason (BloomRenderer::DropConvolution), not every frame the cause persists.
+                bloom->DropConvolution( !kernelImage.IsValid() ? "the kernel's image did not import"
+                                                               : "the kernel spectrum did not import" );
+                convolution.reset();
+            }
+            if ( convolution )
+                chainDesc.Mips = 1;
+        }
+        const RDG::TextureRef chain = graph.CreateTexture( chainDesc, "Bloom" );
         graph.SetFaultDefault( chain, RDG::FaultDefault::Black ); // lost bloom adds nothing (RDG-FAULT1)
         const RDG::TextureRef scene = sceneColor.front();
         textures.Transients.Bloom   = chain;
@@ -384,20 +416,22 @@ namespace Desert::Graphic
 
         // Downsample: scene -> mip 0 (Karis + threshold), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
-        for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
+        for ( uint32_t mip = 0; mip < chainDesc.Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  { bloom->DeclareDownsampleBindings( pass, scene, chain, adapted, leGrid, leBlurred, mip ); },
-                 [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [bloom, chainDesc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordDownsample( context, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
-        for ( uint32_t mip = desc->Mips - 1; mip >= 1; --mip )
+        for ( uint32_t mip = chainDesc.Mips - 1; mip >= 1; --mip )
             graph.AddPass(
                  std::format( "PostFX: BloomUpsample{}", mip ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass ) { bloom->DeclareUpsampleBindings( pass, chain, mip ); },
-                 [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [bloom, chainDesc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordUpsample( context, chainDesc, mip ); } );
+        if ( convolution )
+            bloom->AddConvolutionPasses( graph, *convolution, chain, kernelImage, kernelSpectrum );
     }
 
     void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
