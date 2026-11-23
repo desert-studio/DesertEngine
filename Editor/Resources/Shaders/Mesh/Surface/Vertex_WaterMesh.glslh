@@ -66,7 +66,12 @@ void main()
     // Zone-relative first (exact multiples of the quad size), then the zone's origin: two tiles sharing an edge add
     // the same two numbers, so the edge is at the same bits in both.
     const vec2 zoneLocal = t.Tile.xy + local;
-    const vec4 restPos   = vec4( t.Zone.x + zoneLocal.x, t.Tile.z, t.Zone.y + zoneLocal.y, 1.0 );
+    const vec2 restXZ    = vec2( t.Zone.x + zoneLocal.x, t.Zone.y + zoneLocal.y );
+    // A river's still level falls along its flow (UE: the river spline's height in WaterInfo): the baked level under
+    // the vertex, the very texels the CPU query reads (WaterRiverSurfaceY), not the tile's one mean level - a
+    // function of the world (X, Z), so tiles that share an edge meet at one height.
+    const bool riverTile = t.Body.y > 0.5;
+    const vec4 restPos   = vec4( restXZ.x, riverTile ? WaterRiverSurfaceY( restXZ, t.Tile.z ) : t.Tile.z, restXZ.y, 1.0 );
 
     // THE WAVES (UE WaterMeshVertexFactory GetWaterVertexFactoryIntermediates -> GetGerstnerShallowWaveOffset): the
     // grid point is a particle of still water, the body's Gerstner sum carries it to its place at this instant. The
@@ -87,7 +92,9 @@ void main()
     // The displaced surface's frame: Y up turned onto the wave normal; tangent along +X, bitangent along -Z
     // (right-handed with the normal, the UV's v running with -Z), so a tangent-space ripple map reads as it does on
     // a plane mesh.
-    const vec3 N = normalize( mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( waveSet, plane, time, viewDist ), atten ) );
+    // The still surface's own normal: up, or a river's slope (WaterRiverSurfaceNormal, the CPU's PlaneNormal).
+    const vec3 stillN = riverTile ? WaterRiverSurfaceNormal( restXZ ) : vec3( 0.0, 1.0, 0.0 );
+    const vec3 N = normalize( mix( stillN, WaterWavesNormal( waveSet, plane, time, viewDist ), atten ) );
     const vec3 T = normalize( vec3( N.y, -N.x, 0.0 ) );
     const vec3 B = normalize( cross( N, T ) );
     v_Surface.WorldPosition = worldPos.xyz;

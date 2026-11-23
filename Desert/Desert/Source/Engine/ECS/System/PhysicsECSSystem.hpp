@@ -181,7 +181,7 @@ namespace Desert::ECS
                 m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
                 m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
                 m_Ragdolls      = std::make_unique<RagdollLifetime>( *m_World );
-                // The wave clock starts with the Play, at zero (UE: the water subsystem's time of a new world).
+                // The water of the Play (its clock is the scene's game time, set every frame below).
                 m_Water = std::make_unique<Water::WaterSubsystem>();
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
@@ -236,6 +236,13 @@ namespace Desert::ECS
                 camFwd = glm::normalize( camFwd );
             if ( glm::length( camRight ) > 1e-4f )
                 camRight = glm::normalize( camRight );
+
+            // THE ONE WATER CLOCK (UE UWaterSubsystem::GetWaterTimeSeconds = the world's time): the scene's game time,
+            // the very clock the renderer draws the waves at (ViewFrame::TimeSeconds -> cameraUB.Time and the FFT
+            // passes' time, which also stamps the FFT readback the queries extrapolate from). The game clock has
+            // already ticked to this frame's end, so the steps start at its start and the pre-step callback
+            // advances it by each fixed step: a query in a step reads the crests the frame around it drew.
+            m_Water->SetTime( m_Scene->GetWorldTime().GetGameTimeSeconds() - static_cast<double>( ts.GetSeconds() ) );
 
             // ---- Character controllers: the controller SCRIPT (e.g. player_controller.lua) sets the move
             // INTENT each frame; the engine resolves it against the camera and moves the capsule on every FIXED

@@ -329,8 +329,11 @@ void main()
     const float depth     = WaterGroundDepth( i.UV1, i.VertexColor.g );
     // A flat body (no wave set) makes no wave foam.
     const float atten     = waveSet >= 0 ? ( depth > 0.0 ? GerstnerDepthAttenuation( depth, WaterInfoFrame.w ) : 1.0 ) : 0.0;
-    const float amount    = clamp( WaterFoamAmount( waveSet, WaterWavePlane( waveSet, i.UV1 ), i.Time, jitter, depth,
-                                                    atten, viewDist, w ),
+    // A river's bank band (WaterRiverBankBand: ~50 cm inside the baked bank line) foams as a shore does, waves or not.
+    const float bankBand  = WaterRiverBankBand( i.WorldPosition.xz, i.VertexColor.b );
+    const float amount    = clamp( max( WaterFoamAmount( waveSet, WaterWavePlane( waveSet, i.UV1 ), i.Time, jitter, depth,
+                                                         atten, viewDist, w ),
+                                        bankBand ),
                                    0.0, 1.0 );
     const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );
@@ -339,7 +342,10 @@ void main()
     // --- The shore (UE's water material depth fade): where the surface meets the ground or a mesh, the water
     // column along the view ray goes to zero and the surface fades into the unbent scene behind it, so the
     // meeting line is soft wherever the two surfaces cross - no hard intersection edge.
-    const float shore = w.ShoreFadeCm > 0.0 ? smoothstep( 0.0, w.ShoreFadeCm, baseLen ) : 1.0;
+    // A river's surface also fades in over the bank mask's bilinear edge (0.5 = the clip line, WaterOutsideBank; 1 a
+    // half 50 cm texel inside), so the clip is never a hard edge where the bank's ground stands below the baked level.
+    const float bankFade = i.VertexColor.b > 0.5 ? smoothstep( 0.5, 1.0, WaterFlowAt( i.WorldPosition.xz ).z ) : 1.0;
+    const float shore    = ( w.ShoreFadeCm > 0.0 ? smoothstep( 0.0, w.ShoreFadeCm, baseLen ) : 1.0 ) * bankFade;
     const vec3  plain = texture( SceneColorTexture, uv ).rgb;
 
     oColor = vec4( mix( plain, mix( water, foamLit * exposure * fog.a + fog.rgb, foam ), shore ), 1.0 );

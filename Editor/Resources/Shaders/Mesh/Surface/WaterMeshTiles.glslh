@@ -46,10 +46,11 @@ struct WaterWaveSet
 // for the foam and the per-pixel normal), the tiles follow.
 layout( std430, binding = 24 ) readonly buffer WaterTiles
 {
-    vec4         WaterWaveHeader; // x = the frame's wave set count, y = the FFT atlas's first band of THIS frame (0 or WATER_FFT_BANDS_PER_FRAME), zw unused
-    vec4         WaterInfoFrame;  // WaterInfoTexture's square: xy = lower world (X, Z), z = 1 / side (cm), w = the first set's TargetWaveMaskDepth (cm), 0 = none baked
+    vec4         WaterWaveHeader; // x = the frame's wave set count, y = the FFT atlas's first band of THIS frame (0 or WATER_FFT_BANDS_PER_FRAME), z = the WaterInfo atlas's ground region side in texels (= the river region's first row; 0 = no ground), w unused
+    vec4         WaterInfoFrame;  // WaterInfoTexture's ground region: xy = lower world (X, Z), z = 1 / side (cm), w = the first set's TargetWaveMaskDepth (cm), 0 = none baked
     vec4         WaterFFTFrame;   // the FFT ocean: xyz = 1 / patch side of cascades 0..2 (1/cm), w = 1 + the atlas's first band of the PREVIOUS frame when a set of this frame IS the FFT ocean (WaterFFTTexture), 0 = no FFT ocean
-    vec4         WaterFlowFrame;  // a river's flow (WATER-RIVERS-FFT): x = 1 when a river is in the frame (WaterInfoTexture's gba carry its flow), y = the two-phase flow's period (s), zw unused
+    vec4         WaterFlowFrame;  // a river's flow (WATER-RIVERS-FFT): x = 1 when a river is in the frame (WaterInfoTexture's river region carries it), y = the two-phase flow's period (s), zw = the river region's size in texels (columns, rows)
+    vec4         WaterRiverFrame; // the WaterInfo atlas's river region: xy = lower world (X, Z), zw = 1 / texel along X and Z (1/cm)
     WaterWaveSet WaterWaveSets[WATER_MAX_WAVE_SETS];
     WaterTileRow WaterTileRows[];
 };
@@ -233,10 +234,16 @@ float WaterWavesJacobian( int waveSet, vec2 plane, float time, float viewDist )
     return GerstnerJacobian( j );
 }
 
-// THE WATER INFO GROUND (UE WaterInfo texture, its ground channel; Water::WaterInfoGround): the landscape's height
-// under the zone seen from straight above, world Y in cm, over the square WaterInfoFrame names. Read by BOTH stages:
-// the vertex path damps the waves by it, the pass judges the surf by it. Binding 25: free in every surface cell
-// (the list above). Fetched texel by texel and filtered here, so neither stage needs a sampler of its own.
+// THE WATER INFO ATLAS (UE WaterInfo texture: ground depth + river height and velocity; WaterRenderer.cpp
+// CreateWaterInfoImage): one RGBA32F image of two regions, each on its own grid so neither is resampled. Read by
+// BOTH stages: the vertex path damps the waves by the ground and lays a river on its baked level, the pass judges
+// the surf and the banks. Binding 25: free in every surface cell (the list above). Fetched texel by texel and filtered
+// here, so neither stage needs a sampler of its own.
+//   rows [0, G)        the ground region, G x G (G = WaterWaveHeader.z): .r = the ground's world Y (cm), over the
+//                      square WaterInfoFrame names (Water::WaterInfoGround);
+//   rows [G, G + R.y)  the river region, R = WaterFlowFrame.zw texels over WaterRiverFrame: (flow x, flow z cm/s,
+//                      bank mask, still surface Y cm) - one river's region IS its bake's grid
+//                      (Water::RiverFlowField), so the height here and Water::SampleRiverSurfaceY's are one source.
 layout( binding = 25 ) uniform texture2D WaterInfoTexture;
 
 // The still water column at a world (X, Z): the still level minus the ground below it, from above - not the scene
@@ -244,16 +251,16 @@ layout( binding = 25 ) uniform texture2D WaterInfoTexture;
 // 0 = no ground under it (open sea, or a zone without a landscape).
 float WaterGroundDepth( vec2 worldXZ, float stillY )
 {
-    if ( WaterInfoFrame.w < 0.5 )
+    if ( WaterInfoFrame.w < 0.5 || WaterWaveHeader.z < 0.5 )
         return 0.0;
     const vec2 uv = ( worldXZ - WaterInfoFrame.xy ) * WaterInfoFrame.z;
     if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) )
         return 0.0;
-    const ivec2 size = textureSize( WaterInfoTexture, 0 );
-    const vec2  p    = uv * vec2( size ) - 0.5;
-    const ivec2 i0   = clamp( ivec2( floor( p ) ), ivec2( 0 ), size - 1 );
+    const ivec2 size = ivec2( int( WaterWaveHeader.z + 0.5 ) );
+    const vec2  p    = clamp( uv * vec2( size ) - 0.5, vec2( 0.0 ), vec2( size - 1 ) );
+    const ivec2 i0   = ivec2( floor( p ) );
     const ivec2 i1   = min( i0 + 1, size - 1 );
-    const vec2  f    = clamp( p - floor( p ), 0.0, 1.0 );
+    const vec2  f    = p - floor( p );
     const float h00  = texelFetch( WaterInfoTexture, i0, 0 ).r;
     const float h10  = texelFetch( WaterInfoTexture, ivec2( i1.x, i0.y ), 0 ).r;
     const float h01  = texelFetch( WaterInfoTexture, ivec2( i0.x, i1.y ), 0 ).r;
@@ -264,26 +271,101 @@ float WaterGroundDepth( vec2 worldXZ, float stillY )
     return max( stillY - ground, 1.0 ); // over the ground's own level: the thinnest film
 }
 
-// THE RIVER FLOW (UE: the river velocity the WaterInfo texture carries; Water::RiverFlowField): the same square as
-// the ground, gba = the surface velocity on the (X, Z) plane (cm/s) and the bank mask (1 inside a river's ribbon).
-// Bilinear, as WaterGroundDepth. Zero (no flow, outside every bank) off the square or with no river this frame.
+// The river region's texel at (x, z) of that region; zero (no flow, outside every bank) off it.
+vec4 WaterRiverTexel( ivec2 texel )
+{
+    const ivec2 size = ivec2( WaterFlowFrame.zw + 0.5 );
+    if ( any( lessThan( texel, ivec2( 0 ) ) ) || any( greaterThanEqual( texel, size ) ) )
+        return vec4( 0.0 );
+    return texelFetch( WaterInfoTexture, ivec2( texel.x, int( WaterWaveHeader.z + 0.5 ) + texel.y ), 0 );
+}
+
+// The river region's texel space at a world (X, Z): texel centres on integers (Water::SampleRiverSurfaceY's p).
+vec2 WaterRiverTexelSpace( vec2 worldXZ )
+{
+    return ( worldXZ - WaterRiverFrame.xy ) * WaterRiverFrame.zw - 0.5;
+}
+
+// THE RIVER FLOW (UE: the river velocity the WaterInfo texture carries): xy = the surface velocity on the (X, Z)
+// plane (cm/s), z = the bank mask (1 inside a river's ribbon). Bilinear. Zero off the region or with no river.
 vec3 WaterFlowAt( vec2 worldXZ )
 {
     if ( WaterFlowFrame.x < 0.5 )
         return vec3( 0.0 );
-    const vec2 uv = ( worldXZ - WaterInfoFrame.xy ) * WaterInfoFrame.z;
-    if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) )
-        return vec3( 0.0 );
-    const ivec2 size = textureSize( WaterInfoTexture, 0 );
-    const vec2  p    = uv * vec2( size ) - 0.5;
-    const ivec2 i0   = clamp( ivec2( floor( p ) ), ivec2( 0 ), size - 1 );
-    const ivec2 i1   = min( i0 + 1, size - 1 );
-    const vec2  f    = clamp( p - floor( p ), 0.0, 1.0 );
-    const vec3  a    = texelFetch( WaterInfoTexture, i0, 0 ).gba;
-    const vec3  b    = texelFetch( WaterInfoTexture, ivec2( i1.x, i0.y ), 0 ).gba;
-    const vec3  c    = texelFetch( WaterInfoTexture, ivec2( i0.x, i1.y ), 0 ).gba;
-    const vec3  d    = texelFetch( WaterInfoTexture, i1, 0 ).gba;
+    const vec2  p  = WaterRiverTexelSpace( worldXZ );
+    const ivec2 i0 = ivec2( floor( p ) );
+    const vec2  f  = p - floor( p );
+    const vec3  a  = WaterRiverTexel( i0 ).rgb;
+    const vec3  b  = WaterRiverTexel( i0 + ivec2( 1, 0 ) ).rgb;
+    const vec3  c  = WaterRiverTexel( i0 + ivec2( 0, 1 ) ).rgb;
+    const vec3  d  = WaterRiverTexel( i0 + ivec2( 1, 1 ) ).rgb;
     return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+}
+
+// THE RIVER'S STILL LEVEL (UE: the river spline's height baked into WaterInfo, read by the water mesh and by the
+// CPU query alike): the baked surface Y filtered bilinearly over the in-bank texels only, exactly as the CPU's
+// Water::SampleRiverSurfaceY filters the same texels - a bank texel's 0 never drags the level down. `fallbackY`
+// (the tile's mean level) where no in-bank texel is near. A function of the world (X, Z) alone, so two tiles that
+// share an edge, or a vertex morphing between LODs, read the same level: no step at the tile edges.
+bool WaterRiverLevel( vec2 worldXZ, out float level )
+{
+    level = 0.0;
+    if ( WaterFlowFrame.x < 0.5 )
+        return false;
+    const vec2  p      = WaterRiverTexelSpace( worldXZ );
+    const ivec2 i0     = ivec2( floor( p ) );
+    const vec2  f      = p - floor( p );
+    float       sum    = 0.0;
+    float       weight = 0.0;
+    for ( int dz = 0; dz < 2; ++dz )
+        for ( int dx = 0; dx < 2; ++dx )
+        {
+            const vec4 t = WaterRiverTexel( i0 + ivec2( dx, dz ) );
+            if ( t.b <= 0.5 )
+                continue;
+            const float w = ( dx == 1 ? f.x : 1.0 - f.x ) * ( dz == 1 ? f.y : 1.0 - f.y );
+            sum += w * t.a;
+            weight += w;
+        }
+    if ( !( weight > 0.0 ) )
+        return false;
+    level = sum / weight;
+    return true;
+}
+float WaterRiverSurfaceY( vec2 worldXZ, float fallbackY )
+{
+    float level;
+    return WaterRiverLevel( worldXZ, level ) ? level : fallbackY;
+}
+
+// The river's still surface normal at a world (X, Z): the level's slope across one texel (the CPU's
+// Water::QueryWaterBody tilts its PlaneNormal by the same difference, flat along an axis where either side is off
+// the banks), up off the river.
+float WaterRiverSlope( vec2 worldXZ, vec2 d )
+{
+    float a;
+    float b;
+    return WaterRiverLevel( worldXZ + d, a ) && WaterRiverLevel( worldXZ - d, b ) ? ( a - b ) / ( 2.0 * length( d ) ) : 0.0;
+}
+vec3 WaterRiverSurfaceNormal( vec2 worldXZ )
+{
+    const vec2 e = 1.0 / max( WaterRiverFrame.zw, vec2( 1e-6 ) );
+    return normalize( vec3( -WaterRiverSlope( worldXZ, vec2( e.x, 0.0 ) ), 1.0, -WaterRiverSlope( worldXZ, vec2( 0.0, e.y ) ) ) );
+}
+
+// THE BANK BAND (UE's river material: the shore foam and the opacity fade along the spline's edges): 1 at the bank
+// line, 0 from WATER_BANK_BAND_CM inside it - the bank mask's worst of the point and its four neighbours that far
+// out, so the band is the band's width whatever the 50 cm texel's bilinear edge. 0 on a tile that is not a river.
+#define WATER_BANK_BAND_CM 50.0
+float WaterRiverBankBand( vec2 worldXZ, float riverTile )
+{
+    if ( riverTile < 0.5 || WaterFlowFrame.x < 0.5 )
+        return 0.0;
+    const float r    = WATER_BANK_BAND_CM;
+    const float mask = min( min( WaterFlowAt( worldXZ ).z, min( WaterFlowAt( worldXZ + vec2( r, 0.0 ) ).z,
+                                                                 WaterFlowAt( worldXZ - vec2( r, 0.0 ) ).z ) ),
+                            min( WaterFlowAt( worldXZ + vec2( 0.0, r ) ).z, WaterFlowAt( worldXZ - vec2( 0.0, r ) ).z ) );
+    return 1.0 - smoothstep( 0.0, 1.0, mask );
 }
 
 // A river tile's fragment outside its banks (UE draws a river as a spline mesh of the ribbon's width; here the

@@ -136,28 +136,41 @@ namespace Desert::Graphic::System
         static_assert( sizeof( WaterWaveSet ) == ( 1 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
         struct WaterWavesBlock
         {
-            glm::vec4 Header{ 0.0f }; // x = the set count, y = the FFT atlas band this frame writes, zw unused
+            // x = the set count, y = the FFT atlas band this frame writes, z = the WaterInfo atlas's ground region
+            // side in texels (= the river region's first row; 0 = no ground), w unused
+            glm::vec4 Header{ 0.0f };
             glm::vec4 Info{ 0.0f }; // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = mask depth
             // WATER-RIVERS-FFT (WaterMeshTiles.glslh WaterFFTFrame / WaterFlowFrame): xyz = 1 / cascade patch
             // side, w = 1 + the previous frame's band when a set is the FFT ocean; the river's flow lane.
             glm::vec4 FFT{ 0.0f };
+            // WaterFlowFrame: x = 1 when a river is in the frame, y = the two-phase period (s), zw = the atlas's
+            // river region in texels (columns, rows).
             glm::vec4 Flow{ 0.0f };
+            // WaterRiverFrame: xy = the river region's lower world (X, Z), zw = 1 / its texel along X and Z (1/cm).
+            // Its first row is the ground region's side, Header.z.
+            glm::vec4                              River{ 0.0f };
             std::array<WaterWaveSet, kMaxWaveSets> Sets{};
         };
         static_assert( sizeof( WaterWavesBlock ) ==
-                       ( 4 + kMaxWaveSets * ( 1 + 2 * kMaxWaves ) ) * sizeof( glm::vec4 ) );
+                       ( 5 + kMaxWaveSets * ( 1 + 2 * kMaxWaves ) ) * sizeof( glm::vec4 ) );
 
-        // THE WATER INFO TEXTURE as the GPU samples it (UE WaterInfo: ground depth + river velocity): one RGBA32F
-        // texel per square cell, (ground height cm, flow x cm/s, flow z cm/s, bank mask) - WaterMeshTiles.glslh
-        // WaterGroundDepth reads .r, WaterFlowAt .gba.
-        std::shared_ptr<Image2D> CreateWaterInfoImage( const uint32_t size, const std::vector<glm::vec4>& texels )
+        // THE WATER INFO ATLAS as the GPU samples it (UE WaterInfo: ground depth + river height and velocity): one
+        // RGBA32F image of two regions, each on its OWN grid so neither is resampled (WaterMeshTiles.glslh):
+        //   rows [0, G)            the ground region, G x G: .r = the ground height (cm), its own WaterInfoGround
+        //                          grid verbatim (WaterGroundDepth);
+        //   rows [G, G + R.y)      the river region, R.x x R.y at the rivers' finest texel (50 cm): (flow x, flow z
+        //                          cm/s, bank mask, still surface Y cm) - one river's region IS its bake's grid, so
+        //                          the GPU's height is the very texels Water::SampleRiverSurfaceY reads (WaterFlowAt,
+        //                          WaterOutsideBank, WaterRiverSurfaceY).
+        std::shared_ptr<Image2D> CreateWaterInfoImage( const uint32_t width, const uint32_t height,
+                                                       const std::vector<glm::vec4>& texels )
         {
             std::vector<unsigned char> bytes( texels.size() * sizeof( glm::vec4 ) );
             std::memcpy( bytes.data(), texels.data(), bytes.size() );
             Core::Formats::Image2DSpecification spec = {
                  .Tag        = "WaterInfo",
-                 .Width      = size,
-                 .Height     = size,
+                 .Width      = width,
+                 .Height     = height,
                  .Format     = Core::Formats::ImageFormat::RGBA32F,
                  .Mips       = 1,
                  .Samples    = 1,
@@ -170,89 +183,110 @@ namespace Desert::Graphic::System
             return Image2D::Create( spec );
         }
 
-        // The square the WaterInfo texture spans: the ground's own grid while it holds every river's bake (the
-        // ground's heights then go up as baked), else the square over the ground and every bake at the finer of
-        // their texel sizes, at most Water::kRiverFlowMaxSize per side. Size 0: no ground and no river.
-        struct WaterInfoSquare
+        // The atlas's two regions (CreateWaterInfoImage). GroundSize 0: no ground; RiverSize 0: no river.
+        struct WaterInfoLayout
         {
-            glm::vec2 Min{ 0.0f };
-            float     Extent = 0.0f;
-            uint32_t  Size   = 0u;
+            glm::vec2  GroundMin{ 0.0f };
+            float      GroundExtent = 0.0f;
+            uint32_t   GroundSize   = 0u;
+            glm::vec2  RiverMin{ 0.0f };
+            glm::vec2  RiverTexel{ 0.0f }; // cm per texel along X and Z (a bake's texels need not be square)
+            glm::uvec2 RiverSize{ 0u };
+
+            [[nodiscard]] uint32_t Width() const noexcept
+            {
+                return std::max( { GroundSize, RiverSize.x, 1u } );
+            }
+            [[nodiscard]] uint32_t Height() const noexcept
+            {
+                return std::max( GroundSize + RiverSize.y, 1u );
+            }
         };
-        WaterInfoSquare
-        WaterInfoSquareOf( const Water::WaterInfoGround*                                 ground,
+
+        bool HasGroundHeights( const Water::WaterInfoGround* ground ) noexcept
+        {
+            return ground != nullptr && ground->Size > 0u && ground->ExtentCm > 0.0f &&
+                   ground->HeightCm.size() == static_cast<size_t>( ground->Size ) * ground->Size;
+        }
+
+        // The ground region is the ground's own grid; the river region is one river's bake grid, or for several the
+        // rectangle over all of them at the finest of their texels (coarsened so no side exceeds
+        // Water::kRiverFlowMaxSize, as one long river's bake is).
+        WaterInfoLayout
+        WaterInfoLayoutOf( const Water::WaterInfoGround*                                 ground,
                            std::span<const std::shared_ptr<const Water::RiverFlowField>> flows ) noexcept
         {
-            const bool hasGround = ground != nullptr && ground->Size > 0u && ground->ExtentCm > 0.0f;
-            glm::vec2  lo( std::numeric_limits<float>::max() );
-            glm::vec2  hi( std::numeric_limits<float>::lowest() );
-            float      texel = Water::kRiverFlowCmPerTexel;
+            WaterInfoLayout layout;
+            if ( HasGroundHeights( ground ) )
+            {
+                layout.GroundMin    = ground->Min;
+                layout.GroundExtent = ground->ExtentCm;
+                layout.GroundSize   = ground->Size;
+            }
+            if ( flows.empty() )
+                return layout;
+            if ( flows.size() == 1u )
+            {
+                const Water::RiverFlowField& flow = *flows.front();
+                layout.RiverMin                   = flow.Min;
+                layout.RiverTexel = flow.Extent / glm::vec2( glm::max( flow.Size, glm::uvec2( 1u ) ) );
+                layout.RiverSize  = flow.Size;
+                return layout;
+            }
+            glm::vec2 lo( std::numeric_limits<float>::max() );
+            glm::vec2 hi( std::numeric_limits<float>::lowest() );
+            float     texel = std::numeric_limits<float>::max();
             for ( const auto& flow : flows )
             {
                 lo    = glm::min( lo, flow->Min );
                 hi    = glm::max( hi, flow->Min + flow->Extent );
                 texel = std::min( texel, flow->Extent.x / static_cast<float>( std::max( flow->Size.x, 1u ) ) );
             }
-            if ( hasGround )
-            {
-                const glm::vec2 groundLo = ground->Min;
-                const glm::vec2 groundHi = ground->Min + glm::vec2( ground->ExtentCm );
-                if ( flows.empty() ||
-                     ( groundLo.x <= lo.x && groundLo.y <= lo.y && groundHi.x >= hi.x && groundHi.y >= hi.y ) )
-                    return { groundLo, ground->ExtentCm, ground->Size };
-                lo    = glm::min( lo, groundLo );
-                hi    = glm::max( hi, groundHi );
-                texel = std::min( texel, ground->ExtentCm / static_cast<float>( ground->Size ) );
-            }
-            if ( flows.empty() )
-                return {};
-            const float    extent = std::max( std::max( hi.x - lo.x, hi.y - lo.y ), 1.0f );
-            const uint32_t size =
-                 std::clamp( static_cast<uint32_t>( std::ceil( extent / std::max( texel, 1.0f ) ) ), 1u,
-                             Water::kRiverFlowMaxSize );
-            return { lo, extent, size };
+            const glm::vec2 span = glm::max( hi - lo, glm::vec2( 1.0f ) );
+            texel = std::max( { texel, 1.0f, std::max( span.x, span.y ) / static_cast<float>( Water::kRiverFlowMaxSize ) } );
+            layout.RiverMin   = lo;
+            layout.RiverTexel = glm::vec2( texel );
+            layout.RiverSize  = glm::uvec2( glm::clamp( glm::ceil( span / texel ), glm::vec2( 1.0f ),
+                                                        glm::vec2( static_cast<float>( Water::kRiverFlowMaxSize ) ) ) );
+            return layout;
         }
 
-        // The WaterInfo texels over @p square (CreateWaterInfoImage's layout, row-major by Z): the ground's height
-        // (its own texel on its own grid, the nearest one otherwise; kWaterInfoNoGroundCm off it) and the flow of
-        // the first river whose banks hold the texel centre (Water::SampleRiverFlow; zero flow and mask outside).
+        // The atlas's texels (row-major by Z, Width() per row): the ground's heights copied, and per river texel the
+        // texel of the first river whose banks hold its centre (the nearest bake texel; a lone river's are copied
+        // one to one). kWaterInfoNoGroundCm where there is no ground, zeros outside every bank.
         std::vector<glm::vec4>
-        ComposeWaterInfo( const WaterInfoSquare& square, const Water::WaterInfoGround* ground,
+        ComposeWaterInfo( const WaterInfoLayout& layout, const Water::WaterInfoGround* ground,
                           std::span<const std::shared_ptr<const Water::RiverFlowField>> flows )
         {
-            const uint32_t         size = square.Size;
-            std::vector<glm::vec4> texels( static_cast<size_t>( size ) * size,
+            const uint32_t         width = layout.Width();
+            std::vector<glm::vec4> texels( static_cast<size_t>( width ) * layout.Height(),
                                            glm::vec4( Water::kWaterInfoNoGroundCm, 0.0f, 0.0f, 0.0f ) );
-            const bool             hasGround = ground != nullptr && ground->Size > 0u && ground->ExtentCm > 0.0f &&
-                                   ground->HeightCm.size() == static_cast<size_t>( ground->Size ) * ground->Size;
-            const bool sameGrid = hasGround && ground->Size == size && ground->Min == square.Min &&
-                                  ground->ExtentCm == square.Extent;
-            const float step = square.Extent / static_cast<float>( size );
-            for ( uint32_t z = 0; z < size; ++z )
-                for ( uint32_t x = 0; x < size; ++x )
+            for ( uint32_t z = 0; z < layout.GroundSize; ++z )
+                for ( uint32_t x = 0; x < layout.GroundSize; ++x )
+                    texels[static_cast<size_t>( z ) * width + x].x =
+                         ground->HeightCm[static_cast<size_t>( z ) * layout.GroundSize + x];
+            for ( uint32_t z = 0; z < layout.RiverSize.y; ++z )
+                for ( uint32_t x = 0; x < layout.RiverSize.x; ++x )
                 {
-                    const size_t    at    = static_cast<size_t>( z ) * size + x;
-                    const glm::vec2 world = square.Min + ( glm::vec2( x, z ) + 0.5f ) * step;
-                    glm::vec4&      texel = texels[at];
-                    if ( sameGrid )
-                        texel.x = ground->HeightCm[at];
-                    else if ( hasGround )
-                    {
-                        const glm::vec2 g =
-                             ( world - ground->Min ) / ground->ExtentCm * static_cast<float>( ground->Size );
-                        if ( g.x >= 0.0f && g.y >= 0.0f && g.x < static_cast<float>( ground->Size ) &&
-                             g.y < static_cast<float>( ground->Size ) )
-                            texel.x = ground->HeightCm[static_cast<size_t>( g.y ) * ground->Size +
-                                                       static_cast<size_t>( g.x )];
-                    }
+                    glm::vec4& texel = texels[static_cast<size_t>( layout.GroundSize + z ) * width + x];
+                    texel            = glm::vec4( 0.0f );
+                    const glm::vec2 world =
+                         layout.RiverMin + ( glm::vec2( static_cast<float>( x ), static_cast<float>( z ) ) + 0.5f ) *
+                                                layout.RiverTexel;
                     for ( const auto& flow : flows )
-                        if ( const glm::vec4 f = Water::SampleRiverFlow( *flow, world ); f.z > 0.5f )
-                        {
-                            texel.y = f.x;
-                            texel.z = f.y;
-                            texel.w = f.z;
-                            break;
-                        }
+                    {
+                        const glm::vec2 g = ( world - flow->Min ) / flow->Extent * glm::vec2( flow->Size );
+                        if ( g.x < 0.0f || g.y < 0.0f || g.x >= static_cast<float>( flow->Size.x ) ||
+                             g.y >= static_cast<float>( flow->Size.y ) )
+                            continue;
+                        const size_t at = static_cast<size_t>( g.y ) * flow->Size.x + static_cast<size_t>( g.x );
+                        if ( at >= flow->Texels.size() || flow->Texels[at].z <= 0.5f )
+                            continue;
+                        const glm::vec4& f = flow->Texels[at];
+                        texel = glm::vec4( f.x, f.y, f.z,
+                                           at < flow->SurfaceHeightCm.size() ? flow->SurfaceHeightCm[at] : flow->SurfaceY );
+                        break;
+                    }
                 }
             return texels;
         }
@@ -774,15 +808,22 @@ namespace Desert::Graphic::System
                 LOG_INFO( "[Water] waves=Gerstner rivers={}", riverCount );
         }
 
-        // The waves block is whole here (its WaterInfo lane reads the square the ground and the rivers compose
-        // into, and the mask depth): the upload's head, the tile task appends the rows after it.
-        const WaterInfoSquare infoSquare = WaterInfoSquareOf( ground.get(), rivers );
-        if ( infoSquare.Size > 0u )
-            waves.Info = glm::vec4( infoSquare.Min, 1.0f / infoSquare.Extent, std::max( waveMaskDepth, 1.0f ) );
-        // THE FLOW LANE (WaterMeshTiles.glslh WaterFlowFrame): on while a river is in the frame; the two-phase
-        // period is the first river's (one period per frame, as one wave set).
+        // The waves block is whole here (its WaterInfo lanes name the atlas's two regions FinishPrepare composes
+        // from the same ground and rivers, and the mask depth): the upload's head, the tile task appends the rows.
+        const WaterInfoLayout infoLayout = WaterInfoLayoutOf( ground.get(), rivers );
+        if ( infoLayout.GroundSize > 0u )
+            waves.Info = glm::vec4( infoLayout.GroundMin, 1.0f / infoLayout.GroundExtent,
+                                    std::max( waveMaskDepth, 1.0f ) );
+        // THE FLOW LANES (WaterMeshTiles.glslh WaterFlowFrame / WaterRiverFrame): on while a river is in the frame;
+        // the two-phase period is the first river's (one period per frame, as one wave set).
         if ( !rivers.empty() )
-            waves.Flow = glm::vec4( 1.0f, std::max( rivers.front()->FlowPeriod, 0.05f ), 0.0f, 0.0f );
+        {
+            waves.Flow  = glm::vec4( 1.0f, std::max( rivers.front()->FlowPeriod, 0.05f ),
+                                     static_cast<float>( infoLayout.RiverSize.x ),
+                                     static_cast<float>( infoLayout.RiverSize.y ) );
+            waves.River = glm::vec4( infoLayout.RiverMin, 1.0f / glm::max( infoLayout.RiverTexel, glm::vec2( 1e-3f ) ) );
+        }
+        waves.Header.z = static_cast<float>( infoLayout.GroundSize );
         m_Upload.resize( sizeof( WaterWavesBlock ) );
         std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
 
@@ -796,9 +837,6 @@ namespace Desert::Graphic::System
                                           .Stamp          = stamp,
                                           .Ground         = std::move( ground ),
                                           .Flows          = std::move( rivers ),
-                                          .InfoMin        = infoSquare.Min,
-                                          .InfoExtent     = infoSquare.Extent,
-                                          .InfoSize       = infoSquare.Size,
                                           .Bodies         = std::move( bodyLanes ),
                                           .BodyPrograms   = std::move( bodyPrograms ),
                                           .View           = view,
@@ -890,11 +928,10 @@ namespace Desert::Graphic::System
         {
             m_GroundBaked = ground;
             m_FlowsBaked  = m_Walk.Flows;
-            const WaterInfoSquare square{ m_Walk.InfoMin, m_Walk.InfoExtent, m_Walk.InfoSize };
-            m_WaterInfo =
-                 square.Size > 0u
-                      ? CreateWaterInfoImage( square.Size, ComposeWaterInfo( square, ground.get(), m_Walk.Flows ) )
-                      : CreateWaterInfoImage( 1u, { glm::vec4( Water::kWaterInfoNoGroundCm, 0.0f, 0.0f, 0.0f ) } );
+            // The same layout PrepareFrame wrote the lanes from (one function of the same ground and rivers).
+            const WaterInfoLayout layout = WaterInfoLayoutOf( ground.get(), m_Walk.Flows );
+            m_WaterInfo = CreateWaterInfoImage( layout.Width(), layout.Height(),
+                                                ComposeWaterInfo( layout, ground.get(), m_Walk.Flows ) );
         }
         // Each template's cell takes its own bodies' rows and the whole tile upload (its draws index the rows of
         // their own runs; FrameDraw::FirstRow is global).

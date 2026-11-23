@@ -135,8 +135,10 @@ namespace Desert::Water
     /**
      * @brief The water of one world: its bodies, the ground under them and the wave clock (UE UWaterSubsystem).
      *
-     * THE CLOCK IS THE PHYSICS STEP'S: Advance is called with each step's seconds, so the server and every
-     * client that steps the same steps sees the same waves; SetTime adopts a time the server sent.
+     * ONE WATER CLOCK (UE UWaterSubsystem::GetWaterTimeSeconds): the scene's game time, the clock the renderer
+     * draws the Gerstner waves and the FFT cascades at and stamps the FFT readback with. Physics SetTime's the
+     * game time at its frame's start and Advance's it by each fixed step, so a query in a step reads the surface
+     * drawn around it (and a networked game time is the waves' sync, with nothing water-specific to send).
      */
     class WaterSubsystem
     {

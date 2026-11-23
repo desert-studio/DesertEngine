@@ -399,10 +399,8 @@ namespace Desert::Graphic::System
             std::vector<FrameProgram>                     Programs; // empty: no water, the task walks nothing
             MaterialStamp                                 Stamp;
             std::shared_ptr<const Water::WaterInfoGround> Ground;
-            std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;      // the frame's rivers
-            glm::vec2                                     InfoMin{ 0.0f };     // WaterInfo square
-            float                                         InfoExtent = 0.0f;
-            uint32_t                                                  InfoSize   = 0u;
+            // The frame's rivers (the WaterInfo atlas's river region is laid out from them: WaterInfoLayoutOf).
+            std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;
             std::vector<std::vector<glm::vec4>>           Bodies;              // per zone, per body lane
             std::vector<std::vector<uint32_t>>            BodyPrograms; // per zone, per body: Programs slot
             glm::mat4                                     View{ 1.0f };

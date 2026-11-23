@@ -51,8 +51,11 @@ namespace Desert::Water
             if ( body.Ribbon != nullptr && !BuildRibbonLeaves( *body.Ribbon, range ) )
                 continue; // no in-bank texel inside the zone
             m_Bodies.push_back( std::move( range ) );
-            m_MinSurfaceY = std::min( m_MinSurfaceY, body.SurfaceY );
-            m_MaxSurfaceY = std::max( m_MaxSurfaceY, body.SurfaceY );
+            // A river's surface follows its baked level, not its mean (Vertex_WaterMesh.glslh WaterRiverSurfaceY):
+            // the boxes the nodes cull with span the level's whole fall, or a steep river is culled wrong.
+            const bool ribbonLevels = body.Ribbon != nullptr && body.Ribbon->MinSurfaceY <= body.Ribbon->MaxSurfaceY;
+            m_MinSurfaceY = std::min( m_MinSurfaceY, ribbonLevels ? body.Ribbon->MinSurfaceY : body.SurfaceY );
+            m_MaxSurfaceY = std::max( m_MaxSurfaceY, ribbonLevels ? body.Ribbon->MaxSurfaceY : body.SurfaceY );
         }
     }
 
