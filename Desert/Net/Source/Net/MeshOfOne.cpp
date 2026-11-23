@@ -24,6 +24,24 @@ namespace Desert::Net
         m_States.erase( id );
     }
 
+    std::uint32_t InProcessReplicationStore::WriteStable( StableNetId id, std::string_view component,
+                                                          std::string_view field, const ReplicatedValue& value )
+    {
+        std::vector<FieldUpdate>& fields = m_Stable[id];
+        const auto                it     = std::find_if( fields.begin(), fields.end(), [&]( const FieldUpdate& f )
+                                                         { return f.Component == component && f.Field == field; } );
+        if ( it != fields.end() )
+        {
+            if ( it->Value == value )
+                return it->Version;
+            it->Value   = value;
+            it->Version = ++m_StableVersion;
+            return it->Version;
+        }
+        fields.push_back( { std::string( component ), std::string( field ), ++m_StableVersion, value } );
+        return fields.back().Version;
+    }
+
     std::vector<PawnState> InProcessReplicationStore::All() const
     {
         std::vector<PawnState> all;
@@ -189,7 +207,12 @@ namespace Desert::Net
                             peer.Player, verdict.Token.Account, m_PawnPrefab ) );
         // UE's initial replication of the actors already relevant: the pawns of the players already in.
         for ( const PawnState& pawn : m_Store.All() )
+        {
             m_Transport.Send( connection, EncodeSpawn( { pawn, false, 0 } ), ENetLane::Rpc );
+            ++m_Stats.Spawns;
+        }
+        // Stable objects are NOT spawned: the new connection's baselines are empty, so the next state send carries
+        // every changed field of every stable object in full (§3.4).
         if ( m_Sim != nullptr )
             m_Sim->PlayerJoined( peer.Player, verdict.Token.Account );
     }
@@ -206,7 +229,16 @@ namespace Desert::Net
                 Admit( connection, peer, data );
             return;
         }
-        if ( PeekReplicationMessage( data ) != EReplicationMessage::Input )
+        const std::optional<EReplicationMessage> type = PeekReplicationMessage( data );
+        if ( type == EReplicationMessage::StateAck )
+        {
+            if ( const std::optional<StateAckMessage> ack = DecodeStateAck( data ) )
+                OnStateAck( peer, *ack, m_ServerStep );
+            else
+                m_Log( std::format( "connection {}: malformed StateAck dropped", connection ) );
+            return;
+        }
+        if ( type != EReplicationMessage::Input )
             return;
         const std::optional<InputMessage> input = DecodeInput( data );
         if ( !input )
@@ -221,7 +253,10 @@ namespace Desert::Net
     void Gateway::PawnSpawned( PlayerId owner, std::uint32_t player, const PawnState& pawn )
     {
         for ( const auto& [id, connection] : m_Connections )
+        {
             m_Transport.Send( connection, EncodeSpawn( { pawn, id == owner, player } ), ENetLane::Rpc );
+            ++m_Stats.Spawns;
+        }
     }
 
     void Gateway::PawnDestroyed( NetId id )
@@ -243,6 +278,122 @@ namespace Desert::Net
             snapshot.AckInputStep = ack.value_or( 0 );
             // State lane: unreliable; a full send queue drops this snapshot, the next one supersedes it.
             m_Transport.Send( connection, EncodeSnapshot( snapshot ), ENetLane::State );
+        }
+        m_ServerStep = serverStep;
+        for ( auto& [connection, peer] : m_Peers )
+            if ( peer.Admitted )
+            {
+                ExpireLost( peer, 0, serverStep, false );
+                SendStableState( connection, peer, serverStep );
+            }
+    }
+
+    namespace
+    {
+        // A packet neither acked nor reported lost after this long is lost (a client that stopped acking).
+        constexpr std::uint32_t kStateTimeoutSteps = 60;
+        // Objects per ObjectState packet: well under the transport's MTU for a few fields each.
+        constexpr std::size_t kObjectsPerStatePacket = 24;
+    } // namespace
+
+    void Gateway::SendStableState( ConnectionId connection, Peer& peer, std::uint32_t serverStep )
+    {
+        ObjectStateMessage message;
+        SentPacket         sent;
+        sent.Step        = serverStep;
+        const auto flush = [&]
+        {
+            if ( message.Objects.empty() )
+                return;
+            message.Sequence = peer.NextStateSequence++;
+            m_Transport.Send( connection, EncodeObjectState( message ), ENetLane::State );
+            ++m_Stats.StablePackets;
+            peer.InFlight[message.Sequence] = std::move( sent );
+            message.Objects.clear();
+            sent      = {};
+            sent.Step = serverStep;
+        };
+        for ( const auto& [id, fields] : m_Store.StableObjects() )
+        {
+            ObjectBaseline& baseline = peer.Baselines[id];
+            baseline.Acked.resize( fields.size(), 0 );
+            baseline.InFlight.resize( fields.size(), 0 );
+            const bool   fresh = std::all_of( baseline.Acked.begin(), baseline.Acked.end(),
+                                              []( std::uint32_t v ) { return v == 0; } );
+            ObjectUpdate update{ id, {} };
+            for ( std::size_t i = 0; i < fields.size(); ++i )
+            {
+                const FieldUpdate& field = fields[i];
+                if ( field.Version <= baseline.Acked[i] || baseline.InFlight[i] == field.Version )
+                    continue;
+                update.Fields.push_back( field );
+                baseline.InFlight[i] = field.Version;
+                sent.Fields.push_back( { id, i, field.Version } );
+                m_Log( std::format( "player {}: stable {} sent as STATE{} - {}.{} v{} = {}", peer.Player, id,
+                                    fresh ? " (full baseline)" : "", field.Component, field.Field, field.Version,
+                                    ReplicatedValueText( field.Value ) ) );
+            }
+            if ( update.Fields.empty() )
+                continue;
+            m_Stats.StableFields += update.Fields.size();
+            message.Objects.push_back( std::move( update ) );
+            if ( message.Objects.size() >= kObjectsPerStatePacket )
+                flush();
+        }
+        flush();
+    }
+
+    void Gateway::OnStateAck( Peer& peer, const StateAckMessage& ack, std::uint32_t serverStep )
+    {
+        for ( auto it = peer.InFlight.begin(); it != peer.InFlight.end(); )
+        {
+            if ( !StateAckWindow::Acks( ack, it->first ) )
+            {
+                ++it;
+                continue;
+            }
+            for ( const SentField& field : it->second.Fields )
+            {
+                ObjectBaseline& baseline = peer.Baselines[field.Id];
+                if ( field.Index < baseline.Acked.size() )
+                {
+                    baseline.Acked[field.Index] = std::max( baseline.Acked[field.Index], field.Version );
+                    if ( baseline.InFlight[field.Index] == field.Version )
+                        baseline.InFlight[field.Index] = 0;
+                }
+                ++m_Stats.Acked;
+            }
+            it = peer.InFlight.erase( it );
+        }
+        ExpireLost( peer, ack.Newest, serverStep, true );
+    }
+
+    // A packet is lost when an ack of a newer one does not ack it, or when nothing acked it for
+    // kStateTimeoutSteps: its in-flight marks clear, so the next send carries exactly its fields again if they are
+    // still newer than the acked baseline (Iris; never the whole object).
+    void Gateway::ExpireLost( Peer& peer, std::uint32_t newestAcked, std::uint32_t serverStep, bool byAck )
+    {
+        for ( auto it = peer.InFlight.begin(); it != peer.InFlight.end(); )
+        {
+            // Acks run in sequence order (Iris packet notification): an unacked packet older than the newest acked
+            // one was lost - the ack window repeats every ack 32 times, so it is not a lost ack.
+            const bool skipped  = byAck && StepAfter( newestAcked, it->first );
+            const bool timedOut = serverStep - it->second.Step > kStateTimeoutSteps;
+            if ( !skipped && !timedOut )
+            {
+                ++it;
+                continue;
+            }
+            for ( const SentField& field : it->second.Fields )
+            {
+                ObjectBaseline& baseline = peer.Baselines[field.Id];
+                if ( field.Index < baseline.InFlight.size() && baseline.InFlight[field.Index] == field.Version )
+                {
+                    baseline.InFlight[field.Index] = 0;
+                    ++m_Stats.Resent;
+                }
+            }
+            it = peer.InFlight.erase( it );
         }
     }
 
