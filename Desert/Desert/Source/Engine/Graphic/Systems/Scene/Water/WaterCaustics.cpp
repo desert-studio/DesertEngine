@@ -154,6 +154,12 @@ namespace Desert::Graphic::System
             ReportState( false, "no water body draws" );
             return std::nullopt;
         }
+        if ( inputs.BodyWaveLanes.size() != inputs.Bodies.size() )
+        {
+            // WaterRenderer fills both in one step (one lane per body drawn): a mismatch is a caller's bug.
+            ReportState( false, "the bodies' wave lanes do not match the bodies" );
+            return std::nullopt;
+        }
         const glm::vec3 sun = glm::normalize( inputs.SunTravel );
         if ( !( sun.y < -kMinSunDescent ) )
         {
@@ -171,11 +177,15 @@ namespace Desert::Graphic::System
         // the body over it, and a receiver measures its depth under the body over it.
         std::vector<WaterCausticsBodyRow> rows;
         rows.reserve( inputs.Bodies.size() );
-        for ( const Water::WaterQuadTreeBody& body : inputs.Bodies )
+        for ( std::size_t i = 0; i < inputs.Bodies.size(); ++i )
+        {
+            const Water::WaterQuadTreeBody& body = inputs.Bodies[i];
             if ( body.FootprintMax.x >= lower.x && body.FootprintMin.x <= upper.x && body.FootprintMax.y >= lower.y &&
                  body.FootprintMin.y <= upper.y )
-                rows.push_back( WaterCausticsBodyRow{ .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
-                                                      .Level     = glm::vec4( body.SurfaceY, 0.0f, 0.0f, 0.0f ) } );
+                rows.push_back(
+                     WaterCausticsBodyRow{ .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
+                                           .Level = glm::vec4( body.SurfaceY, inputs.BodyWaveLanes[i], 0.0f, 0.0f ) } );
+        }
         if ( rows.empty() )
         {
             // Unreachable while WindowCentre lies on a body's footprint; said rather than drawn blind.
@@ -210,20 +220,24 @@ namespace Desert::Graphic::System
                                                     .Format = Core::Formats::ImageFormat::R32F },
                                   "Water.Caustics" );
         const RDG::TextureRef ground = inputs.WaterInfo.IsValid() ? inputs.WaterInfo : inputs.Black;
+        const RDG::TextureRef fft    = inputs.FFTWaves.IsValid() ? inputs.FFTWaves : inputs.Black;
 
         const ShaderPush::WaterCausticsSplat push{
              .Window = glm::vec4( lower, kTexelCm, kNoGroundFloorDepthCm ),
              .Sun    = glm::vec4( sun, inputs.TimeSeconds ),
+             .Camera = glm::vec4( inputs.Camera, 0.0f ),
         };
         graph.AddPass(
              "Water: Caustics Splat", RDG::PassFlags::Compute,
-             [this, waves, ground, energy, frame]( RDG::PassBuilder& pass )
+             [this, waves, ground, fft, energy, frame]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( m_SplatLayout.Get( m_SplatPipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_SplatPipeline ) )
                       .Storage( WaterCausticsSplatShaderParameters::WaterTiles, waves, RDG::Access::StorageRead )
                       .Texture( WaterCausticsSplatShaderParameters::WaterInfoTexture, ground,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( WaterCausticsSplatShaderParameters::WaterFFTTexture, fft, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
                       .Storage( WaterCausticsSplatShaderParameters::WaterCausticsEnergy, energy,
                                 RDG::Access::StorageWrite )
                       .Storage( WaterCausticsSplatShaderParameters::WaterCausticsFrameUB, frame,

@@ -32,7 +32,8 @@
 // has a map. WaterCausticsShape: x = the bodies in the table, y = the depth over which the caustics come in under
 // the surface (cm), z = the depth over which they fade (cm), w = their strength (1 = the map as computed).
 // WaterCausticsBodies: two vec4 per body whose footprint meets the map's square - [2i] its footprint (xy = min
-// (X, Z), zw = max), [2i + 1].x its still surface Y (cm).
+// (X, Z), zw = max), [2i + 1].x its still surface Y (cm), .y its wave lane (1 + the frame's wave set in WaterTiles'
+// WaterWaveSets, 0 = a flat body; WaterRenderer::GetFrameBodyWaveLanes, the tiles' WaterTileRow.Body.z).
 #ifdef WATER_CAUSTICS_FRAME
 // The body whose still surface is the nearest one above @p worldPos (its footprint holds the point, the point
 // lies under its level), or -1: the water the light reaching that point came down through.
@@ -59,6 +60,11 @@ int WaterCausticsBodyOver( vec3 worldPos )
 float WaterCausticsBodyLevel( int body )
 {
     return WaterCausticsBodies[2 * body + 1].x;
+}
+// The wave lane of body @p body (the splat turns it into its wave set with WaterMeshTiles.glslh WaterWaveSetOf).
+float WaterCausticsBodyWaveLane( int body )
+{
+    return WaterCausticsBodies[2 * body + 1].y;
 }
 #endif // WATER_CAUSTICS_FRAME
 

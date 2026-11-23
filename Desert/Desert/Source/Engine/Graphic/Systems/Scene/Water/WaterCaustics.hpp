@@ -21,17 +21,20 @@
 namespace Desert::Graphic::System
 {
     // The splat shader's parameters (Programs/Water/WaterCausticsSplat.shader): the one spelling the pass binds
-    // and Initialize checks. WaterTiles / WaterInfoTexture are the water mesh's own names
-    // (Mesh/Surface/WaterMeshTiles.glslh): the waves block and the WaterInfo ground.
+    // and Initialize checks. WaterTiles / WaterInfoTexture / WaterFFTTexture are the water mesh's own names
+    // (Mesh/Surface/WaterMeshTiles.glslh): the waves block, the WaterInfo ground and the FFT ocean's atlas.
     struct WaterCausticsSplatShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
         DESERT_SHADER_PARAMETER( Texture, WaterInfoTexture );
+        // Binding 23: statically used by the FFT branch of every wave query (WaterWavesAreFFT).
+        DESERT_SHADER_PARAMETER( Texture, WaterFFTTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterCausticsEnergy );
         // The frame row (its body table: each map texel's still level is the level of the body over it).
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterCausticsFrameUB );
         static constexpr std::array kAll{ RDG::Erase( WaterTiles ), RDG::Erase( WaterInfoTexture ),
-                                          RDG::Erase( WaterCausticsEnergy ), RDG::Erase( WaterCausticsFrameUB ) };
+                                          RDG::Erase( WaterFFTTexture ), RDG::Erase( WaterCausticsEnergy ),
+                                          RDG::Erase( WaterCausticsFrameUB ) };
     };
 
     // The resolve shader's parameters (Programs/Water/WaterCausticsResolve.shader).
@@ -56,7 +59,8 @@ namespace Desert::Graphic::System
     struct WaterCausticsBodyRow
     {
         glm::vec4 Footprint{ 0.0f }; // xy = min (X, Z), zw = max (cm)
-        glm::vec4 Level{ 0.0f };     // x = the still surface Y (cm)
+        glm::vec4 Level{ 0.0f };     // x = the still surface Y (cm), y = its wave lane (WaterRenderer's: 1 + the
+                                     // frame's wave set, 0 = flat; WaterMeshTiles.glslh WaterWaveSetOf)
     };
     static_assert( sizeof( WaterCausticsBodyRow ) == 2 * sizeof( glm::vec4 ), "std430 body of two vec4" );
 
@@ -109,10 +113,15 @@ namespace Desert::Graphic::System
             std::span<const std::byte> Waves;
             // WaterRenderer::GetFrameBodies: every body drawn this frame (its footprint and still level).
             std::span<const Water::WaterQuadTreeBody> Bodies;
+            // WaterRenderer::GetFrameBodyWaveLanes: Bodies[i]'s wave lane (the set it draws with); one per body.
+            std::span<const float> BodyWaveLanes;
             // The imported WaterInfo ground (FrameTextures::Import of WaterRenderer::GetWaterInfo), or invalid
             // when none is baked (the waves block's WaterInfoFrame.w is then 0 and the shader reads no texel of
             // it).
             RDG::TextureRef WaterInfo;
+            // This frame's FFT ocean atlas (SceneRenderer::FrameWaterWaves: the graph's black without one, never
+            // read then - the waves block's WaterFFTFrame.w is 0).
+            RDG::TextureRef FFTWaves;
             glm::vec3       SunTravel{ 0.0f, -1.0f, 0.0f }; // the direction the sunlight travels
             glm::vec3       Camera{ 0.0f };                 // the view's world position (cm)
             float           TimeSeconds = 0.0f; // ViewFrame::TimeSeconds = the water mesh's cameraUB.Time

@@ -36,18 +36,23 @@ Shader "WaterCausticsSplat"
             vec4 Window; // xy = world (X, Z) of the map's lower corner (cm), z = the texel's side (cm),
                          // w = the floor's depth where no WaterInfo ground is baked (cm)
             vec4 Sun;    // xyz = the direction the sunlight travels (normalised, y < 0), w = time (s, cameraUB.Time)
+            vec4 Camera; // xyz = the view's world position (cm, cameraUB.CameraPos): the FFT cascades' distance fade
         };
 
-        // THE ONE SURFACE QUERY (FFT later: this function alone changes): the water surface's point and normal
-        // above the still-plane point @p worldXZ, and the horizontal Jacobian of its displacement (the share of
-        // the plane cell's area the displaced patch keeps: < 1 where the crests bunch the water together).
-        void WaterCausticsSurface( vec2 worldXZ, float stillY, float attenuation, float time, out vec3 position,
-                                   out vec3 normal, out float jacobian )
+        // THE ONE SURFACE QUERY: the water surface's point and normal above the still-plane point @p worldXZ, and
+        // the horizontal Jacobian of its displacement (the share of the plane cell's area the displaced patch
+        // keeps: < 1 where the crests bunch the water together). The very calls Vertex_WaterMesh draws with: the
+        // body's wave set @p waveSet (Gerstner or the FFT ocean, WaterWaveSetOf; -1 = flat), damped by the same
+        // WaterWaveAttenuation, the cascades faded by the same still-particle distance to the eye.
+        void WaterCausticsSurface( int waveSet, vec2 worldXZ, float stillY, float attenuation, float viewDist,
+                                   float time, out vec3 position, out vec3 normal, out float jacobian )
         {
-            const vec2 plane = WaterWavePlane( worldXZ );
-            position         = vec3( worldXZ.x, stillY, worldXZ.y ) + WaterWavesDisplacement( plane, time ) * attenuation;
-            normal           = normalize( mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( plane, time ), attenuation ) );
-            jacobian         = mix( 1.0, WaterWavesJacobian( plane, time ), attenuation );
+            const vec2 plane = WaterWavePlane( waveSet, worldXZ );
+            position = vec3( worldXZ.x, stillY, worldXZ.y ) +
+                       WaterWavesDisplacement( waveSet, plane, time, viewDist ) * attenuation;
+            normal   = normalize(
+                 mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( waveSet, plane, time, viewDist ), attenuation ) );
+            jacobian = mix( 1.0, WaterWavesJacobian( waveSet, plane, time, viewDist ), attenuation );
         }
 
         void SplatEnergy( vec2 land, float energy )
@@ -105,16 +110,20 @@ Shader "WaterCausticsSplat"
                 if ( body < 0 )
                     continue;
                 const float stillY      = WaterCausticsBodyLevel( body );
+                // -1 for a flat body: the still surface lands every ray in its own texel, the map reads 1 there.
+                const int   waveSet     = WaterWaveSetOf( WaterCausticsBodyWaveLane( body ) );
                 const vec2  source      = target - stillShift * ( targetDepth > 0.0 ? targetDepth : Window.w );
                 // The floor under the ray's entry: the WaterInfo ground (the waves damp over it as the drawn
-                // surface's do), or the push's depth where none is baked.
+                // surface's do, WaterWaveAttenuation), or the push's depth where none is baked.
                 const float ground      = WaterGroundDepth( source, stillY );
                 const float depth       = ground > 0.0 ? ground : Window.w;
-                const float attenuation = ground > 0.0 ? GerstnerDepthAttenuation( ground, WaterInfoFrame.w ) : 1.0;
+                const float attenuation = WaterWaveAttenuation( source, stillY );
+                const float viewDist    = WaterViewDistance( source, stillY, Camera.xyz );
                 vec3  position;
                 vec3  normal;
                 float jacobian;
-                WaterCausticsSurface( source, stillY, attenuation, time, position, normal, jacobian );
+                WaterCausticsSurface( waveSet, source, stillY, attenuation, viewDist, time, position, normal,
+                                      jacobian );
                 const vec3 ray = refract( sun, normal, eta );
                 if ( ray.y >= -1e-4 )
                     continue; // grazing: it never reaches the floor

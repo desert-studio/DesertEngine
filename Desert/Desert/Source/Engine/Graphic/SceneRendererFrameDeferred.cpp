@@ -981,10 +981,14 @@ namespace Desert::Graphic
         if ( const auto* water = m_Systems.Water.get(); water != nullptr )
         {
             caustics.Waves  = water->GetFrameWavesBlock();
-            caustics.Bodies = water->GetFrameBodies();
+            caustics.Bodies        = water->GetFrameBodies();
+            caustics.BodyWaveLanes = water->GetFrameBodyWaveLanes();
             if ( !caustics.Waves.empty() && water->GetWaterInfo() != nullptr )
                 caustics.WaterInfo =
                      textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
+            // The FFT ocean's atlas the surface draws with (recorded once per graph; black without an FFT set).
+            if ( !caustics.Waves.empty() )
+                caustics.FFTWaves = FrameWaterWaves( graph, textures );
         }
         const std::optional<System::WaterCausticsFrame> made = system->AddPasses( graph, caustics );
         if ( made.has_value() )
