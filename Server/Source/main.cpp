@@ -28,6 +28,8 @@
 
 #include <Projects/WorldPartitionSettings.hpp>
 
+#include <Engine/Reflection/ReplicatedFields.hpp>
+
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -51,6 +53,7 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace Desert::Server
@@ -280,6 +283,18 @@ namespace Desert::Server
                     LOG_ERROR( "[Server] console '{}': usage set <record id> <Component>.<Field> <value>", line );
                     return;
                 }
+                // UE replicates only UPROPERTY(Replicated): the server refuses any other field by name, before
+                // it versions anything, so a typo or an unmarked field never reaches a client (the client's own
+                // check in ClientNetDriver stays as the second gate).
+                const std::string component = path.substr( 0, dot ), field = path.substr( dot + 1 );
+                const Reflection::ReplicatedField* replicated = Reflection::FindReplicatedField( component, field );
+                if ( replicated == nullptr )
+                {
+                    LOG_ERROR( "[Server] console '{}': refused - {}.{} is not a Replicated field (PROPERTY(Replicated) "
+                               "of a component block); nothing sent",
+                               line, component, field );
+                    return;
+                }
                 const std::optional<Net::ReplicatedValue> value = ParseReplicatedValue( valueText );
                 if ( !value )
                 {
@@ -287,8 +302,15 @@ namespace Desert::Server
                                valueText );
                     return;
                 }
+                const bool boolField = replicated->Type == Reflection::FieldType::Bool;
+                if ( boolField != std::holds_alternative<bool>( *value ) )
+                {
+                    LOG_ERROR( "[Server] console '{}': refused - {}.{} is {}, '{}' is not; nothing sent", line,
+                               component, field, boolField ? "a bool" : "a number", valueText );
+                    return;
+                }
                 const std::uint32_t version =
-                     store.WriteStable( id, path.substr( 0, dot ), path.substr( dot + 1 ), *value );
+                     store.WriteStable( id, component, field, *value );
                 LOG_INFO( "[Server] console: stable {} {} = {} (version {})", id, path,
                           Net::ReplicatedValueText( *value ), version );
                 return;
