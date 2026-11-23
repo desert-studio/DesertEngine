@@ -43,8 +43,8 @@ namespace Desert::Net
                 }
                 else if ( g_LogSink )
                 {
-                    g_LogSink( std::format( "connection {}: message on unknown lane {} dropped", messages[i]->m_conn,
-                                            messages[i]->m_idxLane ) );
+                    g_LogSink( std::format( "connection {}: message on unknown lane {} dropped",
+                                            messages[i]->m_conn, messages[i]->m_idxLane ) );
                 }
                 messages[i]->Release();
             }
