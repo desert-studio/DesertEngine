@@ -828,11 +828,10 @@ namespace Desert::Graphic
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         gather.PrevPreExposure      = frame.PrevPreExposure;
         gather.PreExposure          = frame.PreExposure;
-        // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
-        // system black texture with the leg off when the view has no screen trace.
-        gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
-        gather.SceneColorHistory =
-             screenTrace.SceneHistory.IsValid() ? screenTrace.SceneHistory : refs.System.Black;
+        // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history; without a
+        // screen trace both stay invalid and the leg is its no-walk permutation (nothing stands in for them).
+        gather.HZB               = screenTrace.HZB;
+        gather.SceneColorHistory = screenTrace.SceneHistory;
         gather.SceneColorHistoryReadable =
              screenTrace.HZB.IsValid() && screenTrace.SceneHistory.IsValid() && screenTrace.SceneHistoryReadable;
         // The temporal filter's reprojection and the view's own history (SceneViewState, never the gather's).

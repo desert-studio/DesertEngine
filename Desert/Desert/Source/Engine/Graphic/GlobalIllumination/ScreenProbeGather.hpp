@@ -119,12 +119,9 @@ namespace Desert::Graphic::GlobalIllumination
     static_assert( sizeof( ScreenProbeParamsPayload ) == 208 );
     // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh. Bit 1 is free: no
     // shader tests the view's history (without it the disocclusion pass is not added and the temporal filter is
-    // its no-history permutation, Program::TemporalNoHistory).
+    // its no-history permutation, Program::TemporalNoHistory). Bits 4 and 8 are free: the screen walk and the
+    // sparse stable probes are the screen leg's permutations (ScreenProbeGather::TraceScreenProgram).
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
-    inline constexpr uint32_t kScreenProbeScreenTrace  = 4u; // last frame's scene colour is readable: screen leg
-    // ScreenProbeGatherInputs::SparseStableRays with the denoiser and the view's history: settled uniform probes
-    // trace a checkerboard half of their texels (Common/ScreenProbeTracing.glslh SPTexelSkipped).
-    inline constexpr uint32_t kScreenProbeSparseStable = 8u;
 
     // std430 — must match `struct ScreenProbe` in Common/ScreenProbes.glslh. 32 bytes.
     struct ScreenProbePayload
@@ -310,7 +307,8 @@ namespace Desert::Graphic::GlobalIllumination
         // SceneRenderer's, this flag carries it.
         bool Denoise = true;
         // The screen trace's (SceneRenderer::FrameScreenTrace): this frame's closest-depth HZB and the view's
-        // scene colour history; the leg is skipped when either is invalid or the history is not last frame's.
+        // scene colour history, both valid when SceneColorHistoryReadable (the history is last frame's). Without
+        // that the screen leg is its no-walk permutation, which binds neither: invalid refs, no stand-in.
         RDG::TextureRef HZB;
         RDG::TextureRef SceneColorHistory;
         bool            SceneColorHistoryReadable = false;
@@ -474,9 +472,13 @@ namespace Desert::Graphic::GlobalIllumination
         {
             Place = 0,
             ShortRangeAO,
-            TraceScreen,
-            TraceNearField,   // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
-            TraceFarField,    // the same program's far-field leg
+            TraceScreen, // every texel traced: binds no disocclusion (no denoiser, no history or no sparse rays)
+            TraceScreenSparseStable, // ScreenProbeTraceScreen SP_TRACE_SCREEN_SPARSE_STABLE: the sparse stable
+                                     // probes skip texels of settled tiles (reads the disocclusion, FPS-SP-NEAR)
+            TraceScreenMarch, // SP_TRACE_SCREEN_MARCH: the view's screen trace walks the HZB
+            TraceScreenMarchSparseStable, // both (the order AddPasses' traceScreen pick relies on)
+            TraceNearField,          // ScreenProbeTrace, a tracer permutation (EnsureTraceProgram)
+            TraceFarField,           // the same program's far-field leg
             TraceCacheMiss,   // the same program's leg past the radiance cache, for the rays it did not answer
             TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
             TraceCacheRead,   // the same program's leg reading the radiance cache for the rays the far field left
