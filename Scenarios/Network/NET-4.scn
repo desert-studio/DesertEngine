@@ -11,3 +11,4 @@
 # Тогда [net4_predicted] net4/clientA_predicted.png: A's view moves with its input from the first step (log "predicting own pawn" before the server's first ack), no snap-back; A's log "corrections 0" over the run; B's log shows A's pawn moving.
 # Когда: the server console teleports A 250 cm sideways (`teleport 1 x y z+250`).
 # Тогда [net4_teleport] net4/clientA_teleport.png: A's log has exactly one "correction 1 ... smoothed" and the per-second line "corrections 1" after it.
+# Pass 1 result (logs/net4): corrections 0 over 19.7 s of sprint + jumps at 150 ms / 2 %; teleport -> "correction 1 ... drawn offset 252.5 cm smoothed". Floor plane only (server has no collision world): no fence.
