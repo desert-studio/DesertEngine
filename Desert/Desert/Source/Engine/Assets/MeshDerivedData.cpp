@@ -52,6 +52,12 @@ namespace Desert::Assets
             PutU32( out, static_cast<uint32_t>( std::size( Geometry::kClusterDagCutErrors ) ) );
             for ( const float cut : Geometry::kClusterDagCutErrors )
                 PutU32( out, std::bit_cast<uint32_t>( cut ) );
+            // The streaming page partition (VG-STREAMING, MeshBinary v10; UE: the Nanite DDC key carries the
+            // streaming page size and the encoder's version): the page and root-set caps and the partition's own
+            // revision, so a VG mesh re-derives its pages when any of them changes.
+            PutU32( out, Geometry::kClusterPageMaxWords );
+            PutU32( out, Geometry::kClusterRootPageMaxWords );
+            PutU32( out, Geometry::kClusterPageFormatVersion );
         }
         // The canopy's leaf slots, by name (count, then each name's length and bytes): which sections the build
         // turns into the crown's volume.

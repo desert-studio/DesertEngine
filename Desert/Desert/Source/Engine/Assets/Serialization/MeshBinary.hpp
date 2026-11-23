@@ -105,9 +105,13 @@ namespace Desert::Assets::Serialization
     /// `SubmeshLodChains`, one uint32 per submesh: 1 = its LODs are the cook's whole chain, possibly none
     /// (SubmeshData::LodChainCooked), 0 = generated at load. Version 9 (FPS-GRASS-LOD) appends `LodCutErrors`,
     /// one float per LOD range: the relative error the level was cut from the cluster DAG at, or 0 for every
-    /// level of a submesh that states none (SubmeshData::LodCutErrors). Versions 6-9 are read by one function;
-    /// a v6/v7 submesh reads as cooked exactly when it carries LODs or its mesh is skinned, a v6-v8 one states
-    /// no cut errors (its levels stay uncapped), and Tools/SceneMigrator re-states those files as v9.
+    /// level of a submesh that states none (SubmeshData::LodCutErrors). Version 10 (VG-STREAMING) appends
+    /// `ClusterPageRanges` (per submesh: its slice of `ClusterPages`), `ClusterPages`
+    /// (Geometry::ClusterPageRecord) and `ClusterGenerators` (per cluster: its generating group); a v10 DAG is
+    /// refused unless Geometry::ValidateClusterPages passes. Versions 6-10 are read by one function; a v6/v7
+    /// submesh reads as cooked exactly when it carries LODs or its mesh is skinned, a v6-v8 one states no cut
+    /// errors (its levels stay uncapped), a v7-v9 DAG states no pages, and Tools/SceneMigrator re-states those
+    /// files as v10.
     using Common::Content::kMeshBinaryVersion; // the header layout lives in Common (MeshBinaryHeader.hpp)
 
     using Common::Content::kMeshBinaryMagic;

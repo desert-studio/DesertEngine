@@ -69,8 +69,11 @@ namespace Common::Content
     /// Version 9 (FPS-GRASS-LOD) appends the LodCutErrors section: per LOD range, the relative error a cluster-DAG
     /// level was cut at (0 = none stated). v6-v8 are read as "no errors" (uncapped levels); Tools/SceneMigrator
     /// writes them back as v9.
+    /// Version 10 (VG-STREAMING) appends the ClusterPageRanges, ClusterPages and ClusterGenerators sections: each
+    /// cluster DAG's streaming pages and every cluster's generating group. v7-v9 DAGs are read without them (the
+    /// reader states none); Tools/SceneMigrator recovers the generators, paginates and writes them back as v10.
     inline constexpr uint32_t kMeshBinaryVersion =
-         9; // 9: LOD cut errors; 8: cooked LOD chain per submesh; 7: cluster DAG; 6: DisplacementMode; 5: Skeleton
+         10; // 10: cluster pages; 9: LOD cut errors; 8: cooked LOD chain; 7: cluster DAG; 6: DisplacementMode
     inline constexpr uint32_t    kMeshBinaryOldestReadVersion = 6;
     [[nodiscard]] constexpr bool IsReadableMeshBinaryVersion( const uint32_t version )
     {

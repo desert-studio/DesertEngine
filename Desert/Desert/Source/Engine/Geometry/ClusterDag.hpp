@@ -128,9 +128,10 @@ namespace Desert::Geometry
     // so it may never be absent; a level's terminal and non-terminal groups never share a page - and (b) every
     // page of the coarsest levels, taken from the top level down while all root words together stay within
     // kClusterRootPageMaxWords (less pop-in up close for a page or two of memory). The root set is closed
-    // upwards (a root page never depends on a streamed one). The mesh's GeometryPool span holds the root pages'
-    // words (all their refs, then all their triangles, in page order: RootPageWords); the other pages stream
-    // into the VirtualGeometry page pool (VirtualGeometryStreaming.hpp) on the cut's requests.
+    // upwards (a root page never depends on a streamed one). The pages are cooked data (MeshBinary v10, the
+    // partition's caps and kClusterPageFormatVersion in the VG DDC key); the runtime that keeps only the root
+    // pages resident and streams the rest on the cut's requests is the VG-STREAMING remainder - until it lands,
+    // a loaded mesh stages every page's words.
     //
     // DEPENDENCIES: a group's clusters may draw only where the clusters generated FROM it (its parents, one
     // level up: Generators) are known not to be fine enough - so a page is installed only when every page
@@ -172,19 +173,17 @@ namespace Desert::Geometry
         // Per cluster: the group whose simplification made it (UE: a cluster's generating group), or
         // kClusterHierarchyNone for a level-0 cluster.
         std::vector<uint32_t> Generators;
-        // The streaming pages, level by level (coarsest last); the root pages are a suffix (kClusterPageRoot).
+        // The streaming pages, level by level (coarsest last), in Groups order. Root pages (kClusterPageRoot) are
+        // NOT a suffix: a terminal group's page is root at whatever level it sits.
         std::vector<ClusterPageRecord> Pages;
     };
-
-    // The words of @p dag's GeometryPool span: every root page's VertexRefs, then every root page's Triangles, in
-    // page order (StaticMesh stages them after the mesh's indices; VirtualMeshTable::RT_Register addresses them).
-    [[nodiscard]] std::vector<uint32_t> RootPageWords( const ClusterDag& dag );
 
     // Cuts @p dag (Generators filled) into its streaming pages (Pages replaced). Refused: Generators not one per
     // cluster, groups not stored level by level, a group's words not contiguous after the previous group's.
     [[nodiscard]] Common::BoolResultStr PaginateClusterDag( ClusterDag& dag );
 
-    // The page rules a reader / the VirtualMeshTable relies on: every group in exactly one page, in order, one
+    // The page rules every loaded DAG is held to (DecodeMeshBinary refuses a v10 DAG that breaks them; the
+    // cook's PaginateClusterDag ends with it): every group in exactly one page, in order, one
     // level per page, the words of each page the contiguous run of its groups' clusters, at most
     // kClusterPageMaxWords, every page of a terminal group root, at least one root page, the root set closed
     // upwards, every generator a group one level below its cluster.

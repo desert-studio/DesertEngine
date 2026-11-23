@@ -738,12 +738,11 @@ namespace Desert::Geometry
         if ( const Common::BoolResultStr paged = PaginateClusterDag( dag ); !paged )
             return Common::MakeFormattedError<ClusterDagBuild>( "cluster DAG: {}", paged.GetError() );
         LOG_INFO( "[ClusterDag] {} triangles -> {} clusters, {} groups, {} levels, {} hierarchy nodes, {} pages "
-                  "({} root, {} root words)",
+                  "({} root)",
                   triangles.size() / 3, dag.Clusters.size(), dag.Groups.size(), dag.LevelCount,
                   dag.Hierarchy.size(), dag.Pages.size(),
                   std::ranges::count_if( dag.Pages, []( const ClusterPageRecord& p )
-                                         { return ( p.Flags & kClusterPageRoot ) != 0; } ),
-                  RootPageWords( dag ).size() );
+                                         { return ( p.Flags & kClusterPageRoot ) != 0; } ) );
         ClusterDagBuild build;
         build.Dag                = std::move( dag );
         build.AddedVertexSources = std::move( growing.Sources );
@@ -931,20 +930,6 @@ namespace Desert::Geometry
                                   pageOfGroup[generator], pageOfGroup[cluster.Group], c ) );
         }
         return BOOLSUCCESS;
-    }
-
-    std::vector<uint32_t> RootPageWords( const ClusterDag& dag )
-    {
-        std::vector<uint32_t> words;
-        for ( const ClusterPageRecord& page : dag.Pages )
-            if ( IsRootPage( page ) )
-                words.insert( words.end(), dag.VertexRefs.begin() + page.FirstVertexRef,
-                              dag.VertexRefs.begin() + page.FirstVertexRef + page.VertexRefCount );
-        for ( const ClusterPageRecord& page : dag.Pages )
-            if ( IsRootPage( page ) )
-                words.insert( words.end(), dag.Triangles.begin() + page.FirstTriangle,
-                              dag.Triangles.begin() + page.FirstTriangle + page.TriangleCount );
-        return words;
     }
 
     std::vector<uint32_t> CutClusterDag( const ClusterDag& dag, float relativeError, float boundsRadius )
