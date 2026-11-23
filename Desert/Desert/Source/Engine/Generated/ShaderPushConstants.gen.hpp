@@ -1557,6 +1557,29 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( WaterCausticsSplat, Window ) == 0u, "WaterCausticsSplat::Window: std430 offset" );
     static_assert( offsetof( WaterCausticsSplat, Sun ) == 16u, "WaterCausticsSplat::Sun: std430 offset" );
 
+    // Programs/Water/WaterUnderwater.shader (Fragment)
+    struct WaterUnderwater
+    {
+        glm::mat4 InvViewProjection{};
+        glm::vec4 CameraSurface{};
+        glm::vec4 Scattering{};
+        glm::vec4 Absorption{};
+        glm::vec4 ToSun{};
+        glm::vec4 SunRadiance{};
+        glm::vec4 SkyYawCosSin{};
+        glm::vec4 SkyGain{};
+    };
+    static_assert( sizeof( WaterUnderwater ) == 176u, "WaterUnderwater: std430 push block size" );
+    template <> inline constexpr bool IsBlock<WaterUnderwater> = true;
+    static_assert( offsetof( WaterUnderwater, InvViewProjection ) == 0u, "WaterUnderwater::InvViewProjection: std430 offset" );
+    static_assert( offsetof( WaterUnderwater, CameraSurface ) == 64u, "WaterUnderwater::CameraSurface: std430 offset" );
+    static_assert( offsetof( WaterUnderwater, Scattering ) == 80u, "WaterUnderwater::Scattering: std430 offset" );
+    static_assert( offsetof( WaterUnderwater, Absorption ) == 96u, "WaterUnderwater::Absorption: std430 offset" );
+    static_assert( offsetof( WaterUnderwater, ToSun ) == 112u, "WaterUnderwater::ToSun: std430 offset" );
+    static_assert( offsetof( WaterUnderwater, SunRadiance ) == 128u, "WaterUnderwater::SunRadiance: std430 offset" );
+    static_assert( offsetof( WaterUnderwater, SkyYawCosSin ) == 144u, "WaterUnderwater::SkyYawCosSin: std430 offset" );
+    static_assert( offsetof( WaterUnderwater, SkyGain ) == 160u, "WaterUnderwater::SkyGain: std430 offset" );
+
 } // namespace Desert::Graphic::ShaderPush
 
 // NOLINTEND

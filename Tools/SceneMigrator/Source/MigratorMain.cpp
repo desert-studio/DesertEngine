@@ -67,6 +67,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include "ImportRecordSourceHash.hpp"
 #include "MaterialAOParam.hpp"
+#include "WaterWavesWind.hpp"
 #include "MaterialMaskClipParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -133,9 +134,9 @@ namespace
     // (IsCloudLayout).
     // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
     // `.dfx` too: its content step (VFXS 1 -> 2, VFX-09) runs in the same loop.
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
-                                                ".detheme",    ".derig",  ".retarget",    ".skeleton",
-                                                ".defoliage",  ".dfx",    ".dfxtype",     ".dweatherpreset" };
+    constexpr std::array kLayoutOnlyExtensions{
+         ".danimgraph", ".dgraph",    ".decloudtype", ".destrings", ".detheme",        ".derig", ".retarget",
+         ".skeleton",   ".defoliage", ".dfx",         ".dfxtype",   ".dweatherpreset", ".dwaves" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -373,6 +374,7 @@ namespace
          TextHeaderGate{ ".dfx", "VFXS", Desert::Assets::kVFXSystemSchemaVersion },
          TextHeaderGate{ ".dfxtype", "VFXT", Desert::Assets::kVFXEffectTypeSchemaVersion },
          TextHeaderGate{ ".dweatherpreset", "WTHP", Desert::Assets::kWeatherPresetSchemaVersion },
+         TextHeaderGate{ ".dwaves", "WAVS", Desert::Assets::kWaterWavesSchemaVersion },
     };
 
     const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
@@ -1775,6 +1777,27 @@ namespace Desert::Migration
                         continue;
                     }
                     ++cloudTypesRaised;
+                    continue;
+                }
+            }
+            // WAVS 1 -> 2 (WATER-UNDERWATER, WaterWavesWind.hpp): Generator.WindAngleDeg is dropped; the waves run
+            // with the scene's wind.
+            if ( path.extension() == ".dwaves" )
+            {
+                const auto stated = ReadStatedVersion( path, text, "WAVS" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateWaterWavesV1ToV2( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — WAVS 1 -> 2: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS 1 -> "
+                        << Desert::Assets::kWaterWavesSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
                     continue;
                 }
             }

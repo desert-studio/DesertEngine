@@ -13,6 +13,7 @@
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
+#include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/PipelineBuilds.hpp>
@@ -145,6 +146,9 @@ namespace Desert::Runtime
         AppendLoaded<Assets::VFXEffectTypeAsset>( assetManager, m_WatchedAssets );
         // PollVFXSystems reloads these too; a .dfx no probe observed could never read as Changed.
         AppendLoaded<Assets::VFXSystemAsset>( assetManager, m_WatchedAssets );
+        // WATER-UNDERWATER: a saved .dwaves is Changed here -> ContentRegistry::Update marks it written ->
+        // WaterWavesService re-reads it (WrittenSince) and rebuilds the set's waves without a restart.
+        AppendLoaded<Assets::WaterWavesAsset>( assetManager, m_WatchedAssets );
         m_ShaderAssets.clear();
         AppendLoaded<Assets::ShaderAsset>( assetManager, m_ShaderAssets );
     }

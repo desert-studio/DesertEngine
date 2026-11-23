@@ -56,8 +56,6 @@ namespace Desert::Assets::Serialization
             return ok;
         if ( auto ok = CheckAtLeastZero( "DirectionAngularSpreadDeg", g.DirectionAngularSpreadDeg ); !ok )
             return ok;
-        if ( !std::isfinite( g.WindAngleDeg ) )
-            return Common::MakeFormattedError<bool>( "Generator.WindAngleDeg {} must be finite", g.WindAngleDeg );
         if ( auto ok = CheckUnit( "Randomness", g.Randomness ); !ok )
             return ok;
         if ( auto ok = CheckUnit( "SmallWaveSteepness", g.SmallWaveSteepness ); !ok )
@@ -65,11 +63,11 @@ namespace Desert::Assets::Serialization
         if ( auto ok = CheckUnit( "LargeWaveSteepness", g.LargeWaveSteepness ); !ok )
             return ok;
         if ( const char* problem = Water::FFTOceanSpectrumParamsProblem( data.FFT ) )
-            return Common::MakeFormattedError<bool>( "{} (WindSpeed {}, FetchKm {}, CascadeSizes {} / {} / {}, "
+            return Common::MakeFormattedError<bool>( "{} (FetchKm {}, CascadeSizes {} / {} / {}, "
                                                      "ShortestWavelength {})",
-                                                     problem, data.FFT.WindSpeed, data.FFT.FetchKm,
-                                                     data.FFT.CascadeSizes[0], data.FFT.CascadeSizes[1],
-                                                     data.FFT.CascadeSizes[2], data.FFT.ShortestWavelength );
+                                                     problem, data.FFT.FetchKm, data.FFT.CascadeSizes[0],
+                                                     data.FFT.CascadeSizes[1], data.FFT.CascadeSizes[2],
+                                                     data.FFT.ShortestWavelength );
         return BOOLSUCCESS;
     }
 

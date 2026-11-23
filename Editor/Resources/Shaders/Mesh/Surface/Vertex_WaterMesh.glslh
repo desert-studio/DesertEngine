@@ -35,7 +35,8 @@ vec2 WaterMorphLocal( vec2 local, WaterTileRow t, vec3 observer, float lodLevel,
 
 void main()
 {
-    const WaterTileRow t = WaterTileRows[int( m_PushConstants.PrimitiveIndex ) + gl_InstanceIndex];
+    const int          tileRow = int( m_PushConstants.PrimitiveIndex ) + gl_InstanceIndex;
+    const WaterTileRow t       = WaterTileRows[tileRow];
     // The LOD rings are centred on the view the quadtree was traversed from (WaterRenderer::PrepareFrame).
     const vec3 observer = cameraUB.CameraPos.xyz;
 
@@ -85,7 +86,8 @@ void main()
     // Damped over the shallows by the ground beneath (UE TargetWaveMaskDepth): a swell dies onto the beach instead
     // of running up it at full height.
     // A body drawn without waves (a river, a flat lake: WaterTileRow.Body.z = 0) stays still.
-    const float atten    = waveSet >= 0 ? WaterWaveAttenuation( restPos.xz, restPos.y ) : 0.0;
+    // The depth is the tile's own body's TargetWaveMaskDepth (WaterTileRow.Medium.x), not another body's.
+    const float atten    = waveSet >= 0 ? WaterWaveAttenuation( restPos.xz, restPos.y, t.Medium.x ) : 0.0;
     const vec3  offset   = WaterWavesDisplacement( waveSet, plane, time, viewDist ) * atten;
     const vec4  worldPos = vec4( restPos.xyz + offset, 1.0 );
 
@@ -105,8 +107,9 @@ void main()
     v_Surface.UV1           = restPos.xz;
     // r = the particle's height above the still level (cm), g = that level (cm), b = 1 on a river's tile (the
     // fragment clips it to the banks, WaterOutsideBank).
-    // a = the tile's WaterTileRow.Body.z, 1 + its wave set (the fragment's normal and foam read the same set).
-    v_Surface.VertexColor   = vec4( offset.y, restPos.y, t.Body.y, t.Body.z );
+    // a = 1 + the tile's row in WaterTileRows (WaterFragmentTile): the fragment reads its body's record from it -
+    // the wave set its normal and foam use, the mask depth and the river's flow period.
+    v_Surface.VertexColor   = vec4( offset.y, restPos.y, t.Body.y, float( tileRow + 1 ) );
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN           = mat3( T, B, N );
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the particle's place last frame is the

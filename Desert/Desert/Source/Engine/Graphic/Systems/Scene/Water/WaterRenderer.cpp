@@ -21,6 +21,10 @@
 #include <Engine/Water/GerstnerWaterWaves.hpp>
 #include <Engine/Water/WaterRiver.hpp>
 #include <Engine/Water/FFTSurfaceMirror.hpp>
+#include <Engine/Water/WaterBodyQuery.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
+#include <Engine/Generated/ShaderPushConstants.gen.hpp>
+#include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Common/Core/Profiler.hpp>
 
@@ -113,8 +117,11 @@ namespace Desert::Graphic::System
             // -1 for an ocean drawn under a river's cut leaf (Water::WaterTileInstance::UnderRiver),
             // z = 1 + its wave set in WaterWavesBlock::Sets (0 = flat), w = the body's index in its zone.
             glm::vec4 Body;
+            // The tile's body's medium (WaterBodyLane::Medium): x = its TargetWaveMaskDepth (cm), y = its river's
+            // two-phase flow period (s; 0 off a river), zw unused.
+            glm::vec4 Medium;
         };
-        static_assert( sizeof( WaterTileRow ) == 4 * sizeof( glm::vec4 ), "std430 rows of four vec4" );
+        static_assert( sizeof( WaterTileRow ) == 5 * sizeof( glm::vec4 ), "std430 rows of five vec4" );
 
         // One Gerstner wave, std430 (Mesh/Surface/WaterMeshTiles.glslh WaterWaveRow).
         struct WaterWaveRow
@@ -140,12 +147,14 @@ namespace Desert::Graphic::System
             // x = the set count, y = the FFT atlas band this frame writes, z = the WaterInfo atlas's ground region
             // side in texels (= the river region's first row; 0 = no ground), w unused
             glm::vec4 Header{ 0.0f };
-            glm::vec4 Info{ 0.0f }; // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = mask depth
+            // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = 1 when the ground region is baked (each
+            // body's mask depth rides its tiles: WaterTileRow::Medium.x)
+            glm::vec4 Info{ 0.0f };
             // WATER-RIVERS-FFT (WaterMeshTiles.glslh WaterFFTFrame / WaterFlowFrame): xyz = 1 / cascade patch
             // side, w = 1 + the previous frame's band when a set is the FFT ocean; the river's flow lane.
             glm::vec4 FFT{ 0.0f };
-            // WaterFlowFrame: x = 1 when a river is in the frame, y = the two-phase period (s), zw = the atlas's
-            // river region in texels (columns, rows).
+            // WaterFlowFrame: x = 1 when a river is in the frame, y unused (each river's two-phase period rides
+            // its tiles: WaterTileRow::Medium.y), zw = the atlas's river region in texels (columns, rows).
             glm::vec4 Flow{ 0.0f };
             // WaterRiverFrame: xy = the river region's lower world (X, Z), zw = 1 / its texel along X and Z (1/cm).
             // Its first row is the ground region's side, Header.z.
@@ -627,6 +636,7 @@ namespace Desert::Graphic::System
         m_FrameWavesGraph   = nullptr;
         m_FrameBodies.clear();
         m_FrameBodyWaveLanes.clear();
+        m_Underwater = UnderwaterFrame{};
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -634,32 +644,20 @@ namespace Desert::Graphic::System
 
         // THE FRAME'S BODIES (UE: the water mesh tile's WaterBodyIndex picks its body's material and waves). Each
         // distinct (wave set, WaveOrigin) the bodies name is one of the frame's wave sets (WaterWavesBlock::Sets,
-        // at most kMaxWaveSets; a body past them draws flat, said once); a tile reads its body's set (Body.z). Each
-        // template the bodies use is one FrameProgram (its own cell, binding block and Materials block); every
-        // body material gets a row in its template's Materials block (FrameProgram::Materials; its tiles draw with
-        // MaterialIndex = that row, through that program). The mask depth is the first set's (one WaterInfo).
-        Assets::AssetHandle material   = Assets::AssetHandle::Null();
-        Assets::AssetHandle wavesAsset = Assets::AssetHandle::Null();
-        float                                         waveMaskDepth = 0.0f;
+        // at most kMaxWaveSets; a body past them draws flat, said once); a tile reads its body's set (Body.z).
+        // Each template the bodies use is one FrameProgram (its own cell, binding block and Materials block);
+        // every body material gets a row in its template's Materials block (FrameProgram::Materials; its tiles
+        // draw with MaterialIndex = that row, through that program). Each body's TargetWaveMaskDepth and river
+        // flow period ride its own lane (WaterBodyLane::Medium -> WaterTileRow::Medium): one value per body, never
+        // the first body's.
+        Assets::AssetHandle                           material = Assets::AssetHandle::Null();
         std::shared_ptr<const Water::WaterInfoGround> ground;
         for ( const WaterZoneDraw& zone : m_Queue )
             if ( ground == nullptr )
                 ground = zone.Ground;
         for ( const WaterZoneDraw& zone : m_Queue )
-        {
-            for ( size_t b = 0; b < zone.Bodies->Materials.size(); ++b )
-            {
-                if ( static_cast<uint64_t>( material ) == 0 &&
-                     static_cast<uint64_t>( zone.Bodies->Materials[b] ) != 0 )
-                    material = zone.Bodies->Materials[b];
-                if ( static_cast<uint64_t>( wavesAsset ) == 0 &&
-                     static_cast<uint64_t>( zone.Bodies->Waves[b] ) != 0 )
-                {
-                    wavesAsset    = zone.Bodies->Waves[b];
-                    waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
-                }
-            }
-        }
+            for ( size_t b = 0; b < zone.Bodies->Materials.size() && static_cast<uint64_t>( material ) == 0; ++b )
+                material = zone.Bodies->Materials[b];
         if ( static_cast<uint64_t>( material ) == 0 )
             return; // no body names a look: no water (WaterBodyData::WaterMaterial)
         MaterialStamp stamp;
@@ -670,6 +668,8 @@ namespace Desert::Graphic::System
             stamp.ValuesEditSerial    = materials->GetValuesEditSerial();
         }
         stamp.ContentSerial = Assets::ContentRegistry::WriteSerial();
+        // The body the camera is under (its tiles may all be out of view: the volume is drawn regardless).
+        PrepareUnderwater( glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] ), stamp );
         // Under Shadows.Method VirtualMaps no atlas is drawn: each cell's virtual-map permutation draws, as every
         // forward local-shadow reader's does (SceneRenderer::LocalShadowsAreVirtual, settled by BeginScene).
         const bool                          virtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
@@ -682,12 +682,12 @@ namespace Desert::Graphic::System
             Assets::AssetHandle Material;
         };
         std::vector<FrameWaveSet>           waveSets;
-        std::vector<std::vector<glm::vec4>> bodyLanes( m_Queue.size() );
-        std::vector<std::vector<uint32_t>>  bodyPrograms( m_Queue.size() );
+        std::vector<std::vector<WaterBodyLane>> bodyLanes( m_Queue.size() );
+        std::vector<std::vector<uint32_t>>      bodyPrograms( m_Queue.size() );
         for ( size_t z = 0; z < m_Queue.size(); ++z )
         {
             const WaterZoneBodies& bodies = *m_Queue[z].get().Bodies;
-            bodyLanes[z].assign( bodies.Materials.size(), glm::vec4( -1.0f, 0.0f, 0.0f, 0.0f ) );
+            bodyLanes[z].assign( bodies.Materials.size(), WaterBodyLane{} );
             bodyPrograms[z].assign( bodies.Materials.size(), 0u );
             for ( size_t b = 0; b < bodies.Materials.size(); ++b )
             {
@@ -735,8 +735,18 @@ namespace Desert::Graphic::System
                                                "drawn flat",
                                                kMaxWaveSets ) );
                 }
-                bodyLanes[z][b] = glm::vec4( static_cast<float>( slot - frame->Materials.begin() ),
-                                             river ? 1.0f : 0.0f, waveLane, static_cast<float>( b ) );
+                // The body's own medium (UE: per-body TargetWaveMaskDepth and the river's flow): its mask depth
+                // (WaterBodyData::TargetWaveMaskDepth, clamped as Water::QueryWaterBody clamps it) and, on a
+                // river, its bake's two-phase period (WaterBodyData::RiverFlowPeriod ->
+                // Water::RiverFlowField::FlowPeriod).
+                const float maskDepth = b < bodies.WaveMaskDepths.size() ? bodies.WaveMaskDepths[b] : 0.0f;
+                const std::shared_ptr<const Water::RiverFlowField>& flow =
+                     b < bodies.Flows.size() ? bodies.Flows[b] : std::shared_ptr<const Water::RiverFlowField>{};
+                const float flowPeriod = river && flow != nullptr ? std::max( flow->FlowPeriod, 0.05f ) : 0.0f;
+                bodyLanes[z][b] =
+                     WaterBodyLane{ .Body   = glm::vec4( static_cast<float>( slot - frame->Materials.begin() ),
+                                                       river ? 1.0f : 0.0f, waveLane, static_cast<float>( b ) ),
+                                    .Medium = glm::vec4( std::max( maskDepth, 1.0f ), flowPeriod, 0.0f, 0.0f ) };
                 // Every body that draws this frame (WATER-CAUSTICS: its footprint, still level and wave set).
                 m_FrameBodies.push_back( bodies.Footprints[b] );
                 m_FrameBodyWaveLanes.push_back( waveLane );
@@ -789,7 +799,8 @@ namespace Desert::Graphic::System
                 set.Header.x   = static_cast<float>( count );
                 verticalExtent = std::max( verticalExtent, Water::MaxWaveHeight( rows ) );
             }
-            if ( !fft && PrepareFFTFrame( frameSet.Material, frameSet.Asset, waves.Header, waves.FFT, verticalExtent ) )
+            if ( !fft && PrepareFFTFrame( frameSet.Material, stamp, frameSet.Asset, waves.Header, waves.FFT,
+                                          verticalExtent ) )
             {
                 fft          = true;
                 set.Header.y = 1.0f;
@@ -820,17 +831,15 @@ namespace Desert::Graphic::System
         }
 
         // The waves block is whole here (its WaterInfo lanes name the atlas's two regions FinishPrepare composes
-        // from the same ground and rivers, and the mask depth): the upload's head, the tile task appends the rows.
+        // from the same ground and rivers): the upload's head, the tile task appends the rows.
         const WaterInfoLayout infoLayout = WaterInfoLayoutOf( ground.get(), rivers );
         if ( infoLayout.GroundSize > 0u )
-            waves.Info = glm::vec4( infoLayout.GroundMin, 1.0f / infoLayout.GroundExtent,
-                                    std::max( waveMaskDepth, 1.0f ) );
-        // THE FLOW LANES (WaterMeshTiles.glslh WaterFlowFrame / WaterRiverFrame): on while a river is in the frame;
-        // the two-phase period is the first river's (one period per frame, as one wave set).
+            waves.Info = glm::vec4( infoLayout.GroundMin, 1.0f / infoLayout.GroundExtent, 1.0f );
+        // THE FLOW LANES (WaterMeshTiles.glslh WaterFlowFrame / WaterRiverFrame): on while a river is in the
+        // frame; each river's two-phase period is its own tiles' (WaterTileRow::Medium.y).
         if ( !rivers.empty() )
         {
-            waves.Flow  = glm::vec4( 1.0f, std::max( rivers.front()->FlowPeriod, 0.05f ),
-                                     static_cast<float>( infoLayout.RiverSize.x ),
+            waves.Flow  = glm::vec4( 1.0f, 0.0f, static_cast<float>( infoLayout.RiverSize.x ),
                                      static_cast<float>( infoLayout.RiverSize.y ) );
             waves.River = glm::vec4( infoLayout.RiverMin, 1.0f / glm::max( infoLayout.RiverTexel, glm::vec2( 1e-3f ) ) );
         }
@@ -856,6 +865,227 @@ namespace Desert::Graphic::System
                                           .LensScale      = lensScale,
                                           .VerticalExtent = verticalExtent,
                                           .Rows           = 0 };
+    }
+
+    namespace
+    {
+        // The slot names of Programs/Water/WaterUnderwater.shader, spelled once.
+        struct WaterUnderwaterShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+            DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+            DESERT_SHADER_PARAMETER( Texture, EnvironmentIrradianceTexture );
+        };
+    } // namespace
+
+    bool WaterRenderer::ReadUnderwaterMedium( const Assets::AssetHandle& material, const MaterialStamp& stamp )
+    {
+        if ( m_UnderwaterMedium.Material == static_cast<uint64_t>( material ) &&
+             m_UnderwaterMedium.Stamp == stamp )
+            return m_UnderwaterMedium.Readable;
+        m_UnderwaterMedium          = UnderwaterMedium{};
+        m_UnderwaterMedium.Material = static_cast<uint64_t>( material );
+        m_UnderwaterMedium.Stamp    = stamp;
+        auto* const materials       = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr )
+            return false;
+        // The template's defaults under the file's values: a `.demat` that states no PhaseG still has the
+        // template's (ResolveOverrides alone gives only what the files state).
+        constexpr std::array<std::string_view, 3> kNames{ "ScatteringCoefficients", "AbsorptionCoefficients",
+                                                          "PhaseG" };
+        std::array<glm::vec4, 3>                  values{};
+        if ( !ReadMaterialValues( material, stamp, kNames, values ) )
+            return false;
+        m_UnderwaterMedium.Scattering = glm::max( glm::vec3( values[0] ), glm::vec3( 0.0f ) );
+        m_UnderwaterMedium.Absorption = glm::max( glm::vec3( values[1] ), glm::vec3( 0.0f ) );
+        m_UnderwaterMedium.PhaseG     = glm::clamp( values[2].x, -0.9f, 0.9f );
+        m_UnderwaterMedium.Readable   = true;
+        return true;
+    }
+
+    bool WaterRenderer::ReadMaterialValues( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                            std::span<const std::string_view> names, std::span<glm::vec4> out )
+    {
+        if ( names.size() != out.size() )
+            return false;
+        // The defaults: the schema of the template this material is drawn by (the program ProgramFor built).
+        WaterProgram* const program = ProgramFor( material, stamp );
+        if ( program == nullptr || program->Material == nullptr )
+            return false;
+        const auto& params = program->Material->GetSchema().Params;
+        for ( size_t i = 0; i < names.size(); ++i )
+        {
+            const auto param =
+                 std::find_if( params.begin(), params.end(), [&]( const Core::Formats::ShaderParam& p )
+                               { return !p.IsTexture && p.Name == names[i]; } );
+            if ( param == params.end() )
+                return false; // not a value of this template
+            out[i] = param->Default;
+        }
+        // The `.demat` chain over them, base first, the childmost statement last (it wins).
+        auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr )
+            return false;
+        MaterialOverrides overrides;
+        (void)materials->ResolveOverrides( material, overrides );
+        for ( const auto& [name, value] : overrides.Params )
+            for ( size_t i = 0; i < names.size(); ++i )
+                if ( name == names[i] )
+                    out[i] = value;
+        return true;
+    }
+
+    void WaterRenderer::PrepareUnderwater( const glm::vec3& camera, const MaterialStamp& stamp )
+    {
+        const ViewFrame* const viewFrame = m_SceneRenderer->GetViewFrame();
+        auto* const            service   = Runtime::ResourceRegistry::GetWaterWavesService();
+        if ( viewFrame == nullptr )
+            return;
+        // The near plane's lowest corner (reversed-Z: device depth 1): a camera just above the water whose near
+        // plane dips under it is half under (the waterline crosses the screen).
+        const glm::mat4 inv     = viewFrame->InvJitteredViewProjection;
+        float           nearLow = camera.y;
+        for ( const glm::vec2 ndc : { glm::vec2( -1.0f, -1.0f ), glm::vec2( 1.0f, -1.0f ),
+                                      glm::vec2( -1.0f, 1.0f ), glm::vec2( 1.0f, 1.0f ) } )
+        {
+            const glm::vec4 w = inv * glm::vec4( ndc, 1.0f, 1.0f );
+            nearLow           = std::min( nearLow, w.y / w.w );
+        }
+        const float         time     = static_cast<float>( viewFrame->TimeSeconds );
+        float               best     = 0.0f; // how far the near plane reaches under the chosen body's surface, cm
+        Assets::AssetHandle chosen   = Assets::AssetHandle::Null();
+        float               surfaceY = 0.0f;
+        for ( const WaterZoneDraw& zone : m_Queue )
+        {
+            const WaterZoneBodies& bodies = *zone.Bodies;
+            for ( size_t b = 0; b < bodies.Materials.size(); ++b )
+            {
+                const Water::WaterQuadTreeBody& footprint = bodies.Footprints[b];
+                if ( static_cast<uint64_t>( bodies.Materials[b] ) == 0 || camera.x < footprint.FootprintMin.x ||
+                     camera.x > footprint.FootprintMax.x || camera.z < footprint.FootprintMin.y ||
+                     camera.z > footprint.FootprintMax.y )
+                    continue;
+                // The body as the physics step sees it (ECS::WaterBodyGather), around the camera.
+                Water::WaterBodyState state;
+                state.Location = glm::vec3( bodies.WaveOrigins[b].x, footprint.SurfaceY, bodies.WaveOrigins[b].y );
+                state.Extents  = 2.0f * glm::max( glm::abs( footprint.FootprintMax - bodies.WaveOrigins[b] ),
+                                                  glm::abs( bodies.WaveOrigins[b] - footprint.FootprintMin ) ) +
+                                glm::vec2( 1.0f );
+                state.TargetWaveMaskDepth = bodies.WaveMaskDepths[b];
+                state.Type                = bodies.Types[b];
+                state.Flow                = bodies.Flows[b];
+                if ( state.Type == Water::WaterBodyType::River && state.Flow != nullptr )
+                    state.Location =
+                         glm::vec3( state.Flow->Min.x + 0.5f * state.Flow->Extent.x, state.Flow->SurfaceY,
+                                    state.Flow->Min.y + 0.5f * state.Flow->Extent.y );
+                if ( service != nullptr && static_cast<uint64_t>( bodies.Waves[b] ) != 0 )
+                {
+                    auto waves = service->Get( bodies.Waves[b] );
+                    if ( waves && waves.GetValue() )
+                        state.Waves = waves.GetValue();
+                    auto spectrum = service->GetSpectrum( bodies.Waves[b] );
+                    if ( spectrum && spectrum.GetValue() )
+                        state.FFTSurface = service->Surfaces().Latest( spectrum.GetValue().get() );
+                }
+                if ( !Water::WaterBodyCovers( state, camera ) )
+                    continue;
+                const Water::WaterQueryResult hit   = Water::QueryWaterBody( state, camera, time, std::nullopt );
+                const float                   reach = hit.SurfaceLocation.y - nearLow;
+                if ( reach > best )
+                {
+                    best     = reach;
+                    chosen   = bodies.Materials[b];
+                    surfaceY = hit.SurfaceLocation.y;
+                }
+            }
+        }
+        if ( best <= 0.0f )
+            return; // the near plane is in the air: no pixel's ray starts under the water
+        if ( !ReadUnderwaterMedium( chosen, stamp ) )
+        {
+            WarnOnce( chosen, WaterWarning::UnderwaterMediumMissing,
+                      "its .demat states no ScatteringCoefficients / AbsorptionCoefficients / PhaseG: the "
+                      "underwater volume is not drawn under it" );
+            return;
+        }
+        if ( !m_UnderwaterPipelineTried )
+        {
+            m_UnderwaterPipelineTried = true;
+            if ( const auto shader =
+                      Runtime::ResourceRegistry::GetShaderService()->GetByName( "WaterUnderwater" ) )
+            {
+                GraphicsPipelineSpecification spec;
+                spec.DebugName         = "WaterUnderwater";
+                spec.Shader            = shader;
+                spec.TargetLayout      = SceneTargetLayout();
+                spec.DepthTestEnabled  = false;
+                spec.DepthWriteEnabled = false;
+                spec.CullMode          = CullMode::None;
+                spec.Topology          = PrimitiveTopology::Triangles;
+                spec.BlendEnable       = false;
+                if ( const auto pipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec ) )
+                    m_UnderwaterPipeline = pipeline.GetValue();
+            }
+        }
+        if ( m_UnderwaterPipeline == nullptr )
+        {
+            WarnOnce( chosen, WaterWarning::UnderwaterPipelineMissing,
+                      "the WaterUnderwater program did not build: the underwater volume is not drawn" );
+            return;
+        }
+        m_Underwater.Active            = true;
+        m_Underwater.SurfaceY          = surfaceY;
+        m_Underwater.Camera            = camera;
+        m_Underwater.Scattering        = m_UnderwaterMedium.Scattering;
+        m_Underwater.Absorption        = m_UnderwaterMedium.Absorption;
+        m_Underwater.PhaseG            = m_UnderwaterMedium.PhaseG;
+        m_Underwater.PreExposure       = viewFrame->PreExposure;
+        m_Underwater.InvViewProjection = inv;
+    }
+
+    void WaterRenderer::DeclareUnderwater( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
+                                           const SceneViewInputs& view, const SceneFrameBinding& frame )
+    {
+        if ( !m_Underwater.Active || m_UnderwaterPipeline == nullptr || !sceneCopy.IsValid() )
+            return;
+        const auto sun            = m_SceneRenderer->GetFrameSun();
+        m_Underwater.ToSun        = glm::vec4( -glm::vec3( sun.Direction ), 0.0f );
+        m_Underwater.SunRadiance  = glm::vec4( glm::vec3( sun.ColorIntensity ) * sun.ColorIntensity.a, 0.0f );
+        const SkyLookGPU look     = ToGPU( frame.EnvironmentLook );
+        m_Underwater.SkyYawCosSin = look.YawCosSin;
+        m_Underwater.SkyGain      = look.Gain;
+        using P                   = WaterUnderwaterShaderParameters;
+        pass.Bindings( m_Layout.GetSlotted( m_UnderwaterPipeline->GetSpecification().Shader ).Layout,
+                       RDG::NoOtherRouteFill() )
+             .Texture( P::SceneColorTexture, sceneCopy, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Texture( P::SceneDepthTexture, view.SceneDepth, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Texture( P::EnvironmentIrradianceTexture, view.EnvIrradiance, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .PushConstants<ShaderPush::WaterUnderwater>();
+    }
+
+    Common::BoolResultStr WaterRenderer::RenderUnderwaterManual( const RDG::PassContext& context )
+    {
+        if ( !m_Underwater.Active || m_UnderwaterPipeline == nullptr )
+            return BOOLSUCCESS;
+        const ShaderPush::WaterUnderwater push{
+             .InvViewProjection = m_Underwater.InvViewProjection,
+             .CameraSurface     = glm::vec4( m_Underwater.Camera, m_Underwater.SurfaceY ),
+             .Scattering        = glm::vec4( m_Underwater.Scattering, m_Underwater.PhaseG ),
+             .Absorption        = glm::vec4( m_Underwater.Absorption, m_Underwater.PreExposure ),
+             .ToSun             = m_Underwater.ToSun,
+             .SunRadiance       = m_Underwater.SunRadiance,
+             .SkyYawCosSin      = m_Underwater.SkyYawCosSin,
+             .SkyGain           = m_Underwater.SkyGain };
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( push );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_UnderwaterPipeline, nullptr );
     }
 
     void WaterRenderer::PrepareTiles() noexcept
@@ -887,15 +1117,15 @@ namespace Desert::Graphic::System
                  tree.Traverse( observer, lensScale, &frustum, verticalExtent, m_Traversal );
             const float     viewLODScale = tree.GetViewLODScale( lensScale );
             const glm::vec2 origin = tree.GetRootMin();
-            const std::vector<glm::vec4>& bodies       = m_Walk.Bodies[z];
+            const std::vector<WaterBodyLane>& bodies       = m_Walk.Bodies[z];
             const std::vector<uint32_t>&  bodyPrograms = m_Walk.BodyPrograms[z];
             for ( const Water::WaterTileInstance& tile : tiles )
             {
                 // The tile's body (PrepareFrame's lane): its material row; a body with no drawn look is skipped.
-                if ( tile.BodyIndex >= bodies.size() || bodies[tile.BodyIndex].x < 0.0f )
+                if ( tile.BodyIndex >= bodies.size() || bodies[tile.BodyIndex].Body.x < 0.0f )
                     continue;
-                const glm::vec4 body    = bodies[tile.BodyIndex];
-                const auto      slot    = static_cast<uint32_t>( body.x );
+                const WaterBodyLane& body    = bodies[tile.BodyIndex];
+                const auto           slot    = static_cast<uint32_t>( body.Body.x );
                 const uint32_t  program = bodyPrograms[tile.BodyIndex];
                 const uint32_t  quads   = tree.QuadsPerSide( tile.DensityIndex );
                 // One instanced draw per run of one grid density, one template AND one material row (the draw's
@@ -916,7 +1146,8 @@ namespace Desert::Graphic::System
                 row.Lod  = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
                                      tile.CanMorphTwice ? 1.0f : 0.0f, tile.HeightMorph );
                 row.Zone = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
-                row.Body = body;
+                row.Body   = body.Body;
+                row.Medium = body.Medium;
                 // An ocean drawn under a river's cut leaf: -1, clipped to the bank's far side (WaterBankClipped).
                 if ( tile.UnderRiver )
                     row.Body.y = -1.0f;
@@ -1096,8 +1327,9 @@ namespace Desert::Graphic::System
         return m_FFTSpectrum != nullptr && m_FFTTransform != nullptr && m_FFTFinalize != nullptr;
     }
 
-    bool WaterRenderer::PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& wavesAsset,
-                                         glm::vec4& header, glm::vec4& fft, float& verticalExtent )
+    bool WaterRenderer::PrepareFFTFrame( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                         const Assets::AssetHandle& wavesAsset, glm::vec4& header, glm::vec4& fft,
+                                         float& verticalExtent )
     {
         if ( static_cast<uint64_t>( wavesAsset ) == 0 )
             return false;
@@ -1184,12 +1416,26 @@ namespace Desert::Graphic::System
         {
             // THE FOAM HISTORY keeps the written half's foam faded over the time since its flip (a paused world:
             // dt 0, kept whole; a jump back in time: nothing kept rather than foam from the future).
+            // The lifetime is the body MATERIAL's FoamDecaySeconds (one truth with the Gerstner path's
+            // WaterFoamAmount), re-read only when the material or the stamp moved.
+            if ( m_FFTFoamDecay.Material != static_cast<uint64_t>( material ) ||
+                 !( m_FFTFoamDecay.Stamp == stamp ) )
+            {
+                m_FFTFoamDecay          = FoamDecayRead{};
+                m_FFTFoamDecay.Material = static_cast<uint64_t>( material );
+                m_FFTFoamDecay.Stamp    = stamp;
+                constexpr std::array<std::string_view, 1> kName{ "FoamDecaySeconds" };
+                std::array<glm::vec4, 1>                  value{};
+                m_FFTFoamDecay.Readable = ReadMaterialValues( material, stamp, kName, value );
+                m_FFTFoamDecay.Seconds  = value[0].x;
+                if ( !m_FFTFoamDecay.Readable )
+                    Warn( material, "its FFT ocean's foam history is off: its template has no FoamDecaySeconds" );
+            }
             const double dt   = time - m_FFTFlipTime;
-            m_FFTFoamHistory  = m_FFTFlipped && m_FFTWrittenHalf >= 0;
+            m_FFTFoamHistory  = m_FFTFlipped && m_FFTWrittenHalf >= 0 && m_FFTFoamDecay.Readable;
             m_FFTFoamKeep     = m_FFTFoamHistory && dt >= 0.0
-                                     ? static_cast<float>( std::exp( -dt / static_cast<double>( std::max(
-                                                                               spectrum->Params.FoamDecaySeconds,
-                                                                               0.01f ) ) ) )
+                                     ? static_cast<float>( std::exp(
+                                        -dt / static_cast<double>( std::max( m_FFTFoamDecay.Seconds, 0.01f ) ) ) )
                                      : 0.0f;
             m_FFTHalf         = m_FFTWrittenHalf == 0 ? 1 : 0;
             m_FFTPreviousHalf = m_FFTWrittenHalf >= 0 ? m_FFTWrittenHalf : m_FFTHalf;

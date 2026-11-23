@@ -1,6 +1,9 @@
 #pragma once
 
 #include "System.hpp"
+#include "WindField.hpp"
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
@@ -45,9 +48,35 @@ namespace Desert::ECS
             return true;
         }
 
+        // THE OCEAN'S WIND (WATER-UNDERWATER): one truth, the scene's ECS::WindAt - the query foliage, clouds,
+        // cloth and groom ask - at the first visible body naming each wave set (its wave origin, at its still
+        // level). A wave set holds no wind of its own; WaterWavesService rebuilds the set's FFT spectrum when
+        // this changes, so a WindSource edit moves the sea without a reload. Every frame, before the zone check:
+        // a body's buoyancy floats on the same sea whether or not a zone draws it.
+        void StateWaveWinds( entt::registry& registry )
+        {
+            auto* const service = Runtime::ResourceRegistry::GetWaterWavesService();
+            if ( service == nullptr )
+                return;
+            m_WindStated.clear();
+            for ( const entt::entity entity : registry.view<WaterBodyComponent, TransformComponent>() )
+            {
+                const Assets::AssetHandle waves = registry.get<WaterBodyComponent>( entity ).Data.WaterWaves;
+                if ( static_cast<uint64_t>( waves ) == 0 || ECS::IsHidden( registry, entity ) ||
+                     std::find( m_WindStated.begin(), m_WindStated.end(), waves ) != m_WindStated.end() )
+                    continue;
+                m_WindStated.push_back( waves );
+                const glm::vec3 wind =
+                     WindAt( registry, registry.get<TransformComponent>( entity ).GetTranslation() ).Velocity;
+                service->SetWind( waves, glm::vec2( wind.x, wind.z ) );
+            }
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                      const Common::Timestep& /*ts*/ ) override
         {
+            StateWaveWinds( registry );
+
             const auto zones = registry.view<WaterZoneComponent, TransformComponent>();
             if ( zones.begin() == zones.end() )
                 return;
@@ -240,5 +269,6 @@ namespace Desert::ECS
         // The visible bodies the zones drew last frame (rebuilt only on a change) and the ground rows' storage.
         std::shared_ptr<const Graphic::System::WaterZoneBodies> m_Bodies;
         std::vector<World::Landscape::LandscapeRayTile>         m_GroundRows;
+        std::vector<Assets::AssetHandle>                        m_WindStated; // StateWaveWinds' frame rows
     };
 } // namespace Desert::ECS

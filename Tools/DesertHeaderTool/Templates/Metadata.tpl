@@ -8,6 +8,7 @@ PropertyMetadata{ {% if f.meta.displayName %}.DisplayName = "{{ f.meta.displayNa
 {% if f.meta.hasRange %}.HasRange = true, .RangeMin = {{ f.meta.rangeMin }}, .RangeMax = {{ f.meta.rangeMax }}, {% endif -%}
 {% if f.meta.isColor %}.IsColor = true, {% endif -%}
 {% if f.meta.isAsset %}.IsAsset = true, .AssetType = "{{ f.meta.assetType }}", {% endif -%}
+{% if f.meta.assetRole %}.AssetRole = "{{ f.meta.assetRole }}", {% endif -%}
 {% if f.meta.thumbnail %}.Thumbnail = true, {% endif -%}
 {% if f.meta.readOnly %}.ReadOnly = true, {% endif -%}
 {% if f.meta.hidden %}.Hidden = true, {% endif -%}

@@ -3193,7 +3193,7 @@ namespace Desert::Graphic
                 // nodes, which have nothing to draw, add none.
                 const auto* water = m_Systems.Water.get();
                 const bool  copyConsumed =
-                     screenTrace.SceneHistory.IsValid() || ( water != nullptr && water->HasDraws() ) ||
+                     screenTrace.SceneHistory.IsValid() || ( water != nullptr && ( water->HasDraws() || water->HasUnderwater() ) ) ||
                      ( meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible() );
                 const RDG::TextureRef sceneCopy =
                      copyConsumed ? AddFrameSceneCopy( graph, textures, sceneColor(), copy,

@@ -1480,6 +1480,27 @@ TEST( ReflectionMetadata, EveryEditConditionNamesABoolOfItsOwnBlock )
                 continue;
 
             std::string target = f.Meta.EditCondition;
+            // The enum form "Field == Enumerator" / "Field != Enumerator" (PropertyEditorBuilder
+            // EnumConditionMet).
+            const size_t op = target.find_first_of( "=!", 1 );
+            if ( op != std::string::npos && op + 1 < target.size() && target[op + 1] == '=' )
+            {
+                std::string field = target.substr( 0, op );
+                std::string value = target.substr( op + 2 );
+                std::erase( field, ' ' );
+                std::erase( value, ' ' );
+                if ( const size_t scope = value.rfind( "::" ); scope != std::string::npos )
+                    value.erase( 0, scope + 2 );
+                const FieldInfo* gate = Find( type, field.c_str() );
+                ASSERT_NE( gate, nullptr ) << name << "::" << f.Name << " is gated by a field that does not "
+                                           << "exist: " << field;
+                ASSERT_EQ( gate->Type, FieldType::Enum )
+                     << name << "::" << f.Name << " compares non-enum " << field << " to an enumerator";
+                EXPECT_TRUE( std::any_of( gate->EnumValues.begin(), gate->EnumValues.end(),
+                                          [&]( const auto& ev ) { return ev.Name == value; } ) )
+                     << name << "::" << f.Name << " names no enumerator of " << field << ": " << value;
+                continue;
+            }
             if ( target.front() == '!' )
                 target.erase( target.begin() );
 

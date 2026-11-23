@@ -27,6 +27,9 @@
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -92,6 +95,9 @@ namespace Desert::Editor
 
         if ( ImGui::Selectable( "New Material" ) )
             CreateNewMaterial( folder );
+
+        if ( ImGui::Selectable( "New Water Material" ) )
+            CreateNewWaterMaterial( folder );
 
         if ( ImGui::Selectable( std::string( kNewLevelSequenceLabel ).c_str() ) )
             if ( const auto created = CreateNewLevelSequence( &folder ); !created )
@@ -269,6 +275,28 @@ namespace Desert::Editor
         if ( const auto written = Assets::WriteMaterialFile( path, data ); !written )
         {
             LOG_ERROR( "[Content] '{}' was not created: {}", path.generic_string(), written.GetError() );
+            return;
+        }
+        m_On.OnRefresh();
+    }
+
+    // UE: a material of the water domain (SingleLayerWater) - the project's water template, found by its Role
+    // (WaterSurface.shader `Role WaterMaterial`), never the default surface. Its values are the template's
+    // property defaults until the user edits them; a WaterBody's Water Material slot takes it.
+    void NewAssetMenu::CreateNewWaterMaterial( const DirectoryInformation& folder )
+    {
+        if ( m_AssetManager == nullptr )
+        {
+            LOG_ERROR( "[Content] NewWaterMaterial was not created: no asset manager is bound" );
+            return;
+        }
+        // The one creation route, shared with the WaterBody picker's "New Water Material" entry
+        // (PropertyEditorBuilder DrawRegistryRowPicker).
+        if ( const auto created = MaterialAssetUtils::CreateRoleMaterial(
+                  *m_AssetManager, Common::Content::kWaterMaterialRole, folder.AssetPath, "NewWaterMaterial" );
+             !created )
+        {
+            LOG_ERROR( "[Content] {}", created.GetError() );
             return;
         }
         m_On.OnRefresh();

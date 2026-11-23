@@ -174,6 +174,23 @@ namespace Desert::Graphic::System
                                      const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context );
 
+        // THE UNDERWATER VOLUME (WATER-UNDERWATER; UE Water: the body's underwater post process volume, its
+        // material reading the body's own scattering / absorption). PrepareFrame finds the body the camera is
+        // under (the waves' surface at the camera's (X, Z) above the camera, or within the near plane's reach
+        // below it: the waterline crossing) and reads the medium from that body's `.demat` (its
+        // ScatteringCoefficients / AbsorptionCoefficients / PhaseG, the values its surface's volume uses). True
+        // after PrepareFrame when such a body was found - whether or not any tile of it is in view.
+        [[nodiscard]] bool HasUnderwater() const
+        {
+            return m_Underwater.Active;
+        }
+        // SETUP of the underwater node ("Deferred: Underwater", drawn on the scene target BEFORE the water
+        // surface): the opaque scene's copy @p sceneCopy (the target as it is: no feedback), the G-buffer depth
+        // and the sky's diffuse cube of @p view, the sky look and sun of @p frame.
+        void DeclareUnderwater( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
+                                const SceneFrameBinding& frame );
+        [[nodiscard]] Common::BoolResultStr RenderUnderwaterManual( const RDG::PassContext& context );
+
         // By reference, as GrassRenderer::Submit: @p zone is the recorded command's, held until ClearQueue.
         void Submit( WaterZoneDraw&& ) = delete; // the queue keeps a reference: a temporary would dangle
         void Submit( const WaterZoneDraw& zone )
@@ -317,6 +334,8 @@ namespace Desert::Graphic::System
             FFTPipelinesMissing,
             SpectrumMalformed,
             FFTReadbackUnreadable,
+            UnderwaterMediumMissing,
+            UnderwaterPipelineMissing,
         };
         [[nodiscard]] bool FirstWarning( const Assets::AssetHandle& material, WaterWarning cause );
         void WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
@@ -350,8 +369,21 @@ namespace Desert::Graphic::System
         // failure is said once and the water draws its Gerstner generator); one layout cache per program.
         [[nodiscard]] bool EnsureFFTPipelines();
         // The frame's spectrum and its waves lane, or null/false: the Gerstner rows (PrepareFrame).
-        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& waves,
-                                            glm::vec4& header, glm::vec4& fft, float& verticalExtent );
+        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                            const Assets::AssetHandle& waves, glm::vec4& header, glm::vec4& fft,
+                                            float& verticalExtent );
+        // THE WHITECAPS' LIFETIME of the FFT ocean's body material (WATER-UNDERWATER pass 4: one truth, the
+        // material's FoamDecaySeconds - UE's material-driven foam; the `.dwaves` FFT block no longer states one).
+        // Re-read only when that material or the material stamp moved; a material that cannot be read keeps the
+        // history off (FoamKeep 0) rather than inventing a lifetime.
+        struct FoamDecayRead
+        {
+            uint64_t      Material = 0;
+            MaterialStamp Stamp;
+            bool          Readable = false;
+            float         Seconds  = 0.0f;
+        };
+        FoamDecayRead                    m_FFTFoamDecay;
         std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize;
         ShaderBindingLayoutCache         m_FFTSpectrumLayout, m_FFTTransformLayout, m_FFTFinalizeLayout;
         bool                             m_FFTTried = false;
@@ -370,8 +402,8 @@ namespace Desert::Graphic::System
         double  m_FFTFlipTime     = 0.0;
         bool    m_FFTFlipped      = false;
         // THE FOAM HISTORY's lane of this flip (WaterFFTParams::Foam, AddWavePasses): the share of the previous
-        // half's foam kept, exp(-dt / FFT.FoamDecaySeconds) over the time since the last flip, and whether there
-        // is a previous half to keep it from (false on the first frame of a sea).
+        // half's foam kept, exp(-dt / the material's FoamDecaySeconds) over the time since the last flip, and
+        // whether there is a previous half to keep it from (false on the first frame of a sea).
         float m_FFTFoamKeep    = 0.0f;
         bool  m_FFTFoamHistory = false;
         // THE CPU MIRROR's read-back (WATER-RIVERS-FFT pass 7; Water::FFTSurfaceMirror): one host-readable buffer
@@ -396,6 +428,48 @@ namespace Desert::Graphic::System
         std::vector<std::reference_wrapper<const WaterZoneDraw>> m_Queue;
         std::vector<FrameDraw>                                   m_FrameDraws;
 
+        // THE UNDERWATER VOLUME of this frame (PrepareUnderwater; HasUnderwater): the body the camera is under,
+        // its surface height at the camera and its medium (1/m), the view's pre-exposure and jittered inverse.
+        struct UnderwaterFrame
+        {
+            bool      Active   = false;
+            float     SurfaceY = 0.0f;
+            glm::vec3 Camera{ 0.0f };
+            glm::vec3 Scattering{ 0.0f };
+            glm::vec3 Absorption{ 0.0f };
+            float     PhaseG      = 0.0f;
+            float     PreExposure = 1.0f;
+            glm::mat4 InvViewProjection{ 1.0f };
+            // The frame's sun and sky look, taken by DeclareUnderwater (the frame binding the surface reads).
+            glm::vec4 ToSun{ 0.0f, 1.0f, 0.0f, 0.0f };
+            glm::vec4 SunRadiance{ 0.0f };
+            glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
+            glm::vec4 SkyGain{ 1.0f };
+        };
+        UnderwaterFrame m_Underwater;
+        // The medium read from a body `.demat` (its named values), re-read only when that material or the
+        // material stamp moved (UE: the underwater post process MID's parameters copied from the water MID).
+        struct UnderwaterMedium
+        {
+            uint64_t      Material = 0;
+            MaterialStamp Stamp;
+            bool          Readable = false;
+            glm::vec3     Scattering{ 0.0f };
+            glm::vec3     Absorption{ 0.0f };
+            float         PhaseG = 0.0f;
+        };
+        UnderwaterMedium                  m_UnderwaterMedium;
+        std::shared_ptr<GraphicsPipeline> m_UnderwaterPipeline;
+        bool                              m_UnderwaterPipelineTried = false;
+        void                              PrepareUnderwater( const glm::vec3& camera, const MaterialStamp& stamp );
+        [[nodiscard]] bool ReadUnderwaterMedium( const Assets::AssetHandle& material, const MaterialStamp& stamp );
+        // THE NAMED NUMERIC VALUES of @p material as its template draws them: each name's schema default (the
+        // template ProgramFor builds for it), then the `.demat` chain's stated values over it (ResolveOverrides
+        // returns only what the files state). False when the material resolves to no template, or a name is not a
+        // parameter of it; @p out is written in @p names' order.
+        [[nodiscard]] bool ReadMaterialValues( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                               std::span<const std::string_view> names, std::span<glm::vec4> out );
+
         // THE RETAINED QUADTREES (UE: FWaterQuadTree is built once per water body set and only traversed per
         // view): one per submitted zone, in queue order, rebuilt only when that zone's desc or its WaterZoneBodies
         // changed (the collector shares one WaterZoneBodies until a body changes, so the pointer is the body set's
@@ -419,6 +493,17 @@ namespace Desert::Graphic::System
             WaterProgram* FrontLayer = nullptr; // FrontLayerProgramFor's, or null
             std::vector<Assets::AssetHandle> Materials; // its body materials: its Materials block, in order
         };
+        // One body's record on the GPU (UE FWaterBodyRenderData, indexed by the tile's WaterBodyIndex):
+        // PrepareFrame builds it once per body from WaterZoneBodies, the tile walk copies it onto each of the
+        // body's tiles (WaterMeshTiles.glslh WaterTileRow.Body / .Medium), so two bodies of one frame never share
+        // a value.
+        struct WaterBodyLane
+        {
+            // x = its material's row (-1 = not drawn), y = 1 for a river, z = 1 + its wave set, w = its index
+            glm::vec4 Body{ -1.0f, 0.0f, 0.0f, 0.0f };
+            // x = its TargetWaveMaskDepth (cm, >= 1), y = its river's two-phase flow period (s; 0 off a river)
+            glm::vec4 Medium{ 0.0f };
+        };
         struct TileWalk
         {
             std::vector<FrameProgram>                     Programs; // empty: no water, the task walks nothing
@@ -426,7 +511,7 @@ namespace Desert::Graphic::System
             std::shared_ptr<const Water::WaterInfoGround> Ground;
             // The frame's rivers (the WaterInfo atlas's river region is laid out from them: WaterInfoLayoutOf).
             std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;
-            std::vector<std::vector<glm::vec4>>                       Bodies; // per zone, per body lane
+            std::vector<std::vector<WaterBodyLane>>                   Bodies; // per zone, per body lane
             std::vector<std::vector<uint32_t>>            BodyPrograms;       // per zone, per body: Programs slot
             glm::mat4                                     View{ 1.0f };
             glm::mat4                                     Projection{ 1.0f };
