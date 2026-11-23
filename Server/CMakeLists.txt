@@ -1,56 +1,16 @@
 # DesertServer: the dedicated headless server (Docs/contracts/NET-ARCH.md §6; UE: a Server target, UE_SERVER).
 #
-# A SEPARATE EXECUTABLE, NOT A FLAG OF THE CLIENT. It links the engine modules that sit BELOW RenderCore in the
-# module table (cmake/DesertModuleTable.cmake: Common, CoreReflection, Projects, AssetCore, GeometryCore) and
-# compiles the graphics-free World Partition sources it runs (the cooked index, the plan, the residency executor,
-# the cell loader) - never RenderCore/Renderer (RHI, Vulkan, shaders), ApplicationCore (window, input, GLFW),
-# Audio, ImGui or the editor. So no Vulkan loader, MoltenVK, Metal or AppKit is reachable from this binary, and
-# nothing here names an Apple framework: the Linux build (NET-MESH-0 pass 2) adds a platform, not a target.
-#
-# WHY THE SOURCES ARE LISTED AND NOT THE Engine LIBRARY: the Engine module (Scene, ECS, services) still depends on
-# RenderCore at the table level (DEPS RenderCore). Until Engine is split into a render-free core and its render
-# half (REMAINDER of NET-MESH-0), the server compiles exactly the render-free sources it needs; the link proves
-# the closure is render-free, because no render library is on its line to resolve a symbol from.
-set(_engine "${DESERT_ROOT}/Desert/Desert/Source/Engine")
-set(_server_engine_sources
-    # the cooked world: index, cell files, the plan read back from the index
-    "${_engine}/Core/Serialize/CookedWorld.cpp"
-    "${_engine}/Core/Serialize/WorldCells.cpp"
-    "${_engine}/Core/Serialize/WorldCellLoader.cpp"
-    "${_engine}/Core/Serialize/WorldPartitionResidencyExecutor.cpp"
-    "${_engine}/Core/Serialize/SceneDependencies.cpp"
-    "${_engine}/Core/Serialize/SceneFormat.cpp"
-    "${_engine}/Core/Serialize/PrefabExpansion.cpp"
-    "${_engine}/Core/Serialize/EntityDescriptorIndex.cpp"
-    "${_engine}/Core/Serialize/EntityReferenceRemap.cpp"
-    "${_engine}/Core/Serialize/ExternalEntities.cpp"
-    "${_engine}/Core/Serialize/ForeignKeys.cpp"
-    # the records a cell holds: prefabs, foliage types, script schemas, landscape layout (data only)
-    "${_engine}/Assets/Prefab/PackedPrefab.cpp"
-    "${_engine}/Assets/Prefab/PrefabFormat.cpp"
-    "${_engine}/Assets/Prefab/PrefabOverrides.cpp"
-    "${_engine}/Assets/Serialization/FoliageType.cpp"
-    "${_engine}/Scripting/ScriptSchema.cpp"
-    # the server-realm Luau runtime (NET-ARCH §7): script components' declarations are read through the SAME loader
-    # as the editor's (LuauScriptSchema.cpp), and server scripts run on it
-    "${_engine}/Scripting/Luau/LuauScriptSchema.cpp"
-    "${_engine}/Scripting/Luau/LuauRuntime.cpp"
-    "${_engine}/Scripting/Luau/LuauBinder.cpp"
-    "${_engine}/Scripting/Luau/LuauDebugger.cpp"
-    "${_engine}/Scripting/Luau/LuauProperties.cpp"
-    # the reflected-component table scripts reach entity rows through (entity.Transform, ...): data rows only
-    "${_engine}/ECS/ReflectedComponents.cpp"
-    "${_engine}/World/Landscape/LandscapeBrush.cpp"
-    "${_engine}/World/Landscape/LandscapeData.cpp"
-    "${_engine}/World/Landscape/LandscapeEditCache.cpp"
-    "${_engine}/World/Landscape/LandscapeEditLayers.cpp"
-    "${_engine}/World/Landscape/LandscapeEditLayerStack.cpp"
-    "${_engine}/World/Landscape/LandscapeLayout.cpp"
-    "${_engine}/World/Landscape/LandscapePaint.cpp"
-    "${_engine}/World/Landscape/LandscapeSplines.cpp")
+# A SEPARATE EXECUTABLE, NOT A FLAG OF THE CLIENT. It links the engine's render-free runtime core, the module Core
+# (cmake/DesertModuleTable.cmake: the cooked world and World Partition residency, scene/prefab serialization, the
+# landscape's data, the reflected-component table, the server-realm Luau runtime of NET-ARCH §7), and the modules
+# below it - never RenderCore/Renderer (RHI, Vulkan, shaders), ApplicationCore (window, input, GLFW), Audio, ImGui
+# or the editor. Engine links the same Core library, so no engine object is compiled twice. Core is RENDER_FREE:
+# configure fails if any of its files reaches a render, window, Audio or ImGui header (cmake/DesertModules.cmake),
+# and the link proves the closure, because no render library is on this line to resolve a symbol from. Nothing here
+# names an Apple framework: the Linux build adds a platform, not a target.
 
 desert_glob(_sources "Source/*.cpp" "Source/*.hpp")
-desert_add_executable(DesertServer FOLDER Server SOURCES ${_sources} ${_server_engine_sources})
+desert_add_executable(DesertServer FOLDER Server SOURCES ${_sources})
 target_compile_definitions(DesertServer PRIVATE DESERT_SERVER=1)
 target_precompile_headers(DesertServer PRIVATE "${DESERT_ROOT}/Desert/Desert/Source/pch.hpp")
 desert_depend_on_codegen(DesertServer)
@@ -73,11 +33,15 @@ desert_external_includes(DesertServer
     "${DESERT_ROOT}/ThirdParty/luau/Common/include")
 desert_config_platform_defines(DesertServer)
 
-# The render-free modules, top of the table first (a static library before the ones it depends on).
-set(_server_modules GeometryCore AssetCore Projects CoreReflection Common)
-set(_server_libs "")
-foreach(name IN LISTS _server_modules)
-    list(APPEND _server_libs ${DESERT_MODULE_${name}_LIBRARIES})
+# Core and its dependency closure, top of the table first (a static library before the ones it depends on).
+desert_module_closure(Core _server_modules)
+set(_server_libs ${DESERT_MODULE_Core_LIBRARIES})
+set(_table ${DESERT_MODULES})
+list(REVERSE _table)
+foreach(name IN LISTS _table)
+    if(name IN_LIST _server_modules)
+        list(APPEND _server_libs ${DESERT_MODULE_${name}_LIBRARIES})
+    endif()
 endforeach()
 target_link_libraries(DesertServer PRIVATE ${_server_libs}
     LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})

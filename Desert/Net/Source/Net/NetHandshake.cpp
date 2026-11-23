@@ -24,14 +24,15 @@ namespace Desert::Net
             return value;
         }
 
-        constexpr std::size_t kHelloSize   = 1 + 4 + 4 + 8;
+        // type, magic, protocol, cook hash, u16 token size; then the token.
+        constexpr std::size_t kHelloHeaderSize = 1 + 4 + 4 + 8 + 2;
         constexpr std::size_t kWelcomeSize = 1 + 4 + 8;
         constexpr std::size_t kRefuseSize  = 1 + 1;
 
         bool IsReason( std::uint8_t value )
         {
             return value >= static_cast<std::uint8_t>( ERefuseReason::NotAHello ) &&
-                   value <= static_cast<std::uint8_t>( ERefuseReason::CookHash );
+                   value <= static_cast<std::uint8_t>( ERefuseReason::TokenInvalid );
         }
     } // namespace
 
@@ -45,6 +46,10 @@ namespace Desert::Net
                 return "protocol version mismatch";
             case ERefuseReason::CookHash:
                 return "cook hash mismatch";
+            case ERefuseReason::TokenExpired:
+                return "token expired";
+            case ERefuseReason::TokenInvalid:
+                return "token invalid";
         }
         return "unknown refusal";
     }
@@ -57,11 +62,13 @@ namespace Desert::Net
     std::vector<std::byte> EncodeHello( const HelloMessage& hello )
     {
         std::vector<std::byte> out;
-        out.reserve( kHelloSize );
+        out.reserve( kHelloHeaderSize + hello.Token.size() );
         Put( out, static_cast<std::uint8_t>( EHandshakeMessage::Hello ), 1 );
         Put( out, kHelloMagic, 4 );
         Put( out, hello.ProtocolVersion, 4 );
         Put( out, hello.CookHash, 8 );
+        Put( out, hello.Token.size(), 2 );
+        out.insert( out.end(), hello.Token.begin(), hello.Token.end() );
         return out;
     }
 
@@ -83,24 +90,40 @@ namespace Desert::Net
         return out;
     }
 
-    HelloVerdict EvaluateHello( std::span<const std::byte> message, std::uint64_t serverCookHash )
+    HelloVerdict EvaluateHello( std::span<const std::byte> message, const HelloPolicy& policy )
     {
         HelloVerdict verdict;
-        if ( message.size() != kHelloSize ||
+        if ( message.size() < kHelloHeaderSize ||
              Get( message, 0, 1 ) != static_cast<std::uint8_t>( EHandshakeMessage::Hello ) ||
              Get( message, 1, 4 ) != kHelloMagic )
         {
             return verdict;
         }
         verdict.Hello.ProtocolVersion = static_cast<std::uint32_t>( Get( message, 5, 4 ) );
-        verdict.Hello.CookHash        = Get( message, 9, 8 );
         // The protocol first: a client of another version may lay out even the cook hash differently.
         if ( verdict.Hello.ProtocolVersion != kProtocolVersion )
         {
             verdict.Reason = ERefuseReason::ProtocolVersion;
             return verdict;
         }
-        if ( verdict.Hello.CookHash != serverCookHash )
+        verdict.Hello.CookHash      = Get( message, 9, 8 );
+        const std::size_t tokenSize = static_cast<std::size_t>( Get( message, 17, 2 ) );
+        if ( message.size() != kHelloHeaderSize + tokenSize )
+        {
+            return verdict;
+        }
+        const auto token = message.subspan( kHelloHeaderSize );
+        verdict.Hello.Token.assign( token.begin(), token.end() );
+        const TokenVerdict check =
+             VerifyConnectToken( token, policy.TokenSecret, policy.ServerId, policy.NowUnixSeconds );
+        verdict.Token = check.Token;
+        if ( check.Check != ETokenCheck::Valid )
+        {
+            verdict.Reason =
+                 check.Check == ETokenCheck::Expired ? ERefuseReason::TokenExpired : ERefuseReason::TokenInvalid;
+            return verdict;
+        }
+        if ( verdict.Hello.CookHash != policy.CookHash )
         {
             verdict.Reason = ERefuseReason::CookHash;
             return verdict;

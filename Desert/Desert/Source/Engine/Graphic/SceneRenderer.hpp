@@ -1768,6 +1768,10 @@ namespace Desert::Graphic
         // (UE single layer water's SSR leg); invalid -> the graph's black, the water's captures and sky alone.
         void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             const FrameFrontLayer& frontLayer );
+        // THE FFT OCEAN'S WAVES of this frame (WATER-RIVERS-FFT; WaterRenderer::AddWavePasses): recorded into
+        // @p graph by their first reader (the water's front layer or its surface node), the same ref after; the
+        // graph's black when the frame's water draws Gerstner.
+        RDG::TextureRef FrameWaterWaves( RDG::Builder& graph, FrameTextures& textures );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The vg_clusters view (DebugViewState::VirtualGeometry = Clusters): "Debug: Virtual Geometry Clusters"

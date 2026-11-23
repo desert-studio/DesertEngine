@@ -2799,6 +2799,8 @@ namespace Desert::Graphic
                 const SceneViewInputs   view  = SceneViewInputsOf( textures.GraphRefs() );
                 const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
                 const bool              load  = writers.Meshes;
+                // The FFT ocean's waves, recorded here when the front layer is their first reader this frame.
+                const RDG::TextureRef waves = FrameWaterWaves( graph, textures );
                 graph.AddPass(
                      "Translucency: Front Layer G-buffer (Water)", RDG::PassFlags::Raster,
                      [&]( RDG::PassBuilder& pass )
@@ -2810,7 +2812,7 @@ namespace Desert::Graphic
                          pass.ColorTarget( 0, surface.Normal, colorLoad );
                          pass.ColorTarget( 1, surface.Velocity, colorLoad );
                          pass.DepthTarget( surface.Depth, depthLoad );
-                         water->DeclareFrontLayerDraws( pass, waterInfo, view, frame );
+                         water->DeclareFrontLayerDraws( pass, waterInfo, waves, view, frame );
                      },
                      [water]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return water->RenderFrontLayerManual( context ); } );

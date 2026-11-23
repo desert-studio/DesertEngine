@@ -564,6 +564,10 @@ namespace Common::Scalability
         // SelectLODsFromBounds. 25..400; 100 = the meshes' screen sizes as authored. Cinematic 50 (MeshLOD stays
         // 1 at every level: UE never forces LOD 0, MeshLOD 0 is a debug/machine override).
         ViewDistanceLODDistanceScalePercent,
+        // WATER-RIVERS-FFT (UE has no FFT ocean; the tier follows sg.EffectsQuality as UE's r.Water.* do): the
+        // ceiling of the water's wave source - an FFT wave set draws its Tessendorf cascades at FFT (Epic,
+        // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values: WaterWaveMethod
+        EffectsWaterWaveMethod,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

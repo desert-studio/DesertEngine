@@ -33,7 +33,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core` — 79 files, 18,399 lines: Application, ApplicationInfo, ApproximateShell, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, DebugDrawCanvas, DebugDrawCanvasLine, DebugDrawCanvasShape, … (+95)
 - `Core/Formats` — 11 files, 3,568 lines: BC6HCeilingCensus, BlockEncodeSettings, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, … (+9)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
-- `Core/Serialize` — 60 files, 21,812 lines: ActivationCostModel, ActivationDone, ActivationFrame, ActivationJob, AxisSpan, BuiltHLODCell, BuiltHLODIndex, CellBounds, CellCoord, CellHLODPart, CellPayload, ComponentLoadingRow, … (+144)
+- `Core/Serialize` — 61 files, 21,830 lines: ActivationCostModel, ActivationDone, ActivationFrame, ActivationJob, AxisSpan, BuiltHLODCell, BuiltHLODIndex, CellBounds, CellCoord, CellHLODPart, CellPayload, ComponentLoadingRow, … (+144)
 - `Core/ShaderCompiler` — 19 files, 3,595 lines: BindlessShaderDefine, CookedProgramVariant, DxilDescriptorRange, DxilHlslProgram, DxilHlslStage, DxilRootParameter, DxilVertexInput, RootSignatureDesc, SceneBindingName, ScopedShaderPhase, ShaderBinaryDXIL, ShaderCacheCounts, … (+10)
 - `Core/ShaderCompiler/DShader` — 2 files, 4,138 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
 - `Core/ShaderCompiler/Includer` — 2 files, 457 lines: ShaderIncluder
@@ -45,7 +45,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `ECS/System` — 58 files, 12,678 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, BonePalette, Built, CachedGround, ColliderMesh, ComponentEventCursor, … (+66)
 - `GameplayDebugger` — 13 files, 1,804 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerCategoryPhysics, GameplayDebuggerCategoryRendering, GameplayDebuggerCategoryScript, GameplayDebuggerCategoryWorldPartition, GameplayDebuggerShape, IGameplayDebuggerCategory, SeenContact, View
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
-- `Generated` — 32 files, 4,348 lines: AEAverage, AEHistogram, BakeProceduralSky, BloomDownsample, BloomUpsample, CloudRaymarch, CloudShadowMap, ClusterCut, DLSSRRGuides, DLSSRRPathGuides, DefaultDecal, DeformStampApply, … (+102)
+- `Generated` — 32 files, 4,350 lines: AEAverage, AEHistogram, BakeProceduralSky, BloomDownsample, BloomUpsample, CloudRaymarch, CloudShadowMap, ClusterCut, DLSSRRGuides, DLSSRRPathGuides, DefaultDecal, DeformStampApply, … (+102)
 - `Geometry` — 93 files, 23,243 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, ClusterDag, ClusterDagBuild, ClusterDagSettings, ClusterGroupRecord, ClusterHierarchyNode, ClusterRecord, … (+124)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,411 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
@@ -166,7 +166,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `World/Deformation` — 2 files, 127 lines: DeformContact, DeformStampParams, DeformationWorld
 - `World/Foliage` — 6 files, 513 lines: FoliageCellField, FoliageComponent, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan, PrefabRealization
 - `World/Foliage/Procedural` — 10 files, 1,477 lines: Box2, BroadphaseOverlap, Entry, InstanceRadii, Node, ProceduralFoliageBlocker, ProceduralFoliageBox, ProceduralFoliageBroadphase, ProceduralFoliageDesired, ProceduralFoliageExistingField, ProceduralFoliageFieldPlan, ProceduralFoliageGround, … (+7)
-- `World/Landscape` — 35 files, 8,506 lines: FlattenValues, LandscapeAlphaBrushRotation, LandscapeBrushAlphaTexture, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeComponent, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, … (+53)
+- `World/Landscape` — 35 files, 8,505 lines: FlattenValues, LandscapeAlphaBrushRotation, LandscapeBrushAlphaTexture, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeComponent, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, … (+53)
 - `World/Partition` — 7 files, 402 lines: AlwaysLoadedComponent, DataLayersComponent, DataLayersData, HLODLayerComponent, HLODLayerData, HiddenByDataLayersComponent, LocationVolumeComponent, LocationVolumeData, RuntimeGridComponent, RuntimeGridData, StreamingSourceComponent, StreamingSourceData
 
 ## Common — `Desert/Common/Source/Common`
@@ -333,7 +333,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DesertCtl/mcp` — 1 files, 387 lines
 - `DesertHeaderTool` — 1 files, 1,804 lines
 - `DesertHeaderTool/Source` — 10 files, 1,727 lines: ComponentBlock, Diagnostic, HeaderModel, ModuleInfo, ModulePlacement, ModuleTable, ReflectedTypeName, RoutedEventName, ScannedFile, ShaderPushField, ShaderPushScan, ShaderPushStruct, … (+2)
-- `DesertNetProbe/Source` — 1 files, 510 lines
+- `DesertNetProbe/Source` — 1 files, 761 lines
 - `DomeSheet/Source` — 2 files, 699 lines: DomeSample, Image, SheetGeometry
 - `FbxMeshSplitter` — 3 files, 620 lines: FbxSplitResult
 - `GamePackager/Source` — 1 files, 208 lines

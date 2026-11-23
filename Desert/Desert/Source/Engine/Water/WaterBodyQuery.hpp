@@ -11,6 +11,8 @@
 // the physics step (UE's FSolverSafeWaterBodyData), not a UObject; UE's LWC tile is the body's WaveOrigin, its
 // own location. Ocean only: lakes and rivers take their shape and depth from a spline (W-9, W-10).
 
+#include <Engine/Water/FFTSurfaceMirror.hpp>
+#include <Engine/Water/WaterRiver.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
 #include <glm/vec2.hpp>
@@ -44,6 +46,15 @@ namespace Desert::Water
         std::shared_ptr<const std::vector<GerstnerWave>> Waves;
         /// Depth at which the waves have died to e^-2 (UE TargetWaveMaskDepth, its default).
         float TargetWaveMaskDepth = 2048.0f;
+        /// Ocean or River (UE AWaterBodyOcean / AWaterBodyRiver). A river's Location is its footprint's centre at
+        /// its mean level, Extents its footprint, and it covers only where its baked bank mask is set.
+        WaterBodyType Type = WaterBodyType::Ocean;
+        /// A river's baked flow (null for an ocean): the bank mask the queries clip to and the current they read.
+        std::shared_ptr<const RiverFlowField> Flow;
+        /// The CPU mirror of the FFT ocean this body's wave set draws (WATER-RIVERS-FFT pass 7): when it holds a
+        /// read, the queries answer with the surface the GPU drew (FFTSurfaceAt), not with the set's Gerstner
+        /// generator. Null = Gerstner.
+        std::shared_ptr<const FFTSurfaceSnapshot> FFTSurface;
     };
 
     struct WaterQueryResult
@@ -64,6 +75,9 @@ namespace Desert::Water
         float MaxWaveHeight = 0.0f;
         /// How far below the surface the point is; negative above it.
         float ImmersionDepth = 0.0f;
+        /// The water's current at the point, cm/s (UE FWaterQueryResult::Velocity): a river's baked flow on the
+        /// (X, Z) plane, zero for an ocean.
+        glm::vec3 Velocity{ 0.0f };
 
         [[nodiscard]] bool IsInWater() const
         {
@@ -113,7 +127,9 @@ namespace Desert::Water
     [[nodiscard]] WaterInfoGround BakeWaterInfoGround( std::span<const World::Landscape::LandscapeRayTile> ground,
                                                        glm::vec2 centre, float extentCm, uint32_t size );
 
-    /// The body the point is deepest in, of those that cover it; nullopt when it is in none.
+    /// The body the point is deepest in, of those of the highest WaterBodyPriority that cover it (the surface the
+    /// renderer draws there: inside a river's banks the river, never the ocean under it); nullopt when it is in
+    /// none of them.
     [[nodiscard]] std::optional<WaterQueryHit>
     QueryWater( std::span<const WaterBodyState> bodies, std::span<const World::Landscape::LandscapeRayTile> ground,
                 const glm::vec3& point, float time );
@@ -121,8 +137,10 @@ namespace Desert::Water
     /**
      * @brief The water of one world: its bodies, the ground under them and the wave clock (UE UWaterSubsystem).
      *
-     * THE CLOCK IS THE PHYSICS STEP'S: Advance is called with each step's seconds, so the server and every
-     * client that steps the same steps sees the same waves; SetTime adopts a time the server sent.
+     * ONE WATER CLOCK (UE UWaterSubsystem::GetWaterTimeSeconds): the scene's game time, the clock the renderer
+     * draws the Gerstner waves and the FFT cascades at and stamps the FFT readback with. Physics SetTime's the
+     * game time at its frame's start and Advance's it by each fixed step, so a query in a step reads the surface
+     * drawn around it (and a networked game time is the waves' sync, with nothing water-specific to send).
      */
     class WaterSubsystem
     {
