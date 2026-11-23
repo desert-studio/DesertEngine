@@ -790,7 +790,8 @@ namespace Desert::Graphic::System
                 set.Header.x   = static_cast<float>( count );
                 verticalExtent = std::max( verticalExtent, Water::MaxWaveHeight( rows ) );
             }
-            if ( !fft && PrepareFFTFrame( frameSet.Material, frameSet.Asset, waves.Header, waves.FFT, verticalExtent ) )
+            if ( !fft && PrepareFFTFrame( frameSet.Material, stamp, frameSet.Asset, waves.Header, waves.FFT,
+                                          verticalExtent ) )
             {
                 fft          = true;
                 set.Header.y = 1.0f;
@@ -882,26 +883,48 @@ namespace Desert::Graphic::System
         auto* const materials       = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
             return false;
+        // The template's defaults under the file's values: a `.demat` that states no PhaseG still has the
+        // template's (ResolveOverrides alone gives only what the files state).
+        constexpr std::array<std::string_view, 3> kNames{ "ScatteringCoefficients", "AbsorptionCoefficients",
+                                                          "PhaseG" };
+        std::array<glm::vec4, 3> values{};
+        if ( !ReadMaterialValues( material, stamp, kNames, values ) )
+            return false;
+        m_UnderwaterMedium.Scattering = glm::max( glm::vec3( values[0] ), glm::vec3( 0.0f ) );
+        m_UnderwaterMedium.Absorption = glm::max( glm::vec3( values[1] ), glm::vec3( 0.0f ) );
+        m_UnderwaterMedium.PhaseG     = glm::clamp( values[2].x, -0.9f, 0.9f );
+        m_UnderwaterMedium.Readable   = true;
+        return true;
+    }
+
+    bool WaterRenderer::ReadMaterialValues( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                            std::span<const std::string_view> names, std::span<glm::vec4> out )
+    {
+        if ( names.size() != out.size() )
+            return false;
+        // The defaults: the schema of the template this material is drawn by (the program ProgramFor built).
+        WaterProgram* const program = ProgramFor( material, stamp );
+        if ( program == nullptr || program->Material == nullptr )
+            return false;
+        const auto& params = program->Material->GetSchema().Params;
+        for ( size_t i = 0; i < names.size(); ++i )
+        {
+            const auto param = std::find_if( params.begin(), params.end(), [&]( const Core::Formats::ShaderParam& p )
+                                             { return !p.IsTexture && p.Name == names[i]; } );
+            if ( param == params.end() )
+                return false; // not a value of this template
+            out[i] = param->Default;
+        }
+        // The `.demat` chain over them, base first, the childmost statement last (it wins).
+        auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr )
+            return false;
         MaterialOverrides overrides;
         (void)materials->ResolveOverrides( material, overrides );
-        const glm::vec4* scattering = nullptr;
-        const glm::vec4* absorption = nullptr;
-        const glm::vec4* phase      = nullptr;
         for ( const auto& [name, value] : overrides.Params )
-        {
-            if ( name == "ScatteringCoefficients" )
-                scattering = &value;
-            else if ( name == "AbsorptionCoefficients" )
-                absorption = &value;
-            else if ( name == "PhaseG" )
-                phase = &value;
-        }
-        if ( scattering == nullptr || absorption == nullptr || phase == nullptr )
-            return false;
-        m_UnderwaterMedium.Scattering = glm::max( glm::vec3( *scattering ), glm::vec3( 0.0f ) );
-        m_UnderwaterMedium.Absorption = glm::max( glm::vec3( *absorption ), glm::vec3( 0.0f ) );
-        m_UnderwaterMedium.PhaseG     = glm::clamp( phase->x, -0.9f, 0.9f );
-        m_UnderwaterMedium.Readable   = true;
+            for ( size_t i = 0; i < names.size(); ++i )
+                if ( name == names[i] )
+                    out[i] = value;
         return true;
     }
 
@@ -1290,8 +1313,9 @@ namespace Desert::Graphic::System
         return m_FFTSpectrum != nullptr && m_FFTTransform != nullptr && m_FFTFinalize != nullptr;
     }
 
-    bool WaterRenderer::PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& wavesAsset,
-                                         glm::vec4& header, glm::vec4& fft, float& verticalExtent )
+    bool WaterRenderer::PrepareFFTFrame( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                         const Assets::AssetHandle& wavesAsset, glm::vec4& header, glm::vec4& fft,
+                                         float& verticalExtent )
     {
         if ( static_cast<uint64_t>( wavesAsset ) == 0 )
             return false;
@@ -1378,12 +1402,25 @@ namespace Desert::Graphic::System
         {
             // THE FOAM HISTORY keeps the written half's foam faded over the time since its flip (a paused world:
             // dt 0, kept whole; a jump back in time: nothing kept rather than foam from the future).
+            // The lifetime is the body MATERIAL's FoamDecaySeconds (one truth with the Gerstner path's
+            // WaterFoamAmount), re-read only when the material or the stamp moved.
+            if ( m_FFTFoamDecay.Material != static_cast<uint64_t>( material ) || !( m_FFTFoamDecay.Stamp == stamp ) )
+            {
+                m_FFTFoamDecay          = FoamDecayRead{};
+                m_FFTFoamDecay.Material = static_cast<uint64_t>( material );
+                m_FFTFoamDecay.Stamp    = stamp;
+                constexpr std::array<std::string_view, 1> kName{ "FoamDecaySeconds" };
+                std::array<glm::vec4, 1>                  value{};
+                m_FFTFoamDecay.Readable = ReadMaterialValues( material, stamp, kName, value );
+                m_FFTFoamDecay.Seconds  = value[0].x;
+                if ( !m_FFTFoamDecay.Readable )
+                    Warn( material, "its FFT ocean's foam history is off: its template has no FoamDecaySeconds" );
+            }
             const double dt   = time - m_FFTFlipTime;
-            m_FFTFoamHistory  = m_FFTFlipped && m_FFTWrittenHalf >= 0;
+            m_FFTFoamHistory  = m_FFTFlipped && m_FFTWrittenHalf >= 0 && m_FFTFoamDecay.Readable;
             m_FFTFoamKeep     = m_FFTFoamHistory && dt >= 0.0
-                                     ? static_cast<float>( std::exp( -dt / static_cast<double>( std::max(
-                                                                               spectrum->Params.FoamDecaySeconds,
-                                                                               0.01f ) ) ) )
+                                     ? static_cast<float>( std::exp(
+                                            -dt / static_cast<double>( std::max( m_FFTFoamDecay.Seconds, 0.01f ) ) ) )
                                      : 0.0f;
             m_FFTHalf         = m_FFTWrittenHalf == 0 ? 1 : 0;
             m_FFTPreviousHalf = m_FFTWrittenHalf >= 0 ? m_FFTWrittenHalf : m_FFTHalf;

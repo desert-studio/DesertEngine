@@ -165,8 +165,8 @@ float WaterHenyeyGreenstein( float cosTheta, float g )
 //     the particle carries only what the last breaker left, so the surf is bands behind each bore, not a sheet.
 // `depth` <= 0: nothing behind the water (open sea), no bottom for a wave to break on.
 // THE FFT OCEAN keeps no past of its own (each frame is a fresh transform), so its whitecaps read the foam history
-// band instead (WaterFFTFinalize accumulates each cascade's compression and decays it by the set's
-// FFT.FoamDecaySeconds; WaterFFTFoamHistory): the foam trails behind the crest that folded. Its surf is judged on the
+// band instead (WaterFFTFinalize accumulates each cascade's compression and decays it by the body material's
+// FoamDecaySeconds, the same value as below; WaterFFTFoamHistory): the foam trails behind the crest that folded. Its surf is judged on the
 // current surface (the history band is per cascade, periodic; the depth is not).
 float WaterFoamAmount( int waveSet, vec2 label, float time, float jitter, float depth, float atten, float viewDist,
                        SingleLayerWaterOutput w )

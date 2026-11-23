@@ -79,12 +79,8 @@ namespace Desert::Water
         /// Nyquist wavelength 2 * CascadeSizes[2] / 256 (13.5 cm for the default 1730 cm patch): the default of
         /// 4 cm was below it, so every wave set - authored FFT block or not - was refused (WATER-UNDERWATER).
         float ShortestWavelength = 14.0f;
-        /// THE WHITECAPS' LIFETIME, s: the FFT ocean's foam history (Programs/Water/WaterFFTFinalize.shader) keeps
-        /// each cascade's compression and fades it e-fold per this many seconds, so the foam trails behind the crest
-        /// that folded. The ocean's own, not the material's: the history is accumulated on the GPU before any
-        /// material runs (a Gerstner body's foam walks its own past, Pass_SingleLayerWater WaterFoamAmount, with
-        /// the material's FoamDecaySeconds).
-        float FoamDecaySeconds = 3.0f;
+        // THE WHITECAPS' LIFETIME is not here (WATER-UNDERWATER pass 4): it is the body material's
+        // FoamDecaySeconds for the FFT foam history (WaterRenderer::PrepareFFTFrame) and the Gerstner foam alike.
         /// The patch side of each cascade, cm, largest first.
         std::array<float, kFFTOceanCascades> CascadeSizes{ 25000.0f, 6100.0f, 1730.0f };
         int32_t                              Seed = 0;

@@ -22,7 +22,7 @@ struct WaterFFTParams
 {
     vec4 Cascade; // xyz = patch side of cascades 0..2 (cm), w = the view's time (s, cameraUB.Time)
     vec4 Shape;   // x = choppiness (lambda), y = IFFT direction (0 = along rows, 1 = along columns), z = the atlas's first band this frame writes (0 or WATER_FFT_BANDS_PER_FRAME, WaterFFTFinalize), w unused
-    vec4 Foam;    // the foam history (WaterFFTFinalize): x = the share of last frame's foam kept, exp(-dt / FFT.FoamDecaySeconds); y = 1 + the PREVIOUS frame's first band, 0 = no history (the first FFT frame, a new sea); zw unused
+    vec4 Foam;    // the foam history (WaterFFTFinalize): x = the share of last frame's foam kept, exp(-dt / the body material's FoamDecaySeconds); y = 1 + the PREVIOUS frame's first band, 0 = no history (the first FFT frame, a new sea); zw unused
 };
 
 // The foam history's band within a frame's half of the atlas (Mesh/Surface/WaterMeshTiles.glslh

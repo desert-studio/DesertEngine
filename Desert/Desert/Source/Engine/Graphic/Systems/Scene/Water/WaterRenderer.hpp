@@ -26,6 +26,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic::RDG
@@ -344,8 +345,21 @@ namespace Desert::Graphic::System
         // failure is said once and the water draws its Gerstner generator); one layout cache per program.
         [[nodiscard]] bool EnsureFFTPipelines();
         // The frame's spectrum and its waves lane, or null/false: the Gerstner rows (PrepareFrame).
-        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& waves,
-                                            glm::vec4& header, glm::vec4& fft, float& verticalExtent );
+        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                            const Assets::AssetHandle& waves, glm::vec4& header, glm::vec4& fft,
+                                            float& verticalExtent );
+        // THE WHITECAPS' LIFETIME of the FFT ocean's body material (WATER-UNDERWATER pass 4: one truth, the
+        // material's FoamDecaySeconds - UE's material-driven foam; the `.dwaves` FFT block no longer states one).
+        // Re-read only when that material or the material stamp moved; a material that cannot be read keeps the
+        // history off (FoamKeep 0) rather than inventing a lifetime.
+        struct FoamDecayRead
+        {
+            uint64_t      Material = 0;
+            MaterialStamp Stamp;
+            bool          Readable = false;
+            float         Seconds  = 0.0f;
+        };
+        FoamDecayRead m_FFTFoamDecay;
         std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize;
         ShaderBindingLayoutCache         m_FFTSpectrumLayout, m_FFTTransformLayout, m_FFTFinalizeLayout;
         bool                             m_FFTTried = false;
@@ -364,7 +378,7 @@ namespace Desert::Graphic::System
         double  m_FFTFlipTime     = 0.0;
         bool    m_FFTFlipped      = false;
         // THE FOAM HISTORY's lane of this flip (WaterFFTParams::Foam, AddWavePasses): the share of the previous
-        // half's foam kept, exp(-dt / FFT.FoamDecaySeconds) over the time since the last flip, and whether there
+        // half's foam kept, exp(-dt / the material's FoamDecaySeconds) over the time since the last flip, and whether there
         // is a previous half to keep it from (false on the first frame of a sea).
         float m_FFTFoamKeep    = 0.0f;
         bool  m_FFTFoamHistory = false;
@@ -425,6 +439,12 @@ namespace Desert::Graphic::System
         bool                              m_UnderwaterPipelineTried = false;
         void                              PrepareUnderwater( const glm::vec3& camera, const MaterialStamp& stamp );
         [[nodiscard]] bool ReadUnderwaterMedium( const Assets::AssetHandle& material, const MaterialStamp& stamp );
+        // THE NAMED NUMERIC VALUES of @p material as its template draws them: each name's schema default (the
+        // template ProgramFor builds for it), then the `.demat` chain's stated values over it (ResolveOverrides
+        // returns only what the files state). False when the material resolves to no template, or a name is not a
+        // parameter of it; @p out is written in @p names' order.
+        [[nodiscard]] bool ReadMaterialValues( const Assets::AssetHandle& material, const MaterialStamp& stamp,
+                                               std::span<const std::string_view> names, std::span<glm::vec4> out );
 
         // THE RETAINED QUADTREES (UE: FWaterQuadTree is built once per water body set and only traversed per
         // view): one per submitted zone, in queue order, rebuilt only when that zone's desc or its WaterZoneBodies

@@ -73,8 +73,6 @@ namespace Desert::Water
             return "FFT.HeightScale must be finite and not negative";
         if ( !PositiveFinite( p.ShortestWavelength ) )
             return "FFT.ShortestWavelength must be finite and above 0";
-        if ( !PositiveFinite( p.FoamDecaySeconds ) )
-            return "FFT.FoamDecaySeconds must be finite and above 0";
         for ( uint32_t c = 0; c < kFFTOceanCascades; ++c )
         {
             if ( !PositiveFinite( p.CascadeSizes[c] ) )
