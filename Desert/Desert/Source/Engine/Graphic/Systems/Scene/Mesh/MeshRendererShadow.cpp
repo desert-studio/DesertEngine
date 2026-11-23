@@ -2072,11 +2072,16 @@ namespace Desert::Graphic::System
                         state.MovableRect      = glm::uvec4( glm::uvec2( low ), glm::uvec2( extent ) );
                     }
                 }
-                // Equal keys over a standing static layer: the map is last frame's, no restore, no movable draw.
-                const bool movableHeld = state.MapHasMovable && state.Movable && state.MovableKey &&
-                                         state.MapMovableKey == state.MovableKey;
+                // THE MOVABLE LAYER IS DRAWN EVERY FRAME IT HAS MOVERS (UE's cached CSM / VSM: a dynamic primitive
+                // always renders into the uncached layer over the cached static depth). The map is never held on
+                // an equal movable key (SKIN-SHADOW-MISSING): the key is committed at plan time, before the pass
+                // records, and a movable draw that wrote nothing that frame - the skinned caster pipeline still
+                // compiling, a skin cache not filled yet, a masked caster refused, bins refused to the CPU walk -
+                // was then held for as long as the pawn stood: a standing character cast no sun shadow while the
+                // static cubes beside it did. The key stays the logged reason and the dirty-rect union below keeps
+                // the restore and the draw to the movers' texels.
                 const bool hadMovable  = state.MapHasMovable;
-                state.Rebuild = state.RedrawStatic || ( ( state.Movable || state.MapHasMovable ) && !movableHeld );
+                state.Rebuild          = state.RedrawStatic || state.Movable || state.MapHasMovable;
                 // A rebuild over a standing static layer restores and draws only the union of the texels the
                 // map's movers covered and this frame's cover, when both are known (an unkeyed mover, or a map
                 // whose movers had no box: the whole layer).
@@ -2110,9 +2115,7 @@ namespace Desert::Graphic::System
                 }
                 // One line a change of why the movable layer is drawn or kept.
                 std::string reason;
-                if ( movableHeld )
-                    reason = "holds: no restore, no movable draw";
-                else if ( state.Movable && movers.Unkeyed != nullptr )
+                if ( state.Movable && movers.Unkeyed != nullptr )
                     reason = std::format( "unkeyed: {}", movers.Unkeyed );
                 else if ( state.Movable && state.RedrawStatic )
                     reason = "static layer redrawn";
