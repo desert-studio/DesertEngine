@@ -23,7 +23,9 @@
 #include <Net/NetTransport.hpp>
 #include <Net/Replication.hpp>
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <functional>
 #include <map>
 #include <optional>
@@ -47,13 +49,49 @@ namespace Desert::Net
     // The certificate identity of a role process ("mesh-sim-1"); the GNS identity is "str:" + this.
     [[nodiscard]] std::string MeshIdentity( EMeshRole role, std::uint32_t index );
 
-    // One region of the authority map (§2M.3): NET-MESH-1 has one, the whole world; NET-MESH-2 cuts it by WP
-    // cells.
+    // One region of the authority map (§2M.3): an aligned block of the WP runtime grid on the ground plane (X, Z
+    // in world cm), owned by one sim. Without a region table the map is one region, the whole world (NET-MESH-1).
     struct MeshRegion
     {
         std::string   Name;
         std::uint32_t Sim   = 0; // the sim index with authority
-        std::uint32_t Epoch = 0; // bumped on every handover (§2M.4)
+        std::uint32_t Epoch = 0; // bumped on every reassignment of the region (dynamic meshing, NET-MESH-6)
+        float         MinX = -std::numeric_limits<float>::max(), MinZ = -std::numeric_limits<float>::max();
+        float         MaxX = std::numeric_limits<float>::max(), MaxZ = std::numeric_limits<float>::max();
+
+        [[nodiscard]] bool Contains( float x, float z ) const
+        {
+            return x >= MinX && x < MaxX && z >= MinZ && z < MaxZ;
+        }
+        // How far (x, z) lies inside the region: the distance to its nearest edge, negative outside.
+        [[nodiscard]] float Depth( float x, float z ) const
+        {
+            return std::min( std::min( x - MinX, MaxX - x ), std::min( z - MinZ, MaxZ - z ) );
+        }
+    };
+    // THE AUTHORITY MAP as the coordinator publishes it: the regions of ready sims, the border band a sim streams
+    // around its regions (proxies of the neighbours' entities inside it, §2M.5) and the hysteresis margin of a
+    // handover (an entity changes owner only once it is that far inside the neighbour's region, §2M.4: half a
+    // cell of the grid the table is cut on - no ping-pong on the line).
+    struct MeshAuthorityMap
+    {
+        std::vector<MeshRegion> Regions;              // the first one is the entry: players join on its sim
+        float                   BorderBand     = 0.f; // cm
+        float                   HandoverMargin = 0.f; // cm
+
+        [[nodiscard]] const MeshRegion* RegionAt( float x, float z ) const;
+        // True when (x, z) is inside the border band of @p sim's regions (its regions grown by BorderBand).
+        [[nodiscard]] bool InBandOf( std::uint32_t sim, float x, float z ) const;
+        // The sim an entity at (x, z) owned by @p owner hands over to: the owner of the region it stands in, once
+        // it is more than HandoverMargin inside it; nullopt while it stays with @p owner.
+        [[nodiscard]] std::optional<std::uint32_t> HandoverTarget( std::uint32_t owner, float x, float z ) const;
+    };
+    // The coordinator's static region table (--region, --border-band, --handover-margin of `--role coordinator`).
+    struct MeshRegionTable
+    {
+        std::vector<MeshRegion> Regions; // empty: one region, the whole world, on the lowest ready sim
+        float                   BorderBand     = 0.f;
+        float                   HandoverMargin = 0.f;
     };
     struct MeshPeerAddress
     {
@@ -125,7 +163,7 @@ namespace Desert::Net
     class MeshCoordinator
     {
     public:
-        MeshCoordinator( MeshEndpoint& endpoint, NetLogSink log );
+        MeshCoordinator( MeshEndpoint& endpoint, MeshRegionTable table, NetLogSink log );
         // Sends step @p step of the mesh clock to every sim and gateway (and the store).
         void                      Tick( std::uint32_t step );
         [[nodiscard]] std::string Describe() const;
@@ -140,7 +178,8 @@ namespace Desert::Net
         NetLogSink                                                     m_Log;
         std::map<std::pair<EMeshRole, std::uint32_t>, MeshPeerAddress> m_Peers;
         std::set<std::uint32_t>                                        m_ReadySims;
-        std::vector<MeshRegion>                                        m_Regions;
+        MeshRegionTable                                                m_Table;
+        MeshAuthorityMap                                               m_Map;
     };
 
     // THE STORE ROLE (§2M.2): the state of record, written by the sims, streamed to every subscriber (sims and
@@ -159,13 +198,24 @@ namespace Desert::Net
         void PeerUp( EMeshRole role, std::uint32_t index, ConnectionId connection );
         void Message( EMeshRole role, std::uint32_t index, std::uint8_t type, std::span<const std::byte> body );
         void Broadcast( const std::vector<std::byte>& message );
+        // The pawn's state to the sims whose border band it stands in (proxies there), a remove to those it left.
+        void StreamProxies( const PawnState& pawn, std::uint32_t owner );
+        void Handover( std::uint32_t from, std::span<const std::byte> body );
 
-        MeshEndpoint&                  m_Endpoint;
-        NetLogSink                     m_Log;
-        InProcessReplicationStore      m_State;
-        NetId                          m_NextLease = 1;
-        std::map<NetId, std::uint32_t> m_PawnAuthority; // net id -> the sim that writes it
-        std::vector<MeshRegion>        m_Regions;
+        // THE AUTHORITY RECORD of an entity (§2M.4): only the holder of the current epoch may publish its state.
+        struct Authority
+        {
+            std::uint32_t Sim   = 0;
+            std::uint32_t Epoch = 0;
+        };
+        MeshEndpoint&                             m_Endpoint;
+        NetLogSink                                m_Log;
+        InProcessReplicationStore                 m_State;
+        NetId                                     m_NextLease = 1;
+        std::map<NetId, Authority>                m_PawnAuthority;
+        std::set<std::pair<NetId, std::uint32_t>> m_Refused; // (id, sim) whose stale write was logged
+        std::map<std::uint32_t, std::set<NetId>>  m_Proxies; // sim -> the pawns it holds as proxies
+        MeshAuthorityMap                          m_Map;
     };
 
     // A replica of the store in a sim or gateway process: reads from the change stream, writes sent to the store.
@@ -205,6 +255,26 @@ namespace Desert::Net
         {
             return m_LeaseNext < m_LeaseEnd;
         }
+        // In a sim, every pawn the store streams is a proxy (the sim's own writes are never echoed back to it):
+        // read-only, the owner's published state. Logged when one enters or leaves the band.
+        void TrackProxies()
+        {
+            m_TrackProxies = true;
+        }
+        [[nodiscard]] bool IsProxy( NetId id ) const
+        {
+            return m_Proxies.contains( id );
+        }
+        // The pawn is this process's own now (promoted) or no longer (released): no proxy, no replica entry.
+        void Promote( NetId id )
+        {
+            m_Proxies.erase( id );
+        }
+        void Forget( NetId id )
+        {
+            m_Proxies.erase( id );
+            m_Pawns.erase( id );
+        }
 
     private:
         MeshEndpoint&                                   m_Endpoint;
@@ -215,6 +285,8 @@ namespace Desert::Net
         NetId                                           m_LeaseNext = 0, m_LeaseEnd = 0;
         bool                                            m_LeaseAsked = false;
         bool                                            m_Synced     = false;
+        bool                                            m_TrackProxies = false;
+        std::set<NetId>                                 m_Proxies;
     };
 
     // Gateway -> sim (ISimLink over the mesh): every call goes to the sim the authority map names for the player's
@@ -229,11 +301,13 @@ namespace Desert::Net
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
         [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
-        // The coordinator's authority map; true when @p type was a mesh message for this link.
+        // The coordinator's authority map and the sims' acks; true when @p type was a mesh message for this link.
         bool OnMeshMessage( std::uint8_t type, std::span<const std::byte> body );
+        // The store's AuthorityChanged of a pawn of this gateway's players: its inputs go to the new owner.
+        bool OnStoreMessage( std::uint32_t gateway, std::uint8_t type, std::span<const std::byte> body );
         [[nodiscard]] const std::vector<MeshRegion>& Regions() const
         {
-            return m_Regions;
+            return m_Map.Regions;
         }
 
     private:
@@ -241,8 +315,10 @@ namespace Desert::Net
 
         MeshEndpoint&                                               m_Endpoint;
         NetLogSink                                                  m_Log;
-        std::vector<MeshRegion>                                     m_Regions;
-        std::map<PlayerId, AckedMove>                               m_Acks;
+        MeshAuthorityMap                                            m_Map;
+        std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>>
+             m_Authority; // player -> (sim, epoch) of its pawn
+        std::map<PlayerId, AckedMove> m_Acks;
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>> m_Routed; // player -> (sim, epoch) last logged
     };
 
@@ -260,11 +336,48 @@ namespace Desert::Net
                                PawnSimulation& sim );
         // After a step: every player's last processed input, to its gateway.
         void SendAcks( const PawnSimulation& sim );
+        [[nodiscard]] std::optional<std::uint32_t> GatewayOf( PlayerId player ) const;
+        // A handed-over player: its inputs that still reach this sim go to @p sim through the store (§2M.4).
+        void ForwardInputs( PlayerId player, std::uint32_t sim );
+        // An adopted player: this sim acks its inputs to @p gateway now.
+        void Adopted( PlayerId player, std::uint32_t gateway );
 
     private:
         MeshEndpoint&                     m_Endpoint;
         NetLogSink                        m_Log;
         std::map<PlayerId, std::uint32_t> m_GatewayOf;
+        std::map<PlayerId, std::uint32_t> m_ForwardTo; // player -> the sim that holds its pawn now
+    };
+
+    // THE HANDOVER in a sim (§2M.4, by epoch through the store): after every mesh step, a pawn standing past the
+    // margin inside a neighbour's region is frozen at that step and published to the store with its unacked
+    // inputs; the store compare-and-swaps its authority record and hands the state to the new owner, which
+    // promotes its proxy, catching up to the mesh step it is at. Inputs that still reach the old owner are
+    // forwarded through the store.
+    class SimHandover
+    {
+    public:
+        SimHandover( MeshEndpoint& endpoint, std::uint32_t sim, NetLogSink log );
+        // The coordinator's authority map; true when @p type was one.
+        bool OnCoordinatorMessage( std::uint8_t type, std::span<const std::byte> body );
+        // The store's Adopt and ForwardedInput; true when @p type was one of them. @p step: the last mesh step
+        // this sim ran.
+        bool OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
+                             RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step );
+        // After mesh step @p step: hands over the pawns that crossed into a neighbour's region.
+        void AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
+                        RemoteReplicationStore& replica );
+        [[nodiscard]] const MeshAuthorityMap& Map() const
+        {
+            return m_Map;
+        }
+
+    private:
+        MeshEndpoint&                     m_Endpoint;
+        std::uint32_t                     m_Sim;
+        NetLogSink                        m_Log;
+        MeshAuthorityMap                  m_Map;
+        std::map<PlayerId, std::uint32_t> m_Epoch; // the authority epoch of each pawn this sim holds
     };
 
     // A sim's PawnSpawned / PawnDestroyed, applied to the gateway process's Gateway; true when @p type was one.
@@ -274,6 +387,9 @@ namespace Desert::Net
                                                                std::span<const std::byte> body );
     // Sim -> coordinator once it holds its NetId lease: it may take players.
     [[nodiscard]] std::vector<std::byte> EncodeMeshSimReady();
+    // The coordinator's authority map (nullopt when @p type is not an AuthorityMap).
+    [[nodiscard]] std::optional<MeshAuthorityMap> DecodeMeshAuthorityMap( std::uint8_t               type,
+                                                                          std::span<const std::byte> body );
     // The coordinator's directory, as a sim or gateway receives it (nullopt when @p type is not a Directory).
     [[nodiscard]] std::optional<std::vector<MeshPeerAddress>>
     DecodeMeshDirectory( std::uint8_t type, std::span<const std::byte> body );

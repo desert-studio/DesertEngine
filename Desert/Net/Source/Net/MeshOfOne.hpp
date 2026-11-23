@@ -92,8 +92,8 @@ namespace Desert::Net
         virtual void PlayerJoined( PlayerId player, std::uint64_t account )    = 0;
         virtual void PlayerLeft( PlayerId player )                             = 0;
         virtual void PlayerInput( PlayerId player, const InputMessage& input ) = 0;
-        // The ack of §5.1: the last of @p player's input steps the sim has processed, the own pawn's movement state
-        // after it, and the input steps still queued (the client's clock sync); nullopt before the first.
+        // The ack of §5.1: the last of @p player's input steps the sim has processed, the own pawn's movement
+        // state after it, and the input steps still queued (the client's clock sync); nullopt before the first.
         struct AckedMove
         {
             std::uint32_t Step = 0;
@@ -160,9 +160,33 @@ namespace Desert::Net
         {
             PlayerId      Player  = 0;
             std::uint64_t Account = 0;
+            NetId         Id      = kInvalidNetId;
             NetVec3       Position;
         };
         [[nodiscard]] std::vector<Source> Sources() const;
+        [[nodiscard]] bool                HasPawn( PlayerId player ) const
+        {
+            return m_Pawns.contains( player );
+        }
+
+        // THE HANDOVER of a pawn to another simulation (NET-ARCH §2M.4): everything the next owner needs to go on
+        // at the next step - the state, the inputs not applied yet and the input that repeats when none arrives.
+        struct HandoverPawn
+        {
+            PlayerId                     Player  = 0;
+            std::uint64_t                Account = 0;
+            std::uint32_t                Index   = 0;
+            PawnState                    State;
+            std::vector<InputStep>       Pending; // by client step
+            std::optional<std::uint32_t> LastProcessed;
+            PawnMoveState                Move; // the CharacterMovement state the next step starts from
+        };
+        // Freezes @p player's pawn and hands it out: it is no longer stepped or written here (not destroyed - its
+        // net id lives on in the next owner). nullopt when this simulation has no pawn for @p player.
+        [[nodiscard]] std::optional<HandoverPawn> Release( PlayerId player );
+        // Takes a pawn handed over by another simulation and runs @p catchUpSteps steps of it, the mesh steps
+        // that passed here between the release and now; writes its state.
+        void Adopt( HandoverPawn pawn, std::uint32_t catchUpSteps );
 
     private:
         struct Pawn
@@ -170,13 +194,15 @@ namespace Desert::Net
             std::uint64_t                      Account = 0;
             std::uint32_t                      Index   = 0;
             PawnState                          State;
-            PawnMoveState                      Move; // the movement state State is the replicated part of
+            PawnMoveState                      Move;    // the movement state State is the replicated part of
             std::map<std::uint32_t, InputStep> Pending; // by client step (wrap: a session is < 2^31 steps)
             std::optional<std::uint32_t>       LastProcessed;
             // The queue as the last Step found it, BEFORE it consumed: the clock sync's measure (one waiting step
             // each server step = the client exactly on time; after consumption a punctual client reads 0).
-            std::uint8_t                       QueuedAtStep = 0;
+            std::uint8_t QueuedAtStep = 0;
         };
+        void StepPawn( Pawn& pawn ) const;
+
         IReplicationStore&       m_Store;
         IGatewayLink&            m_Gateway;
         IPawnMoveWorld&          m_World;

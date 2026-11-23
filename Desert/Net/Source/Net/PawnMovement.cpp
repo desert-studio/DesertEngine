@@ -36,8 +36,7 @@ namespace Desert::Net
             float           remaining   = dt;
             while ( remaining >= 1e-6f )
             {
-                const float step =
-                     remaining > kMaxSubstep ? std::min( kMaxSubstep, remaining * 0.5f ) : remaining;
+                const float step = remaining > kMaxSubstep ? std::min( kMaxSubstep, remaining * 0.5f ) : remaining;
                 remaining -= step;
                 velocity.X += ( -friction * velocity.X + reverse.X ) * step;
                 velocity.Z += ( -friction * velocity.Z + reverse.Z ) * step;

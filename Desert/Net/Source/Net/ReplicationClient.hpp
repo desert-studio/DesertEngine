@@ -140,7 +140,7 @@ namespace Desert::Net
         InputRing                    m_Inputs;
         std::uint32_t                m_NextStep = 1, m_NextSequence = 1;
         std::optional<std::uint32_t> m_LastAck;
-        std::optional<OwnAuthority>  m_OwnAuthority;
+        std::optional<OwnAuthority>                                  m_OwnAuthority;
         StateAckWindow                                               m_StateAcks;
         std::map<std::pair<StableNetId, std::string>, std::uint32_t> m_StableVersions; // newest version per field
         std::vector<StableChange>                                    m_StableChanges;

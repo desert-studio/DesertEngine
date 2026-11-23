@@ -128,25 +128,64 @@ namespace Desert::Net
     // The server moves a pawn only by its player's input steps, one per step in step order (UE ServerMove: the
     // server simulates the client's moves, never moves of its own) - so its state after step N is the client's
     // prediction of N. A starved pawn holds; a queue above the clock sync's target drains two per step.
-    void PawnSimulation::Step()
+    void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
         constexpr std::size_t kDrainAbove = 4;
+        pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
+        const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
+        for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
+        {
+            const auto next    = pawn.Pending.begin();
+            // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
+            pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, m_World, kNetStepSeconds );
+            pawn.LastProcessed = next->first;
+            pawn.Pending.erase( next );
+        }
+        pawn.State.Position = pawn.Move.Position;
+        pawn.State.Yaw      = pawn.Move.Yaw;
+    }
+
+    void PawnSimulation::Step()
+    {
         for ( auto& [player, pawn] : m_Pawns )
         {
-            pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
-            const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
-            for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
-            {
-                const auto next    = pawn.Pending.begin();
-                // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
-                pawn.Move = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, m_World, kNetStepSeconds );
-                pawn.LastProcessed = next->first;
-                pawn.Pending.erase( next );
-            }
-            pawn.State.Position = pawn.Move.Position;
-            pawn.State.Yaw      = pawn.Move.Yaw;
+            StepPawn( pawn );
             m_Store.Write( pawn.State );
         }
+    }
+
+    std::optional<PawnSimulation::HandoverPawn> PawnSimulation::Release( PlayerId player )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() )
+            return std::nullopt;
+        HandoverPawn out;
+        out.Player        = player;
+        out.Account       = it->second.Account;
+        out.Index         = it->second.Index;
+        out.State         = it->second.State;
+        out.LastProcessed = it->second.LastProcessed;
+        out.Move          = it->second.Move;
+        for ( const auto& [step, input] : it->second.Pending )
+            out.Pending.push_back( input );
+        m_Pawns.erase( it );
+        return out;
+    }
+
+    void PawnSimulation::Adopt( HandoverPawn handed, std::uint32_t catchUpSteps )
+    {
+        Pawn pawn;
+        pawn.Account       = handed.Account;
+        pawn.Index         = handed.Index;
+        pawn.State         = handed.State;
+        pawn.LastProcessed = handed.LastProcessed;
+        pawn.Move          = handed.Move;
+        for ( const InputStep& input : handed.Pending )
+            pawn.Pending.emplace( input.Step, input );
+        for ( std::uint32_t i = 0; i < catchUpSteps; ++i )
+            StepPawn( pawn );
+        m_Store.Write( pawn.State );
+        m_Pawns.insert_or_assign( handed.Player, std::move( pawn ) );
     }
 
     bool PawnSimulation::Teleport( PlayerId player, const NetVec3& position )
@@ -170,7 +209,7 @@ namespace Desert::Net
     {
         std::vector<Source> sources;
         for ( const auto& [player, pawn] : m_Pawns )
-            sources.push_back( { player, pawn.Account, pawn.State.Position } );
+            sources.push_back( { player, pawn.Account, pawn.State.Id, pawn.State.Position } );
         return sources;
     }
 
