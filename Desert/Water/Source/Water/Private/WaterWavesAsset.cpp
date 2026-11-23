@@ -1,4 +1,4 @@
-#include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Water/Public/WaterWavesAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 

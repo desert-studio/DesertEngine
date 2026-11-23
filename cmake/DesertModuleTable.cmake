@@ -56,7 +56,9 @@ desert_module(Media DEPS Engine Audio UE "MediaAssets")
 desert_module(Landscape DEPS Engine UE "Landscape")
 desert_module(Destruction DEPS Engine UE "GeometryCollectionEngine" REFLECTED)
 desert_module(VFX DEPS Engine UE "Niagara" REFLECTED)
-desert_module(Water DEPS Engine UE "Water")
+# Water privately needs the Renderer as UE's Water plugin does: its single layer water pass implements the
+# Renderer's ISingleLayerWaterPass (Graphic/Systems/Scene/SingleLayerWaterPass.hpp), and its bodies stand on the landscape.
+desert_module(Water DEPS Engine Landscape Renderer UE "Water" REFLECTED)
 desert_module(Hair DEPS Engine UE "HairStrands")
 # L7
 desert_module(Foliage DEPS Landscape UE "Foliage" REFLECTED)
@@ -105,7 +107,6 @@ desert_placement(Media [[Engine/Media/]])
 desert_placement(Landscape [[Engine/World/Landscape/|Engine/Assets/(LandscapeLayerInfoAsset|Serialization/LandscapeLayerInfo)\.|Engine/Runtime/Services/Landscape/|Engine/ECS/(System/Landscape\w*|LandscapeRootOf|LandscapeLayerRules)\.]])
 desert_placement(Foliage [[Engine/World/Foliage/|Engine/Assets/(FoliageTypeAsset|Serialization/FoliageType)\.|Engine/Runtime/Services/Foliage/|Engine/ECS/ProceduralFoliageComponent\.]])
 desert_placement(VFX [[Engine/VFX/|Engine/Assets/(VFXSystemAsset|VFXModuleAsset|Serialization/VFXSystem)\.]])
-desert_placement(Water [[Engine/Water/|Engine/Assets/(WaterWavesAsset|Serialization/WaterWaves)\.]])
 desert_placement(Hair [[Engine/Hair/]])
 desert_placement(ScriptLuau [[Engine/Scripting/Luau/]])
 desert_placement(Scripting [[Engine/Scripting/]])

@@ -15,7 +15,7 @@
 // frame allocates nothing.
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Water/WaterBodyQuery.hpp>
+#include <Water/Public/WaterBodyQuery.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

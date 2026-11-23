@@ -3,7 +3,7 @@
 // The water zone value WaterZoneCommand carries, apart from the water pass (WaterRenderer.hpp), so the ECS
 // water system and its command do not reach the pass's pipeline and render-graph headers.
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Water/WaterQuadTree.hpp>
+#include <Water/Public/WaterQuadTree.hpp>
 
 #include <glm/vec2.hpp>
 

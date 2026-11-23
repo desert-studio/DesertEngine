@@ -27,7 +27,6 @@
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
-#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 
 namespace Desert::Runtime
 {
@@ -172,12 +171,6 @@ namespace Desert::Runtime
         return &vfxSystemService;
     }
 
-    WaterWavesService* ResourceRegistry::GetWaterWavesService()
-    {
-        static WaterWavesService waterWavesService;
-        return &waterWavesService;
-    }
-
     WorldParametersService* ResourceRegistry::GetWorldParametersService()
     {
         static WorldParametersService worldParametersService;
@@ -224,7 +217,6 @@ namespace Desert::Runtime
         GetFoliageTypeService()->BindAssetManager( assets );
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Bind( assets );
-        GetWaterWavesService()->BindAssetManager( assets );
         GetPhysicsAssetService()->BindAssetManager( assets );
         GetVFXSystemService()->BindAssetManager( assets );
         GetWorldParametersService()->BindAssetManager( assets );
@@ -260,7 +252,6 @@ namespace Desert::Runtime
         GetFoliageTypeService()->Clear();
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Clear();
-        GetWaterWavesService()->Clear();
         GetPhysicsAssetService()->Clear();
         GetVFXSystemService()->Clear();
         GetImageService()->Clear();

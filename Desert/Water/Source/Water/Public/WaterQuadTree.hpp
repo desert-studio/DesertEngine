@@ -167,11 +167,11 @@ namespace Desert::Water
             std::vector<WaterTileInstance>* Output = nullptr;
         };
 
-        [[nodiscard]] Coverage Classify( const Node& node, float& surfaceY ) const;
+        [[nodiscard]] Coverage           Classify( const Node& node, float& surfaceY ) const;
         [[nodiscard]] Common::Math::AABB NodeBox( const Node& node, const Traversal& t ) const;
         [[nodiscard]] bool               Visible( const Node& node, const Traversal& t ) const;
         // Bit i: Visible( Child( node, i ) ), the four tested at once (Frustum::Intersects4).
-        [[nodiscard]] uint32_t           VisibleChildren( const Node& node, const Traversal& t ) const;
+        [[nodiscard]] uint32_t VisibleChildren( const Node& node, const Traversal& t ) const;
         [[nodiscard]] float    DistanceToNode( const Node& node, const glm::vec2& point ) const;
         [[nodiscard]] Node     Child( const Node& node, int32_t index ) const;
 

@@ -33,8 +33,6 @@
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Input/EnhancedInputPlayerComponent.hpp>
@@ -80,6 +78,8 @@
 #include <Engine/World/Partition/LocationVolumeComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
+#include <Water/Public/WaterBodyComponent.hpp>
+#include <Water/Public/WaterZoneComponent.hpp>
 
 namespace Desert::Core::Serialize
 {

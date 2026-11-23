@@ -16,7 +16,6 @@
 #include "SkyboxCommand.hpp"
 #include "SpotLightCommand.hpp"
 #include "VolumetricCloudCommand.hpp"
-#include "WaterZoneCommand.hpp"
 #include "WindGustCommand.hpp"
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -219,11 +218,6 @@ namespace Desert::Graphic::Render
     void VolumetricCloudCommand::Execute( SceneRenderer& renderer )
     {
     renderer.SetVolumetricClouds( Present, Data, WindOffset, WindDirection, HeroClouds );
-    }
-
-    void WaterZoneCommand::Execute( SceneRenderer& renderer )
-    {
-    renderer.SubmitWaterZone( Zone ); // by reference: read until EndScene, which this command outlives
     }
 
     void WindGustCommand::Execute( SceneRenderer& renderer )

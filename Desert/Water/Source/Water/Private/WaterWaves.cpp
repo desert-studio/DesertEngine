@@ -1,4 +1,4 @@
-#include <Engine/Assets/Serialization/WaterWaves.hpp>
+#include <Water/Public/WaterWaves.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/CanonicalText.hpp>

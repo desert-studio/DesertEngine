@@ -1,11 +1,11 @@
 #pragma once
 
-#include "System.hpp"
+#include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/Water/WaterBodyQuery.hpp>
-#include <Engine/Graphic/Render/Commands/WaterZoneCommand.hpp>
+#include <Water/Public/WaterBodyQuery.hpp>
+#include <Water/Public/WaterZoneCommand.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -15,8 +15,8 @@
 #include <unordered_map>
 #include <vector>
 #include <Engine/ECS/TransformComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
+#include <Water/Public/WaterBodyComponent.hpp>
+#include <Water/Public/WaterZoneComponent.hpp>
 
 namespace Desert::ECS
 {
@@ -79,10 +79,10 @@ namespace Desert::ECS
                     same = false;
                     break;
                 }
-                const WaterBodyData&           data = view.get<WaterBodyComponent>( entity ).Data;
-                const Water::WaterQuadTreeBody body = footprint( entity );
-                const glm::vec3& location = view.get<TransformComponent>( entity ).GetTranslation();
-                same = body.FootprintMin == rows.Footprints[i].FootprintMin &&
+                const WaterBodyData&           data     = view.get<WaterBodyComponent>( entity ).Data;
+                const Water::WaterQuadTreeBody body     = footprint( entity );
+                const glm::vec3&               location = view.get<TransformComponent>( entity ).GetTranslation();
+                same                                    = body.FootprintMin == rows.Footprints[i].FootprintMin &&
                        body.FootprintMax == rows.Footprints[i].FootprintMax &&
                        body.SurfaceY == rows.Footprints[i].SurfaceY && data.WaterMaterial == rows.Materials[i] &&
                        data.WaterWaves == rows.Waves[i] &&
@@ -113,10 +113,11 @@ namespace Desert::ECS
             // the system's own storage, refilled each frame.
             std::vector<World::Landscape::LandscapeRayTile>& ground = m_GroundRows;
             ground.clear();
-            uint64_t                                        groundKey = 1469598103934665603ull;
-            float                                           spacingCm = 0.0f;
-            bool                                            edited    = false;
-            const auto mix = [&groundKey]( const uint64_t v ) { groundKey = ( groundKey ^ v ) * 1099511628211ull; };
+            uint64_t   groundKey = 1469598103934665603ull;
+            float      spacingCm = 0.0f;
+            bool       edited    = false;
+            const auto mix       = [&groundKey]( const uint64_t v )
+            { groundKey = ( groundKey ^ v ) * 1099511628211ull; };
             for ( const LandscapeTileRef& tile : DrawableLandscapeTiles( registry ).Tiles )
             {
                 World::Landscape::LandscapeTileData& heights = *tile.Component->Heights;
@@ -168,11 +169,11 @@ namespace Desert::ECS
             if ( ground.empty() || spacingCm <= 0.0f || desc.ZoneExtent.x <= 0.0f )
                 return nullptr;
             const float    extent = std::max( desc.ZoneExtent.x, desc.ZoneExtent.y );
-            const uint32_t size =
-                 static_cast<uint32_t>( std::clamp( std::ceil( extent / spacingCm ), 16.0f, float( kMaxGroundTexels ) ) );
-            key = ( key ^ std::bit_cast<uint32_t>( desc.ZoneCenter.x ) ) * 1099511628211ull;
-            key = ( key ^ std::bit_cast<uint32_t>( desc.ZoneCenter.y ) ) * 1099511628211ull;
-            key = ( key ^ std::bit_cast<uint32_t>( extent ) ) * 1099511628211ull;
+            const uint32_t size   = static_cast<uint32_t>(
+                 std::clamp( std::ceil( extent / spacingCm ), 16.0f, float( kMaxGroundTexels ) ) );
+            key                  = ( key ^ std::bit_cast<uint32_t>( desc.ZoneCenter.x ) ) * 1099511628211ull;
+            key                  = ( key ^ std::bit_cast<uint32_t>( desc.ZoneCenter.y ) ) * 1099511628211ull;
+            key                  = ( key ^ std::bit_cast<uint32_t>( extent ) ) * 1099511628211ull;
             CachedGround& cached = m_Ground[zone];
             if ( cached.Ground == nullptr || cached.Key != key )
             {

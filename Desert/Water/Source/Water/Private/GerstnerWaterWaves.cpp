@@ -1,4 +1,4 @@
-#include <Engine/Water/GerstnerWaterWaves.hpp>
+#include <Water/Public/GerstnerWaterWaves.hpp>
 
 #include <Common/Core/GlslAsCpp.hpp>
 #include <Common/Core/Math/RandomStream.hpp>

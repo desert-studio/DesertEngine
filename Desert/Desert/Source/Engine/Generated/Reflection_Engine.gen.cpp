@@ -48,8 +48,6 @@
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Input/EnhancedInputPlayerComponent.hpp>
@@ -822,28 +820,6 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "VolumeResolution", .Type = FieldType::Int, .Offset = offsetof( T, VolumeResolution ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::VolumeResolution )>(), .TypeName = "int32_t", .Meta = PropertyMetadata{ .DisplayName = "Volume Resolution", .Category = "Quality", .Tooltip = "Voxels per horizontal side of the camera-centric modelling volume the layer is baked into. It is the cost of the BAKE, not of the frame: the bake is a loop over side x side columns, so 128 costs a QUARTER of 256 — measured at 229 ms against 961 ms. Lower it when a view has to follow an edit quickly (an asset preview does) and leave it at 256 for a level, where the sky is baked once and looked at for hours. It stops at 128 because 64 was measured to invent four points of sky rather than draw the same sky more coarsely. It is a FLOOR and not a command: a grid too coarse to express a cloud type's placement cell would move the clouds rather than blur them, so the bake raises it back to 256 for such a type and says so in the log.", .HasRange = true, .RangeMin = 128, .RangeMax = 256, .Advanced = true, } } )
                     .Field( FieldInfo{ .Name = "WindOffset", .Type = FieldType::Vec3, .Offset = offsetof( T, WindOffset ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WindOffset )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Wind Offset", .Category = "Wind", .Tooltip = "Where the cloud field sits when the scene opens: the sample-space offset the wind's drift starts from. \"Capture current sky\" writes the sky you are looking at into it.", .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "Drift", .Type = FieldType::Bool, .Offset = offsetof( T, Drift ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Drift )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Drift", .Category = "Wind", .Tooltip = "Whether the scene's wind moves the clouds while the game runs. The drift follows GAME time — Play, pause and time dilation — so the editor's own viewport shows the authored sky, standing still. Off: the sky stays at Wind Offset in Play as well.", } } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
-        using T = ::Desert::ECS::WaterBodyData;
-        TypeBuilder( "WaterBodyData", sizeof( T ) )
-            .ScriptName( "" )
-                    .Field( FieldInfo{ .Name = "WaterWaves", .Type = FieldType::AssetHandle, .Offset = offsetof( T, WaterWaves ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WaterWaves )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Water Waves", .Category = "Wave", .Tooltip = "The wave set of this body (UE WaterWaves) — drag a .dwaves from the Content Browser. An empty slot is a flat ocean; a set that cannot be read is refused at Play by name.", .IsAsset = true, .AssetType = "WaterWavesAsset", .Summary = true, } } )
-                    .Field( FieldInfo{ .Name = "OceanExtents", .Type = FieldType::Vec2, .Offset = offsetof( T, OceanExtents ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OceanExtents )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Ocean Extents", .Category = "Water", .Tooltip = "The footprint of the ocean around the entity, X by Z (UE OceanExtents). A point outside it is not in this body.", .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "TargetWaveMaskDepth", .Type = FieldType::Float, .Offset = offsetof( T, TargetWaveMaskDepth ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TargetWaveMaskDepth )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Target Wave Mask Depth", .Category = "Wave", .Tooltip = "Water depth at which the waves reach their full height; shallower water damps them (UE TargetWaveMaskDepth).", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "WaterMaterial", .Type = FieldType::AssetHandle, .Offset = offsetof( T, WaterMaterial ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WaterMaterial )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Water Material", .Category = "Rendering", .Tooltip = "The look of this body (UE UWaterBodyComponent::WaterMaterial): a .demat of a SingleLayerWater-domain shader - its scattering, absorption, phase and ripple maps. Empty draws no water; a material of another domain is refused by name.", .IsAsset = true, .AssetType = "MaterialAsset", .Summary = true, } } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
-        using T = ::Desert::ECS::WaterZoneData;
-        TypeBuilder( "WaterZoneData", sizeof( T ) )
-            .ScriptName( "" )
-                    .Field( FieldInfo{ .Name = "ZoneExtent", .Type = FieldType::Vec2, .Offset = offsetof( T, ZoneExtent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ZoneExtent )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Zone Extent", .Category = "Water Mesh", .Tooltip = "The footprint of the zone around the entity, X by Z (UE ZoneExtent). Water bodies are drawn inside it and nowhere else.", .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "TileSize", .Type = FieldType::Float, .Offset = offsetof( T, TileSize ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TileSize )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Tile Size", .Category = "Water Mesh", .Tooltip = "The side of one leaf tile of the water quadtree, the finest LOD (UE TileSize).", .HasRange = true, .RangeMin = 100.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "TessellationFactor", .Type = FieldType::Int, .Offset = offsetof( T, TessellationFactor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TessellationFactor )>(), .TypeName = "int32_t", .Meta = PropertyMetadata{ .DisplayName = "Tessellation Factor", .Category = "Water Mesh", .Tooltip = "A leaf tile is a grid of 2^factor quads per side (UE TessellationFactor). Coarser LODs reuse the grid over larger tiles.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 12.0f, } } )
-                    .Field( FieldInfo{ .Name = "LODScale", .Type = FieldType::Float, .Offset = offsetof( T, LODScale ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LODScale )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "LOD Scale", .Category = "Water Mesh", .Tooltip = "How far each LOD reaches, in leaf tiles: LOD L ends 2^(L+1) x LOD Scale x Tile Size from the camera (UE LODScale, at least 0.5).", .HasRange = true, .RangeMin = 0.5f, .RangeMax = 100.0f, } } )
             .WithDefault<T>()
             .Register();
     }

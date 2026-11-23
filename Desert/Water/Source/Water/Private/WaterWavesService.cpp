@@ -1,8 +1,8 @@
-#include "WaterWavesService.hpp"
+#include <Water/Public/WaterWavesService.hpp>
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
-#include <Engine/Assets/WaterWavesAsset.hpp>
-#include <Engine/Water/GerstnerWaterWaves.hpp>
+#include <Water/Public/WaterWavesAsset.hpp>
+#include <Water/Public/GerstnerWaterWaves.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -25,18 +25,19 @@ namespace Desert::Runtime
 
         // A sum of Gerstner waves stays a surface only while the horizontal squeeze of all of them together cannot
         // pass the particle's own spacing: sum of Q k A (= each wave's Steepness) <= 1 (Tessendorf 2001 sec. 4.4;
-        // UE's generator does not check it and its steep presets loop). Past it the mesh folds through itself where
-        // the crests line up, and the whitecaps (the Jacobian below the material's threshold) are drawn from folds
-        // rather than from crests about to break. Refused out loud: the set's author lowers the steepness.
+        // UE's generator does not check it and its steep presets loop). Past it the mesh folds through itself
+        // where the crests line up, and the whitecaps (the Jacobian below the material's threshold) are drawn from
+        // folds rather than from crests about to break. Refused out loud: the set's author lowers the steepness.
         float steepness = 0.0f;
         for ( const Water::GerstnerWave& wave : waves )
             steepness += wave.Steepness;
         if ( steepness > 1.0f )
         {
-            const std::string why = std::format( "its waves' steepness sums to {:.2f} (Q k A summed over {} waves); a "
-                                                 "Gerstner sum folds through itself past 1 - lower SmallWaveSteepness/"
-                                                 "LargeWaveSteepness",
-                                                 steepness, waves.size() );
+            const std::string why =
+                 std::format( "its waves' steepness sums to {:.2f} (Q k A summed over {} waves); a "
+                              "Gerstner sum folds through itself past 1 - lower SmallWaveSteepness/"
+                              "LargeWaveSteepness",
+                              steepness, waves.size() );
             LOG_ERROR( "[Water] Wave set {} is refused: {}", static_cast<uint64_t>( handle ), why );
             m_Failed[handle] = why;
             return;
@@ -97,5 +98,11 @@ namespace Desert::Runtime
         m_Requests.clear();
         m_Ready.clear();
         m_Failed.clear();
+    }
+
+    WaterWavesService* GetWaterWavesService()
+    {
+        static WaterWavesService service;
+        return &service;
     }
 } // namespace Desert::Runtime

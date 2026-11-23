@@ -102,7 +102,7 @@ namespace Desert::Water
      */
     struct WaterInfoGround
     {
-        glm::vec2          Min{ 0.0f }; // world (X, Z) of the grid's lower corner, cm
+        glm::vec2          Min{ 0.0f };     // world (X, Z) of the grid's lower corner, cm
         float              ExtentCm = 0.0f; // the grid's side, cm
         uint32_t           Size     = 0u;   // texels per side
         std::vector<float> HeightCm;        // Size * Size world Y, cm; kWaterInfoNoGroundCm off the landscape

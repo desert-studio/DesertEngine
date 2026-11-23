@@ -331,19 +331,6 @@ namespace Desert::Core::Serialize
                     const std::filesystem::path full = FileForStoredReference( path, type );
                     return full.empty() ? 0 : announcer.Announce( m, full );
                 }
-            if ( type == "WaterWavesAsset" )
-            {
-                // A water body's wave set (WaterBodyData::WaterWaves). Announced, not read, as the fracture
-                // above: WaterWavesService reads the `.dwaves` when Play gathers the bodies, and the asset's
-                // constructor adopts the handle its header GUID names.
-                const std::filesystem::path full = FileForStoredReference( path, type );
-                if ( full.empty() )
-                    return 0;
-                auto a = mgr.FindByPath<Assets::WaterWavesAsset>( full );
-                if ( !a )
-                    a = m.CreateAsset<Assets::WaterWavesAsset>( full, /*loadAfterCreate=*/false );
-                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
-            }
             if ( type == "WorldParametersAsset" )
             {
                 // The scene's world parameter collection (SceneSettings::WorldParameters). Announced, not read, as
@@ -643,17 +630,6 @@ namespace Desert::Core::Serialize
                     return 0;
                 return fromPath( key, type ) == guid ? guid : 0;
             }
-            if ( type == "WaterWavesAsset" )
-            {
-                // BY GUID through the content registry, as the foliage type: a wave set's handle IS HandleForGuid
-                // of its header GUID, so the row under that handle is the `.dwaves` wherever it has since moved.
-                if ( mgr.FindByHandle<Assets::WaterWavesAsset>( handle ) )
-                    return guid;
-                const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
-                if ( key.empty() )
-                    return 0;
-                return fromPath( key, type ) == guid ? guid : 0;
-            }
             if ( type == "SoundAsset" )
             {
                 // A sound's handle IS HandleForGuid of its header GUID, so the registry row under it is the
@@ -672,6 +648,18 @@ namespace Desert::Core::Serialize
                 // shell, and RequireSkybox's error names the handle when the registry has no skybox under it.
                 return Runtime::RequireSkybox( handle ) ? guid : 0;
             }
+            // A feature module's type stored BY GUID (Water's `.dwaves`): on record under its handle, or found
+            // through the content registry and announced from that row's file (the locator half above).
+            for ( const Core::AssetAnnouncer& announcer : Core::ModuleHooks().AssetTypes )
+                if ( type == announcer.Type && announcer.IsRecorded != nullptr )
+                {
+                    if ( announcer.IsRecorded( mgr, static_cast<std::uint64_t>( handle ) ) )
+                        return guid;
+                    const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
+                    if ( key.empty() )
+                        return 0;
+                    return fromPath( key, type ) == guid ? guid : 0;
+                }
             return 0;
         };
 

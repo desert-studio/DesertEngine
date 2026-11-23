@@ -7,7 +7,6 @@
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/KinematicBodies.hpp>
 #include <Engine/ECS/System/PhysicsSceneFeature.hpp>
-#include <Engine/ECS/System/WaterBodyGather.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -18,7 +17,6 @@
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
 #include <Common/Core/Constants.hpp>
-#include <Engine/Water/WaterBodyQuery.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -47,7 +45,6 @@
 #include <vector>
 #include <type_traits>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
-#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
@@ -148,8 +145,6 @@ namespace Desert::ECS
                     m_Landscape.reset();
                     m_Foliage.reset();
                     m_Features.clear(); // their bodies go back into the world before it goes
-                    m_Water.reset();
-                    m_WaterGather.Reset();
                     m_World->Shutdown();
                     m_World.reset();
                 }
@@ -180,9 +175,7 @@ namespace Desert::ECS
                 // The feature modules' parts of the scene (destruction's objects, ...), one each per Play.
                 for ( const PhysicsSceneFeatureFactory make : PhysicsSceneFeatures() )
                     m_Features.push_back( make( *m_World ) );
-                m_Ragdolls      = std::make_unique<RagdollLifetime>( *m_World );
-                // The wave clock starts with the Play, at zero (UE: the water subsystem's time of a new world).
-                m_Water = std::make_unique<Water::WaterSubsystem>();
+                m_Ragdolls = std::make_unique<RagdollLifetime>( *m_World );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -201,15 +194,6 @@ namespace Desert::ECS
             // The events of this frame's steps are readable until the next frame's physics.
             for ( const auto& feature : m_Features )
                 feature->BeginFrame();
-            // The water the step's bodies are in: this frame's bodies over this frame's ground. The body list is
-            // retained (WaterBodyGather: re-walked only when a body is added, patched or removed) and its values
-            // read every frame, so a moved or edited body is the water at once; nothing is allocated in a steady
-            // frame. The landscape tiles' heights are borrowed from the registry for the step's queries only. The
-            // water's clock advances by the FIXED step, once per substep, in the pre-step callback below.
-            m_Water->SetWorld( m_WaterGather.Gather(
-                                    registry, []( const Assets::AssetHandle& waves )
-                                    { return Runtime::ResourceRegistry::GetWaterWavesService()->Get( waves ); } ),
-                               m_Scene->GatherRaycastLandscape().Tiles );
 
             // Movement basis from the active camera (flattened to the ground plane). The script's MoveInput is
             // in local forward/right axes; resolving it here keeps "forward" following wherever the camera looks.
@@ -236,7 +220,9 @@ namespace Desert::ECS
             m_World->SetPreStepCallback(
                  [&]( float dt )
                  {
-                     m_Water->Advance( dt );
+                     // The features' fixed-step clocks (Water: the wave time), once per substep.
+                     for ( const auto& feature : m_Features )
+                         feature->PreStep( dt );
                      StepCharacters( registry, camFwd, camRight, dt );
                  } );
             // A kinematic body follows its entity (UE: the component leads, the body travels to it over the
@@ -434,13 +420,6 @@ namespace Desert::ECS
                 if ( auto* found = dynamic_cast<TFeature*>( feature.get() ) )
                     return found;
             return nullptr;
-        }
-
-        /// The scene's water while Play runs, null in Edit: what buoyancy, swimming and scripts query
-        /// (UE UWaterSubsystem / QueryWaterInfoClosestToWorldLocation).
-        [[nodiscard]] const Water::WaterSubsystem* GetWater() const
-        {
-            return m_Water.get();
         }
 
     private:
@@ -714,10 +693,6 @@ namespace Desert::ECS
         std::unique_ptr<FoliageCollision>   m_Foliage;
         // Same rule: the feature modules' bodies (destructibles) live in m_World, advanced by its fixed step.
         std::vector<std::unique_ptr<IPhysicsSceneFeature>> m_Features;
-        // The water bodies, ground and wave clock of this Play; null in Edit.
-        std::unique_ptr<Water::WaterSubsystem> m_Water;
-        // Refuses a body whose wave set cannot be read, once per entity per Play.
-        WaterBodyGather m_WaterGather;
         // Same rule: the ragdolls' bodies live in m_World.
         std::unique_ptr<RagdollLifetime> m_Ragdolls;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.

@@ -30,8 +30,6 @@
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Input/EnhancedInputPlayerComponent.hpp>
@@ -145,8 +143,6 @@ namespace Desert::Core::Serialize::Generated
         r.Add( ReflectedMemberBlock<::Desert::ECS::UITweenComponent, decltype( ::Desert::ECS::UITweenComponent::Data )>{ "UITween", "UITweenData", &::Desert::ECS::UITweenComponent::Data, ReflectedBlockRun::UIAfterRenderTexture } );
         r.Add( ReflectedMemberBlock<::Desert::ECS::VolumeComponent, decltype( ::Desert::ECS::VolumeComponent::Data )>{ "Volume", "VolumeData", &::Desert::ECS::VolumeComponent::Data, ReflectedBlockRun::ActorsAndUI } );
         r.Add( ReflectedMemberBlock<::Desert::ECS::VolumetricCloudComponent, decltype( ::Desert::ECS::VolumetricCloudComponent::Data )>{ "VolumetricCloud", "VolumetricCloudData", &::Desert::ECS::VolumetricCloudComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
-        r.Add( ReflectedMemberBlock<::Desert::ECS::WaterBodyComponent, decltype( ::Desert::ECS::WaterBodyComponent::Data )>{ "WaterBody", "WaterBodyData", &::Desert::ECS::WaterBodyComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
-        r.Add( ReflectedMemberBlock<::Desert::ECS::WaterZoneComponent, decltype( ::Desert::ECS::WaterZoneComponent::Data )>{ "WaterZone", "WaterZoneData", &::Desert::ECS::WaterZoneComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
         r.Add( ReflectedMemberBlock<::Desert::ECS::WeatherZoneComponent, decltype( ::Desert::ECS::WeatherZoneComponent::Data )>{ "WeatherZone", "WeatherZoneData", &::Desert::ECS::WeatherZoneComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
         r.Add( ReflectedMemberBlock<::Desert::ECS::WindSourceComponent, decltype( ::Desert::ECS::WindSourceComponent::Data )>{ "WindSource", "WindSourceData", &::Desert::ECS::WindSourceComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
     }

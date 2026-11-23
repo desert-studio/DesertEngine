@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../RenderCommand.hpp"
-#include <Engine/Graphic/Systems/Scene/Water/WaterZoneDraw.hpp>
+#include <Engine/Graphic/Render/RenderCommand.hpp>
+#include <Water/Public/WaterZoneDraw.hpp>
 
 #include <utility>
 

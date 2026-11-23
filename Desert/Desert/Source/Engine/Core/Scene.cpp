@@ -107,8 +107,6 @@
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
 #include <Engine/Physics/ColliderComponent.hpp>
@@ -1464,11 +1462,9 @@ namespace Desert::Core
         // pool exists before the first parallel group, not which system happens to be serial this week.
         r.prepare<ECS::ColliderComponent>();
         r.prepare<ECS::RigidBodyComponent>();
-        r.prepare<ECS::WaterBodyComponent>();
         r.prepare<ECS::RagdollComponent>();
-        r.prepare<ECS::WaterZoneComponent>();
         // The feature modules' pools (Destruction: the Fracture preview, viewed by its stand-in draw inside
-        // MeshECSSystem's parallel group, and the field components).
+        // MeshECSSystem's parallel group, and the field components; Water: its bodies and zones).
         for ( const RegistryPrepare prepare : ModuleHooks().Prepares )
             prepare( r );
         r.prepare<ECS::CharacterControllerComponent>();

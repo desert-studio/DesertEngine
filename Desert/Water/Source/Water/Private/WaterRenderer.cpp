@@ -1,4 +1,4 @@
-#include "WaterRenderer.hpp"
+#include <Water/Public/WaterRenderer.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
@@ -17,7 +17,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/VisibilityCulling.hpp>
-#include <Engine/Water/GerstnerWaterWaves.hpp>
+#include <Water/Public/GerstnerWaterWaves.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <cstddef>
@@ -30,7 +30,7 @@
 #include <unordered_map>
 #include <vector>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
-#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
+#include <Water/Public/WaterWavesService.hpp>
 
 namespace
 {
@@ -82,8 +82,8 @@ namespace Desert::Graphic::System
         constexpr uint32_t kMaxWaves = 32;
         struct WaterWavesBlock
         {
-            glm::vec4                           Header{ 0.0f }; // x = count, y unused, zw = WaveOrigin
-            glm::vec4 Info{ 0.0f }; // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = mask depth
+            glm::vec4 Header{ 0.0f }; // x = count, y unused, zw = WaveOrigin
+            glm::vec4 Info{ 0.0f };   // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = mask depth
             std::array<WaterWaveRow, kMaxWaves> Rows{};
         };
         static_assert( sizeof( WaterWavesBlock ) == ( 2 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
@@ -176,10 +176,10 @@ namespace Desert::Graphic::System
             return &it->second;
         }
 
-        WaterProgram&     program  = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
+        WaterProgram&     program = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
         const std::string cellName =
              std::format( "{}/{}", templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell );
-        const auto        shader   = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
         if ( !shader )
         {
             if ( FirstWarning( material, WaterWarning::NoWaterCell ) )
@@ -391,9 +391,9 @@ namespace Desert::Graphic::System
         // THE FRAME'S WATER MATERIAL: the first body's that names one. Bodies of one frame naming different
         // materials draw with the first (REMAINDER WATER: a per-tile body index, UE's WaterBodyIndex).
         // Its waves are that body's (the same per-tile body index in REMAINDER).
-        Assets::AssetHandle material   = Assets::AssetHandle::Null();
-        Assets::AssetHandle wavesAsset = Assets::AssetHandle::Null();
-        glm::vec2           waveOrigin( 0.0f );
+        Assets::AssetHandle                           material   = Assets::AssetHandle::Null();
+        Assets::AssetHandle                           wavesAsset = Assets::AssetHandle::Null();
+        glm::vec2                                     waveOrigin( 0.0f );
         float                                         waveMaskDepth = 0.0f;
         std::shared_ptr<const Water::WaterInfoGround> ground;
         for ( const WaterZoneDraw& zone : m_Queue )
@@ -407,9 +407,9 @@ namespace Desert::Graphic::System
                     continue;
                 if ( static_cast<uint64_t>( material ) == 0 )
                 {
-                    material   = body;
-                    wavesAsset = zone.Bodies->Waves[b];
-                    waveOrigin = zone.Bodies->WaveOrigins[b];
+                    material      = body;
+                    wavesAsset    = zone.Bodies->Waves[b];
+                    waveOrigin    = zone.Bodies->WaveOrigins[b];
                     waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
                 }
                 else if ( body != material )
@@ -444,7 +444,7 @@ namespace Desert::Graphic::System
         float verticalExtent = kFlatSurfaceVerticalExtentCm;
         if ( static_cast<uint64_t>( wavesAsset ) != 0 )
         {
-            auto* service = Runtime::ResourceRegistry::GetWaterWavesService();
+            auto*                                                service = Runtime::GetWaterWavesService();
             Common::ResultStr<Runtime::WaterWavesService::Waves> got =
                  Common::MakeSuccess( Runtime::WaterWavesService::Waves{} );
             if ( service != nullptr )
@@ -530,7 +530,7 @@ namespace Desert::Graphic::System
             const std::span<const Water::WaterTileInstance> tiles =
                  tree.Traverse( observer, lensScale, &frustum, verticalExtent, m_Traversal );
             const float     viewLODScale = tree.GetViewLODScale( lensScale );
-            const glm::vec2 origin = tree.GetRootMin();
+            const glm::vec2 origin       = tree.GetRootMin();
             for ( const Water::WaterTileInstance& tile : tiles )
             {
                 const uint32_t quads = tree.QuadsPerSide( tile.DensityIndex );
@@ -541,10 +541,10 @@ namespace Desert::Graphic::System
                 ++m_FrameDraws.back().RowCount;
 
                 WaterTileRow row;
-                row.Tile = glm::vec4( tile.Corner.x, tile.Corner.y, tile.SurfaceY, tile.Size );
-                row.Lod  = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
+                row.Tile        = glm::vec4( tile.Corner.x, tile.Corner.y, tile.SurfaceY, tile.Size );
+                row.Lod         = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
                                      tile.CanMorphTwice ? 1.0f : 0.0f, tile.HeightMorph );
-                row.Zone = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
+                row.Zone        = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
                 const size_t at = m_Upload.size();
                 m_Upload.resize( at + sizeof( WaterTileRow ) );
                 std::memcpy( m_Upload.data() + at, &row, sizeof( WaterTileRow ) );
