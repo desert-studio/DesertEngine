@@ -91,7 +91,14 @@ namespace Desert::Core
     Common::ResultStr<ECS::Entity> SpawnPawnPrefabAt( Scene& scene, const Assets::AssetManager& assets,
                                                       const glm::mat4& spawnAt )
     {
-        const auto found = DefaultPawnPrefab( scene, assets, scene.GetSettings().DefaultPawn );
+        return SpawnPawnPrefabAt( scene, assets, scene.GetSettings().DefaultPawn, spawnAt );
+    }
+
+    Common::ResultStr<ECS::Entity> SpawnPawnPrefabAt( Scene& scene, const Assets::AssetManager& assets,
+                                                      const Assets::AssetHandle pawnPrefab,
+                                                      const glm::mat4&          spawnAt )
+    {
+        const auto found = DefaultPawnPrefab( scene, assets, pawnPrefab );
         if ( !found )
             return Common::MakeError<ECS::Entity>( found.GetError() );
         const Assets::Asset<Assets::PrefabAsset>& prefab = found.GetValue();

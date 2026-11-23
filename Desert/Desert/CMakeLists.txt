@@ -123,6 +123,10 @@ function(_desert_engine_module_library name)
         target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_default})
     endif()
 
+    # Engine's client net driver (Engine/Net/ClientNetDriver: Play as a network client) runs Desert/Net's session.
+    if(name STREQUAL "Engine")
+        target_link_libraries(${target} PRIVATE DesertNet)
+    endif()
     desert_config_platform_defines(${target})
     if(DESERT_IS_WINDOWS)
         target_sources(${target} PRIVATE ${_windows})

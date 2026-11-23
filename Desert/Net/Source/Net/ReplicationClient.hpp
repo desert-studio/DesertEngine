@@ -68,6 +68,12 @@ namespace Desert::Net
         {
             return m_Own;
         }
+        // The server GameMode's pawn prefab (an AssetHandle) from the Welcome: every pawn of this session is one
+        // (UE: the replicated pawn actor's class). 0 until welcomed.
+        [[nodiscard]] std::uint64_t PawnPrefab() const
+        {
+            return m_PawnPrefab;
+        }
         // The pawn drawn at the interpolation time (estimated server clock - kInterpolationDelaySeconds). The own
         // pawn is drawn the same way until NET-4 predicts it.
         [[nodiscard]] std::optional<PawnState> Sample( NetId id ) const;
@@ -91,6 +97,7 @@ namespace Desert::Net
         HelloMessage                 m_Hello;
         NetLogSink                   m_Log;
         ConnectionId                 m_Connection = kInvalidConnection;
+        std::uint64_t                m_PawnPrefab = 0;
         EState                       m_State      = EState::Connecting;
         std::string                  m_CloseReason;
         std::map<NetId, RemotePawn>  m_Pawns;

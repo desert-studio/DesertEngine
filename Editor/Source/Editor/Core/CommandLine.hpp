@@ -7,6 +7,7 @@
 #include <Editor/Core/BuilderRunOptions.hpp>
 #include <Editor/Core/ShotOptions.hpp>
 #include <Editor/Core/TextList.hpp>
+#include <Engine/Net/ClientNetDriver.hpp>
 #include <Engine/Localization/LocaleFormat.hpp>
 
 #include <charconv>
@@ -119,6 +120,15 @@ namespace Desert::Editor
          { "--flight-csv", true, "/tmp/flight.csv",
            "--play --flight line:0,200,0:1000,200,0 --flight-speed 1000" },
          { "--stream-delay-ticks", true, "30", "--play" },
+         // Play as a network client of a DesertServer (NET-1; UE PIE "Play As Client"): the played world's player
+         // is the server's pawn for this connection, the other players' pawns are replicated into it.
+         { "--connect", true, "127.0.0.1:27031", "--net-token HEX --net-cooked World.dwworld" },
+         { "--net-token", true, "00ff", "--connect 127.0.0.1:27031 --net-cooked World.dwworld" },
+         { "--net-cooked", true, "World.dwworld", "--connect 127.0.0.1:27031 --net-token HEX" },
+         { "--net-walk-cm", true, "2000", "--play --connect 127.0.0.1:27031 --net-walk-dir 1,0,0" },
+         { "--net-walk-dir", true, "1,0,0", "--play --connect 127.0.0.1:27031 --net-walk-cm 2000" },
+         { "--net-lag-ms", true, "75", "--connect 127.0.0.1:27031" },
+         { "--net-loss", true, "2", "--connect 127.0.0.1:27031" },
          // A builder run (UE: -run=WorldPartitionBuilderCommandlet -Builder=<Class>): no window, the builder runs
          // on the scene and the process exits with its status (Editor/Builders/WorldPartitionBuilder.hpp).
          { "--run", true, "WorldPartitionBuilder", "--builder HLODs --scene Scene.desce" },
@@ -148,6 +158,10 @@ namespace Desert::Editor
         /// The path is named rather than fixed so two editors on one machine each get their own; a shared
         /// one would have them answering each other's clients, and the client could not tell.
         std::string ControlSocket;
+
+        /// `--connect ip:port --net-token HEX --net-cooked DIR [--net-walk-cm D --net-walk-dir x,y,z]
+        /// [--net-lag-ms L --net-loss P]`: Play runs as a client of that server (Engine/Net/ClientNetDriver).
+        Desert::Core::ClientNetOptions NetClient;
 
         /// `--language <tag>`: the language the process starts in. Empty means the source language
         /// (Localization::kSourceLanguage).
@@ -647,6 +661,32 @@ namespace Desert::Editor
                          "--stream-delay-ticks '{}' is not a number of frames (0..100000).", value );
                 }
                 options.Shot.StreamDelayTicks = static_cast<std::uint32_t>( ticks );
+            }
+            else if ( arg == "--connect" )
+                options.NetClient.Address = value;
+            else if ( arg == "--net-token" )
+                options.NetClient.TokenHex = value;
+            else if ( arg == "--net-cooked" )
+                options.NetClient.Cooked = value;
+            else if ( arg == "--net-walk-dir" )
+            {
+                if ( !ParseVec3Strict( value, options.NetClient.WalkDir ) )
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--net-walk-dir '{}' is not a direction (three comma-separated numbers).", value );
+            }
+            else if ( arg == "--net-walk-cm" || arg == "--net-lag-ms" || arg == "--net-loss" )
+            {
+                char*        end    = nullptr;
+                const double number = std::strtod( value.c_str(), &end );
+                if ( value.empty() || end != value.c_str() + value.size() || number < 0.0 || number > 1e7 )
+                    return Common::MakeFormattedError<CommandLineOptions>( "{} '{}' is not a number >= 0.", arg,
+                                                                           value );
+                if ( arg == "--net-walk-cm" )
+                    options.NetClient.WalkCm = static_cast<float>( number );
+                else if ( arg == "--net-lag-ms" )
+                    options.NetClient.LagMs = static_cast<int>( number );
+                else
+                    options.NetClient.LossPercent = static_cast<float>( number );
             }
             else if ( arg == "--flight-csv" )
             {

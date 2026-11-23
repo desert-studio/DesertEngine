@@ -240,6 +240,19 @@ namespace Desert::Editor
         }
         m_WorldStreamer    = streamer.ExtractValue();
         m_WorldStreamClock = 0.0;
+        // PLAY AS CLIENT (UE PIE NetMode Client): the player's pawn above becomes this connection's pawn on the
+        // server; a refused connect is said and Play goes on standalone - the level itself played fine.
+        if ( const auto& net = Desert::Core::ClientNetOptions::Launch(); net.Enabled() && !request.Simulate )
+        {
+            if ( auto connected = Desert::Core::ClientNetDriver::Connect( net ); connected )
+                m_NetClient = connected.ExtractValue();
+            else
+            {
+                LOG_ERROR( "[Net] Play as client refused: {0}", connected.GetError() );
+                Editor::ToastManager::Push( std::format( "Play as client refused: {}", connected.GetError() ),
+                                            Editor::ToastLevel::Error );
+            }
+        }
 #if DESERT_DEV_INSTRUMENTS
         if ( m_WorldStreamer && ShotOptions::Get().StreamDelayTicks > 0 )
         {
@@ -275,6 +288,11 @@ namespace Desert::Editor
         // undoable again once the snapshot below has rebuilt the entities they name, under the same UUIDs.
         if ( !CommandHistory::Get().RemoveUndoBarrier() )
             LOG_ERROR( "[Play] Stop found no undo barrier: this Play session never fenced the history" );
+        if ( m_NetClient ) // the connection closes with Play (UE: the PIE client's net driver is destroyed)
+        {
+            m_NetClient->Shutdown( *scene );
+            m_NetClient.reset();
+        }
         m_WorldStreamer.reset(); // before Clear: the snapshot below brings every cell back
         phases.Lap( "wait for the GPU, close the Play undo session, drop the streamer", 0 );
 
@@ -377,6 +395,12 @@ namespace Desert::Editor
 
         Desert::Core::SceneLoadPhases phases( std::format( "PIE travel '{}'", path ) );
         EngineContext::GetInstance().GetDevice()->WaitIdle(); // scene teardown frees GPU resources
+        if ( m_NetClient ) // a client does not travel on its own (UE: ServerTravel moves the clients); the session ends
+        {
+            LOG_WARN( "[Net] a level change on a client ends its session with the server" );
+            m_NetClient->Shutdown( *scene );
+            m_NetClient.reset();
+        }
         m_WorldStreamer.reset();                              // streams the world about to be cleared
         // The level left takes its Play records with it - they name the world about to be cleared (UE's travel in
         // PIE makes a new PIE world) - and the edit world's history stays parked behind a fresh barrier.
@@ -456,6 +480,12 @@ namespace Desert::Editor
 
     bool PlaySession::TickStreaming( Desert::Core::Scene& scene, const Common::Timestep& ts )
     {
+        // The network first: this frame's replicated poses are what streaming and every system see.
+        if ( m_NetClient )
+        {
+            DESERT_PROFILE_SCOPE( "ClientNetDriver::Tick" );
+            m_NetClient->Tick( scene, *m_Assets, ts.GetSeconds() );
+        }
         // BEFORE the systems run, so no system sees an entity whose cell has just left.
         if ( m_WorldStreamer && m_WorldStreamer->Streams( scene ) )
         {

@@ -1,3 +1,29 @@
+# NET-1 pass 5: the server's GameMode names the pawn (UE DefaultPawnClass): DesertServer --pawn <assets:X.deprefab>,
+# its AssetHandle (FromKey of the stable key) travels in the Welcome (protocol 3); the client spawns that prefab for
+# every remote pawn and, when the open level names no pawn (WP_Protocol), for its own pawn too, and possesses it.
+# A refused Hello is logged on the server with the reason and both sides' protocol/cook/token fields (UE PreLogin
+# ErrorMessage) and sent to the client. Pass 4's "token invalid" was a STALE DesertServer from an earlier run still
+# bound to 27031 with another secret (the new one failed "cannot listen"); the runner now waits for "listening" and
+# execs the server so its kill reaches it.
+# Runner: <scratch>/NET-1/run_net1e.sh B|A, logs <scratch>/NET-1/logs/net1e-<B|A>; client scene WP_Protocol, shot
+#   camera --camera 0,800,2200 --look 0,-0.254,-0.967 on the spawn area (B 0,92,650; A -1000,92,-500 -> +X 2000 cm).
+# Тогда [net1_two_clients] clientB_view.png: B's own pawn at (0,92,650) and A's pawn at x ~ +1000, z -500 (displaced
+#   2000 cm from its spawn at x -1000); editorB.log "spawned the server's pawn prefab" + "remote pawn ... spawned";
+#   server.log "admitted: 2  refused: 0".
+# Тогда [net1_two_clients_A] clientA_view.png: A's own pawn at x ~ +1000 (editorA.log "walked 2000 cm"), B's pawn at
+#   (0,92,650).
+# NET-1 pass 4: the EDITOR plays as a network client (UE PIE "Play As Client"): Editor --play --connect ip:port
+# --net-token HEX --net-cooked <cooked world> - Engine/Net/ClientNetDriver possesses the server's pawn for this
+# connection (NetRoleComponent Autonomous), spawns the Default Pawn prefab for every other player (Simulated,
+# Scene::AddRemotePlayer) and writes both from the replicated state each frame; PhysicsECSSystem does not move a pawn
+# with a net role; input = the own pawn's MoveInput on the 60 Hz net step (or --net-walk-cm for a headless run).
+# Runner: <scratch>/NET-1/run_net1d.sh B|A (one GPU editor per machine: B's view and A's view are two runs), logs
+# <scratch>/NET-1/logs/net1d-<B|A>. Client scene Starter (WP_Protocol names no Default Pawn / PlayerStart).
+# Тогда [net1d_B_view] clientB_view.png: B's camera behind its own pawn at its spawn (0,92,650); A's pawn ~11.5 m ahead,
+#   moved 2000 cm along +X (editorB.log "[Net] remote pawn ... spawned" then pawns line with A at x ~ +1000);
+#   server.log union lists server + player 1 + player 2.
+# Тогда [net1d_A_view] clientA_view.png: A's own pawn walked 2000 cm along +X (editorA.log "walked 2000 cm"),
+#   B's pawn replicated at (0,92,650).
 # NET-1 pass 3: two clients see each other - N players in the Scene (Scene::GetPlayers, [0] = local), the mesh of
 # one in DesertServer (Desert/Net MeshOfOne: Gateway + PawnSimulation + InProcessReplicationStore behind
 # IGatewayLink / ISimLink / IReplicationStore), a pawn spawned per admitted connection (Spawn on the Rpc lane),
