@@ -138,8 +138,8 @@ namespace Desert::Core
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
         // The prefab file's own read, on the loader's workers (UE FStreamableManager::RequestAsyncLoad of the
         // DefaultPawnClass): pawn spawns wait while it is in flight; destroying the driver releases it.
-        Assets::LoadRequest                     m_PawnPrefabRead;
-        bool                                    m_PawnPrefabReading = false;
+        Assets::LoadRequest m_PawnPrefabRead;
+        bool                m_PawnPrefabReading = false;
         // The pawn prefab's dependency closure, read on the loader's workers from the Welcome on; pawn spawns wait
         // in m_AwaitingSpawn until it has landed (UE FStreamableManager: a replicated actor's class and its
         // references are streamed before the spawn, never loaded inside a frame). ClientNetDriver.cpp.

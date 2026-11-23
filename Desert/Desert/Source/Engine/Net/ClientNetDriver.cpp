@@ -265,28 +265,28 @@ namespace Desert::Core
         const auto prefab = assets.CreateAsset<Assets::PrefabAsset>( path, /*loadAfterCreate=*/false );
         if ( !prefab )
         {
-            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') could not be created", m_Client->PawnPrefab(),
-                       key );
+            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') could not be created",
+                       m_Client->PawnPrefab(), key );
             return;
         }
-        const auto here = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
+        const auto here     = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
         m_PawnPrefabReading = true;
         m_PawnPrefabRead    = Assets::AsyncAssetLoader::Get().Request(
              prefab,
              [this, here, key, welcome = m_Client->PawnPrefab()]( const Assets::Asset<Assets::AssetBase>& read,
-                                                                  const Assets::LoadOutcome outcome,
-                                                                  const std::string&        error )
+                                                                  const Assets::LoadOutcome               outcome,
+                                                                  const std::string&                      error )
              {
                  m_PawnPrefabReading = false;
                  if ( outcome == Assets::LoadOutcome::Failed || !read || !read->IsReadyForUse() )
                  {
                      LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load: {}", welcome, key,
-                                error );
+                                   error );
                      return;
                  }
                  m_PawnPrefab = here;
                  LOG_INFO( "[Net] read the server's pawn prefab {:016x} off the frame ('{}', handle {:016x} here)",
-                           welcome, key, static_cast<std::uint64_t>( here ) );
+                              welcome, key, static_cast<std::uint64_t>( here ) );
                  RequestPawnClosure();
              },
              [this] { m_PawnPrefabReading = false; } );
