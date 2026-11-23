@@ -175,7 +175,9 @@ namespace Desert::Graphic::System
             glm::vec2 Content{ 0.0f };
             glm::vec2 KernelSize{ 0.0f }; // the kernel image's footprint, spectrum texels
             float     KernelLod     = 0.0f;
-            bool      RebuildKernel = false;
+            glm::uvec2       KernelResident{ 0u };    // the kernel image's resident top level, texels
+            const Texture2D* KernelImage   = nullptr; // the kernel the spectrum is (re)built from
+            bool             RebuildKernel = false;
         };
         // Nullopt = this frame runs the Gaussian chain: the tier asks for Gaussian, or the view names no kernel, or
         // its image is still loading (@p kernel null), or a pipeline is missing. Every change of the outcome is
@@ -193,7 +195,7 @@ namespace Desert::Graphic::System
         // the plan says so), then pack mip 0 of @p chain, row FFT, column FFT x kernel x inverse column FFT,
         // inverse row FFT, unpack into mip 0 of @p chain — the texture the composite adds in for either method.
         void AddConvolutionPasses( RDG::Builder& graph, const ConvolutionPlan& plan, RDG::TextureRef chain,
-                                   RDG::TextureRef kernelImage, RDG::TextureRef kernelSpectrum ) const;
+                                   RDG::TextureRef kernelImage, RDG::TextureRef kernelSpectrum );
 
         static constexpr uint32_t kMaxFFTLength = 1024; // Common/BloomFFT.glslh kBloomFFTMaxLength
         // UE BloomConvolutionBufferScale's default: the zero border, as a fraction of the content's larger side.
@@ -237,6 +239,7 @@ namespace Desert::Graphic::System
         const Texture2D* m_BuiltKernel = nullptr;
         float            m_BuiltScale  = -1.0f;
         glm::vec2        m_BuiltContent{ 0.0f };
+        glm::uvec2       m_BuiltResident{ 0u };
         std::string      m_LoggedOutcome; // the last "[Bloom] method=..." line, logged on change only
     };
 } // namespace Desert::Graphic::System

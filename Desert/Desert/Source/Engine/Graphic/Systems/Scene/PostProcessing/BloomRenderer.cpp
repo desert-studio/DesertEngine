@@ -293,17 +293,29 @@ namespace Desert::Graphic::System
             report( "[Bloom] method=Gaussian (tier Convolution: the kernel spectrum image was not created)" );
             return std::nullopt;
         }
-        plan.RebuildKernel = m_BuiltKernel != kernel || m_BuiltScale != m_KernelScale || m_BuiltContent != plan.Content;
-        m_BuiltKernel      = kernel;
-        m_BuiltScale       = m_KernelScale;
-        m_BuiltContent     = plan.Content;
+        // The resident size is part of the key: a streamed-in finer mip changes what the kernel image samples.
+        plan.KernelResident = glm::uvec2( kernel->GetWidth(), kernel->GetHeight() );
+        plan.KernelImage    = kernel;
+        plan.RebuildKernel  = m_BuiltKernel != kernel || m_BuiltScale != m_KernelScale ||
+                             m_BuiltContent != plan.Content || m_BuiltResident != plan.KernelResident;
         report( std::format( "[Bloom] method=Convolution kernel={} fft={}x{}", kernelName, plan.Width, plan.Height ) );
         return plan;
     }
 
-    void BloomRenderer::AddConvolutionPasses( RDG::Builder& graph, const ConvolutionPlan& plan, RDG::TextureRef chain,
-                                              RDG::TextureRef kernelImage, RDG::TextureRef kernelSpectrum ) const
+    void BloomRenderer::AddConvolutionPasses( RDG::Builder& graph, const ConvolutionPlan& plan,
+                                              RDG::TextureRef chain, RDG::TextureRef kernelImage,
+                                              RDG::TextureRef kernelSpectrum )
     {
+        // The spectrum counts as built from this plan once its passes are in the graph (not when planned: a frame
+        // that drops the convolution after PrepareConvolution must not leave a never-written spectrum marked
+        // built).
+        if ( plan.RebuildKernel )
+        {
+            m_BuiltKernel   = plan.KernelImage;
+            m_BuiltScale    = m_KernelScale;
+            m_BuiltContent  = plan.Content;
+            m_BuiltResident = plan.KernelResident;
+        }
         const RDG::TextureRef spectrum = graph.CreateTexture(
              RDG::TextureDesc{ .Size   = { .Width = 2 * plan.Width, .Height = plan.Height },
                                .Format = Core::Formats::ImageFormat::RGBA32F,

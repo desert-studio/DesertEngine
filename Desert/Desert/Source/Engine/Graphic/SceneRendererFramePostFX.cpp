@@ -362,6 +362,7 @@ namespace Desert::Graphic
         RDG::TextureDesc                                        chainDesc = *desc;
         std::optional<System::BloomRenderer::ConvolutionPlan> convolution;
         RDG::TextureRef                                         kernelImage;
+        RDG::TextureRef                                         kernelSpectrum;
         {
             auto*                     textureService = Runtime::ResourceRegistry::GetTextureService();
             const Assets::AssetHandle kernelHandle   = bloom->GetConvolutionKernel();
@@ -372,9 +373,13 @@ namespace Desert::Graphic
             if ( convolution )
                 kernelImage = textures.Import(
                      Runtime::ResourceRegistry::GetImageService()->Share( kernel->GetImageHandle() ), "Bloom.Kernel" );
-            if ( convolution && !kernelImage.IsValid() )
+            if ( convolution )
+                kernelSpectrum = textures.Import( bloom->GetKernelSpectrum(), "Bloom.KernelSpectrum" );
+            if ( convolution && ( !kernelImage.IsValid() || !kernelSpectrum.IsValid() ) )
             {
-                LOG_ERROR( "[Bloom] the convolution kernel's image did not import; this frame runs the Gaussian chain" );
+                LOG_ERROR(
+                     "[Bloom] the convolution kernel's image or spectrum did not import; this frame runs the "
+                     "Gaussian chain" );
                 convolution.reset();
             }
             if ( convolution )
@@ -426,8 +431,7 @@ namespace Desert::Graphic
                  [bloom, chainDesc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordUpsample( context, chainDesc, mip ); } );
         if ( convolution )
-            bloom->AddConvolutionPasses( graph, *convolution, chain, kernelImage,
-                                         textures.Import( bloom->GetKernelSpectrum(), "Bloom.KernelSpectrum" ) );
+            bloom->AddConvolutionPasses( graph, *convolution, chain, kernelImage, kernelSpectrum );
     }
 
     void SceneRenderer::AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
