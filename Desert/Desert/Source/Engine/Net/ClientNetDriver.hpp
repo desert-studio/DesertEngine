@@ -1,5 +1,8 @@
 #pragma once
 
+#include <chrono>
+#include <optional>
+
 // THE CLIENT'S NET DRIVER (NET-ARCH §2, §5; UE UNetDriver + UPendingNetGame on a client world): the played world
 // becomes a network client of a DesertServer. It owns the transport and the ReplicationClient (Desert/Net, the
 // same session object the headless bot runs) and maps the replicated pawns onto the Scene:
@@ -87,7 +90,10 @@ namespace Desert::Core
         // Once per frame while Play runs, BEFORE the systems (so physics and the renderer see this frame's poses).
         // The session's first Tick loads the server's pawn prefab into `assets` (UE: the client loads the
         // GameMode's DefaultPawnClass package before it spawns the pawns replicated to it).
-        void Tick( Scene& scene, Assets::AssetManager& assets, double deltaSeconds );
+        // The session runs on REAL time, not the frame's world delta: the server steps 60 Hz of wall clock, so a
+        // client whose world clock is fixed per frame (a headless shot's 1/60 s at a few frames a second) would
+        // send a fraction of the steps the server consumes, starve its queue and pin the clock sync at its edge.
+        void Tick( Scene& scene, Assets::AssetManager& assets );
         // Play stops: the remote pawns leave the Scene's players (Stop's restore drops their entities).
         void Shutdown( Scene& scene );
 
@@ -109,9 +115,10 @@ namespace Desert::Core
         std::uint8_t InputButtons( Scene& scene );
         // NET-4 (§5.1): the server's newest state for the own pawn against the saved moves; a correction moves the
         // simulation at once and the drawn pawn by a decaying offset (UE smoothed ClientAdjustPosition).
-        void         ReconcileOwnPawn();
-        // The collision world the own pawn is predicted in (the scene's physics world); null without one.
-        Net::IPawnMoveWorld*    PredictionWorld();
+        void ReconcileOwnPawn( Scene& scene );
+        // The collision world the own pawn is predicted in: the physics world of the scene this driver ticks
+        // (UE: the CharacterMovement of the pawn's own UWorld). Null, said once, while that scene runs none.
+        Net::IPawnMoveWorld*    PredictionWorld( Scene& scene );
         [[nodiscard]] glm::vec3 OwnDrawnPosition() const;
 
         ClientNetOptions                        m_Options;
@@ -130,6 +137,7 @@ namespace Desert::Core
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
         bool m_Closed = false;
         double                                  m_StepClock = 0.0, m_Clock = 0.0, m_NextLog = 1.0;
+        std::optional<std::chrono::steady_clock::time_point> m_LastTick; // the wall clock of the previous Tick
         // The own pawn's prediction (NET-4): its saved moves, the movement both sides run, the drawn offset a
         // correction left, and the clock sync (the server's input queue, averaged, and this client's step rate).
         // (Desert/Net is private to the engine: the predictor lives in ClientNetDriver.cpp.)

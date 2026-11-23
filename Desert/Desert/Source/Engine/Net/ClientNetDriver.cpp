@@ -1,5 +1,7 @@
 #include <Engine/Net/ClientNetDriver.hpp>
 
+#include <chrono>
+
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -22,7 +24,6 @@
 #include <Net/PawnMovement.hpp>
 #include <Engine/Net/PawnPrefabMovement.hpp>
 #include <Net/PhysicsPawnMoveWorld.hpp>
-#include <Engine/Core/WorldContext.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Net/ReplicationClient.hpp>
 
@@ -98,6 +99,9 @@ namespace Desert::Core
         constexpr float  kNoSmoothDistanceCm = 384.0f;
         // UE NetworkSimulatedSmoothLocationTime: the drawn offset a correction leaves decays with this time.
         constexpr double kSmoothSeconds = 0.1;
+        // Steps one Tick may send and predict: a frame of up to a quarter second (a Debug editor drawing a
+        // streamed world) keeps the server's queue fed; a longer hitch is dropped, not replayed in a burst.
+        constexpr int kCatchUpSteps = 15;
         // The clock sync's target: input steps waiting on the server when its step starts (measured BEFORE it
         // consumes - PawnSimulation::Step): 1 = each step's input arrives just in time, the band's upper edge is
         // one lost packet of slack; the step rate dilates either side of it (Overwatch: a few percent, never a
@@ -119,23 +123,19 @@ namespace Desert::Core
         // through (PhysicsPawnMoveWorld). Made with the first prediction, dropped with the world it lives in.
         std::unique_ptr<Net::PhysicsPawnMoveWorld> World;
         Physics::PhysicsWorld*                     WorldOf = nullptr;
+        bool                                       NoWorldSaid = false; // the missing world is said once per loss
     };
 
-    namespace
+    Net::IPawnMoveWorld* ClientNetDriver::PredictionWorld( Scene& scene )
     {
-        Physics::PhysicsWorld* ScenePhysicsWorld()
-        {
-            const Core::WorldContext* context = Core::WorldContext::Current();
-            if ( context == nullptr || context->World == nullptr )
-                return nullptr;
-            const auto* system = context->World->FindSystem<ECS::PhysicsECSSystem>();
-            return system != nullptr ? system->GetPhysicsWorld() : nullptr;
-        }
-    } // namespace
-
-    Net::IPawnMoveWorld* ClientNetDriver::PredictionWorld()
-    {
-        Physics::PhysicsWorld* physics = ScenePhysicsWorld();
+        // The scene this driver ticks, not WorldContext::Current(): that is open only around a script call, and
+        // the net tick (PlaySession) runs outside any - NET-PREDICT p7: the own pawn was never predicted, drawn
+        // at its spawn and its view with it, while the server walked it 300 m.
+        const auto*            system  = scene.FindSystem<ECS::PhysicsECSSystem>();
+        Physics::PhysicsWorld* physics = system != nullptr ? system->GetPhysicsWorld() : nullptr;
+        if ( physics == nullptr && !m_Prediction->NoWorldSaid )
+            LOG_ERROR( "[Net] the own pawn cannot be predicted: the scene runs no physics world" );
+        m_Prediction->NoWorldSaid = physics == nullptr;
         if ( physics != m_Prediction->WorldOf )
         {
             m_Prediction->World.reset();
@@ -197,8 +197,11 @@ namespace Desert::Core
 
     ClientNetDriver::~ClientNetDriver() = default;
 
-    void ClientNetDriver::Tick( Scene& scene, Assets::AssetManager& assets, const double deltaSeconds )
+    void ClientNetDriver::Tick( Scene& scene, Assets::AssetManager& assets )
     {
+        const auto   now          = std::chrono::steady_clock::now();
+        const double deltaSeconds = m_LastTick ? std::chrono::duration<double>( now - *m_LastTick ).count() : 0.0;
+        m_LastTick                = now;
         m_Clock += deltaSeconds;
         m_Client->Poll();
         using EState = Net::ReplicationClient::EState;
@@ -235,7 +238,7 @@ namespace Desert::Core
                 LOG_ERROR( "[Net] the own pawn's movement: {}", movement.GetError() );
         }
         ApplySpawnsAndDestroys( scene, assets );
-        ReconcileOwnPawn();
+        ReconcileOwnPawn( scene );
         WriteTransforms( scene );
         ApplyStableDestroyed( scene );
         ApplyStableState( scene );
@@ -247,7 +250,7 @@ namespace Desert::Core
         m_StepClock += deltaSeconds;
         const double period = m_Dilation / Net::kNetStepHz;
         int          steps  = 0;
-        while ( predictor.Started() && m_StepClock >= period && steps < 8 )
+        while ( predictor.Started() && m_StepClock >= period && steps < kCatchUpSteps )
         {
             m_StepClock -= period;
             ++steps;
@@ -255,10 +258,10 @@ namespace Desert::Core
             const float        yaw     = glm::length( move ) > 1e-4f ? std::atan2( -move.x, -move.z ) : 0.0f;
             const std::uint8_t buttons = InputButtons( scene );
             if ( const auto sent = m_Client->SendInput( { move.x, move.y, move.z }, yaw, buttons ) )
-                if ( Net::IPawnMoveWorld* world = PredictionWorld() )
+                if ( Net::IPawnMoveWorld* world = PredictionWorld( scene ) )
                     predictor.Predict( *sent, m_Prediction->Movement, *world, Net::kNetStepSeconds );
         }
-        if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than 8 steps is not caught up
+        if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than kCatchUpSteps is not caught up
             m_StepClock = 0.0;
 
         // The own pawn is drawn between its last two predicted steps, plus what is left of a correction's offset.
@@ -716,7 +719,7 @@ namespace Desert::Core
                m_SmoothOffset;
     }
 
-    void ClientNetDriver::ReconcileOwnPawn()
+    void ClientNetDriver::ReconcileOwnPawn( Scene& scene )
     {
         Net::MovePredictor& predictor = m_Prediction->Predictor;
         if ( !predictor.Started() )
@@ -742,7 +745,7 @@ namespace Desert::Core
                         : m_ServerQueue > kQueueHigh ? 1.0 + kDilation
                                                      : 1.0;
         const glm::vec3 drawnBefore = OwnDrawnPosition();
-        Net::IPawnMoveWorld* world       = PredictionWorld();
+        Net::IPawnMoveWorld* world       = PredictionWorld( scene );
         if ( world == nullptr )
             return;
         const auto outcome = predictor.Reconcile( authority->AckStep, authority->State, m_Prediction->Movement,
