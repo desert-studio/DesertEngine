@@ -166,6 +166,7 @@ namespace Desert::Net
             out.U32( message.Steps[i].Step );
             out.Vec( message.Steps[i].Move );
             out.F32( message.Steps[i].Yaw );
+            out.U8( message.Steps[i].Buttons );
         }
         return out.Take();
     }
@@ -176,6 +177,15 @@ namespace Desert::Net
         out.U32( message.ServerStep );
         out.U8( message.HasAck ? 1 : 0 );
         out.U32( message.AckInputStep );
+        if ( message.HasAck )
+        {
+            out.Vec( message.OwnState.Position );
+            out.Vec( message.OwnState.Velocity );
+            out.F32( message.OwnState.Yaw );
+            out.F32( message.OwnState.FloorY );
+            out.U8( message.OwnState.Grounded ? 1 : 0 );
+            out.U8( message.InputBuffered );
+        }
         out.U32( static_cast<std::uint32_t>( message.Pawns.size() ) );
         for ( const PawnState& pawn : message.Pawns )
             out.Pawn( pawn );
@@ -215,7 +225,7 @@ namespace Desert::Net
             return std::nullopt;
         message.Steps.resize( count );
         for ( InputStep& step : message.Steps )
-            if ( !in.U32( step.Step ) || !in.Vec( step.Move ) || !in.F32( step.Yaw ) )
+            if ( !in.U32( step.Step ) || !in.Vec( step.Move ) || !in.F32( step.Yaw ) || !in.U8( step.Buttons ) )
                 return std::nullopt;
         if ( !in.Done() )
             return std::nullopt;
@@ -228,10 +238,20 @@ namespace Desert::Net
         SnapshotMessage message;
         std::uint8_t    hasAck = 0;
         std::uint32_t   count  = 0;
-        if ( !in.U32( message.ServerStep ) || !in.U8( hasAck ) || !in.U32( message.AckInputStep ) ||
-             !in.U32( count ) || hasAck > 1 || count > kMaxSnapshotPawns )
+        if ( !in.U32( message.ServerStep ) || !in.U8( hasAck ) || !in.U32( message.AckInputStep ) || hasAck > 1 )
             return std::nullopt;
         message.HasAck = hasAck == 1;
+        if ( message.HasAck )
+        {
+            std::uint8_t grounded = 0;
+            if ( !in.Vec( message.OwnState.Position ) || !in.Vec( message.OwnState.Velocity ) ||
+                 !in.F32( message.OwnState.Yaw ) || !in.F32( message.OwnState.FloorY ) || !in.U8( grounded ) ||
+                 grounded > 1 || !in.U8( message.InputBuffered ) )
+                return std::nullopt;
+            message.OwnState.Grounded = grounded == 1;
+        }
+        if ( !in.U32( count ) || count > kMaxSnapshotPawns )
+            return std::nullopt;
         message.Pawns.resize( count );
         for ( PawnState& pawn : message.Pawns )
             if ( !in.Pawn( pawn ) )

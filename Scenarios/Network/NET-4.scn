@@ -1,0 +1,13 @@
+# NET-4: own-character prediction + reconciliation (NET-ARCH §5.1). The client simulates every input step as it
+# sends it (Net::MovePredictor over Net::StepPawnMove, UE CharacterMovement walking/falling math); the server runs
+# the same step per received input (a starved pawn holds) and acks the step with its full movement state; the
+# client compares, and on a mismatch takes the server's state and replays its unacked moves (UE saved moves +
+# ClientAdjustPosition); the drawn pawn keeps a decaying offset (UE smoothing, drawn at once above 384 cm). Clock
+# sync: the snapshot carries the server's input queue; the client dilates its step rate +-3 % to keep it at 1..3.
+# Runner: DesertEngine-scratch/NET-PREDICT/run_all.sh (base NET-3): A = Editor, B = DesertNetProbe bot; both on a
+# simulated 75 ms each way (150 ms RTT) / 2 % loss link (GNS FakePacketLag/Loss).
+# Дано: DesertServer --role all + Editor client A + bot B from task/NET-PREDICT on WP_Protocol, link 150 ms / 2 % loss.
+# Когда: A sprints (--net-walk-mode sprint) 200 m along +X and jumps every 1.5 s (--net-jump-every 1.5).
+# Тогда [net4_predicted] net4/clientA_predicted.png: A's view moves with its input from the first step (log "predicting own pawn" before the server's first ack), no snap-back; A's log "corrections 0" over the run; B's log shows A's pawn moving.
+# Когда: the server console teleports A 250 cm sideways (`teleport 1 x y z+250`).
+# Тогда [net4_teleport] net4/clientA_teleport.png: A's log has exactly one "correction 1 ... smoothed" and the per-second line "corrections 1" after it.

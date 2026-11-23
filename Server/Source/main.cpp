@@ -585,7 +585,7 @@ namespace Desert::Server
                     for ( const std::string& line : console.Take() )
                         RunConsoleLine( line, records, *store, *gateway, *sim );
                     transport->Poll( *gateway );
-                    sim->Step( 1.0 / kStepHz );
+                    sim->Step();
                     if ( step % Net::kSnapshotEverySteps == 0 )
                         gateway->SendSnapshots( static_cast<std::uint32_t>( step ) );
                 }

@@ -22,15 +22,17 @@ namespace Desert::Net
         m_Transport.Poll( *this );
     }
 
-    void ReplicationClient::SendInput( const NetVec3& move, float yaw )
+    std::optional<InputStep> ReplicationClient::SendInput( const NetVec3& move, float yaw, std::uint8_t buttons )
     {
         if ( m_State != EState::InSession )
-            return;
-        m_Inputs.Push( { m_NextStep++, move, yaw } );
+            return std::nullopt;
+        const InputStep step{ m_NextStep++, move, yaw, buttons };
+        m_Inputs.Push( step );
         InputMessage message;
         message.Sequence = m_NextSequence++;
         message.Steps    = m_Inputs.Latest( kInputRedundancy );
         m_Transport.Send( m_Connection, EncodeInput( message ), ENetLane::State );
+        return step;
     }
 
     void ReplicationClient::OnConnected( ConnectionId connection, std::string_view address )
@@ -137,6 +139,8 @@ namespace Desert::Net
                     {
                         m_LastAck = snapshot->AckInputStep;
                         m_Inputs.DropUpTo( snapshot->AckInputStep );
+                        m_OwnAuthority =
+                             OwnAuthority{ snapshot->AckInputStep, snapshot->OwnState, snapshot->InputBuffered };
                     }
                     const double time = snapshot->ServerStep / kNetStepHz;
                     for ( const PawnState& state : snapshot->Pawns )
