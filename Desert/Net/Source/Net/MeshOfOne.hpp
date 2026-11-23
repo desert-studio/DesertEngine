@@ -150,9 +150,33 @@ namespace Desert::Net
         {
             PlayerId      Player  = 0;
             std::uint64_t Account = 0;
+            NetId         Id      = kInvalidNetId;
             NetVec3       Position;
         };
         [[nodiscard]] std::vector<Source> Sources() const;
+        [[nodiscard]] bool                HasPawn( PlayerId player ) const
+        {
+            return m_Pawns.contains( player );
+        }
+
+        // THE HANDOVER of a pawn to another simulation (NET-ARCH §2M.4): everything the next owner needs to go on
+        // at the next step - the state, the inputs not applied yet and the input that repeats when none arrives.
+        struct HandoverPawn
+        {
+            PlayerId                     Player  = 0;
+            std::uint64_t                Account = 0;
+            std::uint32_t                Index   = 0;
+            PawnState                    State;
+            std::vector<InputStep>       Pending; // by client step
+            std::optional<std::uint32_t> LastProcessed;
+            InputStep                    LastApplied;
+        };
+        // Freezes @p player's pawn and hands it out: it is no longer stepped or written here (not destroyed - its
+        // net id lives on in the next owner). nullopt when this simulation has no pawn for @p player.
+        [[nodiscard]] std::optional<HandoverPawn> Release( PlayerId player );
+        // Takes a pawn handed over by another simulation and runs @p catchUpSteps steps of it, the mesh steps
+        // that passed here between the release and now; writes its state.
+        void Adopt( HandoverPawn pawn, std::uint32_t catchUpSteps, double dtSeconds );
 
     private:
         struct Pawn
@@ -164,6 +188,8 @@ namespace Desert::Net
             std::optional<std::uint32_t>       LastProcessed;
             InputStep                          LastApplied;
         };
+        void StepPawn( Pawn& pawn, double dtSeconds ) const;
+
         IReplicationStore&       m_Store;
         IGatewayLink&            m_Gateway;
         Settings                 m_Settings;

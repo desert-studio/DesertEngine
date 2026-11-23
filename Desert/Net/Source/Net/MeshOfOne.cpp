@@ -121,28 +121,67 @@ namespace Desert::Net
         return it == m_Pawns.end() ? std::nullopt : it->second.LastProcessed;
     }
 
+    void PawnSimulation::StepPawn( Pawn& pawn, double dtSeconds ) const
+    {
+        if ( !pawn.Pending.empty() )
+        {
+            const auto next    = pawn.Pending.begin();
+            pawn.LastApplied   = next->second;
+            pawn.LastProcessed = next->first;
+            pawn.Pending.erase( next );
+        }
+        NetVec3     move   = pawn.LastApplied.Move;
+        const float length = std::sqrt( move.X * move.X + move.Y * move.Y + move.Z * move.Z );
+        if ( length > 1.f )
+            move = { move.X / length, move.Y / length, move.Z / length };
+        const float distance = m_Settings.WalkSpeed * static_cast<float>( dtSeconds );
+        pawn.State.Position.X += move.X * distance;
+        pawn.State.Position.Y += move.Y * distance;
+        pawn.State.Position.Z += move.Z * distance;
+        pawn.State.Yaw = pawn.LastApplied.Yaw;
+    }
+
     void PawnSimulation::Step( double dtSeconds )
     {
         for ( auto& [player, pawn] : m_Pawns )
         {
-            if ( !pawn.Pending.empty() )
-            {
-                const auto next    = pawn.Pending.begin();
-                pawn.LastApplied   = next->second;
-                pawn.LastProcessed = next->first;
-                pawn.Pending.erase( next );
-            }
-            NetVec3     move   = pawn.LastApplied.Move;
-            const float length = std::sqrt( move.X * move.X + move.Y * move.Y + move.Z * move.Z );
-            if ( length > 1.f )
-                move = { move.X / length, move.Y / length, move.Z / length };
-            const float distance = m_Settings.WalkSpeed * static_cast<float>( dtSeconds );
-            pawn.State.Position.X += move.X * distance;
-            pawn.State.Position.Y += move.Y * distance;
-            pawn.State.Position.Z += move.Z * distance;
-            pawn.State.Yaw = pawn.LastApplied.Yaw;
+            StepPawn( pawn, dtSeconds );
             m_Store.Write( pawn.State );
         }
+    }
+
+    std::optional<PawnSimulation::HandoverPawn> PawnSimulation::Release( PlayerId player )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() )
+            return std::nullopt;
+        HandoverPawn out;
+        out.Player        = player;
+        out.Account       = it->second.Account;
+        out.Index         = it->second.Index;
+        out.State         = it->second.State;
+        out.LastProcessed = it->second.LastProcessed;
+        out.LastApplied   = it->second.LastApplied;
+        for ( const auto& [step, input] : it->second.Pending )
+            out.Pending.push_back( input );
+        m_Pawns.erase( it );
+        return out;
+    }
+
+    void PawnSimulation::Adopt( HandoverPawn handed, std::uint32_t catchUpSteps, double dtSeconds )
+    {
+        Pawn pawn;
+        pawn.Account       = handed.Account;
+        pawn.Index         = handed.Index;
+        pawn.State         = handed.State;
+        pawn.LastProcessed = handed.LastProcessed;
+        pawn.LastApplied   = handed.LastApplied;
+        for ( const InputStep& input : handed.Pending )
+            pawn.Pending.emplace( input.Step, input );
+        for ( std::uint32_t i = 0; i < catchUpSteps; ++i )
+            StepPawn( pawn, dtSeconds );
+        m_Store.Write( pawn.State );
+        m_Pawns.insert_or_assign( handed.Player, std::move( pawn ) );
     }
 
     bool PawnSimulation::Teleport( PlayerId player, const NetVec3& position )
@@ -161,7 +200,7 @@ namespace Desert::Net
     {
         std::vector<Source> sources;
         for ( const auto& [player, pawn] : m_Pawns )
-            sources.push_back( { player, pawn.Account, pawn.State.Position } );
+            sources.push_back( { player, pawn.Account, pawn.State.Id, pawn.State.Position } );
         return sources;
     }
 

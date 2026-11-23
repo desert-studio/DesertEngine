@@ -1,0 +1,14 @@
+# NET-MESH-2: two sims, static regions, authority handover by epoch through the store (NET-ARCH §2M.3-§2M.5).
+# The coordinator holds a static region table (--region <name>:<sim>:<minX>,<minZ>,<maxX>,<maxZ> cm, a border band
+# and a hysteresis margin); WP_Protocol is cut along the street at X = 0 into 'west' (sim 1) and 'east' (sim 2).
+# A sim owns the pawns inside its regions and streams the border band of its neighbour as read-only proxies (the
+# store sends a sim the pawns of others standing in its band). A pawn past the margin inside the neighbour's region
+# is frozen by its owner at mesh step N and published to the store with its unacked inputs; the store
+# compare-and-swaps the authority record (sim, epoch) -> (sim', epoch+1) and hands the state to the new owner, which
+# promotes its proxy (catching up to the mesh step); the gateway re-routes the player's inputs on the store's
+# AuthorityChanged; inputs that still reached the old owner are forwarded through the store.
+# Runner: <scratch>/NET-MESH-2/run_mesh2.sh (base NET-MESH-1 run_mesh1.sh): 5 server processes; the editor is B,
+# A is a DesertNetProbe bot.
+# Дано: Editor + DesertServer + DesertNetProbe from task/NET-MESH-2; mesh = coordinator, store, sim 1, sim 2, gateway; regions west (sim 1) | east (sim 2) cut at X = 0, margin 300 cm, band 1500 cm.
+# Когда: B (editor, spawn on the east side) stands still; bot A walks 2000 cm along +X from (-1000, 92, -500) across X = 0.
+# Тогда [mesh2_cross_border] mesh2-cross/clientB_*.png: B's frames show A's pawn moving continuously across the border (one pawn, no pop, no double); clientA.log own-pawn positions advance evenly through the handover (no snap); store.log "authority (sim 1, epoch 1) -> (sim 2, epoch 2) at step N" once for A; gateway.log "input player <A> -> sim 2" with the same epoch; sim2.log "proxy pawn" before "adopted".
