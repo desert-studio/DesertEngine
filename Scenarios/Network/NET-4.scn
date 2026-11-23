@@ -21,3 +21,12 @@
 # Тогда [net4_fence] net4/clientA_fence_before.png, net4/clientA_fence_after.png: A clears the fence in A's frames and in B's log (A's x passes 2500 with its Y above the fence top, no stop at x~2470); A's per-second lines "corrections 0" over 30 s; clock near x1.00.
 # Когда: the server teleports A onto the landscape 200 m away (`teleport 1 x-20000 y+500 z`).
 # Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: one "correction 1 ... smoothed"; A stands on the terrain (B's log: A's Y settles at the ground there, does not keep falling), camera above ground.
+# Pass 8 (brief 11-23): no prediction before the first snapshot of the own pawn; the prediction probe ignores every
+# character capsule (the client's own drawn pawn overlapped it - the server's collision world has no pawns); clock
+# sync reads the server queue's window minimum (target 1, +-1 %/step, cap 2 %). A 200 m teleport is a relocation:
+# UE NetworkNoSmoothUpdateDistance (384 cm) - ONE correction, drawn at once, not smoothed over 200 m.
+# Дано: Editor + DesertServer from task/NET-PREDICT, `--role all`, WP_Protocol, clients A and B, link 150 ms / 2 % loss.
+# Когда: A sprints and jumps the fence for 30 s.
+# Тогда [net4_fence] net4/clientA_fence_after.png: A over the fence; HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
+# Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away.
+# Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: server drift < 1 cm over 10 s; exactly one correction; A stands on the terrain, camera above ground.

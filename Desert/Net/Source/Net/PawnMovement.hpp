@@ -107,6 +107,15 @@ namespace Desert::Net
         {
             return m_Moves.size();
         }
+        // The last corrected step as it was predicted, and its input: what the server's state is read against.
+        [[nodiscard]] const PawnMoveState& LastMispredicted() const
+        {
+            return m_LastMispredicted;
+        }
+        [[nodiscard]] const InputStep& LastMispredictedInput() const
+        {
+            return m_LastMispredictedInput;
+        }
 
     private:
         struct SavedMove
@@ -115,7 +124,8 @@ namespace Desert::Net
             PawnMoveState After;
         };
         std::deque<SavedMove> m_Moves;
-        PawnMoveState         m_Current, m_Previous;
+        PawnMoveState         m_Current, m_Previous, m_LastMispredicted;
+        InputStep             m_LastMispredictedInput;
         std::uint32_t         m_Corrections = 0;
         bool                  m_Started     = false;
     };

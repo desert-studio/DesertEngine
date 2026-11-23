@@ -59,8 +59,10 @@ namespace Desert::Net
             const float     feetToCenter = settings.CapsuleHalfHeight + settings.CapsuleRadius;
             const glm::vec3 start{ from.Position.X, from.Position.Y + feetToCenter, from.Position.Z };
             m_World.TeleportCharacter( m_Character, start );
+            // World only: the server's collision world holds cells, no pawns - the client's scene pawns (its own
+            // drawn capsule first: it overlaps the probe at every step) would push the prediction off the server.
             m_World.UpdateCharacter( m_Character, { velocity.X, velocity.Y, velocity.Z }, settings.Gravity,
-                                     dtSeconds );
+                                     dtSeconds, Physics::ECharacterContacts::WorldOnly );
             const glm::vec3 end = m_World.GetCharacterPosition( m_Character );
             // The velocity after the walls: what the capsule actually travelled (UE: Velocity after the slide
             // is the moved delta over the step).

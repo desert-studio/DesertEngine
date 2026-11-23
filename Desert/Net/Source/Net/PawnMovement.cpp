@@ -185,6 +185,11 @@ namespace Desert::Net
         if ( acked == m_Moves.end() )
             return EReconcile::Unknown;
         const bool differ = MoveStatesDiffer( acked->After, server );
+        if ( differ )
+        {
+            m_LastMispredicted      = acked->After;
+            m_LastMispredictedInput = acked->Input;
+        }
         m_Moves.erase( m_Moves.begin(), std::next( acked ) );
         if ( !differ )
             return EReconcile::Matched;

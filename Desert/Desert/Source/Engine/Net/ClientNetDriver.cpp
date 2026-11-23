@@ -102,11 +102,14 @@ namespace Desert::Core
         // Steps one Tick may send and predict: a frame of up to a quarter second (a Debug editor drawing a
         // streamed world) keeps the server's queue fed; a longer hitch is dropped, not replayed in a burst.
         constexpr int kCatchUpSteps = 15;
-        // The clock sync's target: input steps waiting on the server when its step starts (measured BEFORE it
-        // consumes - PawnSimulation::Step): 1 = each step's input arrives just in time, the band's upper edge is
-        // one lost packet of slack; the step rate dilates either side of it (Overwatch: a few percent, never a
-        // visible speed change).
-        constexpr double kQueueLow = 1.0, kQueueHigh = 2.0, kDilation = 0.03;
+        // The clock sync (Overwatch's input buffer, UE's client-side time dilation): the server's queue of this
+        // client's input steps is read at its FEWEST over a window, not on average - a frame sends its steps in a
+        // burst, so the queue saws between that minimum and minimum + the burst, and only the minimum says how
+        // close the server came to starving. Target: one step always waiting (each input arrives a step early);
+        // the step rate dilates in proportion, a percent per step of error and never more than two (no visible
+        // speed change, the reading stays in 0.98-1.02).
+        constexpr double kQueueTarget = 1.0, kQueueWindowSeconds = 1.0, kDilationPerStep = 0.01,
+                         kMaxDilation = 0.02;
 
         std::optional<NetPredictionStats>& StatsSlot()
         {
@@ -725,8 +728,11 @@ namespace Desert::Core
         if ( !predictor.Started() )
         {
             // The prediction starts where the server spawned the pawn, standing (the server's own start).
+            // Not before the first snapshot of it (UE: an autonomous proxy moves once its replicated movement
+            // arrived), and not before this client's collision world exists to move it in.
             const auto own = m_Client->Pawns().find( m_Client->OwnPawn() );
-            if ( own == m_Client->Pawns().end() )
+            if ( own == m_Client->Pawns().end() || own->second.History.Empty() ||
+                 PredictionWorld( scene ) == nullptr )
                 return;
             Net::PawnMoveState start;
             start.Position = own->second.History.Sample( 1e12 ).Position;
@@ -739,11 +745,15 @@ namespace Desert::Core
         const auto authority = m_Client->TakeOwnAuthority();
         if ( !authority )
             return;
-        // Clock sync: keep the server's queue of this client's input steps between kQueueLow and kQueueHigh.
-        m_ServerQueue = m_ServerQueue * 0.9 + static_cast<double>( authority->InputBuffered ) * 0.1;
-        m_Dilation    = m_ServerQueue < kQueueLow    ? 1.0 - kDilation
-                        : m_ServerQueue > kQueueHigh ? 1.0 + kDilation
-                                                     : 1.0;
+        m_QueueWindowMin = std::min( m_QueueWindowMin, static_cast<double>( authority->InputBuffered ) );
+        if ( m_Clock >= m_QueueWindowEnd )
+        {
+            m_ServerQueue = m_QueueWindowMin;
+            m_Dilation    = 1.0 + std::clamp( ( m_ServerQueue - kQueueTarget ) * kDilationPerStep, -kMaxDilation,
+                                              kMaxDilation );
+            m_QueueWindowMin = 1e9;
+            m_QueueWindowEnd = m_Clock + kQueueWindowSeconds;
+        }
         const glm::vec3 drawnBefore = OwnDrawnPosition();
         Net::IPawnMoveWorld* world       = PredictionWorld( scene );
         if ( world == nullptr )
@@ -752,14 +762,23 @@ namespace Desert::Core
                                                   *world, Net::kNetStepSeconds );
         if ( outcome != Net::MovePredictor::EReconcile::Corrected )
             return;
+        const Net::PawnMoveState& mispredicted = predictor.LastMispredicted();
         const glm::vec3 offset = drawnBefore - ( OwnDrawnPosition() - m_SmoothOffset );
         const bool      smooth = glm::length( offset ) <= kNoSmoothDistanceCm;
         m_SmoothOffset         = smooth ? offset : glm::vec3( 0.0f );
-        LOG_INFO( "[Net] correction {} at input step {}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
-                  "{} unacked step(s) replayed; drawn offset {:.1f} cm {}",
-                  predictor.Corrections(), authority->AckStep, authority->State.Position.X,
-                  authority->State.Position.Y, authority->State.Position.Z, predictor.Unacked(),
-                  glm::length( offset ), smooth ? "smoothed" : "beyond the smoothing distance - drawn at once" );
+        LOG_INFO(
+             "[Net] correction {} at input step {}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
+             "{} unacked step(s) replayed; drawn offset {:.1f} cm {}; predicted ({:.1f}, {:.1f}, {:.1f}) v "
+             "({:.0f}, "
+             "{:.0f}, {:.0f}) {} vs server v ({:.0f}, {:.0f}, {:.0f}) {}; input move ({:.2f}, {:.2f}) buttons {}",
+             predictor.Corrections(), authority->AckStep, authority->State.Position.X, authority->State.Position.Y,
+             authority->State.Position.Z, predictor.Unacked(), glm::length( offset ),
+             smooth ? "smoothed" : "beyond the smoothing distance - drawn at once", mispredicted.Position.X,
+             mispredicted.Position.Y, mispredicted.Position.Z, mispredicted.Velocity.X, mispredicted.Velocity.Y,
+             mispredicted.Velocity.Z, mispredicted.Grounded ? "grounded" : "falling", authority->State.Velocity.X,
+             authority->State.Velocity.Y, authority->State.Velocity.Z,
+             authority->State.Grounded ? "grounded" : "falling", predictor.LastMispredictedInput().Move.X,
+             predictor.LastMispredictedInput().Move.Z, predictor.LastMispredictedInput().Buttons );
     }
 
     void ClientNetDriver::Shutdown( Scene& scene )

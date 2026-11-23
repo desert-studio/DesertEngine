@@ -144,6 +144,8 @@ namespace Desert::Core
         struct Prediction;
         std::shared_ptr<Prediction> m_Prediction;
         glm::vec3                   m_SmoothOffset{ 0.0f };
-        double                      m_ServerQueue = 2.0, m_Dilation = 1.0, m_NextJump = 0.0;
+        double                      m_ServerQueue = 1.0, m_Dilation = 1.0, m_NextJump = 0.0;
+        // The clock sync's window: the fewest input steps the server held over it, and when it closes.
+        double m_QueueWindowMin = 1e9, m_QueueWindowEnd = 0.0;
     };
 } // namespace Desert::Core
