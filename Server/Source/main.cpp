@@ -28,6 +28,8 @@
 
 #include <Projects/WorldPartitionSettings.hpp>
 
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 #include <Engine/Reflection/ReplicatedFields.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -390,6 +392,23 @@ namespace Desert::Server
                 for ( const std::uint64_t id : row.Ids )
                     grid.UnitOfRecord[id] = static_cast<std::uint32_t>( unit );
                 grid.Cells.emplace( static_cast<std::uint32_t>( unit ), std::move( cell ) );
+            }
+            // Pawns by the finest cell of the main grid (the first partition: what a record naming none streams
+            // on), measured the way residency measures a cell square against a source's loading range.
+            const auto& partitions = world.Index->WorldPartition.RuntimePartitions;
+            if ( !partitions.empty() && partitions.front().LHGrid )
+            {
+                const Core::RuntimePartitionLHGridSerialized main = *partitions.front().LHGrid;
+                grid.PawnCellInRange = [main]( const Net::NetVec3& viewer,
+                                               const Net::NetVec3& at ) -> std::optional<std::string>
+                {
+                    const double               size  = Core::Rules::LevelCellSize( main.CellSize, 0 );
+                    const Core::Rules::CellCoord coord = Core::Rules::CellOf( at.X, at.Z, size );
+                    const Core::Rules::CellBounds square = Core::Rules::GridSquareOf( coord, size );
+                    if ( Core::Rules::DistanceToCellSquare( viewer.X, viewer.Z, square ) > main.LoadingRange )
+                        return std::nullopt;
+                    return std::format( "G0L0({},{})", coord.X, coord.Z );
+                };
             }
             return grid;
         }

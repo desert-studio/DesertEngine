@@ -100,6 +100,7 @@ namespace Desert::Core
         std::shared_ptr<PendingStable>          m_PendingStable;
         std::set<std::uint32_t>                 m_ReportedUnits;   // what the server was last told is resident
         std::vector<std::uint64_t>              m_StableDestroyed; // waiting for the streamer to exist
+        std::vector<std::uint32_t>              m_AcknowledgedUnits; // the server's cell acknowledgements, likewise
         std::optional<glm::vec3>                m_OwnFirstServerPosition;
         bool                                    m_Walking   = false;
         bool                                    m_InSession = false;

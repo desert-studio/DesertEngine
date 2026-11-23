@@ -104,7 +104,7 @@ namespace Desert::Net
                     m_Destroyed.push_back( destroy->Id );
                     if ( destroy->Reason == EDestroyReason::NotRelevant )
                         m_Log( std::format( "relevancy: pawn net id {} (player {}) removed from relevancy - the "
-                                            "server sees no cell of it resident here",
+                                            "server finds its finest cell out of this client's loading range",
                                             destroy->Id, player ) );
                     else
                         m_Log( std::format( "destroy: pawn net id {}", destroy->Id ) );
@@ -116,8 +116,10 @@ namespace Desert::Net
                     std::string ids;
                     for ( const StableNetId id : delta->Ids )
                         ids += std::format( "{}{}", ids.empty() ? "" : ", ", id );
-                    m_Log( std::format( "world delta: cell unit {} - stable {} destroyed on the server",
-                                        delta->Unit, ids ) );
+                    if ( !delta->Ids.empty() )
+                        m_Log( std::format( "world delta: cell unit {} - stable {} destroyed on the server",
+                                            delta->Unit, ids ) );
+                    m_AcknowledgedUnits.push_back( delta->Unit );
                     m_StableDestroyed.insert( m_StableDestroyed.end(), delta->Ids.begin(), delta->Ids.end() );
                 }
                 else
@@ -205,6 +207,11 @@ namespace Desert::Net
     std::vector<StableNetId> ReplicationClient::TakeStableDestroyed()
     {
         return std::exchange( m_StableDestroyed, {} );
+    }
+
+    std::vector<std::uint32_t> ReplicationClient::TakeAcknowledgedUnits()
+    {
+        return std::exchange( m_AcknowledgedUnits, {} );
     }
 
     void ReplicationClient::ReportResidency( const CellResidencyMessage& change, std::span<const StableNetId> gone )

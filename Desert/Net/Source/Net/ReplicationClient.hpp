@@ -93,6 +93,9 @@ namespace Desert::Net
         // THE WORLD DELTA (NET-3 §3.3): stable ids the server destroyed, for cells this client reported resident,
         // since the last call. The engine destroys their entities and its streamer skips their records from then.
         [[nodiscard]] std::vector<StableNetId> TakeStableDestroyed();
+        // THE VISIBILITY ACKNOWLEDGEMENTS (UE ClientAckUpdateLevelVisibility): cell units the server answered a
+        // residency report for, since the last call - each with its world delta in the same message, before it.
+        [[nodiscard]] std::vector<std::uint32_t> TakeAcknowledgedUnits();
         // CELL RESIDENCY (§4.3): the cell units that became resident / unloaded here since the last report, on the
         // reliable lane (only changes). @p gone: the stable ids of the unloaded units, whose versions this client
         // forgets so the full state the server sends when they return applies again. Nothing is sent before the
@@ -128,6 +131,7 @@ namespace Desert::Net
         std::map<std::pair<StableNetId, std::string>, std::uint32_t> m_StableVersions; // newest version per field
         std::vector<StableChange>                                    m_StableChanges;
         std::vector<StableNetId>                                     m_StableDestroyed;
+        std::vector<std::uint32_t>                                   m_AcknowledgedUnits;
         // The server clock: the newest snapshot's step time and the local time it arrived.
         std::optional<std::uint32_t> m_NewestServerStep;
         Clock::time_point            m_NewestArrival{};

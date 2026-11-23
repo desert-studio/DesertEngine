@@ -12,3 +12,10 @@
 # Тогда [net3_far] net3-far/clientA_far.png: no B pawn; A's log shows the start cells unloaded and B removed from relevancy.
 # Когда: A returns to the start.
 # Тогда [net3_back] net3-back/clientA_back.png: B's pawn again and no barrel; server log shows the delta replayed for that cell.
+# Pass 2: a pawn is relevant by the FINEST cell of the main grid (G0L0) within the grid's loading range of the
+# viewer's own pawn (Iris grid filter on the WP grid) - a coarse cell resident far away no longer keeps B. A streamed
+# cell is revealed only after the server acknowledged its residency report with its world delta (UE MakingVisible +
+# ClientAckUpdateLevelVisibility), so the destroyed cube is never drawn. Runner waits for sequence frames before start.
+# Тогда [net3_start] net3-start/clientA_start.png: B's pawn and cube 200977.
+# Тогда [net3_far] net3-far/clientA_far.png: no B pawn; "removed from relevancy - its finest cell is out of the client's loading range".
+# Тогда [net3_back] net3-back/clientA_back.png: B's pawn and no cube; no seq/ frame around the cell load shows the cube; A's log "acknowledged by the server: revealed with its world delta applied".

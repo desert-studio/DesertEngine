@@ -4,6 +4,7 @@
 #include <cmath>
 #include <format>
 #include <string_view>
+#include <utility>
 
 namespace Desert::Net
 {
@@ -299,18 +300,6 @@ namespace Desert::Net
         return unit == m_Grid.UnitOfRecord.end() || peer.Resident.contains( unit->second ); // always-loaded: always
     }
 
-    const NetRelevancyGrid::Cell* Gateway::ResidentCellAt( const Peer& peer, const NetVec3& p ) const
-    {
-        for ( const std::uint32_t unit : peer.Resident )
-        {
-            const auto cell = m_Grid.Cells.find( unit );
-            if ( cell != m_Grid.Cells.end() && p.X >= cell->second.MinX && p.X < cell->second.MaxX &&
-                 p.Z >= cell->second.MinZ && p.Z < cell->second.MaxZ )
-                return &cell->second;
-        }
-        return nullptr;
-    }
-
     void Gateway::OnCellResidency( ConnectionId connection, Peer& peer, const CellResidencyMessage& message )
     {
         const auto nameOf = [&]( std::uint32_t unit )
@@ -336,30 +325,40 @@ namespace Desert::Net
                                 peer.Player, connection, nameOf( unit ), dropped ) );
         }
         for ( const std::uint32_t unit : message.Loaded )
+            peer.AwaitingAck.insert( unit ); // even one already resident: the client waits for every report
+        for ( const std::uint32_t unit : message.Loaded )
             if ( peer.Resident.insert( unit ).second )
                 m_Log( std::format( "player {}: cell {} resident on the client", peer.Player, nameOf( unit ) ) );
     }
 
     void Gateway::UpdateRelevancy( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns )
     {
+        // The viewer is the client's own pawn (its streaming source): without one only its own pawn is.
+        std::optional<NetVec3> viewer;
+        for ( const PawnState& pawn : pawns )
+            if ( const auto info = m_PawnInfo.find( pawn.Id );
+                 info != m_PawnInfo.end() && info->second.Owner == peer.Player )
+                viewer = pawn.Position;
         std::set<NetId> now;
         for ( const PawnState& pawn : pawns )
         {
             const auto info = m_PawnInfo.find( pawn.Id );
             if ( info == m_PawnInfo.end() )
                 continue; // a state with no spawn yet
-            const bool                    own  = info->second.Owner == peer.Player;
-            const NetRelevancyGrid::Cell* cell = own ? nullptr : ResidentCellAt( peer, pawn.Position );
-            if ( !own && cell == nullptr )
+            const bool                 own = info->second.Owner == peer.Player;
+            std::optional<std::string> cell;
+            if ( !own && viewer && m_Grid.PawnCellInRange )
+                cell = m_Grid.PawnCellInRange( *viewer, pawn.Position );
+            if ( !own && !cell )
                 continue;
             now.insert( pawn.Id );
             if ( peer.Relevant.contains( pawn.Id ) )
                 continue;
             m_Transport.Send( connection, EncodeSpawn( { pawn, own, info->second.Player } ), ENetLane::Rpc );
             ++m_Stats.Spawns;
-            m_Log( std::format( "player {}: pawn {} (player {}) relevant - it stands in cell {}, resident on the "
-                                "client",
-                                peer.Player, pawn.Id, info->second.Player, cell != nullptr ? cell->Name : "own" ) );
+            m_Log( std::format( "player {}: pawn {} (player {}) relevant - its finest cell {} is in the client's "
+                                "loading range",
+                                peer.Player, pawn.Id, info->second.Player, cell ? *cell : std::string( "own" ) ) );
         }
         for ( const NetId id : peer.Relevant )
         {
@@ -368,8 +367,8 @@ namespace Desert::Net
             m_Transport.Send( connection, EncodeDestroy( { id, EDestroyReason::NotRelevant } ), ENetLane::Rpc );
             ++m_Stats.Irrelevant;
             const auto info = m_PawnInfo.find( id );
-            m_Log( std::format( "player {}: pawn {} (player {}) removed from relevancy - no cell it stands in is "
-                                "resident on the client",
+            m_Log( std::format( "player {}: pawn {} (player {}) removed from relevancy - its finest cell is out "
+                                "of the client's loading range",
                                 peer.Player, id, info != m_PawnInfo.end() ? info->second.Player : 0 ) );
         }
         peer.Relevant = std::move( now );
@@ -390,9 +389,15 @@ namespace Desert::Net
             byUnit[key].Ids.push_back( id );
             peer.DeltaSent.insert( id );
         }
+        // Every reported cell is acknowledged (UE ClientAckUpdateLevelVisibility), carrying its delta: the client
+        // reveals the cell only then, so nothing the server destroyed is ever seen. An empty list is the bare ack.
+        for ( const std::uint32_t unit : std::exchange( peer.AwaitingAck, {} ) )
+            byUnit[unit].Unit = unit;
         for ( const auto& [unit, message] : byUnit )
         {
             m_Transport.Send( connection, EncodeStableDestroy( message ), ENetLane::Rpc );
+            if ( message.Ids.empty() )
+                continue;
             m_Stats.DeltaReplays += message.Ids.size();
             const auto  cell = m_Grid.Cells.find( unit );
             std::string ids;

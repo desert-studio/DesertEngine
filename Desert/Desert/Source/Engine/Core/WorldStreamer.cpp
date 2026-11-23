@@ -1130,6 +1130,28 @@ namespace Desert::Core
     {
         m_Loader->Unload( unit );
         m_Made.erase( unit ); // what it made was destroyed by the Deactivate before this
+        m_NetAcknowledged.erase( unit );
+    }
+
+    void WorldStreamer::SetNetRevealHold( bool hold )
+    {
+        if ( hold != m_NetRevealHold )
+            LOG_INFO( "[WorldStreamer] '{}': cells {} the server's acknowledgement before they are revealed",
+                      m_SceneName, hold ? "now wait for" : "no longer wait for" );
+        m_NetRevealHold = hold;
+    }
+
+    void WorldStreamer::AcknowledgeUnitsForNet( std::span<const std::uint32_t> units )
+    {
+        for ( const std::uint32_t unit : units )
+        {
+            if ( !m_NetAcknowledged.insert( unit ).second )
+                continue;
+            if ( m_NetRevealHold && m_Made.contains( unit ) )
+                LOG_INFO( "[WorldStreamer] unit {} ({}) acknowledged by the server: revealed with its world delta "
+                          "applied",
+                          unit, Rules::DescribeResidencyUnit( Executor().Plan(), unit ) );
+        }
     }
 
     std::vector<Rules::LoadOutcome> WorldStreamer::TakeLoadOutcomes()
@@ -1218,6 +1240,9 @@ namespace Desert::Core
     Common::ResultStr<bool> WorldStreamer::FinishActivation( std::size_t unit,
                                                              std::span<const std::size_t> /*records*/ )
     {
+        // MAKING VISIBLE: held hidden until the server acknowledged the cell with its world delta.
+        if ( m_NetRevealHold && unit >= Executor().Plan().AlwaysLoaded.size() && !m_NetAcknowledged.contains( unit ) )
+            return Common::MakeSuccess( false );
         std::vector<std::uint32_t>& made = m_Made[unit];
         // ACTIVATED = COLLIDABLE. A scene with no physics system, or one whose Play refused to simulate (no
         // collision profiles, said once by the system), has no body to wait for.

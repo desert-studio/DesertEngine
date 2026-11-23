@@ -245,7 +245,9 @@ namespace Desert::Net
         std::vector<std::uint32_t> Loaded, Unloaded;
     };
     // THE WORLD DELTA TABLE's destroyed part for one cell unit (§3.3): the client destroys those records of the
-    // cell and skips them when its streamer makes the cell again. Reliable lane.
+    // cell and skips them when its streamer makes the cell again. Reliable lane. It is also the server's answer to
+    // a residency report of the cell (UE ClientAckUpdateLevelVisibility), with no ids when nothing was destroyed:
+    // the client reveals the cell only once it has it.
     struct StableDestroyMessage
     {
         std::uint32_t            Unit = 0;

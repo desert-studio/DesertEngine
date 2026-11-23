@@ -16,6 +16,7 @@
 #include <Net/Replication.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -67,6 +68,12 @@ namespace Desert::Net
         };
         std::map<std::uint32_t, Cell>         Cells;        // every spatially loaded cell unit, by unit index
         std::map<StableNetId, std::uint32_t> UnitOfRecord; // cell records only: an always-loaded one has none
+        // THE PAWN CELL (Iris NetObjectGridFilter on the main WP grid): a dynamic object is relevant to a viewer
+        // while the FINEST cell of the main grid it stands in (level 0) is within that grid's loading range of the
+        // viewer - the cell a source there would stream, whether or not content made it a unit (a coarse cell
+        // stays resident far away, so a pawn in one would stay relevant). Returns the cell's name, nullopt when
+        // out of range. Filled from the world's partition rules (Server: RelevancyGridOf).
+        std::function<std::optional<std::string>( const NetVec3& viewer, const NetVec3& at )> PawnCellInRange;
     };
 
     class IGatewayLink
@@ -236,6 +243,7 @@ namespace Desert::Net
             std::set<std::uint32_t>               Resident;     // cell units the client reports resident
             std::set<NetId>                       Relevant;     // pawns this client has (Spawn sent, no Destroy)
             std::set<StableNetId>                 DeltaSent;    // destroyed stable ids replayed to it
+            std::set<std::uint32_t>               AwaitingAck;  // units reported resident, not yet acknowledged
         };
         struct PawnInfo
         {
@@ -244,7 +252,6 @@ namespace Desert::Net
         };
         [[nodiscard]] bool StableRelevant( const Peer& peer, StableNetId id ) const;
         // The resident cell of @p peer the position stands in, or nullptr.
-        [[nodiscard]] const NetRelevancyGrid::Cell* ResidentCellAt( const Peer& peer, const NetVec3& p ) const;
         void OnCellResidency( ConnectionId connection, Peer& peer, const CellResidencyMessage& message );
         void UpdateRelevancy( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns );
         void ReplayWorldDelta( ConnectionId connection, Peer& peer );

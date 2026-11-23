@@ -138,6 +138,8 @@ namespace Desert::Core
                 LOG_ERROR( "[Net] session closed: {}", m_Client->CloseReason() );
             m_Closed    = true;
             m_InSession = false;
+            if ( auto* of = scene.GetRegistry().try_ctx<WorldStreamerOfScene>(); of != nullptr && of->Streamer )
+                of->Streamer->SetNetRevealHold( false ); // no server to acknowledge a cell any more
             return;
         }
         if ( m_Client->State() != EState::InSession )
@@ -348,7 +350,8 @@ namespace Desert::Core
         const auto&                        units    = streamer.Residency().Units;
         std::set<std::uint32_t>            now;
         for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < units.size(); ++unit )
-            if ( units[unit].State == Rules::Residency::Activated )
+            // Activating = made hidden (UE MakingVisible): the server's acknowledgement reveals it.
+            if ( units[unit].State == Rules::Residency::Activating || units[unit].State == Rules::Residency::Activated )
                 now.insert( static_cast<std::uint32_t>( unit ) );
         if ( now == m_ReportedUnits )
             return;
@@ -383,12 +386,17 @@ namespace Desert::Core
     {
         for ( const Net::StableNetId id : m_Client->TakeStableDestroyed() )
             m_StableDestroyed.push_back( id );
-        if ( m_StableDestroyed.empty() )
-            return;
+        for ( const std::uint32_t unit : m_Client->TakeAcknowledgedUnits() )
+            m_AcknowledgedUnits.push_back( unit );
         const auto* of = scene.GetRegistry().try_ctx<WorldStreamerOfScene>();
         if ( of == nullptr || of->Streamer == nullptr )
             return; // the server names only records of cells this client reported, so a streamer made them
-        of->Streamer->DestroyRecordsForNet( std::exchange( m_StableDestroyed, {} ) );
+        of->Streamer->SetNetRevealHold( true );
+        // The delta first, then the acknowledgement that reveals its cell: a destroyed record is never seen.
+        if ( !m_StableDestroyed.empty() )
+            of->Streamer->DestroyRecordsForNet( std::exchange( m_StableDestroyed, {} ) );
+        if ( !m_AcknowledgedUnits.empty() )
+            of->Streamer->AcknowledgeUnitsForNet( std::exchange( m_AcknowledgedUnits, {} ) );
     }
 
     void ClientNetDriver::ApplyStableState( Scene& scene )
