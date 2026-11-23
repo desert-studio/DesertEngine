@@ -548,7 +548,8 @@ namespace Desert::Graphic::System
         // each input's maps as the bindless slots of the images @p layers' arrays copied. Terrain.shader and
         // TerrainGBuffer.shader declare every one of these parameters (the ShaderCacheKey suite holds the two
         // Properties blocks equal); a cell without one is a broken shader, said, and its hits read zero for it.
-        // THE SURFACE ROW'S NAMES, in TerrainRowValues' read order: the material's nine, the displacement's four
+        // THE SURFACE ROW'S NAMES, in TerrainRowValues' read order: the material's ten (the ninth the Tint's, the
+        // tenth the weather's Porosity, Common/WeatherRain.glslh), the displacement's four
         // (kTerrainRowDisplacement..), then per weight layer k LayerKTint, LayerKTileSize, LayerKBlend,
         // LayerKNormalStrength (kTerrainRowLayers + 4k ..). Resolved to row slots once per surface layout
         // (ResolveTerrainRowSlots), never spelled per tile.
@@ -563,6 +564,7 @@ namespace Desert::Graphic::System
             kTerrainRowDetailNormalStrength,
             kTerrainRowMacroHueSize,
             kTerrainRowMacroHueStrength,
+            kTerrainRowPorosity,
             kTerrainRowDisplacementMagnitude,
             kTerrainRowDisplacementFadeStart,
             kTerrainRowDisplacementFadeEnd,
@@ -579,6 +581,7 @@ namespace Desert::Graphic::System
              "DetailNormalStrength",
              "MacroHueSize",
              "MacroHueStrength",
+             "Porosity",
              "DisplacementMagnitude",
              "DisplacementFadeStart",
              "DisplacementFadeEnd",
@@ -616,8 +619,8 @@ namespace Desert::Graphic::System
              "Layer7Blend",
              "Layer7NormalStrength",
         };
-        static_assert( kTerrainRowLayers == 13u && kTerrainRowSlotCount == kTerrainRowLayers + 4u * 8u,
-                       "kTerrainRowSlotNames spells eight weight layers after the thirteen material values" );
+        static_assert( kTerrainRowLayers == 14u && kTerrainRowSlotCount == kTerrainRowLayers + 4u * 8u,
+                       "kTerrainRowSlotNames spells eight weight layers after the fourteen material values" );
         // Whether the frame material reads slot @p index (the displacement's four are the displacement's only).
         constexpr bool FrameMaterialReads( const size_t index )
         {
@@ -675,6 +678,9 @@ namespace Desert::Graphic::System
             values.Values.Detail =
                  glm::vec4( read( kTerrainRowDetailNormalScale ).x, read( kTerrainRowDetailNormalStrength ).x,
                             read( kTerrainRowMacroHueSize ).x, read( kTerrainRowMacroHueStrength ).x );
+            // The ground's porosity (Terrain.shader / TerrainGBuffer.shader Porosity): what the rain's film soaks
+            // in, read by every path that wets the ground (Programs/Terrain/TerrainRain.glslh, the hit group).
+            values.Values.Weather = glm::vec4( read( kTerrainRowPorosity ).x, 0.0f, 0.0f, 0.0f );
             for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
             {
                 const size_t layer         = kTerrainRowLayers + ( 4u * k );

@@ -2162,6 +2162,7 @@ namespace Desert::Graphic
         graph.QueueBufferUpload( inputs.CloudShadow,
                                  std::as_bytes( std::span<const CloudShadowUniforms>( &cloudShadow, 1 ) ) );
         inputs.HitGroups       = &m_ReflectionHitGroups;
+        inputs.SceneReads      = AddFrameRayTracingSceneReads( graph, textures );
         auto emissive          = AddFrameEmissiveLights( graph );
         if ( !emissive )
             return Common::MakeError( emissive.GetError() );
@@ -2174,7 +2175,8 @@ namespace Desert::Graphic
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
         inputs.SceneHash       = PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash,
-                                                       cloudShadow, frame.GrassLens );
+                                                       cloudShadow, frame.GrassLens ) ^
+                                 RayTracingSceneReadsHash();
         inputs.DynamicGeometry = rt.DynamicGeometry;
         // PathTracing.Denoiser RR and the upscaler this frame resolves with denoises: the paths go to it raw
         // (System::PathTracer, THE DENOISER). Asked of the upscaler that was made too: a runtime refusal reaches
@@ -2359,6 +2361,7 @@ namespace Desert::Graphic
 
         System::SSRRenderer::TracedReads reads;
         reads.Tracer = MakeTracerFrame( graph, textures, tracer );
+        reads.SceneReads = AddFrameRayTracingSceneReads( graph, textures );
         if ( const std::string_view missing = GlobalIllumination::TracerFrameMissing( reads.Tracer );
              !missing.empty() )
             return refuse( missing );

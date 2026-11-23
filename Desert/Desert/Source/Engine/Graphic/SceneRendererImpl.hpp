@@ -27,6 +27,7 @@
 #include <Common/Core/Math/AABB.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -647,6 +648,9 @@ namespace Desert::Graphic
         std::shared_ptr<ShaderResources::StorageBuffer> m_WorldParameters;
         // The values m_WorldParameters was built from this frame (GetWorldParameterScalar).
         std::vector<Desert::Core::WorldParameterValue> m_WorldParameterValues;
+        // The bytes m_WorldParameters was written with this frame: the ray tracing passes' copy of the same table
+        // (AddFrameRayTracingSceneReads), so a hit reads what the raster read.
+        std::vector<std::byte> m_WorldParameterBytes;
         // Uploads Scene::GetWorldParameters into m_WorldParameters (BeginScene, inside the view's scope).
         [[nodiscard]] Common::BoolResultStr UploadWorldParameters( const Desert::Core::Scene& scene );
 
@@ -1141,6 +1145,13 @@ namespace Desert::Graphic
         // what was refused.
         [[nodiscard]] Common::BoolResultStr AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
                                                                  const ViewFrame& frame );
+        // The scene reads the hit groups' weather makes (Common/RayTracingSceneReads.glslh) for one tracing pass of
+        // this frame: the world's table (this frame's bytes, uploaded into the graph), the view's rain occlusion map
+        // and its block - the raster's own values. And the hash of them a path-traced sum stands on (a rain that
+        // starts or a box that recentres restarts it).
+        [[nodiscard]] RayTracing::RayTracingSceneReadsInputs AddFrameRayTracingSceneReads( RDG::Builder& graph,
+                                                                                           FrameTextures& textures );
+        [[nodiscard]] uint64_t RayTracingSceneReadsHash() const;
         // What a path-traced view's sum stands on besides the camera (UE: the path tracer's invalidation on any
         // scene change): the TLAS rows, the lights, the GI record (sun, sky look), the environment, the hit
         // groups' templates, records and material rows, and the material service's invalidations. @p environment:

@@ -9,6 +9,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -79,6 +80,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, TileMaskTexture );
         DESERT_SHADER_PARAMETER( UniformBuffer, SSRTraceUB );
         DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
+        // The world's table and rain occlusion the hit groups' weather reads (Common/RayTracingSceneReads.glslh).
+        DESERT_RAY_TRACING_SCENE_READ_PARAMETERS;
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -238,6 +241,9 @@ namespace Desert::Graphic::System
             RDG::BufferRef                                                  Shadow;
             // The uint shading word: a hit's EMISSION_IS_LIGHT mark (Common/GIHitLighting.glslh GIHitMaterial).
             RDG::TextureRef                                                 GBufferShadingWord;
+            // Hit lighting: the world's table and the view's rain occlusion the hit groups' weather reads
+            // (RayTracingSceneReads.hpp); required exactly when HitGroups is set.
+            RayTracing::RayTracingSceneReadsInputs                          SceneReads;
         };
 
         // The traced permutation (cooked: TracerVariant is ShippedByCook) - the one statement EnsureTracedProgram
@@ -723,6 +729,7 @@ namespace Desert::Graphic::System
                  .Uniform( SSRHitLightingShaderParameters::SSRTraceUB, uniforms )
                  .Uniform( SSRHitLightingShaderParameters::CameraUB, camera )
                  .PushConstants<ShaderPush::SSRTracePush>();
+            RayTracing::BindRayTracingSceneReads<SSRHitLightingShaderParameters>( block, traced.SceneReads );
             DeclareTracedReads( block, traced );
             DeclareFrontLayerReads( block, frontLayer );
         }

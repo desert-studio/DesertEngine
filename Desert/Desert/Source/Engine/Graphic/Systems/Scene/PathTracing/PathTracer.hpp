@@ -19,6 +19,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/View/PassHistory.hpp>
@@ -103,6 +104,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
         DESERT_SHADER_PARAMETER( UniformBuffer, CloudShadowUB );
+        // The world's table and rain occlusion the hit groups' weather reads (Common/RayTracingSceneReads.glslh).
+        DESERT_RAY_TRACING_SCENE_READ_PARAMETERS;
         // PATH_TRACING_NRC=1 only (Engine/Graphic/Neural/NeuralRadianceCache.hpp).
         DESERT_SHADER_PARAMETER( StorageBuffer, NrcQueriesUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, NrcTrainingSamplesUB );
@@ -480,6 +483,8 @@ namespace Desert::Graphic::System
             RDG::TextureRef EnvSpecular; // the environment cube (System.BlackCube without one)
             RDG::TextureRef CloudShadowMap; // the cloud layer's shadow map (CloudShadowMapOrWhite)
             RDG::BufferRef  CloudShadow;    // its CloudShadowUB (CloudShadowPackUniforms; Params.y = 0: no map)
+            // The world's table and the view's rain occlusion the hit groups' weather reads (RayTracingSceneReads).
+            RayTracing::RayTracingSceneReadsInputs SceneReads;
             // This frame's hit group table; its Templates built the pipeline (EnsurePipeline).
             const RayTracing::RayTracingHitGroupTable* HitGroups = nullptr;
             RayTracing::EmissiveLightsFrame            Emissive; // this frame's emissive triangle list (Valid)
@@ -1728,6 +1733,8 @@ namespace Desert::Graphic::System
                                     RDG::SamplerDesc::LinearRepeat() )
                           .Uniform( PathTracingTraceShaderParameters::CloudShadowUB, inputs.CloudShadow )
                           .PushConstants<ShaderPush::PathTracer>();
+                     RayTracing::BindRayTracingSceneReads<PathTracingTraceShaderParameters>( block,
+                                                                                              inputs.SceneReads );
                  },
                  [this, push, pipeline, hits = inputs.HitGroups, width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr

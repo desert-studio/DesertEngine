@@ -6,8 +6,9 @@
 // cell the parser compiled with DESERT_SURFACE_WEATHER, and applied to EvaluateSurface's output BEFORE anything reads
 // it, so the forward pixel and the G-buffer texel of one surface are wetted by the same text.
 //
-// The parser defines DESERT_SURFACE_WEATHER in the Forward and GBuffer cells of every Opaque / Masked template with a
-// material row, and gives that row the two engine-owned parameters this reads (kSurfaceRespondsToWeatherParam,
+// The ray tracing closest hit (Pass_RayHit.glslh) applies it too, so reflections and the path tracer see it.
+// The parser defines DESERT_SURFACE_WEATHER in the Forward, GBuffer and RayTracing.Hit cells of every Opaque / Masked
+// template with a material row, and gives that row the two engine-owned parameters this reads (kSurfaceRespondsToWeatherParam,
 // kSurfacePorosityParam in DShaderParser.hpp): a material states them like any other parameter (an instance overrides
 // them), so the response is the MATERIAL's, not the template's. What the rain does (the film, standing water,
 // ripples, streaks) and the world's values it reads by key are Common/WeatherRain.glslh, one text with the landscape.

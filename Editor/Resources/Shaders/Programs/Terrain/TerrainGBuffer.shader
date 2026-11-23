@@ -192,7 +192,8 @@ Shader "TerrainGBuffer"
             // The ground is a dielectric at UE's default Specular until water stands on it.
             float metallic = 0.0;
             float specular = 0.5;
-            DesertApplyLandscapeRain( s, metallic, specular, cover, transmission );
+            DesertApplyLandscapeRain( s, v_WorldPos, normalize( v_Normal ), Material.Porosity, metallic, specular, cover,
+                                      transmission );
             // The world's snow (Common/WeatherSnow.glslh) over the ground and the grass's far cover alike: where it
             // lies the ground is snow, DefaultLit, and the cover's transmission is buried with it. The layer reads the
             // GEOMETRIC normal (v_Normal), never s.N: the far cover bends s.N towards the eye (a grazing canopy's

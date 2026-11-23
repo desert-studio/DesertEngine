@@ -1052,6 +1052,7 @@ namespace Desert::Graphic
              !wrote )
             return Common::MakeFormattedError( "the view's WorldParameters ({} bytes) could not be uploaded: {}",
                                                bytes.size(), wrote.GetError() );
+        m_WorldParameterBytes = std::move( bytes );
         return BOOLSUCCESS;
     }
 
@@ -4075,6 +4076,45 @@ namespace Desert::Graphic
         }
         m_RayTracedShadowReady = true;
         return true;
+    }
+
+    RayTracing::RayTracingSceneReadsInputs SceneRendererImpl::AddFrameRayTracingSceneReads( RDG::Builder&  graph,
+                                                                                           FrameTextures& textures )
+    {
+        RayTracing::RayTracingSceneReadsInputs reads;
+        // The table the raster's materials read this frame (UploadWorldParameters), byte for byte.
+        reads.WorldParameters = graph.CreateBuffer(
+             RDG::BufferDesc{ std::max<std::size_t>( m_WorldParameterBytes.size(), sizeof( glm::vec4 ) ) },
+             "RayTracing.WorldParameters" );
+        if ( !m_WorldParameterBytes.empty() )
+            graph.QueueBufferUpload( reads.WorldParameters, std::span<const std::byte>( m_WorldParameterBytes ) );
+        // The map the raster binds (System.White without one) and its block (Params.y = 0: no map).
+        reads.RainOcclusionMap = SceneViewInputsOf( textures.GraphRefs() ).RainOcclusionMap;
+        RainOcclusionUniforms rain{};
+        if ( const auto* mesh = m_Systems.Mesh.get() )
+            rain = mesh->GetRainOcclusionUniforms();
+        reads.RainOcclusion = graph.CreateBuffer( RDG::BufferDesc{ sizeof( rain ) }, "RayTracing.RainOcclusionUB" );
+        graph.QueueBufferUpload( reads.RainOcclusion,
+                                 std::as_bytes( std::span<const RainOcclusionUniforms>( &rain, 1 ) ) );
+        return reads;
+    }
+
+    uint64_t SceneRendererImpl::RayTracingSceneReadsHash() const
+    {
+        // FNV-1a over the table's bytes and the rain occlusion block (std140 floats, no padding of its own).
+        uint64_t   hash  = 14695981039346656037ull;
+        const auto mixIn = [&hash]( std::span<const std::byte> bytes )
+        {
+            for ( const std::byte b : bytes )
+                hash = ( hash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
+        };
+        mixIn( std::span<const std::byte>( m_WorldParameterBytes ) );
+        if ( const auto* mesh = m_Systems.Mesh.get() )
+        {
+            const RainOcclusionUniforms rain = mesh->GetRainOcclusionUniforms();
+            mixIn( std::as_bytes( std::span<const RainOcclusionUniforms>( &rain, 1 ) ) );
+        }
+        return hash;
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,

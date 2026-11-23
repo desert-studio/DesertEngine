@@ -99,11 +99,14 @@ namespace Desert::Graphic::System
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerTint{};
         /// Input k's (LayerKTileSize cm, LayerKBlend, LayerKNormalStrength, 0).
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerParams{};
+        /// The weather's: x = Porosity (how much of the rain's film the ground soaks in, Common/WeatherRain.glslh),
+        /// y, z, w = 0.
+        glm::vec4 Weather{ 0.0f };
     };
     static_assert( World::Landscape::kLandscapeMaxWeightLayers == 8u,
                    "Common/LandscapeSurface.glslh LandscapeMaterial declares eight inputs" );
-    static_assert( sizeof( LandscapeMaterialValues ) == 18u * sizeof( glm::vec4 ),
-                   "LandscapeMaterialValues is GLSL LandscapeMaterial's 18 vec4 slots" );
+    static_assert( sizeof( LandscapeMaterialValues ) == 19u * sizeof( glm::vec4 ),
+                   "LandscapeMaterialValues is GLSL LandscapeMaterial's 19 vec4 slots" );
 
     /**
      * @brief A tile's landscape material as the raster drew it this frame, outside the draw
