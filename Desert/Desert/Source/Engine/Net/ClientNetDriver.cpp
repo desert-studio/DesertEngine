@@ -197,11 +197,11 @@ namespace Desert::Core
             LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load", m_Client->PawnPrefab(), key );
             return;
         }
-        // The Welcome's number is the path-derived one; a prefab that declares its own identity is registered under
-        // that, so the spawns below name the asset by the handle it was registered with.
+        // The Welcome's number is the path-derived one; a prefab that declares its own identity is registered
+        // under that, so the spawns below name the asset by the handle it was registered with.
         m_PawnPrefab = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
-        LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}', handle {:016x} here)", m_Client->PawnPrefab(),
-                  key, static_cast<std::uint64_t>( m_PawnPrefab ) );
+        LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}', handle {:016x} here)",
+                  m_Client->PawnPrefab(), key, static_cast<std::uint64_t>( m_PawnPrefab ) );
     }
 
     void ClientNetDriver::ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets )
@@ -226,8 +226,7 @@ namespace Desert::Core
                 if ( pawn == entt::null || !reg.valid( pawn ) )
                 {
                     const auto own =
-                         SpawnPawnPrefabAt( scene, assets, m_PawnPrefab,
-                                            glm::translate( glm::mat4( 1.0f ), at ) );
+                         SpawnPawnPrefabAt( scene, assets, m_PawnPrefab, glm::translate( glm::mat4( 1.0f ), at ) );
                     if ( !own )
                     {
                         LOG_ERROR( "[Net] own pawn {} (player {}): the server's pawn prefab {:016x}: {}", id,
@@ -254,8 +253,8 @@ namespace Desert::Core
                           replicated.Player, at.x, at.y, at.z );
                 continue;
             }
-            const auto spawned = SpawnPawnPrefabAt( scene, assets, m_PawnPrefab,
-                                                    glm::translate( glm::mat4( 1.0f ), at ) );
+            const auto spawned =
+                 SpawnPawnPrefabAt( scene, assets, m_PawnPrefab, glm::translate( glm::mat4( 1.0f ), at ) );
             if ( !spawned )
             {
                 LOG_ERROR( "[Net] remote pawn {} (player {}): {}", id, replicated.Player, spawned.GetError() );

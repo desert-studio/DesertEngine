@@ -89,7 +89,7 @@ namespace Desert::Core
         bool                                    m_Walking   = false;
         bool                                    m_InSession = false;
         // The server's pawn prefab as THIS client's AssetManager knows it (LoadPawnPrefab); null until it loaded.
-        Assets::AssetHandle m_PawnPrefab = Assets::AssetHandle::Null();
+        Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
         bool m_Closed = false;
         double                                  m_StepClock = 0.0, m_Clock = 0.0, m_NextLog = 1.0;
     };
