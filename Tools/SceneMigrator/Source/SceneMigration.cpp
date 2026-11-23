@@ -3796,7 +3796,7 @@ namespace Desert::Migration
         return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
     }
 
-    Common::ResultStr<std::string> MigrateMeshBinaryToV8( const std::string_view path, const std::string_view bytes )
+    Common::ResultStr<std::string> MigrateMeshBinaryToV9( const std::string_view path, const std::string_view bytes )
     {
         namespace C = Common::Content;
         if ( bytes.size() < sizeof( C::MeshBinaryFileHeader ) ||
@@ -3804,10 +3804,10 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>( "'{}' is not a cooked mesh", path );
         C::MeshBinaryFileHeader header{};
         std::memcpy( &header, bytes.data(), sizeof( header ) );
-        if ( header.Version != 6u && header.Version != 7u )
-            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 6 and 7",
+        if ( header.Version < 6u || header.Version > 8u )
+            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 6, 7 and 8",
                                                             path, header.Version );
-        static_assert( C::kMeshBinaryVersion == 8u, "the raise re-states the file at the version written" );
+        static_assert( C::kMeshBinaryVersion == 9u, "the raise re-states the file at the version written" );
         auto decoded = Assets::Serialization::DecodeMeshBinary( bytes, path );
         if ( !decoded )
             return Common::MakeFormattedError<std::string>( "'{}': the v{} mesh does not read: {}", path,

@@ -477,7 +477,7 @@ namespace Desert::Graphic
     // exactly the struct's size (kCloudResolveParamsBytes) and the shader never reads past the last member.
     // Pinned here so that inserting a member and quietly changing the size is a build error.
     static_assert( sizeof( CloudResolveParams ) == 192,
-                   "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve, CloudUpsample) reads "
+                   "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve) reads "
                    "exactly these members, in this "
                    "order, at these offsets." );
 

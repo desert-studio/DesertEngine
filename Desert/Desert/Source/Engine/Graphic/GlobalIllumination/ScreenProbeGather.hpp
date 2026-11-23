@@ -68,7 +68,8 @@
 //              by the velocity, each bilinear tap kept by a depth and a normal test, by 1 / (1 + frames
 //              accumulated) up to ten (UE ScreenProbeTemporalReprojectionCS): a disoccluded pixel restarts and
 //              converges in a few frames. A camera cut, a teleport or a resize is the view's HistoryReset: no tap
-//              is kept.
+//              is kept. Run by the integrate itself (FPS-SP-INTEGRATE: each pixel's blend in the thread that
+//              integrated it, the uncovered pass's pixels read back from its outputs), not as its own pass.
 // THE DENOISER (Disocclusion, SpatialFilter, Temporal) runs unless ScreenProbeGatherInputs::Denoise is false: a
 // temporal method that denoises the raw signals itself (DLSS Ray Reconstruction) takes the integrate's output.
 // The deferred composite reads the two results per pixel (one fetch each) in place of the sky's diffuse
@@ -119,7 +120,8 @@ namespace Desert::Graphic::GlobalIllumination
     static_assert( sizeof( ScreenProbeParamsPayload ) == 208 );
     // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh. Bit 1 is free: no
     // shader tests the view's history (without it the disocclusion pass is not added and the temporal filter is
-    // its no-history permutation, Program::TemporalNoHistory). Bits 4 and 8 are free: the screen walk and the
+    // its no-history permutation: Program::Integrate*TemporalNoHistory, the ReSTIR gather's
+    // Program::TemporalNoHistory). Bits 4 and 8 are free: the screen walk and the
     // sparse stable probes are the screen leg's permutations (ScreenProbeGather::TraceScreenProgram).
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
 
@@ -483,8 +485,10 @@ namespace Desert::Graphic::GlobalIllumination
             TraceHitLighting, // the same program's leg lighting the far field's global-field hits no card holds
             TraceCacheRead,   // the same program's leg reading the radiance cache for the rays the far field left
                               // there
-            TraceNearHitLighting, // the same program's leg lighting the software near field's hits
-                                  // (FPS-NEAR-FIELD)
+            TraceNearHitLighting, // the same program's leg reading the software near field's hits from the cards
+                                  // (FPS-NEAR-FIELD, FPS-SP-HITLIGHT)
+            TraceNearHitInPlace,  // the same program's leg lighting in place the near hits no card holds
+                                  // (FPS-SP-HITLIGHT)
             Disocclusion,
             SpatialFilter,
             SpatialFilterFill, // ScreenProbeSpatialFilter SP_SPATIAL_FILTER_FILLS_SKIPPED: the first pass,
@@ -494,6 +498,19 @@ namespace Desert::Graphic::GlobalIllumination
             IntegrateClassify,      // ScreenProbeIntegrate SP_INTEGRATE_CLASSIFY: the 8x8 tiles' two lists
             IntegrateSimpleDiffuse, // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE: the simple tiles
             Integrate,              // the full permutation: the tiles that evaluate GGX samples
+            IntegrateUncovered,     // ScreenProbeIntegrate SP_INTEGRATE_UNCOVERED: the pixels no probe holds, from
+                                    // the world radiance cache, on the graphics queue (FPS-SP-COMPOSITE-WAIT)
+            // A denoised frame's two integrates: the same, with the temporal filter fused in (FPS-SP-INTEGRATE:
+            // ScreenProbeIntegrate SP_INTEGRATE_SIMPLE_DIFFUSE_TEMPORAL / SP_INTEGRATE_TEMPORAL write the view's
+            // new history set; the probes run no separate temporal pass).
+            IntegrateSimpleDiffuseTemporal,
+            IntegrateTemporal,
+            // The same two on a denoised frame without the view's history (+ SP_INTEGRATE_NO_HISTORY): they seed
+            // the set from this frame's lighting and bind no history, no taps (RESTIR-GI).
+            IntegrateSimpleDiffuseTemporalNoHistory,
+            IntegrateTemporalNoHistory,
+            // The ReSTIR final gather's temporal filter (ScreenProbeTemporal): its resolve writes the three
+            // intermediates, this pass blends them into the view's new history set.
             Temporal,
             TemporalNoHistory, // ScreenProbeTemporal SP_TEMPORAL_NO_HISTORY: a frame without the view's history
                                // seeds it from this frame's lighting (binds no history, no taps)
@@ -501,8 +518,9 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         // ScreenProbeTrace's world legs, each a permutation of one program (EnsureTraceProgram, ProgramVariants).
-        static constexpr std::array<Program, 6> kTracePrograms{ TraceNearField,   TraceFarField,  TraceCacheMiss,
-                                                                TraceHitLighting, TraceCacheRead, TraceNearHitLighting };
+        static constexpr std::array<Program, 7> kTracePrograms{
+             TraceNearField, TraceFarField,        TraceCacheMiss,     TraceHitLighting,
+             TraceCacheRead, TraceNearHitLighting, TraceNearHitInPlace };
 
         // A trace leg's permutation define (SP_TRACE_*): the one key TraceLegExists / TraceLegLightsHits decide
         // on.

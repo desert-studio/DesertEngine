@@ -16,6 +16,9 @@
 // frames (1/2, 1/3, ...), a held one keeps up to SP_TEMPORAL_MAX_FRAMES_ACCUMULATED - fewer where the probes'
 // rays hit something moving relative to them (fast update: moving lighting leaves no trail). Writes the view's new
 // history set (SceneViewState ScreenProbeGatherHistory), which the deferred composite reads this frame.
+// RESTIR-GI LAND: the screen probes' own integrates carry this filter fused in (ScreenProbeIntegrate
+// SP_INTEGRATE_TEMPORAL, FPS-SP-INTEGRATE), so this pass is the ReSTIR final gather's: its resolve
+// (ReSTIRGIResolve) writes the three intermediates, which no integrate thread holds to blend in place.
 Shader "ScreenProbeTemporal"
 {
     Compute

@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -325,6 +326,7 @@ namespace Desert::Graphic
             std::vector<float>     MorphWeights;
             uint64_t               MorphRevision            = 0;
             std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback; // skinned + animated only
+            Animation::LeaderPoseLink Leader; // skinned only: a follower mesh's leader (UE LeaderPoseComponent)
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
             int                    ForcedLOD       = -1; // -1 = auto (by distance)
@@ -1719,8 +1721,6 @@ namespace Desert::Graphic
         // OnUpdate once the grass visibility frame is made, before any phase-1 raster) or phase 2's (true: from
         // AddFrameGrassPostOcclusion, before its raster). The visibility raster's vertex stage and the blade resolve
         // read those records instead of placing each blade per vertex / per pixel. A refusal is logged.
-        void AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer, const ViewFrame& frame,
-                                      bool postOcclusion );
         // GRASS-VIS-23: the ONE material pass over the visibility buffer, after both phases' rasters (UE Nanite's
         // base pass after the post pass): every word - phase 1's and phase 2's - shaded once into the G-buffer.
         // The blade resolve reads both phases' setup records (AddFrameGrassBladeSetup) instead of rebuilding each
@@ -1768,6 +1768,10 @@ namespace Desert::Graphic
         // (UE single layer water's SSR leg); invalid -> the graph's black, the water's captures and sky alone.
         void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             const FrameFrontLayer& frontLayer );
+        // THE FFT OCEAN'S WAVES of this frame (WATER-RIVERS-FFT; WaterRenderer::AddWavePasses): recorded into
+        // @p graph by their first reader (the water's front layer or its surface node), the same ref after; the
+        // graph's black when the frame's water draws Gerstner.
+        RDG::TextureRef FrameWaterWaves( RDG::Builder& graph, FrameTextures& textures );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The vg_clusters view (DebugViewState::VirtualGeometry = Clusters): "Debug: Virtual Geometry Clusters"
@@ -2125,7 +2129,16 @@ namespace Desert::Graphic
         // stage, right before the particles' DrawPass (AddFrameTranslucency).
         void AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
                                                  const ViewFrame& frame );
-        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The queue the cloud layer's nodes ask for (FPS-CLOUDS-MARCH): AsyncCompute where the deferred lighting
+        // traces them between the probes' fork and join, far ahead of their composite; Graphics after the opaque
+        // scene, where the composite follows at once and a run would only be waited for.
+        enum class CloudQueue : uint8_t
+        {
+            Graphics,
+            AsyncCompute
+        };
+        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                       CloudQueue queue );
         // The selection outline composited over @p scene (the post input: the temporal resolve's output with the
         // overlays, or the scene colour). Returns what the tonemap reads - the outlined scene - or an invalid ref
         // when the outline system cannot record this frame (the tonemap then reads @p scene).

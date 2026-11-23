@@ -3,7 +3,6 @@
 #include <Engine/Graphic/API/Vulkan/Streamline/StreamlineRuntime.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Graphic/View/UpscalerExposure.hpp>
-#include <Engine/Graphic/View/UpscalerVelocity.hpp>
 
 #include <map>
 #include <memory>
@@ -19,11 +18,11 @@
 // Streamline::Runtime::DlssReady() - the catalog offers AntiAliasingMethod::DLSS (and DLSSRayReconstruction) only
 // then.
 //
-// Three passes: UpscalerExposure (the 1x1 exposure multiplier FSR and the engine's TAA use: DLSS is handed the
-// engine's exposure, never its own auto exposure), UpscalerVelocity (the view's velocity with the camera's motion
-// written where nothing rasterised - the sky - since Streamline is told cameraMotionIncluded; UE VelocityCombine),
-// then "DLSS", which reads the jittered scene colour, the resolved depth, that velocity and the exposure and
-// writes the OutputExtent colour.
+// Two passes: UpscalerExposure (the 1x1 exposure multiplier FSR and the engine's TAA use: DLSS is handed the
+// engine's exposure, never its own auto exposure), then "DLSS", which reads the jittered scene colour, the
+// resolved depth, the view's velocity and the exposure and writes the OutputExtent colour. The velocity is tagged
+// as is (Streamline cameraMotionIncluded): the sky draw writes the camera's motion into it (UE: velocity written by
+// the sky / base pass, no VelocityCombine fix-up).
 //
 // THE FEATURE IS PER VIEW, like FSR's context: the ITemporalUpscalerHistory this object returns (DlssHistory) owns
 // the view's Streamline viewport and the options it was last given; the DLSS network's history lives inside that
@@ -110,7 +109,6 @@ namespace Desert::Graphic
 
         const Streamline::DlssFeature m_Feature;
         UpscalerExposure              m_Exposure;
-        UpscalerVelocity              m_Velocity; // the motion vectors DLSS is tagged with (sky: camera motion)
         struct GuidesPipeline; // the guides pass's compute pipeline, made on first record (DLSSUpscaler.cpp)
         std::unique_ptr<GuidesPipeline> m_GuidesPipeline;
         std::unique_ptr<GuidesPipeline> m_PathGuidesPipeline; // DLSSRRPathGuides.shader's, the same holder type

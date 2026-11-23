@@ -62,6 +62,9 @@ namespace Desert::ECS
         int TranslucencySortPriority = 0;
         uint64_t HiddenSubmeshes = 0;
         std::vector<MaterialParamOverride> ScriptSlotParams;
+        Assets::AssetHandle ImpostorMesh;
+        Assets::AssetHandle ImpostorMaterial;
+        float ImpostorScreenSize = 0.0f;
 
         [[nodiscard]] bool operator==( const StaticMeshDesc& ) const = default;
     };
@@ -153,6 +156,18 @@ namespace Desert::ECS
         {
             return ScriptSlotParams;
         }
+        [[nodiscard]] const Assets::AssetHandle& GetImpostorMesh() const
+        {
+            return ImpostorMesh;
+        }
+        [[nodiscard]] const Assets::AssetHandle& GetImpostorMaterial() const
+        {
+            return ImpostorMaterial;
+        }
+        [[nodiscard]] const float& GetImpostorScreenSize() const
+        {
+            return ImpostorScreenSize;
+        }
 
         // Derived render caches (never part of the value, never serialized).
         [[nodiscard]] std::vector<Graphic::MaterialInstancePtr>& RuntimeMaterialInstances()
@@ -178,6 +193,16 @@ namespace Desert::ECS
         [[nodiscard]] const uint32_t& SeenMaterialsVersion() const
         {
             return m_SeenMaterialsVersion;
+        }
+        // The impostor card's one slot (ImpostorMaterial's runtime instance), built by MeshECSSystem with the card
+        // and dropped with the section instances (a material invalidation, a changed ImpostorMaterial).
+        [[nodiscard]] Graphic::MaterialSlotBindingPtr& RuntimeImpostorSlots()
+        {
+            return m_RuntimeImpostorSlots;
+        }
+        [[nodiscard]] const Graphic::MaterialSlotBindingPtr& RuntimeImpostorSlots() const
+        {
+            return m_RuntimeImpostorSlots;
         }
 
     private:
@@ -244,6 +269,24 @@ namespace Desert::ECS
         // everything else.
         std::vector<MaterialParamOverride> ScriptSlotParams;
 
+        // THE FAR CARD (WP-FAR-12E; UE ImpostorBaker / the SpeedTree billboard LOD: the last level of a mesh is an
+        // octahedral impostor). ImpostorMesh is the card an Impostor HLOD bake stores (Core::HLODImpostorCardMesh,
+        // T_I/M_I<key> beside it, one bake per mesh and materials: Core::HLODImpostorKey), ImpostorMaterial its
+        // M_I ImpostorSurface material, ImpostorScreenSize the UE screen size below which the card is drawn in
+        // place of the mesh (MeshECSSystem pairs the two; SceneRenderer::SubmitStaticScene admits one side per
+        // view). 0, or either reference unset: the mesh draws at every size, as without an impostor.
+        PROPERTY( DisplayName( "Impostor Mesh" ), Category( "LOD" ), Asset<StaticMeshAsset>,
+                  Tooltip( "The impostor card mesh an Impostor HLOD bake stored for this mesh (UE ImpostorBaker)." ) )
+        Assets::AssetHandle ImpostorMesh;
+        PROPERTY( DisplayName( "Impostor Material" ), Category( "LOD" ), Asset<MaterialAsset>,
+                  Tooltip( "The card's M_I ImpostorSurface material from the same bake." ) )
+        Assets::AssetHandle ImpostorMaterial;
+        PROPERTY( DisplayName( "Impostor Screen Size" ), Category( "LOD" ),
+                  Tooltip( "UE screen size (bounds diameter / view height) below which the card replaces the "
+                           "mesh; 0 = never." ) )
+        float ImpostorScreenSize = 0.0f;
+        Graphic::MaterialSlotBindingPtr m_RuntimeImpostorSlots;
+
         friend void ::Desert::Reflection::Generated::RegisterReflection_Engine();
         friend bool SetStaticMesh( entt::registry& registry, entt::entity entity, const StaticMeshDesc& desc );
     };
@@ -266,6 +309,9 @@ namespace Desert::ECS
         desc.TranslucencySortPriority = TranslucencySortPriority;
         desc.HiddenSubmeshes = HiddenSubmeshes;
         desc.ScriptSlotParams = ScriptSlotParams;
+        desc.ImpostorMesh = ImpostorMesh;
+        desc.ImpostorMaterial = ImpostorMaterial;
+        desc.ImpostorScreenSize = ImpostorScreenSize;
         return desc;
     }
 
@@ -285,7 +331,10 @@ namespace Desert::ECS
             && MaxDrawDistance == desc.MaxDrawDistance
             && TranslucencySortPriority == desc.TranslucencySortPriority
             && HiddenSubmeshes == desc.HiddenSubmeshes
-            && ScriptSlotParams == desc.ScriptSlotParams;
+            && ScriptSlotParams == desc.ScriptSlotParams
+            && ImpostorMesh == desc.ImpostorMesh
+            && ImpostorMaterial == desc.ImpostorMaterial
+            && ImpostorScreenSize == desc.ImpostorScreenSize;
     }
 
     inline void StaticMeshComponent::Assign( const StaticMeshDesc& desc )
@@ -305,6 +354,9 @@ namespace Desert::ECS
         TranslucencySortPriority = desc.TranslucencySortPriority;
         HiddenSubmeshes = desc.HiddenSubmeshes;
         ScriptSlotParams = desc.ScriptSlotParams;
+        ImpostorMesh = desc.ImpostorMesh;
+        ImpostorMaterial = desc.ImpostorMaterial;
+        ImpostorScreenSize = desc.ImpostorScreenSize;
     }
 
     // THE ONE WRITER of StaticMeshComponent: adds it when absent (on_construct), patches it when the value differs
@@ -327,6 +379,11 @@ namespace Desert::ECS
                                             c.m_RuntimeSlots.reset();
                                             c.m_SeenMaterialsVersion = 0;
                                         }
+                                        if ( c.ImpostorMaterial != desc.ImpostorMaterial )
+                                        {
+                                            RetireRenderCache( c.m_RuntimeImpostorSlots );
+                                            c.m_RuntimeImpostorSlots.reset();
+                                        }
                                         // Assign replaces the edited mesh the draws in flight may name.
                                         if ( c.RuntimeMesh != desc.RuntimeMesh )
                                             RetireRenderCache( c.RuntimeMesh );
@@ -346,5 +403,6 @@ namespace Desert::ECS
         RetireRenderCache( c.GetRuntimeMesh() );
         RetireRenderCaches( c.RuntimeMaterialInstances() );
         RetireRenderCache( c.RuntimeSlots() );
+        RetireRenderCache( c.RuntimeImpostorSlots() );
     }
 } // namespace Desert::ECS

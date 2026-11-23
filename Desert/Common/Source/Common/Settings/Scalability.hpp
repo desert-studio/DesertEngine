@@ -481,6 +481,10 @@ namespace Common::Scalability
         // same cascades cover only the near range and the far shadow is traced. Read by SceneRenderer::OnUpdate
         // -> RebudgetShadowsFor. Centimetres, 10 m .. 1 km.
         ShadowDistanceFieldCascadeDistance,
+        // THE FAR SHADOW (WP-FAR-13; UE DirectionalLight FarShadowDistance, the far shadow cascade): how far from the
+        // camera one more map past the cascades holds the static casters' shadow. ViewMemory ShadowQualityOf ->
+        // ShadowQuality::FarDistance; 0 (or not past the cascades' distance) = none. Centimetres, 0 .. 4 km.
+        ShadowFarDistance,
         // 0/1 (GPU-TILE-CLASSIFY; UE Substrate ClassificationTiles / r.TiledDeferredShading): the deferred
         // lighting's 8x8 tiles are classified from the G-buffer (sky, DefaultLit-only, mixed) and the direct and
         // composite passes draw only the tiles that hold geometry, a DefaultLit-only tile through the permutation
@@ -563,6 +567,10 @@ namespace Common::Scalability
         // SelectLODsFromBounds. 25..400; 100 = the meshes' screen sizes as authored. Cinematic 50 (MeshLOD stays
         // 1 at every level: UE never forces LOD 0, MeshLOD 0 is a debug/machine override).
         ViewDistanceLODDistanceScalePercent,
+        // WATER-RIVERS-FFT (UE has no FFT ocean; the tier follows sg.EffectsQuality as UE's r.Water.* do): the
+        // ceiling of the water's wave source - an FFT wave set draws its Tessendorf cascades at FFT (Epic,
+        // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values: WaterWaveMethod
+        EffectsWaterWaveMethod,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

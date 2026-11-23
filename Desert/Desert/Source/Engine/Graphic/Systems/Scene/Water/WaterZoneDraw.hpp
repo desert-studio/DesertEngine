@@ -33,6 +33,11 @@ namespace Desert::Graphic::System
         // Each body's TargetWaveMaskDepth (cm, UE): the depth below which the GPU waves damp, read against the
         // WaterInfo ground exactly as Water::QueryWaterBody damps the CPU's.
         std::vector<float> WaveMaskDepths;
+        // WATER-RIVERS-FFT R4, in Footprints' order: each body's type, its river bake (null for an ocean; the
+        // same pointer as Footprints[i].Ribbon) and the Water::RiverBakeKey it was baked for (0 for an ocean).
+        std::vector<Water::WaterBodyType>                         Types;
+        std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;
+        std::vector<uint64_t>                                     RiverKeys;
     };
 
     struct WaterZoneDraw

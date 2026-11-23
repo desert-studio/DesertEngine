@@ -1,6 +1,6 @@
 // The scene depth a cloud texel is cut at, written once for the three programs that must agree on it:
 // CloudRaymarch.shader (where the ray stops), CloudTemporalResolve.shader (the distance its disocclusion test
-// and its guide's .y carry) and CloudUpsample.shader (which compares every full-resolution pixel's own depth
+// and its guide's .y carry) and that shader's compose stage (which compares every full-resolution pixel's own depth
 // against that .y).
 //
 // THE FARTHEST SURFACE OF THE FOOTPRINT, not one texel of it. A half-resolution cloud texel stands for the
@@ -15,7 +15,7 @@
 // The farthest surface of the block is stable under that jitter — a blade that covers part of the block never
 // covers all of it — and it is the right thing to trace to: the texel then holds the cloud IN FRONT OF THE
 // FARTHEST surface it covers, and the full-resolution upsample removes it from every pixel whose own surface
-// is nearer than the cloud (CloudUpsample.shader). That is Unreal's arrangement: the trace runs to the far
+// is nearer than the cloud (CloudTemporalResolve.shader, ComposePixel). That is Unreal's arrangement: the trace runs to the far
 // end of the footprint's depth range (VolumetricCloud.usf, SceneDepthMinAndMaxTexture) and the compose, which
 // reads each pixel's own scene depth, keeps the volume behind opaque by the cloud front.
 //
@@ -53,7 +53,7 @@ float CloudFootprintFarthestDepth(ivec2 halfCoord, ivec2 halfSize)
 // ---- GEOMETRY IN FRONT OF THE LAYER CUTS NOTHING (SKY-FLICKER) ------------------------------------------------
 //
 // A footprint whose farthest surface is no farther than the first point the march would sample hides ALL of the
-// layer from every pixel of the block: each of them is at most that far, and CloudUpsample.shader removes from a
+// layer from every pixel of the block: each of them is at most that far, and the compose stage removes from a
 // pixel every texel whose cloud front (never nearer than that first point) is at or behind the pixel's surface.
 // Cutting such a ray at the leaf therefore buys those pixels nothing — and costs the block its history. Under
 // the TAA jitter a block at a crown, a roof or a fence edge is wholly covered on some frames and partly open on

@@ -27,7 +27,17 @@ Shader "ProceduralSky"
         In(1) vec3 v_CameraPos;
         // ViewFrame::PreExposure, forwarded from the vertex stage like v_CameraPos (constant across the triangle).
         In(2) float v_PreExposure;
+        // The ray as a point at infinity through the unjittered ViewProjection / PrevViewProjection (Common/
+        // Velocity.glslh DesertSkyVelocity): divided per pixel, written into the scene target's velocity slot.
+        In(3) vec4 v_SkyClip;
+        In(4) vec4 v_SkyPrevClip;
         Out(0) vec4 oColor;
+        // The view's velocity (ViewTargetLayouts kSceneTargetVelocitySlot): the camera's motion at infinity, so the
+        // sky texels carry it for every reader and the vendor upscalers without a fix-up pass (UE: the sky writes
+        // velocity in its own draw).
+        Out(1) vec4 oVelocity;
+
+        #include <Common/Velocity.glslh>
 
         // The sky parameter block. A std430 STORAGE buffer rather than a uniform block, because the
         // atmosphere LUT passes evaluate the same sky from a compute shader and ComputePipeline has no
@@ -201,6 +211,7 @@ Shader "ProceduralSky"
             // HDR is lost through Reinhard+gamma. See SceneComposite.glsl.frag.)
             // Stored pre-exposed, like every scene-colour writer (ViewFrame::PreExposure).
             oColor = vec4(color * v_PreExposure, 1.0);
+            oVelocity = DesertSkyVelocity(v_SkyClip, v_SkyPrevClip);
         }
     }
 
@@ -215,6 +226,10 @@ Shader "ProceduralSky"
         // Camera position for the physical model's altitude (constant across the triangle).
         Out(1) vec3 v_CameraPos;
         Out(2) float v_PreExposure;
+        // The ray through the UNJITTERED current and previous ViewProjection as a point at infinity (w = 0): linear
+        // in the ray, so the interpolated pair is the pixel's; the fragment divides (DesertSkyVelocity).
+        Out(3) vec4 v_SkyClip;
+        Out(4) vec4 v_SkyPrevClip;
 
         void main()
         {
@@ -235,6 +250,8 @@ Shader "ProceduralSky"
             v_RayDir     = WorldViewRayJittered(cameraUB.Projection, cameraUB.JitterNdc, cameraUB.View, position);
             v_CameraPos  = cameraUB.CameraPos;
             v_PreExposure = cameraUB.PreExposure;
+            v_SkyClip     = cameraUB.ViewProjection * vec4(v_RayDir, 0.0);
+            v_SkyPrevClip = cameraUB.PrevViewProjection * vec4(v_RayDir, 0.0);
         }
     }
 }

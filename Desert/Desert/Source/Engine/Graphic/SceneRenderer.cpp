@@ -53,6 +53,7 @@
 #include <functional>
 #include <initializer_list>
 #include <memory>
+#include <array>
 #include <optional>
 #include <atomic>
 #include <chrono>
@@ -2191,6 +2192,17 @@ namespace Desert::Graphic
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
         // after it has no row in the scene material table and is refused at draw. The plan ran on its setup task
         // since "Setup: Grass plan" (FPS-GRASS-PLAN): joined here, committed into this graph.
+        // FPS-GRASS-SETUP-FUSE: before the grass's CommitFrame too - its camera cull writes the blades' setup
+        // records from it.
+        // DEFORM-RT-TRAMPLE (UE: one deformation evaluation shared by the raster and the ray-tracing geometry):
+        // the deformation field before the TLAS, whose grass rows read it (RayTracingGpuInstances.shader), as well
+        // as before any mesh pass - the grass blades of the view, its cascades and its virtual shadow read it
+        // (MeshRenderer::SetFrameDeformationField). Where its contacts write is taken first: the update consumes
+        // them, and the cascade cache plan below reads it.
+        m_FramePendingFootprints = m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
+                                        ? m_DeformationField.PendingFootprints()
+                                        : std::vector<glm::vec4>{};
+        AddFrameDeformationField( graph, textures, frame );
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass" );
         grassTasks.Join();
         // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the
@@ -2311,15 +2323,6 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
-        // DEFORM-RT-TRAMPLE (UE: one deformation evaluation shared by the raster and the ray-tracing geometry):
-        // the deformation field before the TLAS, whose grass rows read it (RayTracingGpuInstances.shader), as well
-        // as before any mesh pass - the grass blades of the view, its cascades and its virtual shadow read it
-        // (MeshRenderer::SetFrameDeformationField). Where its contacts write is taken first: the update consumes
-        // them, and the cascade cache plan below reads it.
-        m_FramePendingFootprints = m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
-                                        ? m_DeformationField.PendingFootprints()
-                                        : std::vector<glm::vec4>{};
-        AddFrameDeformationField( graph, textures, frame );
 
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
@@ -2923,27 +2926,34 @@ namespace Desert::Graphic
                 // THE CLOUDS BETWEEN THE SCREEN PROBES' FORK AND THEIR JOIN (UE: the volumetric render target
                 // traced before the lights while Lumen's gather runs on the async queue). The march, its temporal
                 // resolve and its upsample read the sky LUTs (the graph head), the cloud shadow map and the scene
-                // depth - nothing the async runs write - so the graphics queue traces them while the probes
-                // gather, ahead of the reflections and the composite, which wait on the runs they read
-                // (RDGCompile FindAsyncRuns: the join at the first consumer). Here only when the depth they march
+                // depth - nothing the async runs write. FPS-CLOUDS-MARCH: they run on the async queue as their
+                // own run after the probes' (CloudQueue::AsyncCompute), joined only at their composite in the
+                // translucency, so the graphics queue pays none of the march (0.46-0.49 ms on FIELD-BARN-TURN);
+                // the reflections and the composite still wait only on the runs they read (RDGCompile
+                // FindAsyncRuns: the join at the first consumer). Here only when the depth they march
                 // against is already final (otherwise after the opaque scene, below): a single-sample target (no
-                // resolve after the opaque passes), no "Deferred: Generic" draw (a blended program writes the
-                // depth), no glass section and no water surface (it writes its own depth).
+                // resolve after the opaque passes) and no "Deferred: Generic" draw (a blended program writes the
+                // depth) or depth-writing glass section.
+                // FPS-CLOUDS-WATER: the water surface no longer keeps them late. They march the G-buffer depth
+                // (the opaque scene without the water, UE SceneDepthWithoutSingleLayerWater:
+                // AddFrameVolumetricClouds), and the composite, which draws after the water, depth-tests each
+                // pixel's cloud front against the water's own depth (CloudComposite.shader) - UE's volumetric
+                // clouds traced against the scene depth with the water composited over.
                 {
                     // GPU-ASYNC-WAIT: only a draw that WRITES the depth after the composite keeps the march late -
                     // a generic record in the frustum, or a translucent section whose draw state writes depth
                     // (MeshRenderer::LateDepthWriterInView); an off-screen generic record or a glass section that
-                    // writes none no longer moves 0.9 ms of clouds out of the probes' window.
-                    const auto* waterSurface = m_Systems.Water.get();
-                    const bool  noLateMeshDepth =
+                    // writes none no longer moves 0.9 ms of clouds out of the probes' window. (The composite's
+                    // depth test would settle those too, but a generic record also draws OPAQUE pixels after the
+                    // march, whose surface hides the sky behind them: those keep the late march.)
+                    const bool noLateMeshDepth =
                          meshRenderer == nullptr ||
                          meshRenderer->LateDepthWriterInView() == System::MeshRenderer::LateDepthWriter::None;
-                    const bool depthFinal = m_TargetFramebuffer->GetSpecification().Samples <= 1 &&
-                                            noLateMeshDepth &&
-                                            ( waterSurface == nullptr || !waterSurface->HasDraws() );
+                    const bool depthFinal =
+                         m_TargetFramebuffer->GetSpecification().Samples <= 1 && noLateMeshDepth;
                     if ( depthFinal && !m_DebugView.HidesAtmosphere() )
                     {
-                        AddFrameVolumetricClouds( graph, textures, frame );
+                        AddFrameVolumetricClouds( graph, textures, frame, CloudQueue::AsyncCompute );
                         m_FrameCloudsTraced = true;
                     }
                 }
@@ -3084,11 +3094,12 @@ namespace Desert::Graphic
         // scene copy (AddFrameOpaqueFog; a G-buffer view adds its inputs but not its apply); the sky LUTs are the
         // graph head's. A G-buffer or wireframe view (HidesAtmosphere) composites no cloud layer. The clouds come
         // here when the deferred lighting did not trace them between the probes' fork and join
-        // (m_FrameCloudsTraced): the depth they march against is final only after the water and the forward draws.
+        // (m_FrameCloudsTraced): the depth they march against is final only after the forward draws (a multisampled
+        // target, a late depth writer in view, the forward path).
         if ( !pathTraced && !m_DebugView.HidesAtmosphere() )
         {
             if ( !m_FrameCloudsTraced )
-                AddFrameVolumetricClouds( graph, textures, frame );
+                AddFrameVolumetricClouds( graph, textures, frame, CloudQueue::Graphics );
         }
         else
             AddFrameCloudSkyOcclusion( graph, textures );
@@ -4647,6 +4658,7 @@ namespace Desert::Graphic
                                       .MorphWeights             = extra.MorphWeights,
                                       .MorphRevision            = extra.MorphRevision,
                                       .LodFeedback              = extra.LodFeedback,
+                                      .Leader                   = extra.Leader,
                                       .Outlined                 = extra.Outlined,
                                       .HiddenSubmeshes          = extra.HiddenSubmeshes,
                                       .ForcedLOD                = LODPreviewFor( extra.Entity, extra.ForcedLOD ),
@@ -4697,6 +4709,7 @@ namespace Desert::Graphic
             view.Projection = camera->GetProjectionMatrix();
         }
         view.Height = GetViewExtent().Height;
+        view.LODDistanceScale = m_Systems.Mesh->IsLODEnabled() ? m_Systems.Mesh->GetLODDistanceScale() : 0.0f;
         if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 ) // LODPreviewFor's lease, as it answers
         {
             view.PreviewEntity = m_LODPreview.Entity;
@@ -4709,6 +4722,14 @@ namespace Desert::Graphic
         if ( camera != nullptr )
             lodView.emplace( Geometry::LODView{ view.Position, view.Projection } );
         const bool demandAsked = camera != nullptr && view.Height != 0;
+        // THE IMPOSTOR SWITCH'S EYE (WP-FAR-12E, StaticSceneSection::ImpostorScreenSize): the LOD eye with the
+        // renderer's LOD distance scale, as every other level is chosen; none while LOD is off (source side).
+        std::optional<Geometry::LODView> impostorView;
+        if ( lodView.has_value() && view.LODDistanceScale > 0.0f )
+        {
+            impostorView                = lodView;
+            impostorView->DistanceScale = view.LODDistanceScale;
+        }
 
         // Uploads (the render revision, the residency, the cached bounds' validity) follow the stale epoch; while
         // it held over two recorded frames that compared the admitted revisions, none is pending (the cache's
@@ -4752,6 +4773,35 @@ namespace Desert::Graphic
                 if ( section.MaxDrawDistance > 0.0f && lodView.has_value() &&
                      !IsWithinDrawDistance( *lodView, section.Transform, local, section.MaxDrawDistance ) )
                     continue;
+                bool rayTracingOnly = false;
+                if ( section.ImpostorScreenSize > 0.0f )
+                {
+                    // THE DITHERED SWITCH'S CPU UNION (WP-FAR-12F): the side either temporal sample draws (the card
+                    // below the switch size, the source at or above; LOD off: the source) is queued; the GPU cull's
+                    // ImpostorGate (InstanceCull.shader) fades the pair between the samples. While the samples
+                    // disagree the chunk is walked again each frame, until the fade settles on one side.
+                    const std::array<float, 2> switchSizes{ Geometry::kLOD0ScreenSize, section.ImpostorScreenSize };
+                    const uint32_t             side  = section.ImpostorCard ? 1u : 0u;
+                    bool                       drawn = !section.ImpostorCard;
+                    if ( impostorView.has_value() )
+                    {
+                        Geometry::LODView at = *impostorView;
+                        at.Temporal          = m_Systems.Mesh->GetViewTemporalLOD();
+                        const Geometry::LODMask mask = Geometry::SelectDitheredLODFromBounds(
+                             section.Transform, section.ImpostorBounds, at, switchSizes, -1, 0 );
+                        drawn = mask.Levels[0] == side || mask.Levels[1] == side;
+                        if ( mask.IsDithered() )
+                            held.Pending = true;
+                    }
+                    if ( !drawn )
+                    {
+                        // The card leaves; the source stays queued for the ray tracing scene alone (the TLAS holds
+                        // the source at every distance, never the card - RayTracingGather).
+                        if ( section.ImpostorCard )
+                            continue;
+                        rayTracingOnly = true;
+                    }
+                }
                 if ( demandAsked )
                 {
                     // Measured only (no material handed in: nothing noted here); noted once per parent below.
@@ -4765,7 +4815,8 @@ namespace Desert::Graphic
                 held.Admitted.push_back( { .Chunk        = c,
                                            .Section      = s,
                                            .ForcedLOD    = LODPreviewFor( section.Entity, section.ForcedLOD ),
-                                           .MeshRevision = mesh->GetRenderRevision() } );
+                                           .MeshRevision   = mesh->GetRenderRevision(),
+                                           .RayTracingOnly = rayTracingOnly } );
             }
             FoldMaterialDemand( held.Demand );
         };

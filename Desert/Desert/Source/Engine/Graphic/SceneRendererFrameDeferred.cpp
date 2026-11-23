@@ -2590,30 +2590,43 @@ namespace Desert::Graphic
         if ( worldList )
         {
             using Stage = System::SSRRenderer::TraceStage;
+            // FPS-SSR-FARFIELD: the front layer's software legs run on the async pipe (SSRRenderer::
+            // WorldStagePassFlags), the opaque surface's on Graphics.
+            const RDG::PassFlags worldFlags = ssr.WorldStagePassFlags( *worldList );
             const auto addWorldPass = [&]( const char* const name, const Stage stage, const RDG::BufferRef args )
             {
                 graph.AddPass(
-                     name, RDG::PassFlags::Compute,
+                     name, worldFlags,
                      [&, stage]( RDG::PassBuilder& pass )
                      {
                          ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
                                                    traceUniforms, stage, listPtr, worldPtr, tracedPtr, frontPtr );
                      },
                      [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
-                      sceneHistoryReadable, seed, stage, args]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                      sceneHistoryReadable, seed, stage,
+                      args]( RDG::PassContext& context ) -> Common::BoolResultStr {
                          return ssrPtr->RecordWorldList( context, cameraPos, settings, sceneHistoryReadable, seed,
                                                          stage, args );
                      } );
             };
-            addWorldPass( hardwareTraced ? "Deferred: Reflections World (HardwareTraced)"
-                                         : "Deferred: Reflections World (SoftwareTraced)",
+            // The front layer's legs are named apart from the opaque surface's: the async balance and the profiler
+            // key a pass by its name, and the two renderers' legs run on different queues.
+            const bool frontLegs = frontLayer != nullptr;
+            addWorldPass( hardwareTraced
+                               ? ( frontLegs ? "Translucency: Front Layer Reflections World (HardwareTraced)"
+                                             : "Deferred: Reflections World (HardwareTraced)" )
+                               : ( frontLegs ? "Translucency: Front Layer Reflections World (SoftwareTraced)"
+                                             : "Deferred: Reflections World (SoftwareTraced)" ),
                           Stage::World, worldList->Args );
             if ( worldList->Legs )
             {
-                addWorldPass( "Deferred: Reflections World Far Field (SoftwareTraced)", Stage::WorldFarField,
-                              worldList->Far );
-                addWorldPass( "Deferred: Reflections World Hit Lighting (SoftwareTraced)", Stage::WorldHitLighting,
-                              worldList->Hits );
+                addWorldPass( frontLegs ? "Translucency: Front Layer Reflections World Far Field (SoftwareTraced)"
+                                        : "Deferred: Reflections World Far Field (SoftwareTraced)",
+                              Stage::WorldFarField, worldList->Far );
+                addWorldPass( frontLegs
+                                   ? "Translucency: Front Layer Reflections World Hit Lighting (SoftwareTraced)"
+                                   : "Deferred: Reflections World Hit Lighting (SoftwareTraced)",
+                              Stage::WorldHitLighting, worldList->Hits );
             }
         }
         if ( hitLit )
@@ -2785,6 +2798,8 @@ namespace Desert::Graphic
                 const SceneViewInputs   view  = SceneViewInputsOf( textures.GraphRefs() );
                 const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
                 const bool              load  = writers.Meshes;
+                // The FFT ocean's waves, recorded here when the front layer is their first reader this frame.
+                const RDG::TextureRef waves = FrameWaterWaves( graph, textures );
                 graph.AddPass(
                      "Translucency: Front Layer G-buffer (Water)", RDG::PassFlags::Raster,
                      [&]( RDG::PassBuilder& pass )
@@ -2796,7 +2811,7 @@ namespace Desert::Graphic
                          pass.ColorTarget( 0, surface.Normal, colorLoad );
                          pass.ColorTarget( 1, surface.Velocity, colorLoad );
                          pass.DepthTarget( surface.Depth, depthLoad );
-                         water->DeclareFrontLayerDraws( pass, waterInfo, view, frame );
+                         water->DeclareFrontLayerDraws( pass, waterInfo, waves, view, frame );
                      },
                      [water]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return water->RenderFrontLayerManual( context ); } );

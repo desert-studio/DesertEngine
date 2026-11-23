@@ -345,13 +345,44 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame )
+                                                  const ViewFrame& frame, const CloudQueue queue )
     {
         auto* clouds = m_Systems.VolumetricCloud.get();
         if ( clouds == nullptr )
             return;
-        VolumetricCloudHistory&             history = m_ViewState.Clouds();
-        ComputeNodeList                     nodes   = clouds->DeclareFrameNodes( graph, frame, history );
+        VolumetricCloudHistory& history = m_ViewState.Clouds();
+        const bool              async   = queue == CloudQueue::AsyncCompute;
+        // FPS-CLOUDS-WATER: the early (async) chain marches against the G-buffer depth - the opaque scene without
+        // the water (UE SceneDepthWithoutSingleLayerWater), the same image the radiance cache's async run reads -
+        // never the scene target's depth, which the water writes after it ("Deferred: Water"): that write would
+        // join the run before the water and hand the graphics queue the march back. The composite's depth test
+        // (CloudComposite.shader) then drops the cloud behind the water surface. The late chain reads the scene
+        // target's depth, final there (DeclareFrameNodes' default).
+        RDG::TextureRef marchDepth;
+        if ( async && m_GBuffer && m_GBuffer->GetDepthAttachmentCount() > 0 )
+            marchDepth = textures.Depth( m_GBuffer, "GBuffer" );
+        ComputeNodeList nodes = clouds->DeclareFrameNodes( graph, frame, history, marchDepth );
+        // FPS-CLOUDS-MARCH (UE: the volumetric render target traced on the async pipe, r.VolumetricCloud.
+        // AsyncCompute / r.VolumetricRenderTarget): every node of the layer - the stale sky occlusion, the march,
+        // the reconstruction (temporal resolve + full-res compose, one dispatch) - is a compute dispatch whose
+        // graph inputs are the scene depth, the sky LUTs, the cloud shadow map and the layer's own volumes, all
+        // final before the probes' fork, and whose only graphics reader of this frame is the cloud composite in
+        // the translucency. So the whole chain asks for the async queue as ONE run: the graph forks it after the
+        // last graphics writer of what it reads and joins it at the composite (RDGCompile FindAsyncRuns), and the
+        // graphics queue no longer pays the march. The chain stays whole on purpose: the march alone on async
+        // would be joined by the resolve right after it and the graphics queue would wait out the whole march.
+        // CloudQueue::Graphics (the late placement, after the opaque scene) keeps them on the graphics queue:
+        // there the composite follows at once, so an async run would only become a wait.
+        // RenderPipeline.AsyncCompute 0 or a device without a compute family demotes them anyway.
+        // FPS-CLOUDS-MARCH-ASYNC: the chain's queue is chosen here once, so FPS-ASYNC-BALANCE never splits it
+        // (RDG::PassFlags::AsyncComputeFixed): on FIELD-BARN-TURN scn-1121-214723 it gave the march alone to
+        // Graphics (0.10 ms in a 2.4 ms modelled graph, an early window) and the graphics queue paid 0.41 ms of
+        // march plus a resubmit every frame after.
+        for ( ComputeNodeDeclaration& node : nodes )
+        {
+            node.AsyncCompute      = async;
+            node.AsyncComputeFixed = async;
+        }
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         // One AddPass per node from here: the resolve's index among the nodes (FrameResult::ResolveNode) plus this
         // is the writer whose loss the view's EndFrame checks.
@@ -364,6 +395,7 @@ namespace Desert::Graphic
         const System::VolumetricCloudRenderer::FrameResult result = clouds->GetFrameResult();
         if ( accepted && hasNodes && result.Reconstruction.Scatter.IsValid() )
             history.SetWriterPass( firstPass + result.ResolveNode );
-        textures.Transients.CloudScatter = result.Upsampled;
+        textures.Transients.CloudScatter    = result.Upsampled;
+        textures.Transients.CloudFrontDepth = result.UpsampledFrontDepth;
     }
 } // namespace Desert::Graphic

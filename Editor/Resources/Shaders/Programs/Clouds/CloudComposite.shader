@@ -15,11 +15,17 @@ Shader "CloudComposite"
         // the premultiplied over-operator with .a carrying TRANSMITTANCE, not opacity. The march
         // (CloudRaymarch.shader) produced exactly that pair, so nothing is reconstructed here.
         //
-        // OCCLUSION WAS ALREADY RESOLVED. The march cut every ray at the farthest surface of its block and
-        // CloudUpsample removed, per pixel, the cloud lying behind that pixel's own surface, so a cloud behind a
-        // mountain or a leaf contributes nothing here. This pass therefore runs with the depth test off and
-        // could not read the depth attachment anyway — it is bound by the render pass, and sampling a
-        // bound attachment is a feedback loop.
+        // OCCLUSION BY WHAT THE MARCH SAW WAS ALREADY RESOLVED. The march cut every ray at the farthest surface of
+        // its block and CloudUpsample removed, per pixel, the cloud lying behind that pixel's own surface, so a
+        // cloud behind a mountain or a leaf contributes nothing here. What the march did NOT see is the water
+        // (FPS-CLOUDS-WATER): a frame that traced the clouds early on the async queue marched them against the
+        // G-buffer depth, the opaque scene without the water, which draws its own depth after. So this pass
+        // writes each pixel's cloud-front device depth (CloudUpsample's second output) as its fragment depth and
+        // is depth-TESTED (closer-or-equal, never written) against the depth attachment: the cloud whose front
+        // lies behind the water surface is dropped, the one in front of it is kept (UE: the volumetric render
+        // target composed over the scene with the water's depth). Against the surfaces the march did see the
+        // test always passes (the front is at or before its cut). It cannot SAMPLE the depth attachment: it is
+        // bound by the render pass, and sampling a bound attachment is a feedback loop.
         //
         // WHAT THIS PASS READS: the FULL-RESOLUTION cloud image CloudUpsample.shader wrote this frame, one
         // texel per pixel, fetched 1:1. The march traces at a quarter of the framebuffer, CloudTemporalResolve
@@ -47,6 +53,9 @@ Shader "CloudComposite"
         Uniform(2) sampler LinearRepeatSampler;
         Uniform(0) texture2D CloudScatterTexture;
         #define CloudScatterTexture sampler2D(CloudScatterTexture, LinearRepeatSampler)
+        // The cloud front's device depth (reversed-Z, CloudUpsample.shader), texelFetched the same way.
+        Uniform(1) texture2D CloudFrontDepthTexture;
+        #define CloudFrontDepthTexture sampler2D(CloudFrontDepthTexture, LinearRepeatSampler)
 
         Uniform(3) CloudCompositeUB
         {
@@ -66,6 +75,8 @@ Shader "CloudComposite"
             // The upsample already clamped both channels; transmittance is clamped again because it multiplies
             // the scene, and a value above 1 brightens what is BEHIND the cloud.
             o_Color = vec4(max(cloud.rgb, vec3(0.0)) * Exposure.x, clamp(cloud.a, 0.0, 1.0));
+            // The front's depth, tested against the water drawn after an early march (see the header).
+            gl_FragDepth = clamp(texelFetch(CloudFrontDepthTexture, pixel, 0).r, 0.0, 1.0);
         }
     }
 

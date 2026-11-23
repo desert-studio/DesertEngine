@@ -203,6 +203,9 @@ namespace Desert::Graphic::System
                 return Common::MakeError( tracePipeline.GetError() );
             m_TracePipeline = tracePipeline.GetValue();
 
+            // FPS-SSR-FARFIELD: the front layer's denoiser follows its world legs onto the async pipe
+            // (WorldStagePassFlags), so its first graphics reader is the water / glass, not the reconstruction.
+            m_Denoiser.RunOnAsyncCompute( m_Surface == ReflectingSurface::TranslucentFrontLayer );
             return m_Denoiser.Initialize();
         }
 
@@ -527,6 +530,22 @@ namespace Desert::Graphic::System
             return list;
         }
 
+        // FPS-SSR-FARFIELD: the queue of the world stage's nodes for @p world (UE
+        // r.Lumen.Reflections.AsyncCompute). The front layer's software legs (near field, far field, hit lighting)
+        // run on the async pipe, with its denoiser (Initialize): their first graphics reader is the water / glass
+        // after the opaque composite (or the scene copy that rewrites the scene colour history they sample), and
+        // by then the async queue has finished the screen probes, so the legs overlap the composite, the forward
+        // meshes and the opaque fog instead of lengthening the graphics queue. The opaque surface's legs stay on
+        // Graphics: their reader is the composite itself, which already waits for the async screen probes
+        // (FPS-SP-COMPOSITE-WAIT) - on the async FIFO behind them they would add their whole time to that wait.
+        // The hardware tracer's one ray query stays on Graphics (its TLAS is the graphics queue's build).
+        [[nodiscard]] RDG::PassFlags WorldStagePassFlags( const WorldList& world ) const
+        {
+            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer && world.Legs )
+                return RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+            return RDG::PassFlags::Compute;
+        }
+
         // The trace resolutions the shaders know (SSR.shader's source pixel, SSDReconstructReflections' block
         // rotation): every pixel, or one pixel of each 2x2 block. Scalability Reflections.DownsampleFactor's range.
         [[nodiscard]] static constexpr bool IsSupportedDownsampleFactor( const uint32_t factor )
@@ -808,6 +827,10 @@ namespace Desert::Graphic::System
                                                              const bool sceneHistoryReadable, const uint32_t seed,
                                                              const TraceStage stage, const RDG::BufferRef args ) const
         {
+            // The front layer's legs are profiled apart (they run on the async pipe, WorldStagePassFlags).
+            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer )
+                return RecordFrontLayerWorldList( context, cameraPos, settings, sceneHistoryReadable, seed, stage,
+                                                  args );
             switch ( stage )
             {
             case TraceStage::World:
@@ -828,6 +851,39 @@ namespace Desert::Graphic::System
             case TraceStage::Classify:
             case TraceStage::Trace:
                 break;
+            }
+            return Common::MakeError( "SSR: RecordWorldList was given a stage that is not the world's" );
+        }
+        // RecordWorldList of the TranslucentFrontLayer renderer: the same dispatches under their own profiler
+        // rows.
+        [[nodiscard]] Common::BoolResultStr
+        RecordFrontLayerWorldList( const RDG::PassContext& context, const glm::vec4& cameraPos,
+                                   const TraceSettings& settings, const bool sceneHistoryReadable,
+                                   const uint32_t seed, const TraceStage stage, const RDG::BufferRef args ) const
+        {
+            switch ( stage )
+            {
+                case TraceStage::World:
+                {
+                    DESERT_PROFILE_PASS( "SSR: Front layer world trace" );
+                    return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage,
+                                               args );
+                }
+                case TraceStage::WorldFarField:
+                {
+                    DESERT_PROFILE_PASS( "SSR: Front layer far field" );
+                    return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage,
+                                               args );
+                }
+                case TraceStage::WorldHitLighting:
+                {
+                    DESERT_PROFILE_PASS( "SSR: Front layer hit lighting" );
+                    return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage,
+                                               args );
+                }
+                case TraceStage::Classify:
+                case TraceStage::Trace:
+                    break;
             }
             return Common::MakeError( "SSR: RecordWorldList was given a stage that is not the world's" );
         }

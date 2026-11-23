@@ -21,6 +21,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -466,6 +467,8 @@ namespace Desert::Graphic::System
         // Skinned only: the animated instance's LOD / update-rate feedback (Animation::SkinnedLodFeedback), null
         // for an unanimated one.
         std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
+        // Skinned only: a follower mesh's leader (Animation::LeaderPoseLink, UE LeaderPoseComponent).
+        Animation::LeaderPoseLink Leader;
 
         bool     Outlined        = false;
         uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
@@ -524,6 +527,22 @@ namespace Desert::Graphic::System
             // UE bCastContactShadow: pushed with the G-buffer draw (PrimitiveFlags) into the shading word.
             bool                   CastContactShadow        = true;
             int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
+            // WP-FAR-12F: the card side of an impostor pair (StaticSceneSection::ImpostorCard). A flat billboard
+            // stands in for the mesh in raster only; it never enters the ray tracing scene (UE excludes the
+            // impostor LOD from RT), RayTracingGather skips it.
+            bool ImpostorCard = false;
+            // WP-FAR-12F: the source side of an impostor pair (StaticSceneSection::ImpostorScreenSize > 0, not the
+            // card). Its GpuScene row carries kImpostorSource; the card's kImpostorCard.
+            bool ImpostorSource = false;
+            // The pair's switch screen size measured on THIS side's own row bounds (GpuScenePrimitive::
+            // LocalBoundsExtent.w): the source's ImpostorScreenSize; the card's scaled by its bounds radius over the
+            // source's, so both sides cross the switch at the same distance. 0 = not a pair.
+            float ImpostorSwitchSize = 0.0f;
+            // WP-FAR-12F (StaticSceneAdmission::RayTracingOnly): an impostor source this view draws as its card. It
+            // keeps its GpuScene row and enters the ray tracing gather (the TLAS holds the source at every
+            // distance); raster never draws it - no slot walk (StaticWalkColumns::kHasSlots clear), no shadow
+            // caster row, and the GPU cull's ImpostorGate culls its row.
+            bool RayTracingOnly = false;
         };
 
         // WHAT A RECORD'S MotionRecord::Content READS OF ITS MESH (SyncGpuScene): the mesh, its submesh list and
@@ -643,10 +662,15 @@ namespace Desert::Graphic::System
             uint64_t                    VatAddress     = 0;
             uint32_t                    VatVertexCount = 0;
             // The far figure's minimum screen size (VertexAnimationCrowd::kMinScreenSize): the growth its draw
-            // (VAT or skeletal) gets this frame about MinScreenPivot (the local bounds' bottom centre), 1 = its own size. Set by
+            // (VAT or skeletal) gets this frame about MinScreenPivot, 1 = its own size. The pivot is a WORLD point:
+            // the figure's feet (its local bounds' bottom centre through Transform) - for a follower, its LEADER'S
+            // feet, and the scale is the leader's, so clothing grows with the body it is worn on. Set by
             // SelectSkinnedLods; the GpuScene row's world (SyncGpuScene) carries it to every pass.
             float                       MinScreenScale = 1.0f;
             glm::vec3                   MinScreenPivot = glm::vec3( 0.0f );
+            // A follower mesh's leader (UE LeaderPoseComponent, Animation::LeaderPoseLink): its growth is not
+            // decided from its own bounds but taken from the leader's record in this queue (SelectSkinnedLods).
+            Animation::LeaderPoseLink   Leader;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
         };
@@ -982,6 +1006,12 @@ namespace Desert::Graphic::System
         void SetViewTemporalLOD( const Geometry::LODTemporalSamples& temporalLod )
         {
             m_ViewTemporalLOD = temporalLod;
+        }
+        // The same samples for the impostor switch's admission (SceneRenderer::SubmitStaticScene): a side either
+        // sample draws is queued, so the cull's ImpostorGate always finds both sides of a fading pair.
+        [[nodiscard]] const Geometry::LODTemporalSamples& GetViewTemporalLOD() const noexcept
+        {
+            return m_ViewTemporalLOD;
         }
         // The scene view's air (SceneRenderer::SetWindGust and BeginScene's SelectLocalWind, ViewFrame::WindGust /
         // LocalWind): the light cameras of the casters carry it (WriteLightCamera), so a swaying caster's shadow
@@ -1584,6 +1614,10 @@ namespace Desert::Graphic::System
         void SetRainOcclusionQuality( const RainOcclusionQuality& quality );
         void UpdateRainOcclusion();
         [[nodiscard]] std::optional<SystemRasterPass> RainOcclusionPass();
+        // The FAR CASCADE passes ("MeshShadowFar<slot>"): one per directional-shadow slot whose far layer
+        // (FarShadowLayer) must be redrawn this frame (m_FarShadow[slot].Redraw), its static casters into
+        // @p maps, the cascade array of AcquireCascadeMaps. None when every far layer still holds its content.
+        [[nodiscard]] std::vector<SystemRasterPass> FarShadowPasses( RDG::TextureRef maps );
         [[nodiscard]] std::shared_ptr<Image2D>        GetRainOcclusionImage() const
         {
             return m_RainOcclusionFB && m_RainOcclusionBox ? m_RainOcclusionFB->GetDepthAttachmentImage()
@@ -1616,8 +1650,16 @@ namespace Desert::Graphic::System
         // movable layer.
         static constexpr uint32_t kVsmMovableViewBase     = kVsmViewBase + kVsmClipmapLevelCount;
         static constexpr uint32_t kRainOcclusionView      = kVsmMovableViewBase + kVsmClipmapLevelCount;
-        static constexpr uint32_t kLocalShadowViewBase    = kRainOcclusionView + 1u;
+        // Each shadowed directional light's FAR cascade (UE: the far shadow cascade, r.Shadow.FarShadow*): one
+        // view per slot, drawn into the cascade map's layer past every slot's cascades (FarShadowLayer) with the
+        // cascades' depth-clamp pipelines, STATIC casters only, cached across frames (m_FarShadow[slot].Key).
+        static constexpr uint32_t           kFarShadowViewBase      = kRainOcclusionView + 1u;
+        static constexpr uint32_t           kLocalShadowViewBase    = kFarShadowViewBase + kDirectionalShadowSlots;
         static constexpr uint32_t kFixedShadowViews       = kLocalShadowViewBase;
+        [[nodiscard]] static constexpr bool IsFarShadowView( const uint32_t view )
+        {
+            return view >= kFarShadowViewBase && view < kLocalShadowViewBase;
+        }
         // A virtual shadow map view: a clipmap level of the sun (the fixed range), or a local view this frame's
         // "VSM: Raster" of a point / spot light's mip gave out (m_VirtualShadowViews, past the atlas rows).
         [[nodiscard]] bool IsVirtualShadowView( const uint32_t view ) const
@@ -1780,7 +1822,13 @@ namespace Desert::Graphic::System
         // rasters [kGrassRasterMidBuckets, kGrassRasterFarBuckets) against Mid's depth, "Grass: Visibility Depth
         // Far" writes the words' depth, and Rest (the pass keeps its name "Grass: Visibility Raster") rasters the
         // farthest buckets against it: their fragments behind a nearer far blade die in early-Z / HiZ instead of
-        // the fragment stage's hidden-word read. Exact by the same argument.
+        // the fragment stage's hidden-word read. Exact by the same argument. FPS-GRASS-SW-RASTER (measured,
+        // dropped): a compute raster of the buckets past Mid, one thread a blade (UE 5 Nanite MicropolyRasterize),
+        // cost 4.0 ms in FIELD_Barn TURN (scn-1121-205105) against these HW slices' 0.36 ms - a masked blade's
+        // pixel is a chain of dependent reads (G-buffer depth, hidden word, material row, bindless mask texture,
+        // 64-bit atomic) one thread walks serially, where the HW raster runs them per pixel behind early-Z / HiZ.
+        // Nanite's software raster pays off for opaque micro-triangles without a per-pixel material read; the
+        // blades are masked.
         enum class GrassRasterSlice : uint8_t
         {
             All,
@@ -2343,6 +2391,11 @@ namespace Desert::Graphic::System
         [[nodiscard]] uint32_t CascadeLayer( uint32_t view ) const
         {
             return ( view / kMaxCascades ) * m_Shadow.CascadeCount + view % kMaxCascades;
+        }
+        // The array layer of slot @p slot's far cascade: past every held slot's cascades.
+        [[nodiscard]] uint32_t FarShadowLayer( uint32_t slot ) const
+        {
+            return m_CascadeSlots * m_Shadow.CascadeCount + slot;
         }
         // The one place the shadow budget is said out loud. Called from both arms of SetupShadowPass —
         // the allocating one and the zero-budget one — because a renderer that spends nothing on the sun
@@ -3703,6 +3756,24 @@ namespace Desert::Graphic::System
             glm::vec3 Travel        = glm::vec3( 0.0f ); // the direction the light travels, as it was fitted
         };
         DirectionalShadowSlot m_DirectionalShadow[kDirectionalShadowSlots];
+        // ONE DIRECTIONAL LIGHT'S FAR CASCADE, per slot (UpdateCascades fits it, PlanCascadeCache keys it,
+        // FarShadowPasses draws it): Fitted = this frame placed it (ComputeFarShadow); Key = the static content
+        // the layer holds (nullopt = unknown -> redrawn); PendingKey = this frame's, made the Key when the layer is
+        // drawn (a frame that adds no far pass - the ray-traced sun - keeps it stale); Redraw = drawn this frame.
+        struct FarShadowState
+        {
+            bool                    Fitted = false;
+            bool                    Redraw = false;
+            std::optional<uint64_t> Key;
+            std::optional<uint64_t> PendingKey;
+            CascadeFit              Fit;
+            // Why the last plan could not key the layer (a CascadeMovers::Unkeyed reason or a caster's), null when
+            // it could: PlanCascadeCache logs a new reason once, not every frame it persists.
+            const char* Unkeyed = nullptr;
+        };
+        FarShadowState                                                 m_FarShadow[kDirectionalShadowSlots];
+        MeshRendererDetail::MeshDrawList                               m_FarShadowDraws[kDirectionalShadowSlots];
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_FarShadowCasters[kDirectionalShadowSlots];
 
         // The receivers' matrix of every cascade view, EVERY element identity (a zero matrix's w is 0 and its
         // perspective divide a division by zero in the sampling shader). Nothing should ever read past a slot's
@@ -3904,6 +3975,9 @@ namespace Desert::Graphic::System
         // another level logs "[SkinnedLOD]" with that level's skin work (vertices, bones, influences).
         std::unordered_map<uint32_t, uint32_t> m_SkinnedLodReported;
         bool                                   m_SkinnedLodNoCameraReported = false;
+        // SelectSkinnedLods' scratch: each leader's record in m_SkinnedQueue by its entity, filled only on a frame
+        // that queues a follower (reused, no per-frame allocation once grown).
+        std::unordered_map<uint32_t, uint32_t> m_ScratchSkinnedLeaders;
         // Picks every queued skinned record's Lod from the frozen main view and logs a change (WP-FAR-10).
         void SelectSkinnedLods();
         // The far crowd (WP-FAR-12): baked vertex animations and the skeletal <-> VAT hand-off.

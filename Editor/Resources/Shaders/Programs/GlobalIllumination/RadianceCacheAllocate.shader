@@ -1,5 +1,5 @@
 // DesertAsset {"Kind":"Shader","Guid":"046591383d9b482fb773f89291c0a037","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 3/7 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
+// THE RADIANCE CACHE UPDATE, 2/5 — ALLOCATE AND RANK (UE AllocateUsedProbes + the priority histogram of
 // SelectMaxPriorityBucket, LumenRadianceCacheUpdate.usf): one thread per indirection entry a pixel read this frame.
 // An empty one takes a slot from the free list (none left: it stays empty, and its pixels read the probes around
 // it). Every read probe is ranked into a priority bucket (RC_PRIORITY_*, Common/RadianceCacheState.glslh) — never
@@ -87,7 +87,7 @@ Shader "RadianceCacheAllocate"
         }
 
         // Whether a slot popped off the free list at @p top is a slot to take. A popped slot whose recorded cell's
-        // entry still holds it is a doubled copy (Update now frees only the slots an entry owns, so none is pushed
+        // entry still holds it is a doubled copy (Mark's free part frees only the slots an entry owns, so none is pushed
         // any more; the copies already on the list are spent here, and a count past MaxProbes is spent the same
         // way): it is skipped and not restored, so the list heals.
         uint FreeSlotAt( const int top )
@@ -144,7 +144,7 @@ Shader "RadianceCacheAllocate"
             const uvec3 id    = gl_GlobalInvocationID;
             const uint  grid  = radianceCache.shape.y;
             const uint  width = grid * radianceCache.shape.x;
-            if ( id.x >= width || id.y >= grid || id.z >= grid || Reset != 0u )
+            if ( id.x >= width || id.y >= grid || id.z >= grid )
                 return e;
             e.entry = id.x + width * ( id.y + grid * id.z );
             // Which readers stamped it this frame (RadianceCacheMark): a coverage reader, or only the fallback.
@@ -222,7 +222,7 @@ Shader "RadianceCacheAllocate"
                 const uint probe = popped;
                 if ( probe == RADIANCE_CACHE_INVALID_PROBE )
                 {
-                    // The atlas is full: the next frame's Update frees the probes nobody reads now.
+                    // The atlas is full: the next frame's Mark frees the probes nobody reads now.
                     atomicAdd( s_Failed, 1u );
                     return RC_PRIORITY_BUCKETS;
                 }
@@ -254,12 +254,37 @@ Shader "RadianceCacheAllocate"
                     bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( age, 1u ) ) ) * 3.0 ) );
             }
             radianceCacheProbes[probe].frames   = uvec4( FrameIndex, frames.y, frames.z, hash );
-            radianceCacheProbes[probe].priority = uvec4( bucket, 0u, 0u, 0u );
+            radianceCacheProbes[probe].priority = uvec4( bucket, covered ? 1u : 0u, 0u, 0u );
             return bucket;
         }
 
         void main()
         {
+            // RESET: the state is (re)initialised instead - every entry empty and unstamped, every slot free - by the
+            // update's one pass that runs per indirection entry (Mark's free part frees nothing that frame).
+            if ( Reset != 0u ) // a push constant: the whole dispatch returns here, before any barrier
+            {
+                const uvec3 id    = gl_GlobalInvocationID;
+                const uint  grid  = radianceCache.shape.y;
+                const uint  width = grid * radianceCache.shape.x;
+                if ( id.x >= width || id.y >= grid || id.z >= grid )
+                    return;
+                const uint entry                = id.x + width * ( id.y + grid * id.z );
+                radianceCacheIndirection[entry] = RADIANCE_CACHE_INVALID_PROBE;
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )] = 0u;
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] = 0u;
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_ENTRY_BRDF_BINS )]      = 0u;
+                radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_ENTRY_BRDF_BINS ) + 1u] = 0u;
+                if ( entry < MaxProbes )
+                    radianceCacheFreeList[1u + entry] = int( entry );
+                if ( entry == 0u )
+                {
+                    radianceCacheFreeList[0] = int( MaxProbes );
+                    radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )]      = 0;
+                    radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex + 1u )] = 0;
+                }
+                return;
+            }
             const uint t = gl_LocalInvocationIndex;
             if ( t < RC_PRIORITY_BUCKETS )
                 s_Histogram[t] = 0u;

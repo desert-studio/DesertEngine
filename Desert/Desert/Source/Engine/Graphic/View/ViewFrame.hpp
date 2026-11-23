@@ -332,9 +332,9 @@ namespace Desert::Graphic
         }
 
         // UE View.ClipToPrevClip: this frame's UNJITTERED clip space to the previous frame's. The one source of
-        // the camera's motion of a pixel nothing wrote velocity for (the sky, the clouds, the far plane), which
-        // Common/Velocity.glslh DesertCameraVelocityAtInfinity derives from it: the vendor upscalers' vectors
-        // (UpscalerVelocity), motion blur's Flatten (MotionBlurParams) and DLSS's Streamline constants
+        // the camera's motion of a pixel nothing wrote velocity for (the far plane when no sky draws), which
+        // Common/Velocity.glslh DesertCameraVelocityAtInfinity derives from it: motion blur's Flatten
+        // (MotionBlurParams) and DLSS's Streamline constants
         // (DLSSUpscaler, sl::Constants::clipToPrevClip) take it from here, TemporalAA.shader forms the same
         // product from the camera block.
         [[nodiscard]] glm::mat4 ClipToPrevClip() const

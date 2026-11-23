@@ -967,8 +967,9 @@ namespace Desert::Graphic::RDG
                 continue;
             }
             // FPS-ASYNC-BALANCE (RDGAsyncBalance.hpp): the measured balance runs this pass on Graphics. Not a
-            // fallback - the pass keeps its AsyncCompute flag, so the balance can give it back.
-            if ( !m_BalancedToGraphics.empty() &&
+            // fallback - the pass keeps its AsyncCompute flag, so the balance can give it back. Never a pass whose
+            // queue its frame fixed (PassFlags::AsyncComputeFixed).
+            if ( !m_BalancedToGraphics.empty() && !HasFlag( m_Passes[p].Flags, PassFlags::AsyncComputeFixed ) &&
                  std::binary_search( m_BalancedToGraphics.begin(), m_BalancedToGraphics.end(),
                                      AsyncBalancePassKey( m_Name, m_Passes[p].Name ) ) )
                 continue;
@@ -3773,6 +3774,28 @@ namespace Desert::Graphic::RDG
         return key;
     }
 
+    namespace
+    {
+        // A pass name's family (FPS-ASYNC-BALANCE-MODEL): the name without a trailing " (...)" that holds a digit
+        // - a per-frame count ("SurfaceCache: Radiosity Trace (256 pages)"), whose variants the window averaged
+        // apart. A parenthesis without a digit names a different pass ("(Complex Tiles)") and stays.
+        [[nodiscard]] std::string_view PassFamily( std::string_view name ) noexcept
+        {
+            if ( name.empty() || name.back() != ')' )
+                return name;
+            const size_t open = name.rfind( " (" );
+            if ( open == std::string_view::npos )
+                return name;
+            const std::string_view inside = name.substr( open + 2, name.size() - open - 3 );
+            if ( std::none_of( inside.begin(), inside.end(), []( char c ) { return c >= '0' && c <= '9'; } ) )
+                return name;
+            return name.substr( 0, open );
+        }
+
+        // The row a graphics wait on the async queue is timed under (RecordBarriers): a wait, never a cost.
+        constexpr std::string_view kQueueWaitRow = "RDG Wait: ";
+    } // namespace
+
     void AsyncBalance::NotePlan( std::string_view graph, const CompileResult& plan )
     {
         Shape* shape = nullptr;
@@ -3784,6 +3807,7 @@ namespace Desert::Graphic::RDG
             shape        = &m_Shapes.emplace_back();
             shape->Graph = std::string( graph );
         }
+        ++shape->Runs;
         const size_t count = plan.Passes.size();
         if ( shape->Plan == &plan && shape->Names.size() == count )
             return;
@@ -3803,8 +3827,9 @@ namespace Desert::Graphic::RDG
             shape->Names[position]   = pass.Name;
             shape->Keys[position]    = AsyncBalancePassKey( graph, pass.Name );
             shape->Pipes[position]   = pass.OnPipe;
-            shape->Eligible[position] =
-                 plan.Pipes.SeparateComputeFamily && HasFlag( pass.Flags, PassFlags::AsyncCompute );
+            shape->Eligible[position] = plan.Pipes.SeparateComputeFamily &&
+                                        HasFlag( pass.Flags, PassFlags::AsyncCompute ) &&
+                                        !HasFlag( pass.Flags, PassFlags::AsyncComputeFixed );
             positionOf[pass.Pass] = static_cast<uint32_t>( position );
         }
         const auto known = [&positionOf]( uint32_t pass )
@@ -3827,7 +3852,7 @@ namespace Desert::Graphic::RDG
     // and after every pass it depends on (a fork or a join where the two are on different queues). The graph's
     // length is the later of the two queues' ends (the graph end joins the async queue).
     double AsyncBalance::Simulate( const Shape& shape, std::span<const Pipe> pipes, std::span<const double> cost,
-                                   std::vector<double>& finish )
+                                   std::span<const double> asyncExtra, std::vector<double>& finish )
     {
         double graphicsFree = 0.0;
         double asyncFree    = 0.0;
@@ -3838,13 +3863,81 @@ namespace Desert::Graphic::RDG
             double     start = async ? asyncFree : graphicsFree;
             for ( uint32_t e = shape.PredFirst[position]; e < shape.PredFirst[position + 1]; ++e )
                 start = std::max( start, finish[shape.Preds[e]] );
-            finish[position] = start + cost[position];
+            finish[position] = start + cost[position] + ( async ? asyncExtra[position] : 0.0 );
             if ( async )
                 asyncFree = finish[position];
             else
                 graphicsFree = finish[position];
         }
         return std::max( graphicsFree, asyncFree );
+    }
+
+    // The same schedule, read for the graphics queue's waits on the async queue (RDGAsyncBalance.hpp): a graphics
+    // pass waits by how far the latest async pass it depends on ends after the graphics queue and its graphics
+    // dependencies are ready; the graph end waits by how far the async queue outlasts the graphics one.
+    AsyncBalance::ModelledWait AsyncBalance::WaitOf( const Shape& shape, std::span<const Pipe> pipes,
+                                                     std::span<const double> cost,
+                                                     std::span<const double> asyncExtra )
+    {
+        const size_t        count = pipes.size();
+        ModelledWait        result{ 0.0, 0.0, count, count };
+        std::vector<double> finish( count, 0.0 );
+        double              graphicsFree = 0.0;
+        double              asyncFree    = 0.0;
+        size_t              lastAsync    = count;
+        for ( size_t position = 0; position < count; ++position )
+        {
+            const bool async      = pipes[position] == Pipe::AsyncCompute;
+            double     ready      = async ? asyncFree : graphicsFree;
+            double     asyncReady = 0.0;
+            size_t     waitsFor   = count;
+            for ( uint32_t e = shape.PredFirst[position]; e < shape.PredFirst[position + 1]; ++e )
+            {
+                const uint32_t pred = shape.Preds[e];
+                if ( !async && pipes[pred] == Pipe::AsyncCompute )
+                {
+                    if ( waitsFor == count || finish[pred] > asyncReady )
+                    {
+                        asyncReady = finish[pred];
+                        waitsFor   = pred;
+                    }
+                }
+                else
+                    ready = std::max( ready, finish[pred] );
+            }
+            const double start = std::max( ready, asyncReady );
+            if ( waitsFor != count && asyncReady > ready )
+            {
+                const double wait = asyncReady - ready;
+                result.Total += wait;
+                if ( wait > result.Largest )
+                {
+                    result.Largest = wait;
+                    result.Join    = position;
+                    result.Async   = waitsFor;
+                }
+            }
+            finish[position] = start + cost[position] + ( async ? asyncExtra[position] : 0.0 );
+            if ( async )
+            {
+                asyncFree = finish[position];
+                lastAsync = position;
+            }
+            else
+                graphicsFree = finish[position];
+        }
+        if ( lastAsync != count && asyncFree > graphicsFree )
+        {
+            const double wait = asyncFree - graphicsFree;
+            result.Total += wait;
+            if ( wait > result.Largest )
+            {
+                result.Largest = wait;
+                result.Join    = count;
+                result.Async   = lastAsync;
+            }
+        }
+        return result;
     }
 
     AsyncBalance::Decision* AsyncBalance::Find( uint64_t key ) noexcept
@@ -3868,74 +3961,290 @@ namespace Desert::Graphic::RDG
                                 m_GraphicsPasses.end() );
     }
 
-    bool AsyncBalance::Rebalance( const CostOf& costOf, const LogFn& log )
+    bool AsyncBalance::Rebalance( const Window& window, const LogFn& log )
     {
         for ( Decision& decision : m_Decisions )
             if ( decision.FrozenLeft > 0 )
                 --decision.FrozenLeft;
-        bool                                           changed = false;
-        std::vector<double>                            cost;
-        std::vector<Pipe>                              pipes;
-        std::vector<double>                            finish;
-        std::unordered_map<std::string_view, uint32_t> sameName;
-        for ( Shape& shape : m_Shapes )
+        // The graphs drawn in the window and their runs per frame (a graph drawn for two views runs twice).
+        const double        frames = static_cast<double>( std::max( m_Frames, 1u ) );
+        std::vector<double> perFrame( m_Shapes.size(), 0.0 );
+        for ( size_t s = 0; s < m_Shapes.size(); ++s )
         {
-            const size_t count    = shape.Names.size();
-            bool         measured = false;
-            bool         eligible = false;
-            cost.assign( count, 0.0 );
-            // A row is per name: passes of one name in the graph (a pass declared once per cascade, per view)
-            // share its time evenly.
-            sameName.clear();
-            for ( const std::string& name : shape.Names )
-                ++sameName[name];
+            perFrame[s]      = static_cast<double>( m_Shapes[s].Runs ) / frames;
+            m_Shapes[s].Runs = 0;
+        }
+        m_Frames = 0;
+        // No row (GPU timing off): the choice stays as it is.
+        if ( window.Rows.empty() )
+        {
+            SortList();
+            return false;
+        }
+
+        // THE MEASURED TIMELINE (RDGAsyncBalance.hpp, FPS-ASYNC-BALANCE-MODEL): every row, by pass family.
+        struct Family
+        {
+            double Ms          = 0.0; // inclusive, summed over views and count variants
+            double SelfMs      = 0.0;
+            double AsyncSelfMs = 0.0;
+            double Weight      = 0.0; // runs per frame of every position of a drawn graph in the family
+        };
+        std::unordered_map<std::string_view, Family> families;
+        // An async segment's own time (barriers, gaps between its passes): the backend's async remainder
+        // ("GPU Unaccounted: async compute queue", the segments minus the union of their passes), shared over
+        // the segments by their spans and carried by each segment's head pass (family -> ms per frame).
+        std::unordered_map<std::string_view, double> segmentHeads;
+        std::unordered_map<std::string_view, double> headWeight;
+        double                                       segmentsMs     = 0.0;
+        double                                       asyncRemainder = 0.0;
+        double measuredGraphics = 0.0; // graphics queue busy: every row's graphics self time but the waits
+        double measuredWait     = 0.0; // the "RDG Wait" rows: graphics waiting on the async queue
+        double measuredAsync    = 0.0; // async passes' self times plus the async remainder
+        const std::string_view unaccountedGraphics = Common::Profiling::kGpuUnaccountedGraphicsScope;
+        const std::string_view unaccountedAsync    = Common::Profiling::kGpuUnaccountedAsyncScope;
+        const std::string_view gapPrefix           = Common::Profiling::kGpuGapScopePrefix;
+        for ( const MeasuredRow& row : window.Rows )
+        {
+            // The remainders (Profiler.hpp): the graphics one is graphics time outside every pass, the gaps
+            // only name its pieces, the async one is the segments' own time.
+            if ( row.Name == unaccountedGraphics )
+            {
+                measuredGraphics += row.GpuMs;
+                continue;
+            }
+            if ( row.Name == unaccountedAsync )
+            {
+                asyncRemainder += row.GpuMs;
+                continue;
+            }
+            if ( row.Name.starts_with( gapPrefix ) )
+                continue;
+            // A segment row spans its passes (they are not its children): its span only weighs its share.
+            if ( const size_t label = Common::Profiling::GpuAsyncSegmentLabelStart( row.Name );
+                 label != std::string_view::npos )
+            {
+                std::string_view head = row.Name.substr( label );
+                if ( const size_t to = head.find( " .. " ); to != std::string_view::npos )
+                    head = head.substr( 0, to );
+                segmentHeads[PassFamily( head )] += row.GpuMs;
+                segmentsMs += row.GpuMs;
+                continue;
+            }
+            const double graphicsSelf = std::max( 0.0, row.GpuSelfMs - row.GpuAsyncSelfMs );
+            measuredAsync += row.GpuAsyncSelfMs;
+            if ( row.Name.starts_with( kQueueWaitRow ) )
+            {
+                measuredWait += graphicsSelf;
+                continue;
+            }
+            measuredGraphics += graphicsSelf;
+            Family& family = families[PassFamily( row.Name )];
+            family.Ms += row.GpuMs;
+            family.SelfMs += row.GpuSelfMs;
+            family.AsyncSelfMs += row.GpuAsyncSelfMs;
+        }
+        measuredAsync += asyncRemainder;
+        for ( auto& [head, ms] : segmentHeads )
+            ms = segmentsMs > 0.0 ? asyncRemainder * ms / segmentsMs : 0.0;
+        for ( size_t s = 0; s < m_Shapes.size(); ++s )
+        {
+            if ( perFrame[s] <= 0.0 )
+                continue;
+            const Shape& shape = m_Shapes[s];
+            for ( size_t position = 0; position < shape.Names.size(); ++position )
+            {
+                const std::string_view key = PassFamily( shape.Names[position] );
+                if ( const auto found = families.find( key ); found != families.end() )
+                    found->second.Weight += perFrame[s];
+                if ( shape.Pipes[position] == Pipe::AsyncCompute && segmentHeads.contains( key ) )
+                    headWeight[key] += perFrame[s];
+            }
+        }
+
+        // Each drawn graph's costs per run: its share of the family, and of its segment's own time.
+        std::vector<std::vector<double>> costs( m_Shapes.size() );
+        std::vector<std::vector<double>> extras( m_Shapes.size() );
+        std::vector<double>              lengths( m_Shapes.size(), 0.0 );
+        std::vector<uint8_t>             measured( m_Shapes.size(), 0 );
+        std::vector<double>              finish;
+        double                           passGraphics = 0.0;
+        double                           passAsync    = 0.0;
+        for ( size_t s = 0; s < m_Shapes.size(); ++s )
+        {
+            if ( perFrame[s] <= 0.0 )
+                continue;
+            const Shape& shape = m_Shapes[s];
+            const size_t count = shape.Names.size();
+            costs[s].assign( count, 0.0 );
+            extras[s].assign( count, 0.0 );
             for ( size_t position = 0; position < count; ++position )
             {
-                const Cost measuredCost = costOf( shape.Names[position] );
-                cost[position]          = measuredCost.Ms / static_cast<double>( sameName[shape.Names[position]] );
-                measured                = measured || measuredCost.Measured;
-                eligible                = eligible || shape.Eligible[position];
+                const std::string_view key = PassFamily( shape.Names[position] );
+                if ( const auto found = families.find( key );
+                     found != families.end() && found->second.Weight > 0.0 )
+                {
+                    const Family& family = found->second;
+                    costs[s][position]   = family.Ms / family.Weight;
+                    measured[s]          = 1;
+                    const double asyncShare =
+                         family.SelfMs > 0.0 ? std::clamp( family.AsyncSelfMs / family.SelfMs, 0.0, 1.0 ) : 0.0;
+                    passGraphics += perFrame[s] * costs[s][position] * ( 1.0 - asyncShare );
+                    passAsync += perFrame[s] * costs[s][position] * asyncShare;
+                }
+                if ( shape.Pipes[position] != Pipe::AsyncCompute )
+                    continue;
+                if ( const auto head = headWeight.find( key ); head != headWeight.end() && head->second > 0.0 )
+                {
+                    extras[s][position] = segmentHeads[key] / head->second;
+                    passAsync += perFrame[s] * extras[s][position];
+                }
             }
-            // No measurement (GPU timing off, the graph not drawn in the window) or nothing to choose: the
-            // choice stays as it is.
-            if ( !measured || !eligible )
+            lengths[s] = Simulate( shape, shape.Pipes, costs[s], extras[s], finish );
+        }
+        // The graphics work no pass of a drawn graph holds: other GPU work, the unaccounted remainder.
+        const double outside       = std::max( 0.0, measuredGraphics - passGraphics );
+        double       modelledFrame = outside;
+        for ( size_t s = 0; s < m_Shapes.size(); ++s )
+            modelledFrame += perFrame[s] * lengths[s];
+
+        bool              changed = false;
+        std::vector<Pipe> pipes;
+        for ( size_t s = 0; s < m_Shapes.size(); ++s )
+        {
+            Shape&       shape = m_Shapes[s];
+            const size_t count = shape.Names.size();
+            // Not drawn in the window, no measurement, or nothing to choose: the choice stays as it is.
+            if ( perFrame[s] <= 0.0 || measured[s] == 0 ||
+                 std::none_of( shape.Eligible.begin(), shape.Eligible.end(), []( bool e ) { return e; } ) )
                 continue;
+            const std::vector<double>& cost  = costs[s];
+            const std::vector<double>& extra = extras[s];
             pipes.assign( shape.Pipes.begin(), shape.Pipes.end() );
-            // A flip is modelled with the pass's cost of THIS window on either queue (RDGAsyncBalance.hpp,
-            // FPS-ASYNC-JOIN-2): no earlier window's cost is held; the hysteresis is the hold.
-            double length = Simulate( shape, pipes, cost, finish );
-            // FPS-ASYNC-WARMUP (RDGAsyncBalance.hpp): decide only from steady windows.
+            // A flip is modelled with the pass's cost of THIS window on either queue (FPS-ASYNC-JOIN-2): no
+            // earlier window's cost is held; the hysteresis is the hold.
+            double length = lengths[s];
+            // FPS-ASYNC-WARMUP (RDGAsyncBalance.hpp): decide only from steady windows - past the first
+            // kWarmupWindows, and within kWarmupRatio of the shortest of the last kWarmupWindows.
+            shape.Recent[shape.Windows % kWarmupWindows] = length;
             ++shape.Windows;
-            if ( shape.Windows == 1 || length < shape.MinLength )
-                shape.MinLength = length;
-            if ( shape.Windows <= kWarmupWindows || length > kWarmupRatio * shape.MinLength )
+            double shortest = length;
+            for ( uint32_t w = 0; w < std::min( shape.Windows, kWarmupWindows ); ++w )
+                shortest = std::min( shortest, shape.Recent[w] );
+            // Nothing moved while graphics waited on async: why, once per change of the reason (RDGAsyncBalance.hpp).
+            enum HoldReason : uint8_t
+            {
+                kHoldNone = 0,
+                kHoldWarmUp,
+                kHoldNoModelledWait,
+                kHoldNoGain,
+            };
+            const auto hold = [&]( HoldReason reason, const ModelledWait& wait )
+            {
+                if ( measuredWait <= kWaitThresholdMs )
+                {
+                    shape.LastHold = kHoldNone;
+                    return;
+                }
+                if ( reason == shape.LastHold )
+                    return;
+                shape.LastHold = reason;
+                if ( !log )
+                    return;
+                const std::string_view why = reason == kHoldWarmUp           ? "warm-up window"
+                                             : reason == kHoldNoModelledWait ? "the model has no graphics wait"
+                                                                             : "no unpinned pass gains";
+                const std::string_view join =
+                     wait.Join < count ? std::string_view( shape.Names[wait.Join] ) : std::string_view( "graph end" );
+                const std::string_view on =
+                     wait.Async < count ? std::string_view( shape.Names[wait.Async] ) : std::string_view( "-" );
+                log( fmt::format( "async balance '{}': no move ({}); graphics waits on async: measured {:.3f} ms per "
+                                  "frame, modelled {:.3f} ms per run (largest {:.3f} ms before '{}' on '{}'); "
+                                  "modelled graph {:.3f} ms x {:.2f} runs/frame (shortest recent {:.3f}); modelled "
+                                  "frame {:.3f} vs GPU frame {:.3f} ms; async queue modelled {:.3f} vs measured "
+                                  "{:.3f} ms",
+                                  shape.Graph, why, measuredWait, wait.Total, wait.Largest, join, on, length,
+                                  perFrame[s], shortest, modelledFrame, window.GpuFrameMs, passAsync,
+                                  measuredAsync ) );
+            };
+            if ( shape.Windows <= kWarmupWindows || length > kWarmupRatio * shortest )
+            {
+                hold( kHoldWarmUp, WaitOf( shape, pipes, cost, extra ) );
                 continue;
+            }
+            std::vector<size_t> candidates;
+            uint32_t            moves = 0;
             for ( uint32_t flip = 0; flip < kFlipsPerWindow; ++flip )
             {
-                double bestLength   = length;
-                size_t bestPosition = count;
+                // The graph's work per queue (the log).
+                double graphicsWork = 0.0;
+                double asyncWork    = 0.0;
                 for ( size_t position = 0; position < count; ++position )
                 {
-                    if ( !shape.Eligible[position] )
-                        continue;
-                    if ( const Decision* const decision = Find( shape.Keys[position] );
-                         decision != nullptr && decision->FrozenLeft > 0 )
-                        continue;
-                    const Pipe was   = pipes[position];
-                    Pipe       other = Pipe::AsyncCompute;
-                    if ( was == Pipe::AsyncCompute )
-                        other = Pipe::Graphics;
-                    pipes[position]      = other;
-                    const double flipped = Simulate( shape, pipes, cost, finish );
-                    pipes[position]      = was;
-                    if ( flipped < bestLength )
+                    if ( pipes[position] == Pipe::AsyncCompute )
+                        asyncWork += cost[position] + extra[position];
+                    else
+                        graphicsWork += cost[position];
+                }
+                const auto frozen = [this, &shape]( size_t position )
+                {
+                    const Decision* const decision = Find( shape.Keys[position] );
+                    return decision != nullptr && decision->FrozenLeft > 0;
+                };
+                // To Graphics: while the graphics queue waits on the async queue, an unpinned async pass at or
+                // before the one it waits for (the async queue runs in position order), cheapest on Graphics
+                // first; the first whose flip shortens the modelled graph by the margin.
+                const ModelledWait wait         = WaitOf( shape, pipes, cost, extra );
+                double             bestLength   = length;
+                size_t             bestPosition = count;
+                if ( wait.Largest > kWaitThresholdMs && wait.Async < count )
+                {
+                    candidates.clear();
+                    for ( size_t position = 0; position <= wait.Async; ++position )
+                        if ( shape.Eligible[position] && pipes[position] == Pipe::AsyncCompute && !frozen( position ) )
+                            candidates.push_back( position );
+                    std::stable_sort( candidates.begin(), candidates.end(),
+                                      [&cost]( size_t a, size_t b ) { return cost[a] < cost[b]; } );
+                    for ( const size_t position : candidates )
                     {
-                        bestLength   = flipped;
-                        bestPosition = position;
+                        pipes[position]      = Pipe::Graphics;
+                        const double flipped = Simulate( shape, pipes, cost, extra, finish );
+                        pipes[position]      = Pipe::AsyncCompute;
+                        if ( length - flipped >= kFlipMarginMs )
+                        {
+                            bestLength   = flipped;
+                            bestPosition = position;
+                            break;
+                        }
                     }
                 }
-                if ( bestPosition == count || length - bestLength < kFlipMarginMs )
+                // Back to AsyncCompute: the balance's pass on Graphics whose flip shortens the graph most.
+                if ( bestPosition == count )
+                {
+                    for ( size_t position = 0; position < count; ++position )
+                    {
+                        if ( !shape.Eligible[position] || pipes[position] != Pipe::Graphics || frozen( position ) )
+                            continue;
+                        pipes[position]      = Pipe::AsyncCompute;
+                        const double flipped = Simulate( shape, pipes, cost, extra, finish );
+                        pipes[position]      = Pipe::Graphics;
+                        if ( flipped < bestLength )
+                        {
+                            bestLength   = flipped;
+                            bestPosition = position;
+                        }
+                    }
+                    if ( bestPosition != count && length - bestLength < kFlipMarginMs )
+                        bestPosition = count;
+                }
+                if ( bestPosition == count )
+                {
+                    if ( moves == 0 )
+                        hold( wait.Largest > kWaitThresholdMs ? kHoldNoGain : kHoldNoModelledWait, wait );
                     break;
+                }
+                ++moves;
+                shape.LastHold = kHoldNone;
                 Pipe to = Pipe::AsyncCompute;
                 if ( pipes[bestPosition] == Pipe::AsyncCompute )
                     to = Pipe::Graphics;
@@ -3953,18 +4262,31 @@ namespace Desert::Graphic::RDG
                     decision->FrozenLeft = kFrozenWindows << std::min( decision->Holds, kMaxHoldDoublings );
                     ++decision->Holds;
                 }
-                pipes[bestPosition] = to;
+                pipes[bestPosition]         = to;
+                const double frameAfterFlip = modelledFrame + perFrame[s] * ( bestLength - length );
                 if ( log )
                 {
+                    // Modelled against measured, per queue, at every decision: the model is the timeline only
+                    // while the two agree (RDGAsyncBalance.hpp).
                     const std::string_view queue = to == Pipe::Graphics ? "Graphics" : "AsyncCompute";
+                    const ModelledWait     after = WaitOf( shape, pipes, cost, extra );
+                    const std::string_view join  = wait.Join < count ? std::string_view( shape.Names[wait.Join] )
+                                                                     : std::string_view( "graph end" );
                     log( fmt::format(
-                         "async balance '{}': '{}' -> {} ({:.3f} ms; modelled graph {:.3f} -> {:.3f} ms; held {} "
-                         "windows)",
+                         "async balance '{}': '{}' -> {} ({:.3f} ms; modelled graph {:.3f} -> {:.3f} ms x {:.2f} "
+                         "runs/frame; modelled frame {:.3f} -> {:.3f} ms vs GPU frame {:.3f} ms; graphics queue: "
+                         "graph passes {:.3f} + outside graphs {:.3f} ms of measured {:.3f} ms, wait on async modelled "
+                         "{:.3f} -> {:.3f} ms per run (largest {:.3f} ms before '{}') vs measured {:.3f} ms per "
+                         "frame; async queue: modelled {:.3f} vs measured {:.3f} ms; "
+                         "graph queues {:.3f} graphics / {:.3f} async ms; held {} windows)",
                          shape.Graph, shape.Names[bestPosition], queue, cost[bestPosition], length, bestLength,
-                         decision->FrozenLeft ) );
+                         perFrame[s], modelledFrame, frameAfterFlip, window.GpuFrameMs, passGraphics, outside,
+                         measuredGraphics, wait.Total, after.Total, wait.Largest, join, measuredWait,
+                         passAsync, measuredAsync, graphicsWork, asyncWork, decision->FrozenLeft ) );
                 }
-                length  = bestLength;
-                changed = true;
+                modelledFrame = frameAfterFlip;
+                length        = bestLength;
+                changed       = true;
             }
             shape.Pipes.assign( pipes.begin(), pipes.end() );
         }

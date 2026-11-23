@@ -157,6 +157,12 @@ namespace Desert::Assets
         for ( size_t s = 0; s < m_Submeshes.size() && s < data.Submeshes.size(); ++s )
         {
             m_Submeshes[s].LodChainCooked = data.Submeshes[s].LodChainCooked;
+            // Only a DAG cut caps its level at ~1 px; a simplified level drawn at the progression ignores the
+            // error a v22 cook stored (FPS-MESHLOD-CAP: it held LOD0 on FIELD_Barn foliage to the far field).
+            if ( !data.Submeshes[s].ClusterDag.Clusters.empty() )
+                m_Submeshes[s].LODCutErrors = data.Submeshes[s].LodCutErrors;
+            else
+                m_Submeshes[s].LODCutErrors.clear();
             auto& baked                   = m_Submeshes[s].BakedLODs;
             baked.clear();
             baked.reserve( data.Submeshes[s].LODs.size() );

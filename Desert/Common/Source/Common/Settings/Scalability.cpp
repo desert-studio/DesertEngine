@@ -521,6 +521,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: the cascades end at min(Shadows."
                "Distance, this) when the sun reads the distance-field shadow past them)",
                8000, Vis::Advanced },
+             { P::ShadowFarDistance, G::Shadows, "Shadows.FarDistance", 0, 400000, CL::None,
+               "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: ShadowQuality::FarDistance, the far "
+               "shadow map's reach past the cascades; 0 = none)",
+               100000, Vis::Advanced },
              { P::RenderPipelineTileClassify, G::Effects, "RenderPipeline.TileClassify", 0, 1, CL::None,
                "SceneRenderer::AddFrameComposite -> DeferredLightingRenderer (the 8x8 tile lists the "
                "direct and composite passes draw indirectly; 0 = both draw the whole view)",
@@ -581,6 +585,10 @@ namespace Common::Scalability
                "selection "
                "distance, percent)",
                100, Vis::Advanced },
+             { P::EffectsWaterWaveMethod, G::Effects, "Effects.WaterWaveMethod", 0,
+               LastOf( kWaterWaveMethodNames.size() ), CL::None,
+               "WaterRenderer::PrepareFrame (an FFT wave set's Tessendorf cascades, or its Gerstner generator)",
+               Of( WaterWaveMethod::FFT ), Vis::Basic },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -619,6 +627,8 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
+            if ( parameter == Parameter::EffectsWaterWaveMethod )
+                return kWaterWaveMethodNames;
             if ( parameter == Parameter::PathTracingRadianceCache )
                 return kPathTracingRadianceCacheNames;
             if ( parameter == Parameter::ScreenProbeGatherMethod )

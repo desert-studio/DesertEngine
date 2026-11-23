@@ -26,6 +26,13 @@ Shader "VisibilityDepth"
         	uint Words[];
         };
 
+        // FPS-GRASS-VISRASTER, THE CONSERVATIVE DEPTH (GL_ARB_conservative_depth; UE Nanite's EmitDepthTargets
+        // writes SV_DepthGreaterEqual for the same reason): the triangle stands at z 0 (reversed-Z far), so every
+        // depth written is >= its own - stated, the hardware keeps its coarse depth (HiZ / ZCull) updated through
+        // this pass instead of dropping it for an arbitrary shader depth, and the next grass slice's far blades
+        // behind these words die in the coarse test, not one by one in the fine early-Z. Exact: the same depths.
+        layout(depth_greater) out float gl_FragDepth;
+
         void main()
         {
         	const ivec2 pixel = ivec2(gl_FragCoord.xy);

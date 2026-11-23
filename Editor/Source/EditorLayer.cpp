@@ -96,6 +96,7 @@
 #include "Editor/Import/ImportManager.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Baking/MaterialBaking.hpp"
+#include "Editor/Baking/MeshImpostorBaking.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
 #include "Editor/Widgets/WindowButtonStyle.hpp"
@@ -639,7 +640,11 @@ namespace Desert::Editor
         }
         // A running "Bake Material to Textures" records its offscreen frames here (Editor/Baking/MaterialBaking).
         if ( m_AssetManager )
+        {
             ::Desert::Editor::Baking::TickBakeOfSelection( *m_AssetManager );
+            // A running per-mesh "Bake Impostor" (Editor/Baking/MeshImpostorBaking) the same way.
+            ::Desert::Editor::Baking::TickImpostorBake( *m_AssetManager, m_Workspace.ActiveScene().get() );
+        }
         // A builder run: one step per frame once the named scene has opened and settled; its last step closes the
         // editor with the builder's status (the window was never shown).
         if ( const std::optional<int> finished =

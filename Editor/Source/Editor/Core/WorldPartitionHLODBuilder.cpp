@@ -210,6 +210,12 @@ namespace Desert::Editor
         }
     } // namespace
 
+    Common::ResultStr<::Desert::Assets::InstancedStaticMeshComponentSer>
+    StoreBakedImpostorCard( const HLODApproximateBaked& baked, const std::filesystem::path& dir )
+    {
+        return StoreImpostorCard( baked, dir );
+    }
+
     WorldPartitionHLODBuilder::WorldPartitionHLODBuilder( std::filesystem::path scenePath,
                                                           HLODBuildOptions      options )
          : m_ScenePath( std::move( scenePath ) ), m_Options( options )

@@ -3,12 +3,15 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
 #include <Engine/Water/WaterBodyQuery.hpp>
+#include <Engine/Water/FFTOceanSpectrum.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/Systems/Scene/Water/WaterZoneDraw.hpp>
 #include <Engine/Assets/Common.hpp>
 
@@ -24,6 +27,11 @@
 #include <memory>
 #include <optional>
 #include <vector>
+
+namespace Desert::Graphic::RDG
+{
+    class Builder; // Engine/Graphic/RDG/RDGBuilder.hpp: AddWavePasses records into it
+} // namespace Desert::Graphic::RDG
 
 namespace Desert::Graphic::System
 {
@@ -76,6 +84,40 @@ namespace Desert::Graphic::System
             return m_WaterInfo;
         }
 
+        // THE FFT OCEAN (WATER-RIVERS-FFT; Tessendorf 2001, the UE Water plugin's FFT wave source): when the frame's
+        // body names a wave set authored as an FFT ocean and Effects.WaterWaveMethod resolves to FFT, PrepareFrame
+        // sets the frame's spectrum (uploading its h0 cascades once per set) and the waves block's FFT lane;
+        // the frame graph then records AddWavePasses once (SceneRenderer::FrameWaterWaves) before the first water
+        // draw, and both WaterMesh cells sample the result as WaterFFTTexture.
+        [[nodiscard]] bool FrameWavesAreFFT() const
+        {
+            return m_FFTFrame != nullptr && !m_Walk.Programs.empty();
+        }
+        // The h0 cascades of the frame's spectrum: kFFTOceanResolution x 3 kFFTOceanResolution RGBA32F, cascade c
+        // in rows [N c, N c + N) (Programs/Water/WaterFFTSpectrum.shader).
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetFFTInitialSpectrum() const
+        {
+            return m_FFTInitial;
+        }
+        // The persistent two-frame waves atlas (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture): N x 14 N
+        // RGBA16F, this frame's half written by AddWavePasses, the other half the previous frame's (the velocity,
+        // and the foam history the new half's foam band decays from).
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetFFTWaves() const
+        {
+            return m_FFTWaves;
+        }
+        // The waves this frame's water samples, once AddWavePasses recorded them into @p graph; invalid otherwise.
+        [[nodiscard]] RDG::TextureRef RecordedWaves( const RDG::Builder& graph ) const
+        {
+            return m_FrameWavesGraph == &graph ? m_FrameWavesTexture : RDG::TextureRef{};
+        }
+        // THE OCEAN AT THE VIEW'S TIME (Programs/Water/WaterFFTSpectrum, WaterFFT x2, WaterFFTFinalize): the
+        // cascades' spectra from @p initial (the imported GetFFTInitialSpectrum) advanced to @p timeSeconds
+        // (cameraUB.Time), inverse-transformed along rows then columns, and unpacked into this frame's half of
+        // @p waves (the imported GetFFTWaves). Returns @p waves; invalid when the frame draws no FFT ocean.
+        RDG::TextureRef AddWavePasses( RDG::Builder& graph, RDG::TextureRef initial, RDG::TextureRef waves,
+                                       float timeSeconds );
+
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
         // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes, the
@@ -85,8 +127,9 @@ namespace Desert::Graphic::System
         // (SceneRenderer::FrameFrontLayer; the graph's black texture for both when no front layer was traced),
         // bound as FrontLayerReflectionTexture / FrontLayerDepthTexture where the cell has the slots
         // (Mesh/Surface/FrontLayerReflection.glslh: the water's traced reflection where it IS the front layer).
+        // @p waves: this frame's FFT atlas (SceneRenderer::FrameWaterWaves), the graph's black without one.
         void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, RDG::TextureRef waterInfo,
-                           RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
+                           RDG::TextureRef waves, RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
                            const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
@@ -97,12 +140,12 @@ namespace Desert::Graphic::System
         // template's front layer cell built.
         [[nodiscard]] bool HasFrontLayerDraws() const
         {
-            return !m_FrameDraws.empty() && m_FrameFrontLayer != nullptr;
+            return !m_FrameDraws.empty() && m_FrameFrontLayers > 0u;
         }
         // SETUP of the front layer node: the cell's material route (frame block, tile rows, material row and
         // ripple maps), the scene/view inputs it has slots for and the WaterInfo ground @p waterInfo its waves
         // damp by.
-        void DeclareFrontLayerDraws( RDG::PassBuilder& pass, RDG::TextureRef waterInfo,
+        void DeclareFrontLayerDraws( RDG::PassBuilder& pass, RDG::TextureRef waterInfo, RDG::TextureRef waves,
                                      const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context );
 
@@ -120,12 +163,17 @@ namespace Desert::Graphic::System
         }
 
     private:
-        // One run of rows sharing a grid density: one instanced draw.
+        // One run of rows sharing a grid density, a template and a body material: one instanced draw.
         struct FrameDraw
         {
             uint32_t FirstRow     = 0;
             uint32_t RowCount     = 0;
             uint32_t QuadsPerSide = 0;
+            // The tiles' body material row in their program's Materials block (FrameProgram::Materials), the
+            // draw's MaterialIndex.
+            uint32_t MaterialSlot = 0;
+            // The tiles' template (TileWalk::Programs): the program that records the draw.
+            uint32_t ProgramSlot = 0;
         };
 
         // What a material resolution read, so a cache of one is current exactly while none of it moved (the
@@ -157,7 +205,10 @@ namespace Desert::Graphic::System
         {
             std::shared_ptr<GraphicsPipeline>   Pipeline;
             std::unique_ptr<DataDrivenMaterial> Material;
-            FoldedValues                        Folded;
+            // One fold per body material drawn with this program (ApplyMaterial), and the material whose values
+            // the cell holds now (0: none / refolded).
+            std::vector<FoldedValues> Folded;
+            uint64_t                  Applied = 0;
             // FPS-MAT-HANDLES3, THE CELL'S BLOCKS (UE: a shader's buffer slots are bound once per shader map): its
             // Materials[] and WaterTiles storage-buffer properties, found by name once per (layout stamp,
             // executor) - the executor owns its properties for its whole life, a recompile moves the stamp - and
@@ -193,16 +244,31 @@ namespace Desert::Graphic::System
         // @p program's front layer cell (WaterProgram::FrontLayer); null (said once per handle) when the template
         // has no such cell or it does not build - the water then reflects its captures and sky without the trace.
         WaterProgram* FrontLayerProgramFor( const Assets::AssetHandle& material, WaterProgram& program );
-        // The draws of m_FrameDraws with @p program, inside the node's open render pass.
+        // DeclareDraws' / DeclareFrontLayerDraws' binding block of one template's @p program (one per
+        // TileWalk::Programs entry; the front layer's only for entries with a front layer cell).
+        void DeclareProgramDraws( RDG::PassBuilder& pass, WaterProgram& program, RDG::TextureRef sceneCopy,
+                                  RDG::TextureRef waterInfo, RDG::TextureRef waves,
+                                  RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
+                                  const SceneViewInputs& view, const SceneFrameBinding& frame );
+        void DeclareFrontLayerProgramDraws( RDG::PassBuilder& pass, WaterProgram& front, RDG::TextureRef waterInfo,
+                                            RDG::TextureRef waves, const SceneViewInputs& view,
+                                            const SceneFrameBinding& frame );
+        // The draws of m_FrameDraws of template @p programSlot with @p program, through the pass's binding block
+        // @p blockIndex (DeclareDraws declares one block per template), inside the node's open render pass.
         [[nodiscard]] Common::BoolResultStr RecordDraws( const RDG::PassContext& context,
-                                                         const WaterProgram&     program );
+                                                         const WaterProgram& program, uint32_t programSlot,
+                                                         uint32_t blockIndex );
         // The pipeline of @p shader into @p program; the build's refusal otherwise.
         [[nodiscard]] Common::BoolResultStr BuildProgram( const std::shared_ptr<Shader>& shader,
                                                           const std::string& debugName, WaterProgram& program );
         // Folds @p material's values over its program's schema into the program's WaterMaterialUB and ripple maps;
         // the fold is cached in WaterProgram::Folded, so a steady frame resolves nothing and allocates nothing.
-        void ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp,
-                            WaterProgram& program );
+        // The row is appended to @p rows (the Materials block holds one row per body material, ApplyMaterials).
+        void ApplyMaterial( const Assets::AssetHandle& material, const MaterialStamp& stamp, WaterProgram& program,
+                            std::vector<glm::vec4>& rows );
+        // Every row of @p materials (FrameProgram::Materials) into @p program's Materials block, in order (the
+        // tiles' MaterialIndex).
+        void ApplyMaterials( WaterProgram& program, const std::vector<Assets::AssetHandle>& materials );
         // @p program's WaterProgram::Blocks, re-resolved by name only when its cell's layout stamp or executor
         // moved (a missing block is reported by Material::Get once per resolve, not per frame).
         static const WaterProgram::CellBlocks& BlocksOf( WaterProgram& program );
@@ -218,32 +284,89 @@ namespace Desert::Graphic::System
             VirtualLocalDoesNotBuild,
             NoFrontLayerCell,
             FrontLayerDoesNotBuild,
-            MixedMaterials,
+            TooManyWaveSets,
             NoWavesService,
             WavesRefused,
             TooManyWaves,
+            SpectrumRefused,
+            FFTPipelinesMissing,
+            SpectrumMalformed,
+            FFTReadbackUnreadable,
         };
         [[nodiscard]] bool FirstWarning( const Assets::AssetHandle& material, WaterWarning cause );
         void WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
         static void Warn( const Assets::AssetHandle& material, std::string_view why );
 
         std::unordered_map<std::string, WaterProgram> m_Programs;        // by template compile name
-        WaterProgram*                                 m_Frame = nullptr; // this frame's program
-        WaterProgram* m_FrameFrontLayer = nullptr; // this frame's front layer cell (null: not drawn)
+        // FinishPrepare ran for this frame's TileWalk::Programs (their folds and rows are written): the programs
+        // draw. m_FrameFrontLayers: how many of them have a front layer cell (null FrameProgram::FrontLayer:
+        // none).
+        bool                                          m_FrameReady       = false;
+        uint32_t                                      m_FrameFrontLayers = 0u;
         ShaderBindingLayoutCache                      m_Layout;
         std::unordered_set<uint64_t>                  m_Warned; // FirstWarning's (material, cause) keys
-        // ProgramFor's last answer (UE: the proxy's cached FMaterial), while the material and the stamp stand.
+        // ProgramFor's answers (UE: each proxy's cached FMaterial), one per body material, while the stamp stands
+        // (a moved stamp drops them all): a frame of several templates resolves each body's once.
         struct ResolvedProgram
         {
             uint64_t      Material = 0;
             MaterialStamp Stamp;
             WaterProgram* Program = nullptr; // m_Programs' entries are never erased
         };
-        ResolvedProgram m_Resolved;
+        std::vector<ResolvedProgram> m_Resolved;
 
         // The WaterInfo ground uploaded last (WaterZoneDraw::Ground) and its texture.
         std::shared_ptr<const Water::WaterInfoGround> m_GroundBaked;
+        // The rivers whose flow the uploaded WaterInfo texture carries (TileWalk::Flows when it was composed).
+        std::vector<std::shared_ptr<const Water::RiverFlowField>> m_FlowsBaked;
         std::shared_ptr<Image2D>                      m_WaterInfo;
+
+        // THE FFT OCEAN'S STATE (WATER-RIVERS-FFT). The three compute programs, built on the first FFT frame (a
+        // failure is said once and the water draws its Gerstner generator); one layout cache per program.
+        [[nodiscard]] bool EnsureFFTPipelines();
+        // The frame's spectrum and its waves lane, or null/false: the Gerstner rows (PrepareFrame).
+        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& waves,
+                                            glm::vec4& header, glm::vec4& fft, float& verticalExtent );
+        std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize;
+        ShaderBindingLayoutCache         m_FFTSpectrumLayout, m_FFTTransformLayout, m_FFTFinalizeLayout;
+        bool                             m_FFTTried = false;
+        // This frame's spectrum (null: Gerstner), the one whose h0 is uploaded, its h0 image and the atlas.
+        std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTFrame;
+        std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTUploaded;
+        std::shared_ptr<Image2D>                       m_FFTInitial;
+        std::shared_ptr<Image2D>                       m_FFTWaves;
+        // The atlas half (0 or 1) this frame writes, and the one the last recorded frame wrote (-1: none since the
+        // spectrum changed - the previous frame is then this frame's own half, a zero velocity for one frame).
+        int32_t m_FFTHalf        = 0;
+        int32_t m_FFTWrittenHalf = -1;
+        // The last flip (PrepareFFTFrame): the view time it was taken at and the half it named as the previous
+        // frame's - a second view of the same time keeps both (R3 step 6: one flip per frame, not per view).
+        int32_t m_FFTPreviousHalf = 0;
+        double  m_FFTFlipTime     = 0.0;
+        bool    m_FFTFlipped      = false;
+        // THE FOAM HISTORY's lane of this flip (WaterFFTParams::Foam, AddWavePasses): the share of the previous
+        // half's foam kept, exp(-dt / FFT.FoamDecaySeconds) over the time since the last flip, and whether there
+        // is a previous half to keep it from (false on the first frame of a sea).
+        float m_FFTFoamKeep    = 0.0f;
+        bool  m_FFTFoamHistory = false;
+        // THE CPU MIRROR's read-back (WATER-RIVERS-FFT pass 7; Water::FFTSurfaceMirror): one host-readable buffer
+        // per frame in flight the finalize pass fills with every kFFTReadbackStride-th displacement texel, read
+        // when its slot comes round again (the frame start waited that slot's fence: no GPU wait), with the wave
+        // time and the sea it was written for. Published to Runtime::WaterWavesService::Surfaces.
+        struct FFTReadbackSlot
+        {
+            RDG::ExternalBuffer                            Buffer;
+            std::shared_ptr<const Water::FFTOceanSpectrum> Spectrum; // null: nothing extracted into this slot
+            double                                         Time = 0.0;
+        };
+        std::vector<FFTReadbackSlot> m_FFTReadback;
+        // Reads the slot this frame reuses and publishes it (AddWavePasses, before the slot is extracted into).
+        void PublishFFTReadback( uint32_t slot );
+        // The waves recorded into a graph this frame (RecordedWaves), reset by PrepareFrame.
+        RDG::TextureRef     m_FrameWavesTexture;
+        const RDG::Builder* m_FrameWavesGraph = nullptr;
+        // The wave source last said in the log ([Water] waves=...), -1: nothing said yet.
+        int32_t m_LoggedWaveSource = -1;
 
         std::vector<std::reference_wrapper<const WaterZoneDraw>> m_Queue;
         std::vector<FrameDraw>                                   m_FrameDraws;
@@ -262,13 +385,24 @@ namespace Desert::Graphic::System
         // What PrepareFrame hands the tile task and FinishPrepare (FPS-ARCH-SETUP3): the program the frame draws
         // with (null: no water, the task walks nothing), the material and stamp its fold reads, the ground, the
         // camera the quadtrees are walked from, and the task's row count.
+        // PER-TEMPLATE PROGRAMS (UE: each water body's own material instance on the one water mesh): one entry per
+        // template the frame's bodies use, in first-use order; each draws its tiles through its own binding block.
+        struct FrameProgram
+        {
+            WaterProgram* Base       = nullptr; // ProgramFor's (the identity of the template)
+            WaterProgram* Program    = nullptr; // the cell that draws: Base, or its VSM twin under VirtualMaps
+            WaterProgram* FrontLayer = nullptr; // FrontLayerProgramFor's, or null
+            std::vector<Assets::AssetHandle> Materials; // its body materials: its Materials block, in order
+        };
         struct TileWalk
         {
-            WaterProgram*                                 Program  = nullptr;
-            WaterProgram*                                 FrontLayer = nullptr; // FrontLayerProgramFor's, or null
-            Assets::AssetHandle                           Material = Assets::AssetHandle::Null();
+            std::vector<FrameProgram>                     Programs; // empty: no water, the task walks nothing
             MaterialStamp                                 Stamp;
             std::shared_ptr<const Water::WaterInfoGround> Ground;
+            // The frame's rivers (the WaterInfo atlas's river region is laid out from them: WaterInfoLayoutOf).
+            std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;
+            std::vector<std::vector<glm::vec4>>           Bodies;              // per zone, per body lane
+            std::vector<std::vector<uint32_t>>            BodyPrograms; // per zone, per body: Programs slot
             glm::mat4                                     View{ 1.0f };
             glm::mat4                                     Projection{ 1.0f };
             glm::vec3                                     Observer{ 0.0f };
@@ -282,5 +416,6 @@ namespace Desert::Graphic::System
         Water::WaterTraversalBuffers m_Traversal;
         std::vector<std::byte>       m_Upload;
         std::vector<std::byte>       m_Push;
+        std::vector<glm::vec4>       m_Rows; // material rows of every body material, one upload
     };
 } // namespace Desert::Graphic::System
