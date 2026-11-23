@@ -94,13 +94,24 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 4> kReSTIRShaderNames{ "ReSTIRGIInitial", "ReSTIRGITemporal",
-                                                                      "ReSTIRGISpatial", "ReSTIRGIResolve" };
+        // By ReSTIRGather::Program: InitialNoHistory is the initial shader's other permutation.
+        constexpr std::array<std::string_view, 5> kReSTIRShaderNames{ "ReSTIRGIInitial", "ReSTIRGITemporal",
+                                                                      "ReSTIRGISpatial", "ReSTIRGIResolve",
+                                                                      "ReSTIRGIInitial" };
 
         // The permutation of the programs that trace nothing (Temporal, Resolve): no define, cooked.
         Core::ShaderVariant PlainVariant()
         {
             return Core::ShaderVariant{ .ShippedByCook = true };
+        }
+
+        // The initial pass of a frame without the view's previous reservoirs: the tracer's permutation, no
+        // validation rays (kReSTIRInitialNoHistoryDefine).
+        Core::ShaderVariant NoHistoryVariant( const Pipeline& pipeline )
+        {
+            Core::ShaderVariant variant = TracerVariant( pipeline );
+            variant.Defines.emplace_back( kReSTIRInitialNoHistoryDefine );
+            return variant;
         }
 
         // The hardware entries of kTracerPermutations: the only tracer ReSTIRGatherRuns lets the gather run on.
@@ -115,6 +126,7 @@ namespace Desert::Graphic::GlobalIllumination
 
     Common::BoolResultStr ReSTIRGather::Acquire( const Program program, const Core::ShaderVariant& variant )
     {
+        static_assert( kReSTIRShaderNames.size() == ProgramCount );
         const std::string name( kReSTIRShaderNames[program] );
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
         if ( !acquired )
@@ -142,8 +154,11 @@ namespace Desert::Graphic::GlobalIllumination
         if ( m_TracingProgramsValid && pipeline == m_TracingProgramsFor )
             return BOOLSUCCESS;
         m_TracingProgramsValid = false;
-        for ( const Program program : { Initial, Spatial } )
-            if ( auto acquired = Acquire( program, TracerVariant( pipeline ) ); !acquired )
+        // No ternary of two ShaderVariant prvalues as an argument (an MSVC hang on a ternary by-value argument).
+        const Core::ShaderVariant tracing   = TracerVariant( pipeline );
+        const Core::ShaderVariant noHistory = NoHistoryVariant( pipeline );
+        for ( const Program program : { Initial, InitialNoHistory, Spatial } )
+            if ( auto acquired = Acquire( program, program == InitialNoHistory ? noHistory : tracing ); !acquired )
                 return acquired;
         m_TracingProgramsFor   = pipeline;
         m_TracingProgramsValid = true;
@@ -157,8 +172,12 @@ namespace Desert::Graphic::GlobalIllumination
             variants.push_back( { std::string( kReSTIRShaderNames[program] ), PlainVariant() } );
         for ( const Pipeline& tracer : kTracerPermutations )
             if ( HardwarePermutation( tracer ) )
+            {
                 for ( const Program program : { Initial, Spatial } )
                     variants.push_back( { std::string( kReSTIRShaderNames[program] ), TracerVariant( tracer ) } );
+                variants.push_back(
+                     { std::string( kReSTIRShaderNames[InitialNoHistory] ), NoHistoryVariant( tracer ) } );
+            }
         return variants;
     }
 
@@ -186,12 +205,19 @@ namespace Desert::Graphic::GlobalIllumination
         const History::ReservoirRefs previous = history.RegisterPreviousReservoirs( graph, reservoirExt );
         const bool previousValid = historyReadable && std::ranges::all_of( previous, []( const RDG::TextureRef& t )
                                                                            { return t.IsValid(); } );
-        const auto previousOrBlack = [&]( const History::Reservoir reservoir )
-        { return previousValid ? previous[reservoir] : inputs.Black; };
+        // ONE ROUTE A FRAME (UE: temporal resampling skipped when !bIsHistoryValid): with them, Initial (validation
+        // rays) -> Temporal (into the history) -> Spatial; without them, InitialNoHistory writes its one-sample
+        // reservoirs straight into the history and Spatial reads them - no temporal pass, no texture standing in for
+        // a history that is not there.
+        if ( !previousValid && !m_LoggedNoHistory )
+        {
+            LOG_INFO( "[GI] ReSTIR: no reservoir history (first frame, reset or new extent) - temporal resampling "
+                      "skipped, the initial reservoirs seed the history" );
+            m_LoggedNoHistory = true;
+        }
 
         ReSTIRParamsPayload params;
-        params.Extent =
-             glm::uvec4( reservoirs, kReSTIRSpatialSamples, previousValid ? kReSTIRFlagPreviousValid : 0u );
+        params.Extent = glm::uvec4( reservoirs, kReSTIRSpatialSamples, 0u );
         params.Frame = glm::uvec4( ++m_FrameIndex, 0u, 0u, 0u );
         params.Tuning =
              glm::vec4( kReSTIRTemporalMaxM, kReSTIRSpatialRadius, kReSTIRDepthTolerance, kReSTIRNormalTolerance );
@@ -205,9 +231,14 @@ namespace Desert::Graphic::GlobalIllumination
 
         const auto transient = [&]( const History::Reservoir reservoir, const char* name )
         { return graph.CreateTexture( History::ReservoirDesc( reservoir, reservoirExt ), name ); };
-        const History::ReservoirRefs initial{ transient( History::ReservoirHit, "ReSTIR.InitialHit" ),
-                                              transient( History::ReservoirRadiance, "ReSTIR.InitialRadiance" ),
-                                              transient( History::ReservoirState, "ReSTIR.InitialState" ) };
+        // This frame's reservoirs, extracted into the view for the next frame: the temporal pass's output, or the
+        // initial pass's when there is no history.
+        const History::ReservoirRefs current = history.CreateCurrentReservoirs( graph, reservoirExt );
+        History::ReservoirRefs       initial = current;
+        if ( previousValid )
+            initial = { transient( History::ReservoirHit, "ReSTIR.InitialHit" ),
+                        transient( History::ReservoirRadiance, "ReSTIR.InitialRadiance" ),
+                        transient( History::ReservoirState, "ReSTIR.InitialState" ) };
         const History::ReservoirRefs spatial{ transient( History::ReservoirHit, "ReSTIR.SpatialHit" ),
                                               transient( History::ReservoirRadiance, "ReSTIR.SpatialRadiance" ),
                                               transient( History::ReservoirState, "ReSTIR.SpatialState" ) };
@@ -230,14 +261,14 @@ namespace Desert::Graphic::GlobalIllumination
         const auto gbufferNormal = [&]( RDG::BindingBlockBuilder& block )
         { block.Texture( P::GBufferBTexture, inputs.GBufferB, kS, all ); };
         // What the initial pass's validation rays and the temporal pass both read: the view's previous reservoirs
-        // (black when there are none - the flag tells the shaders not to read them) and the velocity.
+        // and the velocity. Bound only when previousValid (neither pass runs on them otherwise).
         const auto historyReads = [&]( RDG::BindingBlockBuilder& block )
         {
             using H = ReSTIRGIHistoryShaderParameters;
             block.Texture( H::Velocity, inputs.Velocity, kS, all )
-                 .Texture( H::PreviousHit, previousOrBlack( History::ReservoirHit ), kS, all )
-                 .Texture( H::PreviousRadiance, previousOrBlack( History::ReservoirRadiance ), kS, all )
-                 .Texture( H::PreviousState, previousOrBlack( History::ReservoirState ), kS, all );
+                 .Texture( H::PreviousHit, previous[History::ReservoirHit], kS, all )
+                 .Texture( H::PreviousRadiance, previous[History::ReservoirRadiance], kS, all )
+                 .Texture( H::PreviousState, previous[History::ReservoirState], kS, all );
         };
         const glm::uvec2 reservoirGroups( DivideRoundUp( reservoirs.x, 8u ), DivideRoundUp( reservoirs.y, 8u ) );
         const glm::uvec2 pixelGroups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
@@ -260,13 +291,17 @@ namespace Desert::Graphic::GlobalIllumination
         if ( inputs.FinishRadianceCache )
             if ( auto finished = inputs.FinishRadianceCache(); !finished )
                 return finished;
-        const bool readsCards = inputs.Tracer.Pipeline.Hits == HitLighting::SurfaceCache;
+        const bool    readsCards     = inputs.Tracer.Pipeline.Hits == HitLighting::SurfaceCache;
+        const Program initialProgram = previousValid ? Initial : InitialNoHistory;
+        const char*   initialName    = previousValid ? "ReSTIRGI: Initial" : "ReSTIRGI: Initial (no history)";
+        if ( !previousValid )
+            history.SetReservoirWriterPass( graph.GetPassCount() );
         graph.AddPass(
-             "ReSTIRGI: Initial", kAsyncPass,
+             initialName, kAsyncPass,
              [&]( RDG::PassBuilder& builder )
              {
                  using I    = ReSTIRGIInitialShaderParameters;
-                 auto block = bindings( builder, Initial );
+                 auto block = bindings( builder, initialProgram );
                  common( block );
                  block.Storage( I::PointLightsUB, inputs.PointLights, kR )
                       .Storage( I::SpotLightsUB, inputs.SpotLights, kR )
@@ -288,33 +323,36 @@ namespace Desert::Graphic::GlobalIllumination
                       .Storage( I::ReSTIRRadianceOut, initial[History::ReservoirRadiance], kW )
                       .Storage( I::ReSTIRStateOut, initial[History::ReservoirState], kW );
                  gbufferNormal( block );
-                 historyReads( block );
+                 if ( previousValid )
+                     historyReads( block );
                  DeclareTracerReads( block, inputs.Tracer, kS, TracerPointClamp::Bind );
                  if ( readsCards )
                      DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
              },
-             dispatch( Initial, reservoirGroups ) );
+             dispatch( initialProgram, reservoirGroups ) );
 
-        // Temporal: into the view's reservoir history (next frame's previous).
-        const History::ReservoirRefs current = history.CreateCurrentReservoirs( graph, reservoirExt );
-        history.SetReservoirWriterPass( graph.GetPassCount() );
-        graph.AddPass(
-             "ReSTIRGI: Temporal", kAsyncPass,
-             [&]( RDG::PassBuilder& builder )
-             {
-                 using T    = ReSTIRGITemporalShaderParameters;
-                 using I    = ReSTIRGIInitialShaderParameters;
-                 auto block = bindings( builder, Temporal );
-                 common( block );
-                 historyReads( block );
-                 block.Texture( T::InitialHit, initial[History::ReservoirHit], kS, all )
-                      .Texture( T::InitialRadiance, initial[History::ReservoirRadiance], kS, all )
-                      .Texture( T::InitialState, initial[History::ReservoirState], kS, all )
-                      .Storage( I::ReSTIRHitOut, current[History::ReservoirHit], kW )
-                      .Storage( I::ReSTIRRadianceOut, current[History::ReservoirRadiance], kW )
-                      .Storage( I::ReSTIRStateOut, current[History::ReservoirState], kW );
-             },
-             dispatch( Temporal, reservoirGroups ) );
+        // Temporal: into the view's reservoir history (next frame's previous). Only with a history to reuse.
+        if ( previousValid )
+        {
+            history.SetReservoirWriterPass( graph.GetPassCount() );
+            graph.AddPass(
+                 "ReSTIRGI: Temporal", kAsyncPass,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     using T    = ReSTIRGITemporalShaderParameters;
+                     using I    = ReSTIRGIInitialShaderParameters;
+                     auto block = bindings( builder, Temporal );
+                     common( block );
+                     historyReads( block );
+                     block.Texture( T::InitialHit, initial[History::ReservoirHit], kS, all )
+                          .Texture( T::InitialRadiance, initial[History::ReservoirRadiance], kS, all )
+                          .Texture( T::InitialState, initial[History::ReservoirState], kS, all )
+                          .Storage( I::ReSTIRHitOut, current[History::ReservoirHit], kW )
+                          .Storage( I::ReSTIRRadianceOut, current[History::ReservoirRadiance], kW )
+                          .Storage( I::ReSTIRStateOut, current[History::ReservoirState], kW );
+                 },
+                 dispatch( Temporal, reservoirGroups ) );
+        }
 
         graph.AddPass(
              "ReSTIRGI: Spatial", kAsyncPass,

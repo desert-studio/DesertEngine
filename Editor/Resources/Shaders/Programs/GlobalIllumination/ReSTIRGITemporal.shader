@@ -8,7 +8,9 @@
 // few frames, and a previous reservoir the initial pass re-traced and found changed (its validation ray: an
 // occluder, a moved surface, a light switched or moved - RESTIR_HISTORY_DROP in InitialRadiance.a) is not reused
 // at all, so the indirect light follows within two frames. Written into the view's reservoir history (ScreenProbeGatherHistory::Reservoir), which next frame
-// reads back here; the spatial pass reads it this frame.
+// reads back here; the spatial pass reads it this frame. Runs only on a frame WITH the view's previous reservoirs
+// (ReSTIRGather::AddPasses; UE skips temporal resampling when !bIsHistoryValid): without them the initial pass
+// writes the history itself and no previous texture is bound.
 Shader "ReSTIRGITemporal"
 {
     Compute
@@ -80,7 +82,7 @@ Shader "ReSTIRGITemporal"
             // RESTIRHistoryStillValid): dropped = the light or the occluder changed - M and W start over from this
             // frame's sample alone (UE's ReSTIR gather history validation).
             const bool historyKept = texelFetch( InitialRadiance, texel, 0 ).a > 0.5;
-            if ( historyKept && ( restirParams.extent.w & RESTIR_FLAG_PREVIOUS_VALID ) != 0u )
+            if ( historyKept )
             {
                 ivec2 previousTexel;
                 if ( RESTIRPreviousTexel( uv, texelFetch( Velocity, pixel, 0 ).xy, restirParams.jitter,

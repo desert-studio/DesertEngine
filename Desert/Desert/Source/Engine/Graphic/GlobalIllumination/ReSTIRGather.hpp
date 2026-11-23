@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 // THE RESTIR GI FINAL GATHER (Ouyang et al. 2021, "ReSTIR GI: Path Resampling for Real-Time Path Tracing"; UE 5.4+
@@ -22,7 +23,8 @@
 //                       half the texels (a checkerboard flipped per frame) also re-trace the history sample the
 //                       temporal pass would reuse and drop it when its hit or its light changed (validation rays)
 //   ReSTIRGI: Temporal  + the view's previous reservoir of the same surface (reprojected; history in
-//                       ScreenProbeGatherHistory::Reservoir, the gather's existing per-view history)
+//                       ScreenProbeGatherHistory::Reservoir, the gather's existing per-view history); not added on
+//                       a frame without one - the initial pass (InitialNoHistory) then writes the history itself
 //   ReSTIRGI: Spatial   + kReSTIRSpatialSamples neighbours (Jacobian-corrected, visibility-tested)
 //   ReSTIRGI: Resolve   per pixel into the integrate's three textures (diffuse, rough specular, backface)
 // Then the screen probes' own disocclusion and temporal filter take them (ScreenProbeGather::AddPasses): one
@@ -59,13 +61,15 @@ namespace Desert::Graphic::GlobalIllumination
     inline constexpr float kReSTIRValidationDistance  = 0.05f;
     inline constexpr float kReSTIRValidationFloor     = 1.0e-4f;
 
-    // ReSTIRParams.extent.w — must match Common/ReSTIRGI.glslh RESTIR_FLAG_*.
-    inline constexpr uint32_t kReSTIRFlagPreviousValid = 1u;
+    // The initial pass's permutation for a frame without the view's previous reservoirs (UE: temporal resampling
+    // skipped when !bIsHistoryValid): no validation rays, no previous texture declared, and its reservoirs ARE the
+    // view's reservoir history - the temporal pass is not added (ReSTIRGather::AddPasses). ReSTIRGIInitial.shader.
+    inline constexpr std::string_view kReSTIRInitialNoHistoryDefine = "RESTIR_INITIAL_NO_HISTORY";
 
     // std430 — must match `struct ReSTIRParams` in Common/ReSTIRGI.glslh. 96 bytes.
     struct ReSTIRParamsPayload
     {
-        glm::uvec4 Extent{ 0u };     // xy = reservoir extent, z = spatial samples, w = kReSTIRFlag*
+        glm::uvec4 Extent{ 0u };     // xy = reservoir extent, z = spatial samples, w = 0 (unused)
         glm::uvec4 Frame{ 0u };      // x = frame index
         glm::vec4  Tuning{ 0.0f };   // x = temporal M cap, y = spatial radius, z = depth tolerance, w = normal cos
         glm::vec4  Jitter{ 0.0f };   // xy = this frame's NDC jitter, zw = last frame's
@@ -97,11 +101,12 @@ namespace Desert::Graphic::GlobalIllumination
         ReSTIRGather( const ReSTIRGather& )            = delete;
         ReSTIRGather& operator=( const ReSTIRGather& ) = delete;
 
-        // The four programs: Initial and Spatial under TracerVariant( @p pipeline ) (re-acquired when it changes),
-        // Temporal and Resolve once. A refusal names the program.
+        // The five programs: Initial, InitialNoHistory (+ kReSTIRInitialNoHistoryDefine) and Spatial under
+        // TracerVariant( @p pipeline ) (re-acquired when it changes), Temporal and Resolve once. A refusal names
+        // the program.
         [[nodiscard]] Common::BoolResultStr EnsurePrograms( const Pipeline& pipeline );
 
-        // Every program variant EnsurePrograms can acquire: the tracing two under the hardware entries of
+        // Every program variant EnsurePrograms can acquire: the tracing three under the hardware entries of
         // kTracerPermutations (ReSTIRGatherRuns: the gather runs on no other tracer), the other two once. Each is
         // ShaderVariant::ShippedByCook.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
@@ -122,6 +127,8 @@ namespace Desert::Graphic::GlobalIllumination
             Temporal,
             Spatial,
             Resolve,
+            InitialNoHistory, // ReSTIRGIInitial + kReSTIRInitialNoHistoryDefine: a frame without previous
+                              // reservoirs
             ProgramCount
         };
 
@@ -134,5 +141,6 @@ namespace Desert::Graphic::GlobalIllumination
         bool                                                       m_TracingProgramsValid = false;
         uint32_t                                                   m_FrameIndex           = 0;
         bool                                                       m_Logged               = false;
+        bool                                                       m_LoggedNoHistory      = false;
     };
 } // namespace Desert::Graphic::GlobalIllumination

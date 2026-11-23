@@ -6,7 +6,8 @@
 // a hit (GIHitRadiance; the sky: GIMissRadiance). The sample becomes a one-candidate reservoir: M = 1,
 // W = 1 / pdf. The reservoir layout: Common/ReSTIRGI.glslh. A pixel with no G-buffer normal (the sky) writes M = 0.
 // Compiled per tracer (GlobalIllumination::TracerVariant), the hardware permutations only
-// (GlobalIllumination::ReSTIRGatherRuns).
+// (GlobalIllumination::ReSTIRGatherRuns), each twice: with the history's validation rays, and RESTIR_INITIAL_NO_HISTORY
+// for a frame without the view's previous reservoirs (it then writes the reservoir history itself).
 Shader "ReSTIRGIInitial"
 {
     Compute
@@ -85,7 +86,10 @@ Shader "ReSTIRGIInitial"
         layout(binding = 18, rgba32f) restrict writeonly uniform image2D ReSTIRHitOut;
         layout(binding = 19, rgba16f) restrict writeonly uniform image2D ReSTIRRadianceOut;
         layout(binding = 20, rgba32f) restrict writeonly uniform image2D ReSTIRStateOut;
-        // The validation ray's inputs: the view's previous reservoirs, found as ReSTIRGITemporal finds them.
+        // The validation ray's inputs: the view's previous reservoirs, found as ReSTIRGITemporal finds them. Not
+        // declared in the RESTIR_INITIAL_NO_HISTORY permutation (a frame without them: this pass writes the view's
+        // reservoir history itself, no temporal pass runs - ReSTIRGather::AddPasses), so nothing stands in for them.
+        #ifndef RESTIR_INITIAL_NO_HISTORY
         Uniform(21) texture2D Velocity;
         #define Velocity sampler2D(Velocity, PointClampSampler)
         Uniform(22) texture2D PreviousHit;
@@ -94,6 +98,7 @@ Shader "ReSTIRGIInitial"
         #define PreviousRadiance sampler2D(PreviousRadiance, PointClampSampler)
         Uniform(24) texture2D PreviousState;
         #define PreviousState sampler2D(PreviousState, PointClampSampler)
+        #endif
 
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
@@ -115,6 +120,7 @@ Shader "ReSTIRGIInitial"
         // test) is re-traced from this frame's visible point toward its stored hit and lit again there. A changed
         // hit or a changed light drops it (RESTIR_HISTORY_DROP); a history the temporal pass would not reuse anyway
         // (off screen, another surface, empty, below this surface) is kept untouched.
+        #ifndef RESTIR_INITIAL_NO_HISTORY
         float ValidateHistory( ivec2 pixel, vec2 uv, vec3 p, vec3 n, GITraceBias bias )
         {
             ivec2 previousTexel;
@@ -158,6 +164,7 @@ Shader "ReSTIRGIInitial"
                         ? RESTIR_HISTORY_KEEP
                         : RESTIR_HISTORY_DROP;
         }
+        #endif
 
         void main()
         {
@@ -211,11 +218,14 @@ Shader "ReSTIRGIInitial"
             radiance = RESTIRClampRadiance( max( radiance, vec3( 0.0 ) ), restirParams.rayClamp.x );
 
             // This frame's checkerboard half re-traces its history (RESTIRValidatesThisFrame); the verdict rides in
-            // Radiance.a to ReSTIRGITemporal.
-            const float verdict = ( restirParams.extent.w & RESTIR_FLAG_PREVIOUS_VALID ) != 0u &&
-                                            RESTIRValidatesThisFrame( texel, frame )
-                                       ? ValidateHistory( pixel, uv, p, n, bias )
-                                       : RESTIR_HISTORY_KEEP;
+            // Radiance.a to ReSTIRGITemporal. Without a history this reservoir IS the history (Radiance.a = 1, as
+            // the temporal pass writes it).
+            #ifdef RESTIR_INITIAL_NO_HISTORY
+            const float verdict = RESTIR_HISTORY_KEEP;
+            #else
+            const float verdict = RESTIRValidatesThisFrame( texel, frame ) ? ValidateHistory( pixel, uv, p, n, bias )
+                                                                           : RESTIR_HISTORY_KEEP;
+            #endif
 
             imageStore( ReSTIRHitOut, texel, vec4( hitPosition, uintBitsToFloat( RESTIRPackNormal( hitNormal ) ) ) );
             imageStore( ReSTIRRadianceOut, texel, vec4( radiance, verdict ) );

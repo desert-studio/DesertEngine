@@ -239,7 +239,8 @@ namespace Desert::Graphic
         // G-buffer's extent / kReSTIRDownsample), under the same protocol as the set above and swapped by the same
         // EndFrame, but a set of its own: a frame of the screen-probe method creates none and the next frame has
         // no previous reservoirs (their memory goes with them). Written by the temporal resampling, which runs
-        // before the spatial one: the spatial output is never fed back (Ouyang et al. 2021 sec. 4).
+        // before the spatial one: the spatial output is never fed back (Ouyang et al. 2021 sec. 4). A frame without
+        // previous reservoirs runs no temporal resampling: its initial sample writes them (ReSTIRGather::AddPasses).
         enum Reservoir : uint32_t
         {
             ReservoirHit = 0,  // xyz = the sample's hit point (world cm; a sky sample: the visible point + its
@@ -261,8 +262,9 @@ namespace Desert::Graphic
         [[nodiscard]] ReservoirRefs RegisterPreviousReservoirs( RDG::Builder& graph, ViewExtent reservoirExtent );
         // This frame's reservoirs ("ReSTIR.<name>"), extracted into the view for the next frame.
         [[nodiscard]] ReservoirRefs CreateCurrentReservoirs( RDG::Builder& graph, ViewExtent reservoirExtent );
-        // The AddPass index of the temporal resampling that writes them (Builder::GetPassCount() before its
-        // AddPass). Not called -> they count as unwritten.
+        // The AddPass index of the pass that writes them - the temporal resampling, or the initial sample on a frame
+        // without previous reservoirs (Builder::GetPassCount() before its AddPass). Not called -> they count as
+        // unwritten.
         void SetReservoirWriterPass( uint32_t writerPass );
 
     private:
