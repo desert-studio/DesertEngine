@@ -3644,7 +3644,8 @@ namespace Desert::Graphic::System
                 // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
                     skinnedData.Sections =
-                         SkinnedSectionsFor( data.MaterialSlots, skinnedData.Mesh->GetSubmeshes().size() );
+                         SkinnedSectionsFor( data.MaterialSlots, skinnedData.Mesh->GetSubmeshes().size(),
+                                             data.HiddenSubmeshes );
                 if ( !skinnedData.Sections.empty() )
                     m_SkinnedQueue.push_back( std::move( skinnedData ) );
                 break;
@@ -3653,13 +3654,14 @@ namespace Desert::Graphic::System
     }
 
     const MeshRenderer::SkinnedSectionList& MeshRenderer::SkinnedSectionsFor( const MaterialSlotBindingPtr& binding,
-                                                                             const std::size_t submeshCount )
+                                                                             const std::size_t submeshCount,
+                                                                             const uint64_t    hiddenSubmeshes )
     {
         SkinnedSectionsEntry& entry = m_SkinnedSections[reinterpret_cast<std::uintptr_t>( binding.get() )];
         entry.Seen                  = m_SkinnedSectionsEpoch;
         // Held, so an equal address is this binding; the count moves only with the mesh drawn (a reload under the
         // same binding is a new binding, MeshECSSystem).
-        if ( entry.Binding == binding && entry.SubmeshCount == submeshCount )
+        if ( entry.Binding == binding && entry.SubmeshCount == submeshCount && entry.HiddenSubmeshes == hiddenSubmeshes )
             return entry.Sections;
 
         // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections of one slot
@@ -3686,7 +3688,11 @@ namespace Desert::Graphic::System
         for ( size_t g = 0; g < groups; ++g )
         {
             const size_t        slot    = visibleBySlot[g].first;
-            const uint64_t      visible = visibleBySlot[g].second;
+            // A section the body hides under clothing (HiddenSections) is not drawn; a slot left with none is
+            // no section at all.
+            const uint64_t      visible = visibleBySlot[g].second & ~hiddenSubmeshes;
+            if ( visible == 0 )
+                continue;
             MaterialInstance*   inst    = slots[slot];
             DataDrivenMaterial* surface = nullptr;
             if ( Material* parent = inst != nullptr ? inst->GetParentMaterial() : nullptr )
@@ -3713,6 +3719,7 @@ namespace Desert::Graphic::System
         }
         entry.Binding      = binding;
         entry.SubmeshCount = submeshCount;
+        entry.HiddenSubmeshes = hiddenSubmeshes;
         entry.Sections     = SkinnedSectionList( std::move( sections ) );
         return entry.Sections;
     }

@@ -13,6 +13,7 @@
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/FoliageCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
+#include <Engine/ECS/ModularCharacter.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
@@ -254,6 +255,8 @@ namespace Desert::ECS
                  {
                      m_Water->Advance( dt );
                      StepCharacters( registry, camFwd, camRight, dt );
+                     // Cloth worn by modular characters (IModularCharacter::ApplyLeaderPose), at this fixed step.
+                     ModularCharacter::StepAll( registry, dt, m_World->GetGravity() );
                  } );
             // A kinematic body follows its entity (UE: the component leads, the body travels to it over the
             // step's fixed steps); only a dynamic body's pose is written back below.

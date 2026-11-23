@@ -36,6 +36,8 @@ namespace Desert::Graphic::Render
         std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
         // A follower mesh's leader (UE LeaderPoseComponent): empty = it leads itself.
         Animation::LeaderPoseLink       Leader;
+        // The body's hidden sections (Animation::HiddenSections): bit i = submesh i not drawn.
+        uint64_t                        HiddenSubmeshes = 0;
         bool                            Outlined    = false;
         bool                            CastShadows = true;
 
@@ -45,10 +47,11 @@ namespace Desert::Graphic::Render
                                 std::vector<float>                            morphWeights,
                                 uint64_t morphRevision, bool outlined, bool castShadows,
                                 std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr,
-                                Animation::LeaderPoseLink                      leader      = {} )
+                                Animation::LeaderPoseLink                      leader      = {},
+                                uint64_t                                       hiddenSubmeshes = 0 )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( std::move( bones ) ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
-               LodFeedback( std::move( lodFeedback ) ), Leader( leader ), Outlined( outlined ), CastShadows( castShadows )
+               LodFeedback( std::move( lodFeedback ) ), Leader( leader ), HiddenSubmeshes( hiddenSubmeshes ), Outlined( outlined ), CastShadows( castShadows )
         {
         }
 

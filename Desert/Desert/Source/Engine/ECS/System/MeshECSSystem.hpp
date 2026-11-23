@@ -324,10 +324,13 @@ namespace Desert::ECS
                              morphRevision     = morph.GetRevision();
                          }
 
+                         // The body's sections a script hid under clothing (ModularCharacter SetBodySectionVisible).
+                         const auto*    hiddenBody     = registry.try_get<Animation::HiddenSections>( entity );
+                         const uint64_t hiddenSections = hiddenBody != nullptr ? hiddenBody->Mask : 0;
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, palette.Current,
                               std::move( morphWeights ), morphRevision, isSelected, mesh.GetCastShadows(),
-                              std::move( lodFeedback ), leaderLink );
+                              std::move( lodFeedback ), leaderLink, hiddenSections );
                      } );
                 // A character no longer drawn (destroyed, hidden, no mesh) gives its buffers back.
                 std::erase_if( m_BonePalettes,
