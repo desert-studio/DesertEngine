@@ -452,6 +452,10 @@ namespace Common::Scalability
                "cut, "
                "tenths of a pixel)",
                10, Vis::Advanced },
+             { P::VirtualGeometrySoftwareRaster, G::ViewDistance, "VirtualGeometry.SoftwareRaster", 0, 1, CL::None,
+               "SceneRenderer::AddFrameVirtualGeometry -> ClusterCullView::SwRasterMaxEdgePixels (the HW/SW split) "
+               "-> VirtualGeometryRenderer::AddSoftwareRaster",
+               0, Vis::Advanced },
              { P::AsyncCompute, G::Effects, "RenderPipeline.AsyncCompute", 0, 1, CL::AsyncCompute,
                "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on "
                "the "

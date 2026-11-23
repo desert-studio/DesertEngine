@@ -379,6 +379,11 @@ namespace Common::Scalability
         // virtual-geometry cluster may show before the cluster cut refines below it
         // (VirtualGeometryRenderer::AddClusterCull's threshold, x the view's LOD scale). Lower = finer. 1..1000
         ViewDistanceVirtualGeometryMaxPixelsPerEdge,
+        // VG-SW-RASTER (UE r.Nanite's SW raster, MinPixelsPerEdgeHW): 0/1, the main view's small virtual-geometry
+        // clusters (MaxEdgeLength under kSwRasterMaxEdgePixels) drawn by the compute raster into the view's
+        // visibility buffer (VirtualGeometryRenderer::AddSoftwareRaster) instead of the material cells. Needs the
+        // visibility buffer (64-bit buffer atomics, the grass's GRASS-VIS path): without it every cluster is HW.
+        VirtualGeometrySoftwareRaster,
         // 0/1: the view graph's AsyncCompute passes run on the device's compute queue family, overlapping the
         // graphics queue (UE r.RDG.AsyncCompute and the per-feature r.*.AsyncCompute). 0 = every pass records on
         // the graphics queue in AddPass order. Narrowed by the catalog: a device without a separate compute family

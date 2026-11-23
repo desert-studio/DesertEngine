@@ -955,7 +955,7 @@ namespace Desert::Graphic::System
                 const VirtualGeometryIssue& vg = *issue.VirtualGeometry;
                 if ( vg.GroupCount != issue.Table->Groups.size() || vg.GroupCarriers.size() != vg.GroupCount ||
                      ( !vg.GroupPipelines.empty() && vg.GroupPipelines.size() != vg.GroupCount ) ||
-                     !vg.GroupArgs.IsValid() || !vg.Rows.IsValid() )
+                     !vg.GroupArgs.IsValid() || ( !vg.ResolveRows && !vg.Rows.IsValid() ) )
                 {
                     Fail( std::format(
                          "virtual geometry raster: {} bins, {} carriers and {} pipelines for {} groups",
@@ -1213,7 +1213,8 @@ namespace Desert::Graphic::System
             if ( m_Binned && m_Binned->VirtualGeometry )
             {
                 declaration.Read( m_Binned->VirtualGeometry->GroupArgs, RDG::Access::IndirectArgs );
-                declaration.Read( m_Binned->VirtualGeometry->Rows, RDG::Access::VertexIndex );
+                if ( !m_Binned->VirtualGeometry->ResolveRows ) // the resolve binds no instance id stream
+                    declaration.Read( m_Binned->VirtualGeometry->Rows, RDG::Access::VertexIndex );
             }
             // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
@@ -1527,11 +1528,18 @@ namespace Desert::Graphic::System
                                              pipeline.GetSpecification().DebugName );
                             vgGroup->Add( 1, 0, true );
                         }
-                        const ClusterIndirectGroupDraw draw{ .Args       = vg.GroupArgs,
-                                                             .ArgsOffset = uint64_t{ group } *
-                                                                           VirtualGeometry::kRasterBinsArgsStride,
-                                                             .Rows     = vg.Rows,
-                                                             .Material = vg.GroupCarriers[group] };
+                        ClusterIndirectGroupDraw draw{ .Args       = vg.GroupArgs,
+                                                       .ArgsOffset = uint64_t{ group } *
+                                                                     VirtualGeometry::kRasterBinsArgsStride,
+                                                       .Rows     = vg.Rows,
+                                                       .Material = vg.GroupCarriers[group] };
+                        if ( vg.ResolveRows ) // the resolve: the tile list's one record for every group
+                        {
+                            draw.ArgsOffset = vg.ResolveArgsOffset;
+                            draw.Rows       = {};
+                            draw.Resolve    = glm::uvec3( static_cast<uint32_t>( group ), vg.ResolveRows->x,
+                                                          vg.ResolveRows->y );
+                        }
                         if ( auto drawn =
                                   api.RenderClusterIndirectGroup( blocks.At( m_VgGroupBlock[group] ), pipeline, draw );
                              !drawn )
@@ -2444,6 +2452,12 @@ namespace Desert::Graphic::System
                 resolved.EmissionIsLight = resolved.Pipeline != nullptr &&
                                            ( row.Instance != nullptr ? row.Instance->IsEmissiveLightsScene()
                                                                      : row.Surface->IsEmissiveLightsScene() );
+                // VG-SW-RASTER: the software raster's clusters of this bin are shaded only through the cell's VG
+                // visibility resolve twin (a `.Parallax` cell or a path without the VG permutation has none).
+                if ( resolved.Pipeline != nullptr && !resolved.DitheredLod )
+                    if ( const auto resolveCell = VisibilityResolveCellOf( BinnedCellOf( *cell ) ) )
+                        resolved.SoftwareRaster =
+                             Runtime::ResourceRegistry::GetShaderService()->GetByName( *resolveCell ) != nullptr;
                 return resolved;
             }
             case GpuDriven::MeshPass::Forward:

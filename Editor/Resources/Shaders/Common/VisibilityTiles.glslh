@@ -88,4 +88,14 @@ float DesertVisibilityMaterialDepth( const uint firstRow )
 {
     return uintBitsToFloat( 0x30000000u + firstRow );
 }
+
+// VG-SW-RASTER (UE 5 Nanite: the material depth of a cluster's material slot, EmitMaterialDepth via the cluster's
+// material table): the material depth of a VIRTUAL GEOMETRY word - its pixel is resolved by the draw of the main
+// pass's IndirectGroup @p group (GpuDrawBin.Group of the cluster's lod-0 draw slot, RasterBinning.shader GroupOf -
+// the very group whose `.VirtualGeometry` cell drew the cluster had it gone to the hardware raster). Past every
+// grass section's value (rows < 2^25: 0x30000000 + 2^25 = 0x32000000), a normal float one-to-one with the group.
+float DesertVisibilityVgMaterialDepth( const uint group )
+{
+    return uintBitsToFloat( 0x32000000u + group );
+}
 #endif

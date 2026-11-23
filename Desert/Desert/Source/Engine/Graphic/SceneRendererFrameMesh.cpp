@@ -720,8 +720,25 @@ namespace Desert::Graphic
         // - before, the phase-1 words were resolved twice (FPS-FIELD-BARN scn-1031-101332: Resolve 1.64 + Resolve
         // Post 1.67 ms).
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Raster" );
-        if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
+        if ( !targets || meshRenderer == nullptr )
             return;
+        // VG-SW-RASTER R2 (UE Nanite EmitDepthTargets, whatever rastered the words): a frame whose words hold only
+        // the virtual geometry's SW clusters (no grass section drawn through the buffer) still writes their depth
+        // after phase 1, so the base pass tests against them and the HZB phase 2 tests sees them.
+        if ( !meshRenderer->DrawsGrassVisibility() )
+        {
+            if ( postOcclusion || !visibility.HasVirtualGeometryRows() )
+                return;
+            RasterTargets vgDepthOnly;
+            vgDepthOnly.Depth = targets->Depth;
+            AddRaster(
+                 graph, "VirtualGeometry: Visibility Depth", vgDepthOnly, {}, RDG::LoadOp::Load(), {},
+                 [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return m_GrassVisibility.RecordDepth( context ); },
+                 [this, words = visibility.Words]( RDG::PassBuilder& pass )
+                 { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
+            return;
+        }
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
@@ -827,7 +844,10 @@ namespace Desert::Graphic
         // holds the phase-1 words' depth ("Grass: Visibility Depth") and phase 2's meshes; the resolve writes each
         // word's own depth CloserOrEqual, so a phase-2 mesh in front keeps its texel.
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Resolve" );
-        if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
+        // VG-SW-RASTER R2: the classify, the material depth and the depth pass run for the grass's sections, the
+        // VG's SW rows, or both; each resolve below only for the rows it owns.
+        if ( !targets || meshRenderer == nullptr ||
+             ( !meshRenderer->DrawsGrassVisibility() && !visibility.HasVirtualGeometryRows() ) )
             return;
         // GRASS-VIS-MESH-2: the blades and the mesh grass resolve in passes of their own, so the profile states
         // each one's price ("Grass: Mesh Visibility Resolve" is what the mesh grass pays instead of the masked depth
@@ -887,6 +907,28 @@ namespace Desert::Graphic
                      meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path );
                  } );
         }
+        // VG-SW-RASTER R1 (UE 5 Nanite's material pass over VisBuffer64): the software raster's words, shaded per
+        // G-buffer IndirectGroup through its `.VisibilityResolve.Binned.VirtualGeometry` cell on the same material
+        // depth (VgMaterialDepth stamped each VG pixel with its group's value), EQUAL. Their depth is already in
+        // the G-buffer depth ("Grass: Visibility Depth" of every word).
+        if ( !visibility.HasVirtualGeometryRows() )
+            return;
+        const System::MeshRenderer::VirtualGeometryResolveInputs vgInputs{
+             .Visibility      = visibility.Words,
+             .ResolveArgs     = visibility.ResolveArgs,
+             .VisibleClusters = visibility.VgVisibleClusters,
+             .Clusters        = visibility.VgGroups.Clusters,
+             .Dags            = visibility.VgGroups.Dags,
+             .PrimitiveDraws  = visibility.VgGroups.PrimitiveDraws,
+             .FirstRow        = visibility.VgFirstRow,
+             .RowCount        = visibility.VgRowCount };
+        AddRaster(
+             graph, "VirtualGeometry: Visibility Resolve", resolveTargets,
+             textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderVirtualGeometryVisibilityResolve( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), vgInputs]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareVirtualGeometryVisibilityResolve( pass, view, vgInputs ); } );
     }
 
     void SceneRendererImpl::AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,

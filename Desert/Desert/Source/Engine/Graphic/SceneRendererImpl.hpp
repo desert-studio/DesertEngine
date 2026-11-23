@@ -898,6 +898,18 @@ namespace Desert::Graphic
         // post pass): the main cut's carry ("Cluster Cut Post") against this frame's furthest HZB, drawn by the
         // GBuffer post-occlusion pass. Nothing when the main cut tested no HZB.
         void AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame );
+        // VG-SW-RASTER: whether this frame's main view splits its clusters HW/SW - the view can keep a visibility
+        // buffer this frame (the deferred G-buffer path, a device with 64-bit buffer atomics, the buffer's
+        // programs loaded, and, when the grass shares the buffer, its rows not overflowing: the VG rows follow
+        // them). AddFrameVirtualGeometry records it in FrameVirtualGeometry::SoftwareRaster; the post cut splits
+        // by that record (one decision per frame for both phases).
+        [[nodiscard]] bool VirtualGeometrySwRasterOn() const;
+        // VG-SW-RASTER: the main SW raster's row base in this frame's visibility buffer (past every grass row when
+        // the grass shares it, else 0) once VirtualGeometry::SoftwareRasterRowsFit passes for a cut of
+        // @p visibleCapacity rows (ClusterCutVisibleCapacity); the refusal otherwise. Asked by the main cut BEFORE
+        // its HW/SW split (refused: every cluster stays HW this frame) and by the main SW raster for its row
+        // base - one gate, one row base.
+        [[nodiscard]] Common::ResultStr<uint32_t> VirtualGeometrySwRasterRowBase( uint32_t visibleCapacity ) const;
         // VIRT-GEOM step 16 (AddFrameVirtualSunShadow, between the page passes and "VSM: Raster"): the virtual
         // shadow map's clipmap levels as cut views - one instance cull over the levels (kVsmPageMask, the level's
         // drawn-page mask) appending only VG candidates, then per level a "Cluster Cut" at the level's texel
@@ -1607,6 +1619,16 @@ namespace Desert::Graphic
         // DebugViewState::ForceVirtualGeometryPostCutRefusal as last logged (logged once when it turns on).
         bool  m_VirtualGeometryPostRefusalLogged = false;
         float m_VirtualGeometryMaxPixelsPerEdge  = 1.0f;
+        // Scalability VirtualGeometry.SoftwareRaster (VG-SW-RASTER): the main cut hands small clusters to the
+        // compute raster when the view also has its visibility buffer (AddFrameVirtualGeometry).
+        bool m_VirtualGeometrySoftwareRaster = false;
+        // The main cut's last SW raster refusal (VirtualGeometrySwRasterRowBase) as logged: once per reason,
+        // cleared when the gate passes again.
+        std::string m_VirtualGeometrySwRefusal;
+        // The main / post SW raster's last error as logged (SceneRenderer.cpp): once per reason (a new reason
+        // logs). Not m_VirtualGeometryLastError, which AddFrameVirtualGeometry clears every frame its cuts pass -
+        // a raster error kept there was logged every frame.
+        std::string m_VirtualGeometrySwRasterError;
         // This frame's cut (reset by AddFrameVirtualGeometry): what the vg_clusters view draws.
         struct FrameVirtualGeometry
         {
@@ -1618,6 +1640,14 @@ namespace Desert::Graphic
             // the main cut tested no HZB.
             RDG::BufferRef OccludedCandidates;
             RDG::BufferRef OccludedCount;
+            // VG-SW-RASTER R2: the main cut split HW/SW this frame (AddFrameVirtualGeometry's gate): the view then
+            // keeps a visibility buffer even without grass on it, its SW rows rastered, depth-written and
+            // resolved.
+            bool SoftwareRaster = false;
+            // VG-SW-RASTER: the post cut's counters (its ClusterCullResult::RasterArgs; it appends to
+            // VisibleClusters above, GpuClusterRasterArgs::SwFirst / HwFirst): "VirtualGeometry: Software Raster
+            // Post" reads its SW rows from them. Invalid when no post cut ran.
+            RDG::BufferRef PostRasterArgs;
         };
         std::optional<FrameVirtualGeometry> m_FrameVirtualGeometry;
         uint32_t                            m_VirtualGeometryInstances = 0; // this frame's VG candidate instances

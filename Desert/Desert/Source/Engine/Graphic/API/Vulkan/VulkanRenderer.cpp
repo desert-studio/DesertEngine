@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <array>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -2565,31 +2566,55 @@ namespace Desert::Graphic::API::Vulkan
         const auto args = VulkanRdgBackend::BufferOf( declared.GetValue() );
         if ( !args )
             return Common::MakeFormattedError( "{}: cluster group arguments: {}", pass, args.GetError() );
-        const auto rowsDeclared = context.GetBuffer( draw.Rows, RDG::Access::VertexIndex );
-        if ( !rowsDeclared )
-            return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rowsDeclared.GetError() );
-        const auto rows = VulkanRdgBackend::BufferOf( rowsDeclared.GetValue() );
-        if ( !rows )
-            return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rows.GetError() );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
-        if ( !static_cast<const VulkanPipeline*>( &pipeline )->ReadsVisibleRow() )
-            return Common::MakeFormattedError( "{}: pipeline '{}' does not read the instance id stream: not a "
-                                               "`.VirtualGeometry` cell",
-                                               pass, pipeline.GetSpecification().DebugName );
-
-        if ( const Common::BoolResultStr bound =
-                  BindGraphicsPassState( bindings, pipeline, draw.Material, {}, PassStatePush::Record );
-             !bound || !bound.GetValue() )
-            return bound;
-        // Binding 2 only: the cell reads its vertices through the cluster (no binding 0 / 1 attribute is consumed,
-        // VulkanShaderReflection feeds the consumed locations only), so the bind-skip key of the meshes'
-        // buffers (m_BoundGeometry) is untouched; binding 2's own record (BoundVisibleRows) names this buffer, so
-        // the next mesh draw binds its stream again.
-        const VkBuffer rowBuffer = rows.GetValue()->GetBuffer();
-        if ( !Recording().BoundVisibleRows.Holds( RecordingTarget(), rowBuffer ) )
+        if ( draw.Resolve )
         {
-            const VkDeviceSize zero = 0;
-            vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer, &zero );
+            // The VG visibility resolve: the tile list's draw, the group's words in Transform[0].xyz of a copy of
+            // the carrier's push block (BindGraphicsPassState checks its size against the material's).
+            if ( draw.Material == nullptr )
+                return Common::MakeFormattedError( "{}: VG visibility resolve without a carrier", pass );
+            const auto& pc = draw.Material->GetPushConstantBuffer();
+            if ( pc.Size < 3u * sizeof( uint32_t ) )
+                return Common::MakeFormattedError(
+                     "{}: VG visibility resolve: the carrier's push block is {} bytes, it carries no Transform[0]",
+                     pass, pc.Size );
+            std::vector<std::byte> push( static_cast<size_t>( pc.Size ) );
+            std::memcpy( push.data(), pc.Data, push.size() );
+            const std::array<uint32_t, 3> words{ draw.Resolve->x, draw.Resolve->y, draw.Resolve->z };
+            std::memcpy( push.data(), words.data(), sizeof( words ) );
+            if ( const Common::BoolResultStr bound =
+                      BindGraphicsPassState( bindings, pipeline, draw.Material, push, PassStatePush::Record );
+                 !bound || !bound.GetValue() )
+                return bound;
+        }
+        else
+        {
+            const auto rowsDeclared = context.GetBuffer( draw.Rows, RDG::Access::VertexIndex );
+            if ( !rowsDeclared )
+                return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rowsDeclared.GetError() );
+            const auto rows = VulkanRdgBackend::BufferOf( rowsDeclared.GetValue() );
+            if ( !rows )
+                return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rows.GetError() );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+            if ( !static_cast<const VulkanPipeline*>( &pipeline )->ReadsVisibleRow() )
+                return Common::MakeFormattedError( "{}: pipeline '{}' does not read the instance id stream: not a "
+                                                   "`.VirtualGeometry` cell",
+                                                   pass, pipeline.GetSpecification().DebugName );
+
+            if ( const Common::BoolResultStr bound =
+                      BindGraphicsPassState( bindings, pipeline, draw.Material, {}, PassStatePush::Record );
+                 !bound || !bound.GetValue() )
+                return bound;
+            // Binding 2 only: the cell reads its vertices through the cluster (no binding 0 / 1 attribute is
+            // consumed, VulkanShaderReflection feeds the consumed locations only), so the bind-skip key of the
+            // meshes' buffers (m_BoundGeometry) is untouched; binding 2's own record (BoundVisibleRows) names this
+            // buffer, so the next mesh draw binds its stream again.
+            const VkBuffer rowBuffer = rows.GetValue()->GetBuffer();
+            if ( !Recording().BoundVisibleRows.Holds( RecordingTarget(), rowBuffer ) )
+            {
+                const VkDeviceSize zero = 0;
+                vkCmdBindVertexBuffers( RecordingTarget(), GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer,
+                                        &zero );
+            }
         }
         DrawCounter::RecordBins( 1u, 1u );
         vkCmdDrawIndirect( RecordingTarget(), args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,

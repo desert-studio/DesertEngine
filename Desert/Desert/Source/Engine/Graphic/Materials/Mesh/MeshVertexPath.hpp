@@ -300,6 +300,12 @@ namespace Desert::Graphic
     // kSurfaceVirtualGeometryPaths (the one list; today a static mesh and an instanced static mesh, UE: Nanite
     // ISM).
     [[nodiscard]] bool HasVirtualGeometryPermutation( MeshVertexPath path );
+    // VG-SW-RASTER: THE VG VISIBILITY RESOLVE CELL of a G-buffer bin's cell (DShaderParser
+    // kSurfaceVirtualGeometryResolvePass): "<Template>/<Path>.GBuffer.Binned" ->
+    // "<Template>/<Path>.VisibilityResolve.Binned.VirtualGeometry", the cell that shades the software-rastered
+    // clusters of that IndirectGroup from the visibility buffer (UE 5 Nanite's material pass). Nothing for any
+    // other cell: another pass, a `.Parallax` cell (no resolve twin: its clusters stay on the hardware raster).
+    [[nodiscard]] std::optional<std::string> VisibilityResolveCellOf( std::string_view binnedCell );
 
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's

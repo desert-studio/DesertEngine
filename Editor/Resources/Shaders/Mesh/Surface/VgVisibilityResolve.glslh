@@ -1,0 +1,33 @@
+#ifndef DESERT_VG_VISIBILITY_RESOLVE_GLSLH
+#define DESERT_VG_VISIBILITY_RESOLVE_GLSLH
+// THE VIRTUAL GEOMETRY VISIBILITY RESOLVE (VG-SW-RASTER; UE 5 Nanite's material pass over VisBuffer64, one draw per
+// material slot tested EQUAL against EmitMaterialDepth's value): the `<Path>.VisibilityResolve.Binned.VirtualGeometry`
+// cell of a Static / Instanced template, drawn once per IndirectGroup of the main view's GBuffer pass that has
+// software-rastered clusters (MeshRenderer::DeclareVirtualGeometryVisibilityResolve, "VirtualGeometry: Visibility
+// Resolve"). Its vertex stage places two triangles per held tile at the group's material depth
+// (Common/VisibilityTiles.glslh DesertVisibilityVgMaterialDepth); its fragment stage (Pass_VisibilityResolve.glslh)
+// rebuilds the cluster triangle the pixel's word names and writes the G-buffer through the same one writer as the
+// hardware raster's `.GBuffer.Binned.VirtualGeometry` cell.
+//
+// The draw's three words ride the engine push block's Transform column 0 as bits (RendererAPI.hpp
+// ClusterIndirectGroupDraw::Resolve): x = the IndirectGroup, y = the first visibility row of the VG's SW clusters
+// (VisibilityBufferFrame::VgFirstRow; row - y = the cut's VisibleClusters row), z = their row count. A binned cell
+// pushes nothing else and reads no instance id stream (DESERT_GPU_SCENE_NO_VISIBLE_ROW): the row is the word's.
+#if !defined( DESERT_SURFACE_VIRTUAL_GEOMETRY ) || !defined( DESERT_SURFACE_PASS_VisibilityResolve )
+#error "VgVisibilityResolve.glslh is the `.VisibilityResolve.Binned.VirtualGeometry` cell's"
+#endif
+#include <Common/MaterialTransport.glslh>
+
+uint DesertVgResolveGroup()
+{
+    return floatBitsToUint( m_PushConstants.Transform[0].x );
+}
+uint DesertVgResolveFirstRow()
+{
+    return floatBitsToUint( m_PushConstants.Transform[0].y );
+}
+uint DesertVgResolveRowCount()
+{
+    return floatBitsToUint( m_PushConstants.Transform[0].z );
+}
+#endif
