@@ -146,6 +146,12 @@ namespace Desert::Graphic
         // The view's rain occlusion map (MeshRenderer::GetRainOcclusionImage, imported: the renderer owns it and
         // redraws it only when its box moves); invalid when the view has none   -> the wetted mesh cells
         RDG::TextureRef RainOcclusionMap;
+        // The water's caustics map and its frame row (System::WaterCaustics::AddPasses, SceneRenderer::
+        // AddFrameWaterCaustics before any lit pass). Every graph starts with the neutral pair, System.White and
+        // a zeroed row with no map (FrameTextures::SetSceneViewInputsOff); the producer overwrites it when the
+        // caustics draw                                                          -> every sun receiver
+        RDG::TextureRef WaterCausticsMap;
+        RDG::BufferRef  WaterCausticsFrame;
         // The view's DBuffer (DECALS-DBUFFER, Common/DBuffer.glslh: A base colour, B normal, C roughness /
         // metallic / AO of the frame's decals, premultiplied, transmittance in alpha), written by "Deferred:
         // Decals" between the depth prepass and the G-buffer (System::DecalRenderer); invalid when the frame
@@ -332,6 +338,11 @@ namespace Desert::Graphic
         // layout reads them (the forward and translucent cells, Common/MegaLightsVolume.glslh).
         MegaLightsVolumeRefs MegaLightsVolume;
         RDG::TextureRef RainOcclusionMap; // the view's map, or System.White (depth 1: nothing overhead)
+        // The water's caustics (Common/WaterCaustics.glslh): the map, or System.White, and its frame row - the
+        // zeroed 'off' row of FrameTextures::SetSceneViewInputsOff in a graph whose frame drew none (a reflection
+        // capture, a preview): the receiver's factor is then exactly 1.0, never a fault.
+        RDG::TextureRef WaterCausticsMap;
+        RDG::BufferRef  WaterCausticsFrame;
         // The view's DBuffer (FrameTransients::DBufferA/B/C), or System.Black (alpha 1 = transmittance 1: no
         // decal, so the G-buffer writers keep their exact bits, Common/DBuffer.glslh DesertApplyDBuffer).
         RDG::TextureRef DBufferA;
@@ -359,7 +370,7 @@ namespace Desert::Graphic
                     SceneDepth, SceneShadingWord, SunShadowMask, SunDistanceFieldShadow, LocalShadowMasks,
                     RadianceCacheIrradiance, RadianceCacheDepth,
                     RainOcclusionMap, FogAerialPerspective, FogDistantSkyLight, FogVolume, DBufferA, DBufferB,
-                    DBufferC, TranslucencyLightingVolume } )
+                    DBufferC, TranslucencyLightingVolume, WaterCausticsMap } )
                 add( ref );
             for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
                 add( ref );
@@ -389,6 +400,14 @@ namespace Desert::Graphic
     // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
     inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
+    // The water's caustics (Common/WaterCaustics.glslh): the map, through the pass's LinearRepeatSampler, and the
+    // frame row's std430 block.
+    inline constexpr std::string_view kSceneViewWaterCausticsMapName   = "WaterCausticsTexture";
+    inline constexpr std::string_view kSceneViewWaterCausticsFrameName = "WaterCausticsFrameUB";
+    // The frame row's std430 head: two vec4 {Window, Shape} (System::WaterCausticsFrameHead, asserted equal in
+    // WaterCaustics.cpp). All zero is the 'off' row every graph starts with
+    // (FrameTextures::SetSceneViewInputsOff).
+    inline constexpr uint64_t kSceneViewWaterCausticsHeadBytes = 2 * 4 * sizeof( float );
     // Slots a pass binds itself where its cell declares them (SceneViewSlot rows, tested by bit per block): the
     // glass cells' scene copy and front-layer reflection (MeshRendererForward.cpp), the instanced VSM casters'
     // remap (MeshRendererVirtualShadow.cpp), a ribbon cell's link order (ParticleRenderer.cpp). Each pass's
@@ -497,6 +516,8 @@ namespace Desert::Graphic
     inline constexpr RDG::StorageBufferParameter kLightGridWorldCellsBlock{ kLightGridWorldCellsBlockName };
     inline constexpr RDG::TextureParameter       kSceneViewRainOcclusionMap{ kSceneViewRainOcclusionMapName };
     inline constexpr RDG::SamplerParameter kSceneViewRainOcclusionSampler{ kSceneViewRainOcclusionSamplerName };
+    inline constexpr RDG::TextureParameter kSceneViewWaterCausticsMap{ kSceneViewWaterCausticsMapName };
+    inline constexpr RDG::StorageBufferParameter kSceneViewWaterCausticsFrame{ kSceneViewWaterCausticsFrameName };
     inline constexpr RDG::TextureParameter kSceneViewDBufferA{ kSceneViewDBufferAName };
     inline constexpr RDG::TextureParameter kSceneViewDBufferB{ kSceneViewDBufferBName };
     inline constexpr RDG::TextureParameter kSceneViewDBufferC{ kSceneViewDBufferCName };
@@ -534,6 +555,8 @@ namespace Desert::Graphic
         inputs.SceneDepth             = t.SceneDepth.IsValid() ? t.SceneDepth : refs.System.Black;
         inputs.SceneShadingWord       = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
         inputs.RainOcclusionMap       = t.RainOcclusionMap.IsValid() ? t.RainOcclusionMap : refs.System.White;
+        inputs.WaterCausticsMap       = t.WaterCausticsMap.IsValid() ? t.WaterCausticsMap : refs.System.White;
+        inputs.WaterCausticsFrame     = t.WaterCausticsFrame;
         inputs.SunDistanceFieldShadow =
              t.SunDistanceFieldShadow.IsValid() ? t.SunDistanceFieldShadow : refs.System.White;
         inputs.TranslucencyLightingVolume =
@@ -617,6 +640,10 @@ namespace Desert::Graphic
                   RDG::SamplerDesc::LinearClamp() );
             bind( SceneViewSlot::CloudShadowMap, kSceneViewCloudShadowMap, inputs.CloudShadowMap, kRepeat,
                   RDG::SamplerDesc::LinearRepeat() );
+            // The receiver reads it only inside [0, 1] and fades to none over its border (WATER_CAUSTICS_BORDER_UV),
+            // so the wrap never shows: the cloud map's shared state, which every sun receiver declares.
+            bind( SceneViewSlot::WaterCausticsMap, kSceneViewWaterCausticsMap, inputs.WaterCausticsMap, kRepeat,
+                  RDG::SamplerDesc::LinearRepeat() );
             if ( inputs.ReflectionCaptureCubes.IsValid() )
                 bind( SceneViewSlot::ReflectionCubes, kSceneViewReflectionCubes, inputs.ReflectionCaptureCubes,
                       kClamp, RDG::SamplerDesc::LinearClamp() );
@@ -688,7 +715,8 @@ namespace Desert::Graphic
     inline constexpr SceneViewSlots kSceneViewReceiverSlots = SceneViewSlots::Of(
          { SceneViewSlot::ShadowCascades, SceneViewSlot::EnvIrradiance, SceneViewSlot::EnvSpecular,
            SceneViewSlot::BrdfLut, SceneViewSlot::CloudShadowMap, SceneViewSlot::LocalShadowAtlas,
-           SceneViewSlot::RainOcclusionMap, SceneViewSlot::FogVolume, SceneViewSlot::DBufferA } );
+           SceneViewSlot::RainOcclusionMap, SceneViewSlot::FogVolume, SceneViewSlot::DBufferA,
+           SceneViewSlot::WaterCausticsMap } );
 
     // Whether a layout samples any scene/view input: the lit programs do; a G-buffer, unlit or custom program
     // without the receivers does not. Read from the shader's REFLECTED resources (the layout's SceneViewSlots,
@@ -770,7 +798,8 @@ namespace Desert::Graphic
         // The light grid and the local shadow views its lights name, where the shader reads them. A frame graph
         // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its
         // pass by name rather than reading nothing. The MegaLights volume's block likewise (invalid before
-        // AddFrameMegaLightsVolume: a reader faults by name).
+        // AddFrameMegaLightsVolume: a reader faults by name). The water caustics' row is always valid in a graph
+        // with FrameTextures (its 'off' row, FrameTextures::SetSceneViewInputsOff).
         for ( const SceneViewDetail::SlotBuffer& entry :
               { SceneViewDetail::SlotBuffer{ SceneViewSlot::LightGridParams, kLightGridParamsBlock,
                                              inputs.LightGridParams },
@@ -779,7 +808,9 @@ namespace Desert::Graphic
                 SceneViewDetail::SlotBuffer{ SceneViewSlot::LocalShadowViews, kLocalShadowViewsBlock,
                                              inputs.LocalShadowViews },
                 SceneViewDetail::SlotBuffer{ SceneViewSlot::MegaLightsVolumeParams, kMegaLightsVolumeBlock,
-                                             inputs.MegaLightsVolume.Params } } )
+                                             inputs.MegaLightsVolume.Params },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::WaterCausticsFrame, kSceneViewWaterCausticsFrame,
+                                             inputs.WaterCausticsFrame } } )
             if ( slots.Has( entry.Slot ) )
                 block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
         // The grid's lights sample their light function tiles bindless: a grid reader declares the atlas.

@@ -9,7 +9,7 @@
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
-#include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/SceneRendererImpl.hpp>
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/HZBRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
@@ -197,7 +197,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    std::optional<glm::uvec2> SceneRenderer::FrameHzbSize( RDG::Builder& graph, FrameTextures& textures )
+    std::optional<glm::uvec2> SceneRendererImpl::FrameHzbSize( RDG::Builder& graph, FrameTextures& textures )
     {
         const auto* meshes = m_Systems.Mesh.get();
         const auto* hzbRenderer = m_Systems.HZB.get();
@@ -210,8 +210,8 @@ namespace Desert::Graphic
         return glm::uvec2( depthDesc.GetValue().Size.Width, depthDesc.GetValue().Size.Height );
     }
 
-    RDG::TextureRef SceneRenderer::FramePrevHzb( RDG::Builder& graph, const ViewFrame& frame, const uint32_t width,
-                                                 const uint32_t height )
+    RDG::TextureRef SceneRendererImpl::FramePrevHzb( RDG::Builder& graph, const ViewFrame& frame,
+                                                     const uint32_t width, const uint32_t height )
     {
         if ( m_FramePrevHzb.IsValid() )
         {
@@ -227,7 +227,8 @@ namespace Desert::Graphic
         return m_FramePrevHzb;
     }
 
-    void SceneRenderer::AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures,
+                                              const ViewFrame& frame )
     {
         m_FrameGpuSceneTables.reset();
         m_FrameDrawBins.reset();
@@ -517,8 +518,9 @@ namespace Desert::Graphic
         m_DrawBinsLastError.clear();
     }
 
-    void SceneRenderer::AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
-                                                       System::MeshRenderer* meshRenderer, const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                                           System::MeshRenderer* meshRenderer,
+                                                           const ViewFrame&      frame )
     {
         if ( !m_FrameDrawBins || meshRenderer == nullptr || meshRenderer->GetDrawCommandCache() == nullptr ||
              !m_GBuffer )
@@ -620,7 +622,7 @@ namespace Desert::Graphic
         m_DrawBinPhaseCounts.AddFrame( graph, frame.FrameIndex, counted );
     }
 
-    void SceneRenderer::AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         // Logged once per distinct message: the gate is a debug view held on for many frames.
         const auto refuse = [this]( std::string message )
@@ -857,7 +859,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::AddFrameVirtualGeometry( RDG::Builder& graph, const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameVirtualGeometry( RDG::Builder& graph, const ViewFrame& frame )
     {
         m_FrameVirtualGeometry.reset();
         m_VirtualGeometryInstances = 0;
@@ -994,7 +996,7 @@ namespace Desert::Graphic
             m_VirtualGeometryLastError.clear();
     }
 
-    void SceneRenderer::AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame )
+    void SceneRendererImpl::AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame )
     {
         auto* meshes = m_Systems.Mesh.get();
         if ( !m_FrameVirtualGeometry || !m_FrameVirtualGeometry->OccludedCandidates.IsValid() ||
@@ -1035,8 +1037,8 @@ namespace Desert::Graphic
         }
     }
 
-    void SceneRenderer::AddFrameVirtualGeometryShadowPages( RDG::Builder&                        graph,
-                                                            const System::VirtualShadowMapFrame& pages )
+    void SceneRendererImpl::AddFrameVirtualGeometryShadowPages( RDG::Builder&                        graph,
+                                                                const System::VirtualShadowMapFrame& pages )
     {
         auto*               meshes = m_Systems.Mesh.get();
         const Core::Camera* camera = GetMainCamera();
@@ -1197,7 +1199,7 @@ namespace Desert::Graphic
                                  m_VsmDrawnGroups );
     }
 
-    SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
+    SceneRendererImpl::VirtualGeometryCounts SceneRendererImpl::GetVirtualGeometryCounts() const
     {
         const auto& meshSystem = m_Systems.Mesh;
         const System::MeshRenderer* meshes =

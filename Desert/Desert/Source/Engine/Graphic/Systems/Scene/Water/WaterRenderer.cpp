@@ -154,6 +154,7 @@ namespace Desert::Graphic::System
         };
         static_assert( sizeof( WaterWavesBlock ) ==
                        ( 5 + kMaxWaveSets * ( 1 + 2 * kMaxWaves ) ) * sizeof( glm::vec4 ) );
+        static_assert( sizeof( WaterWavesBlock ) == WaterRenderer::kWavesBlockBytes, "WATER-CAUSTICS reads the head" );
 
         // THE WATER INFO ATLAS as the GPU samples it (UE WaterInfo: ground depth + river height and velocity): one
         // RGBA32F image of two regions, each on its OWN grid so neither is resampled (WaterMeshTiles.glslh):
@@ -624,6 +625,8 @@ namespace Desert::Graphic::System
         m_FFTFrame.reset();
         m_FrameWavesTexture = RDG::TextureRef{};
         m_FrameWavesGraph   = nullptr;
+        m_FrameBodies.clear();
+        m_FrameBodyWaveLanes.clear();
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
         if ( camera == nullptr || m_Queue.empty() )
@@ -734,6 +737,9 @@ namespace Desert::Graphic::System
                 }
                 bodyLanes[z][b] = glm::vec4( static_cast<float>( slot - frame->Materials.begin() ),
                                              river ? 1.0f : 0.0f, waveLane, static_cast<float>( b ) );
+                // Every body that draws this frame (WATER-CAUSTICS: its footprint, still level and wave set).
+                m_FrameBodies.push_back( bodies.Footprints[b] );
+                m_FrameBodyWaveLanes.push_back( waveLane );
             }
         }
         if ( programs.empty() )

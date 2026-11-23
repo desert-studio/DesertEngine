@@ -570,6 +570,13 @@ namespace Common::Scalability
         // SelectLODsFromBounds. 25..400; 100 = the meshes' screen sizes as authored. Cinematic 50 (MeshLOD stays
         // 1 at every level: UE never forces LOD 0, MeshLOD 0 is a debug/machine override).
         ViewDistanceLODDistanceScalePercent,
+        // 0/1: the water's caustics (WATER-CAUSTICS; UE's water caustics under sg.EffectsQuality): each frame the
+        // sun is refracted through the drawn wave field onto the floor (Programs/Water/WaterCausticsSplat +
+        // WaterCausticsResolve, a 512^2 map around the camera) and the deferred direct pass multiplies the sun on
+        // the texels under a water body's surface by it (Common/WaterCaustics.glslh). 0 = no pass, and the
+        // receiver's factor is exactly 1 (the frame without caustics, bit for bit). Read by SceneRenderer::OnUpdate
+        // -> WaterCaustics::SetEnabled. Key "Effects.WaterCaustics": off at Low and Medium.
+        EffectsWaterCaustics,
         // WATER-RIVERS-FFT (UE has no FFT ocean; the tier follows sg.EffectsQuality as UE's r.Water.* do): the
         // ceiling of the water's wave source - an FFT wave set draws its Tessendorf cascades at FFT (Epic,
         // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values: WaterWaveMethod

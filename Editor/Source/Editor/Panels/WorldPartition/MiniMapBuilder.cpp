@@ -281,7 +281,7 @@ namespace Desert::Editor
                 if ( !m_Renderer )
                 {
                     const Tile& first = m_Tiles.front();
-                    m_Renderer        = std::make_unique<Graphic::SceneRenderer>(
+                    m_Renderer        = Graphic::SceneRenderer::Create(
                          Graphic::ViewExtent{ first.X1 - first.X0, first.Y1 - first.Y0 },
                          Graphic::kThumbnailViewProfile );
                     // A tile is read back pixel for pixel from the G-buffer: the capture renders at 100 % whatever

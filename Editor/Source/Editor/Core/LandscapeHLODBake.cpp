@@ -228,7 +228,7 @@ namespace Desert::Editor
                 {
                     const auto& first = m_Tiles.front().Area;
                     const float side  = std::max( first.SizeX, first.SizeZ );
-                    m_Renderer        = std::make_unique<Graphic::SceneRenderer>(
+                    m_Renderer        = Graphic::SceneRenderer::Create(
                          Graphic::ViewExtent{
                               std::max( 1u, static_cast<uint32_t>( kBakeLongSide * first.SizeX / side ) ),
                               std::max( 1u, static_cast<uint32_t>( kBakeLongSide * first.SizeZ / side ) ) },

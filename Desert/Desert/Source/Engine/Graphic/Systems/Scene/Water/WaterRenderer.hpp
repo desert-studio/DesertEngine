@@ -26,6 +26,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic::RDG
@@ -84,11 +85,35 @@ namespace Desert::Graphic::System
             return m_WaterInfo;
         }
 
-        // THE FFT OCEAN (WATER-RIVERS-FFT; Tessendorf 2001, the UE Water plugin's FFT wave source): when the frame's
-        // body names a wave set authored as an FFT ocean and Effects.WaterWaveMethod resolves to FFT, PrepareFrame
-        // sets the frame's spectrum (uploading its h0 cascades once per set) and the waves block's FFT lane;
-        // the frame graph then records AddWavePasses once (SceneRenderer::FrameWaterWaves) before the first water
-        // draw, and both WaterMesh cells sample the result as WaterFFTTexture.
+        // WATER-CAUSTICS (WaterCaustics.hpp): this frame's waves block - the upload's head, WaterMeshTiles.glslh
+        // WaterTiles' leading members (the header rows and every wave set of the frame) - and every body that
+        // draws this frame (its footprint and still level) with its wave lane (WaterTileRow.Body.z: 1 + its set in
+        // WaterWaveSets, 0 = flat; parallel to GetFrameBodies), after PrepareFrame; all empty when no water draws.
+        static constexpr std::size_t kWavesBlockBytes = ( 5 + 4 * ( 1 + 2 * 32 ) ) * 4 * sizeof( float );
+        [[nodiscard]] std::span<const std::byte> GetFrameWavesBlock() const
+        {
+            if ( m_Walk.Programs.empty() || m_Upload.size() < kWavesBlockBytes )
+                return {};
+            return std::span<const std::byte>( m_Upload.data(), kWavesBlockBytes );
+        }
+        [[nodiscard]] std::span<const Water::WaterQuadTreeBody> GetFrameBodies() const
+        {
+            if ( m_Walk.Programs.empty() )
+                return {};
+            return m_FrameBodies;
+        }
+        [[nodiscard]] std::span<const float> GetFrameBodyWaveLanes() const
+        {
+            if ( m_Walk.Programs.empty() )
+                return {};
+            return m_FrameBodyWaveLanes;
+        }
+
+        // THE FFT OCEAN (WATER-RIVERS-FFT; Tessendorf 2001, the UE Water plugin's FFT wave source): when the
+        // frame's body names a wave set authored as an FFT ocean and Effects.WaterWaveMethod resolves to FFT,
+        // PrepareFrame sets the frame's spectrum (uploading its h0 cascades once per set) and the waves block's
+        // FFT lane; the frame graph then records AddWavePasses once (SceneRenderer::FrameWaterWaves) before the
+        // first water draw, and both WaterMesh cells sample the result as WaterFFTTexture.
         [[nodiscard]] bool FrameWavesAreFFT() const
         {
             return m_FFTFrame != nullptr && !m_Walk.Programs.empty();
@@ -401,8 +426,8 @@ namespace Desert::Graphic::System
             std::shared_ptr<const Water::WaterInfoGround> Ground;
             // The frame's rivers (the WaterInfo atlas's river region is laid out from them: WaterInfoLayoutOf).
             std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;
-            std::vector<std::vector<glm::vec4>>           Bodies;              // per zone, per body lane
-            std::vector<std::vector<uint32_t>>            BodyPrograms; // per zone, per body: Programs slot
+            std::vector<std::vector<glm::vec4>>                       Bodies; // per zone, per body lane
+            std::vector<std::vector<uint32_t>>            BodyPrograms;       // per zone, per body: Programs slot
             glm::mat4                                     View{ 1.0f };
             glm::mat4                                     Projection{ 1.0f };
             glm::vec3                                     Observer{ 0.0f };
@@ -416,6 +441,8 @@ namespace Desert::Graphic::System
         Water::WaterTraversalBuffers m_Traversal;
         std::vector<std::byte>       m_Upload;
         std::vector<std::byte>       m_Push;
-        std::vector<glm::vec4>       m_Rows; // material rows of every body material, one upload
+        std::vector<glm::vec4>                m_Rows;        // material rows of every body material, one upload
+        std::vector<Water::WaterQuadTreeBody> m_FrameBodies; // every body drawn this frame (GetFrameBodies)
+        std::vector<float>                    m_FrameBodyWaveLanes; // its wave lane (GetFrameBodyWaveLanes)
     };
 } // namespace Desert::Graphic::System

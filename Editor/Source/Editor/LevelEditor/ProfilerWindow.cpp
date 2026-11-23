@@ -27,6 +27,9 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
+#include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.hpp>
 
 namespace Desert::Editor
 {

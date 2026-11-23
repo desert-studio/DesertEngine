@@ -69,6 +69,15 @@ endif()
 # -DDESERT_WITH_TESTS=OFF run (CI's no-tests legs) is honoured and never sticks to the next configure.
 option(DESERT_WITH_TESTS "Configure the test suites" OFF)
 
+# The dedicated-server build (NET-ARCH §6, §9 NET-MESH-0; UE: a Server target built alone, -server). It configures
+# the engine module table, the vendored libraries and the header tool, then only the server: no editor, no player,
+# no engine tools and no test suites, so a Linux server image needs no Vulkan SDK, window system or GPU driver.
+# Server/Dockerfile and the CI job server-linux configure with it (preset linux-server-clang).
+option(DESERT_SERVER_ONLY "Configure only the dedicated server DesertServer and what it links" OFF)
+if(DESERT_SERVER_ONLY AND DESERT_WITH_TESTS)
+    message(FATAL_ERROR "DESERT_SERVER_ONLY configures no test suites; pass -DDESERT_WITH_TESTS=OFF")
+endif()
+
 include(cmake/DesertWorkspace.cmake)
 include(cmake/DesertDependencies.cmake)
 # The engine's module table and the one way to link the engine: before any target.
@@ -78,37 +87,42 @@ include(cmake/DesertEditorLibs.cmake)
 
 add_subdirectory(ThirdParty)
 
-# Tools that need nothing of the engine.
+# Tools that need nothing of the engine. The header tool is the one the server build needs: it runs before the
+# engine's codegen library compiles.
 add_subdirectory(Tools/DesertHeaderTool)
-add_subdirectory(Tools/FbxMeshSplitter)
-add_subdirectory(Tools/DShaderTool)
-add_subdirectory(Tools/PakTool)
-add_subdirectory(Tools/WorldGen)
-add_subdirectory(Tools/ImageStat)
-add_subdirectory(Tools/LineJump)
-add_subdirectory(Tools/ImageDiff)
-add_subdirectory(Tools/DesertCtl)
-add_subdirectory(Tools/DomeSheet)
-add_subdirectory(Tools/CrashReporter)
-add_subdirectory(Tools/UIMockup)
+if(NOT DESERT_SERVER_ONLY)
+    add_subdirectory(Tools/FbxMeshSplitter)
+    add_subdirectory(Tools/DShaderTool)
+    add_subdirectory(Tools/PakTool)
+    add_subdirectory(Tools/WorldGen)
+    add_subdirectory(Tools/ImageStat)
+    add_subdirectory(Tools/LineJump)
+    add_subdirectory(Tools/ImageDiff)
+    add_subdirectory(Tools/DesertCtl)
+    add_subdirectory(Tools/DomeSheet)
+    add_subdirectory(Tools/CrashReporter)
+    add_subdirectory(Tools/UIMockup)
+endif()
 
 add_subdirectory(Desert)
 
-# Tools that compile or link engine code.
-add_subdirectory(Tools/CloudVolumeBaker)
-add_subdirectory(Tools/CloudLayoutBaker)
-add_subdirectory(Tools/LatticePeak)
-add_subdirectory(Tools/AssetClosure)
-add_subdirectory(Tools/AssetRegistryTool)
-add_subdirectory(Tools/GamePackager)
-add_subdirectory(Tools/WorldCook)
-add_subdirectory(Tools/SceneMigrator)
-add_subdirectory(Tools/TextureCook)
-add_subdirectory(Tools/DesertNetProbe)
+if(NOT DESERT_SERVER_ONLY)
+    # Tools that compile or link engine code.
+    add_subdirectory(Tools/CloudVolumeBaker)
+    add_subdirectory(Tools/CloudLayoutBaker)
+    add_subdirectory(Tools/LatticePeak)
+    add_subdirectory(Tools/AssetClosure)
+    add_subdirectory(Tools/AssetRegistryTool)
+    add_subdirectory(Tools/GamePackager)
+    add_subdirectory(Tools/WorldCook)
+    add_subdirectory(Tools/SceneMigrator)
+    add_subdirectory(Tools/TextureCook)
+    add_subdirectory(Tools/DesertNetProbe)
 
-add_subdirectory(Editor)
-add_subdirectory(Runtime)
-# The dedicated headless server (NET-ARCH §6): render-free, no Apple framework, Linux-ready.
+    add_subdirectory(Editor)
+    add_subdirectory(Runtime)
+endif()
+# The dedicated headless server (NET-ARCH §6): render-free, no Apple framework, built for Linux by Server/Dockerfile.
 add_subdirectory(Server)
 
 # Per-source rules (vendored warnings off, Debug runtime checks, unity opt-outs) once every target exists.

@@ -1830,3 +1830,31 @@ jobs:
       ARTIFACT: windows-Release
       TESTS: "off" # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it
     steps: *test-verdict-steps
+
+  # The dedicated server's Linux image (Docs/contracts/NET-ARCH.md §6, §9 NET-MESH-0): Server/Dockerfile, the same
+  # file a developer builds locally, configures the preset linux-server-clang (DESERT_SERVER_ONLY: no Vulkan SDK, no
+  # editor/player/tools) and builds DesertServer alone with clang on ubuntu:24.04, then copies the binary into a bare
+  # runtime image. Off the critical path: nothing `needs:` it. The image is built, its binary described (`file`:
+  # ELF x86-64) and the usage error checked (no project, exit non-zero, no device); it is not pushed anywhere yet.
+  server-linux:
+    name: Server (Linux x86-64 image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # the server configure reads cmake/ThirdParty/*.cmake, which fail on an empty submodule
+
+      - name: Build the image
+        run: docker build --platform linux/amd64 -f Server/Dockerfile -t desert-server .
+
+      - name: Describe the binary
+        run: |
+          docker run --rm --platform linux/amd64 --entrypoint file desert-server /opt/desert/DesertServer \
+            | tee /dev/stderr | grep -q 'ELF 64-bit LSB.*x86-64'
+          # Without arguments the server prints its usage and exits non-zero: the binary loads and runs on Linux.
+          if docker run --rm --platform linux/amd64 desert-server; then
+            echo "DesertServer without arguments exited 0; expected its usage error" >&2
+            exit 1
+          fi

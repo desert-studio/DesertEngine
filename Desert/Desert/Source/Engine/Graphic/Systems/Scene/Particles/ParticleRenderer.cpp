@@ -39,6 +39,8 @@
 #include <cstdint>
 #include <format>
 #include <tuple>
+#include <Engine/Graphic/PipelineCache.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 
 namespace
 {

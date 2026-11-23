@@ -17,6 +17,7 @@
 #include <string>
 #include <utility>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 namespace Desert::Graphic::System
 {

@@ -51,6 +51,7 @@
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
+#include <Engine/Graphic/Renderer.hpp>
 #endif
 
 namespace Desert::Editor
@@ -621,8 +622,8 @@ namespace Desert::Editor
         // `EnableShadows = false` that used to stand below ran after Scene::Init() had already allocated
         // them, so the flag read as the saving and 320 MiB was spent anyway. See Graphic::ShadowQuality.
         // Built before the panel knows its preview rect; RenderPreview's first resize brings it to size.
-        m_PreviewRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent,
-                                                                      Graphic::kThumbnailViewProfile );
+        m_PreviewRenderer =
+             Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent, Graphic::kThumbnailViewProfile );
         m_PreviewScene    = std::make_shared<::Desert::Core::Scene>( "ReconPreview", m_PreviewRenderer.get() );
         // `m_PreviewInit` stays false so the next call retries; with the result dropped the flag was set
         // regardless and every frame afterwards recorded into a scene that had never initialised.
