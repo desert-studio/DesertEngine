@@ -961,16 +961,23 @@ namespace Desert::Graphic
 
     // WATER-CAUSTICS: the sun refracted through this frame's water waves onto the floor ("Water: Caustics Splat" /
     // "Resolve"), for every sun receiver of the view (SceneViewInputs::WaterCausticsMap / WaterCausticsFrame: the
-    // deferred direct pass, the forward meshes, the glass, the forward terrain). Always a valid pair: the neutral
-    // one (factor exactly 1) when the frame has no caustics.
+    // deferred direct pass, the forward meshes, the glass, the forward terrain). Overwrites the graph's 'off' pair
+    // (FrameTextures::SetSceneViewInputsOff, factor exactly 1) only when the caustics draw this frame.
     void SceneRendererImpl::AddFrameWaterCaustics( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
+        // A scene capture (ViewProfile::SceneCapture: a reflection capture's face view) keeps the 'off' pair: its
+        // cube lives for many frames, and one instant of the moving pattern frozen into it would light the
+        // captured floor with lines that no longer follow the waves. So does a view without the system (it
+        // registers with the water, SceneRenderer.cpp) or with Effects.WaterCaustics 0 - the latter imports
+        // nothing, so its graph is the graph without caustics.
+        System::WaterCaustics* const system = m_Systems.WaterCaustics.get();
+        if ( m_ViewProfile.SceneCapture || system == nullptr || !system->IsEnabled() )
+            return;
         const FrameGraphRefs                 refs = textures.GraphRefs();
-        System::WaterCaustics::FrameInputs caustics{ .SunTravel   = glm::vec3( GetFrameSun().Direction ),
-                                                     .Camera      = frame.CameraPosition,
-                                                     .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
-                                                     .White       = refs.System.White,
-                                                     .Black       = refs.System.Black };
+        System::WaterCaustics::FrameInputs   caustics{ .SunTravel   = glm::vec3( GetFrameSun().Direction ),
+                                                       .Camera      = frame.CameraPosition,
+                                                       .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
+                                                       .Black       = refs.System.Black };
         if ( const auto* water = m_Systems.Water.get(); water != nullptr )
         {
             caustics.Waves  = water->GetFrameWavesBlock();
@@ -979,13 +986,12 @@ namespace Desert::Graphic
                 caustics.WaterInfo =
                      textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
         }
-        // The system registers with the water (SceneRenderer.cpp). A renderer without it leaves the row invalid,
-        // and every receiver's pass then faults by name (BindSceneViewInputs) rather than reading no row.
-        if ( m_Systems.WaterCaustics == nullptr )
-            return;
-        const System::WaterCausticsFrame made = m_Systems.WaterCaustics->AddPasses( graph, caustics );
-        textures.Transients.WaterCausticsMap   = made.Map;
-        textures.Transients.WaterCausticsFrame = made.Row;
+        const std::optional<System::WaterCausticsFrame> made = system->AddPasses( graph, caustics );
+        if ( made.has_value() )
+        {
+            textures.Transients.WaterCausticsMap   = made->Map;
+            textures.Transients.WaterCausticsFrame = made->Row;
+        }
     }
 
     void SceneRendererImpl::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,

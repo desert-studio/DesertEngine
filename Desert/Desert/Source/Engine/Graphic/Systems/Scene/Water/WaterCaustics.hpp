@@ -60,9 +60,10 @@ namespace Desert::Graphic::System
     };
     static_assert( sizeof( WaterCausticsBodyRow ) == 2 * sizeof( glm::vec4 ), "std430 body of two vec4" );
 
-    // What every receiver binds (FrameTransients::WaterCausticsMap / WaterCausticsFrame -> SceneViewInputs):
-    // ALWAYS two valid refs of this frame's graph. A frame without caustics binds System.White and a frame row
-    // whose Window.w is 0, so the receiver returns exactly 1.0 and the frame is the frame without them, bit for bit.
+    // What every receiver binds when the caustics draw (FrameTransients::WaterCausticsMap / WaterCausticsFrame ->
+    // SceneViewInputs): two valid refs of this frame's graph. A frame without caustics keeps the graph's 'off'
+    // pair (FrameTextures::SetSceneViewInputsOff: System.White and a zeroed row whose Window.w is 0), so the
+    // receiver returns exactly 1.0 and the frame is the frame without them, bit for bit.
     struct WaterCausticsFrame
     {
         RDG::TextureRef Map;
@@ -95,6 +96,10 @@ namespace Desert::Graphic::System
         {
             m_Enabled = enabled;
         }
+        [[nodiscard]] bool IsEnabled() const noexcept
+        {
+            return m_Enabled;
+        }
 
         // The frame's water as the caustics read it (SceneRenderer, from WaterRenderer after FinishPrepare).
         struct FrameInputs
@@ -111,18 +116,17 @@ namespace Desert::Graphic::System
             glm::vec3       SunTravel{ 0.0f, -1.0f, 0.0f }; // the direction the sunlight travels
             glm::vec3       Camera{ 0.0f };                 // the view's world position (cm)
             float           TimeSeconds = 0.0f; // ViewFrame::TimeSeconds = the water mesh's cameraUB.Time
-            // FrameGraphRefs::System: the neutral textures a frame without caustics binds.
-            RDG::TextureRef White;
+            // FrameGraphRefs::System.Black: the splat's ground where no WaterInfo is baked.
             RDG::TextureRef Black;
         };
 
         // Adds this frame's passes when the caustics draw (enabled, a body with waves, the sun above the horizon,
-        // both programs built) and returns what every receiver binds; otherwise the neutral pair (no pass).
-        [[nodiscard]] WaterCausticsFrame AddPasses( RDG::Builder& graph, const FrameInputs& inputs );
+        // both programs built) and returns what every receiver binds; otherwise nullopt and no pass or upload:
+        // the frame keeps the graph's 'off' pair (FrameTextures::SetSceneViewInputsOff), the one default.
+        [[nodiscard]] std::optional<WaterCausticsFrame> AddPasses( RDG::Builder&      graph,
+                                                                   const FrameInputs& inputs );
 
     private:
-        // The neutral pair: @p white and a frame row with no map.
-        [[nodiscard]] static WaterCausticsFrame Off( RDG::Builder& graph, RDG::TextureRef white );
         // Says "[Water] caustics=on res=N" / "=off" when the state changes, never per frame.
         void ReportState( bool active, std::string_view why ) noexcept;
 

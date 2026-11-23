@@ -1,6 +1,7 @@
 #include "WaterCaustics.hpp"
 
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
@@ -132,38 +133,32 @@ namespace Desert::Graphic::System
             LOG_INFO( "[Water] caustics=off ({})", why );
     }
 
-    WaterCausticsFrame WaterCaustics::Off( RDG::Builder& graph, const RDG::TextureRef white )
-    {
-        // Window.w 0 and no body row: every receiver's factor is exactly 1.
-        const WaterCausticsFrameHead head{};
-        const RDG::BufferRef         buffer =
-             graph.CreateBuffer( RDG::BufferDesc{ sizeof( head ) }, "Water.Caustics.Frame" );
-        graph.QueueBufferUpload( buffer, std::as_bytes( std::span( &head, 1 ) ) );
-        return WaterCausticsFrame{ .Map = white, .Row = buffer };
-    }
+    // The graph's 'off' row (FrameTextures::SetSceneViewInputsOff) is this head, zeroed.
+    static_assert( sizeof( WaterCausticsFrameHead ) == kSceneViewWaterCausticsHeadBytes,
+                   "the 'off' row is one zeroed WaterCausticsFrameHead" );
 
-    WaterCausticsFrame WaterCaustics::AddPasses( RDG::Builder& graph, const FrameInputs& inputs )
+    std::optional<WaterCausticsFrame> WaterCaustics::AddPasses( RDG::Builder& graph, const FrameInputs& inputs )
     {
         if ( !m_Enabled )
         {
             ReportState( false, "Effects.WaterCaustics 0" );
-            return Off( graph, inputs.White );
+            return std::nullopt;
         }
         if ( !m_SplatPipeline || !m_ResolvePipeline )
         {
             ReportState( false, "the caustics programs did not build" );
-            return Off( graph, inputs.White );
+            return std::nullopt;
         }
         if ( inputs.Waves.empty() || inputs.Bodies.empty() )
         {
             ReportState( false, "no water body draws" );
-            return Off( graph, inputs.White );
+            return std::nullopt;
         }
         const glm::vec3 sun = glm::normalize( inputs.SunTravel );
         if ( !( sun.y < -kMinSunDescent ) )
         {
             ReportState( false, "the sun is below the horizon" );
-            return Off( graph, inputs.White );
+            return std::nullopt;
         }
         // The square (WindowCentre), its lower corner on the texel grid so the map does not swim as it moves.
         const float     side  = static_cast<float>( kMapSize ) * kTexelCm;
@@ -185,7 +180,7 @@ namespace Desert::Graphic::System
         {
             // Unreachable while WindowCentre lies on a body's footprint; said rather than drawn blind.
             ReportState( false, "no body meets the caustics square" );
-            return Off( graph, inputs.White );
+            return std::nullopt;
         }
         ReportState( true, {} );
         const WaterCausticsFrameHead head{

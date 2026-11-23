@@ -144,8 +144,9 @@ namespace Desert::Graphic
         // redraws it only when its box moves); invalid when the view has none   -> the wetted mesh cells
         RDG::TextureRef RainOcclusionMap;
         // The water's caustics map and its frame row (System::WaterCaustics::AddPasses, SceneRenderer::
-        // AddFrameWaterCaustics before any lit pass; the neutral pair when the frame has none: System.White and a
-        // row with no map)                                                       -> every sun receiver
+        // AddFrameWaterCaustics before any lit pass). Every graph starts with the neutral pair, System.White and
+        // a zeroed row with no map (FrameTextures::SetSceneViewInputsOff); the producer overwrites it when the
+        // caustics draw                                                          -> every sun receiver
         RDG::TextureRef WaterCausticsMap;
         RDG::BufferRef  WaterCausticsFrame;
         // The view's DBuffer (DECALS-DBUFFER, Common/DBuffer.glslh: A base colour, B normal, C roughness /
@@ -334,8 +335,9 @@ namespace Desert::Graphic
         // layout reads them (the forward and translucent cells, Common/MegaLightsVolume.glslh).
         MegaLightsVolumeRefs MegaLightsVolume;
         RDG::TextureRef RainOcclusionMap; // the view's map, or System.White (depth 1: nothing overhead)
-        // The water's caustics (Common/WaterCaustics.glslh): the map, or System.White, and its frame row. The row is
-        // invalid only in a graph without SceneRenderer::AddFrameWaterCaustics: a reader then faults by name.
+        // The water's caustics (Common/WaterCaustics.glslh): the map, or System.White, and its frame row - the
+        // zeroed 'off' row of FrameTextures::SetSceneViewInputsOff in a graph whose frame drew none (a reflection
+        // capture, a preview): the receiver's factor is then exactly 1.0, never a fault.
         RDG::TextureRef WaterCausticsMap;
         RDG::BufferRef  WaterCausticsFrame;
         // The view's DBuffer (FrameTransients::DBufferA/B/C), or System.Black (alpha 1 = transmittance 1: no
@@ -399,6 +401,10 @@ namespace Desert::Graphic
     // frame row's std430 block.
     inline constexpr std::string_view kSceneViewWaterCausticsMapName   = "WaterCausticsTexture";
     inline constexpr std::string_view kSceneViewWaterCausticsFrameName = "WaterCausticsFrameUB";
+    // The frame row's std430 head: two vec4 {Window, Shape} (System::WaterCausticsFrameHead, asserted equal in
+    // WaterCaustics.cpp). All zero is the 'off' row every graph starts with
+    // (FrameTextures::SetSceneViewInputsOff).
+    inline constexpr uint64_t kSceneViewWaterCausticsHeadBytes = 2 * 4 * sizeof( float );
     // Slots a pass binds itself where its cell declares them (SceneViewSlot rows, tested by bit per block): the
     // glass cells' scene copy and front-layer reflection (MeshRendererForward.cpp), the instanced VSM casters'
     // remap (MeshRendererVirtualShadow.cpp), a ribbon cell's link order (ParticleRenderer.cpp). Each pass's
@@ -706,7 +712,8 @@ namespace Desert::Graphic
     inline constexpr SceneViewSlots kSceneViewReceiverSlots = SceneViewSlots::Of(
          { SceneViewSlot::ShadowCascades, SceneViewSlot::EnvIrradiance, SceneViewSlot::EnvSpecular,
            SceneViewSlot::BrdfLut, SceneViewSlot::CloudShadowMap, SceneViewSlot::LocalShadowAtlas,
-           SceneViewSlot::RainOcclusionMap, SceneViewSlot::FogVolume, SceneViewSlot::DBufferA } );
+           SceneViewSlot::RainOcclusionMap, SceneViewSlot::FogVolume, SceneViewSlot::DBufferA,
+           SceneViewSlot::WaterCausticsMap } );
 
     // Whether a layout samples any scene/view input: the lit programs do; a G-buffer, unlit or custom program
     // without the receivers does not. Read from the shader's REFLECTED resources (the layout's SceneViewSlots,
@@ -788,8 +795,8 @@ namespace Desert::Graphic
         // The light grid and the local shadow views its lights name, where the shader reads them. A frame graph
         // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its
         // pass by name rather than reading nothing. The MegaLights volume's block likewise (invalid before
-        // AddFrameMegaLightsVolume: a reader faults by name), and the water caustics' row (invalid without
-        // AddFrameWaterCaustics).
+        // AddFrameMegaLightsVolume: a reader faults by name). The water caustics' row is always valid in a graph
+        // with FrameTextures (its 'off' row, FrameTextures::SetSceneViewInputsOff).
         for ( const SceneViewDetail::SlotBuffer& entry :
               { SceneViewDetail::SlotBuffer{ SceneViewSlot::LightGridParams, kLightGridParamsBlock,
                                              inputs.LightGridParams },
