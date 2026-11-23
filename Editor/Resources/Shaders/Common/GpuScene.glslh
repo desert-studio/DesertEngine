@@ -27,6 +27,8 @@
 #define DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION      16u
 #define DESERT_GPU_PRIMITIVE_MOVABLE_CASTER      32u
 #define DESERT_GPU_PRIMITIVE_PREVIOUS_POSITIONS  64u
+// 128 is DESERT_GPU_DRAW_EMISSION_IS_LIGHT (below), never a primitive bit.
+#define DESERT_GPU_PRIMITIVE_NO_DECALS           256u
 // Never in Primitives[]: DesertResolveDrawOf sets it on a resolved draw's Flags from its slot's
 // DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT (the submesh's material has Emissive Lights Scene on), so the binned
 // G-buffer cell marks the shading word's EMISSION_IS_LIGHT (Mesh/Surface/Pass_GBuffer.glslh).

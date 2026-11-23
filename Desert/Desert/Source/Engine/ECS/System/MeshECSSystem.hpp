@@ -307,7 +307,7 @@ namespace Desert::ECS
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, palette.Current,
                               std::move( morphWeights ), morphRevision, isSelected, mesh.GetCastShadows(),
-                              std::move( lodFeedback ) );
+                              std::move( lodFeedback ), mesh.GetReceivesDecals() );
                      } );
                 // A character no longer drawn (destroyed, hidden, no mesh) gives its buffers back.
                 std::erase_if( m_BonePalettes,
@@ -645,7 +645,7 @@ namespace Desert::ECS
                      x.TranslucencySortPriority != y.TranslucencySortPriority ||
                      x.MaxDrawDistance != y.MaxDrawDistance || x.Outlined != y.Outlined ||
                      x.CastShadows != y.CastShadows || x.ReceiveShadows != y.ReceiveShadows ||
-                     x.CastContactShadow != y.CastContactShadow ||
+                     x.CastContactShadow != y.CastContactShadow || x.ReceivesDecals != y.ReceivesDecals ||
                      x.ImpostorScreenSize != y.ImpostorScreenSize || x.ImpostorCard != y.ImpostorCard ||
                      x.ImpostorBounds.Min != y.ImpostorBounds.Min || x.ImpostorBounds.Max != y.ImpostorBounds.Max )
                     return false;
@@ -812,6 +812,7 @@ namespace Desert::ECS
                                 .CastShadows              = mesh.GetCastShadows(),
                                 .ReceiveShadows           = first.ReceiveShadows,
                                 .CastContactShadow        = first.CastContactShadow,
+                                .ReceivesDecals           = first.ReceivesDecals,
                                 .ImpostorScreenSize       = mesh.GetImpostorScreenSize(),
                                 .ImpostorCard             = true,
                                 .ImpostorBounds           = first.LocalBounds };
@@ -1718,7 +1719,8 @@ namespace Desert::ECS
                                                 .Outlined                 = outlined,
                                                 .CastShadows              = d.CastShadows,
                                                 .ReceiveShadows           = mesh.GetReceiveShadows(),
-                                                .CastContactShadow        = mesh.GetCastContactShadow() } );
+                                                .CastContactShadow        = mesh.GetCastContactShadow(),
+                                                .ReceivesDecals           = mesh.GetReceivesDecals() } );
 
             // An upload not made yet (a new or edited mesh: its revision and bounds change at the fence): taken
             // again next update. A slot still waiting for its section material is m_StaticAdoptWait's (keyed on

@@ -54,6 +54,9 @@ namespace Desert::Graphic::GpuDriven
         // kDrawSlotEmissionIsLight (GLSL DESERT_GPU_DRAW_EMISSION_IS_LIGHT, Common/GpuScene.glslh
         // DesertResolveDrawOf). Reserved here so no primitive flag takes it.
         inline constexpr uint32_t kDrawEmissionIsLight = 1u << 7;
+        // UE !bReceivesDecals: the binned G-buffer cell skips the DBuffer fetch (GLSL DESERT_GPU_PRIMITIVE_NO_DECALS;
+        // the per-draw twin is Graphic::PrimitiveFlag::NoDecals).
+        inline constexpr uint32_t kNoDecals = 1u << 8;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one

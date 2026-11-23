@@ -282,6 +282,7 @@ namespace Desert::Graphic::System
         data.CastShadows              = section.CastShadows;
         data.ReceiveShadows           = section.ReceiveShadows;
         data.CastContactShadow        = section.CastContactShadow;
+        data.ReceivesDecals           = section.ReceivesDecals;
         data.TranslucencySortPriority = section.TranslucencySortPriority;
     }
 
@@ -398,7 +399,8 @@ namespace Desert::Graphic::System
             // default, and the per-object draw pushes its EMISSION_IS_LIGHT (PrimitiveFlagsOf). The toggle moves
             // DrawReadinessKey (Material::EmissiveLightsGeneration), so the rows are re-planned on it.
             const bool emissionIsLight = inst != nullptr && inst->IsEmissiveLightsScene();
-            if ( !data.ReceiveShadows || !data.CastContactShadow || emissionIsLight ||
+            // A primitive that receives no decals draws alone too: its NO_DECALS rides the per-object push.
+            if ( !data.ReceiveShadows || !data.CastContactShadow || !data.ReceivesDecals || emissionIsLight ||
                  ( flags & StaticPlanRows::kHasOverrides ) != 0u )
                 flags |= StaticPlanRows::kAlone;
             rows.Flags[i]  = flags;
@@ -2829,9 +2831,11 @@ namespace Desert::Graphic::System
     {
         DESERT_PROFILE_SCOPE( "MeshRenderer::SyncGpuScene" );
         namespace Flags       = GpuDriven::PrimitiveFlags;
-        const auto rigidFlags = []( const bool castShadows, const bool castContactShadow ) -> uint32_t
+        const auto rigidFlags = []( const bool castShadows, const bool castContactShadow,
+                                    const bool receivesDecals ) -> uint32_t
         {
-            return ( castShadows ? Flags::kCastsShadow : 0u ) | ( castContactShadow ? 0u : Flags::kNoContactShadow );
+            return ( castShadows ? Flags::kCastsShadow : 0u ) | ( castContactShadow ? 0u : Flags::kNoContactShadow ) |
+                   ( receivesDecals ? 0u : Flags::kNoDecals );
         };
 
         // The frame's stand-in census starts here, the one MeshRenderer step every render path takes before any
@@ -3075,7 +3079,7 @@ namespace Desert::Graphic::System
                                        .Part      = data.MotionPart,
                                        .World     = data.Transform,
                                        .Mesh      = data.Mesh,
-                                       .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
+                                       .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow, data.ReceivesDecals ),
                                        .ForcedLod = data.ForcedLOD,
                                        .LodBias   = data.LODBias,
                                        .Content   = staticContent( data, shading ) };
@@ -3139,7 +3143,7 @@ namespace Desert::Graphic::System
                                    .Part    = data.MotionPart,
                                    .World   = data.Transform,
                                    .Mesh    = data.Mesh,
-                                   .Flags   = rigidFlags( data.CastShadows, true ),
+                                   .Flags   = rigidFlags( data.CastShadows, true, true ),
                                    .Content = genericContent( data ) } );
             rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
         }
@@ -3178,7 +3182,7 @@ namespace Desert::Graphic::System
                                  .Bones  = data.BoneMatrices,
                                  .Mesh   = data.Mesh,
                                  .Flags  = Flags::kSkinned | Flags::kMovableCaster |
-                                          rigidFlags( data.CastShadows, true ) | previousPositions( data.Mesh ),
+                                          rigidFlags( data.CastShadows, true, data.ReceivesDecals ) | previousPositions( data.Mesh ),
                                  .ForcedLod = static_cast<int32_t>( data.Lod ),
                                  .Content   = skinnedContent( data ) } );
         // The proxies no record claimed this sync left the scene (or the view): released with their bindings.
@@ -3220,7 +3224,7 @@ namespace Desert::Graphic::System
                     break;
                 }
                 fieldFrames.push_back( { .Mesh  = data.Mesh,
-                                         .Flags = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                         .Flags = rigidFlags( data.CastShadows, data.CastContactShadow, true ) |
                                                   ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
                                          .BoundsPad         = WindBoundsPad( data.Wind ),
                                          .CullDistanceStart = data.CullDistance.Min,
@@ -3242,7 +3246,7 @@ namespace Desert::Graphic::System
                                     .Transforms        = *data.Transforms,
                                     .CullDistanceStart = data.CullDistance.Min,
                                     .CullDistanceEnd   = data.CullDistance.Max,
-                                    .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                    .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow, true ) |
                                              ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
                                     .BoundsPad = WindBoundsPad( data.Wind ),
                                     .Content   = fieldContent( data ),
@@ -3489,6 +3493,7 @@ namespace Desert::Graphic::System
                 staticData.CastShadows     = data.CastShadows;
                 staticData.ReceiveShadows  = data.ReceiveShadows;
                 staticData.CastContactShadow        = data.CastContactShadow;
+                staticData.ReceivesDecals           = data.ReceivesDecals;
                 staticData.TranslucencySortPriority = data.TranslucencySortPriority;
 
                 m_StaticQueue.push_back( staticData );
@@ -3508,6 +3513,7 @@ namespace Desert::Graphic::System
                     skinnedData.BoneMatrices = std::span<const glm::mat4>( *skinnedData.BoneOwner );
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
+                skinnedData.ReceivesDecals = data.ReceivesDecals;
                 // The level is chosen in SyncGpuScene from the frame's frozen main view (SelectSkinnedLods); the
                 // author's forced level / bias ride with the record (UE ForcedLodModel / LOD bias).
                 skinnedData.ForcedLOD = data.ForcedLOD;

@@ -2663,6 +2663,7 @@ namespace Desert::Editor::Commands
             facts.ForcedLOD                = mesh.GetForcedLOD();
             facts.LODBias                  = mesh.GetLODBias();
             facts.ReceiveShadows           = mesh.GetReceiveShadows();
+            facts.ReceivesDecals           = mesh.GetReceivesDecals();
             facts.TranslucencySortPriority = mesh.GetTranslucencySortPriority();
             facts.HiddenSubmeshes          = mesh.GetHiddenSubmeshes();
             facts.MaxDrawDistance          = mesh.GetMaxDrawDistance();

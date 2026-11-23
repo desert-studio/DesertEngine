@@ -4657,6 +4657,7 @@ namespace Desert::Graphic
                                       .CastShadows              = extra.CastShadows,
                                       .ReceiveShadows           = extra.ReceiveShadows,
                                       .CastContactShadow        = extra.CastContactShadow,
+                                      .ReceivesDecals           = extra.ReceivesDecals,
                                       .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 

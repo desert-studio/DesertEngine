@@ -41,6 +41,7 @@ namespace Desert::Graphic::Render
         bool               CastShadows              = true;
         bool               ReceiveShadows           = true;
         bool               CastContactShadow        = true;
+        bool               ReceivesDecals           = true; // StaticMeshComponent::ReceivesDecals (UE bReceivesDecals)
         // THE IMPOSTOR PAIR (WP-FAR-12E; UE ImpostorBaker's far card as a mesh's last level, the SpeedTree
         // billboard LOD): a StaticMeshComponent naming an Impostor draws as TWO slots - the source sections and
         // the card (Core::HLODImpostorCardMesh with its M_I ImpostorSurface material) - and every view admits

@@ -35,16 +35,20 @@ namespace Desert::Graphic::Render
         std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
         bool                            Outlined    = false;
         bool                            CastShadows = true;
+        // SkinnedMeshComponent::ReceivesDecals (UE bReceivesDecals; off by default on a skinned mesh).
+        bool                            ReceivesDecals = false;
 
         DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh,
                                 Graphic::MaterialSlotBindingPtr materialSlot, const glm::mat4& transform,
                                 std::shared_ptr<const std::vector<glm::mat4>> bones,
                                 std::vector<float>                            morphWeights,
                                 uint64_t morphRevision, bool outlined, bool castShadows,
-                                std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr )
+                                std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr,
+                                bool receivesDecals = false )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( std::move( bones ) ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
-               LodFeedback( std::move( lodFeedback ) ), Outlined( outlined ), CastShadows( castShadows )
+               LodFeedback( std::move( lodFeedback ) ), Outlined( outlined ), CastShadows( castShadows ),
+               ReceivesDecals( receivesDecals )
         {
         }
 

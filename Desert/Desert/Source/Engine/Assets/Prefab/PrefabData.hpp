@@ -54,6 +54,7 @@ namespace Desert::Assets
         std::optional<bool>                         CastShadows;
         std::optional<bool>                         ReceiveShadows;
         std::optional<bool>                         CastContactShadow; // written only when false
+        std::optional<bool>                         ReceivesDecals;    // written only when false
         std::optional<int>                          TranslucencySortPriority;
         std::optional<uint64_t>                     HiddenSubmeshes;
         std::optional<float>                        MaxDrawDistance; // cm; written only when set (> 0)
@@ -73,6 +74,8 @@ namespace Desert::Assets
         // Rendering controls (absent = component default, so pre-existing scenes stay loadable).
         // Written only when false, like the static twin's flag above.
         std::optional<bool> CastShadows;
+        // Written only when TRUE (the skinned default is off, UE characters' bReceivesDecals convention).
+        std::optional<bool> ReceivesDecals;
     };
 
     // UE-style Instanced Static Mesh mirror: one mesh (asset path OR primitive) + N per-instance world

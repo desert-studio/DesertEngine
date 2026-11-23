@@ -275,6 +275,13 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
+                 "Receives Decals",
+                 "The frame's decals (decal components, impact decals, mesh decals) draw onto this mesh; off = none "
+                 "do, whatever its materials' Receive Decals says (UE bReceivesDecals)" );
+            ImGui::Checkbox( "##receivesdecals", &edited.ReceivesDecals );
+            Utils::ImGuiUtilities::EndPropertyRow();
+
+            Utils::ImGuiUtilities::BeginPropertyRow(
                  "Max Draw Distance",
                  "cm from the camera to the mesh's bounds centre beyond which it is not drawn and casts no "
                  "shadow (0 = no limit); scaled by the camera's field of view, so a zoomed-in camera draws "

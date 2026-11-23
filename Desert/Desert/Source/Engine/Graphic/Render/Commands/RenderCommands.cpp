@@ -157,7 +157,8 @@ namespace Desert::Graphic::Render
                            .MorphRevision = MorphRevision,
                            .LodFeedback   = LodFeedback,
                            .Outlined      = Outlined,
-                           .CastShadows   = CastShadows } );
+                           .CastShadows   = CastShadows,
+                           .ReceivesDecals = ReceivesDecals } );
     }
 
     void DrawSlotMaterialMeshCommand::Prepare()
