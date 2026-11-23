@@ -160,6 +160,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateArgsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeIntegrateTilesUB );
         DESERT_SHADER_PARAMETER( Texture, GBufferShadingWord ); // the uncovered pixels' backface foliage test
+        DESERT_SHADER_PARAMETER( StorageBuffer, ScreenProbeUncoveredMaskUB ); // the uncovered pass's pixels
     };
     struct ScreenProbeGatherDisocclusionShaderParameters
     {
@@ -212,13 +213,15 @@ namespace Desert::Graphic::GlobalIllumination
     {
         using Common::Math::DivideRoundUp;
 
-        constexpr std::array<std::string_view, 18> kScreenProbeShaderNames{
-             "ScreenProbePlace",         "ScreenProbeShortRangeAO", "ScreenProbeTraceScreen",
-             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
-             "ScreenProbeTrace",         "ScreenProbeTrace",        "ScreenProbeTrace",
-             "ScreenProbeDisocclusion",  "ScreenProbeSpatialFilter", "ScreenProbeSpatialFilter",
-             "ScreenProbeFilter",        "ScreenProbeFilter",       "ScreenProbeIntegrate",
-             "ScreenProbeIntegrate",     "ScreenProbeIntegrate",    "ScreenProbeTemporal" };
+        constexpr std::array<std::string_view, 19> kScreenProbeShaderNames{
+             "ScreenProbePlace",        "ScreenProbeShortRangeAO",  "ScreenProbeTraceScreen",
+             "ScreenProbeTrace",        "ScreenProbeTrace",         "ScreenProbeTrace",
+             "ScreenProbeTrace",        "ScreenProbeTrace",         "ScreenProbeTrace",
+             "ScreenProbeDisocclusion", "ScreenProbeSpatialFilter", "ScreenProbeSpatialFilter",
+             "ScreenProbeFilter",       "ScreenProbeFilter",        "ScreenProbeIntegrate",
+             "ScreenProbeIntegrate",    "ScreenProbeIntegrate",     "ScreenProbeIntegrate",
+             "ScreenProbeTemporal" };
+        static_assert( kScreenProbeShaderNames.size() == 19u, "one shader name a ScreenProbeGather::Program" );
 
         // The permutation define of a layout program that shares its shader with another (empty: none); the
         // spatial filter's first pass rebuilding the sparse stable probes' skipped texels
@@ -243,6 +246,7 @@ namespace Desert::Graphic::GlobalIllumination
              "SP_INTEGRATE_CLASSIFY",
              "SP_INTEGRATE_SIMPLE_DIFFUSE",
              "",
+             "SP_INTEGRATE_UNCOVERED",
              "" };
 
         // ScreenProbeIntegrateArgsUB: the simple-diffuse tiles' dispatch, then the full tiles' (x, y = a 2D grid
@@ -1308,6 +1312,61 @@ namespace Desert::Graphic::GlobalIllumination
         m_MissCounts.AddFrame( graph, m_FrameIndex, missReasons );
 #endif
 
+        // THE UNCOVERED PIXELS, ON THE GRAPHICS QUEUE (FPS-SP-COMPOSITE-WAIT; ScreenProbeIntegrate.shader
+        // SP_INTEGRATE_UNCOVERED): the pixels no probe holds read the world radiance cache. They read the
+        // placement's index and probes, the G-buffer, the short-range AO and the cache (finished above) - none of
+        // the trace legs' or the filter's output - so they run while the async queue traces, not at the tail of
+        // the integrate the composite waited for (0.765 ms 'RDG Wait .. before Deferred: Composite (Simple
+        // Tiles)', FIELD_Barn TURN scn-1121-182810; the merged uncovered phase was ~0.2 ms of the integrate's
+        // 0.658). The pass records its pixels in a two-word-a-tile mask, by which the integrates below skip them:
+        // disjoint pixels, the same values, the same picture. Every tile's words are written each frame (no
+        // reset).
+        using IntegrateSlots = ScreenProbeGatherIntegrateShaderParameters;
+        const glm::uvec2     integrateTiles( DivideRoundUp( inputs.Extent.x, 8u ),
+                                             DivideRoundUp( inputs.Extent.y, 8u ) );
+        const RDG::BufferRef uncoveredMask =
+             graph.CreateBuffer( RDG::BufferDesc{ static_cast<uint64_t>( integrateTiles.x ) * integrateTiles.y *
+                                                  2u * sizeof( uint32_t ) },
+                                 "ScreenProbes.UncoveredMask" );
+        {
+            ComputePipeline* const pipeline = m_Pipelines[IntegrateUncovered].get();
+            graph.AddPass(
+                 "ScreenProbes: Integrate Uncovered", kGraphicsPass,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     auto block =
+                          builder.Bindings( m_Layouts[IntegrateUncovered].Get( m_Shaders[IntegrateUncovered] ),
+                                            Renderer::GetPipelineRouteFill( *pipeline ) );
+                     block.Sampler( IntegrateSlots::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                          .Storage( IntegrateSlots::ScreenProbeParamsUB, paramsBuffer, kR )
+                          .Storage( IntegrateSlots::ScreenProbeIndexUB, index, kR )
+                          .Storage( IntegrateSlots::ScreenProbesUB, probes, kR )
+                          .Storage( IntegrateSlots::GIFrameUB, inputs.GIFrame, kR )
+                          .Storage( IntegrateSlots::ScreenProbeDiffuseOutTexture, diffuse, kW )
+                          .Storage( IntegrateSlots::ScreenProbeSpecularOutTexture, specular, kW )
+                          .Storage( IntegrateSlots::ScreenProbeBackfaceOutTexture, backface, kW )
+                          .Storage( IntegrateSlots::ScreenProbeUncoveredMaskUB, uncoveredMask, kW )
+                          .Storage( IntegrateSlots::RadianceCacheParamsUB, inputs.RadianceCache.Params, kR )
+                          .Storage( IntegrateSlots::RadianceCacheIndirectionUB, inputs.RadianceCache.Indirection,
+                                    kR )
+                          .Storage( IntegrateSlots::RadianceCacheProbesUB, inputs.RadianceCache.Probes, kR )
+                          .Texture( IntegrateSlots::RadianceCacheIrradianceTexture,
+                                    inputs.RadianceCache.Irradiance, kS, all )
+                          .Texture( IntegrateSlots::RadianceCacheDepthTexture, inputs.RadianceCache.Depth, kS,
+                                    all )
+                          .Texture( IntegrateSlots::GBufferShadingWord, inputs.GBufferShadingWord, kS, all )
+                          .Texture( IntegrateSlots::ShortRangeAoTexture, shortRangeAO, kS, all )
+                          .Sampler( IntegrateSlots::PointClampSampler, RDG::SamplerDesc::PointClamp() );
+                     gbuf( block );
+                 },
+                 [pipeline, integrateTiles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, integrateTiles.x, integrateTiles.y,
+                                                       1u );
+                 } );
+        }
+
         // HISTORY CLASSIFICATION (UE StochasticLightingTileClassification, PackedPixelData): every surface pixel's
         // history taps reprojected and tested once (ScreenProbeDisocclusion.shader), packed for the temporal
         // filter, and every uniform tile's disoccluded share for the spatial filter. SPATIAL FILTER (UE
@@ -1427,9 +1486,6 @@ namespace Desert::Graphic::GlobalIllumination
         // its 8x8-tile waves found every SM held by the async traces' waves and the 0.028 ms pass measured 0.746
         // ms (the near/far/cache-read legs' 0.72 ms); on the async queue those legs finished before it starts, and
         // the integrates take their args with no graphics -> async edge.
-        using IntegrateSlots = ScreenProbeGatherIntegrateShaderParameters;
-        const glm::uvec2     integrateTiles( DivideRoundUp( inputs.Extent.x, 8u ),
-                                             DivideRoundUp( inputs.Extent.y, 8u ) );
         const RDG::BufferRef integrateArgs =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( kIntegrateArgsReset ) }, "ScreenProbes.IntegrateArgs" );
         graph.QueueStaticBufferUpload( integrateArgs, std::as_bytes( std::span( kIntegrateArgsReset ) ) );
@@ -1485,7 +1541,8 @@ namespace Desert::Graphic::GlobalIllumination
                      // The args again as storage: the 2D grid's groups past the count read it (a buffer's two
                      // reads merge into one barrier).
                      block.Storage( IntegrateSlots::ScreenProbeIntegrateArgsUB, integrateArgs, kR )
-                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kR );
+                          .Storage( IntegrateSlots::ScreenProbeIntegrateTilesUB, integrateTileList, kR )
+                          .Storage( IntegrateSlots::ScreenProbeUncoveredMaskUB, uncoveredMask, kR );
                      block.Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeParamsUB, paramsBuffer,
                                     kR )
                           .Storage( ScreenProbeGatherIntegrateShaderParameters::ScreenProbeIndexUB, index, kR )
