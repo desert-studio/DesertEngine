@@ -279,7 +279,9 @@ namespace Desert::Server
                     return;
                 }
                 if ( !sim.Teleport( player, { v[0], v[1], v[2] } ) )
+                {
                     LOG_ERROR( "[Server] console '{}': player {} has no pawn", line, player );
+                }
                 return;
             }
             std::uint64_t id = 0;
@@ -358,11 +360,15 @@ namespace Desert::Server
             if ( command == "destroy" )
             {
                 if ( store.DestroyStable( id ) )
+                {
                     LOG_INFO( "[Server] console: stable {} destroyed - kept in the world delta table, replayed to "
                               "every client that has or loads its cell",
                               id );
+                }
                 else
+                {
                     LOG_ERROR( "[Server] console '{}': stable {} is already destroyed", line, id );
+                }
                 return;
             }
             LOG_ERROR( "[Server] console '{}': unknown command (set, transform, destroy, teleport, stat)", line );
