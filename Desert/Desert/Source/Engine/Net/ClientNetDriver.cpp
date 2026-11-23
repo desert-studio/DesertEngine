@@ -351,7 +351,8 @@ namespace Desert::Core
         std::set<std::uint32_t>            now;
         for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < units.size(); ++unit )
             // Activating = made hidden (UE MakingVisible): the server's acknowledgement reveals it.
-            if ( units[unit].State == Rules::Residency::Activating || units[unit].State == Rules::Residency::Activated )
+            if ( units[unit].State == Rules::Residency::Activating ||
+                 units[unit].State == Rules::Residency::Activated )
                 now.insert( static_cast<std::uint32_t>( unit ) );
         if ( now == m_ReportedUnits )
             return;

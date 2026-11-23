@@ -1241,7 +1241,8 @@ namespace Desert::Core
                                                              std::span<const std::size_t> /*records*/ )
     {
         // MAKING VISIBLE: held hidden until the server acknowledged the cell with its world delta.
-        if ( m_NetRevealHold && unit >= Executor().Plan().AlwaysLoaded.size() && !m_NetAcknowledged.contains( unit ) )
+        if ( m_NetRevealHold && unit >= Executor().Plan().AlwaysLoaded.size() &&
+             !m_NetAcknowledged.contains( unit ) )
             return Common::MakeSuccess( false );
         std::vector<std::uint32_t>& made = m_Made[unit];
         // ACTIVATED = COLLIDABLE. A scene with no physics system, or one whose Play refused to simulate (no

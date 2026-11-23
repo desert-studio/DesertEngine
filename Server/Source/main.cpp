@@ -399,11 +399,11 @@ namespace Desert::Server
             if ( !partitions.empty() && partitions.front().LHGrid )
             {
                 const Core::RuntimePartitionLHGridSerialized main = *partitions.front().LHGrid;
-                grid.PawnCellInRange = [main]( const Net::NetVec3& viewer,
+                grid.PawnCellInRange                              = [main]( const Net::NetVec3& viewer,
                                                const Net::NetVec3& at ) -> std::optional<std::string>
                 {
-                    const double               size  = Core::Rules::LevelCellSize( main.CellSize, 0 );
-                    const Core::Rules::CellCoord coord = Core::Rules::CellOf( at.X, at.Z, size );
+                    const double                  size   = Core::Rules::LevelCellSize( main.CellSize, 0 );
+                    const Core::Rules::CellCoord  coord  = Core::Rules::CellOf( at.X, at.Z, size );
                     const Core::Rules::CellBounds square = Core::Rules::GridSquareOf( coord, size );
                     if ( Core::Rules::DistanceToCellSquare( viewer.X, viewer.Z, square ) > main.LoadingRange )
                         return std::nullopt;
