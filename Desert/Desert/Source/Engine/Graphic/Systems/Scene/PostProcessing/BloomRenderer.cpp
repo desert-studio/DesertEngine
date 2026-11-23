@@ -1,6 +1,7 @@
 #include "BloomRenderer.hpp"
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/PostProcessing/BloomConvolutionRules.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -222,14 +223,7 @@ namespace Desert::Graphic::System
                                                                                      const Texture2D*        kernel,
                                                                                      const std::string&      kernelName )
     {
-        const auto report = [this]( std::string line )
-        {
-            if ( line != m_LoggedOutcome )
-            {
-                LOG_INFO( "{}", line );
-                m_LoggedOutcome = std::move( line );
-            }
-        };
+        const auto report = [this]( std::string line ) { ReportOutcome( std::move( line ), false ); };
         if ( m_Method != Common::Scalability::BloomMethod::Convolution )
         {
             report( "[Bloom] method=Gaussian" );
@@ -253,14 +247,15 @@ namespace Desert::Graphic::System
 
         // The FFT size: the half-resolution input plus its zero border, rounded up to a power of two, capped; when
         // the cap bites, the content shrinks to fit (UE does the same through its buffer scale).
-        const float bw   = static_cast<float>( chainDesc.Size.Width );
-        const float bh   = static_cast<float>( chainDesc.Size.Height );
-        const float pad  = std::ceil( kBufferScale * std::max( bw, bh ) );
-        const auto  size = [&]( float content )
-        { return std::min( kMaxFFTLength, std::bit_ceil( static_cast<uint32_t>( content + pad ) ) ); };
-        ConvolutionPlan plan;
-        plan.Width      = size( bw );
-        plan.Height     = size( bh );
+        // BloomConvolutionFFTSize is also what the view's memory census lists (ViewTargetCensus "Bloom.Spectrum").
+        const float        bw  = static_cast<float>( chainDesc.Size.Width );
+        const float        bh  = static_cast<float>( chainDesc.Size.Height );
+        const BloomFFTSize fft = BloomConvolutionFFTSize( chainDesc.Size.Width, chainDesc.Size.Height );
+        const float        pad = fft.Pad;
+        ConvolutionPlan    plan;
+        plan.KernelName = kernelName;
+        plan.Width      = fft.Width;
+        plan.Height     = fft.Height;
         plan.Log2Width  = static_cast<uint32_t>( std::countr_zero( plan.Width ) );
         plan.Log2Height = static_cast<uint32_t>( std::countr_zero( plan.Height ) );
         const float fit = std::min( { 1.0f, ( static_cast<float>( plan.Width ) - pad ) / bw,
@@ -280,7 +275,7 @@ namespace Desert::Graphic::System
                  .Tag        = "BloomKernelSpectrum",
                  .Width      = 2 * plan.Width,
                  .Height     = plan.Height,
-                 .Format     = Core::Formats::ImageFormat::RGBA32F,
+                 .Format     = ViewTargetFormats::kBloomSpectrum,
                  .Mips       = 1u,
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
@@ -290,7 +285,8 @@ namespace Desert::Graphic::System
         }
         if ( !m_KernelSpectrum )
         {
-            report( "[Bloom] method=Gaussian (tier Convolution: the kernel spectrum image was not created)" );
+            ReportOutcome( "[Bloom] method=Gaussian (tier Convolution: the kernel spectrum image was not created)",
+                           true );
             return std::nullopt;
         }
         // The resident size is part of the key: a streamed-in finer mip changes what the kernel image samples.
@@ -298,8 +294,24 @@ namespace Desert::Graphic::System
         plan.KernelImage    = kernel;
         plan.RebuildKernel  = m_BuiltKernel != kernel || m_BuiltScale != m_KernelScale ||
                              m_BuiltContent != plan.Content || m_BuiltResident != plan.KernelResident;
-        report( std::format( "[Bloom] method=Convolution kernel={} fft={}x{}", kernelName, plan.Width, plan.Height ) );
+        // The Convolution line is AddConvolutionPasses': a plan the caller then drops must not log it first.
         return plan;
+    }
+
+    void BloomRenderer::ReportOutcome( std::string line, const bool warning )
+    {
+        if ( line == m_LoggedOutcome )
+            return;
+        if ( warning )
+            LOG_WARN( "{}", line );
+        else
+            LOG_INFO( "{}", line );
+        m_LoggedOutcome = std::move( line );
+    }
+
+    void BloomRenderer::DropConvolution( const std::string_view reason )
+    {
+        ReportOutcome( std::format( "[Bloom] method=Gaussian (tier Convolution: {})", reason ), true );
     }
 
     void BloomRenderer::AddConvolutionPasses( RDG::Builder& graph, const ConvolutionPlan& plan,
@@ -316,11 +328,14 @@ namespace Desert::Graphic::System
             m_BuiltContent  = plan.Content;
             m_BuiltResident = plan.KernelResident;
         }
-        const RDG::TextureRef spectrum = graph.CreateTexture(
-             RDG::TextureDesc{ .Size   = { .Width = 2 * plan.Width, .Height = plan.Height },
-                               .Format = Core::Formats::ImageFormat::RGBA32F,
-                               .Mips   = 1 },
-             "Bloom.Spectrum" );
+        ReportOutcome( std::format( "[Bloom] method=Convolution kernel={} fft={}x{}", plan.KernelName, plan.Width,
+                                    plan.Height ),
+                       false );
+        const RDG::TextureRef spectrum =
+             graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 2 * plan.Width, .Height = plan.Height },
+                                                    .Format = ViewTargetFormats::kBloomSpectrum,
+                                                    .Mips   = 1 },
+                                  "Bloom.Spectrum" );
         const uint32_t gx = GroupCount( plan.Width );
         const uint32_t gy = GroupCount( plan.Height );
 

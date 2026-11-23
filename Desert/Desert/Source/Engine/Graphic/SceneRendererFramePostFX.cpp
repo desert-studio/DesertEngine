@@ -377,9 +377,9 @@ namespace Desert::Graphic
                 kernelSpectrum = textures.Import( bloom->GetKernelSpectrum(), "Bloom.KernelSpectrum" );
             if ( convolution && ( !kernelImage.IsValid() || !kernelSpectrum.IsValid() ) )
             {
-                LOG_ERROR(
-                     "[Bloom] the convolution kernel's image or spectrum did not import; this frame runs the "
-                     "Gaussian chain" );
+                // Warned once per reason (BloomRenderer::DropConvolution), not every frame the cause persists.
+                bloom->DropConvolution( !kernelImage.IsValid() ? "the kernel's image did not import"
+                                                               : "the kernel spectrum did not import" );
                 convolution.reset();
             }
             if ( convolution )

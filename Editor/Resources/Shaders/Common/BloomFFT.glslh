@@ -12,7 +12,7 @@
 #define BLOOM_FFT_GLSLH
 
 #define kBloomFFTThreads 256
-#define kBloomFFTMaxLength 1024 // BloomRenderer::kMaxFFTLength: 1024 x vec4 = 16 KiB of shared memory
+#define kBloomFFTMaxLength 1024 // Graphic::kBloomFFTMaxLength (BloomConvolutionRules.hpp): 1024 x vec4 = 16 KiB of shared memory
 
 shared vec4 BloomFFTLine[kBloomFFTMaxLength];
 

@@ -13,6 +13,7 @@
 #include <Common/Settings/CapabilityCatalog.hpp>
 
 #include <string>
+#include <string_view>
 
 #include <algorithm>
 #include <memory>
@@ -163,11 +164,13 @@ namespace Desert::Graphic::System
             return m_Kernel;
         }
 
-        // This frame's convolution: the FFT size (powers of two, <= kMaxFFTLength per axis), the content rectangle
-        // the half-resolution bloom input is resampled onto (the rest is the zero border, UE
-        // BloomConvolutionBufferScale), and whether the kernel's spectrum must be rebuilt this frame.
+        // This frame's convolution: the FFT size (BloomConvolutionFFTSize, BloomConvolutionRules.hpp - the size
+        // the view's memory census lists too), the content rectangle the half-resolution bloom input is resampled
+        // onto (the rest is the zero border, UE BloomConvolutionBufferScale), and whether the kernel's spectrum
+        // must be rebuilt this frame.
         struct ConvolutionPlan
         {
+            std::string      KernelName;     // the kernel's source path, for the outcome line
             uint32_t  Width      = 0; // N.x
             uint32_t  Height     = 0; // N.y
             uint32_t  Log2Width  = 0;
@@ -179,10 +182,12 @@ namespace Desert::Graphic::System
             const Texture2D* KernelImage   = nullptr; // the kernel the spectrum is (re)built from
             bool             RebuildKernel = false;
         };
-        // Nullopt = this frame runs the Gaussian chain: the tier asks for Gaussian, or the view names no kernel, or
-        // its image is still loading (@p kernel null), or a pipeline is missing. Every change of the outcome is
-        // logged once: "[Bloom] method=Convolution kernel=<name> fft=<N.x>x<N.y>" or the Gaussian line with its
-        // reason. Allocates (or keeps) the kernel spectrum image for the plan's size.
+        // Nullopt = this frame runs the Gaussian chain: the tier asks for Gaussian, or the view names no kernel,
+        // or its image is still loading (@p kernel null), or a pipeline is missing. The frame's outcome is logged
+        // once per change, never per frame (UE FFTBloom's kernel errors are warn-once): the Gaussian line with its
+        // reason here, "[Bloom] method=Convolution kernel=<name> fft=<N.x>x<N.y>" by AddConvolutionPasses once the
+        // passes are recorded, or DropConvolution's line when the caller cannot run a plan it was given. Allocates
+        // (or keeps) the kernel spectrum image for the plan's size.
         [[nodiscard]] std::optional<ConvolutionPlan> PrepareConvolution( const RDG::TextureDesc& chainDesc,
                                                                          const Texture2D*        kernel,
                                                                          const std::string&      kernelName );
@@ -196,13 +201,15 @@ namespace Desert::Graphic::System
         // inverse row FFT, unpack into mip 0 of @p chain — the texture the composite adds in for either method.
         void AddConvolutionPasses( RDG::Builder& graph, const ConvolutionPlan& plan, RDG::TextureRef chain,
                                    RDG::TextureRef kernelImage, RDG::TextureRef kernelSpectrum );
-
-        static constexpr uint32_t kMaxFFTLength = 1024; // Common/BloomFFT.glslh kBloomFFTMaxLength
-        // UE BloomConvolutionBufferScale's default: the zero border, as a fraction of the content's larger side.
-        static constexpr float kBufferScale = 0.133f;
+        // A planned convolution the frame cannot run (its kernel image or spectrum did not import): this frame
+        // runs the Gaussian chain, and "[Bloom] method=Gaussian (tier Convolution: <reason>)" is warned once per
+        // reason - the same line every frame the cause persists, so it is logged on its first frame only.
+        void DropConvolution( std::string_view reason );
 
     private:
         bool CreatePipelines();
+        // Logs @p line when it differs from the last outcome logged (m_LoggedOutcome); a warning for a failure.
+        void ReportOutcome( std::string line, bool warning );
 
         static constexpr float    kFilterRadius = 1.0f; // tent radius (source texels) for upsampling
 

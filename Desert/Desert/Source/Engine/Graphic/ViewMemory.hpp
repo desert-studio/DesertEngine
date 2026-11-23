@@ -4,6 +4,7 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Core/TextTemplate.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
+#include <Engine/Graphic/PostProcessing/BloomConvolutionRules.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <algorithm>
@@ -54,6 +55,11 @@ namespace Desert::Graphic
         // (SSRRenderer::Prepare). SceneRenderer::BeginScene keeps it at the machine's Reflections level; 2 = the
         // High column (half resolution).
         uint32_t ReflectionDownsampleFactor = 2;
+        // The view's bloom is the convolution (PostProcess.BloomMethod Convolution AND the view's post-process
+        // names a kernel, BloomRenderer::PrepareConvolution): its two spectra are then held.
+        // SceneRenderer::BeginScene keeps it; false (Gaussian, the chain alone) until then and in every constant
+        // profile.
+        bool BloomConvolution = false;
 
         bool operator==( const ViewProfile& ) const = default;
     };
@@ -369,8 +375,23 @@ namespace Desert::Graphic
         {
             const uint32_t bw = Div( width, 2 );
             const uint32_t bh = Div( height, 2 );
-            add( { "Bloom.Chain", "BloomRenderer.cpp", F::kBloom, bw, bh,
-                   std::min( 6u /* BloomRenderer::kMaxBloomMips */, MipCount( bw, bh ) ) } );
+            // The convolution keeps the chain's mip 0 only: its input and its result
+            // (SceneRenderer::AddFrameBloom).
+            const uint32_t chainMips =
+                 profile.BloomConvolution ? 1u
+                                          : std::min( 6u /* BloomRenderer::kMaxBloomMips */, MipCount( bw, bh ) );
+            add( { "Bloom.Chain", "BloomRenderer.cpp", F::kBloom, bw, bh, chainMips } );
+            if ( profile.BloomConvolution )
+            {
+                // BloomRenderer: the frame's spectrum (a graph transient, pooled while the view is open) and the
+                // kernel's (kept between frames), both (2 N.x) x N.y at the plan's FFT size - the same function
+                // the allocation asks (BloomConvolutionRules.hpp), so a 1080p view reads 2 x 32 MiB here and
+                // there.
+                const BloomFFTSize fft = BloomConvolutionFFTSize( bw, bh );
+                add( { "Bloom.Spectrum", "BloomRenderer.cpp", F::kBloomSpectrum, 2 * fft.Width, fft.Height } );
+                add( { "Bloom.KernelSpectrum", "BloomRenderer.cpp", F::kBloomSpectrum, 2 * fft.Width,
+                       fft.Height } );
+            }
         }
         add( { "LightShaft.PingPong", "LightShaftRenderer.cpp", F::kLightShaft, Div( width, 2 ), Div( height, 2 ),
                1, 2 } );
