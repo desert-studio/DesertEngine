@@ -2995,13 +2995,26 @@ namespace Desert::Graphic::System
                                          row.LandscapeFrame.z + row.LandscapeTile.y * row.LandscapeFrame.w );
                 tile.Side   = row.LandscapeTile.z * row.LandscapeFrame.w;
                 tile.Row    = RayTracing::LandscapeRayHitRow( material );
-                // FNV-1a of the row (material values, layer maps, weightmap slot), then the paint revision.
+                // The world-height channel: the heightmap's bindless slot in the row's free Weightmap.w (the hit
+                // group reads x..z only), and the heights its samples can span (Common/LandscapeHeight.glslh:
+                // local (s - 32768) / 128 times the Z scale, above the base).
+                const Image2D*        heightmap      = m_Queue[i].Heightmap.get();
+                constexpr std::size_t kWeightmapSlot = sizeof( TerrainInstance ) / sizeof( glm::vec4 ) + 1u;
+                tile.Row[kWeightmapSlot].w =
+                     std::bit_cast<float>( heightmap != nullptr ? heightmap->GetBindlessSlot().Index : 0u );
+                tile.HeightMin = row.LandscapeFrame.y - 256.0f * row.LandscapeTile.w;
+                tile.HeightMax = row.LandscapeFrame.y + ( 65535.0f - 32768.0f ) / 128.0f * row.LandscapeTile.w;
+                // FNV-1a of the row (material values, layer maps, weightmap and heightmap slots), then the paint
+                // revision and the heightmap's generation (a sculpt stroke).
                 uint64_t    key   = 0xcbf29ce484222325ull;
                 const auto* bytes = reinterpret_cast<const unsigned char*>( tile.Row.data() );
                 for ( std::size_t b = 0; b < tile.Row.size() * sizeof( glm::vec4 ); ++b )
                     key = ( key ^ bytes[b] ) * 0x100000001b3ull;
                 key ^= m_Queue[i].Weights.Revision * 0x9E3779B97F4A7C15ull;
                 key ^= static_cast<uint64_t>( reinterpret_cast<uintptr_t>( m_Queue[i].Weights.Weightmap.get() ) );
+                key ^= static_cast<uint64_t>( reinterpret_cast<uintptr_t>( heightmap ) ) * 0xC2B2AE3D27D4EB4Full;
+                if ( heightmap != nullptr )
+                    key ^= heightmap->GetResourceGeneration() * 0x165667B19E3779F9ull;
                 tile.Key = key;
                 tiles.push_back( std::move( tile ) );
             }

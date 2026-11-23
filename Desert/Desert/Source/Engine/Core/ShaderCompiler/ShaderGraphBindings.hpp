@@ -171,7 +171,7 @@ namespace Desert::Core
     inline constexpr uint32_t kDeformationFieldParamsBinding = kSceneReadBindingFirst + 37u;
     // THE LANDSCAPE'S RUNTIME VIRTUAL TEXTURE AS A SURFACE READS IT (LANDSCAPE-RVT, RVT-MESH-BLEND; UE Runtime Virtual
     // Texture Sample: one RVT, read by the landscape and by every mesh that blends into it): the page table
-    // (`LandscapeVirtualPageTable`), the three atlases (`LandscapeVirtualColorAtlas` / `NormalAtlas` /
+    // (`LandscapeVirtualPageTable`), the atlases (`LandscapeVirtualColorAtlas` / `NormalAtlas` /
     // `OcclusionAtlas`) and the feedback bit field the reader marks its pages in (`LandscapeVirtualFeedback`, written).
     // Declared by Common/LandscapeVirtualTexture.glslh (TerrainGBuffer.shader through TerrainSurface.glslh); bound by
     // name from the frame graph (BindSceneViewInputs, FrameTransients::LandscapeVirtualTexture, published by
@@ -181,7 +181,10 @@ namespace Desert::Core
     inline constexpr uint32_t kLandscapeVirtualNormalBinding     = kSceneReadBindingFirst + 40u;
     inline constexpr uint32_t kLandscapeVirtualOcclusionBinding  = kSceneReadBindingFirst + 41u;
     inline constexpr uint32_t kLandscapeVirtualFeedbackBinding   = kSceneReadBindingFirst + 42u;
-    inline constexpr uint32_t kSceneReadBindingCount             = 43u;
+    // The ground's world height (`LandscapeVirtualHeightAtlas`; UE's WorldHeight RVT): what a mesh measures its
+    // height above the ground and the ground's world normal from (Mesh/Surface/SurfaceLandscapeBlend.glslh).
+    inline constexpr uint32_t kLandscapeVirtualHeightBinding     = kSceneReadBindingFirst + 43u;
+    inline constexpr uint32_t kSceneReadBindingCount             = 44u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -252,8 +255,8 @@ namespace Desert::Core
     // Then from 63: the DBuffer's three slots joined the scene-read range (DECALS-DBUFFER). Then from 66: the
     // distance-field sun's mask joined it (DF-SHADOWS). Then from 67: the translucency lighting volume joined it
     // (PARTICLES-LIT-TLV). Then from 68: the deformation field's four levels' images and its block joined it
-    // (DEFORM-GRASS). Then from 73: the landscape RVT's page table, atlases and feedback joined it (RVT-MESH-BLEND).
-    static_assert( kGraphOwnedBindingFirst == 78u,
+    // (DEFORM-GRASS). Then from 73: the landscape RVT's page table, atlases and feedback joined it, and from 78 its world-height atlas (RVT-MESH-BLEND).
+    static_assert( kGraphOwnedBindingFirst == 79u,
                    "the graph's window opens right above the virtual geometry raster's range" );
 
     /**
@@ -345,6 +348,7 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualNormalBinding ),
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualOcclusionBinding ),
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualFeedbackBinding ),
+         DESERT_SCENE_BINDING_ROW( kLandscapeVirtualHeightBinding ),
          DESERT_SCENE_BINDING_ROW( kSceneReadBindingCount ),
          DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kVsmFrameDataBinding ),

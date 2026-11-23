@@ -57,6 +57,7 @@ namespace Desert::Graphic
              { SceneViewSlot::LandscapeVirtualColor, kLandscapeVirtualColorName, kTex },
              { SceneViewSlot::LandscapeVirtualNormal, kLandscapeVirtualNormalName, kTex },
              { SceneViewSlot::LandscapeVirtualOcclusion, kLandscapeVirtualOcclusionName, kTex },
+             { SceneViewSlot::LandscapeVirtualHeight, kLandscapeVirtualHeightName, kTex },
              { SceneViewSlot::SceneColorTexture, kPassSceneColorTextureName, kTex },
              { SceneViewSlot::FrontLayerReflectionTexture, kPassFrontLayerReflectionTextureName, kTex },
              { SceneViewSlot::ReflectionList, kSceneViewReflectionListName, kBuf },

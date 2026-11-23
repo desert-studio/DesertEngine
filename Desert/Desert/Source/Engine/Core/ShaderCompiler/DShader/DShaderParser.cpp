@@ -1874,13 +1874,21 @@ namespace Desert::Core::Preprocess
         // the surface function on the .shader's own lines. BOTH stages see which pass and blend mode the cell
         // is (DESERT_SURFACE_PASS_<Pass>, DESERT_SURFACE_MASKED): an opaque depth cell's vertex header declares
         // the shadow pass's push block and no varyings, so the cell's layout is the shadow shader's.
+        // The engine-owned responses a template's row carries (appended after its authored parameters).
+        struct SurfaceRowResponses
+        {
+            bool Weather        = false; // kSurfaceRespondsToWeatherParam / kSurfacePorosityParam
+            bool LandscapeBlend = false; // `LandscapeBlend`: kSurfaceLandscapeBlendHeightParam / SharpnessParam
+        };
+
         std::string AssembleSurfaceCellStage( ShaderStage stage, std::string_view path, std::string_view pass,
                                               const RawBlock& surface, const RawBlock& include,
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
                                               const std::string_view shadingModelDefine, const bool responsiveAA,
                                               const std::string& opacityMaskFunction, const bool parallax,
-                                              const std::string& heightFunctions, const bool weather,
-                                              const bool binned = false, const bool virtualGeometry = false )
+                                              const std::string&         heightFunctions,
+                                              const SurfaceRowResponses& responses, const bool binned = false,
+                                              const bool virtualGeometry = false )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
@@ -1915,12 +1923,19 @@ namespace Desert::Core::Preprocess
                         : autoDecls;
             // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
             const bool wets =
-                 weather && ( pass == "Forward" || pass == "GBuffer" || pass == "VisibilityResolve" ) && !particle && path != kSurfaceRayHitPath;
+                 responses.Weather && ( pass == "Forward" || pass == "GBuffer" || pass == "VisibilityResolve" ) && !particle && path != kSurfaceRayHitPath;
             const std::string weatherDefines =
                  wets ? std::format( "#define {} 1\n#define {} {:#010x}u\n", kSurfaceWeatherDefine,
                                      kSurfaceWetnessKeyDefine,
                                      Assets::Serialization::WorldParameterKey( kSurfaceWetnessParameter ) )
                       : std::string();
+            // A lit mesh G-buffer / Forward pass of a `LandscapeBlend` template (kSurfaceLandscapeBlendDefine): the
+            // pass header blends the surface into the landscape's RVT at its foot (SurfaceLandscapeBlend.glslh).
+            const bool blendsIntoGround = responses.LandscapeBlend && ( pass == "Forward" || pass == "GBuffer" ) &&
+                                          !particle && path != kSurfaceRayHitPath;
+            const std::string landscapeBlendDefines =
+                 blendsIntoGround ? std::format( "#define {} 1
+", kSurfaceLandscapeBlendDefine ) : std::string();
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
             const bool        rayHit      = path == kSurfaceRayHitPath;
@@ -1958,7 +1973,7 @@ namespace Desert::Core::Preprocess
                      // The world's parameters are declared only into a cell whose surface reads one: reflection
                      // keeps a declared buffer, and every other surface must not ask its renderer to bind it.
                      std::format( "{}{}{}#define {} 1\n#include <{}>\n{}{}#line {}\n{}\n{}#include <{}>\n",
-                                  defines, weatherDefines,
+                                  defines, weatherDefines + landscapeBlendDefines,
                                   fades ? std::format( "#define {} 1\n", kSurfaceDepthFadeDefine ) : std::string(),
                                   kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
                                   readsWorld || wets ? std::format( "#include <{}>\n", kWorldParametersInclude )
@@ -2178,6 +2193,7 @@ namespace Desert::Core::Preprocess
         uint32_t                stampLine          = 0;
         uint32_t                surfaceSettingLine = 0;
         uint32_t                responsiveLine     = 0; // the `ResponsiveAA` line, refused on an opaque blend
+        uint32_t                landscapeBlendLine = 0; // the `LandscapeBlend` line, refused without a lit row
         std::string             shadingModelName; // `ShadingModel <Name>`; empty = DefaultLit
         uint32_t                shadingModelLine = 0;
         uint32_t                opacityMaskLine  = 0; // the `OpacityMask` line; checked once Properties are known
@@ -2504,6 +2520,12 @@ namespace Desert::Core::Preprocess
                 result.Surface.ResponsiveAA = true;
                 surfaceSettingLine          = surfaceSettingLine != 0 ? surfaceSettingLine : line;
                 responsiveLine              = line;
+            }
+            else if ( lower == "landscapeblend" )
+            {
+                result.Surface.LandscapeBlend = true;
+                surfaceSettingLine            = surfaceSettingLine != 0 ? surfaceSettingLine : line;
+                landscapeBlendLine            = line;
             }
             else if ( lower == "usage" )
             {
@@ -2986,6 +3008,56 @@ namespace Desert::Core::Preprocess
                  0.5f ) );
         }
 
+        // THE SURFACE'S LANDSCAPE BLEND (kSurfaceLandscapeBlendDefine, DShaderParser.hpp): a lit Opaque / Masked
+        // template that states `LandscapeBlend` gets two more engine-owned row parameters, after the weather's.
+        if ( result.Surface.LandscapeBlend && !respondsToWeather )
+        {
+            err = { landscapeBlendLine, "'LandscapeBlend' blends a lit Opaque / Masked surface with a material row "
+                                        "into the landscape; this template has no row or is translucent" };
+            return fail();
+        }
+        if ( result.Surface.LandscapeBlend )
+        {
+            for ( const std::string_view reserved :
+                  { kSurfaceLandscapeBlendHeightParam, kSurfaceLandscapeBlendSharpnessParam } )
+                for ( const auto& p : result.Meta.Params )
+                    if ( p.Name == reserved )
+                    {
+                        err = { landscapeBlendLine,
+                                std::format( "'{}' is the engine's landscape-blend parameter of a 'LandscapeBlend' "
+                                             "template; rename the template's own",
+                                             reserved ) };
+                        return fail();
+                    }
+            const auto blendParam = []( const std::string_view name, const std::string_view display,
+                                        const std::string_view tooltip, const float value, const float max )
+            {
+                ShaderParam p;
+                p.Name        = std::string( name );
+                p.DisplayName = std::string( display );
+                p.Category    = "Landscape Blend";
+                p.Tooltip     = std::string( tooltip );
+                p.Type        = ShaderValueType::Float;
+                p.Widget      = ShaderParamWidget::Slider;
+                p.Timing      = ShaderParamTiming::Immediate;
+                p.Min         = 0.0f;
+                p.Max         = max;
+                p.Default     = glm::vec4( value, 0.0f, 0.0f, 0.0f );
+                return p;
+            };
+            result.Meta.Params.push_back( blendParam(
+                 kSurfaceLandscapeBlendHeightParam, "Landscape Blend Height",
+                 "How far above the ground (cm) the surface takes on the landscape's colour and normal under it: 0 = "
+                 "off (the hard seam), 30 = a rock's foot sunk into the soil",
+                 30.0f, 200.0f ) );
+            result.Meta.Params.push_back( blendParam(
+                 kSurfaceLandscapeBlendSharpnessParam, "Landscape Blend Sharpness",
+                 "How the blend falls off over that height: 0 = a long soft fade, 1 = a narrow band at the foot "
+                 "(the ground's own relief, from the landscape's height, breaks the line either way)",
+                 0.5f, 1.0f ) );
+        }
+        const SurfaceRowResponses rowResponses{ .Weather = respondsToWeather, .LandscapeBlend = result.Surface.LandscapeBlend };
+
         result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
         result.Layout               = BuildMaterialLayout( result.Meta );
         // The reserved scene-read range (Core::kSceneReadBindingFirst, ShaderGraphBindings.hpp) is declared into
@@ -3247,7 +3319,7 @@ namespace Desert::Core::Preprocess
                              stage, AssembleSurfaceCellStage( stage, path, pass, *surfaceBlock, cellInclude,
                                                               autoDecls, result.Surface.Blend, shadingModelDefine,
                                                               result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                              false, heightFunctions, respondsToWeather ) );
+                                                              false, heightFunctions, rowResponses ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -3446,7 +3518,7 @@ namespace Desert::Core::Preprocess
                                                          stage, kInstancedPath, pass, *surfaceBlock, cellInclude,
                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
                                                          result.Surface.ResponsiveAA, opacityMaskFunction, false,
-                                                         heightFunctions, respondsToWeather ) );
+                                                         heightFunctions, rowResponses ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -3502,7 +3574,7 @@ namespace Desert::Core::Preprocess
                                                                   autoDecls, result.Surface.Blend,
                                                                   shadingModelDefine, result.Surface.ResponsiveAA,
                                                                   opacityMaskFunction, true, heightFunctions,
-                                                                  respondsToWeather ) );
+                                                                  rowResponses ) );
                         result.Meta.PassNames.push_back( cell.Name );
                         result.Surface.Cells.push_back( cell.Name );
                         result.Passes.push_back( std::move( cell ) );
@@ -3530,7 +3602,7 @@ namespace Desert::Core::Preprocess
                                                           stage, path, pass, *surfaceBlock, cellInclude,
                                                           autoDecls, result.Surface.Blend, shadingModelDefine,
                                                           result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          parallax, heightFunctions, respondsToWeather, true ) );
+                                                          parallax, heightFunctions, rowResponses, true ) );
                             result.Meta.PassNames.push_back( cell.Name );
                             result.Surface.Cells.push_back( cell.Name );
                             result.Passes.push_back( std::move( cell ) );
@@ -3560,7 +3632,7 @@ namespace Desert::Core::Preprocess
                                                                  autoDecls, result.Surface.Blend,
                                                                  shadingModelDefine, result.Surface.ResponsiveAA,
                                                                  opacityMaskFunction, parallax, heightFunctions,
-                                                                 respondsToWeather, true, true ) );
+                                                                 rowResponses, true, true ) );
                             result.Meta.PassNames.push_back( cell.Name );
                             result.Surface.Cells.push_back( cell.Name );
                             result.Passes.push_back( std::move( cell ) );

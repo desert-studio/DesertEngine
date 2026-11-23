@@ -23,6 +23,9 @@ layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
 #ifdef DESERT_SURFACE_WEATHER
 #include <Mesh/Surface/SurfaceWeather.glslh>
 #endif
+#ifdef DESERT_SURFACE_LANDSCAPE_BLEND
+#include <Mesh/Surface/SurfaceLandscapeBlend.glslh>
+#endif
 
 // The view's decals (DECALS-DBUFFER, Common/DBuffer.glslh), folded in by the one writer below: every mesh G-buffer
 // cell but the particles' (a sprite is not in the prepass depth the decals project onto; UE: no DBuffer on
@@ -73,13 +76,25 @@ void main()
     // (MeshRenderer::BuildGpuInstancedDraws), so a texel the mask cut has the depth of what lies behind it and fails the
     // test: the clip is not repeated, and with no discard in the stage early depth testing stays on (UE: the base pass
     // of a masked material after its early-Z pass, DepthEqual, no clip).
+#ifdef DESERT_SURFACE_LANDSCAPE_BLEND
+    // The ground's footprint (SurfaceLandscapeBlend.glslh), before the clip can discard a neighbour.
+    const vec2 groundDx = dFdx( i.WorldPosition.xz );
+    const vec2 groundDy = dFdy( i.WorldPosition.xz );
+#endif
 #ifndef DESERT_SURFACE_DEPTH_EQUAL
     DESERT_SURFACE_CLIP( i );
 #endif
 #ifdef DESERT_SURFACE_WEATHER
     i.ObjectScaleUp = v_Surface.ObjectScaleUp;
-    // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface.
+    // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface; a
+    // `LandscapeBlend` template's foot blends into the ground first (Mesh/Surface/SurfaceLandscapeBlend.glslh), so the
+    // weather wets it as it wets the ground beside it.
+#ifdef DESERT_SURFACE_LANDSCAPE_BLEND
+    const SurfaceOutput s =
+         DesertApplySurfaceWeather( i, DesertApplySurfaceLandscapeBlend( i, groundDx, groundDy, EvaluateSurface( i ) ) );
+#else
     const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#endif
 #else
     const SurfaceOutput s = EvaluateSurface( i );
 #endif

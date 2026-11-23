@@ -91,7 +91,7 @@ namespace Desert::Graphic
     };
 
     // THE VIEW'S LANDSCAPE RUNTIME VIRTUAL TEXTURE (LANDSCAPE-RVT, System::LandscapeVirtualTexture; UE Runtime Virtual
-    // Texture): its page table, its three persistent atlases and this frame's feedback bit field, as every reader binds
+    // Texture): its page table, its four persistent atlases and this frame's feedback bit field, as every reader binds
     // them (Common/LandscapeVirtualTexture.glslh). A disabled view (forward path, scene capture, no tile) has a zero
     // header, System.Black atlases and a one-word feedback: every reader then answers "no page".
     struct LandscapeVirtualTextureRefs
@@ -100,12 +100,13 @@ namespace Desert::Graphic
         RDG::TextureRef Color;
         RDG::TextureRef Normal;
         RDG::TextureRef Occlusion;
+        RDG::TextureRef Height;   // the ground's world height (UE WorldHeight RVT), unorm over the header's range
         RDG::BufferRef  Feedback; // written: a reader marks the pages it wants (atomicOr)
 
         [[nodiscard]] bool IsValid() const
         {
             return PageTable.IsValid() && Color.IsValid() && Normal.IsValid() && Occlusion.IsValid() &&
-                   Feedback.IsValid();
+                   Height.IsValid() && Feedback.IsValid();
         }
     };
 
@@ -383,7 +384,8 @@ namespace Desert::Graphic
                     RadianceCacheIrradiance, RadianceCacheDepth,
                     RainOcclusionMap, FogAerialPerspective, FogDistantSkyLight, FogVolume, DBufferA, DBufferB,
                     DBufferC, TranslucencyLightingVolume, LandscapeVirtualTexture.Color,
-                    LandscapeVirtualTexture.Normal, LandscapeVirtualTexture.Occlusion } )
+                    LandscapeVirtualTexture.Normal, LandscapeVirtualTexture.Occlusion,
+                    LandscapeVirtualTexture.Height } )
                 add( ref );
             for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
                 add( ref );
@@ -429,12 +431,13 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewDBufferSamplerName = "DBufferSampler";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
     inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
-    // LANDSCAPE-RVT (Common/LandscapeVirtualTexture.glslh): the page table, the three atlases (bilinear through a
+    // LANDSCAPE-RVT (Common/LandscapeVirtualTexture.glslh): the page table, the four atlases (bilinear through a
     // shared sampler state of their own) and the feedback bit field.
     inline constexpr std::string_view kLandscapeVirtualPageTableName = "LandscapeVirtualPageTable";
     inline constexpr std::string_view kLandscapeVirtualColorName     = "LandscapeVirtualColorAtlas";
     inline constexpr std::string_view kLandscapeVirtualNormalName    = "LandscapeVirtualNormalAtlas";
     inline constexpr std::string_view kLandscapeVirtualOcclusionName = "LandscapeVirtualOcclusionAtlas";
+    inline constexpr std::string_view kLandscapeVirtualHeightName    = "LandscapeVirtualHeightAtlas";
     inline constexpr std::string_view kLandscapeVirtualSamplerName   = "LandscapeVirtualSampler";
     inline constexpr std::string_view kLandscapeVirtualFeedbackName  = "LandscapeVirtualFeedback";
     // DEFORM-GRASS: the deformation field as a surface reads it (Deformation/DeformationFieldRead.glslh): each level's
@@ -537,6 +540,7 @@ namespace Desert::Graphic
     inline constexpr RDG::TextureParameter       kLandscapeVirtualColor{ kLandscapeVirtualColorName };
     inline constexpr RDG::TextureParameter       kLandscapeVirtualNormal{ kLandscapeVirtualNormalName };
     inline constexpr RDG::TextureParameter       kLandscapeVirtualOcclusion{ kLandscapeVirtualOcclusionName };
+    inline constexpr RDG::TextureParameter       kLandscapeVirtualHeight{ kLandscapeVirtualHeightName };
     inline constexpr RDG::SamplerParameter       kLandscapeVirtualSampler{ kLandscapeVirtualSamplerName };
     inline constexpr RDG::StorageBufferParameter kLandscapeVirtualFeedback{ kLandscapeVirtualFeedbackName };
     inline constexpr RDG::StorageBufferParameter kSceneViewRadianceCacheParams{
@@ -714,6 +718,8 @@ namespace Desert::Graphic
                 bind( SceneViewSlot::LandscapeVirtualNormal, kLandscapeVirtualNormal, rvt.Normal,
                       kLandscapeVirtualSampler, RDG::SamplerDesc::LinearClamp() );
                 bind( SceneViewSlot::LandscapeVirtualOcclusion, kLandscapeVirtualOcclusion, rvt.Occlusion,
+                      kLandscapeVirtualSampler, RDG::SamplerDesc::LinearClamp() );
+                bind( SceneViewSlot::LandscapeVirtualHeight, kLandscapeVirtualHeight, rvt.Height,
                       kLandscapeVirtualSampler, RDG::SamplerDesc::LinearClamp() );
             }
         }

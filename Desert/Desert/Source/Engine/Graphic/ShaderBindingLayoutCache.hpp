@@ -59,6 +59,7 @@ namespace Desert::Graphic
         LandscapeVirtualColor,
         LandscapeVirtualNormal,
         LandscapeVirtualOcclusion,
+        LandscapeVirtualHeight,
         // A pass's own textures, bound by the pass (not BindSceneViewInputs) where its cell declares them.
         SceneColorTexture,
         FrontLayerReflectionTexture,
