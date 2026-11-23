@@ -29,7 +29,8 @@ namespace Desert::Core
         // floor) and emits one command.
         scene.AddSystem<ECS::HeightFogECSSystem>();
         // A pure render-data collector: one command per visible decal box (DECALS-DBUFFER).
-        scene.AddSystem<ECS::DecalECSSystem>();
+        // ... and the world's impact decals (NG-DECALS-MESH), the same pass's rows without entities.
+        scene.AddSystem<ECS::DecalECSSystem>( scene.GetDecalImpacts() );
         scene.AddSystem<ECS::VolumetricCloudECSSystem>();
         // The tiles' GPU copies are the scene's ledger rows (Scene::GetLedgerInstance).
         scene.AddSystem<ECS::LandscapeECSSystem>( scene.GetLedgerInstance() );

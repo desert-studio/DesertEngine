@@ -573,6 +573,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD selection "
                "distance, percent)",
                100, Vis::Advanced },
+             { P::EffectsDecalImpactPoolSize, G::Effects, "Effects.DecalImpactPoolSize", 0, 4096, CL::None,
+               "DecalECSSystem::Update -> DecalImpactPool::SetCapacity (the impact decals World.spawnDecal keeps; "
+               "a spawn into a full ring replaces the oldest; 0 = none)",
+               1024, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

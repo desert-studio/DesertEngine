@@ -100,6 +100,7 @@
                 "Effects.SpawnCountScalePercent": 25,
                 "Effects.QualityLevel": 0,
                 "Effects.MaxWorldParticles": 16384,
+                "Effects.DecalImpactPoolSize": 256,
                 "Effects.VolumetricFog": 0,
                 "Effects.VolumetricFogGridPixelSize": 16,
                 "Effects.VolumetricFogGridSizeZ": 64
@@ -110,6 +111,7 @@
                 "Effects.SpawnCountScalePercent": 50,
                 "Effects.QualityLevel": 1,
                 "Effects.MaxWorldParticles": 32768,
+                "Effects.DecalImpactPoolSize": 512,
                 "Effects.VolumetricFog": 0,
                 "Effects.VolumetricFogGridPixelSize": 16,
                 "Effects.VolumetricFogGridSizeZ": 64

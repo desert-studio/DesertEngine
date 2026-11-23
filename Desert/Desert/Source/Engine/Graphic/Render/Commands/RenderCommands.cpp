@@ -29,6 +29,12 @@ namespace Desert::Graphic::Render
     renderer.AddDecal( Decal );
     }
 
+    void DecalImpactsCommand::Execute( SceneRenderer& renderer )
+    {
+        for ( const System::DecalProxy& decal : Decals )
+            renderer.AddDecal( decal );
+    }
+
     void DrawGenericMeshCommand::Prepare()
     {
     if ( Mesh != nullptr )
