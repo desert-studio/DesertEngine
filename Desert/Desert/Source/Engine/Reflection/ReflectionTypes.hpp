@@ -58,6 +58,10 @@ namespace Desert::Reflection
         bool        IsColor   = false; // PROPERTY(Color)               → color editor
         bool        IsAsset   = false; // PROPERTY(Asset<TextureAsset>) → asset picker
         std::string AssetType;         // reflected asset type name (e.g. "TextureAsset")
+        // PROPERTY(Asset<MaterialAsset>, Role( WaterMaterial )) - the template role (ShaderAssetHeader.hpp
+        // k*Role) an asset slot accepts (UE meta=(AllowedClasses)): the picker lists only the materials whose
+        // template is the one loaded shader declaring that role. Empty = any asset of AssetType.
+        std::string AssetRole;
         bool        Thumbnail = false; // PROPERTY(Thumbnail)
         bool        ReadOnly  = false; // PROPERTY(ReadOnly)
         bool        Hidden    = false; // PROPERTY(Hidden)

@@ -112,6 +112,7 @@ namespace
         bool        isColor   = false;
         bool        isAsset   = false;
         std::string assetType;
+        std::string assetRole; // PROPERTY(Role( WaterMaterial )) - template role the asset slot accepts
         bool        thumbnail = false;
         bool        readOnly  = false;
         bool        hidden    = false;
@@ -540,6 +541,18 @@ namespace
                 auto b = tok.find_last_of( ">)" );
                 if ( a != std::string::npos && b != std::string::npos && b > a )
                     m.assetType = tok.substr( a + 1, b - a - 1 );
+            }
+            else if ( tok.rfind( "Role", 0 ) == 0 )
+            {
+                // Role( WaterMaterial ): a bare identifier, the shader role name (ShaderAssetHeader.hpp k*Role).
+                auto a = tok.find( '(' ), b = tok.rfind( ')' );
+                if ( a != std::string::npos && b != std::string::npos && b > a )
+                {
+                    std::string v = tok.substr( a + 1, b - a - 1 );
+                    while ( !v.empty() && std::isspace( (unsigned char)v.front() ) ) v.erase( v.begin() );
+                    while ( !v.empty() && std::isspace( (unsigned char)v.back() ) ) v.pop_back();
+                    m.assetRole = v;
+                }
             }
             else if ( tok.rfind( "Units", 0 ) == 0 )
                 m.units = ExtractStringLiteral( tok );
@@ -1204,6 +1217,7 @@ namespace
         flag( "isColor", m.isColor );
         if ( m.isAsset )
             b.Set( "isAsset", true ).Set( "assetType", m.assetType );
+        text( "assetRole", m.assetRole );
         flag( "thumbnail", m.thumbnail );
         flag( "readOnly", m.readOnly );
         flag( "hidden", m.hidden );

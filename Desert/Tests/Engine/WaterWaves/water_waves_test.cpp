@@ -99,7 +99,8 @@ TEST( WaterWaves, ASeededRandomisedGeneratorMakesUEsWaves )
                           { 0.6342140f, 0.7731576f, 4773.1128f, 62.98167f, 0.225000f },
                           { 0.9997399f, 0.0228053f, 3338.2810f, 43.07891f, 0.250000f },
                           { 0.2960479f, 0.9551731f, 2362.9170f, 29.54950f, 0.275000f } } );
-    EXPECT_EQ( waves, GenerateGerstnerWaves( Gusty(), kGustyWindDeg ) ) << "the same seed must give the same waves";
+    EXPECT_EQ( waves, GenerateGerstnerWaves( Gusty(), kGustyWindDeg ) )
+         << "the same seed must give the same waves";
 }
 
 TEST( WaterWaves, TheHeightAtAPointIsUEs )
@@ -108,9 +109,10 @@ TEST( WaterWaves, TheHeightAtAPointIsUEs )
                    { { { 0.0f, 0.0f }, 0.0f, 508.12500f },
                      { { 1234.5f, -987.25f }, 3.5f, -55.03937f },
                      { { -4000.0f, 2500.0f }, 12.25f, -198.52424f } } );
-    ExpectHeights( GenerateGerstnerWaves( Gusty(), kGustyWindDeg ), { { { 0.0f, 0.0f }, 0.0f, 259.74839f },
-                                                       { { 1234.5f, -987.25f }, 3.5f, -158.39438f },
-                                                       { { -4000.0f, 2500.0f }, 12.25f, -102.80332f } } );
+    ExpectHeights( GenerateGerstnerWaves( Gusty(), kGustyWindDeg ),
+                   { { { 0.0f, 0.0f }, 0.0f, 259.74839f },
+                     { { 1234.5f, -987.25f }, 3.5f, -158.39438f },
+                     { { -4000.0f, 2500.0f }, 12.25f, -102.80332f } } );
 }
 
 TEST( WaterWaves, ZeroAmplitudeDisplacesNothing )

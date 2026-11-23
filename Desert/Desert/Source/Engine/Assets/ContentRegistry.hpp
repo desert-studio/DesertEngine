@@ -597,6 +597,43 @@ namespace Desert::Assets
                               row->Skeleton };
         }
 
+        // THE TEMPLATE ROLE OF ONE MATERIAL ROW, read from the registry alone (no material or shader is loaded):
+        // the material's own Shader dependency, else its parent Material's, up the instance chain - the walk
+        // WorldCells::CustomShaderFrom does - and that Shader row's Role tag (the manifest's `Role <Name>`).
+        // Empty when the row is no material, its chain names no shader row, or the shader declares no role.
+        // A typed asset picker (PROPERTY(Role(...)), PropertyMetadata::AssetRole) lists a row only when this
+        // equals the slot's role (UE meta=(AllowedClasses)).
+        inline std::string TemplateRoleOf( uint64_t materialHandle )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            const std::string_view materialKind =
+                 Common::Content::KindName( Common::Content::ContentKind::Material );
+            const std::string_view shaderKind = Common::Content::KindName( Common::Content::ContentKind::Shader );
+            const Common::Utils::AssetRegistryEntry* material = state.Registry.FindByHandle( materialHandle );
+            if ( material == nullptr || material->Kind != materialKind )
+                return {};
+            // An instance chain is short; the bound only stops a cycle a damaged registry could state.
+            constexpr int kMaxParents = 16;
+            for ( int depth = 0; material != nullptr && depth < kMaxParents; ++depth )
+            {
+                const Common::Utils::AssetRegistryEntry* parent = nullptr;
+                for ( const uint64_t dependency : material->Dependencies )
+                {
+                    const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( dependency );
+                    if ( row == nullptr )
+                        continue;
+                    if ( row->Kind == shaderKind )
+                        return row->Role;
+                    if ( row->Kind == materialKind && parent == nullptr )
+                        parent = row;
+                }
+                material = parent;
+            }
+            return {};
+        }
+
         // THE LAST WRITE SERIAL. An index that has just read `Rows` takes this FIRST, so a write racing the
         // read is seen again by `WrittenSince` rather than lost.
         inline uint64_t WriteSerial()

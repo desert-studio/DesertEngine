@@ -47,8 +47,9 @@ namespace Desert::Editor
     // picker lists the rows of that kind and accepts a dropped file only when it is one. Only the LABELS live
     // here; which kind a type names is ContentKindForAssetType's answer (the picker asks it; no row restates it),
     // and the control channel's `set` resolves an `assets:` path through that, for every kind, with the same
-    // ContentRegistry::RowAtPath. A type with a richer slot (fonts, themes, rigs, clouds, textures, meshes,
-    // materials) keeps its own widget in the Details panel; a static mesh is a plain row here (SLICE-01c).
+    // ContentRegistry::RowAtPath. A type with a richer slot (fonts, themes, rigs, clouds, textures, skinned
+    // meshes) keeps its own widget in the Details panel; a static mesh and a material are plain rows here
+    // (SLICE-01c; a material row may be narrowed by the field's template role, W-C06).
     struct RegistryPickerSpec
     {
         std::string_view AssetType;
@@ -74,6 +75,11 @@ namespace Desert::Editor
              // UE UStaticMeshComponent::StaticMesh: the reflected slot lists the registry's .stmesh rows; the
              // mesh's picture is the Preview row the component's Details draws right above it.
              { "StaticMeshAsset", "##staticmesh", "None (draws nothing)", "static mesh" },
+             // A reflected material slot (a WaterBody's Water Material, a decal's material): the registry's
+             // .demat rows, narrowed to one template role when the field states PROPERTY(Role(...))
+             // (PropertyMetadata::AssetRole, ContentRegistry::TemplateRoleOf). Mesh material slots keep their
+             // own widget (MaterialsPanelComponent).
+             { "MaterialAsset", "##material", "None", "material" },
         };
         for ( const RegistryPickerSpec& spec : SPECS )
             if ( spec.AssetType == assetType )

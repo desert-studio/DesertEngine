@@ -38,6 +38,7 @@ namespace Desert::ECS
         float TargetWaveMaskDepth = 2048.0f;
 
         PROPERTY( DisplayName( "Water Material" ), Category( "Rendering" ), Summary, Asset<MaterialAsset>,
+                  Role( WaterMaterial ),
                   Tooltip( "The look of this body (UE UWaterBodyComponent::WaterMaterial): a .demat of a "
                            "SingleLayerWater-domain shader - its scattering, absorption, phase and ripple "
                            "maps. Empty draws no water; a material of another domain is refused by name." ) )

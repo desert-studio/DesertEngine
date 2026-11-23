@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <memory>
 #include <string>
@@ -373,9 +374,18 @@ namespace Desert::Editor
         // slot lists only the rows of ONE kind, and a dragged file is accepted only when it is a row of that
         // kind - so the handle is never asked for as another asset class. A set handle no row names reads
         // "(missing)". Returns whether the handle changed.
+        //
+        // @p role (PropertyMetadata::AssetRole, PROPERTY(Role(...))) narrows the rows to the materials whose
+        // template declares that role (ContentRegistry::TemplateRoleOf, UE meta=(AllowedClasses)): a row that
+        // resolves to another role or to none is not listed and not accepted as a drop. Empty = every row.
         bool DrawRegistryRowPicker( uint64_t* handle, Common::Content::ContentKind kind, const char* id,
-                                    const char* noneLabel, const char* kindNoun )
+                                    const char* noneLabel, const char* kindNoun, std::string_view role )
         {
+            const auto accepts = [role]( const Assets::ContentRegistry::PickerRow& row ) {
+                return role.empty() ||
+                       Assets::ContentRegistry::TemplateRoleOf( static_cast<uint64_t>( row.Handle ) ) == role;
+            };
+
             bool        changed = false;
             std::string preview = noneLabel;
             if ( *handle != 0 )
@@ -383,7 +393,10 @@ namespace Desert::Editor
                 preview = "(missing)";
                 for ( const auto& row : Assets::ContentRegistry::Rows( kind ) )
                     if ( static_cast<uint64_t>( row.Handle ) == *handle )
-                        preview = ::Desert::Editor::PickerDisplayName( row );
+                        preview = accepts( row )
+                                       ? ::Desert::Editor::PickerDisplayName( row )
+                                       : std::format( "{}  (not a {} {})",
+                                                      ::Desert::Editor::PickerDisplayName( row ), role, kindNoun );
             }
 
             ImGui::SetNextItemWidth( -1.0f );
@@ -394,8 +407,12 @@ namespace Desert::Editor
                     *handle = 0;
                     changed = true;
                 }
+                int listed = 0;
                 for ( const auto& row : Assets::ContentRegistry::Rows( kind ) )
                 {
+                    if ( !accepts( row ) )
+                        continue;
+                    ++listed;
                     const bool selected = ( static_cast<uint64_t>( row.Handle ) == *handle );
                     if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(), selected ) )
                     {
@@ -403,6 +420,13 @@ namespace Desert::Editor
                         changed = true;
                     }
                 }
+                // An empty role-narrowed list says why, instead of a bare "None" an author reads as a broken
+                // picker: no .demat in Content is of a template declaring the role (Content Browser > New).
+                if ( listed == 0 && !role.empty() )
+                    ImGui::TextDisabled(
+                         "%s", std::format( "(no {} {} in Content: the Content Browser's New menu creates one)",
+                                            role, kindNoun )
+                                    .c_str() );
                 ImGui::EndCombo();
             }
             if ( ImGui::BeginDragDropTarget() )
@@ -412,10 +436,18 @@ namespace Desert::Editor
                 {
                     const std::string path( static_cast<const char*>( payload->Data ),
                                             payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-                    if ( const auto row = Assets::ContentRegistry::RowAtPath( kind, path ) )
+                    const auto        row = Assets::ContentRegistry::RowAtPath( kind, path );
+                    if ( row && accepts( *row ) )
                     {
                         *handle = static_cast<uint64_t>( row->Handle );
                         changed = true;
+                    }
+                    else if ( row )
+                    {
+                        LOG_WARN(
+                             "[Details] '{}' is not a {} {}: its template declares role '{}'.", path, role,
+                             kindNoun,
+                             Assets::ContentRegistry::TemplateRoleOf( static_cast<uint64_t>( row->Handle ) ) );
                     }
                     else
                     {
@@ -1191,7 +1223,7 @@ namespace Desert::Editor
                         break;
                     }
                     changed = DrawRegistryRowPicker( static_cast<uint64_t*>( p ), *kind, picker->Id,
-                                                     picker->NoneLabel, picker->Noun );
+                                                     picker->NoneLabel, picker->Noun, field.Meta.AssetRole );
                     break;
                 }
 
