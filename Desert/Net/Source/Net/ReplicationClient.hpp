@@ -166,5 +166,6 @@ namespace Desert::Net
         double                                   m_Delay         = kInterpolationDelaySeconds;
         std::optional<double>                    m_RenderSeconds;
         double                                   m_LastAdvance = 0.0, m_NextDelayLog = 0.0;
+        int                                      m_ClockSnaps = 0; // past the first set, logged
     };
 } // namespace Desert::Net

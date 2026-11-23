@@ -72,17 +72,20 @@ namespace Desert::Net
         const double predicted = m_RenderSeconds ? *m_RenderSeconds + dt : wanted;
         const double error     = wanted - predicted;
         if ( !m_RenderSeconds || std::abs( error ) > kClockSnapSeconds )
+        {
+            m_ClockSnaps += m_RenderSeconds ? 1 : 0;
             m_RenderSeconds = wanted;
+        }
         else
             m_RenderSeconds = predicted + std::clamp( error * std::min( 1.0, 4.0 * dt ), -kClockDilation * dt,
                                                       kClockDilation * dt );
         if ( local >= m_NextDelayLog )
         {
             m_NextDelayLog = local + 1.0;
-            m_Log( std::format( "interpolation buffer: delay {:.0f} ms (target {:.0f}), arrival jitter p95 {:.0f} ms over "
-                                "{} snapshots, render clock {:+.1f} ms off",
-                                m_Delay * 1e3, target * 1e3, m_Jitter * 1e3, m_Arrivals.size(),
-                                ( *m_RenderSeconds - wanted ) * 1e3 ) );
+            m_Log( std::format(
+                 "interpolation buffer: delay {:.0f} ms (target {:.0f}), arrival jitter p95 {:.0f} ms over "
+                 "{} snapshots, render clock {:+.1f} ms off before correction ({} snap(s))",
+                 m_Delay * 1e3, target * 1e3, m_Jitter * 1e3, m_Arrivals.size(), -error * 1e3, m_ClockSnaps ) );
         }
     }
 
