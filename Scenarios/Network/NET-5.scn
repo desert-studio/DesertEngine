@@ -12,4 +12,7 @@
 # Когда: A walks a circle (r 477 cm, 300 cm/s, --dir 0,0,-0.5 --turn-deg-s 36) in front of B for 20 s.
 # Тогда [net5_remote_walk] net5/strip.png: B's consecutive sequence frames show A's skinned character on a smooth
 #       arc, facing its walk, walk cycle matching speed (no foot skating, no jumps between frames); B's log
-#       "interpolation buffer: delay ... arrival jitter p95 ..." shows the delay rising above 100 ms to cover the jitter.
+#       "interpolation buffer: delay ... arrival jitter p95 ..." settles at 100-200 ms (not at the 350 cap), p95 jitter
+#       60-100 ms (GNS jitter avg 30 is an exponential mean, p95 ~90), 0 snap(s). A is the Humanoid mannequin
+#       (Materials/M_Mannequin.demat) playing walk. Frame-to-frame motion is judged only at a real-time frame rate: the
+#       Debug editor's --play renders a fixed 1/60 s per frame at <1 fps while the network moves on the wall clock.
