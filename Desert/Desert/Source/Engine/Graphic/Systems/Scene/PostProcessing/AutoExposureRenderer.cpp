@@ -213,6 +213,7 @@ namespace Desert::Graphic::System
                               static_cast<float>( m_CurveKeys ), m_CurveEV100, m_CurveBias };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( ap );
+        // One group of kBins threads, one per bin (AEAverage LocalSize(256, 1, 1): a parallel scan + reduce).
         return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );
     }
 

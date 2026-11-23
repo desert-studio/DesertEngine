@@ -2,7 +2,6 @@
 
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Graphic/View/UpscalerExposure.hpp>
-#include <Engine/Graphic/View/UpscalerVelocity.hpp>
 
 // AMD FIDELITYFX FSR 3.1 — a vendor ITemporalUpscaler on the Vulkan backend (UE: the FSR3 plugin's
 // FFXFSR3TemporalUpscaler). Windows builds only: the FidelityFX SDK (ThirdParty/FidelityFX-SDK, v1.1.4 = FSR
@@ -12,8 +11,8 @@
 // WHAT THE ENGINE HANDS FSR, AND IN WHICH CONVENTION (FidelityFX docs/techniques/super-resolution-upscaler.md):
 //   * colour — the jittered linear HDR scene colour at RenderExtent (FFX_FSR3UPSCALER_ENABLE_HIGH_DYNAMIC_RANGE);
 //   * depth — reversed-Z DEPTH32F (FFX_FSR3UPSCALER_ENABLE_DEPTH_INVERTED: cameraNear is the FAR plane);
-//   * motion vectors — UpscalerVelocity's: the engine's velocity with the camera's motion written where nothing
-//     rasterised (the sky; FSR reprojects every pixel by what it is given), current minus previous NDC,
+//   * motion vectors — the view's velocity as is: the camera's motion is in it on every texel, the sky's written by
+//     the sky draw (FSR reprojects every pixel by what it is given), current minus previous NDC,
 //     unjittered (Velocity.hpp). FSR wants
 //     previous minus current in render pixels, y down: motionVectorScale = (-Width / 2, +Height / 2) (the engine's
 //     NDC is y-up under its negative-height viewport, Common/FullscreenTriangle.glslh);
@@ -62,7 +61,7 @@ namespace Desert::Graphic
         // log2( Render.Width / Output.Width ) - 1, at Native AA too (-1 there).
         [[nodiscard]] float MaterialMipBias( const ResolutionSplit& split ) const override;
 
-        // Three compute nodes: "UpscalerExposure", "UpscalerVelocity" and "FSR3.Upscale" (the FidelityFX dispatch,
+        // Two compute nodes: "UpscalerExposure" and "FSR3.Upscale" (the FidelityFX dispatch,
         // writing the returned OutputExtent RGBA16F transient "FSR3.Output"). Errors: a missing input, a
         // supersample split, the FSR context failing to create (the FfxErrorCode named), a device that is not
         // Vulkan.
@@ -72,6 +71,5 @@ namespace Desert::Graphic
 
     private:
         UpscalerExposure m_Exposure;
-        UpscalerVelocity m_Velocity; // the motion vectors FSR reads (the sky's: camera motion)
     };
 } // namespace Desert::Graphic
