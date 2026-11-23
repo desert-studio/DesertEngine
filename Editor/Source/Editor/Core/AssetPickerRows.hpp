@@ -72,8 +72,12 @@ namespace Desert::Editor
              { "WeatherPresetAsset", "##weatherpreset", "None", "weather preset" },
              { "StateTreeAsset", "##statetree", "None (runs no tree)", "state tree" },
              // UE UStaticMeshComponent::StaticMesh: the reflected slot lists the registry's .stmesh rows; the
-             // mesh's picture is the Preview row the component's Details draws right above it.
+             // mesh's picture is drawn in the same row, left of the picker (DrawMeshSlotThumbnail).
              { "StaticMeshAsset", "##staticmesh", "None (draws nothing)", "static mesh" },
+             // A material reference outside a component's slot list (StaticMeshComponent::ImpostorMaterial,
+             // WP-FAR-12E): the registry's .demat rows. Without this row the field read "(no Details slot ...)" in
+             // Details.
+             { "MaterialAsset", "##material", "None", "material" },
         };
         for ( const RegistryPickerSpec& spec : SPECS )
             if ( spec.AssetType == assetType )
