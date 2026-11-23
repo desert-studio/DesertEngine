@@ -122,6 +122,7 @@ namespace
         bool        temperature = false; // PROPERTY(Temperature) — Kelvin slider on a Color field
         bool        preview     = false; // PROPERTY(Preview) — inline asset preview instead of a name button
         bool        saveGame    = false; // PROPERTY(SaveGame) — written to / restored from SaveGame slots
+        bool        replicated  = false; // PROPERTY(Replicated) — network state (NET-ARCH §3.4)
         std::string editCondition;       // PROPERTY(EditCondition("Foo")) — grey out while Foo is false
         std::string refuse; // PROPERTY(Refuse("Ns::Fn")) — the value check every setter applies (FieldInfo::Meta)
     };
@@ -557,6 +558,8 @@ namespace
                 m.preview = true;
             else if ( tok == "SaveGame" )
                 m.saveGame = true;
+            else if ( tok == "Replicated" )
+                m.replicated = true;
             else if ( tok.rfind( "EditCondition", 0 ) == 0 )
                 m.editCondition = ExtractStringLiteral( tok );
             else if ( tok.rfind( "Refuse", 0 ) == 0 )
@@ -1214,6 +1217,7 @@ namespace
         flag( "temperature", m.temperature );
         flag( "preview", m.preview );
         flag( "saveGame", m.saveGame );
+        flag( "replicated", m.replicated );
         text( "editCondition", m.editCondition );
         text( "refuse", m.refuse );
         return b.Build();

@@ -8,20 +8,29 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Net/NetRoleComponent.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Reflection/FieldValue.hpp>
+#include <Engine/Reflection/ReflectionTypes.hpp>
+#include <Engine/Reflection/Value.hpp>
 
 #include <Net/NetTransport.hpp>
 #include <Net/ReplicationClient.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <type_traits>
+#include <utility>
+#include <variant>
 #include <vector>
 
 namespace Desert::Core
@@ -140,6 +149,7 @@ namespace Desert::Core
 
         ApplySpawnsAndDestroys( scene, assets );
         WriteTransforms( scene );
+        ApplyStableState( scene );
 
         // The input on the server's fixed step: one numbered step per 1/60 s of this client's clock.
         m_StepClock += deltaSeconds;
@@ -308,6 +318,139 @@ namespace Desert::Core
             ECS::SetLocalTransform( reg, entity, local );
         }
     }
+
+    struct ClientNetDriver::PendingStable
+    {
+        std::vector<Net::ReplicationClient::StableChange> Changes;
+    };
+
+    namespace
+    {
+        bool ApplyStableChange( Scene& scene, const Net::ReplicationClient::StableChange& change );
+    }
+
+    void ClientNetDriver::ApplyStableState( Scene& scene )
+    {
+        if ( !m_PendingStable )
+            m_PendingStable = std::make_shared<PendingStable>();
+        std::vector<Net::ReplicationClient::StableChange>& pending = m_PendingStable->Changes;
+        std::vector<Net::ReplicationClient::StableChange>  changes = std::exchange( pending, {} );
+        for ( Net::ReplicationClient::StableChange& change : m_Client->TakeStableChanges() )
+            changes.push_back( std::move( change ) );
+        for ( Net::ReplicationClient::StableChange& change : changes )
+        {
+            if ( ApplyStableChange( scene, change ) )
+                continue;
+            // Its record is not streamed in here yet: the change waits, replacing an older one of the same field.
+            const auto same = std::find_if( pending.begin(), pending.end(),
+                                            [&]( const auto& p )
+                                            {
+                                                return p.Id == change.Id &&
+                                                       p.Field.Component == change.Field.Component &&
+                                                       p.Field.Field == change.Field.Field;
+                                            } );
+            if ( same == pending.end() )
+                pending.push_back( std::move( change ) );
+            else if ( change.Field.Version > same->Field.Version )
+                *same = std::move( change );
+        }
+    }
+
+    // One field of a stable object into the entity whose UUID is the record id (WorldStreamer makes every record's
+    // entity with that id). False = no such entity yet (its cell is not resident); a field that cannot be applied
+    // is logged by name and dropped - never written silently and never retried forever.
+    namespace
+    {
+        bool ApplyStableChange( Scene& scene, const Net::ReplicationClient::StableChange& change )
+        {
+            const auto found = scene.FindEntityByID( Common::UUID( change.Id ) );
+            if ( !found )
+                return false;
+            auto&                   reg    = scene.GetRegistry();
+            const entt::entity      entity = found->get().GetHandle();
+            const Net::FieldUpdate& field  = change.Field;
+
+            if ( field.Component == Net::kTransformFragment )
+            {
+                const auto* quantized = std::get_if<Net::QuantizedTransform>( &field.Value );
+                if ( quantized == nullptr || !reg.has<ECS::TransformComponent>( entity ) )
+                {
+                    LOG_ERROR(
+                         "[Net] stable {}: the transform fragment is not a transform, or the entity has none",
+                         change.Id );
+                    return true;
+                }
+                const Net::NetTransform t     = Net::DequantizeTransform( *quantized );
+                ECS::LocalTransform     local = reg.get<ECS::TransformComponent>( entity ).GetLocal();
+                local.Translation             = ToGlm( t.Position );
+                local.Rotation =
+                     glm::eulerAngles( glm::quat( t.Rotation[3], t.Rotation[0], t.Rotation[1], t.Rotation[2] ) );
+                ECS::SetLocalTransform( reg, entity, local );
+                LOG_INFO( "[Net] stable {} transform v{} applied: {}", change.Id, field.Version,
+                          Net::ReplicatedValueText( field.Value ) );
+                return true;
+            }
+
+            const ECS::ReflectedComponent* row  = ECS::FindReflectedComponent( field.Component );
+            const Reflection::TypeInfo*    type = row != nullptr ? row->Type() : nullptr;
+            if ( type == nullptr )
+            {
+                LOG_ERROR( "[Net] stable {}: '{}' is not a reflected component of this build", change.Id,
+                           field.Component );
+                return true;
+            }
+            if ( !row->Has( reg, entity ) )
+            {
+                LOG_ERROR( "[Net] stable {}: the entity has no {} component", change.Id, field.Component );
+                return true;
+            }
+            const auto info =
+                 std::find_if( type->Fields.begin(), type->Fields.end(),
+                               [&]( const Reflection::FieldInfo& f ) { return f.Name == field.Field; } );
+            if ( info == type->Fields.end() || !info->Meta.Replicated )
+            {
+                LOG_ERROR( "[Net] stable {}: {}.{} is {} - refused", change.Id, field.Component, field.Field,
+                           info == type->Fields.end() ? "no field of the component" : "not marked Replicated" );
+                return true;
+            }
+            if ( std::holds_alternative<Net::QuantizedTransform>( field.Value ) )
+            {
+                LOG_ERROR( "[Net] stable {}: {}.{} carries a transform - refused", change.Id, field.Component,
+                           field.Field );
+                return true;
+            }
+            using FT                      = Reflection::FieldType;
+            const Reflection::Value value = std::visit(
+                 [&]( const auto& v ) -> Reflection::Value
+                 {
+                     using T = std::decay_t<decltype( v )>;
+                     if constexpr ( std::is_same_v<T, bool> )
+                         return Reflection::Value::Bool( v );
+                     else if constexpr ( std::is_same_v<T, std::int32_t> )
+                         return info->Type == FT::Float    ? Reflection::Value::Float( static_cast<float>( v ) )
+                                : info->Type == FT::Double ? Reflection::Value::Double( static_cast<double>( v ) )
+                                                           : Reflection::Value::Int( v );
+                     else if constexpr ( std::is_same_v<T, float> )
+                         return info->Type == FT::Double ? Reflection::Value::Double( static_cast<double>( v ) )
+                                                         : Reflection::Value::Float( v );
+                     else
+                         return Reflection::Value::Bool( false ); // a transform names kTransformFragment (above)
+                 },
+                 field.Value );
+            if ( const Common::BoolResultStr written =
+                      Reflection::WriteField( *info, row->Data( reg, entity ), value );
+                 !written.IsSuccess() )
+            {
+                LOG_ERROR( "[Net] stable {}: {}.{} = {} refused: {}", change.Id, field.Component, field.Field,
+                           Net::ReplicatedValueText( field.Value ), written.GetError() );
+                return true;
+            }
+            row->NotifyChanged( reg, entity ); // registry.patch: on_update fires as for any other edit
+            LOG_INFO( "[Net] stable {} {}.{} v{} applied = {}", change.Id, field.Component, field.Field,
+                      field.Version, Net::ReplicatedValueText( field.Value ) );
+            return true;
+        }
+    } // namespace
 
     glm::vec3 ClientNetDriver::InputMove( Scene& scene )
     {

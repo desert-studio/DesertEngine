@@ -47,7 +47,7 @@ namespace Desert::Net
                             info.Reason.empty() ? std::string() : ": " + info.Reason ) );
     }
 
-    void ReplicationClient::OnMessage( ConnectionId, ENetLane lane, std::span<const std::byte> data )
+    void ReplicationClient::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data )
     {
         if ( m_State == EState::Connecting )
         {
@@ -119,9 +119,38 @@ namespace Desert::Net
                             it->second.History.Push( time, state );
                 }
                 break;
+            case EReplicationMessage::ObjectState:
+                if ( const auto state = DecodeObjectState( data ) )
+                {
+                    m_StateAcks.Received( state->Sequence );
+                    // Acked at once: the server's baseline moves as soon as possible, and the ack is repeated in
+                    // the next 32 acks' window, so a lost ack costs nothing.
+                    m_Transport.Send( connection, EncodeStateAck( m_StateAcks.Message() ), ENetLane::State );
+                    for ( const ObjectUpdate& object : state->Objects )
+                        for ( const FieldUpdate& field : object.Fields )
+                        {
+                            // Unreliable packets may arrive out of order: a field takes only a newer version.
+                            std::uint32_t& known =
+                                 m_StableVersions[{ object.Id, field.Component + "." + field.Field }];
+                            if ( field.Version <= known )
+                                continue;
+                            known = field.Version;
+                            m_StableChanges.push_back( { object.Id, field } );
+                            m_Log( std::format( "state: stable {} {}.{} v{} = {}", object.Id, field.Component,
+                                                field.Field, field.Version, ReplicatedValueText( field.Value ) ) );
+                        }
+                }
+                else
+                    m_Log( "malformed ObjectState dropped" );
+                break;
             default:
                 break;
         }
+    }
+
+    std::vector<ReplicationClient::StableChange> ReplicationClient::TakeStableChanges()
+    {
+        return std::exchange( m_StableChanges, {} );
     }
 
     double ReplicationClient::RenderServerSeconds() const

@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 #include <string_view>
 
@@ -80,6 +81,14 @@ namespace Desert::Net
         // Spawns / destroys since the last call (the engine creates and releases the entities).
         [[nodiscard]] std::vector<NetId> TakeSpawned();
         [[nodiscard]] std::vector<NetId> TakeDestroyed();
+        // STABLE OBJECTS (NET-2 §3.2): the field values the server sent since the last call, newest version only,
+        // in arrival order. The engine writes them into the entities its own streamer made from the same records.
+        struct StableChange
+        {
+            StableNetId Id = 0;
+            FieldUpdate Field;
+        };
+        [[nodiscard]] std::vector<StableChange> TakeStableChanges();
         [[nodiscard]] std::size_t        PendingInputs() const
         {
             return m_Inputs.Size();
@@ -106,6 +115,9 @@ namespace Desert::Net
         InputRing                    m_Inputs;
         std::uint32_t                m_NextStep = 1, m_NextSequence = 1;
         std::optional<std::uint32_t> m_LastAck;
+        StateAckWindow                                               m_StateAcks;
+        std::map<std::pair<StableNetId, std::string>, std::uint32_t> m_StableVersions; // newest version per field
+        std::vector<StableChange>                                    m_StableChanges;
         // The server clock: the newest snapshot's step time and the local time it arrived.
         std::optional<std::uint32_t> m_NewestServerStep;
         Clock::time_point            m_NewestArrival{};

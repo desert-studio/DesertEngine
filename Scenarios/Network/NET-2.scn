@@ -1,0 +1,16 @@
+# NET-2 pass 1: replication core - stable objects (cooked records, NetId = record id) replicate as STATE, never as
+# spawns: PROPERTY(Replicated) in reflection (PropertyMetadata::Replicated, DesertHeaderTool), the store's per-field
+# change versions (push: a write bumps the version), per-connection acked baselines in the Gateway (ObjectState on the
+# State lane, StateAck window of 32, a lost packet re-sends only its fields), quantized transform fragment (1 mm,
+# smallest-three 3x10 bits). Server console on stdin: set <id> <Component>.<Field> <v> | transform <id> x y z [rx ry rz] | stat.
+# Runner: <scratch>/NET-2/run_net2.sh (base run_net1e.sh, camera --camera 0,400,1400), clients A, B, then C 30 s later.
+# "Door" = cell entity 200977 (Foliage Bush 0_-1, cell record at (1250,-404,-1250)): the console lifts it 400 cm and
+# turns it 45 deg: transform 200977 1250 0 -1250 0 45 0.
+# Тогда [clientA_door] clientA_view.png: the bush at x 1250 stands lifted 400 cm and turned 45 deg; editorA.log
+#   "[Net] stable 200977 transform v1 applied".
+# Тогда [clientB_door] clientB_view.png: the same bush lifted and turned; editorB.log the same line.
+# Тогда [clientC_first] clientC_view.png (C joined 30 s after the toggle): its first frame shows the bush lifted;
+#   server.log "player 3: stable 200977 sent as STATE (full baseline)" and the "net stat" line "... 0 as spawns".
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда 0_wp_protocol WP_Protocol opens as in dev: landscape, town, sky; no crash or error dialog
