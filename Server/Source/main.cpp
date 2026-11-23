@@ -21,6 +21,8 @@
 
 #include "ServerWorld.hpp"
 
+#include <Net/MeshCertificates.hpp>
+#include <Net/MeshLink.hpp>
 #include <Net/MeshOfOne.hpp>
 
 #include <ToolMain.hpp>
@@ -48,6 +50,7 @@
 #include <format>
 #include <iostream>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <unordered_set>
 #include <optional>
@@ -62,11 +65,16 @@ namespace Desert::Server
 {
     namespace
     {
-        // NET-ARCH §2M.2. Only the mesh of one runs in one process today; the split roles are their own processes
-        // from NET-MESH-1, and asking for one before then is refused by name rather than run as `all`.
+        // NET-ARCH §2M.2: `all` is the mesh of one (every role in this process, in-process links); the others are
+        // one role each, linked over GNS mesh links with CA-signed certificates (Net/MeshLink.hpp). The global
+        // services role (`service`) comes with NET-MESH-5.
         enum class Role
         {
             All,
+            Coordinator,
+            Store,
+            Sim,
+            Gateway,
         };
 
         struct Options
@@ -81,6 +89,13 @@ namespace Desert::Server
             std::string                  secretFile;
             std::vector<glm::vec3>       spawns;
             std::string pawn; // the GameMode's pawn prefab, a stable key (assets:Prefabs/X.deprefab)
+            // The split roles (NET-MESH-1): this process's index within its role, where the coordinator listens,
+            // the port this role listens on for mesh peers, and the mesh CA directory (MeshCertificates.hpp).
+            std::uint32_t                index = 1;
+            std::string                  coordinator;
+            std::optional<std::uint16_t> meshPort;
+            std::string                  meshCa;
+            std::string                  devCa; // --mesh-dev-ca <dir>: make a dev CA and the role certificates
         };
 
         constexpr double kStepHz = 60.0;
@@ -90,7 +105,14 @@ namespace Desert::Server
             return "usage: DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> "
                    "[--steps <n>] "
                    "[--port <p> --server-id <id> --secret-file <file> --pawn <assets:...deprefab> --spawn <x,y,z> "
-                   "[--spawn ...]]";
+                   "[--spawn ...]]\n"
+                   "       DesertServer --project <p> --role coordinator --mesh-port <p> --mesh-ca <dir> [--steps <n>]\n"
+                   "       DesertServer --project <p> --role store --mesh-port <p> --coordinator <ip:port> --mesh-ca <dir>\n"
+                   "       DesertServer --project <p> --role sim [--index <n>] --mesh-port <p> --coordinator <ip:port> "
+                   "--mesh-ca <dir> --world <w> --source <x,y,z> --spawn <x,y,z> [--spawn ...]\n"
+                   "       DesertServer --project <p> --role gateway [--index <n>] --coordinator <ip:port> --mesh-ca <dir> "
+                   "--world <w> --port <p> --server-id <id> --secret-file <file> --pawn <assets:...deprefab>\n"
+                   "       DesertServer --mesh-dev-ca <dir>   (a local dev CA + one certificate per role, never committed)";
         }
 
         Common::ResultStr<glm::vec3> ParsePoint( std::string_view text, std::string_view flag )
@@ -130,17 +152,32 @@ namespace Desert::Server
                 const std::string& value = args[++i];
                 if ( flag == "--project" )
                     options.project = value;
+                else if ( flag == "--coordinator" )
+                    options.coordinator = value;
+                else if ( flag == "--mesh-ca" )
+                    options.meshCa = value;
+                else if ( flag == "--mesh-dev-ca" )
+                    options.devCa = value;
                 else if ( flag == "--world" )
                     options.world = value;
                 else if ( flag == "--role" )
                 {
-                    if ( value != "all" )
+                    if ( value == "all" )
+                        options.role = Role::All;
+                    else if ( value == "coordinator" )
+                        options.role = Role::Coordinator;
+                    else if ( value == "store" )
+                        options.role = Role::Store;
+                    else if ( value == "sim" )
+                        options.role = Role::Sim;
+                    else if ( value == "gateway" )
+                        options.role = Role::Gateway;
+                    else
                         return Common::MakeError<Options>( std::format(
-                             "--role '{}': this build runs the mesh of one only (--role all); the gateway, sim, "
-                             "store, coordinator and service roles run as their own processes from NET-MESH-1",
+                             "--role '{}': one of all, coordinator, store, sim, gateway (the service role comes with "
+                             "NET-MESH-5)",
                              value ) );
-                    options.role = Role::All;
-                    roleGiven    = true;
+                    roleGiven = true;
                 }
                 else if ( flag == "--source" )
                 {
@@ -161,15 +198,20 @@ namespace Desert::Server
                     options.secretFile = value;
                 else if ( flag == "--pawn" )
                     options.pawn = value;
-                else if ( flag == "--port" || flag == "--server-id" )
+                else if ( flag == "--port" || flag == "--server-id" || flag == "--mesh-port" || flag == "--index" )
                 {
                     std::uint64_t n  = 0;
                     const auto    at = std::from_chars( value.data(), value.data() + value.size(), n );
                     if ( at.ec != std::errc() || at.ptr != value.data() + value.size() ||
-                         ( flag == "--port" && ( n == 0 || n > 65535 ) ) )
+                         ( ( flag == "--port" || flag == "--mesh-port" ) && ( n == 0 || n > 65535 ) ) ||
+                         ( flag == "--index" && ( n == 0 || n > 0xFFFFFFFFu ) ) )
                         return Common::MakeError<Options>( std::format( "{} '{}' is not a valid number", flag, value ) );
                     if ( flag == "--port" )
                         options.port = static_cast<std::uint16_t>( n );
+                    else if ( flag == "--mesh-port" )
+                        options.meshPort = static_cast<std::uint16_t>( n );
+                    else if ( flag == "--index" )
+                        options.index = static_cast<std::uint32_t>( n );
                     else
                         options.serverId = n;
                 }
@@ -185,10 +227,31 @@ namespace Desert::Server
                 else
                     return Common::MakeError<Options>( std::format( "unknown argument '{}'", flag ) );
             }
-            if ( options.project.empty() || options.world.empty() || !roleGiven || !sourceGiven )
-                return Common::MakeError<Options>( "--project, --role, --world and --source are required" );
-            if ( options.port && ( options.secretFile.empty() || options.serverId == 0 || options.spawns.empty() ||
-                                   options.pawn.empty() ) )
+            if ( !options.devCa.empty() )
+                return Common::MakeSuccess( std::move( options ) );
+            if ( options.project.empty() || !roleGiven )
+                return Common::MakeError<Options>( "--project and --role are required" );
+            const Role role = options.role;
+            if ( ( role == Role::All || role == Role::Sim || role == Role::Gateway ) && options.world.empty() )
+                return Common::MakeError<Options>( "--role all, sim and gateway need --world" );
+            if ( ( role == Role::All || role == Role::Sim ) && !sourceGiven )
+                return Common::MakeError<Options>( "--role all and sim need --source (the server's own source)" );
+            if ( role != Role::All && options.meshCa.empty() )
+                return Common::MakeError<Options>( "a split role needs --mesh-ca <dir> (its certificate and the CA)" );
+            if ( ( role == Role::Coordinator || role == Role::Store || role == Role::Sim ) && !options.meshPort )
+                return Common::MakeError<Options>( "--role coordinator, store and sim need --mesh-port" );
+            if ( role != Role::All && role != Role::Coordinator && options.coordinator.empty() )
+                return Common::MakeError<Options>( "--role store, sim and gateway need --coordinator <ip:port>" );
+            if ( role == Role::Sim && options.spawns.empty() )
+                return Common::MakeError<Options>( "--role sim needs at least one --spawn (where pawns start)" );
+            if ( role == Role::Gateway && !options.port )
+                return Common::MakeError<Options>( "--role gateway needs --port (where clients connect)" );
+            if ( role == Role::Gateway && ( options.secretFile.empty() || options.serverId == 0 || options.pawn.empty() ) )
+                return Common::MakeError<Options>(
+                     "--role gateway needs --server-id, --secret-file and --pawn (the prefab every player's pawn is)" );
+            if ( role == Role::All && options.port &&
+                 ( options.secretFile.empty() || options.serverId == 0 || options.spawns.empty() ||
+                   options.pawn.empty() ) )
                 return Common::MakeError<Options>(
                      "--port needs --server-id, --secret-file, --pawn (the prefab every "
                      "player's pawn is) and at least one --spawn (where pawns start)" );
@@ -250,18 +313,33 @@ namespace Desert::Server
             return std::nullopt;
         }
 
+        // A store version; 0 is a write to a remote store still in flight (RemoteReplicationStore::WriteStable).
+        std::string VersionText( std::uint32_t version )
+        {
+            return version ? std::format( "version {}", version )
+                           : std::string( "sent to the store, which assigns its version" );
+        }
+
         // One console line; the answer (or the refusal) is logged.
         void RunConsoleLine( const std::string& line, const std::unordered_set<std::uint64_t>& records,
-                             Net::IReplicationStore& store, const Net::Gateway& gateway, Net::PawnSimulation& sim )
+                             Net::IReplicationStore& store, const Net::Gateway* gateway, Net::PawnSimulation& sim )
         {
             std::istringstream words( line );
             std::string        command;
             words >> command;
             if ( command.empty() )
                 return;
+            if ( command == "stat" && gateway == nullptr )
+            {
+                // A sim process (NET-MESH-1): what was sent to clients is the gateway's stat line.
+                LOG_INFO( "[Server] sim stat: {} stable object(s) and {} destroyed stable id(s) in the store "
+                          "replica, {} pawn(s)",
+                          store.StableObjects().size(), store.DestroyedStable().size(), sim.Sources().size() );
+                return;
+            }
             if ( command == "stat" )
             {
-                const Net::Gateway::Stats& s = gateway.ReplicationStats();
+                const Net::Gateway::Stats& s = gateway->ReplicationStats();
                 LOG_INFO(
                      "[Server] net stat: {} spawn(s) sent (dynamic pawns); {} stable object(s) replicated as "
                      "state, 0 as spawns: {} ObjectState packet(s), {} field update(s), {} acked, {} lost and "
@@ -333,8 +411,8 @@ namespace Desert::Server
                 }
                 const std::uint32_t version =
                      store.WriteStable( id, component, field, *value );
-                LOG_INFO( "[Server] console: stable {} {} = {} (version {})", id, path,
-                          Net::ReplicatedValueText( *value ), version );
+                LOG_INFO( "[Server] console: stable {} {} = {} ({})", id, path,
+                          Net::ReplicatedValueText( *value ), VersionText( version ) );
                 return;
             }
             if ( command == "transform" )
@@ -355,8 +433,8 @@ namespace Desert::Server
                 const Net::ReplicatedValue value( Net::QuantizeTransform( transform ) );
                 const std::uint32_t        version =
                      store.WriteStable( id, Net::kTransformFragment, Net::kTransformFragment, value );
-                LOG_INFO( "[Server] console: stable {} transform = {} (version {})", id,
-                          Net::ReplicatedValueText( value ), version );
+                LOG_INFO( "[Server] console: stable {} transform = {} ({})", id,
+                          Net::ReplicatedValueText( value ), VersionText( version ) );
                 return;
             }
             if ( command == "destroy" )
@@ -413,6 +491,296 @@ namespace Desert::Server
             return grid;
         }
 
+        // THE SPLIT ROLES (NET-ARCH §2M.2, NET-MESH-1): one role per process, mesh links over GNS with the mesh CA's
+        // certificates. The coordinator runs the mesh's fixed step clock; the other roles act on its ticks.
+        int RunMeshRole( const Options& options )
+        {
+            const Net::EMeshRole role = options.role == Role::Coordinator ? Net::EMeshRole::Coordinator
+                                        : options.role == Role::Store     ? Net::EMeshRole::Store
+                                        : options.role == Role::Sim       ? Net::EMeshRole::Sim
+                                                                          : Net::EMeshRole::Gateway;
+            const std::string        identity = Net::MeshIdentity( role, options.index );
+            const Net::NetLogSink    netLog   = []( std::string_view line ) { LOG_INFO( "[Net] {}", line ); };
+            LOG_INFO( "[Server] DesertServer (DESERT_SERVER), role {} {} (mesh identity {}): no device created - this "
+                      "build links no RHI, window, audio or UI",
+                      Net::MeshRoleName( role ), options.index, identity );
+            std::unique_ptr<Net::INetTransport> transport = Net::CreateGnsTransport( netLog );
+            std::string                         error;
+            if ( !transport || !transport->UseMeshCertificate( options.meshCa, identity, error ) )
+            {
+                LOG_ERROR( "[Server] mesh certificate: {}", transport ? error : std::string( "no transport" ) );
+                return 7;
+            }
+            LOG_INFO( "[Server] mesh certificate '{}' from the mesh CA at '{}'", identity, options.meshCa );
+            Net::MeshEndpoint endpoint( *transport, role, options.index, options.meshPort.value_or( 0 ), netLog );
+            if ( options.meshPort )
+            {
+                if ( !transport->Listen( *options.meshPort, error ) )
+                {
+                    LOG_ERROR( "[Server] cannot listen for mesh peers on port {}: {}", *options.meshPort, error );
+                    return 7;
+                }
+                LOG_INFO( "[Server] {} {} listening for mesh peers on port {}", Net::MeshRoleName( role ),
+                          options.index, *options.meshPort );
+            }
+            if ( role != Net::EMeshRole::Coordinator &&
+                 !endpoint.ConnectTo( Net::EMeshRole::Coordinator, 1, options.coordinator, error ) )
+            {
+                LOG_ERROR( "[Server] --coordinator '{}': {}", options.coordinator, error );
+                return 7;
+            }
+            using Clock = std::chrono::steady_clock;
+
+            if ( role == Net::EMeshRole::Coordinator )
+            {
+                Net::MeshCoordinator coordinator( endpoint, netLog );
+                const auto              period  = std::chrono::duration<double>( 1.0 / kStepHz );
+                const Clock::time_point started = Clock::now();
+                std::uint64_t           step    = 0;
+                for ( ; !options.steps || step < *options.steps; ++step )
+                {
+                    std::this_thread::sleep_until( started +
+                                                   std::chrono::duration_cast<Clock::duration>( period * step ) );
+                    transport->Poll( endpoint );
+                    coordinator.Tick( static_cast<std::uint32_t>( step ) );
+                    if ( step % 600 == 0 )
+                        LOG_INFO( "[Server] coordinator step {}: {}", step, coordinator.Describe() );
+                }
+                LOG_INFO( "[Server] coordinator: {} mesh step(s) at {:.0f} Hz - stopping the mesh", step, kStepHz );
+                return 0;
+            }
+
+            // Every other role lives while its coordinator link does (the coordinator stopping stops the mesh).
+            bool       coordinatorSeen = false;
+            const auto coordinatorGone = [&]
+            {
+                const bool up   = endpoint.PeerConnection( Net::EMeshRole::Coordinator, 1 ).has_value();
+                coordinatorSeen = coordinatorSeen || up;
+                return coordinatorSeen && !up;
+            };
+            if ( role == Net::EMeshRole::Store )
+            {
+                Net::MeshStore store( endpoint, netLog );
+                while ( !coordinatorGone() )
+                {
+                    transport->Poll( endpoint );
+                    std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+                }
+                LOG_INFO( "[Server] store: the coordinator is gone - stopping; {} pawn(s), {} stable object(s), {} "
+                          "destroyed",
+                          store.State().All().size(), store.State().StableObjects().size(),
+                          store.State().DestroyedStable().size() );
+                return 0;
+            }
+
+            std::filesystem::path scene( options.world );
+            if ( scene.is_relative() )
+                scene = Common::Constants::Path::ProjectDir() / scene;
+            auto cooked = Core::ReadCookedWorld( scene.generic_string() );
+            if ( !cooked || !cooked.GetValue().has_value() )
+            {
+                LOG_ERROR( "[Server] world '{}': {}", scene.generic_string(),
+                           cooked ? std::string( "no cooked world (cook it: WorldCook)" ) : cooked.GetError() );
+                return 4;
+            }
+            Core::CookedWorldStart world = std::move( *cooked.ExtractValue() );
+            LOG_INFO( "[Server] cooked index of '{}' loaded: cook hash {:016x}, {} unit(s)", world.Index->SceneName,
+                      world.CookHash, world.Index->Units.size() );
+
+            Net::RemoteReplicationStore    replica( endpoint, netLog );
+            std::set<std::pair<int, std::uint32_t>> dialled; // mesh peers this role connected to (role, index)
+            const auto dial = [&]( Net::EMeshRole peerRole, std::uint32_t index, const std::string& address )
+            {
+                if ( !dialled.insert( { static_cast<int>( peerRole ), index } ).second )
+                    return;
+                std::string dialError;
+                if ( !endpoint.ConnectTo( peerRole, index, address, dialError ) )
+                    LOG_ERROR( "[Server] mesh: cannot connect to {} {} at '{}': {}", Net::MeshRoleName( peerRole ),
+                               index, address, dialError );
+            };
+            std::vector<std::uint32_t> ticks;
+
+            if ( role == Net::EMeshRole::Gateway )
+            {
+                const std::filesystem::path pawnPath = Common::AssetHandle::PathForStableKey( options.pawn );
+                if ( !Common::AssetHandle::IsProjectRelativeKey( options.pawn ) ||
+                     pawnPath.extension() != ".deprefab" || !std::filesystem::is_regular_file( pawnPath ) )
+                {
+                    LOG_ERROR( "[Server] --pawn '{}' is not a prefab of this project (looked at '{}')", options.pawn,
+                               pawnPath.string() );
+                    return 7;
+                }
+                const std::vector<std::byte> secret = Net::ReadTokenSecretFile( options.secretFile, error );
+                if ( secret.empty() )
+                {
+                    LOG_ERROR( "[Server] {}", error );
+                    return 7;
+                }
+                const Common::AssetHandle pawnPrefab = Common::AssetHandle::FromKey( options.pawn );
+                Net::Gateway              gateway( *transport, replica,
+                                                   Net::HelloPolicy{ world.CookHash, options.serverId, secret, 0 },
+                                                   static_cast<std::uint64_t>( pawnPrefab ), RelevancyGridOf( world ), netLog );
+                Net::RemoteSimLink        simLink( endpoint, netLog );
+                gateway.Bind( simLink );
+                endpoint.SetClients( &gateway );
+                endpoint.SetHandler(
+                     { {},
+                       [&]( Net::EMeshRole peerRole, std::uint32_t index, Net::ConnectionId )
+                       { dialled.erase( { static_cast<int>( peerRole ), index } ); },
+                       [&]( Net::EMeshRole from, std::uint32_t, Net::ConnectionId, std::uint8_t type,
+                            std::span<const std::byte> body )
+                       {
+                           if ( from == Net::EMeshRole::Store )
+                               replica.OnStoreMessage( type, body );
+                           else if ( from == Net::EMeshRole::Sim )
+                           {
+                               if ( !simLink.OnMeshMessage( type, body ) )
+                                   Net::DispatchMeshPawnEvent( type, body, gateway );
+                           }
+                           else if ( const auto step = Net::DecodeMeshTick( type, body ) )
+                               ticks.push_back( *step );
+                           else if ( const auto peers = Net::DecodeMeshDirectory( type, body ) )
+                           {
+                               for ( const Net::MeshPeerAddress& peer : *peers )
+                                   dial( peer.Role, peer.Index, peer.Address );
+                           }
+                           else
+                               simLink.OnMeshMessage( type, body );
+                       } } );
+                bool listening = false;
+                while ( !coordinatorGone() )
+                {
+                    transport->Poll( endpoint );
+                    if ( !listening && replica.Synced() && !simLink.Regions().empty() &&
+                         endpoint.PeerConnection( Net::EMeshRole::Sim, simLink.Regions().front().Sim ) )
+                    {
+                        if ( !transport->Listen( *options.port, error ) )
+                        {
+                            LOG_ERROR( "[Server] cannot listen on port {}: {}", *options.port, error );
+                            return 7;
+                        }
+                        listening = true;
+                        LOG_INFO( "[Server] listening on port {} (gateway {}, server id {}, cook hash {:016x}); pawn "
+                                  "{} ({:016x}); clients' input goes to the sim the authority map names",
+                                  *options.port, options.index, options.serverId, world.CookHash, options.pawn,
+                                  static_cast<std::uint64_t>( pawnPrefab ) );
+                    }
+                    for ( const std::uint32_t step : std::exchange( ticks, {} ) )
+                    {
+                        if ( listening && step % Net::kSnapshotEverySteps == 0 )
+                            gateway.SendSnapshots( step );
+                        if ( listening && gateway.Players() > 0 && step % 300 == 0 )
+                        {
+                            const Net::Gateway::Stats& st = gateway.ReplicationStats();
+                            LOG_INFO( "[Server] net stat (gateway {}): {} player(s); {} spawn(s) sent; {} stable "
+                                      "object(s) replicated as state, 0 as spawns: {} ObjectState packet(s), {} field "
+                                      "update(s), {} acked; {} delta replay(s)",
+                                      options.index, gateway.Players(), st.Spawns, replica.StableObjects().size(),
+                                      st.StablePackets, st.StableFields, st.Acked, st.DeltaReplays );
+                        }
+                    }
+                    std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+                }
+                LOG_INFO( "[Server] gateway {}: the coordinator is gone - stopping", options.index );
+                return 0;
+            }
+
+            // THE SIM: PawnSimulation + the world's streaming, stepped on the coordinator's clock.
+            Core::Rules::ResidencySettings settings;
+            static_cast<Project::WorldPartitionSettings&>( settings ) = Project::CurrentWorldPartitionSettings();
+            auto begun = ServerWorld::Begin( std::move( world ), settings );
+            if ( !begun )
+            {
+                LOG_ERROR( "[Server] {}", begun.GetError() );
+                return 5;
+            }
+            std::unique_ptr<ServerWorld>  server = begun.ExtractValue();
+            Net::RemoteGatewayLink        gatewayLink( endpoint, netLog );
+            Net::PawnSimulation::Settings simSettings;
+            for ( const glm::vec3& spawn : options.spawns )
+                simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
+            Net::PawnSimulation sim( replica, gatewayLink, std::move( simSettings ), netLog );
+            endpoint.SetHandler(
+                 { [&]( Net::EMeshRole peerRole, std::uint32_t, Net::ConnectionId, std::uint16_t )
+                   {
+                       if ( peerRole == Net::EMeshRole::Store )
+                           replica.RequestLease();
+                   },
+                   [&]( Net::EMeshRole peerRole, std::uint32_t index, Net::ConnectionId )
+                   { dialled.erase( { static_cast<int>( peerRole ), index } ); },
+                   [&]( Net::EMeshRole from, std::uint32_t index, Net::ConnectionId, std::uint8_t type,
+                        std::span<const std::byte> body )
+                   {
+                       if ( from == Net::EMeshRole::Store )
+                           replica.OnStoreMessage( type, body );
+                       else if ( from == Net::EMeshRole::Gateway )
+                           gatewayLink.OnGatewayMessage( index, type, body, sim );
+                       else if ( const auto step = Net::DecodeMeshTick( type, body ) )
+                           ticks.push_back( *step );
+                       else if ( const auto peers = Net::DecodeMeshDirectory( type, body ) )
+                       {
+                           for ( const Net::MeshPeerAddress& peer : *peers )
+                               if ( peer.Role == Net::EMeshRole::Store )
+                                   dial( peer.Role, peer.Index, peer.Address );
+                       }
+                   } } );
+            std::unordered_set<std::uint64_t> records;
+            for ( const auto& unit : server->World().Index->Units )
+                records.insert( unit.Ids.begin(), unit.Ids.end() );
+            ServerConsole console;
+            console.Start();
+            Core::Rules::StreamingSource serverSource;
+            serverSource.Position = options.source;
+            std::vector<Core::Rules::StreamingSource> sources;
+            bool                                      readySent = false;
+            std::size_t                               players   = 0;
+            LOG_INFO( "[Server] sim {}: {} spawn point(s), server source at ({:.0f}, {:.0f}, {:.0f}) cm; steps on the "
+                      "coordinator's clock",
+                      options.index, options.spawns.size(), serverSource.Position.x, serverSource.Position.y,
+                      serverSource.Position.z );
+            while ( !coordinatorGone() )
+            {
+                transport->Poll( endpoint );
+                if ( !readySent && replica.HasLease() )
+                {
+                    endpoint.SendToRole( Net::EMeshRole::Coordinator, Net::EncodeMeshSimReady() );
+                    readySent = true;
+                    LOG_INFO( "[Server] sim {}: NetId lease held - reported ready to the coordinator", options.index );
+                }
+                for ( const std::uint32_t step : std::exchange( ticks, {} ) )
+                {
+                    for ( const std::string& line : console.Take() )
+                        RunConsoleLine( line, records, replica, nullptr, sim );
+                    sim.Step( 1.0 / kStepHz );
+                    gatewayLink.SendAcks( sim );
+                    sources.assign( 1, serverSource );
+                    for ( const Net::PawnSimulation::Source& player : sim.Sources() )
+                    {
+                        Core::Rules::StreamingSource source;
+                        source.Position = { player.Position.X, player.Position.Y, player.Position.Z };
+                        sources.push_back( source );
+                    }
+                    auto ticked = server->Step( sources, static_cast<double>( step ) / kStepHz );
+                    if ( !ticked )
+                    {
+                        LOG_ERROR( "[Server] sim step {}: {}", step, ticked.GetError() );
+                        return 6;
+                    }
+                    if ( sources.size() - 1 != players || ( players > 0 && step % 300 == 0 ) )
+                    {
+                        players = sources.size() - 1;
+                        LOG_INFO( "[Server] sim {} step {}: {} player(s), residency union of {} source(s): {} "
+                                  "cell(s) activated, {} cell record(s) held",
+                                  options.index, step, players, sources.size(), server->ResidentCells().size(),
+                                  server->HeldCellRecords() );
+                    }
+                }
+                std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+            }
+            LOG_INFO( "[Server] sim {}: the coordinator is gone - stopping", options.index );
+            return 0;
+        }
+
         int Run( const std::vector<std::string>& args )
         {
             auto parsed = Parse( args );
@@ -422,6 +790,25 @@ namespace Desert::Server
                 return 2;
             }
             const Options options = parsed.ExtractValue();
+            if ( !options.devCa.empty() )
+            {
+                // THE DEV MESH CA: a root and one certificate per role process of a local mesh, written outside
+                // the repository; an official deployment issues its own (NET-MESH-7).
+                std::vector<std::string> identities;
+                for ( const Net::EMeshRole r :
+                      { Net::EMeshRole::Coordinator, Net::EMeshRole::Store, Net::EMeshRole::Sim, Net::EMeshRole::Gateway } )
+                    for ( std::uint32_t index = 1; index <= 4; ++index )
+                        identities.push_back( Net::MeshIdentity( r, index ) );
+                std::string error;
+                if ( !Net::CreateMeshDevCa( options.devCa, identities, 30, error ) )
+                {
+                    std::cerr << "DesertServer: --mesh-dev-ca: " << error << "\n";
+                    return 7;
+                }
+                std::cout << "DesertServer: mesh dev CA written to '" << options.devCa << "': ca.cert, ca.key and "
+                          << identities.size() << " role certificate(s) (indices 1-4 of each role), valid 30 days\n";
+                return 0;
+            }
 
             // The project first (engine directory from the executable, the log in <project>/Saved/Logs): the same
             // unattended open every tool makes (Tools/Shared/ToolProject.hpp).
@@ -431,6 +818,8 @@ namespace Desert::Server
                 std::cerr << "DesertServer: " << opened.Refused << "\n";
                 return 3;
             }
+            if ( options.role != Role::All )
+                return RunMeshRole( options );
             // THE SERVER CREATES NO DEVICE: this target links no RHI (no RenderCore, no Vulkan loader, no Metal) -
             // the line states the build, which `otool -L` / `ldd` of the binary prove.
             LOG_INFO( "[Server] DesertServer (DESERT_SERVER), role all (mesh of one): no device created - this "
@@ -583,7 +972,7 @@ namespace Desert::Server
                 if ( transport )
                 {
                     for ( const std::string& line : console.Take() )
-                        RunConsoleLine( line, records, *store, *gateway, *sim );
+                        RunConsoleLine( line, records, *store, gateway.get(), *sim );
                     transport->Poll( *gateway );
                     sim->Step( 1.0 / kStepHz );
                     if ( step % Net::kSnapshotEverySteps == 0 )
@@ -608,7 +997,7 @@ namespace Desert::Server
                 else if ( sources.size() > 1 && step % 300 == 0 )
                     logUnion( std::format( "step {}", step ) );
                 if ( transport && sources.size() > 1 && step % 300 == 0 )
-                    RunConsoleLine( "stat", records, *store, *gateway, *sim );
+                    RunConsoleLine( "stat", records, *store, gateway.get(), *sim );
             }
             const double wall = std::chrono::duration<double>( Clock::now() - started ).count();
             LOG_INFO( "[Server] {} step(s) at {:.0f} Hz: {:.2f} s of server time in {:.2f} s wall; step {:.3f} ms "
@@ -618,7 +1007,7 @@ namespace Desert::Server
 
             logUnion( "final" );
             if ( transport )
-                RunConsoleLine( "stat", records, *store, *gateway, *sim );
+                RunConsoleLine( "stat", records, *store, gateway.get(), *sim );
             return 0;
         }
     } // namespace

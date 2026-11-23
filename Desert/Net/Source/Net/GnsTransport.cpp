@@ -4,6 +4,7 @@
 // (ConfigureLanes sets every connection's lanes the moment it exists, on both ends).
 
 #include "Net/NetTransport.hpp"
+#include "Net/MeshCertificates.hpp"
 
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingsockets.h>
@@ -255,6 +256,28 @@ namespace Desert::Net
                     return false;
                 }
                 return true;
+            }
+
+            PeerIdentity Peer( ConnectionId connection ) const override
+            {
+                PeerIdentity     peer;
+                SteamNetConnectionInfo_t info;
+                if ( !m_Sockets->GetConnectionInfo( connection, &info ) )
+                    return peer;
+                char text[SteamNetworkingIdentity::k_cchMaxString];
+                info.m_identityRemote.ToString( text, sizeof( text ) );
+                peer.Identity = text;
+                // GNS sets Unauthenticated when the peer's certificate is unsigned or its chain did not verify
+                // against the trusted CA keys.
+                peer.Authenticated = ( info.m_nFlags & ( k_nSteamNetworkConnectionInfoFlags_Unauthenticated |
+                                                         k_nSteamNetworkConnectionInfoFlags_Unencrypted ) ) == 0;
+                return peer;
+            }
+
+            bool UseMeshCertificate( const std::string& caDirectory, std::string_view identity,
+                                     std::string& error ) override
+            {
+                return InstallMeshCertificate( caDirectory, identity, error );
             }
 
         private:

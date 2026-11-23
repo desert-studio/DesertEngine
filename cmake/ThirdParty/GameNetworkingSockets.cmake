@@ -113,3 +113,8 @@ else()
     find_package(Threads REQUIRED)
     target_link_libraries(GameNetworkingSockets PUBLIC OpenSSL::Crypto Threads::Threads)
 endif()
+
+# GNS's private headers and defines, for the one engine file that builds GNS certificates (Desert/Net
+# MeshCertificates.cpp: the mesh CA of NET-ARCH §2M.2 uses GNS's own certificate store and Ed25519 keys).
+set(DESERT_GNS_PRIVATE_INCLUDES "${_src}" "${_src}/common" "${_src}/public" "${_gen}" CACHE INTERNAL "")
+set(DESERT_GNS_PRIVATE_DEFINES ${_defines} CACHE INTERNAL "")

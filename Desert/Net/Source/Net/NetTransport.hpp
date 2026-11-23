@@ -90,6 +90,14 @@ namespace Desert::Net
         float SendJitterAverageMs = 0.f;
     };
 
+    // Who is on the other end of a connection, as the transport verified it: the identity its certificate names
+    // ("str:mesh-sim-1") and whether a CA this process trusts signed that certificate (MeshCertificates.hpp).
+    struct PeerIdentity
+    {
+        std::string Identity;
+        bool        Authenticated = false;
+    };
+
     class INetTransportEvents
     {
     public:
@@ -129,6 +137,12 @@ namespace Desert::Net
         // driver's MaxClientRate / MaxInternetClientRate). min == max fixes the rate. False + `error` when
         // refused.
         virtual bool SetSendRate( int minBytesPerSecond, int maxBytesPerSecond, std::string& error ) = 0;
+        // The verified identity of the peer of `connection` (empty, unauthenticated when it is not connected).
+        [[nodiscard]] virtual PeerIdentity Peer( ConnectionId connection ) const = 0;
+        // Present the mesh certificate of `identity` from the mesh CA directory and trust that CA (a mesh role
+        // process, NET-ARCH §2M.2). False + `error` when the directory has no such certificate.
+        virtual bool UseMeshCertificate( const std::string& caDirectory, std::string_view identity,
+                                         std::string& error ) = 0;
     };
 
     // Receives the transport library's own diagnostics, one line each.
