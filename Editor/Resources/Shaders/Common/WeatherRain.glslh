@@ -1,0 +1,239 @@
+#ifndef DESERT_WEATHER_RAIN_GLSLH
+#define DESERT_WEATHER_RAIN_GLSLH
+
+// THE WORLD'S RAIN ON A SURFACE (WTH-WET + WTH-PUDDLES; Lagarde 2013, "Water drop 2b - Dynamic rain and its effects"
+// and "Water drop 3a - Physically based wet surfaces"): ONE text for every lit surface that faces the weather - the
+// mesh pass headers (Mesh/Surface/SurfaceWeather.glslh: Forward, GBuffer, the grass resolve) and the landscape's
+// G-buffer (Programs/Terrain/TerrainGBuffer.shader). Four layers, in order:
+//   1. the wet film soaked into the pores (porosity): darker diffuse, smoother surface;
+//   2. STANDING WATER (puddles) where the ground dips: water's roughness and F0, the water's own normal (up);
+//   3. the rain's RIPPLES on standing water and on the film of a wet horizontal face, while it rains;
+//   4. the rain's STREAKS running down a wet vertical face, while it rains.
+//
+// UE has no engine puddles: a project repeats a wet material function in every master material and drives it from a
+// Material Parameter Collection (CitySample, RDR2/TLOU2-style wet surfaces). Here the layer is the engine's and every
+// value is the WORLD's: the collection (SceneSettings::WorldParameters, WP_Weather) holds them and the weather state /
+// gameplay writes them; nothing below holds a look of its own. The names (one source of truth: the collection's rows,
+// keyed by Serialization::WorldParameterKey, pinned by static_asserts in Graphic/WorldParameterTable.hpp):
+//   Wetness          Scalar  0..1 how wet the open world is (the film).
+//   PuddleLevel      Scalar  0..1 how full the ground's dips are (0 = dry, 1 = every dip brim-full).
+//   PuddleShape      Vector  x = fill depth (cm) of a dip at PuddleLevel 1, y = the shore's width (cm of water
+//                            depth over which a puddle fades in), z = the step (cm): a neighbour rising or falling
+//                            more than this is an object or a ledge, not the ground's relief, w = the ring (texels
+//                            of the rain occlusion map) the ground around a point is read at.
+//   RainIntensity    Scalar  0..1 how hard it rains now (ripples, streaks).
+//   RainRipple       Vector  x, y = the two ripple layers' tiles (cm), z = their drift (cm/s), w = 0.
+//   RainRippleNormal Texture the ripple normal map (tangent space, top-projected).
+//   RainStreak       Vector  x = the streak tile across the wall (cm), y = its stretch along the fall, z = the fall
+//                            speed (cm/s), w = 0.
+//   RainStreakNormal Texture the streak normal map (tangent space, wall-projected: u across, v up).
+// A collection without a row reads 0 (Common/WorldParameters.glslh), and every layer above is then absent: a level
+// that names no rain gets none, nothing here invents a value.
+//
+// Needs the bindless table and the camera block (cameraUB.Time / MaterialMipBias), as Common/SurfaceLayer.glslh does.
+#include <Common/WorldParameters.glslh>
+#include <Common/RainOcclusion.glslh>
+#include <Common/SurfaceLayer.glslh> // DesertWorldTexture, Common/TangentNormal.glslh
+
+const uint kDesertWetnessKey          = 0x60957b78u; // "Wetness"
+const uint kDesertPuddleLevelKey      = 0xfc667a91u; // "PuddleLevel"
+const uint kDesertPuddleShapeKey      = 0x46b78b8au; // "PuddleShape"
+const uint kDesertRainIntensityKey    = 0x22384490u; // "RainIntensity"
+const uint kDesertRainRippleKey       = 0x67bc9dc9u; // "RainRipple"
+const uint kDesertRainRippleNormalKey = 0x9836b6b6u; // "RainRippleNormal"
+const uint kDesertRainStreakKey       = 0x30a7fbadu; // "RainStreak"
+const uint kDesertRainStreakNormalKey = 0x23bc16dau; // "RainStreakNormal"
+
+// Water's surface (Lagarde 2013 3a): roughness 0.02 and F0 0.02 - UE's Specular pin maps F0 = 0.08 * Specular.
+const float kDesertWaterRoughness = 0.02;
+const float kDesertWaterSpecular  = 0.25;
+
+// Which faces hold standing water / carry a streak, by the GEOMETRIC normal's up component: water stands on a face
+// within ~15 degrees of level (fading in from ~25), runs down a face within ~60 degrees of vertical.
+const vec2 kDesertPuddleUpRamp   = vec2( 0.90, 0.97 );
+const vec2 kDesertStreakUpRamp   = vec2( 0.50, 0.20 );
+
+// The surface in the world's frame, as the rain changes it. The callers fill it from their own surface (a mesh's
+// SurfaceOutput, the landscape's TerrainSurface) and write it back.
+struct DesertWetSurface
+{
+    vec3  BaseColor;
+    vec3  NormalWS; // the shading normal, world space, normalized
+    float Roughness;
+    float Metallic;
+    float Specular; // UE's Specular pin (0.5 = F0 0.04)
+    float AO;
+    float Puddle; // out: how much standing water covers the surface (0..1), for a caller that buries more under it
+};
+
+// How exposed to the sky the world position @p p on a face of GEOMETRIC normal @p n is, in [0, 1] (1 - the view's
+// rain occlusion). The lookup is lifted a texel and a half out along the normal (a wall facing the open sky reads the
+// ground beside it, not its own top) and by a slope-scaled bias up a sloped face (the shadow map's slope-scaled
+// depth bias, for the same reason: the map's 2x2 footprint reaches a texel up the slope, where the face stands higher
+// by texel * tan(slope); capped at 4 texels, 76 degrees), plus @p extraLiftCm (a canopy's lift to its crown,
+// Mesh/Surface/SurfaceWeather.glslh). A face that looks sideways or down is not slope-lifted.
+float DesertRainExposure( const vec3 p, const vec3 n, const float extraLiftCm )
+{
+    const float texel    = DesertRainOcclusionTexel();
+    const float tanSlope = n.y > 0.0 ? min( sqrt( max( 1.0 - n.y * n.y, 0.0 ) ) / max( n.y, 1e-3 ), 4.0 ) : 0.0;
+    return 1.0 - DesertRainOcclusionAt( p + n * ( 1.5 * texel ) + vec3( 0.0, 1.5 * texel * tanSlope + extraLiftCm, 0.0 ) );
+}
+
+// HOW FAR (cm) THE GROUND AT @p p SITS BELOW THE GROUND AROUND IT: positive in a dip, negative on a crest. The view's
+// rain occlusion map is the top-down height of everything around the camera, so it is the world's heightfield here:
+// the point's own depth under the box's top is compared with the top surface on a ring of @p ringTexels map texels
+// around it, eight taps. A neighbour more than @p stepCm above or below is not the ground's relief (a wall, a crate,
+// a kerb's drop) and is left out of the mean. 0 where the map knows nothing (no map, outside its box, no ground
+// neighbour): a surface the map cannot place has no dip, it is never guessed into one.
+float DesertGroundConcavityCm( const vec3 p, const float ringTexels, const float stepCm )
+{
+    if ( RainOcclusionParams.y < 0.5 || ringTexels <= 0.0 || stepCm <= 0.0 )
+        return 0.0;
+    const vec4 c   = RainOcclusionWorldToMap * vec4( p, 1.0 );
+    const vec3 ndc = c.xyz / c.w;
+    // The map is drawn through the negative-height viewport (Common/RainOcclusion.glslh): clip +Y is the first row.
+    const vec2 uv  = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
+    if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) || ndc.z < 0.0 || ndc.z > 1.0 )
+        return 0.0;
+    const float range = RainOcclusionParams.x;
+    const float here  = ndc.z * range; // cm under the box's top
+    const vec2  step  = ringTexels / vec2( textureSize( sampler2D( RainOcclusionMapTexture, RainOcclusionSampler ), 0 ) );
+    float       sum   = 0.0;
+    float       count = 0.0;
+    for ( int k = 0; k < 8; ++k )
+    {
+        const float a    = float( k ) * ( 6.28318530718 / 8.0 );
+        const float top  = textureLod( sampler2D( RainOcclusionMapTexture, RainOcclusionSampler ),
+                                       uv + vec2( cos( a ), sin( a ) ) * step, 0.0 ).r * range;
+        const float rise = here - top; // cm the top surface there stands above this point
+        if ( abs( rise ) < stepCm )
+        {
+            sum += rise;
+            count += 1.0;
+        }
+    }
+    return count > 0.0 ? sum / count : 0.0;
+}
+
+// The tilt of a world-space normal around +Y from a top-projected tangent normal (T = +X, B = -Z, the frame
+// Common/WeatherSnow.glslh lays its layer in).
+vec3 DesertTopTangentToWorld( const vec3 n )
+{
+    return vec3( n.x, n.z, -n.y );
+}
+
+// THE RAIN'S RIPPLES at @p p (world cm), as a world normal around +Y, at strength @p rain (0 = flat water). Two layers
+// of the world's ripple map at two tiles, drifting across each other (the crossing hides the tile), summed as
+// derivatives. Flat water while the collection names no map or no tile.
+vec3 DesertRainRippleNormalWS( const vec3 p, const float time, const float rain )
+{
+    const vec4      shape = DesertWorldParameter( kDesertRainRippleKey );
+    BindlessTexture map;
+    if ( rain <= 0.0 || shape.x <= 0.0 || shape.y <= 0.0 || !DesertWorldTexture( kDesertRainRippleNormalKey, map ) )
+        return vec3( 0.0, 1.0, 0.0 );
+    const vec2 top   = vec2( p.x, -p.z );
+    const vec2 drift = vec2( shape.z * time );
+    const vec3 a = DecodeTangentNormal( SampleBindlessBias( map, ( top + drift ) / shape.x, cameraUB.MaterialMipBias ).rg );
+    const vec3 b = DecodeTangentNormal(
+         SampleBindlessBias( map, ( top + vec2( -drift.x, drift.y ) ) / shape.y, cameraUB.MaterialMipBias ).rg );
+    const vec2 tilt = ( a.xy / max( a.z, 1e-3 ) + b.xy / max( b.z, 1e-3 ) ) * clamp( rain, 0.0, 1.0 );
+    return normalize( DesertTopTangentToWorld( vec3( tilt, 1.0 ) ) );
+}
+
+// THE RAIN'S STREAKS on a face of GEOMETRIC normal @p geomN at @p p, as a world normal around @p geomN, at strength
+// @p weight; @p coverage is how much of the face the running water covers there (the map's tilt, 0 = dry band). The
+// world's streak map is projected on the wall (u across along the face's horizontal, v up the world's Y) and falls
+// at the collection's speed.
+vec3 DesertRainStreakNormalWS( const vec3 p, const vec3 geomN, const float time, const float weight,
+                               out float coverage )
+{
+    coverage                = 0.0;
+    const vec4      shape   = DesertWorldParameter( kDesertRainStreakKey );
+    const vec3      acrossV = cross( vec3( 0.0, 1.0, 0.0 ), geomN );
+    BindlessTexture map;
+    if ( weight <= 0.0 || shape.x <= 0.0 || shape.y <= 0.0 || dot( acrossV, acrossV ) < 1e-4 ||
+         !DesertWorldTexture( kDesertRainStreakNormalKey, map ) )
+        return geomN;
+    const vec3 across = normalize( acrossV );
+    const vec3 up     = normalize( cross( geomN, across ) );
+    const vec2 uv     = vec2( dot( p, across ) / shape.x, ( p.y + shape.z * time ) / ( shape.x * shape.y ) );
+    const vec3 n      = DecodeTangentNormal( SampleBindlessBias( map, uv, cameraUB.MaterialMipBias ).rg );
+    coverage          = clamp( length( n.xy ), 0.0, 1.0 ) * clamp( weight, 0.0, 1.0 );
+    return normalize( across * ( n.x * weight ) + up * ( n.y * weight ) + geomN * n.z );
+}
+
+// THE ONE CALL. @p geomN the GEOMETRIC world normal (the water lies on the face, not on its normal map's relief),
+// @p exposure the share of the sky that reaches the point (DesertRainExposure), @p response the material's weather
+// weight (1 = fully), @p porosity how much water it soaks up. @p sampledLayers: whether the ripple and streak maps
+// are fetched here - false in a stage with no implicit derivatives of the world position (the grass's full-screen
+// resolve: a quad spans several blades), where the standing water and the film still apply.
+DesertWetSurface DesertApplyRain( DesertWetSurface s, const vec3 p, const vec3 geomN, const float exposure,
+                                  const float response, const float porosity, const bool sampledLayers )
+{
+    s.Puddle         = 0.0;
+    const float open = clamp( exposure, 0.0, 1.0 ) * clamp( response, 0.0, 1.0 );
+    if ( open <= 0.0 )
+        return s;
+    const float time  = cameraUB.Time;
+    const float flat  = smoothstep( kDesertPuddleUpRamp.x, kDesertPuddleUpRamp.y, geomN.y );
+    const float level = clamp( DesertWorldParameter( kDesertPuddleLevelKey ).x, 0.0, 1.0 );
+    const float rain  = clamp( DesertWorldParameter( kDesertRainIntensityKey ).x, 0.0, 1.0 );
+
+    // 2. STANDING WATER. A point d cm deep in its dip (the ground's relief from the map, plus the material's own
+    // cavity: its occlusion, a crack fills first) lies under water when the dip is filled past it: the water's depth
+    // there is d - (1 - PuddleLevel) * fill, so PuddleLevel 0 is dry everywhere and 1 fills every dip to its rim.
+    float puddle = 0.0;
+    if ( level > 0.0 && flat > 0.0 )
+    {
+        const vec4  shape = DesertWorldParameter( kDesertPuddleShapeKey );
+        const float fill  = shape.x;
+        const float shore = shape.y;
+        if ( fill > 0.0 && shore > 0.0 )
+        {
+            const float relief = DesertGroundConcavityCm( p, shape.w, shape.z );
+            const float cavity = ( 1.0 - clamp( s.AO, 0.0, 1.0 ) ) * shore;
+            const float depth  = clamp( relief + cavity, 0.0, fill );
+            puddle = smoothstep( 0.0, shore, depth - ( 1.0 - level ) * fill ) * flat * open;
+        }
+    }
+
+    // 1. THE FILM soaked into the pores (Lagarde's porosity factor), full under standing water:
+    //   factor    = lerp( 1, 0.2, dielectric * porosity )
+    //   BaseColor *= lerp( 1, factor, wet )
+    //   Roughness *= lerp( 1, factor, 0.5 * wet )        (gloss rises half as fast as the albedo falls)
+    // A metal has no pores: it wets only by standing water.
+    const float wet        = max( clamp( DesertWorldParameter( kDesertWetnessKey ).x, 0.0, 1.0 ) * open, puddle );
+    const float dielectric = 1.0 - clamp( s.Metallic, 0.0, 1.0 );
+    const float factor     = mix( 1.0, 0.2, dielectric * clamp( porosity, 0.0, 1.0 ) );
+    s.BaseColor *= mix( 1.0, factor, wet );
+    s.Roughness *= mix( 1.0, factor, 0.5 * wet );
+
+    // 3. RIPPLES while it rains, on the standing water and on the film of a wet level face.
+    const vec3 water = sampledLayers ? DesertRainRippleNormalWS( p, time, rain * open ) : vec3( 0.0, 1.0, 0.0 );
+    s.Puddle = puddle;
+    if ( puddle > 0.0 )
+    {
+        // Water's surface over the surface: its roughness, its F0, its normal (level, rippled).
+        s.Roughness = mix( s.Roughness, kDesertWaterRoughness, puddle );
+        s.Specular  = mix( s.Specular, kDesertWaterSpecular, puddle );
+        s.Metallic  = mix( s.Metallic, 0.0, puddle );
+        s.NormalWS  = normalize( mix( s.NormalWS, water, puddle ) );
+    }
+    const float film = wet * flat * ( 1.0 - puddle );
+    if ( film > 0.0 )
+        s.NormalWS = normalize( s.NormalWS + ( water - vec3( 0.0, 1.0, 0.0 ) ) * film );
+
+    // 4. STREAKS down a wet vertical face while it rains: the running water's normal and its smoothness where it runs.
+    const float upright = smoothstep( kDesertStreakUpRamp.x, kDesertStreakUpRamp.y, abs( geomN.y ) );
+    const float streak  = rain * wet * upright;
+    if ( sampledLayers && streak > 0.0 )
+    {
+        float      coverage;
+        const vec3 n = DesertRainStreakNormalWS( p, geomN, time, streak, coverage );
+        s.NormalWS   = normalize( s.NormalWS + ( n - geomN ) );
+        s.Roughness  = mix( s.Roughness, kDesertWaterRoughness, coverage );
+    }
+    return s;
+}
+
+#endif

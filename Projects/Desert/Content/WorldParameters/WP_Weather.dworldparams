@@ -67,6 +67,58 @@
                 0.0,
                 0.0
             ]
+        },
+        {
+            "Name": "PuddleShape",
+            "Type": "Vector",
+            "Default": [
+                6.0,
+                1.5,
+                40.0,
+                3.0
+            ]
+        },
+        {
+            "Name": "RainRipple",
+            "Type": "Vector",
+            "Default": [
+                60.0,
+                37.0,
+                4.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "RainRippleNormal",
+            "Type": "Texture",
+            "Default": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Texture": "Water/Textures/T_WaterRipple_A_N.detex"
+        },
+        {
+            "Name": "RainStreak",
+            "Type": "Vector",
+            "Default": [
+                40.0,
+                4.0,
+                30.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "RainStreakNormal",
+            "Type": "Texture",
+            "Default": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Texture": "Water/Textures/T_WaterRipple_B_N.detex"
         }
     ]
 }

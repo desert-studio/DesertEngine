@@ -1916,11 +1916,11 @@ namespace Desert::Core::Preprocess
             // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
             const bool wets =
                  weather && ( pass == "Forward" || pass == "GBuffer" || pass == "VisibilityResolve" ) && !particle && path != kSurfaceRayHitPath;
+            // The world's values the weather reads (Wetness, PuddleLevel, RainIntensity...) are keyed in
+            // Common/WeatherRain.glslh, one text with the landscape's G-buffer (pinned in
+            // WorldParameterTable.hpp).
             const std::string weatherDefines =
-                 wets ? std::format( "#define {} 1\n#define {} {:#010x}u\n", kSurfaceWeatherDefine,
-                                     kSurfaceWetnessKeyDefine,
-                                     Assets::Serialization::WorldParameterKey( kSurfaceWetnessParameter ) )
-                      : std::string();
+                 wets ? std::format( "#define {} 1\n", kSurfaceWeatherDefine ) : std::string();
             // The sprite path has its own pass header whatever the blend: the mesh Forward / glass headers light a
             // mesh, the sprite header composites a particle.
             const bool        rayHit      = path == kSurfaceRayHitPath;

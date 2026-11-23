@@ -1,0 +1,38 @@
+#ifndef DESERT_TERRAIN_RAIN_GLSLH
+#define DESERT_TERRAIN_RAIN_GLSLH
+
+// THE WORLD'S RAIN ON THE LANDSCAPE (WTH-PUDDLES): the ground's one call into Common/WeatherRain.glslh, the text every
+// lit mesh surface is wetted by (Mesh/Surface/SurfaceWeather.glslh), so the ground and a mesh lying on it are wet,
+// puddled, rippled alike. Shared by the landscape's two lit programs (TerrainGBuffer.shader, Terrain.shader), included
+// after Programs/Terrain/TerrainSurface.glslh. The ground faces the sky wherever the view's rain occlusion says so;
+// its porosity is the landscape material's (the Porosity property of both programs' Properties block).
+//
+// Standing water buries the grass's far cover under it (no blades stand out of a puddle at that distance): @p cover
+// and @p transmission fall with the water, as they fall under the snow.
+#include <Common/WeatherRain.glslh>
+
+void DesertApplyLandscapeRain( inout TerrainSurface s, inout float metallic, inout float specular, inout float cover,
+                               inout vec3 transmission )
+{
+    // The GEOMETRIC normal (v_Normal), never s.N: the far cover bends s.N towards the eye (the snow's reason,
+    // TerrainGBuffer.shader).
+    const vec3       geomN = normalize( v_Normal );
+    DesertWetSurface w;
+    w.BaseColor = s.Albedo;
+    w.NormalWS  = s.N;
+    w.Roughness = s.Roughness;
+    w.Metallic  = metallic;
+    w.Specular  = specular;
+    w.AO        = s.AO;
+    w           = DesertApplyRain( w, v_WorldPos, geomN, DesertRainExposure( v_WorldPos, geomN, 0.0 ), 1.0,
+                                   Material.Porosity, true );
+    s.Albedo     = w.BaseColor;
+    s.N          = w.NormalWS;
+    s.Roughness  = w.Roughness;
+    metallic     = w.Metallic;
+    specular     = w.Specular;
+    cover        = cover * ( 1.0 - w.Puddle );
+    transmission *= 1.0 - w.Puddle;
+}
+
+#endif
