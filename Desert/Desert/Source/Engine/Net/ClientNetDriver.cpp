@@ -280,11 +280,10 @@ namespace Desert::Core
 
     void ClientNetDriver::RequestPawnClosure()
     {
-        m_PawnClosure = std::make_shared<PawnClosure>();
-        m_PawnClosure->Rows =
-             Assets::ContentRegistry::Closure( { { Common::AssetHandle( static_cast<std::uint64_t>( m_PawnPrefab ) ),
-                                                   std::string( Common::Content::KindName(
-                                                        Common::Content::ContentKind::Prefab ) ) } } );
+        m_PawnClosure       = std::make_shared<PawnClosure>();
+        m_PawnClosure->Rows = Assets::ContentRegistry::Closure(
+             { { Common::AssetHandle( static_cast<std::uint64_t>( m_PawnPrefab ) ),
+                 std::string( Common::Content::KindName( Common::Content::ContentKind::Prefab ) ) } } );
         Runtime::StartClosureReads( m_PawnClosure->Rows );
         LOG_INFO( "[Net] reading the pawn prefab's closure off the frame: {} rows", m_PawnClosure->Rows.size() );
     }
