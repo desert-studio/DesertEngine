@@ -59,10 +59,6 @@ namespace Desert::Water
 
     const char* FFTOceanSpectrumParamsProblem( const FFTOceanSpectrumParams& p ) noexcept
     {
-        if ( !PositiveFinite( p.WindSpeed ) )
-            return "FFT.WindSpeed must be finite and above 0";
-        if ( !std::isfinite( p.WindAngleDeg ) )
-            return "FFT.WindAngleDeg must be finite";
         if ( !PositiveFinite( p.FetchKm ) )
             return "FFT.FetchKm must be finite and above 0";
         if ( !std::isfinite( p.PeakEnhancement ) || p.PeakEnhancement < 1.0f )
@@ -93,14 +89,19 @@ namespace Desert::Water
         return nullptr;
     }
 
-    float FFTOceanSpectrumDensity( const FFTOceanSpectrumParams& p, float kx, float kz ) noexcept
+    float FFTOceanSpectrumDensity( const FFTOceanSpectrumParams& p, const FFTOceanWind& wind, float kx,
+                                   float kz ) noexcept
     {
         const double kCm = std::sqrt( static_cast<double>( kx ) * kx + static_cast<double>( kz ) * kz );
         if ( kCm <= 0.0 || kCm > kTwoPi / p.ShortestWavelength )
             return 0.0f;
+        // Still air raises no wind sea (JONSWAP's alpha and peak both go to 0 with U); a non-finite wind is no
+        // wind the scene can state.
+        if ( !PositiveFinite( wind.Speed ) || !std::isfinite( wind.AngleDeg ) )
+            return 0.0f;
 
         // JONSWAP in SI (Hasselmann 1973, the fetch-limited fit of Hasselmann et al. 1976).
-        const double U      = static_cast<double>( p.WindSpeed ) * 0.01;
+        const double U      = static_cast<double>( wind.Speed ) * 0.01;
         const double F      = static_cast<double>( p.FetchKm ) * 1000.0;
         const double alpha  = 0.076 * std::pow( U * U / ( F * kGravitySI ), 0.22 );
         const double omegaP = 22.0 * std::cbrt( kGravitySI * kGravitySI / ( U * F ) );
@@ -114,7 +115,7 @@ namespace Desert::Water
                          std::pow( static_cast<double>( p.PeakEnhancement ), peak );
 
         // Direction: Mitsuyasu cos^2s about the wind, the waves against it kept at CounterWaves.
-        const double windRad = static_cast<double>( p.WindAngleDeg ) * std::numbers::pi / 180.0;
+        const double windRad = static_cast<double>( wind.AngleDeg ) * std::numbers::pi / 180.0;
         const double theta   = std::atan2( static_cast<double>( kz ), static_cast<double>( kx ) ) - windRad;
         const double s       = static_cast<double>( p.DirectionalSpread );
         double       D       = SpreadNormalisation( s ) * std::pow( std::abs( std::cos( theta * 0.5 ) ), 2.0 * s );
@@ -127,10 +128,11 @@ namespace Desert::Water
         return static_cast<float>( E );
     }
 
-    FFTOceanSpectrum BuildFFTOceanSpectrum( const FFTOceanSpectrumParams& p ) noexcept
+    FFTOceanSpectrum BuildFFTOceanSpectrum( const FFTOceanSpectrumParams& p, const FFTOceanWind& wind ) noexcept
     {
         FFTOceanSpectrum out;
         out.Params = p;
+        out.Wind   = wind;
 
         constexpr uint32_t N        = kFFTOceanResolution;
         constexpr int32_t  half     = static_cast<int32_t>( N / 2 );
@@ -159,7 +161,7 @@ namespace Desert::Water
                     if ( k < cascade.BandLow || k >= cascade.BandHigh || k == 0.0 )
                         continue;
                     const double E =
-                         FFTOceanSpectrumDensity( p, static_cast<float>( kx ), static_cast<float>( kz ) );
+                         FFTOceanSpectrumDensity( p, wind, static_cast<float>( kx ), static_cast<float>( kz ) );
                     // E|h0|^2 = E dk^2 / 2 per mode: the pair (k, -k) of the real field then carries E dk^2, and
                     // the whole grid the spectrum's m0.
                     const double amplitude =

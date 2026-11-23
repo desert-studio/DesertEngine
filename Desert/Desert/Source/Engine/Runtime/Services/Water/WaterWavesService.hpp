@@ -7,6 +7,10 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/vec2.hpp>
+
+#include <mutex>
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -16,8 +20,7 @@
 // caller of Get() does not compile the Gerstner generator (BUILD-MOD-1).
 namespace Desert::Water
 {
-    struct GerstnerWave;     // Engine/Water/GerstnerWaterWaves.hpp
-    struct FFTOceanSpectrum; // Engine/Water/FFTOceanSpectrum.hpp
+    struct GerstnerWave; // Engine/Water/GerstnerWaterWaves.hpp
 }
 
 namespace Desert::Assets
@@ -51,6 +54,12 @@ namespace Desert::Runtime
         /// set's error when it failed.
         Common::ResultStr<Spectrum> GetSpectrum( const Assets::AssetHandle& handle );
 
+        /// WATER-UNDERWATER: THE WIND a set's ocean is raised by - the scene's ECS::WindAt at the first visible
+        /// body naming the set (WaterZoneECSSystem, every frame), horizontal, cm/s. Quantised (10 cm/s, 0.5 deg)
+        /// so a steady wind never rebuilds; a set no body states a wind for is a flat sea. GetSpectrum rebuilds
+        /// the set's h0 when it changes (a new pointer: the renderer re-uploads, the CPU mirror re-keys).
+        void SetWind( const Assets::AssetHandle& handle, const glm::vec2& velocityXZ );
+
         /// THE FFT OCEAN'S CPU MIRROR (WATER-RIVERS-FFT pass 7): WaterRenderer publishes each read-back of the
         /// frame's FFT ocean, the physics gather hands the newest snapshot to the body naming that spectrum.
         [[nodiscard]] Water::FFTSurfaceMirror& Surfaces()
@@ -68,6 +77,10 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::unordered_map<Assets::AssetHandle, Waves>               m_Ready;
         std::unordered_map<Assets::AssetHandle, Spectrum>            m_Spectra; // FFT sets only
+        std::unordered_map<Assets::AssetHandle, Water::FFTOceanSpectrumParams> m_Shapes;  // FFT sets only
+        // Written by the (parallel) zone collector, read wherever GetSpectrum is asked: its own lock.
+        std::mutex                                                   m_WindMutex;
+        std::unordered_map<Assets::AssetHandle, Water::FFTOceanWind> m_Winds;
         std::unordered_map<Assets::AssetHandle, std::string>         m_Failed;
         Water::FFTSurfaceMirror                                      m_Surfaces;
     };

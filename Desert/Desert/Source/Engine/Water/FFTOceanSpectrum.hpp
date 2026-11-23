@@ -45,15 +45,24 @@ namespace Desert::Water
         FFT,
     };
 
-    /// The authored ocean (one `.dwaves` FFT block). Defaults: a fresh 12 m/s breeze over 300 km of fetch, the
-    /// standard JONSWAP peak, patches of 250 m / 61 m / 17.3 m (ratios ~4.1 and ~3.5: no common tile short of
-    /// kilometres).
+    /// THE WIND THE OCEAN IS RAISED BY (WATER-UNDERWATER): not authored in the wave set. The scene's one wind
+    /// (ECS::WindAt over the WindSource entities, ECS/System/WindField.hpp - the same query foliage, clouds, cloth
+    /// and groom ask) at the body's wave origin, horizontal; Runtime::WaterWavesService rebuilds a set's spectrum
+    /// when it changes. The `.dwaves` FFT block carries only the spectrum's SHAPE (fetch, peak, spread, cascades).
+    struct FFTOceanWind
+    {
+        /// Wind speed 10 m above the sea (U10), cm/s. 0 = still air: a flat sea (no wind sea is raised).
+        float Speed = 0.0f;
+        /// The wind's heading, degrees from +X toward +Z.
+        float AngleDeg = 0.0f;
+
+        [[nodiscard]] bool operator==( const FFTOceanWind& ) const = default;
+    };
+
+    /// The authored ocean's shape (one `.dwaves` FFT block). Defaults: 300 km of fetch, the standard JONSWAP
+    /// peak, patches of 250 m / 61 m / 17.3 m (ratios ~4.1 and ~3.5: no common tile short of kilometres).
     struct FFTOceanSpectrumParams
     {
-        /// Wind speed 10 m above the sea (U10), cm/s.
-        float WindSpeed = 1200.0f;
-        /// The dominant wind direction, degrees from +X toward +Z (as GerstnerWaveGenerator::WindAngleDeg).
-        float WindAngleDeg = 0.0f;
         /// The distance the wind has blown over open water, km (JONSWAP fetch): short fetch = young, choppy sea.
         float FetchKm = 300.0f;
         /// JONSWAP peak enhancement gamma (3.3 standard; 1 = Pierson-Moskowitz).
@@ -66,8 +75,10 @@ namespace Desert::Water
         float Choppiness = 1.0f;
         /// A multiplier of every amplitude (an art knob over the physical spectrum).
         float HeightScale = 1.0f;
-        /// Waves shorter than this are left to the material's ripple maps, cm.
-        float ShortestWavelength = 4.0f;
+        /// Waves shorter than this are left to the material's ripple maps, cm. At least the smallest cascade's
+        /// Nyquist wavelength 2 * CascadeSizes[2] / 256 (13.5 cm for the default 1730 cm patch): the default of
+        /// 4 cm was below it, so every wave set - authored FFT block or not - was refused (WATER-UNDERWATER).
+        float ShortestWavelength = 14.0f;
         /// THE WHITECAPS' LIFETIME, s: the FFT ocean's foam history (Programs/Water/WaterFFTFinalize.shader) keeps
         /// each cascade's compression and fades it e-fold per this many seconds, so the foam trails behind the crest
         /// that folded. The ocean's own, not the material's: the history is accumulated on the GPU before any
@@ -94,22 +105,27 @@ namespace Desert::Water
     struct FFTOceanSpectrum
     {
         FFTOceanSpectrumParams                         Params;
+        FFTOceanWind                                   Wind; // the wind it was raised by
         std::array<FFTOceanCascade, kFFTOceanCascades> Cascades;
         /// An upper bound of the surface's vertical reach (cm): 3 standard deviations of the summed height, the
         /// quadtree's cull extent (the FFT twin of MaxWaveHeight).
         float MaxWaveHeight = 0.0f;
     };
 
-    /// Refuses what the spectrum cannot honour, naming the field: a non-finite or non-positive wind speed, fetch,
-    /// cascade size; cascades not strictly decreasing; gamma below 1; negative spread, choppiness, height scale or
-    /// shortest wavelength; CounterWaves outside [0, 1]. Empty = valid.
+    /// Refuses what the spectrum cannot honour, naming the field: a non-finite or non-positive fetch, cascade
+    /// size; cascades not strictly decreasing; gamma below 1; negative spread, choppiness, height scale or
+    /// shortest wavelength; a shortest wavelength the smallest cascade cannot resolve; CounterWaves outside
+    /// [0, 1]. Empty = valid.
     [[nodiscard]] const char* FFTOceanSpectrumParamsProblem( const FFTOceanSpectrumParams& params ) noexcept;
 
-    /// The JONSWAP directional variance density E(kx, kz) of a wave number (cm^2 per (rad/cm)^2): what h0 draws
-    /// its amplitude from. Zero at k = 0 and outside [2 pi / patch, 2 pi / ShortestWavelength].
-    [[nodiscard]] float FFTOceanSpectrumDensity( const FFTOceanSpectrumParams& params, float kx,
-                                                 float kz ) noexcept;
+    /// The JONSWAP directional variance density E(kx, kz) of a wave number (cm^2 per (rad/cm)^2) under @p wind:
+    /// what h0 draws its amplitude from. Zero at k = 0, outside [2 pi / patch, 2 pi / ShortestWavelength], and
+    /// everywhere in still (or non-finite) air.
+    [[nodiscard]] float FFTOceanSpectrumDensity( const FFTOceanSpectrumParams& params, const FFTOceanWind& wind,
+                                                 float kx, float kz ) noexcept;
 
-    /// Every cascade's h0 for valid @p params (FFTOceanSpectrumParamsProblem == nullptr). Deterministic in Seed.
-    [[nodiscard]] FFTOceanSpectrum BuildFFTOceanSpectrum( const FFTOceanSpectrumParams& params ) noexcept;
+    /// Every cascade's h0 for valid @p params (FFTOceanSpectrumParamsProblem == nullptr) under @p wind.
+    /// Deterministic in Seed: the same wind gives the same sea, and a wind change rescales the same random phases.
+    [[nodiscard]] FFTOceanSpectrum BuildFFTOceanSpectrum( const FFTOceanSpectrumParams& params,
+                                                          const FFTOceanWind&           wind ) noexcept;
 } // namespace Desert::Water
