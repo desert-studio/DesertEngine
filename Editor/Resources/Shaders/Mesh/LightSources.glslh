@@ -50,7 +50,10 @@ float SpotConeFactor(SpotLight light, vec3 L)
 // The sun. `lightTravel` is the direction the light travels (away from the sun), as both paths' uniform
 // blocks carry it; `shadow` is the cascades (unless the surface does not receive them) times the cloud layer;
 // `transmissionShadow` is the same for the light passing through (DesertLight::TransmissionShadow).
-DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow, float transmissionShadow )
+// `sinAngularRadius` is the sun's disc (UE LightSourceAngle / 2, as its sine): its specular is the disc's
+// (DesertLight::SphereCenter, at unit distance), 0 = a point at infinity.
+DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow, float transmissionShadow,
+                            float sinAngularRadius )
 {
     DesertLight light;
     light.L                  = normalize( -lightTravel );
@@ -62,6 +65,8 @@ DesertLight DesertSunLight( vec3 lightTravel, vec3 radiance, float shadow, float
     light.RectExtentY        = vec3( 0.0 );
     light.RectLuminance      = vec3( 0.0 );
     light.RectLtcTexture     = 0;
+    light.SphereCenter       = light.L;
+    light.SphereRadius       = clamp( sinAngularRadius, 0.0, 1.0 );
     return light;
 }
 
@@ -129,6 +134,8 @@ DesertLight DesertRectLightAt( PointLight source, vec3 worldPosition )
     light.RectExtentY        = vec3( 0.0 );
     light.RectLuminance      = vec3( 0.0 );
     light.RectLtcTexture     = 0;
+    light.SphereCenter       = vec3( 0.0 ); // a rect's lobe is the LTC's
+    light.SphereRadius       = 0.0;
     const float distance     = length( fromLight );
     if ( depth <= 0.0 || x1 <= x0 || y1 <= y0 || distance >= source.radius )
         return light;
@@ -194,6 +201,9 @@ DesertLight DesertPointLightAt( PointLight source, vec3 worldPosition )
     light.RectExtentY        = vec3( 0.0 );
     light.RectLuminance      = vec3( 0.0 );
     light.RectLtcTexture     = 0;
+    // UE SourceRadius: the emitter sphere its specular lobe aims at (DesertSphereSpecularLight).
+    light.SphereCenter       = toLight;
+    light.SphereRadius       = source.sourceRadius;
     return light;
 }
 
@@ -216,6 +226,9 @@ DesertLight DesertSpotLightAt( SpotLight source, vec3 worldPosition )
     light.RectExtentY        = vec3( 0.0 );
     light.RectLuminance      = vec3( 0.0 );
     light.RectLtcTexture     = 0;
+    // UE SourceRadius: the emitter sphere its specular lobe aims at (DesertSphereSpecularLight).
+    light.SphereCenter       = toLight;
+    light.SphereRadius       = source.sourceRadius;
     return light;
 }
 

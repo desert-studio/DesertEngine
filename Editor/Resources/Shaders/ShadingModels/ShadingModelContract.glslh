@@ -295,12 +295,45 @@ struct DesertLight
     // GGX LTC tables that lobe is integrated with (Runtime::RectLightLtcService; 0 = none). Zero for a punctual.
     vec3 RectLuminance;
     int  RectLtcTexture;
+    // A SPHERE source (UE ULocalLightComponent::SourceRadius; the sun's disc, UE LightSourceAngle): the vector from
+    // the surface to the emitter's centre (world, cm; the sun: L itself, at unit distance) and the emitter's radius
+    // (cm; the sun: the sine of its angular radius). L and Radiance stay the centre's - the diffuse and every
+    // non-specular term read the sphere as the point it is far away - while a model's specular lobe aims at the
+    // sphere's point nearest the reflection ray, energy-normalised for the lobe the sphere widens
+    // (DesertSphereSpecularLight). Zero radius = a punctual source; zero for a rect (its lobe is the LTC's).
+    vec3  SphereCenter;
+    float SphereRadius;
 };
 
 // Whether the light is a rect source (DesertLight::RectCenter).
 bool DesertIsRectLight( DesertLight light )
 {
     return dot( light.RectExtentX, light.RectExtentX ) > 0.0;
+}
+
+// THE SPHERE (and the sun's disc) AS A SPECULAR SOURCE - Karis 2013, "Real Shading in Unreal Engine 4", the
+// representative point (UE AreaLightSpecular): the light as a GGX lobe of @p roughness sees it, L moved to the point
+// of the sphere nearest the reflection ray R, Radiance times the sphere normalisation (alpha / alpha')^2 with
+// alpha' = saturate( alpha + 0.5 * radius / distance ) - the widened lobe's peak falls as its footprint grows, so a
+// large bulb on a glossy floor is a soft disc as bright in total as the point it replaces, not a needle. Every
+// model's specular lobe takes the light through here; its diffuse keeps the centre's L. A punctual or rect source
+// is returned as it came.
+DesertLight DesertSphereSpecularLight( DesertLight light, vec3 N, vec3 V, float roughness )
+{
+    if ( light.SphereRadius <= 0.0 || DesertIsRectLight( light ) )
+        return light;
+    const float alpha       = roughness * roughness;
+    const float invDistance = inversesqrt( max( dot( light.SphereCenter, light.SphereCenter ), 1e-8 ) );
+    const float sphereAngle = clamp( light.SphereRadius * invDistance, 0.0, 1.0 );
+    const float normalised  = alpha / max( clamp( alpha + 0.5 * sphereAngle, 0.0, 1.0 ), 1e-6 );
+    // R = reflect( -V, N ), spelled out (the file also compiles as C++).
+    const vec3  R            = N * ( 2.0 * dot( N, V ) ) - V;
+    const vec3  centerToRay  = R * dot( light.SphereCenter, R ) - light.SphereCenter;
+    const float rayDistance2 = dot( centerToRay, centerToRay );
+    const float pull = rayDistance2 > 1e-8 ? clamp( light.SphereRadius * inversesqrt( rayDistance2 ), 0.0, 1.0 ) : 0.0;
+    light.L          = normalize( light.SphereCenter + centerToRay * pull );
+    light.Radiance   = light.Radiance * ( normalised * normalised );
+    return light;
 }
 
 // The environment at the surface, sampled once by the pass for the model's normal and roughness (the split-sum

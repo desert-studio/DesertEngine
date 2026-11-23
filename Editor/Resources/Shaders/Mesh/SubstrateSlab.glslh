@@ -150,10 +150,12 @@ vec3 DesertSlabBentReflection( DesertSurface S, DesertSlab slab, float roughness
 // ---------------------------------------------------------------------------------------------------------------
 // The GGX lobe of the slab at @p roughness for one light, Fresnel and multiple-scattering compensation included
 // (Mesh/DirectLighting.glslh EvaluateDirectLightSpecular; a rect source integrates the lobe over the rect).
-vec3 DesertSlabLobe( DesertLight L, DesertSurface S, DesertSlab slab, float roughness )
+vec3 DesertSlabLobe( DesertLight source, DesertSurface S, DesertSlab slab, float roughness )
 {
-    if ( DesertIsRectLight( L ) )
-        return EvaluateRectLightSpecular( L, S.V, S.N, slab.F0, roughness );
+    if ( DesertIsRectLight( source ) )
+        return EvaluateRectLightSpecular( source, S.V, S.N, slab.F0, roughness );
+    // A sphere (or the sun's disc) is aimed at its point nearest the reflection, normalised for this lobe.
+    const DesertLight L = DesertSphereSpecularLight( source, S.N, S.V, roughness );
     if ( !DesertSlabHas( slab, kDesertSlabF90 | kDesertSlabAnisotropy ) )
         return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, slab.F0, roughness );
     const float cosLi = max( dot( S.N, L.L ), 0.0 );
@@ -177,7 +179,9 @@ vec3 DesertSlabBaseLight( DesertLight L, DesertSurface S, DesertSlab slab )
 {
     if ( DesertIsRectLight( L ) )
         return EvaluateRectLight( L, S.V, S.N, slab.F0, S.Metallic, S.Roughness, S.BaseColor );
-    if ( !DesertSlabHas( slab, kDesertSlabF90 | kDesertSlabAnisotropy ) )
+    // A punctual source on the plain slab: EvaluateDirectLight, the one text. A sphere's lobe aims elsewhere than
+    // its diffuse, so it takes the split below (DesertSlabLobe aims it).
+    if ( !DesertSlabHas( slab, kDesertSlabF90 | kDesertSlabAnisotropy ) && L.SphereRadius <= 0.0 )
         return EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, slab.F0, S.Metallic, S.Roughness, S.BaseColor );
     // EvaluateDirectLight's Lambert under ( 1 - F ), F the slab's F0..F90 Fresnel.
     const float cosLi = max( dot( S.N, L.L ), 0.0 );
@@ -189,7 +193,7 @@ vec3 DesertSlabBaseLight( DesertLight L, DesertSurface S, DesertSlab slab )
     // The anisotropic lobe has no multiple-scattering table of its own: its diffuse is the plain ( 1 - F ) split.
     if ( DesertSlabHas( slab, kDesertSlabAnisotropy ) )
         return ( 1.0 - F ) * ( 1.0 - S.Metallic ) * S.BaseColor / PI * L.Radiance * cosLi +
-               DesertSlabAnisotropicLobe( L, S, slab, S.Roughness, F, cosLi );
+               DesertSlabLobe( L, S, slab, S.Roughness );
     const float specularAlbedo = GGXSpecularAlbedo( cosLo, S.Roughness );
     const vec3  kd =
          ( 1.0 - F ) * ( 1.0 - S.Metallic ) * ( vec3( 1.0 ) - GGXMultipleScatteringShare( slab.F0, specularAlbedo ) );
@@ -205,8 +209,10 @@ float DesertSlabCoatFresnel( DesertLight L, DesertSurface S, DesertSlab slab )
 }
 
 // CLEAR_COAT: the coat's GGX lobe for one light, its Fresnel and strength included.
-vec3 DesertSlabCoatLobe( DesertLight L, DesertSurface S, DesertSlab slab, float coatFresnel )
+vec3 DesertSlabCoatLobe( DesertLight source, DesertSurface S, DesertSlab slab, float coatFresnel )
 {
+    // The coat's own lobe sees a sphere through its own roughness (DesertSphereSpecularLight).
+    const DesertLight L = DesertSphereSpecularLight( source, S.N, S.V, slab.HazeRoughness );
     const float cosLi = max( dot( S.N, L.L ), 0.0 );
     if ( cosLi <= 0.0 )
         return vec3( 0.0 );

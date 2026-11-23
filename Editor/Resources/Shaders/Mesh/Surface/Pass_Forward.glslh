@@ -239,7 +239,8 @@ void main()
                                              DesertSunLight( directionLights.directionLights.Direction.xyz,
                                                              directionLights.directionLights.ColorIntensity.rgb *
                                                                   directionLights.directionLights.ColorIntensity.a,
-                                                             shadow, transmissionShadow ),
+                                                             shadow, transmissionShadow,
+                                                             directionLights.directionLights.Direction.w ),
                                              surface, payload );
     // The point and spot lights: the MegaLights volume under Shadows Stochastic, else the pixel's froxel
     // (Mesh/ForwardSceneLighting.glslh, the statement the forward ground shares).

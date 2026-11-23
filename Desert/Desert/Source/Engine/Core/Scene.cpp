@@ -1056,8 +1056,11 @@ namespace Desert::Core
                 const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *sun );
                 const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *sun );
                 sceneRendererInfo.SunVolumetricScatteringIntensity = light.Data.VolumetricScatteringIntensity;
+                // w = the sine of the disc's angular radius (UE SourceAngle is its full diameter): the sun's
+                // specular is the disc's (Mesh/LightSources.glslh DesertSunLight).
                 sceneRendererInfo.DirLights.DirectionLights.push_back(
-                     { glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
+                     { glm::vec4( travel, std::sin( glm::radians( light.Data.SourceAngle ) * 0.5f ) ),
+                       glm::vec4( light.Data.Color, light.Data.Intensity ) } );
             }
 
             // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): lit by the deferred pass beside
@@ -1076,7 +1079,8 @@ namespace Desert::Core
                 const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *second );
                 sceneRendererInfo.AtmosphereLight1 = Graphic::SceneRenderer::AtmosphereLight1Frame{
                      .Light = Graphic::ShaderProtocols::DirectionLightPayload{
-                          glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) },
+                          glm::vec4( travel, std::sin( glm::radians( light.Data.SourceAngle ) * 0.5f ) ),
+                          glm::vec4( light.Data.Color, light.Data.Intensity ) },
                      .SourceAngleDegrees = light.Data.SourceAngle,
                      .CastShadows        = light.Data.CastShadows,
                      .ShadowBias         = { .BiasCm       = light.Data.ShadowBias,

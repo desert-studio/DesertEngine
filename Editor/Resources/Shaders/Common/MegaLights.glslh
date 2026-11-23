@@ -275,6 +275,8 @@ DesertLight MegaLightsEmissiveLightAt(uint triangle, vec3 worldPosition)
 	light.RectExtentY        = vec3(0.0);
 	light.RectLuminance      = vec3(0.0);
 	light.RectLtcTexture     = 0;
+	light.SphereCenter       = vec3(0.0); // a triangle: its irradiance vector is the whole source
+	light.SphereRadius       = 0.0;
 	const EmissiveTriangle t = EmissiveLightsTriangle(triangle, EmissiveCounts);
 	const vec3  a        = t.P0Area.xyz - worldPosition;
 	const vec3  b        = a + t.Edge1Power.xyz;
