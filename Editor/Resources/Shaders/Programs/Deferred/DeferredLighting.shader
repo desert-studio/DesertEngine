@@ -46,10 +46,12 @@ Shader "DeferredLighting"
         // scene (real procedural sky / skybox + grid) shows through.
         // TWO PROGRAMS OF ONE TEXT, split as UE splits RenderLights from DiffuseIndirectComposite (GPU-TURN-3):
         //  - DESERT_DEFERRED_DIRECT, "Deferred: Direct Lighting": the sun, atmosphere light 1 and the local lights
-        //    with their shadows, into an RGBA32F target (oDirect). It reads no GI, AO or reflection, so it has no
+        //    with their shadows, into an RGBA16F target (oDirect, pre-exposed like the scene colour). It reads no
+        //    GI, AO or reflection, so it has no
         //    edge to the async chain and runs on the graphics queue inside its window.
         //  - no define, "Deferred: Composite": the ambient (GI, reflections, AO), the emissive and the subsurface
-        //    split over that direct sum, read back unrounded (RGBA32F) - the still frame is the same arithmetic.
+        //    split over that direct sum, read back and un-pre-exposed (x 1/PreExposure) - the arithmetic of one
+        //    program, rounded once to the FP16 the scene colour stores anyway (UE's pre-exposed FP16 scene colour).
         // The shadow-method defines below (DESERT_MEGALIGHTS, DESERT_SUN_SHADOW_SCREEN_MASK, ...) are the direct
         // program's permutations (DeferredLightingRenderer::ProgramVariant); the composite has one program.
 
@@ -191,9 +193,10 @@ Shader "DeferredLighting"
         layout(set = 1, binding = 10) uniform texture2D DeferredDirectLightingTexture;
         #define DeferredDirectLightingTexture sampler2D(DeferredDirectLightingTexture, PointClampSampler)
         #else
-        // rgb = the direct sum (un-pre-exposed: a 100 000 lx sun is past RGBA16F, so the target is RGBA32F), or a
-        // view this pass draws pre-exposed; a = kDeferredDirectShown for such a view, else the Shadow Cascades
-        // view's tint index (0..3), else kDeferredDirectUntinted.
+        // rgb = the direct sum PRE-EXPOSED (x CompositeView.y = ViewFrame::PreExposure, as the scene colour stores
+        // it, so a 100 000 lx sun stays inside the RGBA16F target; the composite divides it back out), or a view
+        // this pass draws pre-exposed; a = kDeferredDirectShown for such a view, else the Shadow Cascades view's
+        // tint index (0..3), else kDeferredDirectUntinted.
         Out(0) vec4 oDirect;
         // A scattered texel's direct specular (the composite's subsurface split); a 1x1 nothing reads otherwise.
         layout(set = 1, binding = 9, rgba32f) writeonly uniform image2D DeferredDirectSpecularImage;
@@ -657,7 +660,9 @@ Shader "DeferredLighting"
         	if (scatters)
         		imageStore(DeferredDirectSpecularImage, ivec2(gl_FragCoord.xy), vec4(specular, 0.0));
         	const bool tinted = shadowView == 2 && cascade >= 0;
-        	oDirect = vec4(result, tinted ? float(min(cascade, 3)) : kDeferredDirectUntinted);
+        	// Pre-exposed into the RGBA16F target (ViewTargetFormats::kDeferredDirectLighting); the composite takes
+        	// the exposure back off before it adds the ambient in absolute units.
+        	oDirect = vec4(result * CompositeView.y, tinted ? float(min(cascade, 3)) : kDeferredDirectUntinted);
         }
         #else
         void main()
@@ -748,8 +753,9 @@ Shader "DeferredLighting"
         		albedo = vec3(1.0);
         	const DesertSurface surface =
         	     DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness, DesertShadingWordSpecular(word));
-        	// The direct pass's sum, and a scattered texel's specular half of it.
-        	vec3 result   = direct.rgb;
+        	// The direct pass's sum (stored pre-exposed, taken back to absolute units here), and a scattered texel's
+        	// specular half of it.
+        	vec3 result   = direct.rgb * (1.0 / CompositeView.y);
         	vec3 specular = scatters ? texelFetch(DeferredDirectSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb
         	                         : vec3(0.0);
 
