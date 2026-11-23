@@ -523,15 +523,19 @@ namespace Desert::Graphic::GpuDriven
         if ( row.LocalToWorld == packed )
             return;
         JournalTransform( primitive );
-        row.PrevLocalToWorld = row.LocalToWorld;
-        row.LocalToWorld     = packed;
-        MarkPrimitive( primitive );
-        Publish( PrimitiveChangeKind::Moved, primitive, world );
+        // Prev is latched ONCE per frame (UE: PreviousLocalToWorld is the transform the last frame drew): the
+        // first move of the frame keeps where the primitive stood at the frame's start; a second move in the
+        // same frame (a net correction after interpolation, a physics sync after animation) changes only the
+        // current world, never the history - else Prev became a same-frame value and the velocity collapsed.
         if ( m_MovedMark[primitive] == 0u )
         {
+            row.PrevLocalToWorld   = row.LocalToWorld;
             m_MovedMark[primitive] = 1u;
             m_MovedLastFrame.push_back( primitive );
         }
+        row.LocalToWorld = packed;
+        MarkPrimitive( primitive );
+        Publish( PrimitiveChangeKind::Moved, primitive, world );
     }
 
     void GpuScene::SetSkinning( const PrimitiveIndex primitive, const PrimitiveSkinning& skinning )
@@ -704,8 +708,8 @@ namespace Desert::Graphic::GpuDriven
         m_FrameUndo.clear();
         m_UndoMovedLastFrame = m_MovedLastFrame;
         // Moved in the frame that just ended: this frame starts from where they stopped (UE: the velocity
-        // list's "moved last frame" pass). A primitive that moves again this frame overwrites Prev with the same
-        // value in SetTransform.
+        // list's "moved last frame" pass). A primitive that moves again this frame keeps this Prev: SetTransform
+        // latches it on the frame's first move only.
         for ( const PrimitiveIndex primitive : m_MovedLastFrame )
         {
             m_MovedMark[primitive] = 0u;
