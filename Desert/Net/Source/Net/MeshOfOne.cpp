@@ -122,8 +122,7 @@ namespace Desert::Net
         const auto it = m_Pawns.find( player );
         if ( it == m_Pawns.end() || !it->second.LastProcessed )
             return std::nullopt;
-        return AckedMove{ *it->second.LastProcessed, it->second.Move,
-                          static_cast<std::uint8_t>( std::min<std::size_t>( it->second.Pending.size(), 255 ) ) };
+        return AckedMove{ *it->second.LastProcessed, it->second.Move, it->second.QueuedAtStep };
     }
 
     // The server moves a pawn only by its player's input steps, one per step in step order (UE ServerMove: the
@@ -134,6 +133,7 @@ namespace Desert::Net
         constexpr std::size_t kDrainAbove = 4;
         for ( auto& [player, pawn] : m_Pawns )
         {
+            pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
             const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
             for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
             {

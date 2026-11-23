@@ -94,9 +94,11 @@ namespace Desert::Core
         constexpr float  kNoSmoothDistanceCm = 384.0f;
         // UE NetworkSimulatedSmoothLocationTime: the drawn offset a correction leaves decays with this time.
         constexpr double kSmoothSeconds = 0.1;
-        // The clock sync's target: input steps queued on the server (one lost packet plus jitter of slack), and
-        // the step rate's dilation either side of it (Overwatch: a few percent, never a visible speed change).
-        constexpr double kQueueLow = 1.0, kQueueHigh = 3.0, kDilation = 0.03;
+        // The clock sync's target: input steps waiting on the server when its step starts (measured BEFORE it
+        // consumes - PawnSimulation::Step): 1 = each step's input arrives just in time, the band's upper edge is
+        // one lost packet of slack; the step rate dilates either side of it (Overwatch: a few percent, never a
+        // visible speed change).
+        constexpr double kQueueLow = 1.0, kQueueHigh = 2.0, kDilation = 0.03;
 
         std::optional<NetPredictionStats>& StatsSlot()
         {

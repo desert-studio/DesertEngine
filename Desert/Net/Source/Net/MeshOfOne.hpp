@@ -171,6 +171,9 @@ namespace Desert::Net
             PawnMoveState                      Move; // the movement state State is the replicated part of
             std::map<std::uint32_t, InputStep> Pending; // by client step (wrap: a session is < 2^31 steps)
             std::optional<std::uint32_t>       LastProcessed;
+            // The queue as the last Step found it, BEFORE it consumed: the clock sync's measure (one waiting step
+            // each server step = the client exactly on time; after consumption a punctual client reads 0).
+            std::uint8_t                       QueuedAtStep = 0;
         };
         IReplicationStore&       m_Store;
         IGatewayLink&            m_Gateway;
