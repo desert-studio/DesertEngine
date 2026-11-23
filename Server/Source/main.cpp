@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -222,7 +223,8 @@ namespace Desert::Server
             std::vector<std::string> m_Lines;
         };
 
-        Common::ResultStr<Net::ReplicatedValue> ParseReplicatedValue( const std::string& text )
+        // true / false, an int, or a float (strtof: libc++ has no floating from_chars); nullopt = none of them.
+        std::optional<Net::ReplicatedValue> ParseReplicatedValue( const std::string& text )
         {
             if ( text == "true" || text == "false" )
                 return Net::ReplicatedValue( text == "true" );
@@ -233,12 +235,11 @@ namespace Desert::Server
                 if ( error == std::errc() && end == text.data() + text.size() )
                     return Net::ReplicatedValue( value );
             }
-            float value             = 0.f;
-            const auto [end, error] = std::from_chars( text.data(), text.data() + text.size(), value );
-            if ( error == std::errc() && end == text.data() + text.size() && std::isfinite( value ) )
+            char*       end   = nullptr;
+            const float value = std::strtof( text.c_str(), &end );
+            if ( end == text.c_str() + text.size() && !text.empty() && std::isfinite( value ) )
                 return Net::ReplicatedValue( value );
-            return Common::ResultStr<Net::ReplicatedValue>::Error(
-                 std::format( "'{}' is not true, false, an int or a float", text ) );
+            return std::nullopt;
         }
 
         // One console line; the answer (or the refusal) is logged.
@@ -279,16 +280,17 @@ namespace Desert::Server
                     LOG_ERROR( "[Server] console '{}': usage set <record id> <Component>.<Field> <value>", line );
                     return;
                 }
-                auto value = ParseReplicatedValue( valueText );
+                const std::optional<Net::ReplicatedValue> value = ParseReplicatedValue( valueText );
                 if ( !value )
                 {
-                    LOG_ERROR( "[Server] console '{}': {}", line, value.GetError() );
+                    LOG_ERROR( "[Server] console '{}': '{}' is not true, false, an int or a float", line,
+                               valueText );
                     return;
                 }
                 const std::uint32_t version =
-                     store.WriteStable( id, path.substr( 0, dot ), path.substr( dot + 1 ), value.GetValue() );
+                     store.WriteStable( id, path.substr( 0, dot ), path.substr( dot + 1 ), *value );
                 LOG_INFO( "[Server] console: stable {} {} = {} (version {})", id, path,
-                          Net::ReplicatedValueText( value.GetValue() ), version );
+                          Net::ReplicatedValueText( *value ), version );
                 return;
             }
             if ( command == "transform" )
