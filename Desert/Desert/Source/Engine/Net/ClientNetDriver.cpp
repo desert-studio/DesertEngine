@@ -20,6 +20,7 @@
 
 #include <Net/NetTransport.hpp>
 #include <Net/PawnMovement.hpp>
+#include <Engine/Net/PawnPrefabMovement.hpp>
 #include <Net/PhysicsPawnMoveWorld.hpp>
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
@@ -221,7 +222,18 @@ namespace Desert::Core
         m_InSession = true;
 
         if ( !m_Prediction )
+        {
             m_Prediction = std::make_shared<Prediction>();
+            // UE: the own pawn's CharacterMovement is the DefaultPawnClass's - the prefab the server named, read
+            // as the server reads it (PawnPrefabMovement.hpp), so both sides step the same capsule.
+            const std::string key      = Assets::ContentRegistry::KeyForHandle( m_Client->PawnPrefab() );
+            auto              movement = Net::PrefabMovement::ReadPawnPrefabMovement(
+                 Common::AssetHandle::PathForStableKey( key ) );
+            if ( movement )
+                m_Prediction->Movement = movement.GetValue();
+            else
+                LOG_ERROR( "[Net] the own pawn's movement: {}", movement.GetError() );
+        }
         ApplySpawnsAndDestroys( scene, assets );
         ReconcileOwnPawn();
         WriteTransforms( scene );

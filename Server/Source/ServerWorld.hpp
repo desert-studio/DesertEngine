@@ -4,6 +4,8 @@
 // plan and residency executor the client's WorldStreamer runs, with a ResidencyWorld that holds a cell's records
 // as data instead of making drawable entities of them. No scene, no renderer, no device.
 
+#include "ServerCellCollision.hpp"
+
 #include <Engine/Core/Serialize/CookedWorld.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
@@ -32,9 +34,13 @@ namespace Desert::Server
     {
     public:
         // Starts streaming @p world: its always-loaded units are resident, no cell is yet (the first Step starts
-        // loading what the sources want). @p settings: the project's World Partition settings.
+        // loading what the sources want). @p settings: the project's World Partition settings. @p physics: the
+        // server's collision world - every record the server holds that collides on the client (a static collider,
+        // a landscape tile) is a body in it while it is held (ServerCellCollision), so the pawns sweep the cells
+        // the client draws.
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<ServerWorld>>
-        Begin( Core::CookedWorldStart world, const Core::Rules::ResidencySettings& settings );
+        Begin( Core::CookedWorldStart world, const Core::Rules::ResidencySettings& settings,
+               Physics::PhysicsWorld& physics );
 
         // One server step: collect the reads that finished, step the residency from @p sources, apply it.
         [[nodiscard]] Common::ResultStr<Core::Rules::ResidencyTick>
@@ -54,6 +60,10 @@ namespace Desert::Server
         [[nodiscard]] std::size_t LoadsInFlight() const
         {
             return m_Loader->InFlight();
+        }
+        [[nodiscard]] const ServerCellCollision& Collision() const
+        {
+            return *m_Collision;
         }
         [[nodiscard]] const Core::CookedWorldStart& World() const
         {
@@ -77,5 +87,6 @@ namespace Desert::Server
         std::optional<Core::Rules::ResidencyExecutor> m_Executor;
         std::unique_ptr<Core::WorldCellLoader>        m_Loader;
         std::vector<bool>                             m_Held; // per world record: held by an activated unit
+        std::unique_ptr<ServerCellCollision>          m_Collision;
     };
 } // namespace Desert::Server
