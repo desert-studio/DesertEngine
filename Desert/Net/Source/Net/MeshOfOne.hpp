@@ -92,8 +92,8 @@ namespace Desert::Net
         virtual void PlayerJoined( PlayerId player, std::uint64_t account )    = 0;
         virtual void PlayerLeft( PlayerId player )                             = 0;
         virtual void PlayerInput( PlayerId player, const InputMessage& input ) = 0;
-        // The ack of §5.1: the last of @p player's input steps the sim has processed, the own pawn's movement state
-        // after it, and the input steps still queued (the client's clock sync); nullopt before the first.
+        // The ack of §5.1: the last of @p player's input steps the sim has processed, the own pawn's movement
+        // state after it, and the input steps still queued (the client's clock sync); nullopt before the first.
         struct AckedMove
         {
             std::uint32_t Step = 0;
@@ -192,12 +192,12 @@ namespace Desert::Net
             std::uint64_t                      Account = 0;
             std::uint32_t                      Index   = 0;
             PawnState                          State;
-            PawnMoveState                      Move; // the movement state State is the replicated part of
+            PawnMoveState                      Move;    // the movement state State is the replicated part of
             std::map<std::uint32_t, InputStep> Pending; // by client step (wrap: a session is < 2^31 steps)
             std::optional<std::uint32_t>       LastProcessed;
             // The queue as the last Step found it, BEFORE it consumed: the clock sync's measure (one waiting step
             // each server step = the client exactly on time; after consumption a punctual client reads 0).
-            std::uint8_t                       QueuedAtStep = 0;
+            std::uint8_t QueuedAtStep = 0;
         };
         void StepPawn( Pawn& pawn ) const;
 

@@ -318,7 +318,7 @@ namespace Desert::Net
         MeshAuthorityMap                                            m_Map;
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>>
              m_Authority; // player -> (sim, epoch) of its pawn
-        std::map<PlayerId, AckedMove>                               m_Acks;
+        std::map<PlayerId, AckedMove> m_Acks;
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>> m_Routed; // player -> (sim, epoch) last logged
     };
 
