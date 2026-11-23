@@ -30,6 +30,7 @@ namespace Desert::Net
 {
     class INetTransport;
     class ReplicationClient;
+    class IPawnMoveWorld;
 } // namespace Desert::Net
 
 namespace Desert::Core
@@ -109,6 +110,8 @@ namespace Desert::Core
         // NET-4 (§5.1): the server's newest state for the own pawn against the saved moves; a correction moves the
         // simulation at once and the drawn pawn by a decaying offset (UE smoothed ClientAdjustPosition).
         void         ReconcileOwnPawn();
+        // The collision world the own pawn is predicted in (the scene's physics world); null without one.
+        Net::IPawnMoveWorld* PredictionWorld();
         [[nodiscard]] glm::vec3 OwnDrawnPosition() const;
 
         ClientNetOptions                        m_Options;

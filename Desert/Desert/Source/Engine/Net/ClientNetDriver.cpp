@@ -20,6 +20,9 @@
 
 #include <Net/NetTransport.hpp>
 #include <Net/PawnMovement.hpp>
+#include <Net/PhysicsPawnMoveWorld.hpp>
+#include <Engine/Core/WorldContext.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Net/ReplicationClient.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -111,7 +114,45 @@ namespace Desert::Core
     {
         Net::MovePredictor    Predictor;
         Net::PawnMoveSettings Movement;
+        // The scene's physics world the own pawn is predicted in: the same cells' colliders the server moves it
+        // through (PhysicsPawnMoveWorld). Made with the first prediction, dropped with the world it lives in.
+        std::unique_ptr<Net::PhysicsPawnMoveWorld> World;
+        Physics::PhysicsWorld*                     WorldOf = nullptr;
     };
+
+    namespace
+    {
+        Physics::PhysicsWorld* ScenePhysicsWorld()
+        {
+            const Core::WorldContext* context = Core::WorldContext::Current();
+            if ( context == nullptr || context->World == nullptr )
+                return nullptr;
+            const auto* system = context->World->FindSystem<ECS::PhysicsECSSystem>();
+            return system != nullptr ? system->GetPhysicsWorld() : nullptr;
+        }
+    } // namespace
+
+    Net::IPawnMoveWorld* ClientNetDriver::PredictionWorld()
+    {
+        Physics::PhysicsWorld* physics = ScenePhysicsWorld();
+        if ( physics != m_Prediction->WorldOf )
+        {
+            m_Prediction->World.reset();
+            m_Prediction->WorldOf = nullptr;
+            if ( physics != nullptr )
+            {
+                auto made = Net::PhysicsPawnMoveWorld::Create( *physics, m_Prediction->Movement );
+                if ( !made )
+                {
+                    LOG_ERROR( "[Net] the own pawn cannot be predicted: {}", made.GetError() );
+                    return nullptr;
+                }
+                m_Prediction->World   = made.ExtractValue();
+                m_Prediction->WorldOf = physics;
+            }
+        }
+        return m_Prediction->World.get();
+    }
 
     std::optional<NetPredictionStats> ClientNetDriver::LastStats()
     {
@@ -202,7 +243,8 @@ namespace Desert::Core
             const float        yaw     = glm::length( move ) > 1e-4f ? std::atan2( -move.x, -move.z ) : 0.0f;
             const std::uint8_t buttons = InputButtons( scene );
             if ( const auto sent = m_Client->SendInput( { move.x, move.y, move.z }, yaw, buttons ) )
-                predictor.Predict( *sent, m_Prediction->Movement, Net::kNetStepSeconds );
+                if ( Net::IPawnMoveWorld* world = PredictionWorld() )
+                    predictor.Predict( *sent, m_Prediction->Movement, *world, Net::kNetStepSeconds );
         }
         if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than 8 steps is not caught up
             m_StepClock = 0.0;
@@ -662,7 +704,7 @@ namespace Desert::Core
                 return;
             Net::PawnMoveState start;
             start.Position = own->second.History.Sample( 1e12 ).Position;
-            start.FloorY   = start.Position.Y;
+            start.Grounded = false; // it falls to the floor under it on the first move (FindFloor)
             predictor.Reset( start );
             m_NextJump = m_Clock + m_Options.WalkJumpEverySeconds;
             LOG_INFO( "[Net] predicting own pawn net id {} from ({:.0f}, {:.0f}, {:.0f}) cm", own->first,
@@ -677,8 +719,12 @@ namespace Desert::Core
                         : m_ServerQueue > kQueueHigh ? 1.0 + kDilation
                                                      : 1.0;
         const glm::vec3 drawnBefore = OwnDrawnPosition();
-        const auto      outcome =
-             predictor.Reconcile( authority->AckStep, authority->State, m_Prediction->Movement, Net::kNetStepSeconds );
+        Net::IPawnMoveWorld* world = PredictionWorld();
+        if ( world == nullptr )
+            return;
+        const auto outcome =
+             predictor.Reconcile( authority->AckStep, authority->State, m_Prediction->Movement, *world,
+                                  Net::kNetStepSeconds );
         if ( outcome != Net::MovePredictor::EReconcile::Corrected )
             return;
         const glm::vec3 offset = drawnBefore - ( OwnDrawnPosition() - m_SmoothOffset );

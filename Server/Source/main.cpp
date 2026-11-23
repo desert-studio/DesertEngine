@@ -21,6 +21,10 @@
 
 #include "ServerWorld.hpp"
 
+#include <Net/PhysicsPawnMoveWorld.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Net/MeshCertificates.hpp>
 #include <Net/MeshLink.hpp>
 #include <Net/MeshOfOne.hpp>
@@ -65,6 +69,31 @@ namespace Desert::Server
 {
     namespace
     {
+        // THE SERVER'S COLLISION WORLD (UE dedicated server: the same collision as the client): a PhysicsWorld on
+        // the project's collision profiles, with the probe capsule the pawns move through (PhysicsPawnMoveWorld).
+        struct ServerCollision
+        {
+            std::unique_ptr<Physics::PhysicsWorld>     Physics;
+            std::unique_ptr<Net::PhysicsPawnMoveWorld> PawnMove;
+        };
+        Common::ResultStr<ServerCollision> MakeServerCollision( const Net::PawnMoveSettings& movement )
+        {
+            auto profiles = Physics::CollisionProfiles::Read( Common::Constants::Path::PROJECT_CONFIG_PATH /
+                                                              Physics::kCollisionProfilesFileName );
+            if ( !profiles )
+                return Common::MakeError<ServerCollision>(
+                     std::format( "collision profiles: {}", profiles.GetError() ) );
+            ServerCollision collision;
+            collision.Physics = std::make_unique<Physics::PhysicsWorld>();
+            if ( !collision.Physics->Init( movement.Gravity, std::move( profiles.GetValue() ) ) )
+                return Common::MakeError<ServerCollision>( std::string( "the physics world did not initialise" ) );
+            auto pawnMove = Net::PhysicsPawnMoveWorld::Create( *collision.Physics, movement );
+            if ( !pawnMove )
+                return Common::MakeError<ServerCollision>( pawnMove.GetError() );
+            collision.PawnMove = pawnMove.ExtractValue();
+            return Common::MakeSuccess( std::move( collision ) );
+        }
+
         // NET-ARCH §2M.2: `all` is the mesh of one (every role in this process, in-process links); the others are
         // one role each, linked over GNS mesh links with CA-signed certificates (Net/MeshLink.hpp). The global
         // services role (`service`) comes with NET-MESH-5.
@@ -714,7 +743,15 @@ namespace Desert::Server
             Net::PawnSimulation::Settings simSettings;
             for ( const glm::vec3& spawn : options.spawns )
                 simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
-            Net::PawnSimulation sim( replica, gatewayLink, std::move( simSettings ), netLog );
+            auto collision = MakeServerCollision( simSettings.Movement );
+            if ( !collision )
+            {
+                LOG_ERROR( "[Server] {}", collision.GetError() );
+                return 5;
+            }
+            ServerCollision     world = collision.ExtractValue();
+            Net::PawnSimulation sim( replica, gatewayLink, *world.PawnMove, std::move( simSettings ),
+                                     netLog );
             endpoint.SetHandler(
                  { [&]( Net::EMeshRole peerRole, std::uint32_t, Net::ConnectionId, std::uint16_t )
                    {
@@ -880,6 +917,7 @@ namespace Desert::Server
             std::unique_ptr<Net::INetTransport>        transport;
             std::unique_ptr<Net::InProcessReplicationStore> store;
             std::unique_ptr<Net::Gateway>              gateway;
+            ServerCollision                            collision;
             std::unique_ptr<Net::PawnSimulation>       sim;
             if ( options.port )
             {
@@ -914,7 +952,15 @@ namespace Desert::Server
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
-                sim = std::make_unique<Net::PawnSimulation>( *store, *gateway, std::move( simSettings ), netLog );
+                auto made = MakeServerCollision( simSettings.Movement );
+                if ( !made )
+                {
+                    LOG_ERROR( "[Server] {}", made.GetError() );
+                    return 5;
+                }
+                collision = made.ExtractValue();
+                sim       = std::make_unique<Net::PawnSimulation>( *store, *gateway, *collision.PawnMove,
+                                                                 std::move( simSettings ), netLog );
                 gateway->Bind( *sim );
                 LOG_INFO(
                      "[Server] listening on port {} (server id {}, cook hash {:016x}); {} spawn point(s); pawn {} "

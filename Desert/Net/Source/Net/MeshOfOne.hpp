@@ -142,7 +142,9 @@ namespace Desert::Net
             std::vector<NetVec3> SpawnPoints; // world cm; the n-th player takes point n % size
             PawnMoveSettings     Movement;    // the pawns' CharacterMovement (the client predicts with the same)
         };
-        PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, Settings settings, NetLogSink log );
+        // @p world: the server's collision world the pawns move in (PhysicsPawnMoveWorld over the streamed cells).
+        PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMoveWorld& world, Settings settings,
+                        NetLogSink log );
 
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
@@ -177,6 +179,7 @@ namespace Desert::Net
         };
         IReplicationStore&       m_Store;
         IGatewayLink&            m_Gateway;
+        IPawnMoveWorld&          m_World;
         Settings                 m_Settings;
         NetLogSink               m_Log;
         std::map<PlayerId, Pawn> m_Pawns;

@@ -60,9 +60,10 @@ namespace Desert::Net
 
     // ---- simulation --------------------------------------------------------------------------------------------
 
-    PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, Settings settings,
-                                    NetLogSink log )
-         : m_Store( store ), m_Gateway( gateway ), m_Settings( std::move( settings ) ), m_Log( std::move( log ) )
+    PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMoveWorld& world,
+                                    Settings settings, NetLogSink log )
+         : m_Store( store ), m_Gateway( gateway ), m_World( world ), m_Settings( std::move( settings ) ),
+           m_Log( std::move( log ) )
     {
         if ( m_Settings.SpawnPoints.empty() )
             m_Settings.SpawnPoints.push_back( {} );
@@ -76,7 +77,6 @@ namespace Desert::Net
         pawn.State.Id       = m_Store.AllocateNetId();
         pawn.State.Position = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
         pawn.Move.Position  = pawn.State.Position;
-        pawn.Move.FloorY    = pawn.State.Position.Y;
         m_Store.Write( pawn.State );
         m_Log( std::format( "player {} (account {}): pawn net id {} spawned at ({:.0f}, {:.0f}, {:.0f}) cm",
                             player, account, pawn.State.Id, pawn.State.Position.X, pawn.State.Position.Y,
@@ -139,7 +139,7 @@ namespace Desert::Net
             {
                 const auto next    = pawn.Pending.begin();
                 // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
-                pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, kNetStepSeconds );
+                pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, m_World, kNetStepSeconds );
                 pawn.LastProcessed = next->first;
                 pawn.Pending.erase( next );
             }
@@ -155,11 +155,11 @@ namespace Desert::Net
         if ( it == m_Pawns.end() )
             return false;
         it->second.State.Position = position;
-        // UE TeleportTo on a character: it stands at the new place, still; the floor is where it stands.
+        // UE TeleportTo on a character: it is at the new place, still, and falls to the floor there (the next
+        // move's FindFloor) - a teleport onto the landscape lands on the terrain, not on a plane at its height.
         it->second.Move.Position = position;
         it->second.Move.Velocity = {};
-        it->second.Move.FloorY   = position.Y;
-        it->second.Move.Grounded = true;
+        it->second.Move.Grounded = false;
         m_Store.Write( it->second.State );
         m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
                             it->second.State.Id, position.X, position.Y, position.Z ) );
