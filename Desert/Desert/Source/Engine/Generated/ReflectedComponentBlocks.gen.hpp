@@ -6,12 +6,12 @@
 
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 
+#include <Destruction/Public/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructionFieldComponents.hpp>
 #include <Engine/ECS/AudioSourceComponent.hpp>
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
-#include <Engine/ECS/DestructibleComponent.hpp>
-#include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
@@ -33,8 +33,6 @@
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Input/EnhancedInputPlayerComponent.hpp>
@@ -73,13 +71,15 @@
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
 #include <Engine/UI/Ecs/UITreeViewComponent.hpp>
 #include <Engine/UI/Ecs/UITweenComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
 #include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 #include <Engine/World/Partition/DataLayersComponent.hpp>
 #include <Engine/World/Partition/HLODLayerComponent.hpp>
 #include <Engine/World/Partition/LocationVolumeComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
+#include <VFX/Public/VFXComponent.hpp>
+#include <Water/Public/WaterBodyComponent.hpp>
+#include <Water/Public/WaterZoneComponent.hpp>
 
 namespace Desert::Core::Serialize
 {

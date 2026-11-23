@@ -16,7 +16,7 @@
 //   (NoHitWithoutTheFlag)
 //   * PhysicsEvents.hpp NameContactEvents — drop the `-` on the second side's Normal     (EachSideIsNamed...)
 
-#include <Engine/Destruction/DestructionWorld.hpp>
+#include <Destruction/Public/DestructionWorld.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>

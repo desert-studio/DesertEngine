@@ -26,7 +26,6 @@
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
-#include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
@@ -45,13 +44,10 @@
 #include <Engine/ECS/SpringArmComponent.hpp>
 #include <Engine/ECS/StaticLightingSettings.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
-#include <Engine/ECS/System/DestructionLibrary.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Input/EnhancedInputPlayerComponent.hpp>
@@ -396,47 +392,11 @@ void RegisterReflection_Engine()
             .Register();
     }
     {
-        using T = ::Desert::ECS::RadialImpulseFieldData;
-        TypeBuilder( "RadialImpulseFieldData", sizeof( T ) )
-            .ScriptName( "" )
-                    .Field( FieldInfo{ .Name = "Magnitude", .Type = FieldType::Float, .Offset = offsetof( T, Magnitude ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Magnitude )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Magnitude", .Category = "Field", .Tooltip = "The impulse at the centre; the falloff takes it to zero at the radius. Its length is also the strain a piece inside reads, against the piece's Damage Threshold.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e8f, .Units = "kg*cm/s", .Summary = true, } } )
-                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .Tooltip = "Pieces whose centre of mass is farther than this are not touched.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "Falloff", .Type = FieldType::Enum, .Offset = offsetof( T, Falloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Falloff )>(), .TypeName = "Destruction::FieldFalloff", .Meta = PropertyMetadata{ .DisplayName = "Falloff", .Category = "Field", .Tooltip = "How the magnitude goes from the centre to the radius (UE Falloff Type).", }, .EnumValues = { EnumValue{ "None", 0 }, EnumValue{ "Linear", 1 }, EnumValue{ "Squared", 2 }, EnumValue{ "Inverse", 3 }, EnumValue{ "Logarithmic", 4 }, } } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
-        using T = ::Desert::ECS::StrainFieldData;
-        TypeBuilder( "StrainFieldData", sizeof( T ) )
-            .ScriptName( "" )
-                    .Field( FieldInfo{ .Name = "Magnitude", .Type = FieldType::Float, .Offset = offsetof( T, Magnitude ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Magnitude )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Magnitude", .Category = "Field", .Tooltip = "The strain at the centre; a piece breaks off where the strain it reads reaches its Damage Threshold.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e8f, .Summary = true, } } )
-                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "Falloff", .Type = FieldType::Enum, .Offset = offsetof( T, Falloff ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Falloff )>(), .TypeName = "Destruction::FieldFalloff", .Meta = PropertyMetadata{ .DisplayName = "Falloff", .Category = "Field", .Tooltip = "How the magnitude goes from the centre to the radius (UE Falloff Type).", }, .EnumValues = { EnumValue{ "None", 0 }, EnumValue{ "Linear", 1 }, EnumValue{ "Squared", 2 }, EnumValue{ "Inverse", 3 }, EnumValue{ "Logarithmic", 4 }, } } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
-        using T = ::Desert::ECS::KillFieldData;
-        TypeBuilder( "KillFieldData", sizeof( T ) )
-            .ScriptName( "" )
-                    .Field( FieldInfo{ .Name = "Radius", .Type = FieldType::Float, .Offset = offsetof( T, Radius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Radius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Radius", .Category = "Field", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e5f, .IsLength = true, .Summary = true, } } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
-        using T = ::Desert::ECS::AnchorFieldData;
-        TypeBuilder( "AnchorFieldData", sizeof( T ) )
-            .ScriptName( "" )
-                    .Field( FieldInfo{ .Name = "Extent", .Type = FieldType::Vec3, .Offset = offsetof( T, Extent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Extent )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Extent", .Category = "Field", .Tooltip = "The box's full size along the entity's own axes, before the entity's scale.", .IsLength = true, .Summary = true, } } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
         using T = ::Desert::ECS::DirectionalLightData;
         TypeBuilder( "DirectionalLightData", sizeof( T ) )
             .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "Color", .Type = FieldType::Vec3, .Offset = offsetof( T, Color ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Color )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Color", .Category = "Light", .Tooltip = "Tint of the sun light (UE). With a Physical Atmosphere sky this is also the sun the sky scatters and the disc you see.", .IsColor = true, .Temperature = true, } } )
-                    .Field( FieldInfo{ .Name = "Intensity", .Type = FieldType::Float, .Offset = offsetof( T, Intensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Intensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Intensity", .Category = "Light", .Tooltip = "Illuminance in lux on a surface facing the light (UE): ~100000 clear sun, ~1000 overcast, ~0.25 full moon. With a Physical Atmosphere sky this also drives the sky's brightness and the sun disc.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 150000.0f, .Units = "lux", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Intensity", .Type = FieldType::Float, .Offset = offsetof( T, Intensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Intensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Intensity", .Category = "Light", .Tooltip = "Illuminance in lux on a surface facing the light (UE): ~100000 clear sun, ~1000 overcast, ~0.25 full moon. With a Physical Atmosphere sky this also drives the sky's brightness and the sun disc.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 150000.0f, .Units = "lux", .Summary = true, .Replicated = true, } } )
                     .Field( FieldInfo{ .Name = "AtmosphereSunLight", .Type = FieldType::Bool, .Offset = offsetof( T, AtmosphereSunLight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AtmosphereSunLight )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Atmosphere Sun Light", .Category = "Atmosphere", .Tooltip = "This light drives the sky and the sky's IBL bake.", } } )
                     .Field( FieldInfo{ .Name = "AtmosphereSunLightIndex", .Type = FieldType::Int, .Offset = offsetof( T, AtmosphereSunLightIndex ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AtmosphereSunLightIndex )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Atmosphere Sun Light Index", .Category = "Atmosphere", .Tooltip = "0 = the sun, 1 = a second atmosphere light such as the moon (UE). Both light the sky, draw a disc and light the scene; the time-of-day clock and the cascaded shadows belong to index 0.", .HasRange = true, .RangeMin = 0, .RangeMax = 1, .EditCondition = "AtmosphereSunLight", } } )
                     .Field( FieldInfo{ .Name = "AffectedByAtmosphereTransmittance", .Type = FieldType::Bool, .Offset = offsetof( T, AffectedByAtmosphereTransmittance ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AffectedByAtmosphereTransmittance )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Affected By Atmosphere Transmittance", .Category = "Atmosphere", .Tooltip = "Multiply this light's colour by the atmosphere's transmittance toward the sun at ground level, so it reddens and dims at sunset. Physical Atmosphere only.", .EditCondition = "AtmosphereSunLight", } } )
@@ -792,16 +752,9 @@ void RegisterReflection_Engine()
             .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "MeshHandle", .Type = FieldType::AssetHandle, .Offset = offsetof( T, MeshHandle ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MeshHandle )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Static Mesh", .Category = "Static Mesh", .Tooltip = "The mesh asset this component draws (UE StaticMesh). Ignored while a Primitive or an edited mesh is set; setting it clears both.", .IsAsset = true, .AssetType = "StaticMeshAsset", .Summary = true, } } )
                     .Field( FieldInfo{ .Name = "MaterialSlots", .Type = FieldType::Struct, .Offset = offsetof( T, MaterialSlots ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaterialSlots )>(), .TypeName = "std::vector<Assets::AssetHandle>", .Meta = PropertyMetadata{ .DisplayName = "Materials", .Category = "Materials", .Tooltip = "One material per mesh section (UE OverrideMaterials); a null slot takes the mesh's own section material.", .IsAsset = true, .AssetType = "MaterialAsset", .Hidden = true, }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::MaterialSlots ), std::uint64_t>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::MaterialSlots ), std::uint64_t>, .ContainerHandles = ::Desert::Reflection::ContainerHandles<decltype( T::MaterialSlots )>, .AssignHandles = ::Desert::Reflection::AssignHandles<decltype( T::MaterialSlots )>, .ElementType = FieldType::AssetHandle, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::MaterialSlots )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::MaterialSlots )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::MaterialSlots ), std::uint64_t>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::MaterialSlots ), std::uint64_t> } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
-        using T = ::Desert::ECS::DestructionLibrary;
-        TypeBuilder( "DestructionLibrary", sizeof( T ) )
-            .ScriptName( "Destruction" )
-#ifndef DESERT_REFLECTION_DATA_ONLY
-                    .Function( ::Desert::Reflection::MakeFunction<&T::ApplyField>( "ApplyField", "DestructionLibrary", "int", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Fires every field component of the entity once into the played scene's destruction world; returns how many bodies and pieces they acted on, -1 (logged) when it cannot (not playing, no field component).", .ScriptName = "applyField", .ScriptMethod = false } ) )
-#endif
+                    .Field( FieldInfo{ .Name = "ImpostorMesh", .Type = FieldType::AssetHandle, .Offset = offsetof( T, ImpostorMesh ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ImpostorMesh )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Impostor Mesh", .Category = "LOD", .Tooltip = "The impostor card mesh an Impostor HLOD bake stored for this mesh (UE ImpostorBaker).", .IsAsset = true, .AssetType = "StaticMeshAsset", } } )
+                    .Field( FieldInfo{ .Name = "ImpostorMaterial", .Type = FieldType::AssetHandle, .Offset = offsetof( T, ImpostorMaterial ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ImpostorMaterial )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Impostor Material", .Category = "LOD", .Tooltip = "The card's M_I ImpostorSurface material from the same bake.", .IsAsset = true, .AssetType = "MaterialAsset", } } )
+                    .Field( FieldInfo{ .Name = "ImpostorScreenSize", .Type = FieldType::Float, .Offset = offsetof( T, ImpostorScreenSize ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ImpostorScreenSize )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Impostor Screen Size", .Category = "LOD", .Tooltip = "UE screen size (bounds diameter / view height) below which the card replaces the mesh; 0 = never.", } } )
             .WithDefault<T>()
             .Register();
     }
@@ -872,28 +825,6 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "VolumeResolution", .Type = FieldType::Int, .Offset = offsetof( T, VolumeResolution ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::VolumeResolution )>(), .TypeName = "int32_t", .Meta = PropertyMetadata{ .DisplayName = "Volume Resolution", .Category = "Quality", .Tooltip = "Voxels per horizontal side of the camera-centric modelling volume the layer is baked into. It is the cost of the BAKE, not of the frame: the bake is a loop over side x side columns, so 128 costs a QUARTER of 256 — measured at 229 ms against 961 ms. Lower it when a view has to follow an edit quickly (an asset preview does) and leave it at 256 for a level, where the sky is baked once and looked at for hours. It stops at 128 because 64 was measured to invent four points of sky rather than draw the same sky more coarsely. It is a FLOOR and not a command: a grid too coarse to express a cloud type's placement cell would move the clouds rather than blur them, so the bake raises it back to 256 for such a type and says so in the log.", .HasRange = true, .RangeMin = 128, .RangeMax = 256, .Advanced = true, } } )
                     .Field( FieldInfo{ .Name = "WindOffset", .Type = FieldType::Vec3, .Offset = offsetof( T, WindOffset ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WindOffset )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Wind Offset", .Category = "Wind", .Tooltip = "Where the cloud field sits when the scene opens: the sample-space offset the wind's drift starts from. \"Capture current sky\" writes the sky you are looking at into it.", .IsLength = true, } } )
                     .Field( FieldInfo{ .Name = "Drift", .Type = FieldType::Bool, .Offset = offsetof( T, Drift ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Drift )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Drift", .Category = "Wind", .Tooltip = "Whether the scene's wind moves the clouds while the game runs. The drift follows GAME time — Play, pause and time dilation — so the editor's own viewport shows the authored sky, standing still. Off: the sky stays at Wind Offset in Play as well.", } } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
-        using T = ::Desert::ECS::WaterBodyData;
-        TypeBuilder( "WaterBodyData", sizeof( T ) )
-            .ScriptName( "" )
-                    .Field( FieldInfo{ .Name = "WaterWaves", .Type = FieldType::AssetHandle, .Offset = offsetof( T, WaterWaves ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WaterWaves )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Water Waves", .Category = "Wave", .Tooltip = "The wave set of this body (UE WaterWaves) — drag a .dwaves from the Content Browser. An empty slot is a flat ocean; a set that cannot be read is refused at Play by name.", .IsAsset = true, .AssetType = "WaterWavesAsset", .Summary = true, } } )
-                    .Field( FieldInfo{ .Name = "OceanExtents", .Type = FieldType::Vec2, .Offset = offsetof( T, OceanExtents ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OceanExtents )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Ocean Extents", .Category = "Water", .Tooltip = "The footprint of the ocean around the entity, X by Z (UE OceanExtents). A point outside it is not in this body.", .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "TargetWaveMaskDepth", .Type = FieldType::Float, .Offset = offsetof( T, TargetWaveMaskDepth ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TargetWaveMaskDepth )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Target Wave Mask Depth", .Category = "Wave", .Tooltip = "Water depth at which the waves reach their full height; shallower water damps them (UE TargetWaveMaskDepth).", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "WaterMaterial", .Type = FieldType::AssetHandle, .Offset = offsetof( T, WaterMaterial ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WaterMaterial )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Water Material", .Category = "Rendering", .Tooltip = "The look of this body (UE UWaterBodyComponent::WaterMaterial): a .demat of a SingleLayerWater-domain shader - its scattering, absorption, phase and ripple maps. Empty draws no water; a material of another domain is refused by name.", .IsAsset = true, .AssetType = "MaterialAsset", .Summary = true, } } )
-            .WithDefault<T>()
-            .Register();
-    }
-    {
-        using T = ::Desert::ECS::WaterZoneData;
-        TypeBuilder( "WaterZoneData", sizeof( T ) )
-            .ScriptName( "" )
-                    .Field( FieldInfo{ .Name = "ZoneExtent", .Type = FieldType::Vec2, .Offset = offsetof( T, ZoneExtent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ZoneExtent )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Zone Extent", .Category = "Water Mesh", .Tooltip = "The footprint of the zone around the entity, X by Z (UE ZoneExtent). Water bodies are drawn inside it and nowhere else.", .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "TileSize", .Type = FieldType::Float, .Offset = offsetof( T, TileSize ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TileSize )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Tile Size", .Category = "Water Mesh", .Tooltip = "The side of one leaf tile of the water quadtree, the finest LOD (UE TileSize).", .HasRange = true, .RangeMin = 100.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
-                    .Field( FieldInfo{ .Name = "TessellationFactor", .Type = FieldType::Int, .Offset = offsetof( T, TessellationFactor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TessellationFactor )>(), .TypeName = "int32_t", .Meta = PropertyMetadata{ .DisplayName = "Tessellation Factor", .Category = "Water Mesh", .Tooltip = "A leaf tile is a grid of 2^factor quads per side (UE TessellationFactor). Coarser LODs reuse the grid over larger tiles.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 12.0f, } } )
-                    .Field( FieldInfo{ .Name = "LODScale", .Type = FieldType::Float, .Offset = offsetof( T, LODScale ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LODScale )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "LOD Scale", .Category = "Water Mesh", .Tooltip = "How far each LOD reaches, in leaf tiles: LOD L ends 2^(L+1) x LOD Scale x Tile Size from the camera (UE LODScale, at least 0.5).", .HasRange = true, .RangeMin = 0.5f, .RangeMax = 100.0f, } } )
             .WithDefault<T>()
             .Register();
     }

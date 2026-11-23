@@ -99,19 +99,9 @@ if "%SM_COUNT%"=="0" call :fail "no submodules found in the git index (is this a
 REM ---------------------------------------------------------------------------
 REM 4. Third-party sources that are NOT submodules (both are gitignored).
 REM ---------------------------------------------------------------------------
-call :clone_dep "ThirdParty\optick\src\optick.h" "ThirdParty\optick" ^
-    "https://github.com/bombomby/optick.git" ""
-
-REM meshoptimizer pinned to v1.3, the version cmake/ThirdParty/MeshOptimizer.cmake checks.
-REM A tree holding another version is re-fetched.
-if exist "ThirdParty\meshoptimizer\src\meshoptimizer.h" (
-    findstr /C:"define MESHOPTIMIZER_VERSION 1030" "ThirdParty\meshoptimizer\src\meshoptimizer.h" >nul || (
-        echo --- ThirdParty\meshoptimizer: not v1.3, re-fetching
-        rmdir /s /q "ThirdParty\meshoptimizer"
-    )
-)
-call :clone_dep "ThirdParty\meshoptimizer\src\meshoptimizer.h" "ThirdParty\meshoptimizer" ^
-    "https://github.com/zeux/meshoptimizer.git" "v1.3"
+REM optick and meshoptimizer: ThirdParty\GitDependencies.json pins each at a commit; one fetcher serves
+REM every platform (scripts/MacOS/Setup.sh and the Linux server image Server\Dockerfile run the same script).
+call :fetch_git_dependencies
 
 REM reflect-cpp compiled sources. The header of this script used to claim Windows needs none of this
 REM because it "links the prebuilt ThirdParty/reflect-cpp/lib". There is no such directory and there
@@ -468,31 +458,15 @@ for /f %%c in ('dir /b /a "%~1" 2^>NUL ^| find /v ".git" ^| find /c /v ""') do s
 if "!SM_ENTRIES!"=="0" exit /b 1
 exit /b 0
 
-REM --- Non-submodule clones --------------------------------------------------
-REM clone_dep <sentinel-relative-path> <dest-relative-dir> <url> <branch-or-empty>
-:clone_dep
-set "SENTINEL=%~1"
-set "DEST=%~2"
-set "URL=%~3"
-set "BRANCH=%~4"
-if exist "%ROOT%\!SENTINEL!" (
-    echo --- !DEST!: present
-    exit /b 0
-)
-echo --- Cloning !DEST!
-if exist "%ROOT%\!DEST!" rmdir /S /Q "%ROOT%\!DEST!"
-if "!BRANCH!"=="" (
-    git clone --depth 1 "!URL!" "%ROOT%\!DEST!"
-) else (
-    git clone --branch "!BRANCH!" --depth 1 "!URL!" "%ROOT%\!DEST!"
-)
+REM --- Non-submodule source trees -------------------------------------------
+:fetch_git_dependencies
+where python >NUL 2>&1
 if errorlevel 1 (
-    call :fail "git clone !URL! -> !DEST!"
+    call :fail "Python 3 not found in PATH: it fetches ThirdParty\optick and ThirdParty\meshoptimizer (winget install --id Python.Python.3.11 -e)"
     exit /b 0
 )
-REM A clone that exits 0 without producing the file we need is a silent wrong answer, so check the
-REM file rather than the exit code alone.
-if not exist "%ROOT%\!SENTINEL!" call :fail "!DEST! was cloned but !SENTINEL! is missing"
+python "%ROOT%\scripts\FetchGitDependencies.py"
+if errorlevel 1 call :fail "scripts\FetchGitDependencies.py (the [ERROR] line above names the dependency)"
 exit /b 0
 
 REM --- vendor runtime binaries -----------------------------------------------

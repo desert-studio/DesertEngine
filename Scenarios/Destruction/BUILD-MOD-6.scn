@@ -1,0 +1,30 @@
+# BUILD-MOD-6 pass 3: Engine includes neither Destruction nor Water; both modules register at startup
+# (Engine/Core/Modules.cpp -> Destruction::StartupModule, Water::StartupModule). Water lives in
+# Desert/Water/Source/Water/{Public,Private}; the Renderer schedules its pass through ISingleLayerWaterPass.
+# WP_Protocol has NO destructible (no .deent names one), so the break is proven on DST_RuntimeWitness's crate:
+# a Strain Field is added to it and fired by its palette command during Play from Here (the level has no pawn and no
+# Auto Activate camera, so Play itself refuses).
+# Pass 6: WP_Protocol opens with what this tree's user had loaded (Saved/Config/WorldPartitionEditor.json, gitignored):
+# BF2's said Whole (Load All), dev's tree has none, hence 199172 vs 7760 items read - user state, not code. The file was
+# moved aside so both trees open the always-loaded part. The editor camera is aimed at crate 4101 before Play from Here.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, небо; без падения и диалога ошибки
+Когда run Scene "Open Scene Water_Ocean.desce"
+Когда wait-idle 60
+Когда frames 30
+Тогда-вид 2_water вода Water_Ocean: ближняя и дальняя поверхность как в кадре dev той же сцены; в editor.log нет "pipeline has 0 sets"
+Когда run Scene "Open Scene DST_RuntimeWitness.desce"
+Когда wait-idle 60
+Когда add-component 4101 "Strain Field"
+Когда set 4101 StrainFieldData.Magnitude 100000000
+Когда set 4101 StrainFieldData.Radius 400
+Когда --subject viewport set Camera.Position -90,450,550
+Когда --subject viewport set Camera.Direction 0,-0.491,-0.871
+Когда frames 5
+Когда run Action "Play from Here"
+Когда advance 1
+Когда run Action "Fire Field 'CrateOnLoadA'"
+Когда advance 2
+Когда frames 10
+Тогда-вид 1_dst_break ящик CrateOnLoadA разбит на куски (не целая сетка); в editor.log строка "[Play] Fire Field: acted on N bodies/pieces" с N > 0

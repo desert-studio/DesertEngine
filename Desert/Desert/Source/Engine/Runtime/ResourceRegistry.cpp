@@ -20,14 +20,12 @@
 #include <Engine/Runtime/Services/Subsurface/SubsurfaceProfileService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
-#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
 #include <Engine/Runtime/Services/Video/VideoService.hpp>
 #include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 #include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
-#include <Engine/Runtime/Services/Destruction/FractureService.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
-#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 
 namespace Desert::Runtime
 {
@@ -166,24 +164,6 @@ namespace Desert::Runtime
         return &physicsAssetService;
     }
 
-    FractureService* ResourceRegistry::GetFractureService()
-    {
-        static FractureService fractureService;
-        return &fractureService;
-    }
-
-    VFXSystemService* ResourceRegistry::GetVFXSystemService()
-    {
-        static VFXSystemService vfxSystemService;
-        return &vfxSystemService;
-    }
-
-    WaterWavesService* ResourceRegistry::GetWaterWavesService()
-    {
-        static WaterWavesService waterWavesService;
-        return &waterWavesService;
-    }
-
     WorldParametersService* ResourceRegistry::GetWorldParametersService()
     {
         static WorldParametersService worldParametersService;
@@ -228,10 +208,9 @@ namespace Desert::Runtime
         GetLandscapeLayerInfoService()->BindAssetManager( assets );
         GetLandscapeGrassTypeService()->BindAssetManager( assets );
         GetFoliageTypeService()->BindAssetManager( assets );
-        GetFractureService()->BindAssetManager( assets );
-        GetWaterWavesService()->BindAssetManager( assets );
+        for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
+            service.Bind( assets );
         GetPhysicsAssetService()->BindAssetManager( assets );
-        GetVFXSystemService()->BindAssetManager( assets );
         GetWorldParametersService()->BindAssetManager( assets );
         GetWeatherPresetService()->BindAssetManager( assets );
         GetSubsurfaceProfileService()->BindAssetManager( assets );
@@ -263,10 +242,9 @@ namespace Desert::Runtime
         GetLandscapeLayerInfoService()->Clear();
         GetLandscapeGrassTypeService()->Clear();
         GetFoliageTypeService()->Clear();
-        GetFractureService()->Clear();
-        GetWaterWavesService()->Clear();
+        for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
+            service.Clear();
         GetPhysicsAssetService()->Clear();
-        GetVFXSystemService()->Clear();
         GetImageService()->Clear();
     }
 

@@ -29,7 +29,7 @@
 #include <Engine/ECS/LevelSequenceComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <Engine/ECS/SequencerEffectDrive.hpp>
 
 namespace Desert::ECS
 {

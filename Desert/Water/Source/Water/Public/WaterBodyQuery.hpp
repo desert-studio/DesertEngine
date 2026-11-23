@@ -1,0 +1,174 @@
+#pragma once
+
+// The water query (WATER-W2): what a point in the world meets in the water — the still plane, the surface the
+// waves raise over it, the depth of the water under it and how far the point is immersed.
+//
+// Ported from UE 5.8 Engine/Plugins/Experimental/Water/Source/Runtime: Private/WaterBodyComponent.cpp:645-866
+// (UWaterBodyComponent::QueryWaterInfoClosestToWorldLocation), :2012-2051 (GetWaveInfoAtPosition),
+// Public/WaterBodyTypes.h:99 (IsInWater), Public/BuoyancyComponentSimulation.h:191-231 (of several bodies the
+// one the point is DEEPEST in answers), Private/WaterSubsystem.cpp:242-251, :510-525 (the wave clock).
+// Adapted: Y-up — UE's Z is our Y and UE's (X, Y) plane is our (X, Z); the body is a plain state struct read by
+// the physics step (UE's FSolverSafeWaterBodyData), not a UObject; UE's LWC tile is the body's WaveOrigin, its
+// own location. Ocean only: lakes and rivers take their shape and depth from a spline (W-9, W-10).
+
+#include <Water/Public/FFTSurfaceMirror.hpp>
+#include <Water/Public/WaterRiver.hpp>
+#include <Engine/World/Landscape/LandscapeRaycast.hpp>
+
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <span>
+#include <vector>
+
+namespace Desert::Water
+{
+    struct GerstnerWave; // Water/Public/GerstnerWaterWaves.hpp: held by shared pointer, evaluated in the .cpp
+
+    /// The depth an ocean reports where no landscape answers under the point, or the landscape stands above the
+    /// plane (UE r.Water.OceanFallbackDepth, its default).
+    inline constexpr float kOceanFallbackDepthCm = 3000.0f;
+
+    /// One ocean as the physics step sees it (UE FSolverSafeWaterBodyData): plain data, safe to read off the
+    /// game thread.
+    struct WaterBodyState
+    {
+        /// The body's world location: Y is the still water level, (X, Z) is the WaveOrigin the waves are
+        /// evaluated relative to and the centre of the footprint.
+        glm::vec3 Location{ 0.0f };
+        /// Full size of the footprint along world X and Z, cm (UE OceanExtents).
+        glm::vec2 Extents{ 51200.0f, 51200.0f };
+        /// Empty = a flat body (UE HasWaves() false). Shared: every body naming one `.dwaves` reads one set.
+        std::shared_ptr<const std::vector<GerstnerWave>> Waves;
+        /// Depth at which the waves have died to e^-2 (UE TargetWaveMaskDepth, its default).
+        float TargetWaveMaskDepth = 2048.0f;
+        /// Ocean or River (UE AWaterBodyOcean / AWaterBodyRiver). A river's Location is its footprint's centre at
+        /// its mean level, Extents its footprint, and it covers only where its baked bank mask is set.
+        WaterBodyType Type = WaterBodyType::Ocean;
+        /// A river's baked flow (null for an ocean): the bank mask the queries clip to and the current they read.
+        std::shared_ptr<const RiverFlowField> Flow;
+        /// The CPU mirror of the FFT ocean this body's wave set draws (WATER-RIVERS-FFT pass 7): when it holds a
+        /// read, the queries answer with the surface the GPU drew (FFTSurfaceAt), not with the set's Gerstner
+        /// generator. Null = Gerstner.
+        std::shared_ptr<const FFTSurfaceSnapshot> FFTSurface;
+    };
+
+    struct WaterQueryResult
+    {
+        glm::vec3 PlaneLocation{ 0.0f };
+        glm::vec3 SurfaceLocation{ 0.0f };
+        glm::vec3 PlaneNormal{ 0.0f, 1.0f, 0.0f };
+        glm::vec3 SurfaceNormal{ 0.0f, 1.0f, 0.0f };
+        /// Plane to the ground under it, >= 0.
+        float PlaneDepth = 0.0f;
+        /// PlaneDepth plus the attenuated wave height.
+        float SurfaceDepth = 0.0f;
+        /// The attenuated wave height above the plane.
+        float WaveHeight = 0.0f;
+        /// The share of the waves that survives here, [0, 1].
+        float WaveAttenuation = 0.0f;
+        /// The highest the attenuated waves can rise here (UE FWaveInfo::MaxHeight).
+        float MaxWaveHeight = 0.0f;
+        /// How far below the surface the point is; negative above it.
+        float ImmersionDepth = 0.0f;
+        /// The water's current at the point, cm/s (UE FWaterQueryResult::Velocity): a river's baked flow on the
+        /// (X, Z) plane, zero for an ocean.
+        glm::vec3 Velocity{ 0.0f };
+
+        [[nodiscard]] bool IsInWater() const
+        {
+            return ImmersionDepth > 0.0f;
+        }
+    };
+
+    /// Whether the point lies over the body's footprint (world X, Z).
+    [[nodiscard]] bool WaterBodyCovers( const WaterBodyState& body, const glm::vec3& point );
+
+    /// The landscape height under (x, z): the first tile that answers (neighbours share their seam samples).
+    [[nodiscard]] std::optional<float> GroundHeightAt( std::span<const World::Landscape::LandscapeRayTile> ground,
+                                                       float x, float z );
+
+    /// UE QueryWaterInfoClosestToWorldLocation with ComputeLocation | ComputeNormal | ComputeDepth |
+    /// ComputeImmersionDepth | IncludeWaves, for one ocean at wave time `time`.
+    [[nodiscard]] WaterQueryResult QueryWaterBody( const WaterBodyState& body, const glm::vec3& point, float time,
+                                                   std::optional<float> groundHeight );
+
+    struct WaterQueryHit
+    {
+        std::size_t      Body = 0;
+        WaterQueryResult Result;
+    };
+
+    /// Where WaterInfoGround has no landscape: a bottom far below any wave (no surf, no shore), not a NaN the
+    /// GPU's bilinear filter would spread.
+    inline constexpr float kWaterInfoNoGroundCm = -1.0e6f;
+
+    /**
+     * @brief THE WATER INFO GROUND (UE UWaterZone's WaterInfo texture, its ground-depth channel): the bottom of a
+     * water zone seen from straight above - the landscape's height at every texel centre of a square grid over
+     * the zone, row-major by Z. The water surface reads its depth here (the surf, the shore), never along the view
+     * ray, so a mesh standing in the water (a pier, a box) is no shallows and the depth of a pixel does not change
+     * with where the camera looks from. The ground is the landscape, as UE's WaterInfo renders it by default.
+     */
+    struct WaterInfoGround
+    {
+        glm::vec2          Min{ 0.0f };     // world (X, Z) of the grid's lower corner, cm
+        float              ExtentCm = 0.0f; // the grid's side, cm
+        uint32_t           Size     = 0u;   // texels per side
+        std::vector<float> HeightCm;        // Size * Size world Y, cm; kWaterInfoNoGroundCm off the landscape
+    };
+
+    /// @p ground sampled over the square of side @p extentCm around @p centre, @p size texels per side
+    /// (World::Landscape::SampleLandscapeHeight at each texel centre: the surface the landscape draws).
+    [[nodiscard]] WaterInfoGround BakeWaterInfoGround( std::span<const World::Landscape::LandscapeRayTile> ground,
+                                                       glm::vec2 centre, float extentCm, uint32_t size );
+
+    /// The body the point is deepest in, of those of the highest WaterBodyPriority that cover it (the surface the
+    /// renderer draws there: inside a river's banks the river, never the ocean under it); nullopt when it is in
+    /// none of them.
+    [[nodiscard]] std::optional<WaterQueryHit>
+    QueryWater( std::span<const WaterBodyState> bodies, std::span<const World::Landscape::LandscapeRayTile> ground,
+                const glm::vec3& point, float time );
+
+    /**
+     * @brief The water of one world: its bodies, the ground under them and the wave clock (UE UWaterSubsystem).
+     *
+     * ONE WATER CLOCK (UE UWaterSubsystem::GetWaterTimeSeconds): the scene's game time, the clock the renderer
+     * draws the Gerstner waves and the FFT cascades at and stamps the FFT readback with. Physics SetTime's the
+     * game time at its frame's start and Advance's it by each fixed step, so a query in a step reads the surface
+     * drawn around it (and a networked game time is the waves' sync, with nothing water-specific to send).
+     */
+    class WaterSubsystem
+    {
+    public:
+        void Advance( double stepSeconds );
+        void SetTime( double seconds );
+
+        [[nodiscard]] float Time() const
+        {
+            return static_cast<float>( m_Time );
+        }
+
+        /// Replaces the bodies and the ground; the ground's heights are BORROWED and must outlive the queries.
+        /// The body and ground rows are copied into the subsystem's own storage, reused frame to frame (the
+        /// bodies' wave sets are shared, not copied), so a steady frame allocates nothing.
+        void SetWorld( std::span<const WaterBodyState>                     bodies,
+                       std::span<const World::Landscape::LandscapeRayTile> ground );
+
+        [[nodiscard]] std::span<const WaterBodyState> Bodies() const
+        {
+            return m_Bodies;
+        }
+
+        [[nodiscard]] std::optional<WaterQueryHit> Query( const glm::vec3& point ) const;
+
+    private:
+        double                                          m_Time = 0.0;
+        std::vector<WaterBodyState>                     m_Bodies;
+        std::vector<World::Landscape::LandscapeRayTile> m_Ground;
+    };
+} // namespace Desert::Water

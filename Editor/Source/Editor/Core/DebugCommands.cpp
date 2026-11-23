@@ -10,7 +10,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 
 #include <memory>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <VFX/Public/VFXWorld.hpp>
 
 namespace Desert::Editor
 {
@@ -153,18 +153,18 @@ namespace Desert::Editor
         // The same VFXWorld calls as the panel's controls (ParticleDebuggerPanel.cpp, Freeze / Step): one pause.
         const auto freeze = [scene]( const bool frozen )
         {
-            VFX::VFXDebugSettings settings = scene->GetVFXWorld().GetDebugSettings();
+            VFX::VFXDebugSettings settings = ::Desert::VFX::VFXWorld::Of( *scene ).GetDebugSettings();
             settings.Frozen                = frozen;
-            scene->GetVFXWorld().SetDebugSettings( settings );
+            ::Desert::VFX::VFXWorld::Of( *scene ).SetDebugSettings( settings );
             return PaletteCommandDone();
         };
         // The panel's two HUD toggles (UE fx.Niagara.Debug.Enabled overview / the debug draw of system bounds):
         // the viewport overview names how many emitters this view culled by their fixed Bounds.
         const auto toggle = [scene]( bool VFX::VFXDebugSettings::*field )
         {
-            VFX::VFXDebugSettings settings = scene->GetVFXWorld().GetDebugSettings();
+            VFX::VFXDebugSettings settings = ::Desert::VFX::VFXWorld::Of( *scene ).GetDebugSettings();
             settings.*field                = !( settings.*field );
-            scene->GetVFXWorld().SetDebugSettings( settings );
+            ::Desert::VFX::VFXWorld::Of( *scene ).SetDebugSettings( settings );
             return PaletteCommandDone();
         };
         commands.push_back( { "Debug", "Particles: Viewport overview",
@@ -177,12 +177,12 @@ namespace Desert::Editor
         // a frozen shot after Restart + Step x N is the same moment however long the editor ran before it.
         commands.push_back( { "Debug", "Particles: Restart", [scene]
                               {
-                                  scene->GetVFXWorld().Reset();
+                                  ::Desert::VFX::VFXWorld::Of( *scene ).Reset();
                                   return PaletteCommandDone();
                               } } );
         commands.push_back( { "Debug", "Particles: Step", [scene]() -> Common::BoolResultStr
                               {
-                                  VFX::VFXWorld& world = scene->GetVFXWorld();
+                                  VFX::VFXWorld& world = ::Desert::VFX::VFXWorld::Of( *scene );
                                   if ( !world.GetDebugSettings().Frozen )
                                       return Common::MakeError<bool>(
                                            "the effects are not frozen; Step advances a frozen world by one "

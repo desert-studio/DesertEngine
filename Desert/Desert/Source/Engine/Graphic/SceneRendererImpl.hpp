@@ -83,8 +83,8 @@
 #include "Systems/Scene/Mesh/VirtualShadowInvalidation.hpp"
 #include "Systems/Scene/Skybox/SkyboxRenderer.hpp"
 #include "Systems/Scene/Terrain/TerrainRenderer.hpp"
-#include "Systems/Scene/Water/WaterRenderer.hpp"
-#include "Systems/Scene/Water/WaterCaustics.hpp"
+#include "Systems/Scene/SceneFXSystem.hpp"
+#include "Systems/Scene/SingleLayerWaterPass.hpp"
 #include "Systems/Scene/PostProcessing/TonemapRenderer.hpp"
 #include "Systems/Scene/Deferred/PopulateSceneDepthRenderer.hpp"
 #include "Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.hpp"
@@ -152,8 +152,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::JumpFloodOutlineRenderer>           JumpFlood;
         std::shared_ptr<System::TerrainRenderer>                    Terrain;
         std::shared_ptr<System::GrassRenderer>                      Grass;
-        std::shared_ptr<System::WaterRenderer>                      Water;
-        std::shared_ptr<System::WaterCaustics>                      WaterCaustics;
+        std::shared_ptr<System::ISingleLayerWaterPass>              Water;
         std::shared_ptr<System::TonemapRenderer>                    Tonemap;
         std::shared_ptr<System::CombineLUTsRenderer>                CombineLUTs;
         std::shared_ptr<System::BackdropBlurRenderer>               BackdropBlur;
@@ -172,7 +171,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::HeterogeneousVolumeRenderer>        HeterogeneousVolume;
         std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
         std::shared_ptr<System::VolumetricCloudRenderer>            VolumetricCloud;
-        std::shared_ptr<System::ParticleRenderer>                   Particle;
+        std::shared_ptr<System::ISceneFXSystem>                     Particle;
         std::shared_ptr<System::DeferredLightingRenderer>           DeferredLighting;
         std::shared_ptr<System::SubsurfaceRenderer>                 Subsurface;
         std::shared_ptr<System::AutoExposureRenderer>               AutoExposure;
@@ -241,7 +240,10 @@ namespace Desert::Graphic
                                   const std::shared_ptr<const MaterialOverrides>& overrides,
                                   const System::LandscapeWeightDraw&              weights ) override;
         void SubmitLandscapeGrass( const System::GrassFieldDraw& draw ) override;
-        void SubmitWaterZone( const System::WaterZoneDraw& zone ) override;
+        System::ISingleLayerWaterPass* GetSingleLayerWaterPass() override
+        {
+            return m_Systems.Water.get();
+        }
         void SubmitGenericMesh( uint32_t entity, Mesh* mesh, const glm::mat4& transform,
                                 const std::string& shaderName, const MaterialOverrides& overrides, bool outlined,
                                 Image2D* directTexture, const std::string& directTextureSampler, bool castShadows,

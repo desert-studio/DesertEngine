@@ -13,7 +13,7 @@
 
 #include <Editor/Core/CommandHistory.hpp>
 
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 
 #include <string>
 #include <utility>

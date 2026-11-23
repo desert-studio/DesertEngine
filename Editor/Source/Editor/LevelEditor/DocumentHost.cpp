@@ -3,7 +3,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/VFXSystemAsset.hpp>
+#include <VFX/Public/VFXSystemAsset.hpp>
 #include "Common/Core/Constants.hpp"
 #include "Common/Core/Logger.hpp"
 #include "DesertShared/ResultStr.hpp"

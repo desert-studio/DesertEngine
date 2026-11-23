@@ -2,7 +2,7 @@
 // world pose by DestructibleLifetime::Sync, released by on_destroy — and the component's per-level damage
 // thresholds replace the bake's.
 
-#include <Engine/ECS/System/DestructibleLifetime.hpp>
+#include <Destruction/Public/DestructibleLifetime.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructibleComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 
 using namespace Desert;

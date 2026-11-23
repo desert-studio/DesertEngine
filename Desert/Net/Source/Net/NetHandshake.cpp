@@ -1,6 +1,9 @@
 #include "Net/NetHandshake.hpp"
 
 #include "Net/NetTransport.hpp"
+#include <cstdint>
+#include <string_view>
+#include <vector>
 
 namespace Desert::Net
 {
@@ -26,7 +29,7 @@ namespace Desert::Net
 
         // type, magic, protocol, cook hash, u16 token size; then the token.
         constexpr std::size_t kHelloHeaderSize = 1 + 4 + 4 + 8 + 2;
-        constexpr std::size_t kWelcomeSize = 1 + 4 + 8;
+        constexpr std::size_t kWelcomeSize     = 1 + 4 + 8 + 8;
         constexpr std::size_t kRefuseSize  = 1 + 1;
 
         bool IsReason( std::uint8_t value )
@@ -72,13 +75,14 @@ namespace Desert::Net
         return out;
     }
 
-    std::vector<std::byte> EncodeWelcome( std::uint64_t cookHash )
+    std::vector<std::byte> EncodeWelcome( std::uint64_t cookHash, std::uint64_t pawnPrefab )
     {
         std::vector<std::byte> out;
         out.reserve( kWelcomeSize );
         Put( out, static_cast<std::uint8_t>( EHandshakeMessage::Welcome ), 1 );
         Put( out, kProtocolVersion, 4 );
         Put( out, cookHash, 8 );
+        Put( out, pawnPrefab, 8 );
         return out;
     }
 
@@ -145,6 +149,9 @@ namespace Desert::Net
         {
             answer.Kind           = HandshakeAnswer::EKind::Welcome;
             answer.ServerCookHash = Get( message, 5, 8 );
+            answer.PawnPrefab     = Get( message, 13, 8 );
+            if ( answer.PawnPrefab == 0 ) // a server that names no pawn has no game to join
+                answer.Kind = HandshakeAnswer::EKind::Malformed;
         }
         else if ( kind == static_cast<std::uint8_t>( EHandshakeMessage::Refuse ) &&
                   message.size() == kRefuseSize && IsReason( static_cast<std::uint8_t>( Get( message, 1, 1 ) ) ) )

@@ -73,12 +73,12 @@ namespace Desert::Editor
              { "WeatherPresetAsset", "##weatherpreset", "None", "weather preset" },
              { "StateTreeAsset", "##statetree", "None (runs no tree)", "state tree" },
              // UE UStaticMeshComponent::StaticMesh: the reflected slot lists the registry's .stmesh rows; the
-             // mesh's picture is the Preview row the component's Details draws right above it.
+             // mesh's picture is drawn in the same row, left of the picker (DrawMeshSlotThumbnail).
              { "StaticMeshAsset", "##staticmesh", "None (draws nothing)", "static mesh" },
-             // A reflected material slot (a WaterBody's Water Material, a decal's material): the registry's
-             // .demat rows, narrowed to one template role when the field states PROPERTY(Role(...))
-             // (PropertyMetadata::AssetRole, ContentRegistry::TemplateRoleOf). Mesh material slots keep their
-             // own widget (MaterialsPanelComponent).
+             // A reflected material slot (a WaterBody's Water Material, a decal's material, StaticMeshComponent::
+             // ImpostorMaterial): the registry's .demat rows, narrowed to one template role when the field states
+             // PROPERTY(Role(...)) (PropertyMetadata::AssetRole, ContentRegistry::TemplateRoleOf). Mesh material
+             // slots keep their own widget (MaterialsPanelComponent).
              { "MaterialAsset", "##material", "None", "material" },
         };
         for ( const RegistryPickerSpec& spec : SPECS )

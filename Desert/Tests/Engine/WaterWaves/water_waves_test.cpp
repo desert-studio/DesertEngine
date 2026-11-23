@@ -11,9 +11,9 @@
 #include "../../TestSupport/scratch_dir.hpp"
 
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
-#include <Engine/Assets/Serialization/WaterWaves.hpp>
-#include <Engine/Water/GerstnerWaterWaves.hpp>
-#include <Engine/Water/WaterBodyQuery.hpp>
+#include <Water/Public/WaterWaves.hpp>
+#include <Water/Public/GerstnerWaterWaves.hpp>
+#include <Water/Public/WaterBodyQuery.hpp>
 
 #include <Common/Content/ContentKinds.hpp>
 

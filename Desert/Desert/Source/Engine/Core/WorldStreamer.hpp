@@ -181,6 +181,24 @@ namespace Desert::Core
         {
             return m_Executor->State(); // NOLINT(bugprone-unchecked-optional-access): see Executor() below
         }
+        // The id the entity of executor record @p record carries (Rules::ResidencyUnitMembers names records).
+        [[nodiscard]] const Common::UUID& RecordId( std::size_t record ) const
+        {
+            return m_RecordIds.at( record );
+        }
+        // THE NETWORK'S WORLD DELTA (NET-ARCH §3.3, UE DestroyedStartupOrDormantActors): stable records the server
+        // destroyed. Their entities (and their child records') are destroyed now if resident, and from then on
+        // Activate never makes them, whichever cell brings them back. For the session.
+        void DestroyRecordsForNet( std::span<const std::uint64_t> ids );
+        // THE NETWORK'S VISIBILITY GATE (UE ServerUpdateLevelVisibility MakingVisible +
+        // ClientAckUpdateLevelVisibility): while held, a cell unit is made hidden as always but revealed only once
+        // the server has acknowledged it - the acknowledgement carries the cell's world delta, applied first, so a
+        // record the server destroyed is never seen for a frame. Always-loaded units are not gated. An unload
+        // forgets the acknowledgement: the cell's next load is acknowledged again. Released (everything reveals as
+        // usual) when the session closes. While held, the only streaming source is the client's own player (its
+        // possessed pawn, or its view point) - see Tick.
+        void SetNetRevealHold( bool hold );
+        void AcknowledgeUnitsForNet( std::span<const std::uint32_t> units );
         [[nodiscard]] const WorldPartitionSerialized& Partition() const
         {
             return m_Partition;
@@ -312,6 +330,11 @@ namespace Desert::Core
         double      m_WorstUnitMs      = 0.0; // a unit's slices and finish, summed over its frames
         // Per Activating unit: the entities its slices made, hidden until it is whole (THE SLICES).
         std::unordered_map<std::size_t, std::vector<std::uint32_t>> m_Made;
+        // DestroyRecordsForNet's ids, and the child records Activate skipped with them.
+        std::unordered_set<std::uint64_t> m_NetDestroyed;
+        bool                              m_NetRevealHold = false;
+        bool                              m_SaidNetOwnSources = false; // "streams from its own player only", once
+        std::unordered_set<std::size_t>   m_NetAcknowledged; // cell units the server acknowledged (gate above)
         std::size_t m_MostResident     = 0;
 
         TickReport m_LastTick;

@@ -100,6 +100,12 @@ namespace Desert::Reflection
         // without it is level data and is never touched by a slot load.
         bool SaveGame = false;
 
+        // PROPERTY(Replicated) — the field is part of its component's network state (UE UPROPERTY(Replicated),
+        // Docs/contracts/NET-ARCH.md §3.4): the server's store keeps a change version per such field and sends it
+        // to each connection until acked; a client writes it into its own entity through the reflection row and
+        // refuses, by name, a field that does not carry this flag. bool / int / float quantize as themselves.
+        bool Replicated = false;
+
         // PROPERTY(EditCondition("Foo")) — the row is greyed while the bool field `Foo` of the SAME block
         // is false ("!Foo" inverts it). Unlike Hidden the field stays VISIBLE: the setting exists, it just
         // has no effect yet, and hiding it would only make people wonder where it went.

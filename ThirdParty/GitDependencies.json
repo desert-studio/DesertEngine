@@ -1,0 +1,20 @@
+{
+  "_comment": "Third-party source trees that are not submodules: fetched at the pinned commit by scripts/FetchGitDependencies.py (Setup.sh, Setup.bat, Server/Dockerfile). Both directories are gitignored. Commit = the full SHA; Sentinel = a file the configure reads (cmake/ThirdParty/<Name>.cmake).",
+  "Dependencies": [
+    {
+      "Name": "optick",
+      "Directory": "ThirdParty/optick",
+      "Url": "https://github.com/bombomby/optick.git",
+      "Commit": "8abd28dee1a4034c973a3d32cd1777118e72df7e",
+      "Sentinel": "src/optick.h"
+    },
+    {
+      "Name": "meshoptimizer",
+      "Directory": "ThirdParty/meshoptimizer",
+      "Url": "https://github.com/zeux/meshoptimizer.git",
+      "Commit": "9e1f07b159d3cb777f1c67ed31fc11fd117986f4",
+      "Ref": "v1.3 (the version cmake/ThirdParty/MeshOptimizer.cmake checks)",
+      "Sentinel": "src/meshoptimizer.h"
+    }
+  ]
+}

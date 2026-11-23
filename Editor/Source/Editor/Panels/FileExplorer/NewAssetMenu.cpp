@@ -23,9 +23,9 @@
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
-#include <Engine/Assets/VFXSystemAsset.hpp>
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
-#include <Engine/Assets/VFXModuleAsset.hpp>
+#include <VFX/Public/VFXSystemAsset.hpp>
+#include <VFX/Public/VFXSystem.hpp>
+#include <VFX/Public/VFXModuleAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>

@@ -181,7 +181,7 @@ namespace Desert::Core
             return accepted;
         }
 
-        [[nodiscard]] uint8_t UnitToByte( float value )
+        [[nodiscard]] uint8_t ApproxUnitToByte( float value )
         {
             return static_cast<uint8_t>( std::clamp( std::lround( value * 255.0f ), 0L, 255L ) );
         }
@@ -470,8 +470,8 @@ namespace Desert::Core
                                 continue; // the clear colour: nothing drew here
                             std::memcpy( &out.BaseColor[texel * 4], &photo.BaseColorMetallic[pixel * 4], 3 );
                             out.BaseColor[texel * 4 + 3] = 255;
-                            out.ORM[texel * 4 + 0]       = UnitToByte( photo.Occlusion[pixel] );
-                            out.ORM[texel * 4 + 1]       = UnitToByte( nr.w );
+                            out.ORM[texel * 4 + 0]       = ApproxUnitToByte( photo.Occlusion[pixel] );
+                            out.ORM[texel * 4 + 1]       = ApproxUnitToByte( nr.w );
                             out.ORM[texel * 4 + 2]       = photo.BaseColorMetallic[pixel * 4 + 3];
                             out.ORM[texel * 4 + 3]       = 255;
                             // The photo's world normal in the tangent frame the runtime shades this texel with
@@ -488,9 +488,9 @@ namespace Desert::Core
                                 if ( tangent.z < kMinTangentZ )
                                     tangent = glm::normalize( glm::vec3( tangent.x, tangent.y, kMinTangentZ ) );
                             }
-                            out.Normal[texel * 4 + 0] = UnitToByte( tangent.x * 0.5f + 0.5f );
-                            out.Normal[texel * 4 + 1] = UnitToByte( tangent.y * 0.5f + 0.5f );
-                            out.Normal[texel * 4 + 2] = UnitToByte( tangent.z * 0.5f + 0.5f );
+                            out.Normal[texel * 4 + 0] = ApproxUnitToByte( tangent.x * 0.5f + 0.5f );
+                            out.Normal[texel * 4 + 1] = ApproxUnitToByte( tangent.y * 0.5f + 0.5f );
+                            out.Normal[texel * 4 + 2] = ApproxUnitToByte( tangent.z * 0.5f + 0.5f );
                             out.Normal[texel * 4 + 3] = 255;
                             covered[texel]            = 1;
                             ++out.CapturedTexels;

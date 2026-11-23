@@ -48,6 +48,7 @@
 #include <unordered_map>
 #include <vector>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Widgets/MeshSlotThumbnail.hpp>
 #include <Editor/Core/TextList.hpp>
 #include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
 #include <Engine/Runtime/Services/Icon/IconService.hpp>
@@ -634,7 +635,14 @@ namespace Desert::Editor
         // Row background (stripe + hover) comes from the shared property-row primitive, so this grid and
         // a hand-written widget cannot drift apart. Painted BEFORE the row: a fill drawn afterwards would
         // cover the widgets.
-        const bool rowHovered = Utils::ImGuiUtilities::PropertyRowBackground( 0.0f, differsFromDefault );
+        //
+        // A MESH SLOT IS AS TALL AS ITS THUMBNAIL (UE SObjectPropertyEntryBox): the band is painted for the
+        // picture the value column draws beside the picker below, not for one line of text.
+        const bool  meshSlot   = field.Type == FieldType::AssetHandle && field.Meta.AssetType == "StaticMeshAsset";
+        const float rowHeight  = meshSlot ? std::max( kMeshSlotThumbnailSize, ImGui::GetFrameHeight() ) +
+                                                ImGui::GetStyle().ItemSpacing.y
+                                          : 0.0f;
+        const bool  rowHovered = Utils::ImGuiUtilities::PropertyRowBackground( rowHeight, differsFromDefault );
 
         ImGui::Columns( 2 );
         ImGui::SetColumnWidth( 0, Utils::ImGuiUtilities::PropertyLabelWidth() );
@@ -1296,6 +1304,11 @@ namespace Desert::Editor
                                              field.Meta.AssetType.c_str() );
                         break;
                     }
+                    // A mesh slot (StaticMesh, ImpostorMesh) shows what it holds at its left and the picker beside
+                    // it, in this one row: the picker is the item that ends the row's line BELOW the thumbnail.
+                    if ( meshSlot )
+                        DrawMeshSlotThumbnail( const_cast<Assets::AssetManager*>( assetMgr ), uiHelper,
+                                               Assets::AssetHandle( *static_cast<const uint64_t*>( p ) ), {} );
                     changed =
                          DrawRegistryRowPicker( static_cast<uint64_t*>( p ), *kind, picker->Id, picker->NoneLabel,
                                                 picker->Noun, field.Meta.AssetRole, assetMgr );

@@ -2,8 +2,8 @@
 // radius breaks the piece it reaches and pushes it, outside it does nothing; a strain field breaks without a
 // contact; a kill removes the body it reads above zero at; an anchored piece stays while the rest flies.
 
-#include <Engine/Destruction/DestructionField.hpp>
-#include <Engine/Destruction/DestructionWorld.hpp>
+#include <Destruction/Public/DestructionField.hpp>
+#include <Destruction/Public/DestructionWorld.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"

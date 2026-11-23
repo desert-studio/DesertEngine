@@ -16,6 +16,13 @@
 #include "Net/NetTransport.hpp"
 
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
+
+#include <Net/ReplicationClient.hpp>
+
+#include <cmath>
 
 #include <algorithm>
 #include <chrono>
@@ -27,10 +34,12 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <set>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
+#include <memory>
 
 using namespace Desert::Net;
 
@@ -156,6 +165,102 @@ namespace
         return Desert::Core::CookHashOf( bytes );
     }
 
+    // ---------------------------------------------------------------- the bot's cells
+
+    // THE BOT'S STREAMING (NET-3): the cells a client would have resident around its own pawn - the cooked world's
+    // plan (WorldCells::PlanFromIndex, the plan the cook made and the client's streamer runs) queried with one
+    // streaming source at the pawn's server position (QueryStreamingCells, the query the client's residency
+    // steps). A headless player has no reads to wait on, so a wanted cell is resident at once; what changes is
+    // reported to the server (CellResidencyMessage) as the editor client's ClientNetDriver::ReportResidency does,
+    // with the unloaded cells' record ids leaving the relevant set.
+    class BotCells
+    {
+    public:
+        static std::optional<BotCells> Open( const std::string& directory )
+        {
+            namespace Core = Desert::Core;
+            const std::filesystem::path path =
+                 std::filesystem::path( directory ) / std::string( Core::WorldCells::kIndexFileName );
+            std::ifstream file( path, std::ios::binary );
+            if ( !file )
+            {
+                Log( "cooked world '{}' has no {}", directory, Core::WorldCells::kIndexFileName );
+                return std::nullopt;
+            }
+            const std::vector<unsigned char> bytes( ( std::istreambuf_iterator<char>( file ) ),
+                                                    std::istreambuf_iterator<char>() );
+            auto index = Core::WorldCells::ReadWorldIndex( path.generic_string(), bytes );
+            if ( !index )
+            {
+                Log( "cooked world '{}': {}", directory, index.GetError() );
+                return std::nullopt;
+            }
+            auto planned = Core::WorldCells::PlanFromIndex( index.GetValue() );
+            if ( !planned )
+            {
+                Log( "cooked world '{}': {}", directory, planned.GetError() );
+                return std::nullopt;
+            }
+            BotCells cells;
+            cells.m_Partition = index.GetValue().WorldPartition;
+            cells.m_World     = planned.ExtractValue();
+            return cells;
+        }
+
+        // The report for the pawn at @p at (cm), or nullopt when the resident cells did not change. @p said
+        // receives the line to log; an error of the query is said and changes nothing.
+        std::optional<std::pair<CellResidencyMessage, std::vector<StableNetId>>> Update( const NetVec3& at,
+                                                                                         std::string&   said )
+        {
+            namespace Rules = Desert::Core::Rules;
+            Rules::StreamingSource source;
+            source.Position = { at.X, at.Y, at.Z };
+            auto wish       = Rules::QueryStreamingCells( m_World.Plan, m_Partition, std::span( &source, 1 ) );
+            if ( !wish )
+            {
+                said = "streaming query: " + wish.GetError();
+                return std::nullopt;
+            }
+            const Rules::WorldPartitionPlan& plan = m_World.Plan;
+            std::set<std::uint32_t>          now;
+            for ( const Rules::WantedCell& cell : wish.GetValue().Cells )
+                now.insert( static_cast<std::uint32_t>( plan.AlwaysLoaded.size() + cell.Cell ) );
+            if ( now == m_Resident )
+                return std::nullopt;
+            CellResidencyMessage     change;
+            std::vector<StableNetId> gone;
+            std::string              loaded, unloaded;
+            for ( const std::uint32_t unit : now )
+                if ( !m_Resident.contains( unit ) )
+                {
+                    change.Loaded.push_back( unit );
+                    loaded += std::format( "{}{}", loaded.empty() ? "" : ", ",
+                                           Rules::DescribeResidencyUnit( plan, unit ) );
+                }
+            for ( const std::uint32_t unit : m_Resident )
+                if ( !now.contains( unit ) )
+                {
+                    change.Unloaded.push_back( unit );
+                    unloaded += std::format( "{}{}", unloaded.empty() ? "" : ", ",
+                                             Rules::DescribeResidencyUnit( plan, unit ) );
+                    for ( const std::size_t record : Rules::ResidencyUnitMembers( plan, unit ) )
+                        gone.push_back( m_World.RecordIds.at( record ) );
+                }
+            said = std::format(
+                 "residency report at ({:.0f}, {:.0f}, {:.0f}) cm: {} cell(s) resident; {} loaded{}{}; "
+                 "{} unloaded{}{}",
+                 at.X, at.Y, at.Z, now.size(), change.Loaded.size(), loaded.empty() ? "" : ": ", loaded,
+                 change.Unloaded.size(), unloaded.empty() ? "" : ": ", unloaded );
+            m_Resident = std::move( now );
+            return std::make_pair( std::move( change ), std::move( gone ) );
+        }
+
+    private:
+        Desert::Core::WorldPartitionSerialized m_Partition;
+        Desert::Core::WorldCells::IndexedWorld m_World;
+        std::set<std::uint32_t>                m_Resident;
+    };
+
     // ---------------------------------------------------------------- options
 
     struct Options
@@ -172,6 +277,7 @@ namespace
         std::uint64_t Account   = 0;
         std::uint64_t ServerId  = 0;
         bool          HasServer = false;
+        std::uint64_t PawnPrefab = 0; // --server: the pawn its Welcome names (an AssetHandle; no game runs here)
         std::int64_t  ExpiresIn = 0;
         bool          HasExpiry = false;
         int           Clients   = 1;
@@ -210,6 +316,8 @@ namespace
                 options.TokenHex = argv[++i];
             else if ( arg == "--account" && hasValue )
                 options.Account = std::strtoull( argv[++i], nullptr, 0 );
+            else if ( arg == "--pawn-prefab" && hasValue )
+                options.PawnPrefab = std::strtoull( argv[++i], nullptr, 0 );
             else if ( arg == "--server-id" && hasValue )
             {
                 options.ServerId  = std::strtoull( argv[++i], nullptr, 0 );
@@ -246,13 +354,14 @@ namespace
              ( !options.IssueToken ||
                ( !options.SecretFile.empty() && options.HasServer && options.HasExpiry ) ) &&
              ( !options.Server || ( !options.Cooked.empty() && !options.SecretFile.empty() && options.HasServer &&
-                                    options.Rpcs > 0 && options.BulkBytes > 0 ) ) &&
+                                    options.PawnPrefab != 0 && options.Rpcs > 0 && options.BulkBytes > 0 ) ) &&
              ( !options.Client ||
                ( !options.Cooked.empty() && !options.Connect.empty() && !options.TokenHex.empty() ) );
         if ( !ok )
         {
             Log( "usage: --issue-token --secret-file F --account A --server-id S --expires-in SECONDS | "
-                 "--server --port P --cooked DIR --server-id S --secret-file F --clients K --refusals R --bulk-mb "
+                 "--server --port P --cooked DIR --server-id S --secret-file F --pawn-prefab H --clients K "
+                 "--refusals R --bulk-mb "
                  "B "
                  "--rpcs N [--lag-ms L --loss PCT --rate-kbps KB] | "
                  "--client --connect IP:P --cooked DIR --token HEX --name N [--lag-ms L --loss PCT --rate-kbps "
@@ -456,7 +565,8 @@ namespace
                  "s)",
                  connection, peer.Address, verdict.Hello.ProtocolVersion, verdict.Hello.CookHash,
                  verdict.Token.Account, verdict.Token.ExpiresUnixSeconds - policy.NowUnixSeconds );
-            m_Transport.Send( connection, EncodeWelcome( m_Options.CookHash ), ENetLane::Control );
+            m_Transport.Send( connection, EncodeWelcome( m_Options.CookHash, m_Options.PawnPrefab ),
+                              ENetLane::Control );
         }
 
         INetTransport&               m_Transport;
@@ -570,7 +680,8 @@ namespace
             if ( answer.Kind == HandshakeAnswer::EKind::Welcome )
             {
                 m_Welcomed = true;
-                Log( "accepted by server (server cook hash {:016x})", answer.ServerCookHash );
+                Log( "accepted by server (server cook hash {:016x}, pawn prefab {:016x})", answer.ServerCookHash,
+                     answer.PawnPrefab );
                 std::vector<std::byte> name( 1 + m_Options.Name.size() );
                 name[0] = static_cast<std::byte>( ESessionMessage::Name );
                 std::memcpy( name.data() + 1, m_Options.Name.data(), m_Options.Name.size() );
@@ -667,10 +778,172 @@ namespace
         std::printf( "%s\n", ToHex( bytes ).c_str() );
         return 0;
     }
+
+    // A HEADLESS PLAYER (NET-1 scenario net1_two_clients; NET-ARCH §9 NET-10's bot client): the same
+    // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step.
+    //   --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir x,y,z]
+    //         [--lag-ms L --loss P]
+    // Walks its own pawn D cm along dir (server-authoritative: it stops when the SERVER's position of its pawn has
+    // moved D cm), then idles; logs its own pawn and every remote pawn (interpolated) twice a second and a final
+    // line per pawn with its displacement from where this client first saw it.
+    int RunBot( int argc, char** argv )
+    {
+        std::string connect, cooked, tokenHex, name = "bot";
+        double      seconds = 10.0, walkCm = 0.0;
+        NetVec3     dir{ 1.f, 0.f, 0.f };
+        NetSimulator simulator;
+        for ( int i = 1; i < argc; ++i )
+        {
+            const std::string arg      = argv[i];
+            const bool        hasValue = i + 1 < argc;
+            if ( arg == "--bot" )
+                continue;
+            if ( !hasValue )
+            {
+                Log( "'{}' needs a value", arg );
+                return 1;
+            }
+            const std::string value = argv[++i];
+            if ( arg == "--connect" )
+                connect = value;
+            else if ( arg == "--cooked" )
+                cooked = value;
+            else if ( arg == "--token" )
+                tokenHex = value;
+            else if ( arg == "--name" )
+                name = value;
+            else if ( arg == "--seconds" )
+                seconds = std::atof( value.c_str() );
+            else if ( arg == "--walk-cm" )
+                walkCm = std::atof( value.c_str() );
+            else if ( arg == "--lag-ms" )
+                simulator.SendLagMs = std::atoi( value.c_str() );
+            else if ( arg == "--loss" )
+                simulator.SendLossPercent = static_cast<float>( std::atof( value.c_str() ) );
+            else if ( arg == "--dir" )
+            {
+                if ( std::sscanf( value.c_str(), "%f,%f,%f", &dir.X, &dir.Y, &dir.Z ) != 3 )
+                {
+                    Log( "--dir '{}' is not x,y,z", value );
+                    return 1;
+                }
+            }
+            else
+            {
+                Log( "unknown argument '{}'", arg );
+                return 1;
+            }
+        }
+        const auto token = FromHex( tokenHex );
+        if ( connect.empty() || cooked.empty() || !token || seconds <= 0.0 )
+        {
+            Log( "usage: --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir "
+                 "x,y,z] [--lag-ms L --loss P]" );
+            return 1;
+        }
+        const std::optional<std::uint64_t> cookHash = ReadCookHash( cooked );
+        if ( !cookHash )
+            return 1;
+        std::optional<BotCells> cells = BotCells::Open( cooked );
+        if ( !cells )
+            return 1;
+        const std::string tag = name;
+        const NetLogSink  log = [tag]( std::string_view line ) { Log( "[{}] {}", tag, line ); };
+        std::unique_ptr<INetTransport> transport = CreateGnsTransport( log );
+        std::string                    error;
+        if ( !transport || !transport->SetSimulator( simulator, error ) )
+        {
+            Log( "[{}] transport: {}", name, error );
+            return 1;
+        }
+        ReplicationClient client( *transport, { kProtocolVersion, *cookHash, *token }, log );
+        if ( !client.Connect( connect, error ) )
+        {
+            Log( "[{}] connect {}: {}", name, connect, error );
+            return 1;
+        }
+
+        const auto distance = []( const NetVec3& a, const NetVec3& b )
+        { return std::sqrt( ( a.X - b.X ) * ( a.X - b.X ) + ( a.Y - b.Y ) * ( a.Y - b.Y ) + ( a.Z - b.Z ) * ( a.Z - b.Z ) ); };
+        std::map<NetId, NetVec3> firstSeen;
+        bool                     walking = walkCm > 0.0;
+        const auto               start   = std::chrono::steady_clock::now();
+        const auto               period  = std::chrono::duration<double>( 1.0 / kNetStepHz );
+        std::uint64_t            step    = 0;
+        double                   nextLog = 0.5;
+        for ( ;; ++step )
+        {
+            std::this_thread::sleep_until( start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                                        period * static_cast<double>( step ) ) );
+            const double now = std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count();
+            if ( now >= seconds )
+                break;
+            client.Poll();
+            if ( client.State() == ReplicationClient::EState::Closed )
+            {
+                Log( "[{}] session closed: {}", name, client.CloseReason() );
+                return 2;
+            }
+            for ( const auto& [id, pawn] : client.Pawns() )
+                if ( !firstSeen.contains( id ) )
+                    if ( const auto sample = client.Sample( id ) )
+                        firstSeen[id] = sample->Position;
+            // The SERVER's newest position of the own pawn (the snapshot, not the interpolated one) ends the walk.
+            if ( walking && client.OwnPawn() != kInvalidNetId && firstSeen.contains( client.OwnPawn() ) )
+            {
+                const auto& own = client.Pawns().at( client.OwnPawn() );
+                const PawnState newest = own.History.Sample( 1e12 );
+                if ( distance( newest.Position, firstSeen[client.OwnPawn()] ) >= walkCm )
+                {
+                    walking = false;
+                    Log( "[{}] walked {:.0f} cm (server position): stopping at step {}", name, walkCm, step );
+                }
+            }
+            client.SendInput( walking ? dir : NetVec3{}, 0.f );
+            // The cells around the SERVER's position of the own pawn, reported when they change.
+            if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
+            {
+                const PawnState newest = client.Pawns().at( client.OwnPawn() ).History.Sample( 1e12 );
+                std::string     said;
+                if ( auto report = cells->Update( newest.Position, said ) )
+                    client.ReportResidency( report->first, report->second );
+                if ( !said.empty() )
+                    Log( "[{}] {}", name, said );
+            }
+            if ( now >= nextLog )
+            {
+                nextLog += 0.5;
+                std::string line;
+                for ( const auto& [id, pawn] : client.Pawns() )
+                    if ( const auto sample = client.Sample( id ) )
+                        line += std::format( " {}{}=({:.0f},{:.0f},{:.0f})", id, pawn.Owned ? "*" : "",
+                                             sample->Position.X, sample->Position.Y, sample->Position.Z );
+                Log( "[{}] t={:.1f}s pawns{} ; unacked inputs {}, ack step {}", name, now,
+                     line.empty() ? std::string( " none" ) : line, client.PendingInputs(),
+                     client.LastAck() ? std::to_string( *client.LastAck() ) : std::string( "none" ) );
+            }
+        }
+        int result = client.State() == ReplicationClient::EState::InSession ? 0 : 2;
+        for ( const auto& [id, pawn] : client.Pawns() )
+        {
+            const auto sample = client.Sample( id );
+            if ( !sample || !firstSeen.contains( id ) )
+                continue;
+            Log( "[{}] FINAL {} pawn net id {} (player {}) at ({:.0f}, {:.0f}, {:.0f}) cm, moved {:.0f} cm from where "
+                 "this client first saw it",
+                 name, pawn.Owned ? "own" : "remote", id, pawn.Player, sample->Position.X, sample->Position.Y,
+                 sample->Position.Z, distance( sample->Position, firstSeen[id] ) );
+        }
+        Log( "[{}] {} pawn(s) replicated; exit {}", name, client.Pawns().size(), result );
+        return result;
+    }
 } // namespace
 
 int main( int argc, char** argv )
 {
+    for ( int i = 1; i < argc; ++i )
+        if ( std::strcmp( argv[i], "--bot" ) == 0 )
+            return RunBot( argc, argv );
     std::optional<Options> options = ParseOptions( argc, argv );
     if ( !options )
         return 1;

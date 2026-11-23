@@ -18,9 +18,9 @@
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
-#include <Engine/VFX/VFXCurveLUT.hpp>
-#include <Engine/VFX/VFXModuleFormat.hpp>
-#include <Engine/VFX/VFXStackCompiler.hpp>
+#include <VFX/Public/VFXCurveLUT.hpp>
+#include <VFX/Public/VFXModuleFormat.hpp>
+#include <VFX/Public/VFXStackCompiler.hpp>
 
 #include <Common/Core/Constants.hpp>
 

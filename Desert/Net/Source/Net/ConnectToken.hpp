@@ -52,4 +52,9 @@ namespace Desert::Net
 
     // The current time in the token's unit.
     std::uint64_t UnixSecondsNow();
+
+    // The server's token secret from a text file holding it as hex (the login backend holds the same key; NET-8
+    // replaces the file with the backend's key rotation). Empty + @p error when unreadable, not hex or shorter
+    // than kMinTokenSecretSize.
+    std::vector<std::byte> ReadTokenSecretFile( const std::string& path, std::string& error );
 } // namespace Desert::Net

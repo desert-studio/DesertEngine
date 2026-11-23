@@ -3,6 +3,7 @@
 #include <Engine/Core/Camera.hpp>
 
 #include <glm/glm.hpp>
+#include <memory>
 
 namespace Desert::Core
 {

@@ -88,6 +88,12 @@ foreach(name IN LISTS _desert_generated_modules)
     list(APPEND DESERT_PLACEMENT_MODULES "${name}")
     list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS "Engine/Generated/Reflection_${name}\\.gen\\.cpp$")
 endforeach()
+# The per-module component registration (BUILD-MOD-5): Components_<Module>.gen.cpp compiles in its module, so a
+# field added to a module's component rebuilds that module, not the engine.
+foreach(name IN LISTS _desert_generated_modules)
+    list(APPEND DESERT_PLACEMENT_MODULES "${name}")
+    list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS "Engine/Generated/Components_${name}\\.gen\\.cpp$")
+endforeach()
 list(APPEND DESERT_PLACEMENT_MODULES ${_desert_table_placement_modules})
 list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS ${_desert_table_placement_patterns})
 foreach(_pattern IN LISTS DESERT_PLACEMENT_SOURCE_PATTERNS)
@@ -247,6 +253,86 @@ foreach(name IN LISTS DESERT_MODULES)
     set(DESERT_MODULE_${name}_LIBRARIES "${_libs}")
 endforeach()
 
+# ── MODULE BOUNDARY: a module includes only its own files and its dependency closure's ───────────────
+# What UBT gives a UE module: the include roots of the modules it names in Build.cs and nothing else, so an include of
+# a module it does not depend on does not compile. Here the same rule is checked at configure, before a compiler is
+# started, for every module that has moved into its FOLDER (Desert/<Module>/Source/<Module>): an #include of a file of
+# that module from a file of a module whose dependency closure does not hold it fails configure, naming both modules
+# (and the module libraries' include roots are their closure's only, desert_module_includes, so the compiler refuses
+# it too). A `<Module>/Private/` header is the module's own: included from any other module it fails the same way.
+# Files of the legacy root are not followed (one include root, the placement rows); a module's rows go, and the
+# check holds its files, in the commit that moves them into its FOLDER.
+function(_desert_check_module_boundaries)
+    # The modules an include can be resolved into: those with a FOLDER on disk, by the first path component of the
+    # include (the FOLDER's directory, e.g. "UI" for Desert/UI/Source/UI).
+    set(_dirs "")
+    foreach(name IN LISTS DESERT_MODULES)
+        if(DESERT_MODULE_${name}_HAS_FOLDER)
+            set(_owner_${DESERT_MODULE_${name}_SCAN_DIR} "${name}")
+            list(APPEND _dirs "${DESERT_MODULE_${name}_SCAN_DIR}")
+        endif()
+    endforeach()
+    if(NOT _dirs)
+        return()
+    endif()
+    list(JOIN _dirs "|" _dir_alt)
+    set(_include_regex "^[ \t]*#[ \t]*include[ \t]*[<\"](${_dir_alt})/([^>\"]+)[>\"]")
+    set(_errors "")
+    foreach(name IN LISTS DESERT_MODULES)
+        desert_module_closure(${name} _closure)
+        set(_files "")
+        foreach(rel IN LISTS DESERT_MODULE_${name}_LEGACY)
+            list(APPEND _files "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}/${rel}")
+        endforeach()
+        if(DESERT_MODULE_${name}_HAS_FOLDER)
+            file(GLOB_RECURSE _own LIST_DIRECTORIES false CONFIGURE_DEPENDS
+                 "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.cpp" "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.hpp"
+                 "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.h" "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.inl"
+                 "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.mm")
+            list(APPEND _files ${_own})
+        endif()
+        foreach(_file IN LISTS _files)
+            # The all-modules aggregates: the generated list of every module's reflected blocks and its one
+            # includer, compiled only by the tools and the tests above every module (SceneMigrator, the header
+            # tool's checks), never by a module's own source (they sit in the legacy root because the header tool
+            # writes there).
+            if(_file MATCHES "/Engine/(Generated/ReflectedComponentBlocks\\.gen|Core/Serialize/ReflectedComponentBlocks)\\.hpp$")
+                continue()
+            endif()
+            file(STRINGS "${_file}" _lines REGEX "${_include_regex}")
+            foreach(_line IN LISTS _lines)
+                if(NOT _line MATCHES "${_include_regex}")
+                    continue()
+                endif()
+                set(_dir "${CMAKE_MATCH_1}")
+                set(_rest "${CMAKE_MATCH_2}")
+                set(_target "${_owner_${_dir}}")
+                if(_target STREQUAL name)
+                    continue()
+                endif()
+                if(NOT EXISTS "${DESERT_ROOT}/${DESERT_MODULE_${_target}_SOURCE_ROOT}/${_dir}/${_rest}")
+                    continue() # not a file of that module (a third-party directory of the same name)
+                endif()
+                set(_why "")
+                if(NOT _target IN_LIST _closure)
+                    set(_why "module '${name}' does not depend on module '${_target}' (cmake/DesertModuleTable.cmake)")
+                elseif(_rest MATCHES "^Private/")
+                    set(_why "module '${name}' includes a Private header of module '${_target}'")
+                endif()
+                if(_why)
+                    file(RELATIVE_PATH _from "${DESERT_ROOT}" "${_file}")
+                    list(APPEND _errors "  ${_from} (module ${name}) includes <${_dir}/${_rest}> (module ${_target}): ${_why}")
+                endif()
+            endforeach()
+        endforeach()
+    endforeach()
+    if(_errors)
+        list(JOIN _errors "\n" _errors)
+        message(FATAL_ERROR "DesertModules.cmake: MODULE BOUNDARY — an include crosses into a module outside the "
+            "including module's dependency closure (add the dependency to its row, or cut the include: a hook the "
+            "upper module registers, like RegisterComponents_<Module>):\n${_errors}")
+    endif()
+endfunction()
 # ── THE TABLE FOR THE C++ READERS ──────────────────────────────────────────────────────────────────
 # <build>/DesertModules.json: the rows as written (placement patterns before the \w / \d rewrite), the module each
 # legacy file was placed into here, and the table library of each module with legacy files. Rewritten only when
@@ -354,6 +440,15 @@ function(desert_closure_includes target module)
     endif()
 endfunction()
 
+# A module library's include roots (UBT: the module's own and its dependency closure's, nothing else): the legacy
+# root (one directory still shared by the modules that have not moved), the module's own FOLDER and its closure's.
+function(desert_module_includes target module)
+    desert_module_closure(${module} _closure)
+    list(APPEND _closure ${module})
+    _desert_source_roots(_roots ${_closure})
+    target_include_directories(${target} PRIVATE "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" ${_roots})
+endfunction()
+
 # The `--check`/`--context` arguments of the header tool: one per engine source root.
 function(desert_header_tool_roots flag out)
     set(_args "")
@@ -434,3 +529,6 @@ function(desert_engine_header_tool_command out)
         "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/ShaderPushConstants.gen.hpp")
     set(${out} ${_cmd} PARENT_SCOPE)
 endfunction()
+
+# Runs once every function it calls is defined (desert_module_closure above).
+_desert_check_module_boundaries()

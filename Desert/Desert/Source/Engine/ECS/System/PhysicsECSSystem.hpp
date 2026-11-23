@@ -6,8 +6,7 @@
 #include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/KinematicBodies.hpp>
-#include <Engine/ECS/System/DestructibleLifetime.hpp>
-#include <Engine/ECS/System/WaterBodyGather.hpp>
+#include <Engine/ECS/System/PhysicsSceneFeature.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -15,11 +14,10 @@
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/ModularCharacter.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
+#include <Engine/ECS/ComponentEventFacts.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
 #include <Common/Core/Constants.hpp>
-#include <Engine/Destruction/DestructionWorld.hpp>
-#include <Engine/Water/WaterBodyQuery.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Input.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -47,15 +45,14 @@
 #include <string>
 #include <vector>
 #include <type_traits>
-#include <Engine/Runtime/Services/Destruction/FractureService.hpp>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
-#include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/Net/NetRoleComponent.hpp>
 #include <Engine/Physics/ColliderComponent.hpp>
 #include <Engine/Physics/RigidBodyComponent.hpp>
 #include <Engine/Core/SceneSettings.hpp>
@@ -148,10 +145,7 @@ namespace Desert::ECS
                         queue->Events.clear();
                     m_Landscape.reset();
                     m_Foliage.reset();
-                    m_Destructibles.reset();
-                    m_Destruction.reset();
-                    m_Water.reset();
-                    m_WaterGather.Reset();
+                    m_Features.clear(); // their bodies go back into the world before it goes
                     m_World->Shutdown();
                     m_World.reset();
                 }
@@ -179,11 +173,10 @@ namespace Desert::ECS
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
                 m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Foliage   = std::make_unique<FoliageCollision>( *m_World );
-                m_Destruction   = std::make_unique<Destruction::DestructionWorld>( *m_World );
-                m_Destructibles = std::make_unique<DestructibleLifetime>( *m_Destruction );
-                m_Ragdolls      = std::make_unique<RagdollLifetime>( *m_World );
-                // The water of the Play (its clock is the scene's game time, set every frame below).
-                m_Water = std::make_unique<Water::WaterSubsystem>();
+                // The feature modules' parts of the scene (destruction's objects, ...), one each per Play.
+                for ( const PhysicsSceneFeatureFactory make : PhysicsSceneFeatures() )
+                    m_Features.push_back( make( *m_World ) );
+                m_Ragdolls = std::make_unique<RagdollLifetime>( *m_World );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -200,26 +193,8 @@ namespace Desert::ECS
                 return; // Paused (and not stepping): bodies exist but time is frozen.
 
             // The events of this frame's steps are readable until the next frame's physics.
-            m_Destruction->ClearEvents();
-            // The water the step's bodies are in: this frame's bodies over this frame's ground. The body list is
-            // retained (WaterBodyGather: re-walked only when a body is added, patched or removed) and its values
-            // read every frame, so a moved or edited body is the water at once; nothing is allocated in a steady
-            // frame. The landscape tiles' heights are borrowed from the registry for the step's queries only. The
-            // water's clock advances by the FIXED step, once per substep, in the pre-step callback below.
-            m_Water->SetWorld(
-                 m_WaterGather.Gather(
-                      registry, []( const Assets::AssetHandle& waves )
-                      { return Runtime::ResourceRegistry::GetWaterWavesService()->Get( waves ); },
-                      // An FFT set's bodies float on the surface the GPU drew: its CPU mirror.
-                      []( const Assets::AssetHandle& waves ) -> std::shared_ptr<const Water::FFTSurfaceSnapshot>
-                      {
-                          auto* const service  = Runtime::ResourceRegistry::GetWaterWavesService();
-                          auto        spectrum = service->GetSpectrum( waves );
-                          if ( !spectrum || !spectrum.GetValue() )
-                              return nullptr;
-                          return service->Surfaces().Latest( spectrum.GetValue().get() );
-                      } ),
-                 m_Scene->GatherRaycastLandscape().Tiles );
+            for ( const auto& feature : m_Features )
+                feature->BeginFrame();
 
             // Movement basis from the active camera (flattened to the ground plane). The script's MoveInput is
             // in local forward/right axes; resolving it here keeps "forward" following wherever the camera looks.
@@ -238,12 +213,16 @@ namespace Desert::ECS
             if ( glm::length( camRight ) > 1e-4f )
                 camRight = glm::normalize( camRight );
 
-            // THE ONE WATER CLOCK (UE UWaterSubsystem::GetWaterTimeSeconds = the world's time): the scene's game time,
-            // the very clock the renderer draws the waves at (ViewFrame::TimeSeconds -> cameraUB.Time and the FFT
-            // passes' time, which also stamps the FFT readback the queries extrapolate from). The game clock has
-            // already ticked to this frame's end, so the steps start at its start and the pre-step callback
-            // advances it by each fixed step: a query in a step reads the crests the frame around it drew.
-            m_Water->SetTime( m_Scene->GetWorldTime().GetGameTimeSeconds() - static_cast<double>( ts.GetSeconds() ) );
+            // THE FEATURES' CLOCKS AT THE STEPS' START (Water: the one water clock, UE UWaterSubsystem::
+            // GetWaterTimeSeconds = the world's time): the scene's game time, the very clock the renderer draws the
+            // waves at. The game clock has already ticked to this frame's end, so the steps start at its start and
+            // the pre-step callback advances each feature by every fixed step.
+            {
+                const double stepsStart =
+                     m_Scene->GetWorldTime().GetGameTimeSeconds() - static_cast<double>( ts.GetSeconds() );
+                for ( const auto& feature : m_Features )
+                    feature->BeginSteps( stepsStart );
+            }
 
             // ---- Character controllers: the controller SCRIPT (e.g. player_controller.lua) sets the move
             // INTENT each frame; the engine resolves it against the camera and moves the capsule on every FIXED
@@ -253,7 +232,9 @@ namespace Desert::ECS
             m_World->SetPreStepCallback(
                  [&]( float dt )
                  {
-                     m_Water->Advance( dt );
+                     // The features' fixed-step clocks (Water: the wave time), once per substep.
+                     for ( const auto& feature : m_Features )
+                         feature->PreStep( dt );
                      StepCharacters( registry, camFwd, camRight, dt );
                      // Cloth worn by modular characters (IModularCharacter::ApplyLeaderPose), at this fixed step.
                      ModularCharacter::StepAll( registry, dt, m_World->GetGravity() );
@@ -294,13 +275,19 @@ namespace Desert::ECS
             }
             m_Ragdolls->WriteBackAfterStep( registry );
             // At Impact destructibles hit hard enough are sent to be cut around the hit (DST-RUNTIME).
-            m_Destructibles->CutOnImpact( registry );
-            // Every simulated destructible's piece poses from its bodies (DST-06), what its pieces draw at.
-            m_Destructibles->WritePoses( registry );
+            // The feature modules write their state back (destructibles: cut on impact, piece poses).
+            for ( const auto& feature : m_Features )
+                feature->AfterStep( registry );
             PublishEvents( registry );
-            // The steps' breaks, collisions and removals are destruction's own news, published by its owner into
-            // its own queue; the Gameplay Framework (ComponentEventSystem, ScriptSystem) hands them on.
-            m_Destructibles->PublishEvents( registry );
+            // The features' own news (destruction's breaks, collisions, removals), published by their owners; the
+            // Gameplay Framework (ComponentEventSystem, ScriptSystem) hands them on (ComponentEventFacts.hpp).
+            {
+                auto& facts = registry.ctx_or_set<ComponentEventFactQueue>();
+                facts.Facts.clear();
+                for ( const auto& feature : m_Features )
+                    feature->PublishEvents( registry );
+                ++facts.Publication;
+            }
 
             auto bodies = registry.view<TransformComponent, RigidBodyComponent, ColliderComponent>();
             WriteBackMovingBodies( registry, bodies );
@@ -308,7 +295,8 @@ namespace Desert::ECS
             for ( auto entity : characters )
             {
                 const auto& cc = characters.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
+                // A replicated pawn's transform is the network's (ClientNetDriver writes it before the systems).
+                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter || registry.has<NetRoleComponent>( entity ) )
                     continue;
                 SetLocalTranslation( registry, entity,
                                      m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter ) );
@@ -430,8 +418,6 @@ namespace Desert::ECS
             return Common::MakeError<Result>( "the entity's StaticMesh has no mesh assigned" );
         }
 
-        /// The scene's destruction world while Play runs, null in Edit: what a field entity fires into
-        /// (ECS::FireDestructionField), from the Sequencer or from gameplay.
         /// The scene's physics world while Play runs, null in Edit: what moves a body the game teleports
         /// (Core::LoadGameFromSlot restoring a pawn) so the next step does not put it back.
         [[nodiscard]] Physics::PhysicsWorld* GetPhysicsWorld() const
@@ -439,16 +425,15 @@ namespace Desert::ECS
             return m_World.get();
         }
 
-        [[nodiscard]] Destruction::DestructionWorld* GetDestructionWorld() const
+        /// The feature module's part of the scene while Play runs, null in Edit or when the module is not linked
+        /// (Destruction: DestructionPhysicsFeature, what a field entity fires into).
+        template <class TFeature>
+        [[nodiscard]] TFeature* FindFeature() const
         {
-            return m_Destruction.get();
-        }
-
-        /// The scene's water while Play runs, null in Edit: what buoyancy, swimming and scripts query
-        /// (UE UWaterSubsystem / QueryWaterInfoClosestToWorldLocation).
-        [[nodiscard]] const Water::WaterSubsystem* GetWater() const
-        {
-            return m_Water.get();
+            for ( const auto& feature : m_Features )
+                if ( auto* found = dynamic_cast<TFeature*>( feature.get() ) )
+                    return found;
+            return nullptr;
         }
 
     private:
@@ -485,17 +470,9 @@ namespace Desert::ECS
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
             m_Foliage->Attach( registry );
-            m_Destructibles->Attach( registry );
             m_Ragdolls->Attach( registry );
-            m_Destructibles->Sync(
-                 registry, []( const Assets::AssetHandle& fracture )
-                 { return Runtime::ResourceRegistry::GetFractureService()->Get( fracture ); },
-                 []( const Assets::AssetHandle& mesh )
-                 {
-                     // The file a run-time fracture cuts (DST-RUNTIME): the static mesh asset the entity draws.
-                     const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh );
-                     return asset ? asset->GetMetadata().Filepath : std::filesystem::path();
-                 } );
+            for ( const auto& feature : m_Features )
+                feature->Sync( registry );
             // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
             m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
             // One static body per foliage field whose type collides (FOLIAGE-COLLISION), streamed with its cell.
@@ -697,7 +674,9 @@ namespace Desert::ECS
             for ( auto entity : characters )
             {
                 auto& cc = characters.get<CharacterControllerComponent>( entity );
-                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
+                // A replicated pawn moves on the server (UE: a client's simulated / autonomous proxy without
+                // prediction); its body follows the network's transform instead (NET-4 predicts the own one here).
+                if ( cc.RuntimeCharacter == Physics::kInvalidCharacter || registry.has<NetRoleComponent>( entity ) )
                     continue;
 
                 // World move intent from the script's camera-relative one (y = forward, x = right); the model
@@ -726,14 +705,8 @@ namespace Desert::ECS
         // Same rule: the landscape's heightfield bodies live in m_World.
         std::unique_ptr<LandscapeCollision> m_Landscape;
         std::unique_ptr<FoliageCollision>   m_Foliage;
-        // Same rule: the scene's destructibles are bodies in m_World, advanced by its fixed step.
-        std::unique_ptr<Destruction::DestructionWorld> m_Destruction;
-        // Same rule, one level down: the destructible entities' objects live in m_Destruction.
-        std::unique_ptr<DestructibleLifetime> m_Destructibles;
-        // The water bodies, ground and wave clock of this Play; null in Edit.
-        std::unique_ptr<Water::WaterSubsystem> m_Water;
-        // Refuses a body whose wave set cannot be read, once per entity per Play.
-        WaterBodyGather m_WaterGather;
+        // Same rule: the feature modules' bodies (destructibles) live in m_World, advanced by its fixed step.
+        std::vector<std::unique_ptr<IPhysicsSceneFeature>> m_Features;
         // Same rule: the ragdolls' bodies live in m_World.
         std::unique_ptr<RagdollLifetime> m_Ragdolls;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.

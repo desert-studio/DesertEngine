@@ -8,11 +8,12 @@
 #include <Engine/Core/WorldParameterInstance.hpp>
 #include <Engine/Core/WorldTime.hpp>
 #include <Engine/Core/Serialize/EntityPackages.hpp>
+#include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
-#include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/World/Deformation/DeformationWorld.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Carry.hpp>
@@ -40,7 +41,6 @@
 #include <Common/Core/Math/Ray.hpp>
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
-#include <Engine/ECS/FracturePreviewComponent.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -80,8 +80,8 @@
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
-#include <Engine/ECS/DestructibleComponent.hpp>
-#include <Engine/ECS/DestructionFieldComponents.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
+#include <Engine/Core/Serialize/EngineComponentProvider.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/LevelSequenceComponent.hpp>
@@ -107,8 +107,6 @@
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
-#include <Engine/ECS/WaterBodyComponent.hpp>
-#include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
 #include <Engine/Physics/ColliderComponent.hpp>
@@ -518,14 +516,16 @@ namespace Desert::Core
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
-           m_Weather( std::make_unique<WeatherState>() ),
-           m_GameMode( std::make_unique<GameMode>() ),
+           m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
-           m_Settings( std::make_unique<SceneSettings>() ),
-           m_Packages( std::make_shared<EntityPackages>() ),
-           m_File( std::make_unique<FileState>() ),
-           m_VFXWorld( std::make_unique<VFX::VFXWorld>() )
+           m_Settings( std::make_unique<SceneSettings>() ), m_Packages( std::make_shared<EntityPackages>() ),
+           m_File( std::make_unique<FileState>() )
     {
+        // Engine's component serializers (Core's registry): this reference links the provider in.
+        Serialize::LinkEngineComponentProvider();
+        StartupEngineModules();
+        for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
+            m_ModuleStates.push_back( make() );
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
     }
@@ -548,15 +548,16 @@ namespace Desert::Core
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
-           m_Weather( std::make_unique<WeatherState>() ),
-           m_GameMode( std::make_unique<GameMode>() ),
+           m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
-           m_Settings( std::make_unique<SceneSettings>() ),
-           m_SceneName( std::move( sceneName ) ),
-           m_Packages( std::make_shared<EntityPackages>() ),
-           m_File( std::make_unique<FileState>() ),
-           m_VFXWorld( std::make_unique<VFX::VFXWorld>() )
+           m_Settings( std::make_unique<SceneSettings>() ), m_SceneName( std::move( sceneName ) ),
+           m_Packages( std::make_shared<EntityPackages>() ), m_File( std::make_unique<FileState>() )
     {
+        // Engine's component serializers (Core's registry): this reference links the provider in.
+        Serialize::LinkEngineComponentProvider();
+        StartupEngineModules();
+        for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
+            m_ModuleStates.push_back( make() );
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
 
@@ -577,10 +578,12 @@ namespace Desert::Core
         if ( m_State == SceneState::Edit && state == SceneState::Play )
         {
             m_WorldTime->Reset();
-            m_VFXWorld->Reset();
+            for ( const auto& moduleState : m_ModuleStates )
+                moduleState->Reset();
         }
         else if ( m_State != SceneState::Edit && state == SceneState::Edit )
-            m_VFXWorld->Reset();
+            for ( const auto& moduleState : m_ModuleStates )
+                moduleState->Reset();
         m_State = state;
         if ( state == SceneState::Edit )
             m_Simulating = false; // a simulation ends with the session it ran in
@@ -708,9 +711,10 @@ namespace Desert::Core
 
         // (1) The pawn's own camera: root first, then its subtree depth-first in child order.
         entt::entity pawnCamera = entt::null;
-        if ( m_PlayerPawn != entt::null && m_Registry.valid( m_PlayerPawn ) )
+        const entt::entity playerPawn = GetPlayerPawn();
+        if ( playerPawn != entt::null && m_Registry.valid( playerPawn ) )
         {
-            std::vector<entt::entity> stack{ m_PlayerPawn };
+            std::vector<entt::entity> stack{ playerPawn };
             while ( !stack.empty() && pawnCamera == entt::null )
             {
                 const entt::entity e = stack.back();
@@ -734,7 +738,7 @@ namespace Desert::Core
         }
 
         const auto choice = ChooseViewTarget( { .Level               = m_SceneName,
-                                                .PawnSpawned         = m_PlayerPawn != entt::null,
+                                                .PawnSpawned         = playerPawn != entt::null,
                                                 .PawnHasCamera       = pawnCamera != entt::null,
                                                 .AutoActivateCameras = autoNames,
                                                 .PlayFromHere        = m_PlayFromHere } );
@@ -1025,39 +1029,16 @@ namespace Desert::Core
         }
 #endif
 
-        // THE EFFECTS CLOCK, once per scene update and never per view: every SceneRenderer of this scene
-        // reads the plan made here. Its time is the scene's — the editor's delta in Edit (effects preview
-        // while authoring, as Niagara does), the gameplay delta in Play, nothing while paused — and
-        // never the wall clock, so a `--play` run is the same frames every time.
+        // THE MODULES' PER-SCENE STATE (the VFX module's effects clock among them), once per scene update and
+        // never per view: every SceneRenderer of this scene reads the plan made here. Its time is the scene's -
+        // the editor's delta in Edit (effects preview while authoring, as Niagara does), the gameplay delta in
+        // Play, nothing while paused - and never the wall clock, so a `--play` run is the same frames every time.
         {
-            DESERT_PROFILE_SCOPE( "VFX World" );
-            const Common::Timestep vfxTs = m_State == SceneState::Edit ? ts : gameplayTs;
-            m_VFXWorld->Tick( m_Registry, static_cast<double>( vfxTs.GetSeconds() ) );
+            DESERT_PROFILE_SCOPE( "Scene: Module States" );
+            const Common::Timestep moduleTs = m_State == SceneState::Edit ? ts : gameplayTs;
+            for ( const auto& moduleState : m_ModuleStates )
+                moduleState->Tick( *this, m_Registry, static_cast<double>( moduleTs.GetSeconds() ) );
         }
-#if DESERT_DEV_INSTRUMENTS
-        // VFX-16 (UE Niagara debugger "show bounds"): every system's fixed bounds, its local box through the
-        // entity's transform, as this frame's debug lines (DebugDraw ticked above, so they draw this frame).
-        if ( m_VFXWorld->GetDebugSettings().DrawBounds )
-            for ( const VFX::VFXSystemDebugStats& system : m_VFXWorld->GetDebugStats().Systems )
-                for ( const VFX::VFXEmitterDebugStats& emitter : system.Emitters )
-                {
-                    if ( emitter.Capacity == 0 )
-                        continue; // disabled: draws nothing, culls nothing
-                    // The box the renderer culls the emitter by (VFXBoundsAt: the entity's full transform).
-                    const Common::Math::AABB box =
-                         Assets::Serialization::VFXBoundsAt( emitter.Bounds, glm::mat4( system.Transform ) );
-                    glm::vec3 corner[8];
-                    for ( int i = 0; i < 8; ++i )
-                        corner[i] = glm::vec3( ( i & 1 ) ? box.Max.x : box.Min.x, ( i & 2 ) ? box.Max.y : box.Min.y,
-                                               ( i & 4 ) ? box.Max.z : box.Min.z );
-                    DebugDrawStyle style;
-                    style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
-                    for ( int i = 0; i < 8; ++i )
-                        for ( int axis = 1; axis < 8; axis <<= 1 )
-                            if ( ( i & axis ) == 0 )
-                                DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
-                }
-#endif
 
         // Dir lights
         {
@@ -1457,22 +1438,24 @@ namespace Desert::Core
         // pool exists before the first parallel group, not which system happens to be serial this week.
         r.prepare<ECS::ColliderComponent>();
         r.prepare<ECS::RigidBodyComponent>();
-        r.prepare<ECS::DestructibleComponent>();
-        r.prepare<ECS::WaterBodyComponent>();
         r.prepare<ECS::RagdollComponent>();
-        r.prepare<ECS::WaterZoneComponent>();
-        // The editor's Fracture preview: viewed by FracturePieceDraw inside MeshECSSystem's parallel group.
-        r.prepare<ECS::FracturePreviewComponent>();
-        r.prepare<ECS::RadialImpulseFieldComponent>();
-        r.prepare<ECS::StrainFieldComponent>();
-        r.prepare<ECS::KillFieldComponent>();
-        r.prepare<ECS::AnchorFieldComponent>();
+        // The feature modules' pools (Destruction: the Fracture preview, viewed by its stand-in draw inside
+        // MeshECSSystem's parallel group, and the field components; Water: its bodies and zones).
+        for ( const RegistryPrepare prepare : ModuleHooks().Prepares )
+            prepare( r );
         r.prepare<ECS::CharacterControllerComponent>();
         r.prepare<ECS::SpringArmComponent>();
         r.prepare<ECS::PlayerStartComponent>();
         r.prepare<ECS::StreamingSourceComponent>();
         r.prepare<ECS::ScriptComponent>();
         r.prepare<ECS::AudioSourceComponent>();
+
+        // Every module's reflected component (Core/Serialize/ComponentRegistration.hpp) — a module's component
+        // is prepared from its own generated registration, not named here: DestructibleComponent left this list
+        // with BUILD-MOD-5 so a field added to it no longer recompiles the engine's Scene.cpp. Preparing a pool
+        // twice is a no-op, so the rows also named above stay correct.
+        for ( const ECS::ReflectedComponent& row : ECS::AllReflectedComponents() )
+            row.Prepare( r );
         r.prepare<ECS::UIAnimComponent>(); // AudioECSSystem reads the UI clips' Audio voices
         r.prepare<ECS::SocketAttachmentComponent>();
     }
@@ -1776,15 +1759,15 @@ namespace Desert::Core
         // (its pipelines are released at once, not queued): parked until those frames retired (OnUpdate collects).
         m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );
         m_SurfaceCache     = std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance );
-        m_PlayerPawn   = entt::null;
+        m_Players.clear();
         m_ViewTarget   = entt::null;
-        m_PlayerController = entt::null;
         m_GameMode->Reset();
         m_PlayFromHere = false;
         m_Simulating   = false;
 
         m_Entities.Clear();
-        m_VFXWorld->Clear();
+        for ( const auto& moduleState : m_ModuleStates )
+            moduleState->Clear();
 
         SetupRegistryCallbacks();
         m_Subsystems.Begin();

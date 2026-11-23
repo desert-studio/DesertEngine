@@ -1,5 +1,5 @@
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/SceneFXSystem.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/CombineLUTsRenderer.hpp>
@@ -374,19 +374,21 @@ namespace Desert::Graphic
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
                 // copy.
-                RegisterSystem<System::WaterRenderer>( m_Systems.Water, this, m_TargetFramebuffer );
-                if ( const auto init = m_Systems.Water->Initialize(); !init )
+                // The Water module's pass (SingleLayerWaterPass.hpp); none registered = no water in this
+                // executable.
+                if ( const System::SingleLayerWaterPassFactory make = System::SingleLayerWaterPassFactorySlot() )
+                {
+                    std::shared_ptr<System::ISingleLayerWaterPass> created = make( this, m_TargetFramebuffer );
+                    TrackRenderSystem( m_Systems.Water.get(), created.get() );
+                    m_Systems.Water = std::move( created );
+                }
+                if ( !m_Systems.Water )
+                {
+                    LOG_INFO( "[SceneRenderer] no Water module: the scene has no water pass" );
+                }
+                else if ( const auto init = m_Systems.Water->Initialize(); !init )
                 {
                     LOG_ERROR( "[SceneRenderer] the water system did not initialise; water will not draw: {}",
-                               init.GetError() );
-                }
-                // The water's caustics (WATER-CAUSTICS): two compute passes before the deferred direct lighting,
-                // and every sun receiver multiplies the sun under the water by their map (AddFrameWaterCaustics).
-                RegisterSystem<System::WaterCaustics>( m_Systems.WaterCaustics, this, m_TargetFramebuffer );
-                if ( const auto init = m_Systems.WaterCaustics->Initialize(); !init )
-                {
-                    LOG_ERROR( "[SceneRenderer] the water caustics did not initialise; the sun under water has "
-                               "none: {}",
                                init.GetError() );
                 }
                 return "Terrain";
@@ -567,9 +569,22 @@ namespace Desert::Graphic
             case 18:
             {
                 // GPU particles: compute-simulated sprites drawn by AddFrameTranslucency. Non-fatal.
-                RegisterSystem<System::ParticleRenderer>( m_Systems.Particle, this, m_TargetFramebuffer );
-                if ( !m_Systems.Particle->Initialize() )
-                    LOG_WARN( "[SceneRenderer] Particle system unavailable." );
+                // The VFX module's FX system (SceneFXSystem.hpp); none registered = no particles in this
+                // executable.
+                if ( const System::SceneFXSystemFactory make = System::SceneFXSystemFactorySlot() )
+                {
+                    std::shared_ptr<System::ISceneFXSystem> created = make( this, m_TargetFramebuffer );
+                    TrackRenderSystem( m_Systems.Particle.get(), created.get() );
+                    m_Systems.Particle = std::move( created );
+                }
+                if ( !m_Systems.Particle )
+                {
+                    LOG_INFO( "[SceneRenderer] no VFX module: the scene has no particle system" );
+                }
+                else if ( const auto init = m_Systems.Particle->Initialize(); !init )
+                {
+                    LOG_WARN( "[SceneRenderer] Particle system unavailable: {}", init.GetError() );
+                }
                 return "Particle";
             }
             case 19:
@@ -1265,8 +1280,8 @@ namespace Desert::Graphic
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         m_CloudFootprintSteps = quality.As<int>( Parameter::CloudFootprintSteps ) != 0;
         m_CloudLightLocalSamples = quality.As<int>( Parameter::CloudLightLocalSamples );
-        if ( m_Systems.WaterCaustics )
-            m_Systems.WaterCaustics->SetEnabled( quality.As<int>( Parameter::EffectsWaterCaustics ) != 0 );
+        if ( m_Systems.Water )
+            m_Systems.Water->SetCausticsEnabled( quality.As<int>( Parameter::EffectsWaterCaustics ) != 0 );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // A shader recompiled since the standing program refusals were made: every refused method is resolved and
         // asked for again this frame (a fixed program draws, one still broken is refused again without a new
@@ -1461,42 +1476,14 @@ namespace Desert::Graphic
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
         // A reflection capture's face view neither draws nor simulates them (AddFrameParticlesSimulate).
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            // VFX-11: this view's origin and Effects particle rows go to the world's next scalability decision
-            // (VFXWorld::Tick) - the world decides once for all views, not here.
-            if ( const auto* cam = GetMainCamera() )
-            {
-                ::Desert::VFX::VFXViewReport report{
-                     .Origin          = cam->GetPosition(),
-                     .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
-                     .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ),
-                     .MaxWorldParticles =
-                          static_cast<std::uint32_t>( quality.As<int>( Parameter::EffectsMaxWorldParticles ) ) };
-                // The view's frustum (Gribb-Hartmann on clip = P * V, depth 0..1): six inward planes, normalized;
-                // a degenerate plane (an infinite far plane) culls nothing.
-                const glm::mat4 clip = glm::mat4( cam->GetProjectionMatrix() ) * glm::mat4( cam->GetViewMatrix() );
-                const auto      row  = [&clip]( const int r )
-                { return glm::vec4( clip[0][r], clip[1][r], clip[2][r], clip[3][r] ); };
-                const std::array<glm::vec4, 6> planes = {
-                     row( 3 ) + row( 0 ), row( 3 ) - row( 0 ), row( 3 ) + row( 1 ), row( 3 ) - row( 1 ), row( 2 ),
-                     row( 3 ) - row( 2 ) };
-                for ( std::size_t i = 0; i < planes.size(); ++i )
-                {
-                    const float length = glm::length( glm::vec3( planes[i] ) );
-                    report.FrustumPlanes[i] =
-                         length > 1.0e-6f ? planes[i] / length : glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f );
-                }
-                report.HasFrustum = true;
-                scene.GetVFXWorld().SubmitView( report );
-            }
-            m_Systems.Particle->PrepareFrame( scene );
-            // VFX-LIGHT (UE Niagara Light Renderer): the scene's particle lights join this view's local lights -
-            // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
+        // VFX-11 / VFX-LIGHT (UE FFXSystemInterface): this view's report to the scene's next scalability decision,
+        // the frame's emitters, and the scene's particle lights joining this view's local lights - the same light
+        // grid, composite and forward paths as a PointLightComponent's, casting no shadow.
+        if ( !m_ViewProfile.SceneCapture && m_Systems.Particle )
             for ( const ShaderProtocols::PointLightPayload& light :
-                  System::ParticleWorldGpu::Of( scene.GetVFXWorld() ).ParticleLights() )
-                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false }, System::LightFunctionProxy{} );
-        }
+                  m_Systems.Particle->PrepareView( scene, GetMainCamera(), quality ) )
+                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false },
+                               System::LightFunctionProxy{} );
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
@@ -2047,7 +2034,8 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Water + terrain frame" );
         {
             DESERT_PROFILE_PASS( "Water: PrepareFrame" );
-            m_Systems.Water->PrepareFrame();
+            if ( m_Systems.Water )
+                m_Systems.Water->PrepareFrame();
         }
 
         // The terrain's frame data, once, before any of its three passes records (the cascades in
@@ -2080,9 +2068,9 @@ namespace Desert::Graphic
         // task beside the terrain's (they share no state), joined at the same point; its material, WaterInfo
         // ground and upload follow the join (FinishPrepare). Nothing between here and the join reads the water.
         {
-            auto* const water = m_Systems.Water.get();
-            prepareTasks.Launch( "Water: Prepare tiles",
-                                 Common::InlineJob( [water]() noexcept { water->PrepareTiles(); } ) );
+            if ( auto* const water = m_Systems.Water.get() )
+                prepareTasks.Launch( "Water: Prepare tiles",
+                                     Common::InlineJob( [water]() noexcept { water->PrepareTiles(); } ) );
         }
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Temporal history images" );
         if ( const Common::BoolResultStr physical =
@@ -2167,7 +2155,8 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Join terrain + water tasks" );
         prepareTasks.Join();
         m_Systems.Terrain->FinishPrepare();
-        m_Systems.Water->FinishPrepare();
+        if ( m_Systems.Water )
+            m_Systems.Water->FinishPrepare();
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Landscape dice pool" );
         {
             auto* terrain = m_Systems.Terrain.get();
@@ -3522,7 +3511,8 @@ namespace Desert::Graphic
         m_Systems.Mesh->ClearQueues();
         m_Systems.Terrain->ClearQueue();
         m_Systems.Grass->ClearQueue();
-        m_Systems.Water->ClearQueue();
+        if ( m_Systems.Water )
+            m_Systems.Water->ClearQueue();
 
         m_PointLight.PointLights.clear();
         m_SpotLight.SpotLights.clear();
@@ -5065,11 +5055,6 @@ namespace Desert::Graphic
     void SceneRendererImpl::SubmitLandscapeGrass( const System::GrassFieldDraw& draw )
     {
         m_Systems.Grass->Submit( draw );
-    }
-
-    void SceneRendererImpl::SubmitWaterZone( const System::WaterZoneDraw& zone )
-    {
-        m_Systems.Water->Submit( zone );
     }
 
     void SceneRendererImpl::SubmitGenericMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,

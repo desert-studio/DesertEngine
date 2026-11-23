@@ -4,6 +4,7 @@
 // (ConfigureLanes sets every connection's lanes the moment it exists, on both ends).
 
 #include "Net/NetTransport.hpp"
+#include "Net/MeshCertificates.hpp"
 
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingsockets.h>
@@ -12,6 +13,10 @@
 #include <atomic>
 #include <cstring>
 #include <format>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <string_view>
 
 namespace Desert::Net
 {
@@ -23,6 +28,27 @@ namespace Desert::Net
         INetTransportEvents* g_PollEvents = nullptr;
         HSteamNetPollGroup   g_PollGroup  = k_HSteamNetPollGroup_Invalid;
         std::atomic<bool>    g_Alive{ false };
+
+        // Hands received messages to the events and releases them (the library owns them until Release).
+        void DeliverMessages( INetTransportEvents& events, SteamNetworkingMessage_t* const* messages, int count )
+        {
+            for ( int i = 0; i < count; ++i )
+            {
+                // The peer chooses its own lane count: a lane we do not have is not our protocol.
+                if ( messages[i]->m_idxLane < kNetLaneCount )
+                {
+                    events.OnMessage( messages[i]->m_conn, static_cast<ENetLane>( messages[i]->m_idxLane ),
+                                      std::span( static_cast<const std::byte*>( messages[i]->m_pData ),
+                                                 static_cast<std::size_t>( messages[i]->m_cbSize ) ) );
+                }
+                else if ( g_LogSink )
+                {
+                    g_LogSink( std::format( "connection {}: message on unknown lane {} dropped",
+                                            messages[i]->m_conn, messages[i]->m_idxLane ) );
+                }
+                messages[i]->Release();
+            }
+        }
 
         void GnsDebugOutput( ESteamNetworkingSocketsDebugOutputType type, const char* message )
         {
@@ -145,36 +171,24 @@ namespace Desert::Net
 
             void Poll( INetTransportEvents& events ) override
             {
-                // Messages first: a connection's last messages (a Refuse before the close) must be delivered
-                // before the status change that closes the connection and drops whatever it still holds.
+                // Status changes first: GNS queues a connection's Connected change before any of its messages,
+                // so an endpoint always knows a connection before its first message (a mesh role's Hello sent
+                // the moment the link came up was dropped as from an unknown connection). A closing
+                // connection's last messages (a Refuse before the close) are drained inside the Closed change
+                // itself, before OnClosed (OnStatusChanged).
+                g_PollEvents = &events;
+                m_Sockets->RunCallbacks();
+                g_PollEvents = nullptr;
                 SteamNetworkingMessage_t* messages[64];
                 for ( ;; )
                 {
                     const int count = m_Sockets->ReceiveMessagesOnPollGroup( m_PollGroup, messages, 64 );
-                    for ( int i = 0; i < count; ++i )
-                    {
-                        // The peer chooses its own lane count: a lane we do not have is not our protocol.
-                        if ( messages[i]->m_idxLane < kNetLaneCount )
-                        {
-                            events.OnMessage( messages[i]->m_conn, static_cast<ENetLane>( messages[i]->m_idxLane ),
-                                              std::span( static_cast<const std::byte*>( messages[i]->m_pData ),
-                                                         static_cast<std::size_t>( messages[i]->m_cbSize ) ) );
-                        }
-                        else if ( g_LogSink )
-                        {
-                            g_LogSink( std::format( "connection {}: message on unknown lane {} dropped",
-                                                    messages[i]->m_conn, messages[i]->m_idxLane ) );
-                        }
-                        messages[i]->Release();
-                    }
+                    DeliverMessages( events, messages, count );
                     if ( count < 64 )
                     {
                         break;
                     }
                 }
-                g_PollEvents = &events;
-                m_Sockets->RunCallbacks();
-                g_PollEvents = nullptr;
             }
 
             void Close( ConnectionId connection, int code, std::string_view reason, bool flush ) override
@@ -253,6 +267,28 @@ namespace Desert::Net
                 return true;
             }
 
+            PeerIdentity Peer( ConnectionId connection ) const override
+            {
+                PeerIdentity     peer;
+                SteamNetConnectionInfo_t info;
+                if ( !m_Sockets->GetConnectionInfo( connection, &info ) )
+                    return peer;
+                char text[SteamNetworkingIdentity::k_cchMaxString];
+                info.m_identityRemote.ToString( text, sizeof( text ) );
+                peer.Identity = text;
+                // GNS sets Unauthenticated when the peer's certificate is unsigned or its chain did not verify
+                // against the trusted CA keys.
+                peer.Authenticated = ( info.m_nFlags & ( k_nSteamNetworkConnectionInfoFlags_Unauthenticated |
+                                                         k_nSteamNetworkConnectionInfoFlags_Unencrypted ) ) == 0;
+                return peer;
+            }
+
+            bool UseMeshCertificate( const std::string& caDirectory, std::string_view identity,
+                                     std::string& error ) override
+            {
+                return InstallMeshCertificate( caDirectory, identity, error );
+            }
+
         private:
             static SteamNetworkingConfigValue_t StatusCallbackOption()
             {
@@ -301,6 +337,17 @@ namespace Desert::Net
                     // must tell the caller why it ended.
                     if ( g_PollEvents )
                     {
+                        // What the peer sent before closing (a Refuse) is delivered before the close.
+                        SteamNetworkingMessage_t* last[64];
+                        for ( ;; )
+                        {
+                            const int count = sockets->ReceiveMessagesOnConnection( connection, last, 64 );
+                            DeliverMessages( *g_PollEvents, last, count );
+                            if ( count < 64 )
+                            {
+                                break;
+                            }
+                        }
                         DisconnectInfo info;
                         info.Code   = change->m_info.m_eEndReason;
                         info.Reason = change->m_info.m_szEndDebug;

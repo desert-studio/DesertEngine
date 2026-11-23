@@ -4,6 +4,18 @@
 // clang-format off
 // NOLINTBEGIN
 
+#include <Engine/Reflection/TypeRegistrar.hpp>
+#include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ContainerAccess.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <type_traits>
+#include <vector>
+
+#include <Water/Public/WaterBodyComponent.hpp>
+#include <Water/Public/WaterZoneComponent.hpp>
 
 namespace Desert::Reflection::Generated
 {
@@ -11,6 +23,29 @@ void RegisterReflection_Water();
 
 void RegisterReflection_Water()
 {
+    using namespace ::Desert::Reflection;
+    {
+        using T = ::Desert::ECS::WaterBodyData;
+        TypeBuilder( "WaterBodyData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "WaterWaves", .Type = FieldType::AssetHandle, .Offset = offsetof( T, WaterWaves ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WaterWaves )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Water Waves", .Category = "Wave", .Tooltip = "The wave set of this body (UE WaterWaves) — drag a .dwaves from the Content Browser. An empty slot is a flat ocean; a set that cannot be read is refused at Play by name.", .IsAsset = true, .AssetType = "WaterWavesAsset", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "OceanExtents", .Type = FieldType::Vec2, .Offset = offsetof( T, OceanExtents ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OceanExtents )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Ocean Extents", .Category = "Water", .Tooltip = "The footprint of the ocean around the entity, X by Z (UE OceanExtents). A point outside it is not in this body.", .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "TargetWaveMaskDepth", .Type = FieldType::Float, .Offset = offsetof( T, TargetWaveMaskDepth ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TargetWaveMaskDepth )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Target Wave Mask Depth", .Category = "Wave", .Tooltip = "Water depth at which the waves reach their full height; shallower water damps them (UE TargetWaveMaskDepth).", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "WaterMaterial", .Type = FieldType::AssetHandle, .Offset = offsetof( T, WaterMaterial ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::WaterMaterial )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Water Material", .Category = "Rendering", .Tooltip = "The look of this body (UE UWaterBodyComponent::WaterMaterial): a .demat of a SingleLayerWater-domain shader - its scattering, absorption, phase and ripple maps. Empty draws no water; a material of another domain is refused by name.", .IsAsset = true, .AssetType = "MaterialAsset", .Summary = true, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::WaterZoneData;
+        TypeBuilder( "WaterZoneData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "ZoneExtent", .Type = FieldType::Vec2, .Offset = offsetof( T, ZoneExtent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ZoneExtent )>(), .TypeName = "glm::vec2", .Meta = PropertyMetadata{ .DisplayName = "Zone Extent", .Category = "Water Mesh", .Tooltip = "The footprint of the zone around the entity, X by Z (UE ZoneExtent). Water bodies are drawn inside it and nowhere else.", .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "TileSize", .Type = FieldType::Float, .Offset = offsetof( T, TileSize ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TileSize )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Tile Size", .Category = "Water Mesh", .Tooltip = "The side of one leaf tile of the water quadtree, the finest LOD (UE TileSize).", .HasRange = true, .RangeMin = 100.0f, .RangeMax = 100000.0f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "TessellationFactor", .Type = FieldType::Int, .Offset = offsetof( T, TessellationFactor ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TessellationFactor )>(), .TypeName = "int32_t", .Meta = PropertyMetadata{ .DisplayName = "Tessellation Factor", .Category = "Water Mesh", .Tooltip = "A leaf tile is a grid of 2^factor quads per side (UE TessellationFactor). Coarser LODs reuse the grid over larger tiles.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 12.0f, } } )
+                    .Field( FieldInfo{ .Name = "LODScale", .Type = FieldType::Float, .Offset = offsetof( T, LODScale ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LODScale )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "LOD Scale", .Category = "Water Mesh", .Tooltip = "How far each LOD reaches, in leaf tiles: LOD L ends 2^(L+1) x LOD Scale x Tile Size from the camera (UE LODScale, at least 0.5).", .HasRange = true, .RangeMin = 0.5f, .RangeMax = 100.0f, } } )
+            .WithDefault<T>()
+            .Register();
+    }
 }
 } // namespace Desert::Reflection::Generated
 // NOLINTEND

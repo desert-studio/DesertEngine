@@ -106,16 +106,18 @@ namespace Common::Utils
 #endif
     }
 
-    uint32_t Crc32c( const void* data, size_t size )
-    {
 #if defined( DESERT_CRC32C_ARM ) || defined( DESERT_CRC32C_X86 )
-        // The instruction folds a machine WORD, so the hardware path agrees with the byte-at-a-time
-        // table only on a little-endian host. Both shipping targets are little-endian and the archive
-        // format pins that anyway (PakFile.cpp, kByteOrderTag); a port that breaks the equality is
-        // told here, at compile time, rather than by a test that fails on one platform only.
-        static_assert( std::endian::native == std::endian::little,
-                       "the hardware CRC32C path assumes little-endian word order" );
-        if ( Crc32cUsesHardware() )
+    namespace
+    {
+        // GCC/clang compile x86-64 for the baseline ISA, which has no CRC32 instruction: the intrinsic
+        // refuses to inline into a function not built for SSE4.2 (Linux server, CI run 45059607330).
+        // The attribute widens only this function; Crc32cUsesHardware() has already checked the CPU.
+        // MSVC emits the intrinsic for any target and has no such attribute.
+#if defined( DESERT_CRC32C_X86 ) && !defined( _MSC_VER )
+        __attribute__( ( target( "sse4.2" ) ) )
+#endif
+        uint32_t
+        Crc32cHardware( const void* data, size_t size )
         {
             const auto* p = static_cast<const unsigned char*>( data );
             uint32_t    c = 0xFFFFFFFFu;
@@ -141,6 +143,20 @@ namespace Common::Utils
             }
             return ~c;
         }
+    } // namespace
+#endif
+
+    uint32_t Crc32c( const void* data, size_t size )
+    {
+#if defined( DESERT_CRC32C_ARM ) || defined( DESERT_CRC32C_X86 )
+        // The instruction folds a machine WORD, so the hardware path agrees with the byte-at-a-time
+        // table only on a little-endian host. Both shipping targets are little-endian and the archive
+        // format pins that anyway (PakFile.cpp, kByteOrderTag); a port that breaks the equality is
+        // told here, at compile time, rather than by a test that fails on one platform only.
+        static_assert( std::endian::native == std::endian::little,
+                       "the hardware CRC32C path assumes little-endian word order" );
+        if ( Crc32cUsesHardware() )
+            return Crc32cHardware( data, size );
 #endif
         return Crc32cPortable( data, size );
     }

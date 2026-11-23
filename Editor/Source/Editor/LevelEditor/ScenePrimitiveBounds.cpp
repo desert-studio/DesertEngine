@@ -1,7 +1,7 @@
 #include "Editor/LevelEditor/ScenePrimitiveBounds.hpp"
 
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -11,12 +11,12 @@
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
-#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <VFX/Public/VFXSystemService.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/SkinnedMeshComponent.hpp>
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <VFX/Public/VFXComponent.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
 namespace Desert::Editor
@@ -151,7 +151,7 @@ namespace Desert::Editor
             const auto& vfx = registry.get<ECS::VFXComponent>( handle );
             if ( ECS::IsHidden( registry, handle ) || static_cast<uint64_t>( vfx.Data.System ) == 0u )
                 continue;
-            const auto resolved = Runtime::ResourceRegistry::GetVFXSystemService()->Get( vfx.Data.System );
+            const auto resolved = Runtime::GetVFXSystemService()->Get( vfx.Data.System );
             if ( !resolved.IsSuccess() )
                 continue;
             if ( !resolved.GetValue() )

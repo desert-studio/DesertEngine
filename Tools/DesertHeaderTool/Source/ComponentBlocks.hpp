@@ -23,6 +23,8 @@ namespace Desert::HeaderTool
         std::string typeName;      // the reflected type's registry name, resolved once every header is parsed
         std::string headerInclude; // include path relative to source root
         std::string where;         // file:line of the marker, for diagnostics
+        std::string repoHeader;    // the header relative to the repository root, for its module
+        std::string module;        // cmake/DesertModuleTable.cmake module: where its registration is emitted
     };
 
     // A REFLECT() type as the resolution sees it.

@@ -18,7 +18,7 @@
 #include <Engine/ECS/LevelSequenceComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
+#include <Engine/ECS/SequencerEffectDrive.hpp>
 
 namespace Desert::ECS
 {
@@ -1345,10 +1345,10 @@ namespace Desert::ECS
                     saved.Loop        = animation->Loop;
                     saved.Playing     = animation->Playing;
                 }
-                if ( const auto* vfx = registry.try_get<VFXComponent>( entity ) )
+                if ( const auto* drive = SequencerEffectDriveOf( registry, entity ) )
                 {
                     saved.HadVFX = true;
-                    saved.Drive  = vfx->SequencerDrive;
+                    saved.Drive  = *drive;
                 }
                 m_Saved.push_back( saved );
             }
@@ -1358,8 +1358,8 @@ namespace Desert::ECS
         // frozen at the last age the track gave it.
         for ( const Saved& saved : m_Saved )
             if ( saved.HadVFX && registry.valid( saved.Entity ) )
-                if ( auto* vfx = registry.try_get<VFXComponent>( saved.Entity ) )
-                    vfx->SequencerDrive = saved.Drive;
+                if ( auto* drive = SequencerEffectDriveOf( registry, saved.Entity ) )
+                    *drive = saved.Drive;
 
         LevelSequencePlayback playback( sequence );
         playback.Asset = asset;
@@ -1397,8 +1397,8 @@ namespace Desert::ECS
         }
         for ( const Saved& saved : m_Saved )
             if ( saved.HadVFX && registry.valid( saved.Entity ) )
-                if ( auto* vfx = registry.try_get<VFXComponent>( saved.Entity ) )
-                    vfx->SequencerDrive = saved.Drive;
+                if ( auto* drive = SequencerEffectDriveOf( registry, saved.Entity ) )
+                    *drive = saved.Drive;
         m_Saved.clear();
         for ( const SavedMaterialParameter& saved : m_SavedMaterials )
             if ( registry.valid( saved.Entity ) && m_Materials )

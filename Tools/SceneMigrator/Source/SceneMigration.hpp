@@ -35,7 +35,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/Serialization/VFXEffectType.hpp>
-#include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <VFX/Public/VFXSystem.hpp>
 #include <glm/glm.hpp>
 
 #include <array>

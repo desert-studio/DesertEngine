@@ -2,7 +2,7 @@
 
 #include "System.hpp"
 #include "SystemRules.hpp"
-#include "FracturePieceDraw.hpp"
+#include <Engine/ECS/System/MeshStandInDraw.hpp>
 #include "LandscapeSplineMeshDraw.hpp"
 #include "SelectionOutlineMask.hpp"
 #include "WindField.hpp"
@@ -37,7 +37,6 @@
 #include <unordered_set>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
-#include <Engine/Runtime/Services/Destruction/FractureService.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/MaterialComponent.hpp>
@@ -115,10 +114,16 @@ namespace Desert::ECS
                  Runtime::ResourceRegistry::GetMaterialService()->GetInvalidationVersion();
 
             /* =========================
-               FRACTURED ENTITIES (DST-06): their pieces go out as static-mesh draws, through the same
-               instanced path below; the entities Record returns do not draw their static mesh.
+               STAND-INS (MeshStandInDraw.hpp; fractured entities, DST-06): their draws go out as static-mesh
+               draws, through the same instanced path below; the entities they return do not draw their mesh.
                ========================= */
-            FracturePieceDraw::Services pieceServices;
+            if ( m_StandIns.size() != MeshStandInDraws().size() )
+            {
+                m_StandIns.clear();
+                for ( const MeshStandInDrawFactory make : MeshStandInDraws() )
+                    m_StandIns.push_back( make() );
+            }
+            IMeshStandInDraw::Services pieceServices;
             pieceServices.SourceSlots = []( const Assets::AssetHandle& meshHandle )
             {
                 // The mesh asset's section materials, by the same per-section rule a component's Null slots
@@ -139,13 +144,9 @@ namespace Desert::ECS
             };
             pieceServices.SlotMaterial = []( const Graphic::MaterialInstance* instance )
             { return CustomSlotMaterial( instance ); };
-            pieceServices.Fracture = []( const Assets::AssetHandle& fracture )
-            {
-                auto read = Runtime::ResourceRegistry::GetFractureService()->Get( fracture );
-                return read.IsSuccess() ? read.GetValue() : std::shared_ptr<const Destruction::FractureData>();
-            };
-            const auto drawnAsPieces =
-                 m_Pieces.Record( registry, renderCommandBuffer, materialsVersion, pieceServices );
+            std::unordered_set<entt::entity> drawnAsPieces;
+            for ( const auto& standIn : m_StandIns )
+                standIn->Record( registry, renderCommandBuffer, materialsVersion, pieceServices, drawnAsPieces );
 
             /* =========================
                LANDSCAPE SPLINE MESHES (L9-MESHES): each segment's meshes, bent along it, as static draws.
@@ -507,8 +508,8 @@ namespace Desert::ECS
             return *palette.Pool.back();
         }
 
-        // The pieces of fractured entities, drawn as static meshes (DST-06).
-        FracturePieceDraw m_Pieces;
+        // The registered stand-in draws (fractured entities' pieces, DST-06), drawn as static meshes.
+        std::vector<std::unique_ptr<IMeshStandInDraw>> m_StandIns;
         // The landscapes' spline meshes, drawn as static meshes (L9-MESHES).
         LandscapeSplineMeshDraw m_SplineMeshes;
 
@@ -1569,7 +1570,7 @@ namespace Desert::ECS
             if ( !mesh.GetRuntimeMesh() && !mesh.GetPrimitive().has_value() && !mesh.GetMeshHandle() )
                 return false;
 
-            // Its pieces stand in for it (FracturePieceDraw).
+            // Its stand-in draws for it (MeshStandInDraw.hpp).
             if ( drawnAsPieces.contains( entity ) )
                 return false;
 

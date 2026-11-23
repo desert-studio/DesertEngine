@@ -43,7 +43,7 @@ namespace Desert::ECS
         // value look right. Scenes authored before units existed stated the same number; it was always lux.
         // As in UE it is the OUTER-SPACE illuminance of the atmosphere sun: the Physical Atmosphere sky
         // scatters exactly this (Graphic::SkySunInputs), and the ground receives it times the transmittance.
-        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 150000.0f ), Summary,
+        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 150000.0f ), Summary, Replicated,
                   Units( "lux" ),
                   Tooltip( "Illuminance in lux on a surface facing the light (UE): ~100000 clear sun, ~1000 "
                            "overcast, ~0.25 full moon. With a Physical Atmosphere sky this also drives the "

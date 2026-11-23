@@ -6,7 +6,7 @@
 // error (a typo never reads as "absent"); a removed component / destroyed entity is an error naming it, never a
 // dangling read; a write of the wrong kind writes nothing and fires nothing.
 
-#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructibleComponent.hpp>
 #include <Engine/Scripting/Luau/LuauRuntime.hpp>
 
 #include <entt/entt.hpp>

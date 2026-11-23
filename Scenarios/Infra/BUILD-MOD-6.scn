@@ -1,0 +1,12 @@
+# BUILD-MOD-6 pass 1: closure-only include roots + the configure-time MODULE BOUNDARY check (cmake/DesertModules.cmake).
+# Every module library's include roots are the legacy root, its own FOLDER and its dependency closure's FOLDERs
+# (desert_module_includes); configure follows every include of every module into the moved modules' FOLDERs and fails,
+# naming both modules, when the target is outside the includer's closure or is another module's Private/ header.
+# boundary_error (outside the editor, DesertEngine-scratch/BUILD-MOD-6/boundary_error_mac.log): an injected
+#   #include <UI/Args/UIEasing.hpp> in Engine/Graphic/RendererAPI.hpp -> configure fails:
+#   "(module RenderCore) includes <UI/Args/UIEasing.hpp> (module DesertUI): module 'RenderCore' does not depend on
+#   module 'DesertUI'". Engine -> Destruction is the same check once Destruction has moved (pass 2, REMAINDER).
+# Regression (here): the Editor built with closure-only roots opens WP_Protocol and draws it as the dev Editor does.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано state
+Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо, разрушаемые объекты сцены на месте; без падения и диалога ошибки; в editor.log нет отказа загрузки

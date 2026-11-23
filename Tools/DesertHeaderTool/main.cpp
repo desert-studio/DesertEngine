@@ -60,6 +60,7 @@
 #include <iostream>
 #include <iterator>
 #include <set>
+#include <tuple>
 #include <stdexcept>
 #include <utility>
 #include <optional>
@@ -123,6 +124,7 @@ namespace
         bool        temperature = false; // PROPERTY(Temperature) — Kelvin slider on a Color field
         bool        preview     = false; // PROPERTY(Preview) — inline asset preview instead of a name button
         bool        saveGame    = false; // PROPERTY(SaveGame) — written to / restored from SaveGame slots
+        bool        replicated  = false; // PROPERTY(Replicated) — network state (NET-ARCH §3.4)
         std::string editCondition;       // PROPERTY(EditCondition("Foo")) — grey out while Foo is false
         std::string refuse; // PROPERTY(Refuse("Ns::Fn")) — the value check every setter applies (FieldInfo::Meta)
     };
@@ -570,6 +572,8 @@ namespace
                 m.preview = true;
             else if ( tok == "SaveGame" )
                 m.saveGame = true;
+            else if ( tok == "Replicated" )
+                m.replicated = true;
             else if ( tok.rfind( "EditCondition", 0 ) == 0 )
                 m.editCondition = ExtractStringLiteral( tok );
             else if ( tok.rfind( "Refuse", 0 ) == 0 )
@@ -1228,6 +1232,7 @@ namespace
         flag( "temperature", m.temperature );
         flag( "preview", m.preview );
         flag( "saveGame", m.saveGame );
+        flag( "replicated", m.replicated );
         text( "editCondition", m.editCondition );
         text( "refuse", m.refuse );
         return b.Build();
@@ -1406,7 +1411,9 @@ namespace
         return Common::MakeSuccess( true );
     }
 
-    Common::Json::Value ComponentsModel( const std::vector<ComponentBlock>& components )
+    // `module`: the module whose rows these are (Components_<Module>.gen.cpp); empty for the whole list.
+    Common::Json::Value ComponentsModel( const std::vector<ComponentBlock>& components,
+                                         const std::string&                 module = {} )
     {
         std::vector<std::string> includes;
         for ( const auto& c : components )
@@ -1428,6 +1435,50 @@ namespace
         return Common::Json::ObjectBuilder()
              .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
              .Set( "components", Common::Json::Value( std::move( rows ) ) )
+             .Set( "module", module )
+             .Build();
+    }
+
+    // The replication layout (ReplicatedFields.gen.cpp.tpl): every PROPERTY(Replicated) field of a component block's
+    // reflected type, named by the block's key, ordered by key then field. A Replicated field of a type no block
+    // carries is not network state of any component, so it is an error rather than a row nobody can address.
+    std::optional<Common::Json::Value> ReplicatedFieldsModel( const std::vector<ComponentBlock>& components,
+                                                              const std::vector<ReflectedType>&  types )
+    {
+        std::vector<std::tuple<std::string, std::string, std::string>> rows;
+        std::set<std::string>                                           carried;
+        for ( const ComponentBlock& c : components )
+        {
+            const auto type = std::find_if( types.begin(), types.end(), [&]( const ReflectedType& t )
+                                            { return t.registryName == c.typeName; } );
+            if ( type == types.end() )
+                continue;
+            carried.insert( type->registryName );
+            for ( const Field& f : type->fields )
+                if ( f.meta.replicated )
+                    rows.emplace_back( c.key, f.name, f.fieldType );
+        }
+        for ( const ReflectedType& t : types )
+            for ( const Field& f : t.fields )
+                if ( f.meta.replicated && !carried.contains( t.registryName ) )
+                {
+                    std::cerr << std::format( "[DesertHeaderTool] {}::{} is PROPERTY(Replicated) but {} is the data "
+                                              "of no COMPONENT block, so no record can carry it\n",
+                                              t.fqn, f.name, t.registryName );
+                    return std::nullopt;
+                }
+        std::sort( rows.begin(), rows.end() );
+        Common::Json::Value::Array values;
+        for ( const auto& [component, field, type] : rows )
+            values.emplace_back( Common::Json::ObjectBuilder()
+                                      .Set( "component", component )
+                                      .Set( "field", field )
+                                      .Set( "type", type )
+                                      .Build() );
+        const std::string count = std::to_string( values.size() );
+        return Common::Json::ObjectBuilder()
+             .Set( "count", count )
+             .Set( "rows", Common::Json::Value( std::move( values ) ) )
              .Build();
     }
 
@@ -1515,6 +1566,7 @@ namespace
 
     constexpr std::string_view kModuleFilePrefix = "Reflection_";
     constexpr std::string_view kModuleFileSuffix = ".gen.cpp";
+    constexpr std::string_view kComponentsFilePrefix = "Components_";
 
     // Renders `entry` with `model` into `output` when its text changed; false on an error, already reported.
     bool Emit( const fs::path& templateDir, std::string_view entry, const Common::Json::Value& model,
@@ -1584,8 +1636,12 @@ namespace
         std::vector<fs::path>       typeRoots; // types[i]'s include root, for its module below
         for ( const auto& [h, root] : headers )
         {
+            const std::size_t firstComponent = components.size();
             ParseFile( h, root->SourceRoot, types, components, enums, errors );
             typeRoots.resize( types.size(), root->SourceRoot );
+            for ( std::size_t c = firstComponent; c < components.size(); ++c )
+                components[c].repoHeader =
+                     fs::relative( root->SourceRoot / components[c].headerInclude, repoRoot ).generic_string();
         }
         std::vector<Desert::HeaderTool::ReflectedTypeName> typeNames;
         typeNames.reserve( types.size() );
@@ -1629,6 +1685,19 @@ namespace
             byModule[t.module].push_back( t );
         }
 
+        // Each COMPONENT to its module the same way: its registration is emitted into that module (BUILD-MOD-5).
+        for ( ComponentBlock& c : components )
+        {
+            c.module = modules == nullptr ? moduleNames.front() : modules->ModuleOf( c.repoHeader );
+            if ( c.module.empty() )
+            {
+                std::cerr << std::format( "[DesertHeaderTool] {}: component {} belongs to no module of the module "
+                                          "table\n",
+                                          c.repoHeader, c.fqn );
+                return 1;
+            }
+        }
+
         const fs::path        outputDir = request.Output.parent_path();
         std::set<std::string> written;
         // EVERY module of the table gets its file, the ones without a reflected type an empty registration: the
@@ -1646,18 +1715,47 @@ namespace
         }
         if ( !Emit( templateDir, "Reflection.gen.cpp.tpl",
                     Common::Json::ObjectBuilder()
-                         .Set( "modules", Common::Json::Value( std::move( listed ) ) )
+                         .Set( "modules", Common::Json::Value( listed ) )
                          .Set( "anchor", request.Anchor )
                          .Build(),
                     request.Output ) )
             return 1;
 
+        // The COMPONENT rows, per module (BUILD-MOD-5): Components_<Module>.gen.cpp registers that module's rows
+        // and includes only its headers; Components.gen.cpp calls every module's in the table's order. Every
+        // module gets its file, as above, so the configure-time glob is fixed by the table.
+        if ( !request.Components.empty() )
+        {
+            for ( const std::string& module : moduleNames )
+            {
+                std::vector<ComponentBlock> own;
+                for ( const ComponentBlock& c : components )
+                    if ( c.module == module )
+                        own.push_back( c );
+                const Common::Json::Value model = ComponentsModel( own, module );
+                const std::string file = std::format( "{}{}{}", kComponentsFilePrefix, module, kModuleFileSuffix );
+                if ( !Emit( templateDir, "ComponentsModule.gen.cpp.tpl", model, outputDir / file ) )
+                    return 1;
+                written.insert( file );
+            }
+            if ( !Emit( templateDir, "Components.gen.cpp.tpl",
+                        Common::Json::ObjectBuilder().Set( "modules", Common::Json::Value( listed ) ).Build(),
+                        outputDir / "Components.gen.cpp" ) )
+                return 1;
+            const std::optional<Common::Json::Value> replicated = ReplicatedFieldsModel( components, types );
+            if ( !replicated ||
+                 !Emit( templateDir, "ReplicatedFields.gen.cpp.tpl", *replicated, outputDir / "ReplicatedFields.gen.cpp" ) )
+                return 1;
+        }
+
         // A module that left the table leaves no file behind for the source glob to compile.
         for ( const auto& entry : fs::directory_iterator( outputDir ) )
         {
             const std::string name = entry.path().filename().string();
-            if ( name.starts_with( kModuleFilePrefix ) && name.ends_with( kModuleFileSuffix ) &&
-                 !written.contains( name ) )
+            const bool        generatedPerModule =
+                 name.starts_with( kModuleFilePrefix ) ||
+                 ( !request.Components.empty() && name.starts_with( kComponentsFilePrefix ) );
+            if ( generatedPerModule && name.ends_with( kModuleFileSuffix ) && !written.contains( name ) )
             {
                 fs::remove( entry.path() );
                 std::cout << std::format(

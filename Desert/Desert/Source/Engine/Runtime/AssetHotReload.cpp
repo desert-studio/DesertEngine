@@ -12,8 +12,7 @@
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/VFXEffectTypeAsset.hpp>
-#include <Engine/Assets/VFXSystemAsset.hpp>
-#include <Engine/Assets/WaterWavesAsset.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/PipelineBuilds.hpp>
@@ -144,11 +143,10 @@ namespace Desert::Runtime
         AppendLoaded<Assets::LandscapeGrassTypeAsset>( assetManager, m_WatchedAssets );
         AppendLoaded<Assets::PrefabAsset>( assetManager, m_WatchedAssets );
         AppendLoaded<Assets::VFXEffectTypeAsset>( assetManager, m_WatchedAssets );
-        // PollVFXSystems reloads these too; a .dfx no probe observed could never read as Changed.
-        AppendLoaded<Assets::VFXSystemAsset>( assetManager, m_WatchedAssets );
-        // WATER-UNDERWATER: a saved .dwaves is Changed here -> ContentRegistry::Update marks it written ->
-        // WaterWavesService re-reads it (WrittenSince) and rebuilds the set's waves without a restart.
-        AppendLoaded<Assets::WaterWavesAsset>( assetManager, m_WatchedAssets );
+        // A feature module's assets (ModuleHooks().HotReloads; the VFX module's `.dfx` systems): its poll reloads
+        // these too, and a file no probe observed could never read as Changed.
+        for ( const Core::HotReloadPoller& poller : Core::ModuleHooks().HotReloads )
+            poller.Watch( assetManager, m_WatchedAssets );
         m_ShaderAssets.clear();
         AppendLoaded<Assets::ShaderAsset>( assetManager, m_ShaderAssets );
     }
@@ -238,7 +236,9 @@ namespace Desert::Runtime
             PollLandscapeGrassTypes( assetManager );
             PollPrefabs( assetManager );
             PollVFXEffectTypes( assetManager );
-            PollVFXSystems( assetManager );
+            for ( const Core::HotReloadPoller& poller : Core::ModuleHooks().HotReloads )
+                poller.Poll( assetManager,
+                             [this]( const std::filesystem::path& path ) { return TouchWatched( path ); } );
         }
         m_ContentWatch.RelistMoved( m_Probe.MovedDirectories );
         m_FirstScan = false;
@@ -479,48 +479,6 @@ namespace Desert::Runtime
             LOG_INFO( "[HotReload] VFX effect type '{}' reloaded - levels (MaxDistance x SpawnCountScale): {}; the "
                       "next VFX tick reads them.",
                       key, levels );
-        }
-    }
-
-    void AssetHotReload::PollVFXSystems( Assets::AssetManager& assetManager )
-    {
-        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::VFXSystemAsset>() )
-        {
-            if ( !asset )
-                continue;
-
-            // Touched before the readiness test, for the prefab's reason.
-            const auto& path    = asset->GetMetadata().Filepath;
-            const bool  changed = TouchWatched( path );
-            if ( !changed || !asset->IsReadyForUse() )
-                continue;
-
-            const std::string key = path.generic_string();
-
-            // UNSAVED EDITS ARE THE ONLY COPY (the `.dfx` window edits this asset in place): the file is not read
-            // over them. The window shows the question - Reload (the file wins) or Keep (the edits win).
-            if ( !asset->IsReloadableFromFile() )
-            {
-                asset->NoteChangedOnDisk();
-                LOG_WARN( "[HotReload] VFX system '{}' changed on disk, unsaved edits kept - its window offers "
-                          "Reload (read the file) or Keep (the next Save overwrites it).",
-                          key );
-                continue;
-            }
-
-            const auto before = asset->Snapshot();
-            if ( const auto reloaded = asset->LoadFromFile(); !reloaded )
-            {
-                LOG_ERROR( "[HotReload] VFX system '{}' could not be re-read (the last good system is kept): {}",
-                           key, reloaded.GetError() );
-                continue;
-            }
-            // The file holds what the asset holds (its own save, a touch): nothing was replaced.
-            if ( asset->Snapshot() == before )
-                continue;
-            LOG_INFO( "[HotReload] VFX system '{}' reloaded - {} emitter(s); every VFXComponent naming it plays "
-                      "the file's version from the next VFX tick.",
-                      key, asset->GetData().Emitters.size() );
         }
     }
 

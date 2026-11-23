@@ -967,29 +967,26 @@ namespace Desert::Graphic
         // A scene capture (ViewProfile::SceneCapture: a reflection capture's face view) keeps the 'off' pair: its
         // cube lives for many frames, and one instant of the moving pattern frozen into it would light the
         // captured floor with lines that no longer follow the waves. So does a view without the system (it
-        // registers with the water, SceneRenderer.cpp) or with Effects.WaterCaustics 0 - the latter imports
+        // is the water module's, SingleLayerWaterPass.hpp) or with Effects.WaterCaustics 0 - the latter imports
         // nothing, so its graph is the graph without caustics.
-        System::WaterCaustics* const system = m_Systems.WaterCaustics.get();
-        if ( m_ViewProfile.SceneCapture || system == nullptr || !system->IsEnabled() )
+        System::ISingleLayerWaterPass* const water = m_Systems.Water.get();
+        if ( m_ViewProfile.SceneCapture || water == nullptr || !water->CausticsEnabled() )
             return;
-        const FrameGraphRefs                 refs = textures.GraphRefs();
-        System::WaterCaustics::FrameInputs   caustics{ .SunTravel   = glm::vec3( GetFrameSun().Direction ),
-                                                       .Camera      = frame.CameraPosition,
-                                                       .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
-                                                       .Black       = refs.System.Black };
-        if ( const auto* water = m_Systems.Water.get(); water != nullptr )
+        const FrameGraphRefs                         refs = textures.GraphRefs();
+        System::ISingleLayerWaterPass::CausticsInputs caustics{ .SunTravel = glm::vec3( GetFrameSun().Direction ),
+                                                                .Camera    = frame.CameraPosition,
+                                                                .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
+                                                                .Black       = refs.System.Black };
+        if ( water->FrameHasWaves() )
         {
-            caustics.Waves  = water->GetFrameWavesBlock();
-            caustics.Bodies        = water->GetFrameBodies();
-            caustics.BodyWaveLanes = water->GetFrameBodyWaveLanes();
-            if ( !caustics.Waves.empty() && water->GetWaterInfo() != nullptr )
+            if ( water->GetWaterInfo() != nullptr )
                 caustics.WaterInfo =
                      textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
             // The FFT ocean's atlas the surface draws with (recorded once per graph; black without an FFT set).
-            if ( !caustics.Waves.empty() )
-                caustics.FFTWaves = FrameWaterWaves( graph, textures );
+            caustics.FFTWaves = FrameWaterWaves( graph, textures );
         }
-        const std::optional<System::WaterCausticsFrame> made = system->AddPasses( graph, caustics );
+        const std::optional<System::ISingleLayerWaterPass::CausticsFrame> made =
+             water->AddCausticsPasses( graph, caustics );
         if ( made.has_value() )
         {
             textures.Transients.WaterCausticsMap   = made->Map;

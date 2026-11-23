@@ -8,7 +8,7 @@
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/AudioSourceComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
-#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/LevelSequenceComponent.hpp>
 #include <Engine/ECS/MaterialComponent.hpp>
@@ -26,7 +26,6 @@
 #include <Engine/UI/Ecs/UIImageComponent.hpp>
 #include <Engine/UI/Ecs/UIPanelComponent.hpp>
 #include <Engine/UI/Ecs/UITextComponent2D.hpp>
-#include <Engine/VFX/VFXComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
@@ -141,16 +140,10 @@ namespace Desert::Core
         // reachable only through `RetargetAsset`'s own dependency, exactly as a `.skeleton` is reachable
         // only through the `.skmesh` that names it, so dropping the retarget drops the rig behind it and
         // nothing can bring either back.
-        // A VFX system is named only by the entities that play it: without this row the eviction sweep drops
-        // the `.dfx` under a live entity and VFXWorld finds a handle the manager no longer has.
-        for ( const auto entity : registry.view<ECS::VFXComponent>() )
-            roots.Mark( registry.get<ECS::VFXComponent>( entity ).Data.System, "an entity plays it" );
-        // A `.dfrac` is named only by the destructibles built from it: without this row the sweep after the scene
-        // load unloads it under FractureService, and Play finds a fracture with no nodes (UE: the component's
-        // RestCollection is a hard reference).
-        for ( const auto entity : registry.view<ECS::DestructibleComponent>() )
-            roots.Mark( registry.get<ECS::DestructibleComponent>( entity ).Data.Fracture,
-                        "a destructible is simulated from it" );
+        // The feature modules' components name assets of their own (a destructible's `.dfrac`): each module marks
+        // them (ModuleHooks.hpp, AssetRootWalker).
+        for ( const Core::AssetRootWalker walk : Core::ModuleHooks().AssetRoots )
+            walk( registry, roots );
         // A foliage entity names its type; the paint brush reads the numbers from it.
         for ( const auto entity : registry.view<ECS::FoliageComponent>() )
             roots.Mark( registry.get<ECS::FoliageComponent>( entity ).FoliageType,

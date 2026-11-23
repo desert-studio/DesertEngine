@@ -276,6 +276,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // measurement would include a few frames of the other configuration.
     Desert::Editor::ShotOptions::Get()                               = options.Shot;
     Desert::Editor::BuilderRunOptions::Get()                         = options.Builder;
+    Desert::Core::ClientNetOptions::Launch()                         = options.NetClient;
     Desert::Editor::Control::ControlChannelOptions::Get().SocketPath = options.ControlSocket;
     Desert::Graphic::SetViewBudgetOverrideMiB( options.ViewBudgetMiB );
     Desert::Graphic::RenderConfig::CloudVisualize = options.CloudVisualize;

@@ -1,0 +1,12 @@
+# BUILD-MOD-5: per-module component registration. DesertHeaderTool emits RegisterComponents_<Module>() into
+# Engine/Generated/Components_<Module>.gen.cpp (only that module's component headers), Components.gen.cpp calls them
+# in module-table order; ComponentRegistry.cpp is the registry type + load order (hand-written serializers by
+# subject in *ComponentSerializers.cpp, the resolver in AssetResolver.cpp). ECS::ReflectedComponents, SaveGame and
+# Scene::PrepareComponentPools read the rows at run time instead of including every component header.
+# fanout_registration (outside the editor, after the Debug build):
+#   scripts/Dev/header_fanout.sh --objects Engine/ECS/DestructibleComponent.hpp  -> <= 15 objects, 0 Engine.
+# details_destructible (here): the destructible crate still loads its Destructible block (registered by the
+# Destruction module now) and Details shows the component with its properties.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/DST_RuntimeWitness.desce
+Дано select 4101
+Тогда 0_details_destructible окно целиком: выбран CrateOnLoadA, в Details компонент Destructible со свойствами (Fracture, порог/урон и т. п.); ящик во вьюпорте; нет диалога ошибки

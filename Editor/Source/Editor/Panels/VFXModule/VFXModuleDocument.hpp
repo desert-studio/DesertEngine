@@ -5,7 +5,7 @@
 
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
 #include <Engine/Assets/AssetMetadata.hpp>
-#include <Engine/VFX/VFXModuleFormat.hpp>
+#include <VFX/Public/VFXModuleFormat.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

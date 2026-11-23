@@ -59,7 +59,11 @@ set(_sources
     common/crypto.cpp
     common/crypto_textencode.cpp
     common/keypair.cpp)
-set(_defines VALVE_CRYPTO_ENABLE_25519 GOOGLE_PROTOBUF_NO_RTTI STEAMNETWORKINGSOCKETS_FOREXPORT ENABLE_OPENSSLCONNECTION)
+# STEAMNETWORKINGSOCKETS_ALLOW_DYNAMIC_SELFSIGNED_CERTS: the certificate store trusts a self-signed root added at run
+# time - the mesh CA (Desert/Net MeshCertificates.cpp) - instead of only Valve's hardcoded Steam root, which our own
+# servers have no certificates from. Only that file adds roots; client connections stay as they were.
+set(_defines VALVE_CRYPTO_ENABLE_25519 GOOGLE_PROTOBUF_NO_RTTI STEAMNETWORKINGSOCKETS_FOREXPORT ENABLE_OPENSSLCONNECTION
+    STEAMNETWORKINGSOCKETS_ALLOW_DYNAMIC_SELFSIGNED_CERTS)
 if(DESERT_IS_WINDOWS)
     list(APPEND _sources
         common/crypto_bcrypt.cpp
@@ -113,3 +117,8 @@ else()
     find_package(Threads REQUIRED)
     target_link_libraries(GameNetworkingSockets PUBLIC OpenSSL::Crypto Threads::Threads)
 endif()
+
+# GNS's private headers and defines, for the one engine file that builds GNS certificates (Desert/Net
+# MeshCertificates.cpp: the mesh CA of NET-ARCH §2M.2 uses GNS's own certificate store and Ed25519 keys).
+set(DESERT_GNS_PRIVATE_INCLUDES "${_src}" "${_src}/common" "${_src}/public" "${_gen}" CACHE INTERNAL "")
+set(DESERT_GNS_PRIVATE_DEFINES ${_defines} CACHE INTERNAL "")

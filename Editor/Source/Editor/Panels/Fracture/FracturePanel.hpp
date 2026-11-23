@@ -2,7 +2,7 @@
 
 #include <Editor/Core/IPanel.hpp>
 
-#include <Engine/Destruction/FractureEdit.hpp>
+#include <Destruction/Public/FractureEdit.hpp>
 
 #include <memory>
 

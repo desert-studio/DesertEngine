@@ -7,9 +7,9 @@
 //   * DestructionEvents.hpp NameBreakEvents — drop the `!= Break` filter          (RemovedAndUnownedNameNothing)
 //   * DestructibleLifetime.cpp PublishEvents — drop `queue.Breaks.clear()`        (BreakIsNamedByItsEntity)
 
-#include <Engine/Destruction/DestructionWorld.hpp>
-#include <Engine/ECS/DestructionEvents.hpp>
-#include <Engine/ECS/System/DestructibleLifetime.hpp>
+#include <Destruction/Public/DestructionWorld.hpp>
+#include <Destruction/Public/DestructionEvents.hpp>
+#include <Destruction/Public/DestructibleLifetime.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
@@ -19,7 +19,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
-#include <Engine/ECS/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructibleComponent.hpp>
 
 using namespace Desert;
 using namespace Desert::Destruction;

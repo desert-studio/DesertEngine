@@ -2,7 +2,7 @@
 // ParticleRenderer allocates) and the free / alive list contract the ParticleCompact and ParticleSimulate passes
 // keep (ParticlePoolLists). Red when a range overlaps another, a released range is not reused or coalesced, a
 // compact loses or duplicates an index, or a spawn takes an index that is alive.
-#include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
+#include <VFX/Public/ParticlePool.hpp>
 
 #include <gtest/gtest.h>
 

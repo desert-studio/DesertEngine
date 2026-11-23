@@ -21,7 +21,8 @@
 namespace Desert::Net
 {
     // Bumped by every change to any message the protocol carries.
-    inline constexpr std::uint32_t kProtocolVersion = 2; // 2: the connect token in the Hello
+    inline constexpr std::uint32_t kProtocolVersion =
+         3; // 2: the connect token in the Hello; 3: the pawn in the Welcome
     // "DSNT": a Hello from something that is not our client is refused before its fields are read.
     inline constexpr std::uint32_t kHelloMagic = 0x544E5344u;
 
@@ -56,7 +57,11 @@ namespace Desert::Net
     };
 
     std::vector<std::byte> EncodeHello( const HelloMessage& hello );
-    std::vector<std::byte> EncodeWelcome( std::uint64_t cookHash );
+    // The Welcome names the pawn this server's GameMode spawns for every player (UE: AGameModeBase
+    // DefaultPawnClass, replicated as the pawn actor's class): the asset handle of its prefab, the same number on
+    // every machine (Common::AssetHandle::FromKey of the prefab's stable key). The level a client has open need
+    // not name a pawn at all.
+    std::vector<std::byte> EncodeWelcome( std::uint64_t cookHash, std::uint64_t pawnPrefab );
     std::vector<std::byte> EncodeRefuse( ERefuseReason reason );
 
     // What a server admits: its cook, its id in the tokens, the secret its tokens are signed with, and the time.
@@ -90,6 +95,7 @@ namespace Desert::Net
         EKind         Kind           = EKind::Malformed;
         ERefuseReason Reason         = ERefuseReason::NotAHello; // meaningful for Refuse
         std::uint64_t ServerCookHash = 0;                        // meaningful for Welcome
+        std::uint64_t PawnPrefab     = 0;                        // meaningful for Welcome, never 0 there
     };
     HandshakeAnswer DecodeAnswer( std::span<const std::byte> message );
 } // namespace Desert::Net

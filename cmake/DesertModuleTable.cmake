@@ -55,8 +55,12 @@ desert_module(Renderer DEPS Engine UE "Renderer")
 desert_module(Media DEPS Engine Audio UE "MediaAssets")
 desert_module(Landscape DEPS Engine UE "Landscape")
 desert_module(Destruction DEPS Engine UE "GeometryCollectionEngine" REFLECTED)
-desert_module(VFX DEPS Engine UE "Niagara" REFLECTED)
-desert_module(Water DEPS Engine UE "Water")
+# Water privately needs the Renderer as UE's Water plugin does: its single layer water pass implements the
+# Renderer's ISingleLayerWaterPass (Graphic/Systems/Scene/SingleLayerWaterPass.hpp), and its bodies stand on the landscape.
+desert_module(Water DEPS Engine Landscape Renderer UE "Water" REFLECTED)
+# VFX privately needs the Renderer as Niagara does: its particle renderer implements the Renderer's ISceneFXSystem
+# (UE FFXSystemInterface, Graphic/Systems/Scene/SceneFXSystem.hpp).
+desert_module(VFX DEPS Engine Renderer UE "Niagara" REFLECTED)
 desert_module(Hair DEPS Engine UE "HairStrands")
 # L7
 desert_module(Foliage DEPS Landscape UE "Foliage" REFLECTED)
@@ -68,12 +72,14 @@ desert_module(ScriptLuau DEPS Scripting UE "ScriptPlugin")
 
 # Core first: its files sit in directories whose catch-all rows below place them in Engine, Landscape, Foliage or
 # ScriptLuau. A file joins Core by name here (and the RENDER_FREE check then holds it to that).
-desert_placement(Core [[Engine/Core/Serialize/(CookedWorld|WorldCells|WorldCellLoader|WorldPartitionResidencyExecutor|SceneDependencies|SceneFormat|PrefabExpansion|EntityDescriptorIndex|EntityReferenceRemap|ExternalEntities|ForeignKeys)\.|Engine/Assets/Prefab/(PackedPrefab|PrefabFormat|PrefabOverrides)\.|Engine/Assets/Serialization/FoliageType\.|Engine/Scripting/ScriptSchema\.|Engine/Scripting/Luau/(LuauScriptSchema|LuauScriptSource|LuauRuntime|LuauBinder|LuauDebugger|LuauProperties)\.|Engine/ECS/ReflectedComponents\.|Engine/World/Landscape/(LandscapeBrush|LandscapeData|LandscapeEditCache|LandscapeEditLayers|LandscapeEditLayerStack|LandscapeLayout|LandscapePaint|LandscapeSplines)\.]])
+desert_placement(Core [[Engine/Core/Serialize/(ComponentRegistry|WorldPartitionRules|CookedWorld|WorldCells|WorldCellLoader|WorldPartitionResidencyExecutor|SceneDependencies|SceneFormat|PrefabExpansion|EntityDescriptorIndex|EntityReferenceRemap|ExternalEntities|ForeignKeys)\.|Engine/Assets/Prefab/(PackedPrefab|PrefabFormat|PrefabOverrides)\.|Engine/Assets/Serialization/FoliageType\.|Engine/Scripting/ScriptSchema\.|Engine/Scripting/Luau/(LuauScriptSchema|LuauScriptSource|LuauRuntime|LuauBinder|LuauDebugger|LuauProperties)\.|Engine/ECS/ReflectedComponents\.|Engine/World/Landscape/(LandscapeBrush|LandscapeData|LandscapeEditCache|LandscapeEditLayers|LandscapeEditLayerStack|LandscapeLayout|LandscapePaint|LandscapeSplines)\.]])
 # UI-FW-4 moved Render2DCore and DesertUI into their Folders (and CoreReflection's macros into its own);
 # what stays behind is the UMG-side adapter of the engine, Engine/UI/Ecs/, which the catch-all also places.
 desert_placement(Engine [[Engine/UI/Ecs/]])
 # leaves
-desert_placement(CoreReflection [[Engine/Reflection/]])
+# The replication layout DesertHeaderTool emits (Engine/Reflection/ReplicatedFields.hpp): names only, so the
+# dedicated server, which links no component header, knows which fields it may replicate.
+desert_placement(CoreReflection [[Engine/Reflection/|Engine/Generated/ReplicatedFields\.gen\.cpp$]])
 desert_placement(ImageCore [[Engine/Core/(Formats|IO)/]])
 desert_placement(ApplicationCore [[Engine/Core/(Window|WindowCloseGate|Input|Glfw|GlfwVulkan)\.|^Platform/]])
 # the asset framework (CoreUObject package loading + AssetRegistry)
@@ -82,7 +88,9 @@ desert_placement(Localization [[Engine/Localization/|Engine/Assets/StringTable(A
 # geometry / animation runtime cores
 desert_placement(Engine [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]])
 desert_placement(GeometryCore [[Engine/Geometry/]])
-desert_placement(Engine [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSerialization\.|Timeline/SequenceFormat\.|Modular/)]])
+# Timeline/Hosts maps the UI's easing onto the Timeline's: the UI-side adapter, so Engine's (DesertUI is not in
+# AnimationCore's closure; MODULE BOUNDARY)
+desert_placement(Engine [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSerialization\.|Timeline/SequenceFormat\.|Timeline/Hosts\.|Modular/)]])
 desert_placement(AnimationCore [[Engine/Animation/]])
 # RHI + RDG
 desert_placement(ShaderCompiler [[Engine/Core/ShaderCompiler/]])
@@ -100,9 +108,6 @@ desert_placement(Media [[Engine/Media/]])
 # feature modules over Engine (UE plugins own their assets, services, components and systems)
 desert_placement(Landscape [[Engine/World/Landscape/|Engine/Assets/(LandscapeLayerInfoAsset|Serialization/LandscapeLayerInfo)\.|Engine/Runtime/Services/Landscape/|Engine/ECS/(System/Landscape\w*|LandscapeRootOf|LandscapeLayerRules)\.]])
 desert_placement(Foliage [[Engine/World/Foliage/|Engine/Assets/(FoliageTypeAsset|Serialization/FoliageType)\.|Engine/Runtime/Services/Foliage/|Engine/ECS/ProceduralFoliageComponent\.]])
-desert_placement(Destruction [[Engine/Destruction/|Engine/Assets/FractureAsset\.|Engine/Runtime/Services/Destruction/|Engine/ECS/(DestructibleComponent|System/Destructible\w*|System/DestructionFields)\.]])
-desert_placement(VFX [[Engine/VFX/|Engine/Assets/(VFXSystemAsset|VFXModuleAsset|Serialization/VFXSystem)\.]])
-desert_placement(Water [[Engine/Water/|Engine/Assets/(WaterWavesAsset|Serialization/WaterWaves)\.]])
 desert_placement(Hair [[Engine/Hair/]])
 desert_placement(ScriptLuau [[Engine/Scripting/Luau/]])
 desert_placement(Scripting [[Engine/Scripting/]])

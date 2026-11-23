@@ -148,7 +148,11 @@ namespace Desert::Editor
         {
             if ( m_Workspace.ActiveScene()->GetActiveCamera() )
             {
-                m_Workspace.ActiveScene()->PinActiveCamera( m_Workspace.ActiveScene()->GetActiveCamera() );
+                // --shot-player-view: the frame IS the player's view (UE's PIE viewport looks through the
+                // player controller's view target), so nothing is pinned and Play picks the view as it would for
+                // a person - the pawn's camera once a pawn is possessed.
+                if ( !shot.PlayerView )
+                    m_Workspace.ActiveScene()->PinActiveCamera( m_Workspace.ActiveScene()->GetActiveCamera() );
                 if ( shot.FlightRoute.has_value() )
                 {
                     // A ZERO AVERAGING WINDOW makes the profiler publish every frame, so the numbers read

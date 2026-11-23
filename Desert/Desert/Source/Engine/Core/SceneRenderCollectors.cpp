@@ -1,5 +1,6 @@
 #include <Engine/Core/SceneRenderCollectors.hpp>
 
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
 
 #include <Engine/ECS/System/DecalECSSystem.hpp>
@@ -13,7 +14,6 @@
 #include <Engine/ECS/System/TextECSSystem.hpp>
 #include <Engine/ECS/System/TimeOfDayECSSystem.hpp>
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
-#include <Engine/ECS/System/WaterZoneECSSystem.hpp>
 
 namespace Desert::Core
 {
@@ -33,8 +33,9 @@ namespace Desert::Core
         scene.AddSystem<ECS::VolumetricCloudECSSystem>();
         // The tiles' GPU copies are the scene's ledger rows (Scene::GetLedgerInstance).
         scene.AddSystem<ECS::LandscapeECSSystem>( scene.GetLedgerInstance() );
-        // The water zones and the bodies inside them (WATER-W6): one command per zone.
-        scene.AddSystem<ECS::WaterZoneECSSystem>();
+        // The feature modules' collectors (Water: one command per water zone, WATER-W6), after the landscape's.
+        for ( const RenderCollectorAdder add : ModuleHooks().RenderCollectors )
+            add( scene );
         scene.AddSystem<ECS::PointLightECSSystem>();
         scene.AddSystem<ECS::SpotLightECSSystem>();
         scene.AddSystem<ECS::RectLightECSSystem>();

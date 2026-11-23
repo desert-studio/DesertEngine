@@ -1,6 +1,6 @@
 #include "VFXCurveInputEditor.hpp"
 
-#include <Engine/VFX/VFXCurveLUT.hpp>
+#include <VFX/Public/VFXCurveLUT.hpp>
 
 #include <ImGui/imgui.h>
 

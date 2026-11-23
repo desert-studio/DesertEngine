@@ -4,10 +4,12 @@
 //
 // A block in this list is written by Reflection::SerializeReflected over one reflected struct and read back by
 // Reflection::DeserializeReflected into it, with nothing else in between. That makes its canonical text a
-// function of the struct alone, which three places need:
+// function of the struct alone, which these places need:
 //
-//   * ComponentRegistry registers a serializer per row (MakeReflected / MakeReflectedSelf), run by run;
-//   * ECS::ReflectedComponents maps a component key to its reflected type for scripts;
+//   * the ENGINE does not include this list (BUILD-MOD-5): the same marker also generates one
+//     RegisterComponents_<Module>() per module (Engine/Generated/Components_<Module>.gen.cpp), which hands its
+//     rows to ComponentRegistration.hpp -- ComponentRegistry, ECS::ReflectedComponents and SaveGame read those,
+//     so a field added to a module's component recompiles that module's file, not the engine;
 //   * Tools/SceneMigrator rewrites every such block in the corpus into the saver's bytes (CanonicaliseScene),
 //     so a scene saved with no edit is byte-identical to its file.
 //
@@ -25,43 +27,7 @@
 // ComponentRegistry::InFileOrder), whatever order the serializers were registered in. The run a row names is
 // LOAD order only: where among the hand-written serializers the row is registered, and so read.
 
-namespace Desert::Core::Serialize
-{
-    // Where a run is registered among the hand-written serializers (see ORDER IS NOT FORMAT above: load order
-    // only).
-    enum class ReflectedBlockRun
-    {
-        ActorsAndUI,          // after the animation handlers, before UIRenderTexture
-        UIAfterRenderTexture, // after UIRenderTexture, before CubeGridBlockout
-        Landscape,            // between the Landscape root and its tiles
-        SkyAndAtmosphere      // after the tiles, before Script
-    };
-
-    // A block that is one reflected `TData` member of `TComponent`.
-    template <class TComponent, class TData>
-    struct ReflectedMemberBlock
-    {
-        using Component = TComponent;
-        using Data      = TData;
-
-        const char* Key;      // the block's key in a record
-        const char* TypeName; // the reflected type, as ReflectionRegistry names it
-        TData TComponent::*Member;
-        ReflectedBlockRun  Run;
-    };
-
-    // A block that is the WHOLE reflected component (Skybox).
-    template <class TComponent>
-    struct ReflectedWholeBlock
-    {
-        using Component = TComponent;
-        using Data      = TComponent;
-
-        const char*       Key;
-        const char*       TypeName;
-        ReflectedBlockRun Run;
-    };
-} // namespace Desert::Core::Serialize
+#include <Engine/Core/Serialize/ReflectedComponentRows.hpp>
 
 // THE ROWS: generated from the COMPONENT(...) marker on each component struct (ReflectionMacros.hpp).
 #include <Engine/Generated/ReflectedComponentBlocks.gen.hpp>

@@ -6,9 +6,9 @@
 
 #include "TestSupport/source_roots.hpp"
 #include <Common/Core/DevInstruments.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleGpuLayout.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticlePool.hpp>
-#include <Engine/Graphic/Systems/Scene/Particles/ParticleSortGraph.hpp>
+#include <VFX/Public/ParticleGpuLayout.hpp>
+#include <VFX/Public/ParticlePool.hpp>
+#include <VFX/Public/ParticleSortGraph.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGExtensionPoint.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
