@@ -1615,9 +1615,30 @@ namespace Desert::Graphic::System
         void UpdateRainOcclusion();
         [[nodiscard]] std::optional<SystemRasterPass> RainOcclusionPass();
         // The FAR CASCADE passes ("MeshShadowFar<slot>"): one per directional-shadow slot whose far layer
-        // (FarShadowLayer) must be redrawn this frame (m_FarShadow[slot].Redraw), its static casters into
-        // @p maps, the cascade array of AcquireCascadeMaps. None when every far layer still holds its content.
-        [[nodiscard]] std::vector<SystemRasterPass> FarShadowPasses( RDG::TextureRef maps );
+        // (FarShadowLayer) must be drawn this frame (m_FarShadow[slot].Redraw), its static casters into @p maps,
+        // the cascade array of AcquireCascadeMaps. None when every far layer still holds its content.
+        //   RedrawPasses - a layer whose sun, bias, depth placement or content changed: CLEARED, drawn whole;
+        //   Scrolls      - a layer whose map only recentred by whole texels while its old box still holds what it
+        //                  was drawn with (UE's CSM scrolling, as the cascades' PlanCascadeCache): the layer is
+        //                  copied out ("<name>.ToScratch", a graph scratch of the map's size and format) and back
+        //                  in shifted ("<name>.Scroll", ScrollGraphDepthIntoLayer: the rest at the far plane);
+        //   ScrollPasses - then LOADS the layer and draws only the static casters reaching the strips the shift
+        //                  uncovered, each under its strip's scissor (FarShadowState::Strips / StripRects).
+        struct FarShadowScroll
+        {
+            uint32_t                   Layer   = 0;
+            glm::ivec2                 Shift   = glm::ivec2( 0 ); // destination texel = source texel + Shift
+            uint32_t                   MapSize = 0;
+            Core::Formats::ImageFormat Format  = Core::Formats::ImageFormat::RGBA8F;
+            std::string                Name;
+        };
+        struct FarShadowFrame
+        {
+            std::vector<SystemRasterPass> RedrawPasses;
+            std::vector<FarShadowScroll>  Scrolls;
+            std::vector<SystemRasterPass> ScrollPasses;
+        };
+        [[nodiscard]] FarShadowFrame                  FarShadowPasses( RDG::TextureRef maps );
         [[nodiscard]] std::shared_ptr<Image2D>        GetRainOcclusionImage() const
         {
             return m_RainOcclusionFB && m_RainOcclusionBox ? m_RainOcclusionFB->GetDepthAttachmentImage()
@@ -3770,6 +3791,21 @@ namespace Desert::Graphic::System
             // Why the last plan could not key the layer (a CascadeMovers::Unkeyed reason or a caster's), null when
             // it could: PlanCascadeCache logs a new reason once, not every frame it persists.
             const char* Unkeyed = nullptr;
+            // WHERE THE LAYER'S DEPTH LIES (FarShadowPasses sets both when it draws a keyed layer): the texel the
+            // drawn map's centre was snapped to and the caster matrix it was drawn with. Unset = never drawn, or
+            // drawn unkeyed: nothing to scroll.
+            std::optional<glm::ivec2> DrawnTexelOrigin;
+            glm::mat4                 DrawnCasterVP{ 1.0f };
+            // This frame the layer SCROLLS (PlanCascadeCache; UE's CSM scrolling, the cascades' CascadeCacheState
+            // rule): its map recentred by whole texels (Shift, framebuffer axes, CascadePlacement::ShiftTo's sign)
+            // and every other part of its key stood, and the old box (DrawnTexelOrigin, DrawnCasterVP) still holds
+            // the content the Key was drawn with. The layer is shifted and only the strips the shift uncovered are
+            // drawn (CascadeScrollStrips: their caster matrices for the cull, their texels for the scissor).
+            bool       Scroll = false;
+            glm::ivec2 Shift{ 0 };
+            uint32_t   StripCount = 0;
+            glm::mat4  Strips[2]{ glm::mat4( 1.0f ), glm::mat4( 1.0f ) };
+            glm::uvec4 StripRects[2]{ glm::uvec4( 0u ), glm::uvec4( 0u ) };
         };
         FarShadowState                                                 m_FarShadow[kDirectionalShadowSlots];
         MeshRendererDetail::MeshDrawList                               m_FarShadowDraws[kDirectionalShadowSlots];
