@@ -9,7 +9,9 @@
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingsockets.h>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <atomic>
 #include <cstring>
 #include <format>
@@ -32,14 +34,25 @@ namespace Desert::Net
         // Hands received messages to the events and releases them (the library owns them until Release).
         void DeliverMessages( INetTransportEvents& events, SteamNetworkingMessage_t* const* messages, int count )
         {
+            if ( count <= 0 )
+            {
+                return;
+            }
+            // m_usecTimeReceived is on GNS's own clock, stamped by its service thread when the packet completed
+            // the message; both clocks are read once here to carry that moment onto NetClock.
+            const NetClock::time_point        nowLocal = NetClock::now();
+            const SteamNetworkingMicroseconds nowGns   = SteamNetworkingUtils()->GetLocalTimestamp();
             for ( int i = 0; i < count; ++i )
             {
+                const auto received = nowLocal - std::chrono::microseconds( std::max<SteamNetworkingMicroseconds>(
+                                                      0, nowGns - messages[i]->m_usecTimeReceived ) );
                 // The peer chooses its own lane count: a lane we do not have is not our protocol.
                 if ( messages[i]->m_idxLane < kNetLaneCount )
                 {
                     events.OnMessage( messages[i]->m_conn, static_cast<ENetLane>( messages[i]->m_idxLane ),
                                       std::span( static_cast<const std::byte*>( messages[i]->m_pData ),
-                                                 static_cast<std::size_t>( messages[i]->m_cbSize ) ) );
+                                                 static_cast<std::size_t>( messages[i]->m_cbSize ) ),
+                                      received );
                 }
                 else if ( g_LogSink )
                 {

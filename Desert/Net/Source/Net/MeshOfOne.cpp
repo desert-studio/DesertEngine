@@ -275,7 +275,8 @@ namespace Desert::Net
             m_Sim->PlayerJoined( peer.Player, verdict.Token.Account );
     }
 
-    void Gateway::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data )
+    void Gateway::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                             NetClock::time_point )
     {
         const auto it = m_Peers.find( connection );
         if ( it == m_Peers.end() )

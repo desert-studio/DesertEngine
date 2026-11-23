@@ -53,7 +53,8 @@ namespace Desert::Net
 
         void OnConnected( ConnectionId connection, std::string_view address ) override;
         void OnClosed( ConnectionId connection, const DisconnectInfo& info ) override;
-        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) override;
+        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                        NetClock::time_point received ) override;
 
         [[nodiscard]] EState State() const
         {
@@ -124,10 +125,10 @@ namespace Desert::Net
         static constexpr double kJitterWindowSeconds = 2.0;
 
     private:
-        using Clock = std::chrono::steady_clock;
+        using Clock = NetClock;
         [[nodiscard]] double RenderServerSeconds() const;
         [[nodiscard]] double LocalSeconds() const;
-        void                 MeasureArrival( double serverSeconds );
+        void                 MeasureArrival( double serverSeconds, NetClock::time_point received );
         void                 AdvanceRenderClock();
 
         INetTransport&               m_Transport;
@@ -153,10 +154,12 @@ namespace Desert::Net
         // NET-5: the render clock (Overwatch-style adaptive interpolation). Every snapshot's transit offset (local
         // arrival - server time) over the jitter window; the fastest one maps the server clock to local time, the
         // spread above it is the jitter the delay covers. The render clock runs at local rate dilated by at most
-        // kClockDilation towards (estimated server clock - delay), so a changing delay or a jittered estimate never
-        // jumps the pawns; it snaps only on an error above kClockSnapSeconds (a new session, a long stall).
+        // kClockDilation towards (estimated server clock - delay), so a changing delay or a jittered estimate
+        // never jumps the pawns; it snaps only on a teleport-sized error above kClockSnapSeconds (a new session, a
+        // server clock jump). Arrivals are timed at the transport's receive, so a client frame stall moves
+        // neither.
         static constexpr double kClockDilation   = 0.1;
-        static constexpr double kClockSnapSeconds = 0.5;
+        static constexpr double                  kClockSnapSeconds = 2.0;
         Clock::time_point                        m_Epoch = Clock::now();
         std::deque<std::pair<double, double>>    m_Arrivals; // (local seconds, local - server seconds)
         double                                   m_FastestOffset = 0.0, m_Jitter = 0.0;

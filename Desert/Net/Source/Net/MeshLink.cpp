@@ -614,12 +614,13 @@ namespace Desert::Net
             m_Handler.PeerLost( link.Role, link.Index, connection );
     }
 
-    void MeshEndpoint::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data )
+    void MeshEndpoint::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                                  NetClock::time_point received )
     {
         if ( m_ClientConnections.contains( connection ) )
         {
             if ( m_Clients )
-                m_Clients->OnMessage( connection, lane, data );
+                m_Clients->OnMessage( connection, lane, data, received );
             return;
         }
         const auto it = m_Links.find( connection );

@@ -402,7 +402,8 @@ namespace
             m_Peers.erase( it );
         }
 
-        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) override
+        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                        NetClock::time_point ) override
         {
             Peer& peer = m_Peers[connection];
             if ( data.empty() )
@@ -605,7 +606,8 @@ namespace
             m_Closed = true;
         }
 
-        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) override
+        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                        NetClock::time_point ) override
         {
             if ( data.empty() )
             {

@@ -30,9 +30,12 @@ namespace Desert::Net
         return std::chrono::duration<double>( Clock::now() - m_Epoch ).count();
     }
 
-    void ReplicationClient::MeasureArrival( double serverSeconds )
+    void ReplicationClient::MeasureArrival( double serverSeconds, NetClock::time_point received )
     {
-        const double local = LocalSeconds();
+        // The transport's receive time, not this call's: Poll runs once per frame, and a frame stall is not
+        // network jitter (stamping at Poll counted every editor hitch into the p95 and pinned the delay at its
+        // cap).
+        const double local = std::chrono::duration<double>( received - m_Epoch ).count();
         m_Arrivals.emplace_back( local, local - serverSeconds );
         while ( m_Arrivals.size() > 8 && m_Arrivals.front().first < local - kJitterWindowSeconds )
             m_Arrivals.pop_front();
@@ -49,7 +52,9 @@ namespace Desert::Net
     void ReplicationClient::AdvanceRenderClock()
     {
         const double local = LocalSeconds();
-        const double dt    = std::clamp( local - m_LastAdvance, 0.0, 0.25 );
+        // The real elapsed time, however long the frame was: the render clock is local time minus the delay, so a
+        // stall advances it by the stall (clamping dt made every stall a snap).
+        const double dt    = std::max( local - m_LastAdvance, 0.0 );
         m_LastAdvance      = local;
         if ( m_Arrivals.empty() )
             return;
@@ -102,7 +107,8 @@ namespace Desert::Net
                             info.Reason.empty() ? std::string() : ": " + info.Reason ) );
     }
 
-    void ReplicationClient::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data )
+    void ReplicationClient::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                                       NetClock::time_point received )
     {
         if ( m_State == EState::Connecting )
         {
@@ -193,7 +199,7 @@ namespace Desert::Net
                         m_Inputs.DropUpTo( snapshot->AckInputStep );
                     }
                     const double time = snapshot->ServerStep / kNetStepHz;
-                    MeasureArrival( time );
+                    MeasureArrival( time, received );
                     for ( const PawnState& state : snapshot->Pawns )
                         if ( auto it = m_Pawns.find( state.Id ); it != m_Pawns.end() )
                             it->second.History.Push( time, state );
