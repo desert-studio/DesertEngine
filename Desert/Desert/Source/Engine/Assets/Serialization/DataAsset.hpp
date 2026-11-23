@@ -43,6 +43,9 @@ namespace Desert::Assets::Serialization
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         std::string                                               Type;
+        // The payload's schema version the file was written at (DataAssetType::Version); a file written before
+        // the payload had versions states none and reads as 1.
+        std::optional<uint32_t>                                   TypeVersion;
         Common::Json::Object                                      Data;
     };
 
@@ -62,15 +65,18 @@ namespace Desert::Assets::Serialization
     [[nodiscard]] Reflection::AssetResolver DataAssetReferenceResolver();
 
     /// The GUID texts of every asset @p payload (an object of @p type) references - single handles, handles in
-    /// nested structs and vectors of handles - sorted and unique: the header's `Dependencies`, which the
+    /// nested structs, vectors of handles and handles inside every element of a vector of structs - sorted
+    /// and unique: the header's `Dependencies`, which the
     /// registry's Closure, the chunk plan and the packager walk. A set handle the registry cannot name is
     /// returned in @p unnamed so the writer can say so.
     [[nodiscard]] std::vector<std::string> DataAssetReferencedGuids( const Reflection::TypeInfo& type,
                                                                      const void*                 payload,
                                                                      std::vector<uint64_t>&      unnamed );
 
-    /// Parses a `.dasset`. Refused: no header, another kind or version, a `Type` no loaded module registered, or
-    /// a `Data` member of the wrong type for its field (every such field named). A field the file does not state
+    /// Parses a `.dasset`. Refused: no header, another kind or version, a `Type` no loaded module registered, a
+    /// `TypeVersion` newer than the registered type's or older with no migrator (or a migration step that
+    /// refuses), or a `Data` member of the wrong type for its field (every such field named). An older file is
+    /// migrated step by step (DataAssetType::Migrate) before its fields are read. A field the file does not state
     /// keeps the struct's default (a field added to the struct after the file was written).
     Common::ResultStr<DataAssetContents> ParseDataAsset( const std::string& text );
 

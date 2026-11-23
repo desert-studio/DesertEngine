@@ -78,6 +78,9 @@ namespace Desert::Editor
              // WP-FAR-12E): the registry's .demat rows. Without this row the field read "(no Details slot ...)" in
              // Details.
              { "MaterialAsset", "##material", "None", "material" },
+             // A game's data asset (UE TSoftObjectPtr<UPrimaryDataAsset>): the registry's .dasset rows, whatever
+             // type each carries.
+             { "DataAsset", "##dataasset", "None", "data asset" },
         };
         for ( const RegistryPickerSpec& spec : SPECS )
             if ( spec.AssetType == assetType )

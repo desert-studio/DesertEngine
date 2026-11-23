@@ -179,7 +179,7 @@ namespace Desert::Editor
         documents.SubjectEditors().Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::DataAsset ) ),
              Registration{
-                  "DataAsset", ICON_MDI_TUNE_VARIANT,
+                  "DataAsset", ICON_MDI_DATABASE,
                   [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                   {
                       return std::make_unique<Editor::DataAssetDocument>( Assets::AssetHandle( subject.Owner ),

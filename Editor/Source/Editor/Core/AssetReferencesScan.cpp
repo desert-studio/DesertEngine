@@ -26,7 +26,8 @@ namespace Desert::Editor
             // .ttf" has to be able to answer "the Dark theme does".
             static const std::vector<std::string> kText = { ".demat",  ".desce",  ".deprefab", ".dgraph",
                                                             ".deproj", ".desky",  ".decol",    ".json",
-                                                            ".lua",    ".shader", ".glslh",    ".detheme" };
+                                                            ".lua",    ".shader", ".glslh",    ".detheme",
+                                                            ".dasset" };
             return std::find( kText.begin(), kText.end(), ext ) != kText.end();
         }
 

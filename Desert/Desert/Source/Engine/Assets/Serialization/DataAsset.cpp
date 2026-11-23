@@ -72,6 +72,12 @@ namespace Desert::Assets::Serialization
                     if ( field.ContainerHandles )
                         for ( const uint64_t handle : field.ContainerHandles( p ) )
                             take( handle );
+                    // A vector of structs (a weapon's fire modes, each naming its muzzle flash): every element
+                    // walked as a nested struct, so a reference inside a row is a dependency as it is written.
+                    if ( field.ElementStruct != nullptr && field.ContainerSize && field.ContainerElementAt )
+                        for ( std::size_t i = 0, n = field.ContainerSize( p ); i < n; ++i )
+                            if ( const void* element = field.ContainerElementAt( p, i ) )
+                                stack.push_back( { field.ElementStruct, static_cast<const std::byte*>( element ) } );
                     continue;
                 }
                 if ( field.Type == Reflection::FieldType::Struct && field.StructType != nullptr )
@@ -117,6 +123,28 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<DataAssetContents>( "{}", reflected.GetError() );
 
         DataAssetContents contents;
+        // THE PAYLOAD'S SCHEMA (UE: a UObject's custom version, upgraded in Serialize): a newer file than this
+        // build's struct is refused (its meaning is unknown here); an older one is walked up one step at a time.
+        const uint32_t stated = file.TypeVersion.value_or( 1u );
+        if ( stated > type->Version )
+            return Common::MakeFormattedError<DataAssetContents>(
+                 "the '{}' data asset was written at schema version {}, newer than this build's {}", file.Type,
+                 stated, type->Version );
+        if ( stated == 0 )
+            return Common::MakeFormattedError<DataAssetContents>( "the '{}' data asset states TypeVersion 0",
+                                                                  file.Type );
+        for ( uint32_t from = stated; from < type->Version; ++from )
+        {
+            if ( type->Migrate == nullptr )
+                return Common::MakeFormattedError<DataAssetContents>(
+                     "the '{}' data asset is schema version {}, this build's is {}, and the type registers no "
+                     "migrator",
+                     file.Type, stated, type->Version );
+            if ( auto step = type->Migrate( from, file.Data ); !step )
+                return Common::MakeFormattedError<DataAssetContents>( "migrating the '{}' data asset from {} to {}: {}",
+                                                                      file.Type, from, from + 1, step.GetError() );
+        }
+
         contents.Header  = std::move( file.Header );
         contents.Type    = type;
         contents.Payload = type->Make();
@@ -156,7 +184,8 @@ namespace Desert::Assets::Serialization
                  "the '{}' payload references {} asset(s) the content registry does not name (first handle {}); "
                  "saving would write the reference empty - restart the editor so the registry gathers the file",
                  type.Name, unnamed.size(), unnamed.front() );
-        out.Type = type.Name;
+        out.Type        = type.Name;
+        out.TypeVersion = type.Version;
         const Reflection::AssetResolver resolver = DataAssetReferenceResolver();
         out.Data = Reflection::SerializeReflected( *reflected.GetValue(), payload, &resolver );
         return Common::MakeSuccess( Common::Json::Write( out ) );

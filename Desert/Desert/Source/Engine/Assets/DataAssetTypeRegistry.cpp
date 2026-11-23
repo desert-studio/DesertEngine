@@ -24,6 +24,14 @@ namespace Desert::Assets
             return Common::MakeFormattedError<bool>(
                  "data asset type '{}': the reflected struct of that name is {} bytes, the registered C++ type {}",
                  type.Name, reflected->Size, type.Size );
+        if ( type.Version == 0 )
+            return Common::MakeFormattedError<bool>( "data asset type '{}': schema versions start at 1",
+                                                     type.Name );
+        if ( type.Version > 1 && type.Migrate == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "data asset type '{}' is schema version {} with no migrator: every file written at an older "
+                 "version would be refused",
+                 type.Name, type.Version );
 
         const std::lock_guard<std::mutex> lock( m_Mutex );
         if ( const auto it = m_Types.find( type.Name ); it != m_Types.end() )

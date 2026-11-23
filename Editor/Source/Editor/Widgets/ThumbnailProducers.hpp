@@ -91,6 +91,8 @@ namespace Desert::Editor::ThumbnailProducers
               "the class icon: the asset keeps the photometric data, not the texture UE's thumbnail draws" },
          Row{ FileType::SparseVolume, Producer::TypeIcon,
               "the class icon: UE draws a SparseVolumeTexture's slice preview, which needs the volume march" },
+         Row{ FileType::DataAsset, Producer::TypeIcon,
+              "UE (UPrimaryDataAsset): the class icon; a reflected struct of numbers and references has no picture" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,
