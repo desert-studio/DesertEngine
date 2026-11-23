@@ -563,6 +563,10 @@ namespace Desert::Graphic
                                                                  m_TargetFramebuffer );
                 if ( const auto cloudInit = m_Systems.VolumetricCloud->Initialize(); !cloudInit )
                     LOG_WARN( "[SceneRenderer] Volumetric cloud system unavailable: {}", cloudInit.GetError() );
+                // The falling rain (weather, beside the clouds): one translucent pass after the particles. Non-fatal.
+                RegisterSystem<System::RainStreakRenderer>( m_Systems.RainStreaks, this, m_TargetFramebuffer );
+                if ( const auto rainInit = m_Systems.RainStreaks->Initialize(); !rainInit )
+                    LOG_WARN( "[SceneRenderer] Rain streaks unavailable: {}", rainInit.GetError() );
                 return "VolumetricCloud";
             }
             case 18:

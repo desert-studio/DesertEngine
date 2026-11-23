@@ -19,6 +19,26 @@
             ]
         },
         {
+            "Name": "RainDrops",
+            "Type": "Vector",
+            "Default": [
+                20.0,
+                800.0,
+                900.0,
+                0.15
+            ]
+        },
+        {
+            "Name": "RainDropShape",
+            "Type": "Vector",
+            "Default": [
+                0.02,
+                0.25,
+                1.0,
+                0.0
+            ]
+        },
+        {
             "Name": "SnowIntensity",
             "Type": "Scalar",
             "Default": [

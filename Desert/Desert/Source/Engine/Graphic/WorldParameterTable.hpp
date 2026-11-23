@@ -47,6 +47,9 @@ namespace Desert::Graphic
                         Assets::Serialization::WorldParameterKey( "RainStreak" ) == 0x30a7fbadu &&
                         Assets::Serialization::WorldParameterKey( "RainStreakNormal" ) == 0x23bc16dau,
                    "the rain's keys in Common/WeatherRain.glslh" );
+    static_assert( Assets::Serialization::WorldParameterKey( "RainDrops" ) == 0xe5bb4d7bu &&
+                        Assets::Serialization::WorldParameterKey( "RainDropShape" ) == 0x71b62487u,
+                   "the falling rain's keys in Programs/Weather/RainStreaks.shader" );
 
     struct WorldParameterTable
     {

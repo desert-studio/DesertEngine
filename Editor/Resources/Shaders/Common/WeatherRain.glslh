@@ -32,6 +32,11 @@
 //   RainStreak       Vector  x = the streak tile across the wall (cm), y = its stretch along the fall, z = the fall
 //                            speed (cm/s), w = 0.
 //   RainStreakNormal Texture the streak normal map (tangent space, wall-projected: u across, v up).
+//   RainDrops        Vector  the FALLING rain (Programs/Weather/RainStreaks.shader, RainStreakRenderer): x = drops
+//                            per m^3 at RainIntensity 1, y = the camera box's half extent (cm), z = fall speed (cm/s),
+//                            w = the streak's width (cm).
+//   RainDropShape    Vector  x = the streak's exposure (s: length = speed * x), y = its opacity, z = its radiance
+//                            (scene units, before PreExposure), w = 0.
 // A collection without a row reads 0 (Common/WorldParameters.glslh), and every layer above is then absent: a level
 // that names no rain gets none, nothing here invents a value.
 //

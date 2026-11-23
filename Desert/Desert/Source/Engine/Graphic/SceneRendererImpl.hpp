@@ -2,6 +2,7 @@
 
 // PRIVATE to the renderer (UE: FSceneRenderer in SceneRendering.h): the view's members and passes. Only the
 // SceneRenderer*.cpp translation units include it; everything else holds the interface (SceneRenderer.hpp).
+#include <Engine/Graphic/Systems/Scene/Weather/RainStreakRenderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Engine/Core/Camera.hpp>
@@ -172,6 +173,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::HeterogeneousVolumeRenderer>        HeterogeneousVolume;
         std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
         std::shared_ptr<System::VolumetricCloudRenderer>            VolumetricCloud;
+        std::shared_ptr<System::RainStreakRenderer>                 RainStreaks;
         std::shared_ptr<System::ISceneFXSystem>                     Particle;
         std::shared_ptr<System::DeferredLightingRenderer>           DeferredLighting;
         std::shared_ptr<System::SubsurfaceRenderer>                 Subsurface;
@@ -964,6 +966,9 @@ namespace Desert::Graphic
        // the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
        // only and runs before the scene copy (AddFrameOpaqueFog); what is drawn here fogs itself.
         void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The falling rain (System::RainStreakRenderer) after the particles: its graph inputs from this frame's world
+        // parameters, rain occlusion and air; nothing when it does not rain.
+        void AddFrameRainStreaks( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
         // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
         // the position of this call. The frame build calls it once per point, at that point's place.

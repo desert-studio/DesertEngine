@@ -1,3 +1,6 @@
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
+#include <Engine/Assets/Serialization/WorldParameters.hpp>
+#include <span>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -290,7 +293,55 @@ namespace Desert::Graphic
             AddFrameTranslucencyLightingVolume( graph, textures, frame );
             AddSystemRaster( graph, textures, particles->DrawPass() );
         }
+        // The falling rain over the particles (a sheet of thin streaks nearer than most of them).
+        if ( !m_ViewProfile.SceneCapture )
+            AddFrameRainStreaks( graph, textures, frame );
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
+    }
+
+    void SceneRendererImpl::AddFrameRainStreaks( RDG::Builder& graph, FrameTextures& textures,
+                                                 const ViewFrame& frame )
+    {
+        auto* rain = m_Systems.RainStreaks.get();
+        if ( rain == nullptr || !rain->IsReady() || m_DebugView.HidesAtmosphere() )
+            return;
+        // The world's rows (UploadWorldParameters' values this frame), by key: RainDrops / RainDropShape are Vectors.
+        constexpr uint32_t kRainDropsKey     = Assets::Serialization::WorldParameterKey( "RainDrops" );
+        constexpr uint32_t kRainDropShapeKey = Assets::Serialization::WorldParameterKey( "RainDropShape" );
+        glm::vec4          drops{ 0.0f };
+        glm::vec4          shape{ 0.0f };
+        for ( const auto& value : m_WorldParameterValues )
+        {
+            if ( value.Key == kRainDropsKey )
+                drops = value.Value;
+            else if ( value.Key == kRainDropShapeKey )
+                shape = value.Value;
+        }
+        // UE Niagara SpawnCountScale: the Effects group's spawn-count scale thins the rain like every emitter.
+        const float spawnScale =
+             static_cast<float>( m_Quality.As<int>( Common::Scalability::Parameter::EffectsSpawnCountScalePercent ) ) /
+             100.0f;
+        System::RainStreaksFrameInputs inputs;
+        inputs.Drops = System::RainStreakRenderer::DropCount( GetWorldParameterScalar( "RainIntensity" ), drops,
+                                                              spawnScale );
+        if ( inputs.Drops == 0 || m_WorldParameterBytes.empty() )
+            return;
+        // The same table and occlusion the wet surfaces read this frame (two small uploads, as the RT passes make).
+        const RayTracing::RayTracingSceneReadsInputs reads = AddFrameRayTracingSceneReads( graph, textures );
+        inputs.WorldParameters  = reads.WorldParameters;
+        inputs.RainOcclusionMap = reads.RainOcclusionMap;
+        inputs.RainOcclusion    = reads.RainOcclusion;
+        System::RainStreaksUniforms uniforms;
+        uniforms.ViewProjection = frame.JitteredViewProjection;
+        uniforms.Camera         = glm::vec4( frame.CameraPosition, static_cast<float>( frame.TimeSeconds ) );
+        // The SceneWind block's directional air (ParticleRenderer MakeParticleSceneWind) and its gust fronts.
+        uniforms.Wind   = glm::vec4( frame.WindVelocityXZ.x, 0.0f, frame.WindVelocityXZ.y, frame.PreExposure );
+        uniforms.Gust   = frame.WindGust;
+        uniforms.Light  = glm::vec4( shape.z, 0.0f, 0.0f, 0.0f );
+        inputs.Uniforms = graph.CreateBuffer( RDG::BufferDesc{ sizeof( uniforms ) }, "Weather.RainStreaksUB" );
+        graph.QueueBufferUpload( inputs.Uniforms,
+                                 std::as_bytes( std::span<const System::RainStreaksUniforms>( &uniforms, 1 ) ) );
+        AddSystemRaster( graph, textures, rain->DrawPass( inputs ) );
     }
 
     void SceneRendererImpl::AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures,

@@ -26,3 +26,17 @@
 Тогда-вид 6_overview from above: puddles in the field's low ground and along the track, roof dry of puddles, no tile pattern visible in the water
 Когда lua "WorldParameters.setScalar('PuddleLevel', 0)"
 Тогда-вид 7_drained the puddles gone the next frame, the ground still wet and rippling
+# [puddles_reflect] (pass 3): the falling rain (Programs/Weather/RainStreaks.shader, RainDrops/RainDropShape rows)
+# and the puddle's reflection of the barn, screen-traced and hardware-traced alike (the hit groups are wet, pass 2).
+Когда lua "WorldParameters.setScalar('PuddleLevel', 1)"
+Когда lua "WorldParameters.setScalar('RainIntensity', 1)"
+Когда --subject viewport set Camera.Position 0,170,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.25,-1
+Когда set machine Reflections.Method ScreenSpace
+Когда 30 frames render
+Тогда-вид 8_puddles_reflect_ssr [puddles_reflect] the puddle in front of the barn mirrors the barn (SSR); thin rain streaks across the whole view, slanted with the scene wind, none inside the barn's doorway under the roof
+Когда set machine Reflections.Method HardwareTraced
+Когда 30 frames render
+Тогда-вид 9_puddles_reflect_rt [puddles_reflect] the same puddle shows the same barn (RT hit groups wet); pixel-diff vs 8 only in reflections and moving streaks; streaks still absent under the roof
+Когда lua "WorldParameters.setScalar('RainIntensity', 0)"
+Тогда-вид 10_rain_stopped no streak anywhere the next frame (RainIntensity 0 = no pass), puddles stay
