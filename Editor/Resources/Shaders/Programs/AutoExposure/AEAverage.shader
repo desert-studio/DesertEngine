@@ -3,12 +3,14 @@ Shader "AEAverage"
 {
     Compute
     {
-        // Auto-exposure resolve: a single invocation walks the 256-bin histogram, discards the darkest/brightest
-        // percentile tails (outlier rejection), weighted-averages the surviving bins into a log-luminance, then
+        // Auto-exposure resolve: one 256-invocation group, one invocation per histogram bin (UE
+        // PostProcessEyeAdaptation's group-parallel histogram reduce). A shared-memory prefix scan gives every bin
+        // its cumulative range, so the darkest/brightest percentile tails are discarded (outlier rejection) per bin
+        // in parallel; a tree reduction weighted-averages the surviving bins into a log-luminance; invocation 0
         // temporally adapts toward it (read the previous 1x1 luminance, lerp) and writes the new 1x1 value that
-        // tonemap turns into exposure.
+        // tonemap turns into exposure; a second tree reduction averages the local exposure over the bins.
 
-        LocalSize(1, 1, 1);
+        LocalSize(256, 1, 1);
 
         Buffer(0) Histogram
         {
@@ -72,80 +74,116 @@ Shader "AEAverage"
             return CurveBias[count - 1];
         }
 
+        shared uint  s_Scan[256];     // inclusive prefix sum of the bin counts (exact integers)
+        shared float s_SumA[256];     // tree-reduction lane A (weighted log-luminance, then local exposure)
+        shared float s_SumB[256];     // tree-reduction lane B (weight)
+        shared float s_Exposed;       // invocation 0's exposed luminance, broadcast to the local-exposure reduce
+
+        // Sums s_SumA / s_SumB over the group into element 0 (every invocation calls it: uniform control flow).
+        void ReduceSums( uint lane )
+        {
+            for ( uint stride = 128u; stride > 0u; stride >>= 1u )
+            {
+                if ( lane < stride )
+                {
+                    s_SumA[lane] += s_SumA[lane + stride];
+                    s_SumB[lane] += s_SumB[lane + stride];
+                }
+                barrier();
+            }
+        }
+
         void main()
         {
-            uint total = 0u;
-            for ( int i = 0; i < 256; ++i )
-                total += Bins[i];
+            const uint  lane  = gl_LocalInvocationIndex;
+            const uint  count = Bins[lane];
+            const float binLogLum = MinLogLuminance + ( float( lane ) / 255.0 ) * LogLuminanceRange;
 
-            float avgLum;
-            float measured = -1.0;
-            if ( total == 0u )
+            // Hillis-Steele inclusive scan: after it s_Scan[lane] = sum of Bins[0..lane], s_Scan[255] = total.
+            s_Scan[lane] = count;
+            barrier();
+            for ( uint offset = 1u; offset < 256u; offset <<= 1u )
             {
-                avgLum = MinLuma;
+                const uint partial = lane >= offset ? s_Scan[lane - offset] : 0u;
+                barrier();
+                s_Scan[lane] += partial;
+                barrier();
             }
-            else
-            {
-                // Keep samples in the cumulative range [loCount, hiCount]; partial bins are weighted by overlap.
-                float loCount    = LowPercent * float( total );
-                float hiCount    = HighPercent * float( total );
-                float cumulative = 0.0;
-                float wLogSum    = 0.0;
-                float wSum       = 0.0;
+            const uint total     = s_Scan[255];
+            const uint inclusive = s_Scan[lane];
 
-                for ( int i = 0; i < 256; ++i )
+            // Keep samples in the cumulative range [loCount, hiCount]; partial bins are weighted by overlap.
+            float weight = 0.0;
+            if ( total > 0u )
+            {
+                const float loCount    = LowPercent * float( total );
+                const float hiCount    = HighPercent * float( total );
+                const float binStart   = float( inclusive - count );
+                const float cumulative = float( inclusive );
+                weight = max( min( cumulative, hiCount ) - max( binStart, loCount ), 0.0 );
+            }
+            s_SumA[lane] = binLogLum * weight;
+            s_SumB[lane] = weight;
+            barrier();
+            ReduceSums( lane );
+
+            if ( lane == 0u )
+            {
+                float avgLum;
+                float measured = -1.0;
+                if ( total == 0u )
                 {
-                    float c        = float( Bins[i] );
-                    float binStart = cumulative;
-                    cumulative += c;
-                    float w = max( min( cumulative, hiCount ) - max( binStart, loCount ), 0.0 );
-                    if ( w > 0.0 )
-                    {
-                        float logLum = MinLogLuminance + ( float( i ) / 255.0 ) * LogLuminanceRange;
-                        wLogSum += logLum * w;
-                        wSum += w;
-                    }
+                    avgLum = MinLuma;
+                }
+                else
+                {
+                    const float wLogSum   = s_SumA[0];
+                    const float wSum      = s_SumB[0];
+                    const float avgLogLum = ( wSum > 0.0 ) ? ( wLogSum / wSum ) : MinLogLuminance;
+                    measured              = exp2( avgLogLum );
+                    avgLum                = clamp( measured, MinLuma, MaxLuma );
                 }
 
-                float avgLogLum = ( wSum > 0.0 ) ? ( wLogSum / wSum ) : MinLogLuminance;
-                measured        = exp2( avgLogLum );
-                avgLum          = clamp( measured, MinLuma, MaxLuma );
+                float prev = texture( PreviousLuminanceTexture, vec2( 0.5 ) ).r;
+                if ( !( prev > 0.0 ) ) // first frame / NaN / uninitialised
+                    prev = avgLum;
+
+                const float adapted = mix( prev, avgLum, 1.0 - exp( -DeltaTime * AdaptationSpeed ) );
+                // UE's exposure compensation (AutoExposureBias + the curve at the adapted average's EV100; EV100 =
+                // log2(L) + 3, Graphic::LuminanceToEV100): the exposure is computed from adapted / 2^compensation,
+                // kept in .g and in the read-back; .r stays the smoothing state, so a bias change does not ramp.
+                const float compensation =
+                    CompensationBias + ExposureCompensationCurve( log2( max( adapted, 1e-10 ) ) + 3.0 );
+                const float exposed = adapted * exp2( -compensation );
+                imageStore( OutLuminanceTexture, ivec2( 0 ), vec4( adapted, exposed, 0.0, 1.0 ) );
+                ReadbackData = vec4( exposed, 1.0, measured, float( total ) );
+                s_Exposed    = exposed;
             }
-
-            float prev = texture( PreviousLuminanceTexture, vec2( 0.5 ) ).r;
-            if ( !( prev > 0.0 ) ) // first frame / NaN / uninitialised
-                prev = avgLum;
-
-            float adapted = mix( prev, avgLum, 1.0 - exp( -DeltaTime * AdaptationSpeed ) );
-            // UE's exposure compensation (AutoExposureBias + the curve at the adapted average's EV100; EV100 =
-            // log2(L) + 3, Graphic::LuminanceToEV100): the exposure is computed from adapted / 2^compensation,
-            // kept in .g and in the read-back; .r stays the smoothing state, so a bias change does not ramp.
-            float compensation =
-                CompensationBias + ExposureCompensationCurve( log2( max( adapted, 1e-10 ) ) + 3.0 );
-            float exposed      = adapted * exp2( -compensation );
-            imageStore( OutLuminanceTexture, ivec2( 0 ), vec4( adapted, exposed, 0.0, 1.0 ) );
-            ReadbackData = vec4( exposed, 1.0, measured, float( total ) );
+            barrier();
 
             // UE's AverageLocalExposure: every bucket treated as its own base layer (detail 0), exposed by this
-            // frame's adapted exposure, averaged by sample count.
+            // frame's adapted exposure, averaged by sample count. The condition is group-uniform (push constant +
+            // the shared total), so the barriers inside stay in uniform control flow.
             float averageLocalExposure = 1.0;
             if ( LocalExposureContrast.w > 0.5 && total > 0u )
             {
-                const float logExposure = log2( ExposureKey / max( exposed, 1e-4 ) );
-                float sum = 0.0;
-                for ( int i = 0; i < 256; ++i )
+                const float logExposure = log2( ExposureKey / max( s_Exposed, 1e-4 ) );
+                float term = 0.0;
+                if ( count > 0u )
                 {
-                    const float c = float( Bins[i] );
-                    if ( c <= 0.0 )
-                        continue;
-                    const float logLum = MinLogLuminance + ( float( i ) / 255.0 ) * LogLuminanceRange + logExposure;
-                    sum += c * exp2( LocalExposureLogExposure( logLum, logLum, LocalExposureLogMiddleGrey,
-                                                               vec4( LocalExposureContrast.xy, 0.0, 0.0 ),
-                                                               LocalExposureThreshold ) );
+                    const float logLum = binLogLum + logExposure;
+                    term = float( count ) * exp2( LocalExposureLogExposure( logLum, logLum, LocalExposureLogMiddleGrey,
+                                                                            vec4( LocalExposureContrast.xy, 0.0, 0.0 ),
+                                                                            LocalExposureThreshold ) );
                 }
-                averageLocalExposure = sum / float( total );
+                s_SumA[lane] = term;
+                s_SumB[lane] = 0.0;
+                barrier();
+                ReduceSums( lane );
+                averageLocalExposure = s_SumA[0] / float( total );
             }
-            ReadbackLocal = vec4( averageLocalExposure, 0.0, 0.0, 0.0 );
+            if ( lane == 0u )
+                ReadbackLocal = vec4( averageLocalExposure, 0.0, 0.0, 0.0 );
         }
     }
 }

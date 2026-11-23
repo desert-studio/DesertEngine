@@ -128,6 +128,11 @@ namespace Desert::Assets
             // MeshImportSettings::LodChain), as StaticMeshAsset::Load keeps them. SkinnedMesh appends exactly
             // these levels; only a section no cook decided (LodChainCooked false) is generated at load.
             submesh.LodChainCooked = s.LodChainCooked;
+            // Each cooked level's measured error: SkinnedMesh's ResolveLODScreenSizes draws a level only where it
+            // is under ~1 px (a figure folded at LOD 6 stays off screen sizes it would show at).
+            // Only a DAG cut caps its level at ~1 px (FPS-MESHLOD-CAP); a simplified level keeps the progression.
+            if ( !s.ClusterDag.Clusters.empty() )
+                submesh.LODCutErrors = s.LodCutErrors;
             submesh.BakedLODs.reserve( s.LODs.size() );
             for ( const auto& level : s.LODs )
             {

@@ -81,11 +81,11 @@ namespace Desert::Editor
                 localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
             }
 
-            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain,
-                                                             attrs.data() );
+            Geometry::SimplifiedLODChain levels =
+                 Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain, attrs.data() );
             sm.LODs.clear();
-            sm.LODs.reserve( levels.size() );
-            for ( const auto& lvl : levels )
+            sm.LODs.reserve( levels.Levels.size() );
+            for ( const auto& lvl : levels.Levels )
             {
                 std::vector<Ser::IndexData> tris;
                 tris.reserve( lvl.size() );
@@ -93,6 +93,9 @@ namespace Desert::Editor
                     tris.push_back( { tri.V1, tri.V2, tri.V3 } );
                 sm.LODs.push_back( std::move( tris ) );
             }
+            // A simplified level is drawn at the automatic progression (FPS-MESHLOD-CAP): its measured error is
+            // not stored as a ~1 px cap - that cap is the DAG cut's.
+            sm.LodCutErrors.clear();
         }
     }
 
@@ -240,6 +243,7 @@ namespace Desert::Editor
                  sm.ClusterDag.LevelCount, sm.ClusterDag.Hierarchy.size(), rootTriangles );
 
             sm.LODs.clear();
+            sm.LodCutErrors.clear();
             if ( !cutLods )
                 continue;
             size_t previous = tris.size() / 3;
@@ -256,6 +260,9 @@ namespace Desert::Editor
                 for ( size_t i = 0; i + 2 < cut.size(); i += 3 )
                     faces.push_back( { cut[i], cut[i + 1], cut[i + 2] } );
                 sm.LODs.push_back( std::move( faces ) );
+                // The error this KEPT level was cut at (relative to boundsRadius), aligned with LODs: the
+                // runtime caps the level's screen size by it (Geometry::ResolveLODScreenSizes, ~1 px rule).
+                sm.LodCutErrors.push_back( Geometry::kClusterDagCutErrors[k] );
             }
         }
         return Common::MakeSuccess( true );

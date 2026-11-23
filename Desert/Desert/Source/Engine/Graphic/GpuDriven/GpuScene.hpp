@@ -79,6 +79,8 @@ namespace Desert::Graphic::GpuDriven
         float                  CullDistanceEnd   = 0.0f;
         uint32_t               Flags             = 0; // PrimitiveFlags
         uint32_t               Entity            = 0;
+        // The impostor switch screen size of a kImpostorSource / kImpostorCard row (LocalBoundsExtent.w); 0 = none.
+        float ImpostorSwitchSize = 0.0f;
     };
 
     // A skinned primitive's per-frame rows: where this frame's and the previous frame's palette start in the

@@ -1,3 +1,6 @@
+#include <Editor/Core/DetailsNavigation.hpp>
+#include <Editor/Baking/MeshImpostorBaking.hpp>
+#include <Common/Core/Logger.hpp>
 #include "StaticMeshComponent.hpp"
 #include <ImGui/imgui.h>
 #include <Editor/Core/ImGuiUtilities.hpp>
@@ -81,6 +84,19 @@ namespace Desert::Editor
                                               m_Ctx ? m_Ctx->UIHelper : nullptr,
                                               m_Ctx ? m_Ctx->FieldFilter : nullptr ) )
                 ECS::PostEditStaticMesh( *entity.GetRegistry(), entity.GetHandle(), before );
+
+            // LOD: BAKE IMPOSTOR (WP-FAR-12F; UE ImpostorBaker on one mesh): this mesh's octahedral impostor,
+            // baked through the Impostor HLOD capture and saved beside the mesh asset; fills Impostor Mesh /
+            // Impostor Material (and Impostor Screen Size when unset). Editor/Baking/MeshImpostorBaking.
+            const bool baking = Baking::IsImpostorBakeRunning();
+            ImGui::BeginDisabled( baking || scene == nullptr || m_AssetManager == nullptr );
+            if ( Utils::ImGuiUtilities::AccentButton( baking ? "  Baking Impostor..." : "  Bake Impostor", 28.0f ) &&
+                 scene != nullptr && m_AssetManager != nullptr )
+            {
+                if ( auto started = Baking::StartImpostorBakeOf( *scene, entity, *m_AssetManager ); !started )
+                    LOG_WARN( "{}", started.GetError() );
+            }
+            ImGui::EndDisabled();
         }
         else
         {

@@ -27,6 +27,9 @@
 #define DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION      16u
 #define DESERT_GPU_PRIMITIVE_MOVABLE_CASTER      32u
 #define DESERT_GPU_PRIMITIVE_PREVIOUS_POSITIONS  64u
+// The impostor pair (GpuSceneLayout.hpp kImpostorSource / kImpostorCard): InstanceCull's ImpostorGate.
+#define DESERT_GPU_PRIMITIVE_IMPOSTOR_SOURCE     256u
+#define DESERT_GPU_PRIMITIVE_IMPOSTOR_CARD       512u
 // Never in Primitives[]: DesertResolveDrawOf sets it on a resolved draw's Flags from its slot's
 // DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT (the submesh's material has Emissive Lights Scene on), so the binned
 // G-buffer cell marks the shading word's EMISSION_IS_LIGHT (Mesh/Surface/Pass_GBuffer.glslh).
@@ -72,7 +75,7 @@ struct GpuScenePrimitive
     GpuAffine3x4 LocalToWorld;  // offset 0
     GpuAffine3x4 PrevLocalToWorld; // offset 48
     vec4  LocalBoundsCenter;    // offset 96 — xyz cm, w = wind reach past the bounds (cm)
-    vec4  LocalBoundsExtent;    // offset 112 — xyz cm, w = 0
+    vec4  LocalBoundsExtent;    // offset 112 — xyz cm, w = impostor switch screen size (0 = none)
     uint  FirstInstance;        // offset 128
     uint  InstanceCount;        // offset 132
     uint  FirstLodScreenSize;   // offset 136 — into LodScreenSizes[]

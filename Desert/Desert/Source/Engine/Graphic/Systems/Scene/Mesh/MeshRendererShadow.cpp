@@ -107,6 +107,8 @@ namespace Desert::Graphic::System
     {
         for ( CascadeCacheState& cache : m_CascadeCache )
             cache = CascadeCacheState{};
+        for ( FarShadowState& farShadow : m_FarShadow )
+            farShadow.Key.reset();
     }
 
     void MeshRenderer::DropDirectionalShadow( const uint32_t slot )
@@ -116,6 +118,7 @@ namespace Desert::Graphic::System
         m_DirectionalShadow[slot].Fitted = 0;
         for ( uint32_t c = 0; c < kMaxCascades; ++c )
             m_CascadeCache[slot * kMaxCascades + c] = CascadeCacheState{};
+        m_FarShadow[slot] = FarShadowState{};
     }
 
     void MeshRenderer::TakeShadowBudget( const ShadowQuality& budget )
@@ -177,6 +180,12 @@ namespace Desert::Graphic::System
         m_ShadowAttachments = ShadowAttachmentLease{};
         for ( DirectionalShadowSlot& slot : m_DirectionalShadow )
             slot = DirectionalShadowSlot{};
+        // The far cascades likewise (their Key too: a new array holds nothing - AcquireCascadeMaps also says so).
+        for ( FarShadowState& farShadow : m_FarShadow )
+        {
+            farShadow.Fitted = false;
+            farShadow.Redraw = false;
+        }
 
         // The slots held are kept (SetupShadowPass allocates each at the new budget).
         TakeShadowBudget( budget );
@@ -453,6 +462,12 @@ namespace Desert::Graphic::System
         // "inside cascade 0" and are sampled from a map nothing rendered. Nothing reports any of it.
         for ( DirectionalShadowSlot& slot : m_DirectionalShadow )
             slot = DirectionalShadowSlot{};
+        // The far cascades likewise (their Key too: a new array holds nothing - AcquireCascadeMaps also says so).
+        for ( FarShadowState& farShadow : m_FarShadow )
+        {
+            farShadow.Fitted = false;
+            farShadow.Redraw = false;
+        }
         // This frame's cache plan, cleared with the count and for the same reason: an early return below leaves no
         // cascade with work (MapHasMovable is the map's state, not the frame's, and survives).
         for ( CascadeCacheState& state : m_CascadeCache )
@@ -552,6 +567,18 @@ namespace Desert::Graphic::System
                 m_CascadeCasterVP[kCascadeMovableViewBase + v]   = m_CascadeCasterVP[v];
                 m_CascadeCasterBias[kCascadeMovableViewBase + v] = m_CascadeCasterBias[v];
             }
+
+            // THE FAR CASCADE (UE: r.Shadow.FarShadow*): one more level past the cascades' MaxDistance out to
+            // FarDistance, sampled where every cascade has run out. Placed by the same math (ComputeFarShadow),
+            // its caster bias scaled from cascade 0's texel like every cascade's.
+            FarShadowState& farShadow = m_FarShadow[slot];
+            if ( n > 0u && HasFarShadow( m_Shadow ) && ComputeFarShadow( setup, m_Shadow.FarDistance, farShadow.Fit ) )
+            {
+                farShadow.Fitted             = true;
+                const uint32_t v       = kFarShadowViewBase + slot;
+                m_CascadeCasterBias[v] = ComputeCascadeCasterBias( light->Bias, farShadow.Fit, fits[0].WorldPerTexel );
+                m_CascadeCasterVP[v]   = CasterViewProj( farShadow.Fit.ViewProj, m_CascadeCasterBias[v].DepthBias );
+            }
         }
         // The cache plan is NOT made here: the casters have not resolved this frame's draws yet (the grass
         // sections, the terrain's cascade rows). SceneRenderer calls PlanCascadeCache once they have.
@@ -613,6 +640,17 @@ namespace Desert::Graphic::System
                  .SourceTanHalf        = state.SourceTanHalf,
                  .CascadeWorldPerTexel = state.WorldPerTexel,
                  .CascadeDepthRange    = state.DepthRange };
+            // Its far cascade (UpdateCascades placed it, FarShadowPasses draws it into FarShadowLayer before the
+            // lighting reads it): sampled past the cascades only when the light has cascades this frame.
+            const FarShadowState& farShadow = m_FarShadow[slot];
+            if ( farShadow.Fitted && count > 0u && HasFarShadow( m_Shadow ) )
+            {
+                views[slot].FarFitted        = true;
+                views[slot].FarViewProj      = farShadow.Fit.ViewProj;
+                views[slot].FarWorldPerTexel = farShadow.Fit.WorldPerTexel;
+                views[slot].FarDepthRange    = farShadow.Fit.DepthRange;
+                views[slot].FarLayer         = FarShadowLayer( slot );
+            }
         }
         return views;
     }
@@ -840,7 +878,7 @@ namespace Desert::Graphic::System
                 {
                     m_StaticSnapshot.WorldBounds[i] =
                          worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
-                    if ( rd.CastShadows )
+                    if ( rd.CastShadows && !rd.RayTracingOnly ) // its card casts the raster shadow
                         setup.Statics[i].WorldBounds = m_StaticSnapshot.WorldBounds[i];
                 }
                 m_StaticSnapshot.WorldLanes.PushBack( m_StaticSnapshot.WorldBounds[i] );
@@ -939,6 +977,9 @@ namespace Desert::Graphic::System
 
     float MeshRenderer::ShadowWindDistanceOf( const uint32_t view ) const
     {
+        // A far cascade draws its static casters at rest: no receiver near the camera samples it.
+        if ( IsFarShadowView( view ) )
+            return 0.0f;
         // A cascade's movable layer is the cascade's: the same receivers, the same answer.
         uint32_t cascadeView = view;
         if ( cascadeView >= kCascadeMovableViewBase && cascadeView < kCascadeMovableViewBase + kCascadeViews )
@@ -1311,7 +1352,15 @@ namespace Desert::Graphic::System
         // LOD, wind ring - and keyed by what that cull drew, the cascade's content hash read back
         // (CascadeContentAnswer), not by a CPU walk of its instances. Only while the GPU hashes every frame
         // (m_CascadeContentAge); otherwise every field is walked here as before.
-        const bool gpuContent = m_CascadeContentAge <= 1u && m_DrawCommandCache;
+        // ONLY A SUN CASCADE'S OWN VIEWS ARE BINNED: the GPU cull makes bins for them alone
+        // (SceneRendererFrameGpuCull), AttachBinned finds none for any other view, and
+        // BuildGpuInstancedShadowDraws runs for cascades only. A FAR CASCADE (IsFarShadowView) walks every field
+        // on the CPU (CpuWalkUninterned: no bins issued) and draws no GPU-instanced section, so its key walks
+        // every field too, asks no GPU content answer (that is per cascade: m_CascadeCache, m_CascadePlacement)
+        // and is made unkeyed by none of the bins' or the sections' movers - nothing of theirs is drawn into it.
+        // Without this the far layer took a fresh pending key and was redrawn every frame (FPS-FAR-SHADOW-CACHE).
+        const bool binnedView = cascade < kCascadeViews;
+        const bool gpuContent = binnedView && m_CascadeContentAge <= 1u && m_DrawCommandCache;
         const auto heldByBins = [&]( const InstancedMeshRenderData& ism, const uint32_t field )
         {
             return gpuContent && field < m_FieldPrimitives.size() &&
@@ -1436,7 +1485,7 @@ namespace Desert::Graphic::System
         // walk cannot see per instance, so while the samples are apart and the cascade pass has such a slot the
         // movable layer is drawn each frame over the whole copied layer (the static one sees them leave and
         // return through the content hash).
-        if ( LodSamplesApart() && m_DrawCommandCache &&
+        if ( binnedView && LodSamplesApart() && m_DrawCommandCache &&
              m_DrawCommandCache->Pass( GpuDriven::MeshPass::ShadowCascade ).DitheredLodSlots != 0u )
             movers.Unkeyed = "binned casters in a dithered LOD transition";
         // The bin-held fields' content: the GPU cull's answer for this box (the cascade's placement this frame, or
@@ -1516,11 +1565,13 @@ namespace Desert::Graphic::System
         // stage's CasterWindLayer.glslh): its instances past the shadow wind distance cast their rest pose into
         // the static layer, so a swaying section also keys the rule's measure (an instance crossing the distance
         // moves between the layers), and its movers make the cascade movable only when the box they can reach -
-        // the distance around the camera, grown by an instance's reach - meets the cascade.
+        // the distance around the camera, grown by an instance's reach - meets the cascade. A view that draws no
+        // section (binnedView: a far cascade) is keyed by none.
         const glm::vec4 windOrigin = CasterWindOrigin( cascade );
         for ( const auto& gpu : m_GpuInstancedQueue )
         {
-            if ( !gpu.CastShadows || ( gpu.WorldBounds && !frustum.Intersects( *gpu.WorldBounds ) ) )
+            if ( !binnedView || !gpu.CastShadows ||
+                 ( gpu.WorldBounds && !frustum.Intersects( *gpu.WorldBounds ) ) )
                 continue;
             if ( !gpu.Still )
             {
@@ -1560,7 +1611,9 @@ namespace Desert::Graphic::System
             if ( frustum.Intersects( Common::Math::AABB{ origin - moverReach, origin + moverReach } ) )
                 movers.Unkeyed = "swaying GPU instances (wind time)";
         }
-        if ( m_GpuInstancedCastersExpected ) // submitted later this frame (ExpectGpuInstancedCasters)
+        // Particle mesh casters, submitted later this frame (ExpectGpuInstancedCasters): GPU-instanced, cascades
+        // only.
+        if ( binnedView && m_GpuInstancedCastersExpected )
             movers.Unkeyed = "particle mesh casters (submitted after the plan)";
         return hash.Value;
     }
@@ -2099,6 +2152,71 @@ namespace Desert::Graphic::System
             }
         }
 
+        // THE FAR CASCADES (UE's far shadow cascade, cached as a cached CSM's static layer): each slot's far layer
+        // holds its STATIC casters only, drawn again only when its key - where the map lies (the fit recentres in
+        // whole steps, ComputeFarShadow) and what the static casters in its box are - changed. A mover in the box
+        // is not drawn there (FarShadowPasses: ShadowCasterLayer::Static) and does not key it; neither do the GPU
+        // bins and GPU-instanced sections, which only the cascades draw (CascadeStaticSignature: binnedView). A
+        // gather the key cannot trust, or a caster that cannot tell its content apart, leaves the key unknown and
+        // the layer is redrawn every frame - said once per reason (FarShadowState::Unkeyed), never silently.
+        // THE INVALIDATION RULES, all of them in the key: the map's place (TexelOrigin: a recentre step walked,
+        // DepthOrigin: a depth quantum crossed, WorldPerTexel/DepthRange: a new reach or map size), the sun's
+        // direction (Travel), the caster bias, the static meshes / generics / ISM instances the box reaches (their
+        // revision, placement, hidden state, section and material, instances kept by the cull distance, a masked
+        // caster entering or leaving a dithered LOD transition) and the landscape tiles in the box (their maps'
+        // revisions). Outside the key: a fresh cascade array (AcquireCascadeMaps), a rebudget or a dropped light
+        // (Key reset) and a masked caster still compiling (BuildShadowCascadeDraws resets the Key).
+        for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
+        {
+            FarShadowState& farShadow = m_FarShadow[slot];
+            farShadow.Redraw          = false;
+            if ( !farShadow.Fitted || !m_DirectionalShadow[slot].CastShadows || m_DirectionalShadow[slot].Fitted == 0u )
+                continue;
+            const uint32_t v = kFarShadowViewBase + slot;
+            if ( !EnsureShadowViewMaterials( v ) )
+            {
+                // No caster materials for the view: nothing can be drawn into the layer, so the receivers must
+                // not sample it (DirectionalShadows packs it unfitted).
+                farShadow.Fitted = false;
+                farShadow.Key.reset();
+                continue;
+            }
+            CascadeMovers           movers;
+            bool                    windSplit = false;
+            SignatureHash           key;
+            std::optional<uint64_t> newKey;
+            key.Add( farShadow.Fit.TexelOrigin.x );
+            key.Add( farShadow.Fit.TexelOrigin.y );
+            key.Add( farShadow.Fit.WorldPerTexel );
+            key.Add( farShadow.Fit.DepthOrigin );
+            key.Add( farShadow.Fit.DepthRange );
+            key.Add( m_DirectionalShadow[slot].Travel.x );
+            key.Add( m_DirectionalShadow[slot].Travel.y );
+            key.Add( m_DirectionalShadow[slot].Travel.z );
+            key.Add( CascadeStaticSignature( v, m_CascadeCasterVP[v], false, movers, windSplit ) );
+            const char* unkeyed = movers.Unkeyed;
+            for ( const auto& weak : m_ShadowCasters )
+            {
+                const auto caster = weak.lock();
+                if ( !caster || unkeyed != nullptr )
+                    continue;
+                const std::optional<uint64_t> held = caster->CascadeShadowContent( v, m_CascadeCasterVP[v] );
+                if ( !held )
+                    unkeyed = "a non-mesh caster that cannot tell its content apart (CascadeShadowContent)";
+                else
+                    key.Add( *held );
+            }
+            key.Add( m_CascadeCasterBias[v] );
+            if ( unkeyed == nullptr )
+                newKey = key.Value;
+            if ( unkeyed != farShadow.Unkeyed && unkeyed != nullptr )
+                LOG_WARN( "[Shadows] far cascade of shadow slot {} is not cached - redrawn every frame: {}", slot,
+                          unkeyed );
+            farShadow.Unkeyed    = unkeyed;
+            farShadow.Redraw     = !newKey || !farShadow.Key || *farShadow.Key != *newKey;
+            farShadow.PendingKey = newKey;
+        }
+
         m_CascadeKeySnapshots.clear();
         for ( const auto& ism : m_InstancedQueue )
             if ( ism.Transforms )
@@ -2356,8 +2474,9 @@ namespace Desert::Graphic::System
         if ( IsVirtualShadowView( view ) )
             return { m_VsmPipeline.get(), m_VsmInstancedPipeline.get(), m_VsmSkinnedPipeline.get(),
                      MeshPass::VirtualShadowDepth };
-        // A sun cascade's two layers draw pancaked (SetupShadowPass); the rain occlusion and the local views clip.
-        if ( view < kVsmViewBase )
+        // A sun cascade's two layers and its far cascade draw pancaked (SetupShadowPass); the rain occlusion and
+        // the local views clip.
+        if ( view < kVsmViewBase || IsFarShadowView( view ) )
             return { m_CascadeShadowPipeline.get(), m_CascadeShadowInstancedPipeline.get(),
                      m_CascadeShadowSkinnedPipeline.get(), MeshPass::ShadowDepth,
                      m_CascadeShadowInstancedIdPipeline.get() };
@@ -2496,7 +2615,7 @@ namespace Desert::Graphic::System
         // states, EnsureVirtualShadowPipelines), so the cull opens that side (Graphic::CascadeCasterFrustum).
         // A local light's mip is a perspective view from the light: its near-plane casters are clamped and
         // dropped by the raster (Common/VirtualShadowRaster.glslh), nothing lies beyond its far plane.
-        if ( c < kRainOcclusionView )
+        if ( c < kRainOcclusionView || IsFarShadowView( c ) )
             cascadeFrustum = CascadeCasterFrustum( m_CascadeCasterVP[c] );
 
         // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is deliberate rather than
@@ -3436,6 +3555,9 @@ namespace Desert::Graphic::System
         // The cache drawn now lacks the casters still compiling: the next frame's plan sees no key and redraws it.
         if ( maskedPending && layer == ShadowCasterLayer::Static && c < kCascadeViews )
             m_CascadeCache[c].StaticKey.reset();
+        // A far cascade's layer likewise (PlanCascadeCache: no key, redrawn).
+        if ( maskedPending && layer == ShadowCasterLayer::Static && IsFarShadowView( c ) )
+            m_FarShadow[c - kFarShadowViewBase].Key.reset();
         // A virtual shadow map level's cached pages lack them the same way: the next frame drops every page
         // (CollectVirtualShadowInvalidation).
         if ( maskedPending && IsVirtualShadowView( c ) )
@@ -3451,7 +3573,8 @@ namespace Desert::Graphic::System
         const RDG::TextureRef created = graph.CreateTexture(
              RDG::TextureDesc{ .Size   = { .Width = m_Shadow.ShadowMapSize, .Height = m_Shadow.ShadowMapSize },
                                .Format = ViewTargetFormats::kShadowDepth,
-                               .Layers = m_CascadeSlots * m_Shadow.CascadeCount,
+                               .Layers = m_CascadeSlots * m_Shadow.CascadeCount +
+                                         ( HasFarShadow( m_Shadow ) ? m_CascadeSlots : 0u ),
                                .Dim    = RDG::TextureDim::Tex2DArray },
              "CSM.Cascades" );
         // A rebuilt cascade is COPIED from its cache in a later frame (SceneRenderer::AddFrameSunCascades,
@@ -3488,6 +3611,12 @@ namespace Desert::Graphic::System
                 else
                     m_CascadeCache[slot * kMaxCascades + c].StaticKey.reset();
             }
+            // Its far layer (FarShadowLayer) the same: drawn into the fresh array now if fitted, else the frame it is
+            // (no key: whichever of this and PlanCascadeCache runs last, the layer is redrawn).
+            FarShadowState& farShadow = m_FarShadow[slot];
+            farShadow.Key.reset();
+            if ( farShadow.Fitted && light.CastShadows && fitted > 0u )
+                farShadow.Redraw = true;
         }
         return created;
     }
@@ -3725,6 +3854,72 @@ namespace Desert::Graphic::System
             frame.MovablePasses.push_back( std::move( pass ) );
         }
         return frame;
+    }
+
+    std::vector<SystemRasterPass> MeshRenderer::FarShadowPasses( const RDG::TextureRef maps )
+    {
+        // UE's far shadow cascade: each slot's far layer of the cascade array (FarShadowLayer), its STATIC casters
+        // drawn straight into the layer with the cascades' pancaked pipelines (CasterPipelinesOf), cleared to the
+        // far plane first (1, standard Z: AddSystemRasters clears a layer's first node). Only a layer whose key
+        // changed (PlanCascadeCache) or that a fresh array emptied (AcquireCascadeMaps) is drawn; the rest keep
+        // the depth they were drawn with.
+        std::vector<SystemRasterPass> passes;
+        if ( !m_ShadowPipeline || !maps.IsValid() || !HasFarShadow( m_Shadow ) )
+            return passes;
+        for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
+        {
+            FarShadowState& farShadow = m_FarShadow[slot];
+            if ( !farShadow.Redraw || !farShadow.Fitted )
+                continue;
+            // Drawn now: the layer holds this frame's content (a masked caster still compiling resets it again,
+            // BuildShadowCascadeDraws).
+            farShadow.Key            = farShadow.PendingKey;
+            const uint32_t   v = kFarShadowViewBase + slot;
+            SystemRasterPass pass{
+                 .Name        = std::format( "MeshShadowFar{}", slot ),
+                 .ExecuteFunc = [this, slot, v]( RDG::PassContext& context,
+                                                 const FrameGraphRefs& ) -> Common::BoolResultStr
+                 {
+                     if ( auto drawn = m_FarShadowDraws[slot].Record( context ); !drawn.IsSuccess() )
+                         return drawn;
+                     // The non-mesh casters (the landscape) into the same pass, so the layer holds everyone's depth.
+                     for ( const auto& [weak, firstBlock] : m_FarShadowCasters[slot] )
+                     {
+                         const auto caster = weak.lock();
+                         if ( !caster )
+                             continue; // gone since the setup: its draws went with it
+                         if ( auto cast = caster->RecordShadowView( context, v, firstBlock, m_CascadeCasterVP[v],
+                                                                    m_CascadeCasterBias[v], {} );
+                              !cast.IsSuccess() )
+                             return cast;
+                     }
+                     return BOOLSUCCESS;
+                 },
+                 .TargetDepthArray = maps,
+                 .TargetLayer      = FarShadowLayer( slot ),
+                 .ClearDepth       = 1.0f };
+            pass.Declare = [this, slot, v]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+            {
+                m_FarShadowDraws[slot].Clear();
+                m_FarShadowCasters[slot].clear();
+                BuildShadowCascadeDraws( v, m_FarShadowDraws[slot], ShadowCasterLayer::Static );
+                m_FarShadowDraws[slot].Declare( declared, std::nullopt );
+                for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                    declared.Read( streams, RDG::Access::StorageRead );
+                uint32_t nextBlock = m_FarShadowDraws[slot].BlockCount();
+                for ( const auto& weak : m_ShadowCasters )
+                {
+                    if ( const auto caster = weak.lock(); caster && caster->CastsShadowThisFrame() )
+                    {
+                        const uint32_t declaredBlocks = caster->DeclareShadowView( declared, v );
+                        m_FarShadowCasters[slot].emplace_back( weak, nextBlock );
+                        nextBlock += declaredBlocks;
+                    }
+                }
+            };
+            passes.push_back( std::move( pass ) );
+        }
+        return passes;
     }
 
 } // namespace Desert::Graphic::System

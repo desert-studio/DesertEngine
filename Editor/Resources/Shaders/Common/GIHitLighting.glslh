@@ -62,7 +62,11 @@
 // photographic middle grey, 0.18 linear.
 #define GI_HIT_ALBEDO_OFF_SCREEN 0.18
 
-#if !defined( GI_HIT_LIGHTING_NONE ) // GPU-FARFIELD-7: the hit readers (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
+// GI_HIT_LIGHTING_CARDS_ONLY (FPS-SP-HITLIGHT: ScreenProbeTrace.shader SP_TRACE_NEAR_HIT_LIGHTING): an includer that
+// reads a hit from the cards alone (Common/SurfaceCacheSampling.glslh SurfaceCacheHitLighting) and leaves the hits
+// no card holds to a pass of its own declares neither the G-buffer nor the voxel lighting nor the radiance cache's
+// probes: GIHitMaterial and the in-place lighting below are not compiled for it.
+#if !defined( GI_HIT_LIGHTING_NONE ) && !defined( GI_HIT_LIGHTING_CARDS_ONLY ) // GPU-FARFIELD-7: the hit readers
 void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emissive )
 {
     albedo   = vec3( GI_HIT_ALBEDO_OFF_SCREEN );
@@ -110,7 +114,7 @@ vec3 GIMissRadiance( vec3 rayDirection )
 // The material a hit is lit with. Specular = false: a diffuse-only surface (GIHitMaterial's guess, which knows no
 // roughness and no model; ShadingWord unread); true: the hit's own material from a closest-hit shader, lit by its
 // shading model, which ShadingWord carries with its payload and Specular (DesertRayPayload.ShadingWord).
-#if !defined( GI_HIT_LIGHTING_NONE ) // GPU-FARFIELD-7: the hit readers (ScreenProbeTrace.shader SP_TRACE_LIGHTS_HITS)
+#if !defined( GI_HIT_LIGHTING_NONE ) && !defined( GI_HIT_LIGHTING_CARDS_ONLY ) // GPU-FARFIELD-7: the hit readers
 struct GIHitSurface
 {
     vec3  BaseColor;
@@ -239,6 +243,9 @@ float GIHitDirectionalVisibility( int slot, vec3 origin, vec3 N, vec3 L )
             return cascades;
         return mix( cascades, GIHitDirectionalFieldVisibility( slot, origin, L ), band );
     }
+    // Past the cascades the far shadow's static casters (cascades: 1 where it does not reach) and the field both
+    // occlude: the darker.
+    return min( cascades, GIHitDirectionalFieldVisibility( slot, origin, L ) );
 #endif
     return GIHitDirectionalFieldVisibility( slot, origin, L );
 }

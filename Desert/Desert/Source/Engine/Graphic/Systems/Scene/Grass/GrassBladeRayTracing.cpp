@@ -36,6 +36,84 @@ namespace Desert::Graphic::System
         constexpr uint32_t    kLocalSize   = 64; // the program's LocalSize
     } // namespace
 
+    glm::vec4 GrassBladeHullLine( const glm::vec4* bands )
+    {
+        constexpr uint32_t kBands  = 8u;      // Assets::kGrassCardHullBands (GrassBladeShapeGpu::Hull)
+        constexpr float    kNone   = -3.0f;   // below every side value (-1..1): no band meets this corner
+        constexpr float    kMargin = 1.0e-4f; // the lines' rounding, in side units
+        // One side's line: @p hiSide the hi edge, else the lo edge negated (so both are upper bounds). Its
+        // corners at t = i / 8 hold the widest non-empty band meeting there; the line is the upper hull's edge
+        // over t = 1/2 (least area: the trapezoid's mean width is its value there). False: no band passes.
+        const auto line = [&]( const bool hiSide, float& atRoot, float& atTip ) -> bool
+        {
+            std::array<float, kBands + 1u> corner;
+            corner.fill( kNone );
+            float widest = kNone;
+            for ( uint32_t b = 0u; b < kBands; ++b )
+            {
+                const glm::vec4& v  = bands[b / 2u];
+                const float      lo = ( b & 1u ) == 0u ? v.x : v.z;
+                const float      hi = ( b & 1u ) == 0u ? v.y : v.w;
+                if ( lo > hi )
+                    continue;
+                const float e  = hiSide ? hi : -lo;
+                corner[b]      = std::max( corner[b], e );
+                corner[b + 1u] = std::max( corner[b + 1u], e );
+                widest         = std::max( widest, e );
+            }
+            if ( widest <= kNone )
+                return false;
+            atRoot = widest; // the rectangle, unless a hull edge spans t = 1/2 inside [-1, 1]
+            atTip  = widest;
+            std::array<glm::vec2, kBands + 1u> hull{};
+            size_t                             n = 0u;
+            for ( uint32_t i = 0u; i <= kBands; ++i )
+            {
+                if ( corner[i] <= kNone )
+                    continue;
+                const glm::vec2 p( static_cast<float>( i ) / static_cast<float>( kBands ), corner[i] );
+                // Drop the last corner while it lies on or under the chord from the one before it to p.
+                while ( n >= 2u && ( hull[n - 1u].x - hull[n - 2u].x ) * ( p.y - hull[n - 2u].y ) -
+                                            ( hull[n - 1u].y - hull[n - 2u].y ) * ( p.x - hull[n - 2u].x ) >=
+                                       0.0f )
+                    --n;
+                hull[n++] = p;
+            }
+            for ( size_t k = 0u; k + 1u < n; ++k )
+            {
+                const glm::vec2 a = hull[k];
+                const glm::vec2 c = hull[k + 1u];
+                if ( a.x > 0.5f || c.x < 0.5f )
+                    continue;
+                const float slope = ( c.y - a.y ) / ( c.x - a.x );
+                const float root  = a.y - slope * a.x;
+                const float tip   = root + slope;
+                if ( root >= -1.0f && root <= 1.0f && tip >= -1.0f && tip <= 1.0f )
+                {
+                    atRoot = std::min( root + kMargin, 1.0f );
+                    atTip  = std::min( tip + kMargin, 1.0f );
+                }
+                break;
+            }
+            return true;
+        };
+        float hiRoot = 0.0f, hiTip = 0.0f, loRoot = 0.0f, loTip = 0.0f;
+        if ( !line( true, hiRoot, hiTip ) || !line( false, loRoot, loTip ) )
+            return glm::vec4( 2.0f, -2.0f, 2.0f, -2.0f );
+        loRoot = -loRoot;
+        loTip  = -loTip;
+        // Sides that cross before an end (the bands stop short of it) meet there: the lo line only lowers, the hi
+        // line only rises, so both still hold every band.
+        const auto meet = []( float& lo, float& hi )
+        {
+            if ( lo > hi )
+                lo = hi = 0.5f * ( lo + hi );
+        };
+        meet( loRoot, hiRoot );
+        meet( loTip, hiTip );
+        return glm::vec4( loRoot, hiRoot, loTip, hiTip );
+    }
+
     GrassBladeStripLevel MakeGrassBladeStripLevel( const uint32_t segments )
     {
         GrassBladeStripLevel level;

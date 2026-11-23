@@ -5,6 +5,7 @@
 // (forward-declared below) and not the passes that produce them; the members live in SceneRendererImpl.hpp.
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 #include <Engine/Graphic/DebugViewState.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
@@ -286,6 +287,7 @@ namespace Desert::Graphic
             std::vector<float>     MorphWeights;
             uint64_t               MorphRevision            = 0;
             std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback; // skinned + animated only
+            Animation::LeaderPoseLink Leader; // skinned only: a follower mesh's leader (UE LeaderPoseComponent)
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
             int                    ForcedLOD       = -1; // -1 = auto (by distance)

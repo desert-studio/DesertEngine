@@ -64,6 +64,7 @@ namespace Desert
             sm.IndexCount    = i < ranges.size() ? ranges[i].IndexCount : 0;
             sm.LODs          = { { sm.IndexOffset, sm.IndexCount } };
             sm.BakedLODs.clear();
+            sm.LODCutErrors.clear();
             sm.BoundingBox.Min -= glm::vec3( boundsGrowthCm );
             sm.BoundingBox.Max += glm::vec3( boundsGrowthCm );
         }

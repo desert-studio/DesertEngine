@@ -151,6 +151,7 @@ namespace Desert::Graphic::Render
                            .MorphWeights  = MorphWeights,
                            .MorphRevision = MorphRevision,
                            .LodFeedback   = LodFeedback,
+                           .Leader        = Leader,
                            .Outlined      = Outlined,
                            .CastShadows   = CastShadows } );
     }

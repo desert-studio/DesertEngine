@@ -225,6 +225,18 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
+        // FPS-SSR-FARFIELD: the reconstruction of the reflections and the temporal / convolution passes run on
+        // the async pipe when @p async (UE: the Lumen reflections' denoiser on the pipe of their trace,
+        // r.Lumen.Reflections.AsyncCompute) - for a producer whose trace is itself async and whose output is
+        // read late (the front layer's reflections). Every input and output is a graph resource; the history
+        // slots are extracted / registered externals, CONCURRENT across the families, released to the run at
+        // its fork by the graph. Before the first graph.
+        void RunOnAsyncCompute( const bool async )
+        {
+            m_PassFlags =
+                 async ? RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute : RDG::PassFlags::Compute;
+        }
+
         // The previous frame is a different world (scene replaced) or a different shot (camera cut): nothing
         // in the history may be reprojected into this frame.
         void InvalidateHistory()
@@ -248,7 +260,7 @@ namespace Desert::Graphic::System
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
             graph.AddPass(
-                 "Denoise: Reflections Reconstruction", RDG::PassFlags::Compute,
+                 "Denoise: Reflections Reconstruction", m_PassFlags,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_ReconstructLayout.Get( m_ReconstructShader ),
@@ -610,7 +622,7 @@ namespace Desert::Graphic::System
                  .Params2 = glm::vec4( signalGate, 0.0f, 0.0f, 0.0f ) };
             HistorySlot*    stamped = &next;
             graph.AddPass(
-                 "Denoise: Temporal Accumulation", RDG::PassFlags::Compute,
+                 "Denoise: Temporal Accumulation", m_PassFlags,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_TemporalLayout.Get( m_TemporalShader ),
@@ -662,7 +674,7 @@ namespace Desert::Graphic::System
             const ShaderPush::SSDHistoryConvolution convolutionPush{
                  .Params = glm::vec4( signalGate, static_cast<float>( m_Signal ), alphaIsSignal, 0.0f ) };
             graph.AddPass(
-                 "Denoise: History Convolution", RDG::PassFlags::Compute,
+                 "Denoise: History Convolution", m_PassFlags,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_ConvolutionLayout.Get( m_ConvolutionShader ),
@@ -695,6 +707,8 @@ namespace Desert::Graphic::System
         }
 
         DenoiserSignal m_Signal;
+        // RunOnAsyncCompute: Compute, or Compute | AsyncCompute.
+        RDG::PassFlags m_PassFlags = RDG::PassFlags::Compute;
 
         std::shared_ptr<Shader>          m_ReconstructShader;
         std::shared_ptr<Shader>          m_TemporalShader;

@@ -115,9 +115,11 @@ namespace Desert::Graphic
     // (the depth and the velocity of a pixel must come from the same surface, or TAA reprojects a wall with a
     // character's motion). Value: current unjittered NDC.xyz minus previous unjittered NDC.xyz of the surface
     // point (ViewFrame rule: velocity never carries the jitter; z = the device depth's change, VelocityNdc).
-    // Pixels no geometry covered (sky, clouds, far plane) keep the clear value 0; every reader that needs their
-    // motion derives the camera's at infinity (ViewFrame::ClipToPrevClip, Common/Velocity.glslh
-    // DesertCameraVelocityAtInfinity): TAA, TSR, UpscalerVelocity (DLSS / FSR3) and motion blur's Flatten.
+    // The sky draw writes the camera's motion at infinity into the texels no geometry covered (Skybox.shader /
+    // ProceduralSky.shader, Common/Velocity.glslh DesertSkyVelocity; the clouds over them share it), so the vendor
+    // upscalers (DLSS / FSR3) take the velocity as is (UE: the sky writes velocity, no VelocityCombine pass). With
+    // no sky drawn those texels keep the clear value 0, and TAA, TSR and motion blur's Flatten derive the same
+    // motion there (ViewFrame::ClipToPrevClip, DesertCameraVelocityAtInfinity).
     inline constexpr Core::Formats::ImageFormat kVelocityFormat = ViewTargetFormats::kVelocity;
 
     // RDG-FAULT1 fit. Velocity lost to a fault (every geometry pass that wrote it removed) is read as Black = zero
@@ -223,9 +225,10 @@ namespace Desert::Graphic
         // This frame's set: transients of @p graph ("ScreenProbes.<name>") extracted into the view for the next
         // frame. At most one call per graph.
         [[nodiscard]] Refs CreateCurrent( RDG::Builder& graph, ViewExtent extent );
-        // The AddPass index of the temporal pass that writes the set (Builder::GetPassCount() before its
-        // AddPass), whose loss EndFrame checks. Not called -> the set counts as unwritten.
-        void SetWriterPass( uint32_t writerPass );
+        // Adds the AddPass index of a pass that writes the set (Builder::GetPassCount() before its AddPass):
+        // the integrates with the temporal filter fused in, one each (FPS-SP-INTEGRATE). EndFrame drops the set
+        // when any writer was lost. Not called -> the set counts as unwritten.
+        void AddWriterPass( uint32_t writerPass );
 
         // After Execute succeeded: the extracted set becomes the previous one when its writer survived (@p
         // report); otherwise, and when this frame created none, the next frame has no previous.
@@ -242,7 +245,7 @@ namespace Desert::Graphic
         uint32_t                                                      m_PreviousSlot = 0;
         bool                                                          m_HasPrevious  = false;
         bool                                                          m_Created      = false;
-        uint32_t                                                      m_WriterPass   = UINT32_MAX;
+        std::vector<uint32_t>                                         m_WriterPasses; // cleared each frame
     };
 
     // ---- Temporal history ------------------------------------------------------------------------------------

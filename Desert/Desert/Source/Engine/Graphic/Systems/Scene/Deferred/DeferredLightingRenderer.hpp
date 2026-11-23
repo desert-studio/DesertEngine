@@ -1010,7 +1010,7 @@ namespace Desert::Graphic::System
                  .Texture( DeferredLightingCompositeShaderParameters::GBufferDepthTexture, inputs.GBufferDepth,
                            kRead, kWhole );
         }
-        // A direct program: its permutation of the shader, drawn into the direct target (one RGBA32F colour).
+        // A direct program: its permutation of the shader, drawn into the direct target (one RGBA16F colour, pre-exposed).
         Common::BoolResultStr BuildProgram( const std::size_t index )
         {
             CompositeProgram& program = m_Programs[index];

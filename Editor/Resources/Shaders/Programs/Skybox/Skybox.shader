@@ -47,6 +47,15 @@ Shader "Skybox"
         In(3) vec3 v_ViewRay;
         // ViewFrame::PreExposure from the vertex stage (CameraUB is a vertex-stage block here).
         In(4) float v_PreExposure;
+        // The ray as a point at infinity through the unjittered ViewProjection / PrevViewProjection (Common/
+        // Velocity.glslh DesertSkyVelocity): divided per pixel, written into the scene target's velocity slot.
+        In(5) vec4 v_SkyClip;
+        In(6) vec4 v_SkyPrevClip;
+        // The view's velocity (ViewTargetLayouts kSceneTargetVelocitySlot): the camera's motion at infinity, so the
+        // sky texels carry it for every reader and the vendor upscalers without a fix-up pass.
+        Out(1) vec4 oVelocity;
+
+        #include <Common/Velocity.glslh>
 
         void main()
         {
@@ -55,6 +64,7 @@ Shader "Skybox"
         	vec4 sky = texture(samplerCubeMap, SkyLookDirection(v_ViewRay, skyLook.YawCosSin.xy));
         	// Pre-exposed AFTER the gain and its luminance ceiling, so the ceiling stays in absolute units.
         	oColor   = vec4(ApplySkyGain(sky.rgb, skyLook.Gain.rgb) * v_PreExposure, sky.a);
+        	oVelocity = DesertSkyVelocity(v_SkyClip, v_SkyPrevClip);
         }
     }
 
@@ -66,6 +76,10 @@ Shader "Skybox"
 
         Out(3) vec3 v_ViewRay;
         Out(4) float v_PreExposure;
+        // The ray through the UNJITTERED current and previous ViewProjection as a point at infinity (w = 0): linear
+        // in the ray, so the interpolated pair is the pixel's; the fragment divides (DesertSkyVelocity).
+        Out(5) vec4 v_SkyClip;
+        Out(6) vec4 v_SkyPrevClip;
 
         void main()
         {
@@ -86,6 +100,8 @@ Shader "Skybox"
             // jitter, as the geometry the upscaler resolves the backdrop with (WorldViewRayJittered).
         	v_ViewRay = WorldViewRayJittered(cameraUB.Projection, cameraUB.JitterNdc, cameraUB.View, position);
         	v_PreExposure = cameraUB.PreExposure;
+        	v_SkyClip     = cameraUB.ViewProjection * vec4(v_ViewRay, 0.0);
+        	v_SkyPrevClip = cameraUB.PrevViewProjection * vec4(v_ViewRay, 0.0);
         }
     }
 }

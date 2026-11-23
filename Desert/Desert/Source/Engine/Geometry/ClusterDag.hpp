@@ -49,8 +49,11 @@ namespace Desert::Geometry
     inline constexpr float kClusterRootError = 3.0e38f;
     // The relative errors (of the submesh's bounds radius) the discrete LOD chain is cut at: LOD0 = 0 (level 0),
     // then the levels that replace the generated chain (LODChainSettings) of a mesh that is not virtual geometry,
-    // coarsest last.
-    inline constexpr float kClusterDagCutErrors[] = { 0.0f, 0.002f, 0.008f, 0.03f };
+    // coarsest last. FPS-GRASS-LOD: 0.12 and 0.5 continue the chain to a few-triangle silhouette for far
+    // instanced foliage (GrassCull clamps far instances to the coarsest level); each level's error is stored with
+    // it (SubmeshData::LodCutErrors) and caps its screen size by the Nanite ~1 px rule (ResolveLODScreenSizes), so a
+    // coarse level is never drawn where its error would show. At most GrassRenderer kLawBuckets (15) levels.
+    inline constexpr float kClusterDagCutErrors[] = { 0.0f, 0.002f, 0.008f, 0.03f, 0.12f, 0.5f };
 
     struct ClusterSphere
     {

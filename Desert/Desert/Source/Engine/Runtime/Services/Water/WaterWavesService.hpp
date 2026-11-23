@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Water/FFTSurfaceMirror.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -15,7 +16,8 @@
 // caller of Get() does not compile the Gerstner generator (BUILD-MOD-1).
 namespace Desert::Water
 {
-    struct GerstnerWave; // Engine/Water/GerstnerWaterWaves.hpp
+    struct GerstnerWave;     // Engine/Water/GerstnerWaterWaves.hpp
+    struct FFTOceanSpectrum; // Engine/Water/FFTOceanSpectrum.hpp
 }
 
 namespace Desert::Assets
@@ -35,13 +37,26 @@ namespace Desert::Runtime
     class WaterWavesService
     {
     public:
-        using Waves = std::shared_ptr<const std::vector<Water::GerstnerWave>>;
+        using Waves    = std::shared_ptr<const std::vector<Water::GerstnerWave>>;
+        using Spectrum = std::shared_ptr<const Water::FFTOceanSpectrum>;
 
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
 
         /// The generated waves when the set is read; success with null while pending; an error, said once,
         /// when it fails.
         Common::ResultStr<Waves> Get( const Assets::AssetHandle& handle );
+
+        /// WATER-RIVERS-FFT: the set's FFT ocean (every cascade's initial spectrum, built ONCE per load from its
+        /// FFT block and seed) when its Source is FFT; success with null while pending or for a Gerstner set; the
+        /// set's error when it failed.
+        Common::ResultStr<Spectrum> GetSpectrum( const Assets::AssetHandle& handle );
+
+        /// THE FFT OCEAN'S CPU MIRROR (WATER-RIVERS-FFT pass 7): WaterRenderer publishes each read-back of the
+        /// frame's FFT ocean, the physics gather hands the newest snapshot to the body naming that spectrum.
+        [[nodiscard]] Water::FFTSurfaceMirror& Surfaces()
+        {
+            return m_Surfaces;
+        }
 
         void Clear();
 
@@ -52,6 +67,8 @@ namespace Desert::Runtime
         std::weak_ptr<Assets::AssetManager>                          m_Assets;
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::unordered_map<Assets::AssetHandle, Waves>               m_Ready;
+        std::unordered_map<Assets::AssetHandle, Spectrum>            m_Spectra; // FFT sets only
         std::unordered_map<Assets::AssetHandle, std::string>         m_Failed;
+        Water::FFTSurfaceMirror                                      m_Surfaces;
     };
 } // namespace Desert::Runtime

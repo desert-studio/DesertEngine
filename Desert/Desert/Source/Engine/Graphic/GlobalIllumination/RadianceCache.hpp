@@ -213,7 +213,8 @@ namespace Desert::Graphic::RadianceCache
         glm::uvec4 Frames{
              0u }; // x = last used, y = last traced (0 = never), z = traced light hash, w = light hash
         glm::vec4  Offset{ 0.0f }; // xyz = the probe's relocation out of geometry (cm), w = 0
-        glm::uvec4 Priority{ 0u }; // x = priority bucket this frame
+        glm::uvec4 Priority{
+             0u }; // x = priority bucket this frame, y = 1: a coverage reader stamped it (0: fallback)
     };
     static_assert( sizeof( RadianceCacheProbePayload ) == 64 );
 

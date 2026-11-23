@@ -4,6 +4,7 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
@@ -33,6 +34,8 @@ namespace Desert::Graphic::Render
         uint64_t                        MorphRevision = 0;
         // The animated instance's LOD / update-rate feedback (null: not animated).
         std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
+        // A follower mesh's leader (UE LeaderPoseComponent): empty = it leads itself.
+        Animation::LeaderPoseLink       Leader;
         bool                            Outlined    = false;
         bool                            CastShadows = true;
 
@@ -41,10 +44,11 @@ namespace Desert::Graphic::Render
                                 std::shared_ptr<const std::vector<glm::mat4>> bones,
                                 std::vector<float>                            morphWeights,
                                 uint64_t morphRevision, bool outlined, bool castShadows,
-                                std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr )
+                                std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr,
+                                Animation::LeaderPoseLink                      leader      = {} )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( std::move( bones ) ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
-               LodFeedback( std::move( lodFeedback ) ), Outlined( outlined ), CastShadows( castShadows )
+               LodFeedback( std::move( lodFeedback ) ), Leader( leader ), Outlined( outlined ), CastShadows( castShadows )
         {
         }
 

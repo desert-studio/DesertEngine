@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <bit>
 #include <climits>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <span>
@@ -159,10 +160,12 @@ namespace Desert::Assets::Serialization
             SecClusterVertexRefs, // version 7: uint32
             SecClusterTriangles,  // version 7: uint32
             SecSubmeshLodChains,  // version 8: uint32 per submesh, kSubmeshLodChainCooked or 0
+            SecLodCutErrors,      // version 9: float per LOD range (SecLODRanges order), the level's cut error
             SecCount_             // one past the last id; also the number of rows in the table
         };
         static_assert( SecSubmeshes == Common::Content::kMeshBinarySubmeshSectionId );
         constexpr uint32_t kSectionCount   = SecCount_ - 1; // the current version has every row
+        constexpr uint32_t kSectionCountV8 = SecSubmeshLodChains; // version 8: no LOD cut-error row
         constexpr uint32_t kSectionCountV7 = SecClusterTriangles; // version 7: no submesh LOD-chain row
         constexpr uint32_t kSectionCountV6 = SecUV1;              // version 6: through UV1, no cluster DAG
 
@@ -213,6 +216,8 @@ namespace Desert::Assets::Serialization
                 case SecClusterTriangles:
                 case SecSubmeshLodChains:
                     return sizeof( uint32_t );
+                case SecLodCutErrors:
+                    return sizeof( float );
                 default:
                     return 0;
             }
@@ -260,6 +265,8 @@ namespace Desert::Assets::Serialization
                     return "ClusterTriangles";
                 case SecSubmeshLodChains:
                     return "SubmeshLodChains";
+                case SecLodCutErrors:
+                    return "LodCutErrors";
                 default:
                     return "<unknown>";
             }
@@ -308,6 +315,8 @@ namespace Desert::Assets::Serialization
         submeshes.reserve( data.Submeshes.size() );
         std::vector<uint32_t> lodChains;
         lodChains.reserve( data.Submeshes.size() );
+        // One per LOD range: the level's relative cut error, or 0 for every level of a submesh that states none.
+        std::vector<float> lodCutErrors;
         for ( const SubmeshData& s : data.Submeshes )
         {
             BinSubmesh rec{};
@@ -326,11 +335,13 @@ namespace Desert::Assets::Serialization
             rec.MaterialGuidHi = s.MaterialGuid.Hi;
             rec.MaterialGuidLo = s.MaterialGuid.Lo;
 
-            for ( const std::vector<IndexData>& level : s.LODs )
+            for ( size_t l = 0; l < s.LODs.size(); ++l )
             {
+                const std::vector<IndexData>& level = s.LODs[l];
                 lodRanges.push_back( BinLODRange{ static_cast<uint64_t>( lodIndices.size() ),
                                                   static_cast<uint64_t>( level.size() ) } );
                 lodIndices.insert( lodIndices.end(), level.begin(), level.end() );
+                lodCutErrors.push_back( s.LodCutErrors.size() == s.LODs.size() ? s.LodCutErrors[l] : 0.0f );
             }
             submeshes.push_back( rec );
             lodChains.push_back( s.LodChainCooked ? kSubmeshLodChainCooked : 0u );
@@ -424,6 +435,7 @@ namespace Desert::Assets::Serialization
              { SecClusterVertexRefs, AsBytes( dagVertexRefs.data(), dagVertexRefs.size() ), dagVertexRefs.size() },
              { SecClusterTriangles, AsBytes( dagTriangles.data(), dagTriangles.size() ), dagTriangles.size() },
              { SecSubmeshLodChains, AsBytes( lodChains.data(), lodChains.size() ), lodChains.size() },
+             { SecLodCutErrors, AsBytes( lodCutErrors.data(), lodCutErrors.size() ), lodCutErrors.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
@@ -500,10 +512,10 @@ namespace Desert::Assets::Serialization
                  who, header.ByteOrder, kByteOrderTag );
         }
 
-        // VERSIONS 6 TO 8 ARE READ: v6 is v7 without the cluster-DAG sections, v7 is v8 without the submesh
-        // LOD-chain row (one reader, a section count that depends on the version). Versions 1-4 named the rig by
-        // a bone hash (SKEL-TREE replaced it with the skeleton's GUID); Tools/SceneMigrator raises them and 5,
-        // this reader refuses them by name.
+        // VERSIONS 6 TO 9 ARE READ: v6 is v7 without the cluster-DAG sections, v7 is v8 without the submesh
+        // LOD-chain row, v8 is v9 without the LOD cut-error row (one reader, a section count that depends on the
+        // version). Versions 1-4 named the rig by a bone hash (SKEL-TREE replaced it with the skeleton's GUID);
+        // Tools/SceneMigrator raises them and 5, this reader refuses them by name.
         if ( !Common::Content::IsReadableMeshBinaryVersion( header.Version ) )
         {
             return Common::MakeFormattedError<MeshAssetData>(
@@ -524,7 +536,8 @@ namespace Desert::Assets::Serialization
                  who, header.FileSize, bytes.size() );
         }
 
-        const uint32_t sectionCount = header.Version >= 8u   ? kSectionCount
+        const uint32_t sectionCount = header.Version >= 9u   ? kSectionCount
+                                      : header.Version >= 8u ? kSectionCountV8
                                       : header.Version >= 7u ? kSectionCountV7
                                                              : kSectionCountV6;
         if ( header.SectionCount != sectionCount )
@@ -660,6 +673,8 @@ namespace Desert::Assets::Serialization
         };
 
         data.Submeshes.resize( N( SecSubmeshes ) );
+        // Each submesh's first LOD range (validated below): the v9 cut errors are indexed like the ranges.
+        std::vector<uint64_t> lodFirstRange( data.Submeshes.size(), 0u );
         for ( size_t i = 0; i < data.Submeshes.size(); ++i )
         {
             BinSubmesh  rec{};
@@ -721,6 +736,7 @@ namespace Desert::Assets::Serialization
                      static_cast<uint64_t>( rec.LODFirst ) + rec.LODCount, N( SecLODRanges ) );
             }
 
+            lodFirstRange[i] = rec.LODFirst;
             out.LODs.resize( rec.LODCount );
             for ( uint32_t l = 0; l < rec.LODCount; ++l )
             {
@@ -767,6 +783,48 @@ namespace Desert::Assets::Serialization
         else
             for ( SubmeshData& submesh : data.Submeshes )
                 submesh.LodChainCooked = data.IsSkinned || !submesh.LODs.empty();
+
+        // THE LEVELS' CUT ERRORS (v9): one float per LOD range. A submesh's levels are all 0 (no error recorded: a
+        // generated or imported chain, no screen-size cap) or all positive and finite (cut from its cluster DAG at
+        // those relative errors, coarsest last). A v6-v8 file states none: its levels read uncapped, as its loads
+        // drew them; Tools/SceneMigrator writes it back as v9 with the same "none" (the DAG cuts are re-derived
+        // when the VG DDC key moves, which kClusterDagCutErrors is part of).
+        if ( header.Version >= 9u )
+        {
+            if ( N( SecLodCutErrors ) != N( SecLODRanges ) )
+            {
+                return Common::MakeFormattedError<MeshAssetData>(
+                     "'{}' carries {} LOD cut errors for {} LOD ranges.", who, N( SecLodCutErrors ),
+                     N( SecLODRanges ) );
+            }
+            for ( size_t i = 0; i < data.Submeshes.size(); ++i )
+            {
+                SubmeshData&       submesh = data.Submeshes[i];
+                std::vector<float> errors( submesh.LODs.size() );
+                size_t             positive = 0;
+                for ( size_t l = 0; l < errors.size(); ++l )
+                {
+                    const uint64_t range = lodFirstRange[i] + l;
+                    std::memcpy( &errors[l], At( SecLodCutErrors ) + range * sizeof( float ), sizeof( float ) );
+                    if ( !std::isfinite( errors[l] ) || errors[l] < 0.0f )
+                    {
+                        return Common::MakeFormattedError<MeshAssetData>(
+                             "'{}' submesh {} LOD {} states cut error {}; a writer states 0 or a positive finite "
+                             "relative error.",
+                             who, i, l, errors[l] );
+                    }
+                    positive += errors[l] > 0.0f ? 1u : 0u;
+                }
+                if ( positive != 0 && positive != errors.size() )
+                {
+                    return Common::MakeFormattedError<MeshAssetData>(
+                         "'{}' submesh {} states cut errors for {} of its {} LODs; a writer states all or none.",
+                         who, i, positive, errors.size() );
+                }
+                if ( positive != 0 )
+                    submesh.LodCutErrors = std::move( errors );
+            }
+        }
 
         // One per face or none: a partial list would pair groups with the wrong triangles past its end.
         if ( N( SecPolyGroups ) != 0 && N( SecPolyGroups ) != N( SecIndices ) )
