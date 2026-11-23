@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -52,14 +53,9 @@ namespace Desert::Graphic::System
 
     // What the G-buffer binds (TerrainGBuffer.shader, Common/LandscapeVirtualTexture.glslh). Valid only in the
     // graph AddPasses declared them in. A disabled view binds a zero header (the shader then blends per pixel).
-    struct LandscapeVirtualTextureBindings
-    {
-        RDG::BufferRef  PageTable;
-        RDG::TextureRef Color;
-        RDG::TextureRef Normal;
-        RDG::TextureRef Occlusion;
-        RDG::BufferRef  Feedback;
-    };
+    // One statement of the five refs: the frame graph's (FrameTransients::LandscapeVirtualTexture), published by
+    // TerrainRenderer::AddVirtualTexturePasses and bound by name by BindSceneViewInputs.
+    using LandscapeVirtualTextureBindings = LandscapeVirtualTextureRefs;
 
     // THE LANDSCAPE'S RUNTIME VIRTUAL TEXTURE (LANDSCAPE-RVT; UE Runtime Virtual Texture for landscape): the
     // layer blend (Common/LandscapeSurface.glslh EvaluateLandscapeLayers: albedo, tangent-space normal,

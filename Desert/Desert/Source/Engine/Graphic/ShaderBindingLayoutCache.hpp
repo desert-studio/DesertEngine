@@ -55,6 +55,10 @@ namespace Desert::Graphic
         DeformHeight1,
         DeformDetail0,
         DeformDetail1,
+        // The landscape's runtime virtual texture (FrameGraphRefs.hpp LandscapeVirtualTextureRefs).
+        LandscapeVirtualColor,
+        LandscapeVirtualNormal,
+        LandscapeVirtualOcclusion,
         // A pass's own textures, bound by the pass (not BindSceneViewInputs) where its cell declares them.
         SceneColorTexture,
         FrontLayerReflectionTexture,
@@ -72,6 +76,8 @@ namespace Desert::Graphic
         RadianceCacheProbes,
         FogParams,
         DeformationFieldParams,
+        LandscapeVirtualPageTable,
+        LandscapeVirtualFeedback,
         GpuSceneInstances,
         GpuSceneVisibleInstances,
         GpuSceneDrawSlots,

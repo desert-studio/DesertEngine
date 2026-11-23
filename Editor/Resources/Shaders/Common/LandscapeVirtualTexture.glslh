@@ -9,6 +9,23 @@
 // LandscapeVirtualColorAtlas / NormalAtlas / OcclusionAtlas and LandscapeVirtualSampler (TerrainGBuffer.shader), and
 // includes Common/LandscapeSurface.glslh first (TerrainLayer, TerrainMixLayer).
 
+// THE DECLARATIONS, at the scene-read slots (Core::kLandscapeVirtual*Binding, ShaderGraphBindings.hpp), so any cell -
+// the terrain G-buffer and a mesh that blends into the ground (RVT-MESH-BLEND) - reads the one RVT through one text,
+// bound by name as scene-view inputs (FrameGraphRefs.hpp BindSceneViewInputs, SceneViewInputs::LandscapeVirtualTexture).
+#include <Generated/SceneBindings.glslh>
+layout( std430, binding = kLandscapeVirtualPageTableBinding ) readonly buffer LandscapeVirtualPageTable
+{
+    uint VirtualPageTable[];
+};
+layout( binding = kLandscapeVirtualColorBinding ) uniform texture2D LandscapeVirtualColorAtlas;
+layout( binding = kLandscapeVirtualNormalBinding ) uniform texture2D LandscapeVirtualNormalAtlas;
+layout( binding = kLandscapeVirtualOcclusionBinding ) uniform texture2D LandscapeVirtualOcclusionAtlas;
+Uniform sampler LandscapeVirtualSampler;
+layout( std430, binding = kLandscapeVirtualFeedbackBinding ) buffer LandscapeVirtualFeedback
+{
+    uint VirtualFeedback[];
+};
+
 const uint kLandscapeVirtualHeaderWords = 32u;
 const uint kLandscapeVirtualPageTexels  = 128u;
 const uint kLandscapeVirtualPageBorder  = 4u;

@@ -54,17 +54,6 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDiceCells );
     };
 
-    // LANDSCAPE-RVT: what TerrainGBuffer.shader reads the landscape's runtime virtual texture through.
-    struct VirtualTextureShaderParameters
-    {
-        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeVirtualPageTable );
-        DESERT_SHADER_PARAMETER( Texture, LandscapeVirtualColorAtlas );
-        DESERT_SHADER_PARAMETER( Texture, LandscapeVirtualNormalAtlas );
-        DESERT_SHADER_PARAMETER( Texture, LandscapeVirtualOcclusionAtlas );
-        DESERT_SHADER_PARAMETER( Sampler, LandscapeVirtualSampler );
-        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeVirtualFeedback );
-    };
-
     // "Landscape: Dice Pool" (LandscapeDicePool.shader).
     struct DicePoolShaderParameters
     {
@@ -2654,8 +2643,7 @@ namespace Desert::Graphic::System
         uint32_t DeclareGroupBlocks( Declaration& declaration, const GraphicsPipeline* pipeline,
                                      ShaderBindingLayoutCache& layoutCache, const Executors& executors,
                                      const SceneViewInputs* view, const RDG::BufferRef dicePool,
-                                     const RDG::BufferRef diceCells, const RDG::BufferRef diceCull,
-                                     const LandscapeVirtualTextureBindings* virtualTexture = nullptr )
+                                     const RDG::BufferRef diceCells, const RDG::BufferRef diceCull )
         {
             // TERRAIN-DICE-CULL: the camera's rasters draw their rings from the cull's records.
             if ( diceCull.IsValid() )
@@ -2668,23 +2656,8 @@ namespace Desert::Graphic::System
                 // Every terrain vertex stage reads the frame's dice pool (TerrainVertex.glslh).
                 block.Storage( TerrainShaderParameters::LandscapeVertexPool, dicePool, RDG::Access::StorageRead );
                 block.Storage( TerrainShaderParameters::LandscapeDiceCells, diceCells, RDG::Access::StorageRead );
-                // LANDSCAPE-RVT (TerrainGBuffer.shader only): the page table, the atlases and the feedback.
-                if ( virtualTexture != nullptr && virtualTexture->PageTable.IsValid() )
-                {
-                    block.Storage( VirtualTextureShaderParameters::LandscapeVirtualPageTable, virtualTexture->PageTable,
-                                   RDG::Access::StorageRead )
-                         .Texture( VirtualTextureShaderParameters::LandscapeVirtualColorAtlas, virtualTexture->Color,
-                                   RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                         .Texture( VirtualTextureShaderParameters::LandscapeVirtualNormalAtlas, virtualTexture->Normal,
-                                   RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                         .Texture( VirtualTextureShaderParameters::LandscapeVirtualOcclusionAtlas,
-                                   virtualTexture->Occlusion, RDG::Access::SampledGraphics,
-                                   RDG::SubresourceRange::All() )
-                         .Sampler( VirtualTextureShaderParameters::LandscapeVirtualSampler,
-                                   RDG::SamplerDesc::LinearClamp() )
-                         .Storage( VirtualTextureShaderParameters::LandscapeVirtualFeedback, virtualTexture->Feedback,
-                                   RDG::Access::StorageWrite );
-                }
+                // LANDSCAPE-RVT (TerrainGBuffer.shader): the page table, atlases and feedback are scene-view inputs
+                // (SceneViewInputs::LandscapeVirtualTexture), bound with the rest below.
                 if ( view != nullptr && SamplesSceneViewInputs( slotted.Slots ) )
                 {
                     BindSceneViewInputs( block, *view, slotted.Slots );
@@ -2988,7 +2961,7 @@ namespace Desert::Graphic::System
         const GroupExecutorRange executors = GroupExecutors( &ProgramMaterials::GBuffer );
         PrepareGroupExecutors( pass, executors );
         (void)DeclareGroupBlocks( pass, pipeline, m_GBufferLayout, executors, &view, m_DicePool, m_DiceCells,
-                                  CameraDiceCullArgs(), &m_VirtualTexture.GetBindings() );
+                                  CameraDiceCullArgs() );
     }
 
     Common::BoolResultStr TerrainRenderer::AddVirtualTexturePasses( RDG::Builder& graph, FrameTextures& textures,
@@ -3033,7 +3006,11 @@ namespace Desert::Graphic::System
                 tiles.push_back( std::move( tile ) );
             }
         }
-        return m_VirtualTexture.AddPasses( graph, textures, frame, tiles, enabled && !tiles.empty() );
+        Common::BoolResultStr added = m_VirtualTexture.AddPasses( graph, textures, frame, tiles, enabled && !tiles.empty() );
+        // Published for every reader of the view (the terrain G-buffer, the meshes that blend into the ground): on
+        // an error AddPasses has declared the disabled bindings, which every reader answers "no page" for.
+        textures.Transients.LandscapeVirtualTexture = m_VirtualTexture.GetBindings();
+        return added;
     }
 
     bool TerrainRenderer::PrepassesGBuffer() const
