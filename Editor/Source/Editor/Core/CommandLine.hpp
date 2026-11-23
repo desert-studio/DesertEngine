@@ -136,7 +136,8 @@ namespace Desert::Editor
          { "--builder", true, "HLODs", "--run WorldPartitionBuilder --scene Scene.desce" },
          { "--builder-cell-size", true, "102400",
            "--run WorldPartitionBuilder --builder ResaveEntities --scene Scene.desce" },
-         { "--only-dirty", false, nullptr, "--run WorldPartitionBuilder --builder ResaveEntities --scene Scene.desce" },
+         { "--only-dirty", false, nullptr,
+           "--run WorldPartitionBuilder --builder ResaveEntities --scene Scene.desce" },
     };
 
     /// Everything the command line resolved to. Held by value and copied into the process-wide singletons
@@ -728,9 +729,9 @@ namespace Desert::Editor
         // The player's view is Play's own: without Play there is no player, and a placed camera would be
         // overridden by it.
         if ( shot.PlayerView && ( !shot.Play || shot.HasCamera || shot.HasLook || shot.FlightRoute.has_value() ) )
-            return Common::MakeError<CommandLineOptions>(
-                 "--shot-player-view needs --play and no --camera, --look, --camera-to, --look-to or --flight: the "
-                 "frames are taken from the player's own view" );
+            return Common::MakeError<CommandLineOptions>( "--shot-player-view needs --play and no --camera, "
+                                                          "--look, --camera-to, --look-to or --flight: the "
+                                                          "frames are taken from the player's own view" );
         const bool         flying  = shot.FlightRoute.has_value();
         const bool         partial = shot.FlightSpeed > 0.0 || !shot.FlightCsv.empty();
         if ( !flying && partial )

@@ -215,7 +215,7 @@ namespace
             namespace Rules = Desert::Core::Rules;
             Rules::StreamingSource source;
             source.Position = { at.X, at.Y, at.Z };
-            auto wish = Rules::QueryStreamingCells( m_World.Plan, m_Partition, std::span( &source, 1 ) );
+            auto wish       = Rules::QueryStreamingCells( m_World.Plan, m_Partition, std::span( &source, 1 ) );
             if ( !wish )
             {
                 said = "streaming query: " + wish.GetError();
@@ -234,29 +234,31 @@ namespace
                 if ( !m_Resident.contains( unit ) )
                 {
                     change.Loaded.push_back( unit );
-                    loaded += std::format( "{}{}", loaded.empty() ? "" : ", ", Rules::DescribeResidencyUnit( plan, unit ) );
+                    loaded += std::format( "{}{}", loaded.empty() ? "" : ", ",
+                                           Rules::DescribeResidencyUnit( plan, unit ) );
                 }
             for ( const std::uint32_t unit : m_Resident )
                 if ( !now.contains( unit ) )
                 {
                     change.Unloaded.push_back( unit );
-                    unloaded +=
-                         std::format( "{}{}", unloaded.empty() ? "" : ", ", Rules::DescribeResidencyUnit( plan, unit ) );
+                    unloaded += std::format( "{}{}", unloaded.empty() ? "" : ", ",
+                                             Rules::DescribeResidencyUnit( plan, unit ) );
                     for ( const std::size_t record : Rules::ResidencyUnitMembers( plan, unit ) )
                         gone.push_back( m_World.RecordIds.at( record ) );
                 }
-            said = std::format( "residency report at ({:.0f}, {:.0f}, {:.0f}) cm: {} cell(s) resident; {} loaded{}{}; "
-                                "{} unloaded{}{}",
-                                at.X, at.Y, at.Z, now.size(), change.Loaded.size(), loaded.empty() ? "" : ": ",
-                                loaded, change.Unloaded.size(), unloaded.empty() ? "" : ": ", unloaded );
+            said = std::format(
+                 "residency report at ({:.0f}, {:.0f}, {:.0f}) cm: {} cell(s) resident; {} loaded{}{}; "
+                 "{} unloaded{}{}",
+                 at.X, at.Y, at.Z, now.size(), change.Loaded.size(), loaded.empty() ? "" : ": ", loaded,
+                 change.Unloaded.size(), unloaded.empty() ? "" : ": ", unloaded );
             m_Resident = std::move( now );
             return std::make_pair( std::move( change ), std::move( gone ) );
         }
 
     private:
-        Desert::Core::WorldPartitionSerialized   m_Partition;
-        Desert::Core::WorldCells::IndexedWorld   m_World;
-        std::set<std::uint32_t>                  m_Resident;
+        Desert::Core::WorldPartitionSerialized m_Partition;
+        Desert::Core::WorldCells::IndexedWorld m_World;
+        std::set<std::uint32_t>                m_Resident;
     };
 
     // ---------------------------------------------------------------- options
