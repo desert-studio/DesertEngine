@@ -4,7 +4,7 @@
 # it), all objects and the Editor's; the top N (default 30) of the tree's headers (ThirdParty with --all).
 # --objects <header>: the objects one header rebuilds. --gate: every header of scripts/Dev/header_fanout_budget.txt
 # within its ceiling (exit 1 otherwise) -- a split header that starts pulling the world back in fails here, not in a
-# 20-minute rebuild. Reads the Debug build of this tree: build first (a never-built object has no dependency record).
+# 20-minute rebuild. Reads the DEV_CONFIG build of this tree: build first (a never-built object has no dependency record).
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 case "${1:-}" in -h|--help) dev_help "$0"; exit 0 ;; esac
@@ -19,11 +19,11 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-[ -f "$DEV_BUILD/build-Debug.ninja" ] || { echo "header_fanout: no Debug build in $DEV_BUILD -- build Editor first"; exit 1; }
+[ -f "$DEV_BUILD/build-$DEV_CONFIG.ninja" ] || { echo "header_fanout: no $DEV_CONFIG build in $DEV_BUILD -- build Editor first"; exit 1; }
 LOG="$(dev_logdir header_fanout)"
 cd "$DEV_BUILD" || exit 1
-ninja -f build-Debug.ninja -t deps > "$LOG/deps.txt" 2> "$LOG/deps.err" || { echo "header_fanout: ninja -t deps failed: $(head -1 "$LOG/deps.err")"; exit 1; }
-ninja -f build-Debug.ninja -t inputs Editor 2>/dev/null | grep -E '\.(o|obj)$' > "$LOG/editor_objects.txt"
+ninja -f "build-$DEV_CONFIG.ninja" -t deps > "$LOG/deps.txt" 2> "$LOG/deps.err" || { echo "header_fanout: ninja -t deps failed: $(head -1 "$LOG/deps.err")"; exit 1; }
+ninja -f "build-$DEV_CONFIG.ninja" -t inputs Editor 2>/dev/null | grep -E '\.(o|obj)$' > "$LOG/editor_objects.txt"
 
 python3 - "$DEV_ROOT" "$DEV_BUILD" "$LOG" "$TOP" "$ALL" "$OBJECTS" "$GATE" <<'EOF'
 import os, sys

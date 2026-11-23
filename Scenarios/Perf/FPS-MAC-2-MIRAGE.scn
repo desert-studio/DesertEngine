@@ -1,0 +1,8 @@
+# FPS-MAC-2 (Mirage): the same comparison on the test game in Play - Debug editor before, Release (dev_config.txt) after.
+Проект ../Mirage/Mirage.deproj --gpu-profile
+Дано run Action "Play from Here"
+Когда frames 60
+Когда profile-dump
+Тогда fpsmac2_mirage Mirage running in Play: its start scene drawn, no error toast; frame time in the stat line
+Когда run Action "Stop"
+Когда frames 5
