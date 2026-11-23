@@ -318,6 +318,23 @@ namespace Desert::Editor
                        return PaletteCommandDone();
                    } } );
         }
+        // ADD LIGHT: the outliner's Add > Lighting local lights, through the same spawn. The placed light is
+        // selected (UE Place Actors), so the next step edits it as 'selected' / the selection without its UUID.
+        using LightKind = Editor::SceneHierarchyPanel::LocalLightKind;
+        constexpr std::pair<LightKind, const char*> kLights[] = {
+             { LightKind::Point, "Point Light" }, { LightKind::Spot, "Spot Light" }, { LightKind::Rect, "Rect Light" } };
+        for ( const auto& [kind, name] : kLights )
+        {
+            commands.push_back( { "Scene", std::string( "Add light: " ) + name, [this, kind]
+                                  {
+                                      if ( !m_Modules.Workspace.ActiveScene() )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      const Common::UUID uuid = Editor::SceneHierarchyPanel::SpawnLocalLight(
+                                           *m_Modules.Workspace.ActiveScene(), kind );
+                                      Core::SelectionManager::SetSelected( uuid );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
     }
 
     void LevelEditorCommands::AppendPaletteDoorCommand( std::vector<PaletteCommand>& commands )
