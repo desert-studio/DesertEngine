@@ -254,6 +254,17 @@ namespace Desert::Core
                     LOG_INFO( "[Net] the level names no pawn: spawned the server's pawn prefab {:016x} as this "
                               "player's",
                               m_Client->PawnPrefab() );
+                    // UE APlayerController::Possess -> SetViewTarget(pawn): the player looks through the pawn it
+                    // now has, as it would through a pawn Play spawned itself (Scene::ResolveViewTarget).
+                    if ( const auto view = scene.ResolveViewTarget(); !view )
+                    {
+                        LOG_ERROR( "[Net] own pawn {}: {}", id, view.GetError() );
+                    }
+                    else if ( view.GetValue() != entt::null )
+                    {
+                        LOG_INFO( "[Net] the player's view is now the possessed pawn's camera (entity {})",
+                                  static_cast<std::uint32_t>( view.GetValue() ) );
+                    }
                 }
                 else if ( scene.GetSettings().DefaultPawn != m_PawnPrefab )
                 {

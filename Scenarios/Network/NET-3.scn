@@ -19,3 +19,13 @@
 # Тогда [net3_start] net3-start/clientA_start.png: B's pawn and cube 200977.
 # Тогда [net3_far] net3-far/clientA_far.png: no B pawn; "removed from relevancy - its finest cell is out of the client's loading range".
 # Тогда [net3_back] net3-back/clientA_back.png: B's pawn and no cube; no seq/ frame around the cell load shows the cube; A's log "acknowledged by the server: revealed with its world delta applied".
+# Pass 3: on a network client the only streaming source is the client's own player (the possessed pawn; level
+# stand-ins such as WP_Protocol's 'Player' 9000001, script providers and the editor view are not sources while the
+# session holds the reveal gate), and the client looks through the possessed pawn's camera (Possess -> view target);
+# frames come from that view (--shot-player-view). The bot B streams its own cells from the cooked plan and reports them.
+# Дано: DesertServer + Editor client A (--shot-player-view) + probe B on WP_Protocol (run_all.sh).
+# Тогда [net3_start] net3-start/clientA_start.png: A's view (its pawn camera) shows B's pawn and cube 200977.
+# Когда: A teleports 1.5 km away; server `destroy 200977`.
+# Тогда [net3_far] net3-far/clientA_far.png: A's view has no B; A's log shows cell G1L0(0,-1) unloaded.
+# Когда: A returns.
+# Тогда [net3_back] net3-back/clientA_back.png: B and no cube; A's log shows G1L0(0,-1) revealed with its world delta applied; no seq/ frame around that load shows the cube; B's log has its residency reports.

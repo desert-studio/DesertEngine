@@ -195,7 +195,8 @@ namespace Desert::Core
         // the server has acknowledged it - the acknowledgement carries the cell's world delta, applied first, so a
         // record the server destroyed is never seen for a frame. Always-loaded units are not gated. An unload
         // forgets the acknowledgement: the cell's next load is acknowledged again. Released (everything reveals as
-        // usual) when the session closes.
+        // usual) when the session closes. While held, the only streaming source is the client's own player (its
+        // possessed pawn, or its view point) - see Tick.
         void SetNetRevealHold( bool hold );
         void AcknowledgeUnitsForNet( std::span<const std::uint32_t> units );
         [[nodiscard]] const WorldPartitionSerialized& Partition() const
@@ -332,6 +333,7 @@ namespace Desert::Core
         // DestroyRecordsForNet's ids, and the child records Activate skipped with them.
         std::unordered_set<std::uint64_t> m_NetDestroyed;
         bool                              m_NetRevealHold = false;
+        bool                              m_SaidNetOwnSources = false; // "streams from its own player only", once
         std::unordered_set<std::size_t>   m_NetAcknowledged; // cell units the server acknowledged (gate above)
         std::size_t m_MostResident     = 0;
 

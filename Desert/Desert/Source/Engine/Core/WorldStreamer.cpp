@@ -864,6 +864,42 @@ namespace Desert::Core
                            m_Scene->GetRegistry()
                                 .get<ECS::StreamingSourceComponent>( static_cast<entt::entity>( entity ) )
                                 .Data.SectorAngle );
+        // A NETWORK CLIENT STREAMS FROM ITS OWN PLAYER ONLY (UE: on a client the local player controller's view
+        // is the streaming source; NET-ARCH §4.3). The server decides what is relevant to this client from its
+        // pawn's cell, so a second source here - a level's stand-in player, a script's provider, the editor's
+        // view - would keep cells resident that the server no longer deems relevant, and the client would show
+        // a world the server stopped telling it about. While the session holds the reveal gate, the sources are
+        // the possessed pawn's (its camera rides on it), or the player's view point when it carries none.
+        if ( m_NetRevealHold )
+            if ( const entt::entity pawn = m_Scene->GetPlayerPawn(); pawn != entt::null )
+            {
+                std::vector<Rules::StreamingSource> own;
+                std::vector<std::uint32_t>          ownEntities;
+                for ( std::size_t i = 0; i < entities.size(); ++i )
+                    if ( entities[i] == static_cast<std::uint32_t>( pawn ) )
+                    {
+                        own.push_back( std::move( gathered[i] ) );
+                        ownEntities.push_back( entities[i] );
+                    }
+                if ( own.empty() )
+                    if ( const std::optional<glm::mat4> view = m_Scene->PlayerViewPoint() )
+                    {
+                        Rules::StreamingSource player;
+                        player.Position = glm::vec3( ( *view )[3] );
+                        player.Facing   = -glm::vec3( ( *view )[2] );
+                        own.push_back( std::move( player ) );
+                    }
+                if ( own.size() != gathered.size() && !m_SaidNetOwnSources )
+                {
+                    m_SaidNetOwnSources = true;
+                    LOG_INFO( "[WorldStreamer] '{}': a network client streams from its own player only - {} other "
+                              "streaming source(s) of this world (level entities, script providers, the editor's "
+                              "view) are not sources while the session lasts",
+                              m_SceneName, gathered.size() - std::min( gathered.size(), own.size() ) );
+                }
+                gathered = std::move( own );
+                entities = std::move( ownEntities );
+            }
         StampVelocities( gathered, entities, nowSeconds );
         UseSources( std::move( gathered ) );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
