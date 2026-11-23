@@ -60,9 +60,33 @@ namespace Desert::Water
     {
         WaterQueryResult result;
 
-        // The plane: an ocean's surface is level, at the body's own height (UE :677-701).
-        result.PlaneLocation   = glm::vec3( point.x, body.Location.y, point.z );
+        // The plane: an ocean's surface is level, at the body's own height (UE :677-701). A river's follows its
+        // spline (UE :702-741, the spline's height and up vector at the closest input key): the baked surface
+        // height under the point, the normal from its slope across one bake texel; its current is the baked flow.
+        result.PlaneLocation = glm::vec3( point.x, body.Location.y, point.z );
+        if ( body.Type == WaterBodyType::River && body.Flow != nullptr )
+        {
+            const RiverFlowField& flow = *body.Flow;
+            const glm::vec2       xz( point.x, point.z );
+            if ( const std::optional<float> y = SampleRiverSurfaceY( flow, xz ) )
+            {
+                result.PlaneLocation.y = *y;
+                const glm::vec2 texel  = flow.Extent / glm::vec2( glm::max( flow.Size, glm::uvec2( 1u ) ) );
+                const auto      along  = [&]( const glm::vec2 d )
+                {
+                    const std::optional<float> a = SampleRiverSurfaceY( flow, xz + d );
+                    const std::optional<float> b = SampleRiverSurfaceY( flow, xz - d );
+                    return a && b ? ( *a - *b ) / ( 2.0f * glm::length( d ) ) : 0.0f;
+                };
+                const glm::vec3 normal( -along( glm::vec2( texel.x, 0.0f ) ), 1.0f,
+                                        -along( glm::vec2( 0.0f, texel.y ) ) );
+                result.PlaneNormal = glm::normalize( normal );
+            }
+            const glm::vec4 f = SampleRiverFlow( flow, xz );
+            result.Velocity   = glm::vec3( f.x, 0.0f, f.y );
+        }
         result.SurfaceLocation = result.PlaneLocation;
+        result.SurfaceNormal   = result.PlaneNormal;
 
         // The depth: down to the landscape; an ocean over no landscape, or under it, reports the fallback depth
         // and has its waves cancelled where the landscape stands above the plane (UE :743-794).
@@ -81,7 +105,29 @@ namespace Desert::Water
 
         // The waves: attenuated by depth, evaluated at the fixed plane point relative to the WaveOrigin
         // (UE :801-831 and GetWaveInfoAtPosition :2012-2051).
-        if ( body.Waves && !body.Waves->empty() )
+        const std::optional<FFTSurfaceSample> fft =
+             body.FFTSurface != nullptr
+                  ? FFTSurfaceAt( *body.FFTSurface,
+                                  glm::vec2( point.x - body.Location.x, point.z - body.Location.z ), time )
+                  : std::nullopt;
+        if ( fft )
+        {
+            // THE FFT OCEAN (WATER-RIVERS-FFT pass 7): the GPU's cascades as the CPU mirror last read them,
+            // extrapolated to `time`, damped by the same depth attenuation the vertex path applies.
+            waveAttenuation *= WaveDepthAttenuation( result.SurfaceDepth, body.TargetWaveMaskDepth );
+            result.WaveAttenuation = waveAttenuation;
+            if ( waveAttenuation > 0.0f && body.FFTSurface->Spectrum != nullptr )
+            {
+                result.MaxWaveHeight = body.FFTSurface->Spectrum->MaxWaveHeight * waveAttenuation;
+                const glm::vec3 normal = glm::mix( result.PlaneNormal, fft->Normal, waveAttenuation );
+                if ( glm::dot( normal, normal ) > 0.0f )
+                    result.SurfaceNormal = glm::normalize( normal );
+                result.WaveHeight = fft->Height * waveAttenuation;
+                result.SurfaceLocation.y += result.WaveHeight;
+                result.SurfaceDepth += result.WaveHeight;
+            }
+        }
+        else if ( body.Waves && !body.Waves->empty() )
         {
             const std::span<const GerstnerWave> waves( *body.Waves );
             waveAttenuation *= WaveDepthAttenuation( result.SurfaceDepth, body.TargetWaveMaskDepth );

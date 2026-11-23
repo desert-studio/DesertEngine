@@ -30,6 +30,16 @@ Shader "WaterFFTFinalize"
             WaterFFTParams Params;
         };
 
+        // THE CPU MIRROR's read-back (WATER-RIVERS-FFT pass 7; C++ twin Water::kFFTReadbackSize /
+        // kFFTReadbackTexels, Engine/Water/FFTSurfaceMirror.hpp): every WATER_FFT_READBACK_STRIDE-th texel's
+        // displacement, cascade-major then row-major over (z, x), extracted host-readable and read frames later.
+        #define WATER_FFT_READBACK_SIZE 64
+        #define WATER_FFT_READBACK_STRIDE (WATER_FFT_SIZE / WATER_FFT_READBACK_SIZE)
+        Buffer(4) WaterFFTReadbackBuffer
+        {
+            vec4 WaterFFTReadback[WATER_FFT_CASCADES * WATER_FFT_READBACK_SIZE * WATER_FFT_READBACK_SIZE];
+        };
+
         LocalSize(8, 8, 1);
 
         void main()
@@ -49,6 +59,13 @@ Shader "WaterFFTFinalize"
             const int base = int(Params.Shape.z + 0.5);
             imageStore(WaterFFTWaves, ivec2(id.x, id.y + (base + id.z) * WATER_FFT_SIZE),
                        vec4(lambda * a.x, a.y, lambda * a.z, lambda * a.w));
+            if ((id.x % WATER_FFT_READBACK_STRIDE) == 0 && (id.y % WATER_FFT_READBACK_STRIDE) == 0)
+            {
+                const int rx = id.x / WATER_FFT_READBACK_STRIDE;
+                const int rz = id.y / WATER_FFT_READBACK_STRIDE;
+                WaterFFTReadback[(id.z * WATER_FFT_READBACK_SIZE + rz) * WATER_FFT_READBACK_SIZE + rx] =
+                    vec4(lambda * a.x, a.y, lambda * a.z, 0.0);
+            }
             imageStore(WaterFFTWaves, ivec2(id.x, id.y + (base + WATER_FFT_CASCADES + id.z) * WATER_FFT_SIZE),
                        vec4(b.x, b.y, lambda * b.z, lambda * b.w));
 

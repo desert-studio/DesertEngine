@@ -117,5 +117,6 @@ namespace Desert::Runtime
         m_Ready.clear();
         m_Spectra.clear();
         m_Failed.clear();
+        m_Surfaces.Clear();
     }
 } // namespace Desert::Runtime

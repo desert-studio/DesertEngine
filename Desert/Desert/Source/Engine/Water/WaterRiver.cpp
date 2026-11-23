@@ -1,5 +1,6 @@
 #include <Engine/Water/WaterRiver.hpp>
 
+#include <glm/common.hpp>
 #include <glm/geometric.hpp>
 
 #include <algorithm>
@@ -121,6 +122,34 @@ namespace Desert::Water
         return field.Texels[static_cast<size_t>( z ) * field.Size.x + x];
     }
 
+    std::optional<float> SampleRiverSurfaceY( const RiverFlowField& field, const glm::vec2 xz ) noexcept
+    {
+        if ( field.Size.x == 0u || field.Size.y == 0u || field.SurfaceHeightCm.size() != field.Texels.size() )
+            return std::nullopt;
+        const glm::vec2 p  = ( xz - field.Min ) / field.Extent * glm::vec2( field.Size ) - 0.5f;
+        const glm::vec2 lo = glm::floor( p );
+        const glm::vec2 f  = p - lo;
+        float           sum = 0.0f;
+        float           weight = 0.0f;
+        for ( int dz = 0; dz < 2; ++dz )
+            for ( int dx = 0; dx < 2; ++dx )
+            {
+                const int64_t x = static_cast<int64_t>( lo.x ) + dx;
+                const int64_t z = static_cast<int64_t>( lo.y ) + dz;
+                if ( x < 0 || z < 0 || x >= int64_t{ field.Size.x } || z >= int64_t{ field.Size.y } )
+                    continue;
+                const size_t i = static_cast<size_t>( z ) * field.Size.x + static_cast<size_t>( x );
+                if ( field.Texels[i].z <= 0.5f )
+                    continue;
+                const float w = ( dx == 1 ? f.x : 1.0f - f.x ) * ( dz == 1 ? f.y : 1.0f - f.y );
+                sum += w * field.SurfaceHeightCm[i];
+                weight += w;
+            }
+        if ( !( weight > 0.0f ) )
+            return std::nullopt;
+        return sum / weight;
+    }
+
     RiverFlowField BakeRiverFlow( const std::span<const glm::vec3> points, const float width,
                                   const float flowSpeed, const float flowPeriod, const float cmPerTexel ) noexcept
     {
@@ -140,6 +169,7 @@ namespace Desert::Water
              std::clamp( static_cast<uint32_t>( std::ceil( extent.x / texel ) ), 1u, kRiverFlowMaxSize ),
              std::clamp( static_cast<uint32_t>( std::ceil( extent.y / texel ) ), 1u, kRiverFlowMaxSize ) );
         field.Texels.assign( static_cast<size_t>( field.Size.x ) * field.Size.y, glm::vec4( 0.0f ) );
+        field.SurfaceHeightCm.assign( field.Texels.size(), 0.0f );
 
         // The nearest polyline segment per texel, rasterised segment by segment over the texels its swept box
         // touches (cost ~ the ribbon's area, not texels x samples).
@@ -185,8 +215,21 @@ namespace Desert::Water
                     const float ease   = 1.0f - across * across;
                     field.Texels[i]    = glm::vec4( direction * ( flowSpeed * ease ), 1.0f,
                                                     glm::mix( a.Distance, b.Distance, u ) );
+                    // The level falls along the flow: the nearest spline point's height (UE: the spline's Z at
+                    // the closest input key), flat across the ribbon.
+                    field.SurfaceHeightCm[i] = glm::mix( a.Y, b.Y, u );
                 }
         }
+        field.MinSurfaceY = std::numeric_limits<float>::max();
+        field.MaxSurfaceY = std::numeric_limits<float>::lowest();
+        for ( size_t i = 0; i < field.Texels.size(); ++i )
+            if ( field.Texels[i].z > 0.5f )
+            {
+                field.MinSurfaceY = std::min( field.MinSurfaceY, field.SurfaceHeightCm[i] );
+                field.MaxSurfaceY = std::max( field.MaxSurfaceY, field.SurfaceHeightCm[i] );
+            }
+        if ( field.MinSurfaceY > field.MaxSurfaceY )
+            field.MinSurfaceY = field.MaxSurfaceY = field.SurfaceY; // a ribbon thinner than one texel centre
         return field;
     }
 

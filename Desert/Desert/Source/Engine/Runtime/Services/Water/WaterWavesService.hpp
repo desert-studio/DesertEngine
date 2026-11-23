@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Water/FFTSurfaceMirror.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -50,6 +51,13 @@ namespace Desert::Runtime
         /// set's error when it failed.
         Common::ResultStr<Spectrum> GetSpectrum( const Assets::AssetHandle& handle );
 
+        /// THE FFT OCEAN'S CPU MIRROR (WATER-RIVERS-FFT pass 7): WaterRenderer publishes each read-back of the
+        /// frame's FFT ocean, the physics gather hands the newest snapshot to the body naming that spectrum.
+        [[nodiscard]] Water::FFTSurfaceMirror& Surfaces()
+        {
+            return m_Surfaces;
+        }
+
         void Clear();
 
     private:
@@ -61,5 +69,6 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, Waves>               m_Ready;
         std::unordered_map<Assets::AssetHandle, Spectrum>            m_Spectra; // FFT sets only
         std::unordered_map<Assets::AssetHandle, std::string>         m_Failed;
+        Water::FFTSurfaceMirror                                      m_Surfaces;
     };
 } // namespace Desert::Runtime

@@ -11,6 +11,7 @@
 // the physics step (UE's FSolverSafeWaterBodyData), not a UObject; UE's LWC tile is the body's WaveOrigin, its
 // own location. Ocean only: lakes and rivers take their shape and depth from a spline (W-9, W-10).
 
+#include <Engine/Water/FFTSurfaceMirror.hpp>
 #include <Engine/Water/WaterRiver.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
@@ -50,6 +51,10 @@ namespace Desert::Water
         WaterBodyType Type = WaterBodyType::Ocean;
         /// A river's baked flow (null for an ocean): the bank mask the queries clip to and the current they read.
         std::shared_ptr<const RiverFlowField> Flow;
+        /// The CPU mirror of the FFT ocean this body's wave set draws (WATER-RIVERS-FFT pass 7): when it holds a
+        /// read, the queries answer with the surface the GPU drew (FFTSurfaceAt), not with the set's Gerstner
+        /// generator. Null = Gerstner.
+        std::shared_ptr<const FFTSurfaceSnapshot> FFTSurface;
     };
 
     struct WaterQueryResult
@@ -70,6 +75,9 @@ namespace Desert::Water
         float MaxWaveHeight = 0.0f;
         /// How far below the surface the point is; negative above it.
         float ImmersionDepth = 0.0f;
+        /// The water's current at the point, cm/s (UE FWaterQueryResult::Velocity): a river's baked flow on the
+        /// (X, Z) plane, zero for an ocean.
+        glm::vec3 Velocity{ 0.0f };
 
         [[nodiscard]] bool IsInWater() const
         {

@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -62,9 +63,16 @@ namespace Desert::Water
         std::vector<glm::vec4> Texels;
         /// The two-phase flow's period (s): ECS::WaterBodyData::RiverFlowPeriod.
         float FlowPeriod = 1.0f;
-        /// The surface's still level, cm: the spline's mean height (a river is drawn flat at it; the slope along
-        /// the spline is REMAINDER).
+        /// The spline's mean height, cm: the level the quadtree picks a river tile's LOD at (the surface itself
+        /// follows SurfaceHeightCm).
         float SurfaceY = 0.0f;
+        /// The still surface's height per texel, cm (UE: the river spline's height under the point - the water
+        /// level falls along the flow): the nearest spline point's Y inside the banks, 0 outside them (read through
+        /// the bank mask, SampleRiverSurfaceY). Texels.size() entries, the same layout.
+        std::vector<float> SurfaceHeightCm;
+        /// The lowest and highest SurfaceHeightCm inside the banks (the tiles' vertical bounds), cm.
+        float MinSurfaceY = 0.0f;
+        float MaxSurfaceY = 0.0f;
     };
 
     /// The largest side a flow field is baked at (texels): a longer river gets coarser texels, not a bigger image.
@@ -74,6 +82,10 @@ namespace Desert::Water
     /// exceeds kRiverFlowMaxSize). An empty field (Size 0) for fewer than two points or a non-positive width.
     /// The field's texel nearest @p xz (world XZ, cm); zero outside the field or for an empty one.
     [[nodiscard]] glm::vec4 SampleRiverFlow( const RiverFlowField& field, glm::vec2 xz ) noexcept;
+
+    /// The still surface's height at @p xz (world XZ, cm): SurfaceHeightCm filtered bilinearly over the texels
+    /// inside the banks only (a bank texel's 0 never drags the level down); nullopt outside the banks or the field.
+    [[nodiscard]] std::optional<float> SampleRiverSurfaceY( const RiverFlowField& field, glm::vec2 xz ) noexcept;
 
     [[nodiscard]] RiverFlowField BakeRiverFlow( std::span<const glm::vec3> points, float width, float flowSpeed,
                                                 float flowPeriod, float cmPerTexel ) noexcept;

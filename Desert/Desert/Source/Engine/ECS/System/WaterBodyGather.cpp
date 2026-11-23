@@ -30,7 +30,8 @@ namespace Desert::ECS
     } // namespace
 
     std::span<const Water::WaterBodyState> WaterBodyGather::Gather( entt::registry&    registry,
-                                                                    const WavesLookup& lookup )
+                                                                    const WavesLookup& lookup,
+                                                                    const SurfaceLookup& surfaces )
     {
         const uint64_t revision = WaterBodyRevisionOf( registry );
         if ( m_BuiltFor != &registry || m_BuiltRevision != revision )
@@ -96,6 +97,8 @@ namespace Desert::ECS
                 if ( !waves.GetValue() )
                     continue;
                 body.Waves = waves.GetValue();
+                if ( surfaces )
+                    body.FFTSurface = surfaces( data.WaterWaves );
             }
             m_Bodies.push_back( std::move( body ) );
         }

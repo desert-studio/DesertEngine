@@ -205,10 +205,20 @@ namespace Desert::ECS
             // read every frame, so a moved or edited body is the water at once; nothing is allocated in a steady
             // frame. The landscape tiles' heights are borrowed from the registry for the step's queries only. The
             // water's clock advances by the FIXED step, once per substep, in the pre-step callback below.
-            m_Water->SetWorld( m_WaterGather.Gather(
-                                    registry, []( const Assets::AssetHandle& waves )
-                                    { return Runtime::ResourceRegistry::GetWaterWavesService()->Get( waves ); } ),
-                               m_Scene->GatherRaycastLandscape().Tiles );
+            m_Water->SetWorld(
+                 m_WaterGather.Gather(
+                      registry, []( const Assets::AssetHandle& waves )
+                      { return Runtime::ResourceRegistry::GetWaterWavesService()->Get( waves ); },
+                      // An FFT set's bodies float on the surface the GPU drew: its CPU mirror.
+                      []( const Assets::AssetHandle& waves ) -> std::shared_ptr<const Water::FFTSurfaceSnapshot>
+                      {
+                          auto* const service  = Runtime::ResourceRegistry::GetWaterWavesService();
+                          auto        spectrum = service->GetSpectrum( waves );
+                          if ( !spectrum || !spectrum.GetValue() )
+                              return nullptr;
+                          return service->Surfaces().Latest( spectrum.GetValue().get() );
+                      } ),
+                 m_Scene->GatherRaycastLandscape().Tiles );
 
             // Movement basis from the active camera (flattened to the ground plane). The script's MoveInput is
             // in local forward/right axes; resolving it here keeps "forward" following wherever the camera looks.

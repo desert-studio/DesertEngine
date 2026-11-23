@@ -38,11 +38,16 @@ namespace Desert::ECS
         using WavesLookup =
              std::function<Common::ResultStr<std::shared_ptr<const std::vector<Water::GerstnerWave>>>(
                   const Assets::AssetHandle& )>;
+        /// The newest CPU mirror of the FFT ocean a wave set names (Runtime::WaterWavesService::Surfaces), null
+        /// for a Gerstner set or before the first read-back (the body then answers with its Gerstner waves).
+        using SurfaceLookup =
+             std::function<std::shared_ptr<const Water::FFTSurfaceSnapshot>( const Assets::AssetHandle& )>;
 
         /// Every water body of the registry that is ready, in entity order. The span is the gather's own
         /// storage: valid until the next Gather or Reset.
         [[nodiscard]] std::span<const Water::WaterBodyState> Gather( entt::registry&    registry,
-                                                                     const WavesLookup& lookup );
+                                                                     const WavesLookup& lookup,
+                                                                     const SurfaceLookup& surfaces = {} );
 
         /// Forgets the refusals and the retained bodies: a new Play reports them again.
         void Reset();

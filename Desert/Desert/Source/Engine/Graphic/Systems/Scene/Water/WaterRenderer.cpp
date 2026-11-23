@@ -20,6 +20,8 @@
 #include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Water/GerstnerWaterWaves.hpp>
 #include <Engine/Water/WaterRiver.hpp>
+#include <Engine/Water/FFTSurfaceMirror.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <cmath>
@@ -55,6 +57,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTResultB );
         DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTWaves );
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterFFTParamsBuffer );
+        DESERT_SHADER_PARAMETER( StorageBuffer, WaterFFTReadbackBuffer ); // the CPU mirror's texels (finalize)
         static constexpr std::array kSpectrum{ ::Desert::Graphic::RDG::Erase( WaterFFTInitialSpectrum ),
                                                ::Desert::Graphic::RDG::Erase( WaterFFTSpectrumA ),
                                                ::Desert::Graphic::RDG::Erase( WaterFFTSpectrumB ),
@@ -67,7 +70,8 @@ namespace
         static constexpr std::array kFinalize{ ::Desert::Graphic::RDG::Erase( WaterFFTResultA ),
                                                ::Desert::Graphic::RDG::Erase( WaterFFTResultB ),
                                                ::Desert::Graphic::RDG::Erase( WaterFFTWaves ),
-                                               ::Desert::Graphic::RDG::Erase( WaterFFTParamsBuffer ) };
+                                               ::Desert::Graphic::RDG::Erase( WaterFFTParamsBuffer ),
+                                               ::Desert::Graphic::RDG::Erase( WaterFFTReadbackBuffer ) };
     };
 
     // The slot names the two water cells' passes bind, spelled once (RDGShaderParameters.hpp; UE
@@ -764,7 +768,8 @@ namespace Desert::Graphic::System
         {
             m_LoggedWaveSource = source;
             if ( fft )
-                LOG_INFO( "[Water] waves=FFT cascades={} rivers={}", Water::kFFTOceanCascades, riverCount );
+                LOG_INFO( "[Water] waves=FFT cascades={} rivers={} readback=on", Water::kFFTOceanCascades,
+                          riverCount );
             else
                 LOG_INFO( "[Water] waves=Gerstner rivers={}", riverCount );
         }
@@ -1153,6 +1158,30 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    void WaterRenderer::PublishFFTReadback( const uint32_t slot )
+    {
+        FFTReadbackSlot& read     = m_FFTReadback[slot];
+        auto             spectrum = std::exchange( read.Spectrum, nullptr );
+        if ( spectrum == nullptr || !read.Buffer.Physical )
+            return; // nothing extracted into this slot yet, or its graph faulted before the extract
+        const std::span<const std::byte> bytes = read.Buffer.Physical->ReadForHost();
+        Water::FFTSurfaceRead            surface;
+        surface.Time = read.Time;
+        if ( bytes.size() >= Water::kFFTReadbackTexels * sizeof( glm::vec4 ) )
+        {
+            surface.Texels.resize( Water::kFFTReadbackTexels );
+            std::memcpy( surface.Texels.data(), bytes.data(), surface.Texels.size() * sizeof( glm::vec4 ) );
+        }
+        else
+            WarnOnce( Assets::AssetHandle::Null(), WaterWarning::FFTReadbackUnreadable,
+                      std::format( "[Water] the FFT read-back is not host-readable ({} bytes): what floats rides "
+                                   "the Gerstner waves",
+                                   bytes.size() ) );
+        read.Buffer.Physical.reset();
+        if ( !surface.Texels.empty() )
+            Runtime::ResourceRegistry::GetWaterWavesService()->Surfaces().Publish( spectrum, std::move( surface ) );
+    }
+
     RDG::TextureRef WaterRenderer::AddWavePasses( RDG::Builder& graph, const RDG::TextureRef initial,
                                                   const RDG::TextureRef waves, const float timeSeconds )
     {
@@ -1233,6 +1262,16 @@ namespace Desert::Graphic::System
         };
         transform( "Water: FFT Rows", specA, specB, rowA, rowB, rowsBuffer );
         transform( "Water: FFT Columns", rowA, rowB, colA, colB, columnsBuffer );
+        // THE CPU MIRROR's slot: this frame in flight's buffer, read (and published) before it is written again.
+        const uint32_t slot  = EngineContext::GetInstance().GetCurrentFrameIndex();
+        const uint32_t slots = EngineContext::GetInstance().GetMaxFramesInFlight();
+        if ( m_FFTReadback.size() != slots )
+            m_FFTReadback.assign( slots, FFTReadbackSlot{} );
+        const bool readback = slot < slots;
+        if ( readback )
+            PublishFFTReadback( slot );
+        const RDG::BufferRef readbackBuffer = graph.CreateBuffer(
+             RDG::BufferDesc{ Water::kFFTReadbackTexels * sizeof( glm::vec4 ) }, "WaterFFT.Readback" );
         // This frame's half of the persistent atlas; StorageWrite is read-modify-write, so the other half (the
         // previous frame) survives.
         graph.AddPass(
@@ -1244,7 +1283,8 @@ namespace Desert::Graphic::System
                       .Storage( P::WaterFFTResultA, colA, RDG::Access::StorageRead, 0 )
                       .Storage( P::WaterFFTResultB, colB, RDG::Access::StorageRead, 0 )
                       .Storage( P::WaterFFTWaves, waves, RDG::Access::StorageWrite, 0 )
-                      .Storage( P::WaterFFTParamsBuffer, rowsBuffer, RDG::Access::StorageRead );
+                      .Storage( P::WaterFFTParamsBuffer, rowsBuffer, RDG::Access::StorageRead )
+                      .Storage( P::WaterFFTReadbackBuffer, readbackBuffer, RDG::Access::StorageWrite );
              },
              [pipeline = m_FFTFinalize]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -1252,6 +1292,12 @@ namespace Desert::Graphic::System
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, kFFTGroups8, kFFTGroups8,
                                                                  Water::kFFTOceanCascades );
              } );
+        if ( readback )
+        {
+            graph.Extract( readbackBuffer, m_FFTReadback[slot].Buffer, RDG::Access::HostRead );
+            m_FFTReadback[slot].Spectrum = m_FFTFrame;
+            m_FFTReadback[slot].Time     = static_cast<double>( timeSeconds );
+        }
         m_FFTWrittenHalf    = m_FFTHalf;
         m_FrameWavesTexture = waves;
         m_FrameWavesGraph   = &graph;

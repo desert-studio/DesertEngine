@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
@@ -290,6 +291,7 @@ namespace Desert::Graphic::System
             SpectrumRefused,
             FFTPipelinesMissing,
             SpectrumMalformed,
+            FFTReadbackUnreadable,
         };
         [[nodiscard]] bool FirstWarning( const Assets::AssetHandle& material, WaterWarning cause );
         void WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
@@ -347,6 +349,19 @@ namespace Desert::Graphic::System
         // is a previous half to keep it from (false on the first frame of a sea).
         float m_FFTFoamKeep    = 0.0f;
         bool  m_FFTFoamHistory = false;
+        // THE CPU MIRROR's read-back (WATER-RIVERS-FFT pass 7; Water::FFTSurfaceMirror): one host-readable buffer
+        // per frame in flight the finalize pass fills with every kFFTReadbackStride-th displacement texel, read
+        // when its slot comes round again (the frame start waited that slot's fence: no GPU wait), with the wave
+        // time and the sea it was written for. Published to Runtime::WaterWavesService::Surfaces.
+        struct FFTReadbackSlot
+        {
+            RDG::ExternalBuffer                            Buffer;
+            std::shared_ptr<const Water::FFTOceanSpectrum> Spectrum; // null: nothing extracted into this slot
+            double                                         Time = 0.0;
+        };
+        std::vector<FFTReadbackSlot> m_FFTReadback;
+        // Reads the slot this frame reuses and publishes it (AddWavePasses, before the slot is extracted into).
+        void PublishFFTReadback( uint32_t slot );
         // The waves recorded into a graph this frame (RecordedWaves), reset by PrepareFrame.
         RDG::TextureRef     m_FrameWavesTexture;
         const RDG::Builder* m_FrameWavesGraph = nullptr;
