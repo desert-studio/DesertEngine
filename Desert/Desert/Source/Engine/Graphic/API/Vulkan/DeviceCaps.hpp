@@ -97,6 +97,16 @@ namespace Desert::Graphic::API::Vulkan
         // GPU-instanced sections keep their per-section draws (MeshRenderer::GpuDrawBinsOn).
         DrawIndirectCount,
         ShaderDrawParameters,
+        // RT-OMM-SER (UE r.RayTracing.OpacityMicromaps; NVIDIA OMM SDK): VK_EXT_opacity_micromap. The BLAS of an
+        // alpha-masked section carries a 4-state micromap baked from its opacity mask, so the traversal resolves
+        // the known-opaque / known-transparent micro-triangles itself and any-hit runs only for the unknown ones.
+        // Optional: without it every masked section keeps its plain any-hit (RayTracingGeometry::OpacityMicromap).
+        OpacityMicromap,
+        // RT-OMM-SER (UE PathTracing raygen, NVAPI HitObject / reorder): VK_NV_ray_tracing_invocation_reorder.
+        // The raygen splits traceRay into hitObjectTraceRayNV + reorderThreadNV(hit material) +
+        // hitObjectExecuteShaderNV, so the closest-hit shading runs coherent by material. Optional: without it the
+        // raygen keeps its plain traceRayEXT (the DESERT_SER shader variant is off).
+        RayTracingInvocationReorder,
 
         Count
     };

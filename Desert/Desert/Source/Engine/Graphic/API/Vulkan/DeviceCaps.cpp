@@ -161,6 +161,23 @@ namespace Desert::Graphic::API::Vulkan
                VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME },
              { C::ShaderDrawParameters, "shaderDrawParameters", N::Optional, V11,
                VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME },
+             // RT-OMM-SER (DeviceCaps.hpp). Both pure extensions; the micromap build is recorded with
+             // synchronization2 stage/access bits (VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT), so it depends on
+             // it.
+             { C::OpacityMicromap,
+               "opacity_micromap",
+               N::Optional,
+               0,
+               VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME,
+               V12,
+               { C::AccelerationStructure, C::Synchronization2, C::Count } },
+             { C::RayTracingInvocationReorder,
+               "ray_tracing_invocation_reorder",
+               N::Optional,
+               0,
+               VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME,
+               V12,
+               { C::RayTracingPipeline, C::Count, C::Count } },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every
@@ -234,7 +251,8 @@ namespace Desert::Graphic::API::Vulkan
     bool IsRayTracingCapability( Capability capability )
     {
         return capability == Capability::AccelerationStructure || capability == Capability::RayQuery ||
-               capability == Capability::RayTracingPipeline;
+               capability == Capability::RayTracingPipeline || capability == Capability::OpacityMicromap ||
+               capability == Capability::RayTracingInvocationReorder;
     }
 
     void HideRayTracing( DeviceCaps& caps )

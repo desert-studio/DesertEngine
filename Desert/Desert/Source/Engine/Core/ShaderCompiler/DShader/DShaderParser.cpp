@@ -1593,6 +1593,15 @@ namespace Desert::Core::Preprocess
             if ( Formats::IsRayTracingStage( stage ) )
                 out << "#extension GL_EXT_ray_tracing : require\n#define DESERT_RAY_TRACING_STAGE 1\n";
 
+            // RT-OMM-SER: Shader Execution Reordering (hitObjectNV, reorderThreadNV) in a ray generation compiled
+            // under the DESERT_SER=1 permutation - the one a system acquires only where the catalog lists
+            // RayTracingFeature::InvocationReorder. Behind the macro, so the default permutation carries no
+            // OpExtension a device without VK_NV_ray_tracing_invocation_reorder would refuse.
+            if ( stage == ShaderStage::RayGen )
+                out << "#if defined(DESERT_SER) && DESERT_SER\n"
+                       "#extension GL_NV_shader_invocation_reorder : require\n"
+                       "#endif\n";
+
             if ( !autoDecls.empty() && ( stage == ShaderStage::Fragment || stage == ShaderStage::Compute ||
                                          stage == ShaderStage::ClosestHit || stage == ShaderStage::AnyHit ) )
                 out << autoDecls;

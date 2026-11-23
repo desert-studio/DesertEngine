@@ -318,6 +318,20 @@ namespace Desert::Graphic::API::Vulkan
                     }
                     return device.enable_extension_if_present( std::string( spec.Extension ).c_str() );
                 }
+                case Capability::OpacityMicromap:
+                {
+                    VkPhysicalDeviceOpacityMicromapFeaturesEXT f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT };
+                    f.micromap = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
+                case Capability::RayTracingInvocationReorder:
+                {
+                    VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV };
+                    f.rayTracingInvocationReorder = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
                 case Capability::Count:
                     break;
             }

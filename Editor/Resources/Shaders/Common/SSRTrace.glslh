@@ -257,8 +257,22 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 	payload.HitT       = -1.0;
 	payload.ConeWidth  = pixelSpread * distance(cameraUB.CameraPos, worldPos);
 	payload.ConeSpread = pixelSpread;
+#if defined( DESERT_SER ) && DESERT_SER
+	// SHADER EXECUTION REORDERING (RT-OMM-SER; SSRRenderer::HitLightingVariant on a device whose catalog lists
+	// InvocationReorder): traverse, regroup the threads by the hit's material (its SBT record, one per BLAS segment;
+	// a miss is the all-ones key), then run its closest-hit - the result is the plain traceRayEXT's, only the order of
+	// the shading moves, as PathTracer.shader PathTracingTraceMaterialMasked.
+	hitObjectNV serHit;
+	hitObjectTraceRayNV(serHit, SceneTlas, gl_RayFlagsNoneEXT, RAY_TRACING_MASK_OPAQUE, 0u, 1u, 0u, ray.origin,
+	                    ray.tMin, L, ray.tMax, 0);
+	reorderThreadNV(serHit, hitObjectIsHitNV(serHit) ? (hitObjectGetShaderBindingTableRecordIndexNV(serHit) & 0xFFFFu)
+	                                                 : 0xFFFFu,
+	                16u);
+	hitObjectExecuteShaderNV(serHit, 0);
+#else
 	traceRayEXT(SceneTlas, gl_RayFlagsNoneEXT, RAY_TRACING_MASK_OPAQUE, 0u, 1u, 0u, ray.origin, ray.tMin, L, ray.tMax,
 	            0);
+#endif
 	if (payload.HitT < 0.0)
 		return false;
 	GIHit hit;

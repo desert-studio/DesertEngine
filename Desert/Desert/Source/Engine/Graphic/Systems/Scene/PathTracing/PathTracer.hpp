@@ -531,7 +531,20 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override
         {
-            m_TraceShader = Runtime::FindShader( "PathTracer/PathTracing" );
+            if ( const Core::ShaderVariant variant = TraceVariant( false ); !variant.IsDefault() )
+            {
+                // The SER permutation (TraceVariant): the device lists InvocationReorder, so the trace runs it;
+                // a refusal is this device's error, named - never the default program in its place.
+                auto acquired = Runtime::AcquireShaderVariant( kTraceProgram, variant );
+                if ( !acquired )
+                    return Common::MakeFormattedError(
+                         "PathTracer: the ray generation '{}' with DESERT_SER=1 (Shader Execution Reordering, "
+                         "the device lists VK_NV_ray_tracing_invocation_reorder) was refused: {}",
+                         kTraceProgram, acquired.GetError() );
+                m_TraceShader = acquired.ExtractValue();
+            }
+            else
+                m_TraceShader = Runtime::FindShader( kTraceProgram );
             if ( !m_TraceShader || !m_TraceShader->IsCompiled() )
                 return Common::MakeError(
                      "PathTracer: the ray generation 'PathTracer/PathTracing' did not compile or "
@@ -630,6 +643,21 @@ namespace Desert::Graphic::System
         // The radiance-cache trace's program (built with PATH_TRACING_NRC=1 by EnsureRadianceCache).
         static constexpr const char* kTraceProgram = "PathTracer/PathTracing";
 
+        // THE TRACE'S PERMUTATION, one source for both traces (RT-OMM-SER): PATH_TRACING_NRC=1 for the
+        // radiance-cache trace, DESERT_SER=1 wherever the device catalog lists RayTracingFeature::InvocationReorder
+        // (VK_NV_ray_tracing_invocation_reorder enabled on hardware RT, VulkanCapabilityCatalog) - the material
+        // rays are reordered by their hit's material (PathTracer.shader PathTracingTraceMaterialMasked). A device
+        // without it keeps the plain traceRayEXT program; the choice is the device's, not a setting.
+        [[nodiscard]] static Core::ShaderVariant TraceVariant( const bool nrc )
+        {
+            Core::ShaderVariant variant;
+            if ( nrc )
+                variant.Defines.push_back( "PATH_TRACING_NRC=1" );
+            if ( RayTracingReorderOffered() )
+                variant.Defines.push_back( kRayTracingReorderDefine );
+            return variant;
+        }
+
         // A registered program and its ShaderService::ProgramGeneration.
         using ProgramStamp = PathTracerProgramStamp;
         // "<program> <generation>, ..." (the log and state nrc).
@@ -694,9 +722,8 @@ namespace Desert::Graphic::System
             }
             if ( m_TracePipelineNrc && m_PipelineTemplatesNrc == m_PipelineTemplates )
                 return BOOLSUCCESS;
-            Core::ShaderVariant   variant;
-            variant.Defines = { "PATH_TRACING_NRC=1" };
-            auto                  acquired      = Runtime::AcquireShaderVariant( kTraceProgram, variant );
+            const Core::ShaderVariant variant  = TraceVariant( true );
+            auto                      acquired = Runtime::AcquireShaderVariant( kTraceProgram, variant );
             if ( !acquired )
             {
                 m_CacheShaderRefusal =

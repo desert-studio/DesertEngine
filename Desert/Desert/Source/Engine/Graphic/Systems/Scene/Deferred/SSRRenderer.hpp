@@ -263,6 +263,18 @@ namespace Desert::Graphic::System
             return variant;
         }
 
+        // The hit-lit ray generation's permutation (RT-OMM-SER): the traced one, plus kRayTracingReorderDefine
+        // when @p reorder - the material ray reordered by its hit's material (SSRTrace.glslh, Shader Execution
+        // Reordering). Only the "SSR/HitLighting" ray generation takes it; the classify compute stays @p traced.
+        // EnsureHitLightingPipeline asks with RayTracingReorderOffered() (the device's catalog); the cook lists
+        // both, since the package runs on devices with and without VK_NV_ray_tracing_invocation_reorder.
+        [[nodiscard]] static Core::ShaderVariant HitLightingVariant( Core::ShaderVariant traced, const bool reorder )
+        {
+            if ( reorder )
+                traced.Defines.emplace_back( kRayTracingReorderDefine );
+            return traced;
+        }
+
         // The untraced front layer's permutation (screen trace of the translucent front layer), cooked:
         // ShippedByCook - the one statement Initialize acquires and ProgramVariants lists.
         [[nodiscard]] static Core::ShaderVariant FrontLayerVariant()
@@ -302,7 +314,10 @@ namespace Desert::Graphic::System
                     const bool hitLit = pipeline.Hits == GlobalIllumination::HitLighting::InPlace;
                     variants.push_back( { "SSR", TracedVariant( pipeline, hitLit, surface ) } );
                     if ( hitLit )
-                        variants.push_back( { "SSR/HitLighting", TracedVariant( pipeline, true, surface ) } );
+                        for ( const bool reorder : { false, true } )
+                            variants.push_back( { "SSR/HitLighting",
+                                                  HitLightingVariant( TracedVariant( pipeline, true, surface ),
+                                                                      reorder ) } );
                 }
             }
             return variants;
@@ -372,10 +387,13 @@ namespace Desert::Graphic::System
             if ( m_HitLightingPipeline && templates == m_HitLightingTemplates &&
                  m_HitLightingFor == m_TracedVariant.Hash() )
                 return BOOLSUCCESS;
-            auto  acquired = Runtime::AcquireShaderVariant( "SSR/HitLighting", m_TracedVariant );
+            const bool reorder  = RayTracingReorderOffered();
+            auto       acquired = Runtime::AcquireShaderVariant( "SSR/HitLighting",
+                                                                 HitLightingVariant( m_TracedVariant, reorder ) );
             if ( !acquired )
                 return Common::MakeFormattedError<bool>(
-                     "SSR: the hit-lit ray generation ('SSR/HitLighting') was refused: {}", acquired.GetError() );
+                     "SSR: the hit-lit ray generation ('SSR/HitLighting'{}) was refused: {}",
+                     reorder ? " with DESERT_SER=1, Shader Execution Reordering" : "", acquired.GetError() );
             auto                            program = acquired.ExtractValue();
             RayTracingPipelineSpecification spec{
                  .Program = program, .HitGroups = {}, .DebugName = "SSRHitLighting" };
