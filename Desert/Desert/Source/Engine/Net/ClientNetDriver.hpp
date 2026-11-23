@@ -95,6 +95,8 @@ namespace Desert::Core
     private:
         ClientNetDriver() = default;
         void      LoadPawnPrefab( Assets::AssetManager& assets );
+        void      RequestPawnClosure();
+        bool      PawnClosureLanded();
         void      ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
         // NET-5: a remote pawn's locomotion variables from its interpolated replicated movement - the proxy's
@@ -133,6 +135,12 @@ namespace Desert::Core
         bool                                    m_InSession = false;
         // The server's pawn prefab as THIS client's AssetManager knows it (LoadPawnPrefab); null until it loaded.
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
+        // The pawn prefab's dependency closure, read on the loader's workers from the Welcome on; pawn spawns wait
+        // in m_AwaitingSpawn until it has landed (UE FStreamableManager: a replicated actor's class and its
+        // references are streamed before the spawn, never loaded inside a frame). ClientNetDriver.cpp.
+        struct PawnClosure;
+        std::shared_ptr<PawnClosure>            m_PawnClosure;
+        std::vector<std::uint32_t>              m_AwaitingSpawn; // NetIds the server spawned, not yet built here
         bool m_Closed = false;
         double                                  m_StepClock = 0.0, m_Clock = 0.0, m_NextLog = 1.0;
         // The own pawn's prediction (NET-4): its saved moves, the movement both sides run, the drawn offset a

@@ -18,6 +18,7 @@
 #include <Engine/Reflection/FieldValue.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Reflection/Value.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 #include <Net/NetTransport.hpp>
@@ -243,6 +244,7 @@ namespace Desert::Core
         if ( assets.FindByHandle<Assets::PrefabAsset>( handle ) )
         {
             m_PawnPrefab = handle;
+            RequestPawnClosure();
             return;
         }
         const std::string key = Assets::ContentRegistry::KeyForHandle( m_Client->PawnPrefab() );
@@ -264,12 +266,58 @@ namespace Desert::Core
         m_PawnPrefab = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
         LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}', handle {:016x} here)",
                   m_Client->PawnPrefab(), key, static_cast<std::uint64_t>( m_PawnPrefab ) );
+        RequestPawnClosure();
+    }
+
+    // What a pawn spawn waits for: the rows of the prefab's closure that a spawn binds at once - meshes and their
+    // rigs, materials. Textures stream after the spawn at the mips the view asks (UE: a texture is never part of
+    // what an actor's spawn waits for), so they are read here but do not hold the spawn.
+    struct ClientNetDriver::PawnClosure
+    {
+        std::vector<Assets::ContentRegistry::ClosureRow> Rows;
+        bool                                             Landed = false;
+    };
+
+    void ClientNetDriver::RequestPawnClosure()
+    {
+        m_PawnClosure = std::make_shared<PawnClosure>();
+        m_PawnClosure->Rows =
+             Assets::ContentRegistry::Closure( { { Common::AssetHandle( static_cast<std::uint64_t>( m_PawnPrefab ) ),
+                                                   std::string( Common::Content::KindName(
+                                                        Common::Content::ContentKind::Prefab ) ) } } );
+        Runtime::StartClosureReads( m_PawnClosure->Rows );
+        LOG_INFO( "[Net] reading the pawn prefab's closure off the frame: {} rows", m_PawnClosure->Rows.size() );
+    }
+
+    bool ClientNetDriver::PawnClosureLanded()
+    {
+        if ( !m_PawnClosure )
+            return true; // no prefab loaded: the spawn says why (SpawnPawnPrefabAt's error), nothing to wait for
+        if ( m_PawnClosure->Landed )
+            return true;
+        std::vector<Assets::ContentRegistry::ClosureRow> held;
+        for ( const auto& row : m_PawnClosure->Rows )
+            if ( row.Kind != Common::Content::KindName( Common::Content::ContentKind::Texture ) )
+                held.push_back( row );
+        if ( Runtime::ClosureArriving( held, 0.0f ) > 0 )
+            return false;
+        m_PawnClosure->Landed = true;
+        LOG_INFO( "[Net] the pawn prefab's closure has landed ({} rows): pawns spawn from now on",
+                  m_PawnClosure->Rows.size() );
+        return true;
     }
 
     void ClientNetDriver::ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets )
     {
         auto& reg = scene.GetRegistry();
         for ( const Net::NetId id : m_Client->TakeSpawned() )
+            m_AwaitingSpawn.push_back( id );
+        // A spawn binds the prefab's meshes and materials at once: it waits for their reads to land rather than
+        // reading them inside this frame (a destroy before that finds no entity and the held id no pawn).
+        std::vector<std::uint32_t> spawning;
+        if ( PawnClosureLanded() )
+            spawning.swap( m_AwaitingSpawn );
+        for ( const Net::NetId id : spawning )
         {
             const auto& pawns = m_Client->Pawns();
             const auto  found = pawns.find( id );
