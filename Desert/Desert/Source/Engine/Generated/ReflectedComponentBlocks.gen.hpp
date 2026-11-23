@@ -6,12 +6,12 @@
 
 #include <Engine/Core/Serialize/ReflectedComponentBlocks.hpp>
 
+#include <Destruction/Public/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructionFieldComponents.hpp>
 #include <Engine/ECS/AudioSourceComponent.hpp>
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
 #include <Engine/ECS/DecalComponent.hpp>
-#include <Engine/ECS/DestructibleComponent.hpp>
-#include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/DirectionLightComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>

@@ -47,7 +47,6 @@
 #include <Engine/Assets/IesProfileAsset.hpp>
 #include <Engine/Assets/SparseVolumeAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
-#include <Engine/Assets/FractureAsset.hpp>
 #include <Engine/Assets/WaterWavesAsset.hpp>
 #include <Engine/Assets/WorldParametersAsset.hpp>
 #include <Engine/Assets/WeatherPresetAsset.hpp>

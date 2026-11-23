@@ -17,8 +17,8 @@
 //   * ComponentEvents.cpp Prune — return false from the predicate (ADestroyedEntityTakes...)
 
 #include <Engine/ECS/ComponentEvents.hpp>
-#include <Engine/ECS/DestructibleComponent.hpp>
-#include <Engine/ECS/DestructionEvents.hpp>
+#include <Destruction/Public/DestructibleComponent.hpp>
+#include <Destruction/Public/DestructionEvents.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>

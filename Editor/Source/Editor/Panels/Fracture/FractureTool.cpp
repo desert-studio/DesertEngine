@@ -1,10 +1,10 @@
 #include "FractureTool.hpp"
 
-#include <Engine/ECS/FracturePreviewComponent.hpp>
+#include <Destruction/Public/FracturePreviewComponent.hpp>
 
 #include <Editor/Core/CommandHistory.hpp>
 
-#include <Engine/Assets/FractureAsset.hpp>
+#include <Destruction/Public/FractureAsset.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>

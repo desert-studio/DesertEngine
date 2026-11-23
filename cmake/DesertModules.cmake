@@ -292,6 +292,13 @@ function(_desert_check_module_boundaries)
             list(APPEND _files ${_own})
         endif()
         foreach(_file IN LISTS _files)
+            # The all-modules aggregates: the generated list of every module's reflected blocks and its one
+            # includer, compiled only by the tools and the tests above every module (SceneMigrator, the header
+            # tool's checks), never by a module's own source (they sit in the legacy root because the header tool
+            # writes there).
+            if(_file MATCHES "/Engine/(Generated/ReflectedComponentBlocks\\.gen|Core/Serialize/ReflectedComponentBlocks)\\.hpp$")
+                continue()
+            endif()
             file(STRINGS "${_file}" _lines REGEX "${_include_regex}")
             foreach(_line IN LISTS _lines)
                 if(NOT _line MATCHES "${_include_regex}")

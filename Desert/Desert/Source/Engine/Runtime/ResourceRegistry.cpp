@@ -24,7 +24,7 @@
 #include <Engine/Runtime/Services/Video/VideoService.hpp>
 #include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 #include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
-#include <Engine/Runtime/Services/Destruction/FractureService.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/Services/Water/WaterWavesService.hpp>
@@ -166,12 +166,6 @@ namespace Desert::Runtime
         return &physicsAssetService;
     }
 
-    FractureService* ResourceRegistry::GetFractureService()
-    {
-        static FractureService fractureService;
-        return &fractureService;
-    }
-
     VFXSystemService* ResourceRegistry::GetVFXSystemService()
     {
         static VFXSystemService vfxSystemService;
@@ -228,7 +222,8 @@ namespace Desert::Runtime
         GetLandscapeLayerInfoService()->BindAssetManager( assets );
         GetLandscapeGrassTypeService()->BindAssetManager( assets );
         GetFoliageTypeService()->BindAssetManager( assets );
-        GetFractureService()->BindAssetManager( assets );
+        for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
+            service.Bind( assets );
         GetWaterWavesService()->BindAssetManager( assets );
         GetPhysicsAssetService()->BindAssetManager( assets );
         GetVFXSystemService()->BindAssetManager( assets );
@@ -263,7 +258,8 @@ namespace Desert::Runtime
         GetLandscapeLayerInfoService()->Clear();
         GetLandscapeGrassTypeService()->Clear();
         GetFoliageTypeService()->Clear();
-        GetFractureService()->Clear();
+        for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
+            service.Clear();
         GetWaterWavesService()->Clear();
         GetPhysicsAssetService()->Clear();
         GetVFXSystemService()->Clear();

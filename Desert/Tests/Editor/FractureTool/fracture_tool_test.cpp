@@ -5,9 +5,9 @@
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Panels/Fracture/FractureTool.hpp>
-#include <Engine/ECS/FracturePreviewComponent.hpp>
+#include <Destruction/Public/FracturePreviewComponent.hpp>
 
-#include <Engine/Destruction/FractureFormat.hpp>
+#include <Destruction/Public/FractureFormat.hpp>
 #include <Engine/Geometry/MeshCore/VectorUtil.hpp>
 
 #include <gtest/gtest.h>
