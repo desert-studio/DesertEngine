@@ -469,6 +469,17 @@ namespace Desert::Graphic::System
             WaterProgram* FrontLayer = nullptr; // FrontLayerProgramFor's, or null
             std::vector<Assets::AssetHandle> Materials; // its body materials: its Materials block, in order
         };
+        // One body's record on the GPU (UE FWaterBodyRenderData, indexed by the tile's WaterBodyIndex):
+        // PrepareFrame builds it once per body from WaterZoneBodies, the tile walk copies it onto each of the
+        // body's tiles (WaterMeshTiles.glslh WaterTileRow.Body / .Medium), so two bodies of one frame never share
+        // a value.
+        struct WaterBodyLane
+        {
+            // x = its material's row (-1 = not drawn), y = 1 for a river, z = 1 + its wave set, w = its index
+            glm::vec4 Body{ -1.0f, 0.0f, 0.0f, 0.0f };
+            // x = its TargetWaveMaskDepth (cm, >= 1), y = its river's two-phase flow period (s; 0 off a river)
+            glm::vec4 Medium{ 0.0f };
+        };
         struct TileWalk
         {
             std::vector<FrameProgram>                     Programs; // empty: no water, the task walks nothing
@@ -476,7 +487,7 @@ namespace Desert::Graphic::System
             std::shared_ptr<const Water::WaterInfoGround> Ground;
             // The frame's rivers (the WaterInfo atlas's river region is laid out from them: WaterInfoLayoutOf).
             std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;
-            std::vector<std::vector<glm::vec4>>           Bodies;              // per zone, per body lane
+            std::vector<std::vector<WaterBodyLane>>                   Bodies; // per zone, per body lane
             std::vector<std::vector<uint32_t>>            BodyPrograms; // per zone, per body: Programs slot
             glm::mat4                                     View{ 1.0f };
             glm::mat4                                     Projection{ 1.0f };

@@ -117,8 +117,11 @@ namespace Desert::Graphic::System
             // -1 for an ocean drawn under a river's cut leaf (Water::WaterTileInstance::UnderRiver),
             // z = 1 + its wave set in WaterWavesBlock::Sets (0 = flat), w = the body's index in its zone.
             glm::vec4 Body;
+            // The tile's body's medium (WaterBodyLane::Medium): x = its TargetWaveMaskDepth (cm), y = its river's
+            // two-phase flow period (s; 0 off a river), zw unused.
+            glm::vec4 Medium;
         };
-        static_assert( sizeof( WaterTileRow ) == 4 * sizeof( glm::vec4 ), "std430 rows of four vec4" );
+        static_assert( sizeof( WaterTileRow ) == 5 * sizeof( glm::vec4 ), "std430 rows of five vec4" );
 
         // One Gerstner wave, std430 (Mesh/Surface/WaterMeshTiles.glslh WaterWaveRow).
         struct WaterWaveRow
@@ -144,12 +147,14 @@ namespace Desert::Graphic::System
             // x = the set count, y = the FFT atlas band this frame writes, z = the WaterInfo atlas's ground region
             // side in texels (= the river region's first row; 0 = no ground), w unused
             glm::vec4 Header{ 0.0f };
-            glm::vec4 Info{ 0.0f }; // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = mask depth
+            // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = 1 when the ground region is baked (each
+            // body's mask depth rides its tiles: WaterTileRow::Medium.x)
+            glm::vec4 Info{ 0.0f };
             // WATER-RIVERS-FFT (WaterMeshTiles.glslh WaterFFTFrame / WaterFlowFrame): xyz = 1 / cascade patch
             // side, w = 1 + the previous frame's band when a set is the FFT ocean; the river's flow lane.
             glm::vec4 FFT{ 0.0f };
-            // WaterFlowFrame: x = 1 when a river is in the frame, y = the two-phase period (s), zw = the atlas's
-            // river region in texels (columns, rows).
+            // WaterFlowFrame: x = 1 when a river is in the frame, y unused (each river's two-phase period rides
+            // its tiles: WaterTileRow::Medium.y), zw = the atlas's river region in texels (columns, rows).
             glm::vec4 Flow{ 0.0f };
             // WaterRiverFrame: xy = the river region's lower world (X, Z), zw = 1 / its texel along X and Z (1/cm).
             // Its first row is the ground region's side, Header.z.
@@ -636,32 +641,20 @@ namespace Desert::Graphic::System
 
         // THE FRAME'S BODIES (UE: the water mesh tile's WaterBodyIndex picks its body's material and waves). Each
         // distinct (wave set, WaveOrigin) the bodies name is one of the frame's wave sets (WaterWavesBlock::Sets,
-        // at most kMaxWaveSets; a body past them draws flat, said once); a tile reads its body's set (Body.z). Each
-        // template the bodies use is one FrameProgram (its own cell, binding block and Materials block); every
-        // body material gets a row in its template's Materials block (FrameProgram::Materials; its tiles draw with
-        // MaterialIndex = that row, through that program). The mask depth is the first set's (one WaterInfo).
-        Assets::AssetHandle material   = Assets::AssetHandle::Null();
-        Assets::AssetHandle wavesAsset = Assets::AssetHandle::Null();
-        float                                         waveMaskDepth = 0.0f;
+        // at most kMaxWaveSets; a body past them draws flat, said once); a tile reads its body's set (Body.z).
+        // Each template the bodies use is one FrameProgram (its own cell, binding block and Materials block);
+        // every body material gets a row in its template's Materials block (FrameProgram::Materials; its tiles
+        // draw with MaterialIndex = that row, through that program). Each body's TargetWaveMaskDepth and river
+        // flow period ride its own lane (WaterBodyLane::Medium -> WaterTileRow::Medium): one value per body, never
+        // the first body's.
+        Assets::AssetHandle                           material = Assets::AssetHandle::Null();
         std::shared_ptr<const Water::WaterInfoGround> ground;
         for ( const WaterZoneDraw& zone : m_Queue )
             if ( ground == nullptr )
                 ground = zone.Ground;
         for ( const WaterZoneDraw& zone : m_Queue )
-        {
-            for ( size_t b = 0; b < zone.Bodies->Materials.size(); ++b )
-            {
-                if ( static_cast<uint64_t>( material ) == 0 &&
-                     static_cast<uint64_t>( zone.Bodies->Materials[b] ) != 0 )
-                    material = zone.Bodies->Materials[b];
-                if ( static_cast<uint64_t>( wavesAsset ) == 0 &&
-                     static_cast<uint64_t>( zone.Bodies->Waves[b] ) != 0 )
-                {
-                    wavesAsset    = zone.Bodies->Waves[b];
-                    waveMaskDepth = zone.Bodies->WaveMaskDepths[b];
-                }
-            }
-        }
+            for ( size_t b = 0; b < zone.Bodies->Materials.size() && static_cast<uint64_t>( material ) == 0; ++b )
+                material = zone.Bodies->Materials[b];
         if ( static_cast<uint64_t>( material ) == 0 )
             return; // no body names a look: no water (WaterBodyData::WaterMaterial)
         MaterialStamp stamp;
@@ -686,12 +679,12 @@ namespace Desert::Graphic::System
             Assets::AssetHandle Material;
         };
         std::vector<FrameWaveSet>           waveSets;
-        std::vector<std::vector<glm::vec4>> bodyLanes( m_Queue.size() );
-        std::vector<std::vector<uint32_t>>  bodyPrograms( m_Queue.size() );
+        std::vector<std::vector<WaterBodyLane>> bodyLanes( m_Queue.size() );
+        std::vector<std::vector<uint32_t>>      bodyPrograms( m_Queue.size() );
         for ( size_t z = 0; z < m_Queue.size(); ++z )
         {
             const WaterZoneBodies& bodies = *m_Queue[z].get().Bodies;
-            bodyLanes[z].assign( bodies.Materials.size(), glm::vec4( -1.0f, 0.0f, 0.0f, 0.0f ) );
+            bodyLanes[z].assign( bodies.Materials.size(), WaterBodyLane{} );
             bodyPrograms[z].assign( bodies.Materials.size(), 0u );
             for ( size_t b = 0; b < bodies.Materials.size(); ++b )
             {
@@ -739,8 +732,18 @@ namespace Desert::Graphic::System
                                                "drawn flat",
                                                kMaxWaveSets ) );
                 }
-                bodyLanes[z][b] = glm::vec4( static_cast<float>( slot - frame->Materials.begin() ),
-                                             river ? 1.0f : 0.0f, waveLane, static_cast<float>( b ) );
+                // The body's own medium (UE: per-body TargetWaveMaskDepth and the river's flow): its mask depth
+                // (WaterBodyData::TargetWaveMaskDepth, clamped as Water::QueryWaterBody clamps it) and, on a
+                // river, its bake's two-phase period (WaterBodyData::RiverFlowPeriod ->
+                // Water::RiverFlowField::FlowPeriod).
+                const float maskDepth = b < bodies.WaveMaskDepths.size() ? bodies.WaveMaskDepths[b] : 0.0f;
+                const std::shared_ptr<const Water::RiverFlowField>& flow =
+                     b < bodies.Flows.size() ? bodies.Flows[b] : std::shared_ptr<const Water::RiverFlowField>{};
+                const float flowPeriod = river && flow != nullptr ? std::max( flow->FlowPeriod, 0.05f ) : 0.0f;
+                bodyLanes[z][b] =
+                     WaterBodyLane{ .Body   = glm::vec4( static_cast<float>( slot - frame->Materials.begin() ),
+                                                       river ? 1.0f : 0.0f, waveLane, static_cast<float>( b ) ),
+                                    .Medium = glm::vec4( std::max( maskDepth, 1.0f ), flowPeriod, 0.0f, 0.0f ) };
             }
         }
         if ( programs.empty() )
@@ -822,17 +825,15 @@ namespace Desert::Graphic::System
         }
 
         // The waves block is whole here (its WaterInfo lanes name the atlas's two regions FinishPrepare composes
-        // from the same ground and rivers, and the mask depth): the upload's head, the tile task appends the rows.
+        // from the same ground and rivers): the upload's head, the tile task appends the rows.
         const WaterInfoLayout infoLayout = WaterInfoLayoutOf( ground.get(), rivers );
         if ( infoLayout.GroundSize > 0u )
-            waves.Info = glm::vec4( infoLayout.GroundMin, 1.0f / infoLayout.GroundExtent,
-                                    std::max( waveMaskDepth, 1.0f ) );
-        // THE FLOW LANES (WaterMeshTiles.glslh WaterFlowFrame / WaterRiverFrame): on while a river is in the frame;
-        // the two-phase period is the first river's (one period per frame, as one wave set).
+            waves.Info = glm::vec4( infoLayout.GroundMin, 1.0f / infoLayout.GroundExtent, 1.0f );
+        // THE FLOW LANES (WaterMeshTiles.glslh WaterFlowFrame / WaterRiverFrame): on while a river is in the
+        // frame; each river's two-phase period is its own tiles' (WaterTileRow::Medium.y).
         if ( !rivers.empty() )
         {
-            waves.Flow  = glm::vec4( 1.0f, std::max( rivers.front()->FlowPeriod, 0.05f ),
-                                     static_cast<float>( infoLayout.RiverSize.x ),
+            waves.Flow  = glm::vec4( 1.0f, 0.0f, static_cast<float>( infoLayout.RiverSize.x ),
                                      static_cast<float>( infoLayout.RiverSize.y ) );
             waves.River = glm::vec4( infoLayout.RiverMin, 1.0f / glm::max( infoLayout.RiverTexel, glm::vec2( 1e-3f ) ) );
         }
@@ -1104,15 +1105,15 @@ namespace Desert::Graphic::System
                  tree.Traverse( observer, lensScale, &frustum, verticalExtent, m_Traversal );
             const float     viewLODScale = tree.GetViewLODScale( lensScale );
             const glm::vec2 origin = tree.GetRootMin();
-            const std::vector<glm::vec4>& bodies       = m_Walk.Bodies[z];
+            const std::vector<WaterBodyLane>& bodies       = m_Walk.Bodies[z];
             const std::vector<uint32_t>&  bodyPrograms = m_Walk.BodyPrograms[z];
             for ( const Water::WaterTileInstance& tile : tiles )
             {
                 // The tile's body (PrepareFrame's lane): its material row; a body with no drawn look is skipped.
-                if ( tile.BodyIndex >= bodies.size() || bodies[tile.BodyIndex].x < 0.0f )
+                if ( tile.BodyIndex >= bodies.size() || bodies[tile.BodyIndex].Body.x < 0.0f )
                     continue;
-                const glm::vec4 body    = bodies[tile.BodyIndex];
-                const auto      slot    = static_cast<uint32_t>( body.x );
+                const WaterBodyLane& body    = bodies[tile.BodyIndex];
+                const auto           slot    = static_cast<uint32_t>( body.Body.x );
                 const uint32_t  program = bodyPrograms[tile.BodyIndex];
                 const uint32_t  quads   = tree.QuadsPerSide( tile.DensityIndex );
                 // One instanced draw per run of one grid density, one template AND one material row (the draw's
@@ -1133,7 +1134,8 @@ namespace Desert::Graphic::System
                 row.Lod  = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
                                      tile.CanMorphTwice ? 1.0f : 0.0f, tile.HeightMorph );
                 row.Zone = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
-                row.Body = body;
+                row.Body   = body.Body;
+                row.Medium = body.Medium;
                 // An ocean drawn under a river's cut leaf: -1, clipped to the bank's far side (WaterBankClipped).
                 if ( tile.UnderRiver )
                     row.Body.y = -1.0f;

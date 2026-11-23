@@ -17,6 +17,10 @@ struct WaterTileRow
     // river's cut leaf (clipped to the mask's complement, WaterBankClipped), 0 otherwise, z = 1 + its wave set in
     // WaterWaveSets (0 = a flat body; WaterWaveSetOf), w = the body's index in its zone.
     vec4 Body;
+    // The tile's body's medium (UE: the body's FWaterBodyRenderData; C++ WaterRenderer WaterBodyLane::Medium, one
+    // record per body copied onto each of its tiles): x = its TargetWaveMaskDepth (cm, >= 1; WaterWaveAttenuation),
+    // y = its river's two-phase flow period (s; 0 off a river; WaterFlowPhases), zw unused.
+    vec4 Medium;
 };
 
 // One Gerstner wave of a wave set (Water::GerstnerWave; C++ twin WaterRenderer.cpp WaterWaveRow).
@@ -48,9 +52,9 @@ struct WaterWaveSet
 layout( std430, binding = 24 ) readonly buffer WaterTiles
 {
     vec4         WaterWaveHeader; // x = the frame's wave set count, y = the FFT atlas's first band of THIS frame (0 or WATER_FFT_BANDS_PER_FRAME), z = the WaterInfo atlas's ground region side in texels (= the river region's first row; 0 = no ground), w unused
-    vec4         WaterInfoFrame;  // WaterInfoTexture's ground region: xy = lower world (X, Z), z = 1 / side (cm), w = the first set's TargetWaveMaskDepth (cm), 0 = none baked
+    vec4         WaterInfoFrame;  // WaterInfoTexture's ground region: xy = lower world (X, Z), z = 1 / side (cm), w = 1 when the ground region is baked, 0 = none (each body's mask depth: WaterTileRow.Medium.x)
     vec4         WaterFFTFrame;   // the FFT ocean: xyz = 1 / patch side of cascades 0..2 (1/cm), w = 1 + the atlas's first band of the PREVIOUS frame when a set of this frame IS the FFT ocean (WaterFFTTexture), 0 = no FFT ocean
-    vec4         WaterFlowFrame;  // a river's flow (WATER-RIVERS-FFT): x = 1 when a river is in the frame (WaterInfoTexture's river region carries it), y = the two-phase flow's period (s), zw = the river region's size in texels (columns, rows)
+    vec4         WaterFlowFrame;  // a river's flow (WATER-RIVERS-FFT): x = 1 when a river is in the frame (WaterInfoTexture's river region carries it), y unused (each river's period: WaterTileRow.Medium.y), zw = the river region's size in texels (columns, rows)
     vec4         WaterRiverFrame; // the WaterInfo atlas's river region: xy = lower world (X, Z), zw = 1 / texel along X and Z (1/cm)
     WaterWaveSet WaterWaveSets[WATER_MAX_WAVE_SETS];
     WaterTileRow WaterTileRows[];
@@ -58,8 +62,16 @@ layout( std430, binding = 24 ) readonly buffer WaterTiles
 
 #include <Common/GerstnerWave.glslh>
 
-// A tile's wave set from its WaterTileRow.Body.z (1 + the set, 0 = a flat body; carried to the fragment in
-// VertexColor.a): the set index, or -1 for a flat body.
+// The tile a water fragment belongs to (UE: the pixel's WaterBodyIndex -> its body's data): Vertex_WaterMesh.glslh
+// carries 1 + its row in WaterTileRows in VertexColor.a, the same on the triangle's three corners, so the fragment
+// reads its body's record (Body, Medium) where the vertex path read it - never another body's.
+WaterTileRow WaterFragmentTile( vec4 vertexColor )
+{
+    return WaterTileRows[max( int( vertexColor.a + 0.5 ) - 1, 0 )];
+}
+
+// A tile's wave set from its WaterTileRow.Body.z (1 + the set, 0 = a flat body; the fragment reads it through
+// WaterFragmentTile): the set index, or -1 for a flat body.
 int WaterWaveSetOf( float bodyWaves )
 {
     return bodyWaves > 0.5 ? clamp( int( bodyWaves + 0.5 ) - 1, 0, WATER_MAX_WAVE_SETS - 1 ) : -1;
@@ -395,8 +407,10 @@ bool WaterBankClipped( vec2 worldXZ, float riverTile )
 
 // THE TWO-PHASE FLOW (UE's water material FlowMap: two copies of a texture advected along the flow, half a period
 // apart, each faded out as it resets): the two advected positions of `worldXZ` at `time` and the second's weight.
+// The period is the fragment's own river's (`vertexColor` = SurfaceInput.VertexColor -> WaterFragmentTile ->
+// Medium.y = its WaterBodyData::RiverFlowPeriod), so two rivers of one frame each flow at their own pace.
 // No flow here: both positions are `worldXZ`, the weight 0.
-void WaterFlowPhases( vec2 worldXZ, float time, out vec2 p0, out vec2 p1, out float w1 )
+void WaterFlowPhases( vec2 worldXZ, vec4 vertexColor, float time, out vec2 p0, out vec2 p1, out float w1 )
 {
     p0 = worldXZ;
     p1 = worldXZ;
@@ -404,7 +418,7 @@ void WaterFlowPhases( vec2 worldXZ, float time, out vec2 p0, out vec2 p1, out fl
     const vec3 flow = WaterFlowAt( worldXZ );
     if ( flow.z <= 0.0 )
         return;
-    const float period = max( WaterFlowFrame.y, 0.05 );
+    const float period = max( WaterFragmentTile( vertexColor ).Medium.y, 0.05 );
     const float ph0    = fract( time / period );
     const float ph1    = fract( time / period + 0.5 );
     p0                 = worldXZ - flow.xy * ph0 * period;
@@ -414,27 +428,29 @@ void WaterFlowPhases( vec2 worldXZ, float time, out vec2 p0, out vec2 p1, out fl
 
 // How much of the body's waves survives over the ground at a world (X, Z) (UE: the water vertex factory's
 // GetWaveAttenuationFactor over the WaterInfo depth; the CPU's Water::QueryWaterBody damps by the same function, so
-// what floats rides the surface drawn). 1 over open sea.
-float WaterWaveAttenuation( vec2 worldXZ, float stillY )
+// what floats rides the surface drawn). 1 over open sea. `maskDepth` = the tile's body's TargetWaveMaskDepth
+// (WaterTileRow.Medium.x), the very value the CPU query damps that body by.
+float WaterWaveAttenuation( vec2 worldXZ, float stillY, float maskDepth )
 {
     const float depth = WaterGroundDepth( worldXZ, stillY );
-    return depth > 0.0 ? GerstnerDepthAttenuation( depth, WaterInfoFrame.w ) : 1.0;
+    return depth > 0.0 ? GerstnerDepthAttenuation( depth, max( maskDepth, 1.0 ) ) : 1.0;
 }
 
 // THE PER-PIXEL WAVE FRAME (WATER-RIVERS-FFT R3 3; UE's water material reads the FFT/wave normals per pixel): on the
 // FFT ocean the vertex normal is the cascades' slope at the vertex, so the finest cascade (17 m patch, 6.8 cm
 // texels) is undersampled by every grid coarser than it and the sun's glint smears across quads. The fragment
 // re-reads the slopes at its own particle (`still` = SurfaceInput.UV1, the still (X, Z); `vertexColor` its g = the
-// still level, a = 1 + the wave set; Vertex_WaterMesh.glslh) with the same damping and distance fade the vertex
-// path used, and builds the same frame (tangent along +X, bitangent along -Z). False (frame untouched) for a
-// Gerstner or flat body: their vertex normal is analytic and the grid follows their wavelengths.
+// still level, a = 1 + the tile's row: WaterFragmentTile; Vertex_WaterMesh.glslh) with the same damping and distance
+// fade the vertex path used, and builds the same frame (tangent along +X, bitangent along -Z). False (frame
+// untouched) for a Gerstner or flat body: their vertex normal is analytic and the grid follows their wavelengths.
 bool WaterPixelWaveFrame( vec2 still, vec4 vertexColor, vec3 eye, float time, out mat3 tbn )
 {
     tbn = mat3( 1.0 );
-    const int waveSet = WaterWaveSetOf( vertexColor.a );
+    const WaterTileRow tile    = WaterFragmentTile( vertexColor );
+    const int          waveSet = WaterWaveSetOf( tile.Body.z );
     if ( !WaterWavesAreFFT( waveSet ) )
         return false;
-    const float atten = WaterWaveAttenuation( still, vertexColor.g );
+    const float atten = WaterWaveAttenuation( still, vertexColor.g, tile.Medium.x );
     const float dist  = WaterViewDistance( still, vertexColor.g, eye );
     const vec3  N =
          normalize( mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( waveSet, WaterWavePlane( waveSet, still ), time, dist ), atten ) );

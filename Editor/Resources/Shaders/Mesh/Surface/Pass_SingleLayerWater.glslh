@@ -225,9 +225,10 @@ void main()
         i.TBN              = waveTBN * facing;
         i.Normal           = i.TBN[2];
     }
-    // The tile's wave set (VertexColor.a = 1 + the set; -1 = a flat body) and the particle's distance for the FFT
-    // cascades' fade, both as the vertex path took them.
-    const int   waveSet  = WaterWaveSetOf( i.VertexColor.a );
+    // The tile's body record (VertexColor.a = 1 + the tile's row: WaterFragmentTile), its wave set (-1 = a flat body)
+    // and the particle's distance for the FFT cascades' fade, all as the vertex path took them.
+    const WaterTileRow tile = WaterFragmentTile( i.VertexColor );
+    const int   waveSet  = WaterWaveSetOf( tile.Body.z );
     const float viewDist = WaterViewDistance( i.UV1, i.VertexColor.g, i.CameraPosition );
     SurfaceOutput                s = EvaluateSurface( i );
     const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
@@ -327,10 +328,11 @@ void main()
     // is opaque, so the fog in front of it is the full fog (its light attenuated, the fog's inscattering added).
     const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
                                    fract( i.Time * 7.31 ) );
-    // The particle's still (X, Z) - the point the vertex path damped its waves at - for both the depth and the damping.
+    // The particle's still (X, Z) - the point the vertex path damped its waves at - for both the depth and the damping;
+    // the damping by the tile's own body's TargetWaveMaskDepth (WaterTileRow.Medium.x), as the vertex path's.
     const float depth     = WaterGroundDepth( i.UV1, i.VertexColor.g );
     // A flat body (no wave set) makes no wave foam.
-    const float atten     = waveSet >= 0 ? ( depth > 0.0 ? GerstnerDepthAttenuation( depth, WaterInfoFrame.w ) : 1.0 ) : 0.0;
+    const float atten     = waveSet >= 0 ? ( depth > 0.0 ? GerstnerDepthAttenuation( depth, max( tile.Medium.x, 1.0 ) ) : 1.0 ) : 0.0;
     // A river's bank band (WaterRiverBankBand: ~50 cm inside the baked bank line) foams as a shore does, waves or not.
     const float bankBand  = WaterRiverBankBand( i.WorldPosition.xz, i.VertexColor.b );
     const float amount    = clamp( max( WaterFoamAmount( waveSet, WaterWavePlane( waveSet, i.UV1 ), i.Time, jitter, depth,
