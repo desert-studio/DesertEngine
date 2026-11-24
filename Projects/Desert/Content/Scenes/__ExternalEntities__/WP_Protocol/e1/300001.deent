@@ -1,0 +1,35 @@
+{
+    "id": 300001,
+    "Tag": "NET4 Fence",
+    "Translation": [2500.0, -154.0, 650.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [0.2, 1.8, 6.0],
+    "Collider": {
+        "Shape": 0,
+        "HalfExtents": [10.0, 90.0, 300.0],
+        "Radius": 50.0,
+        "HalfHeight": 50.0,
+        "Axis": 1,
+        "Center": [0.0, 0.0, 0.0]
+    },
+    "RigidBody": {
+        "Type": 0,
+        "Mass": 1.0,
+        "Friction": 0.5,
+        "Restitution": 0.10000000149011612,
+        "CollisionProfile": "BlockAll"
+    },
+    "StaticMesh": {
+        "MaterialSlots": [
+            {
+                "Guid": "91bde2ac45c15dd230d961a447b6fba7",
+                "Path": "assets:Materials/CB_Green.demat"
+            }
+        ],
+        "Primitive": "Cube",
+        "MeshHandle": {
+            "Guid": "",
+            "Path": ""
+        }
+    }
+}
