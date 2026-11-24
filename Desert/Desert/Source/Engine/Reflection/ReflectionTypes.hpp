@@ -118,6 +118,12 @@ namespace Desert::Reflection
         // render method whose renderer has not landed (Common/Settings/RenderMethods.hpp) — so the refusal is an
         // error where the value is set, never a silent substitute where it is read.
         std::string_view ( *Refuse )( std::int64_t value ) = nullptr;
+
+        // PROPERTY(WasNamed("Old")) — the field's earlier names (Unity FormerlySerializedAs, UE CoreRedirects
+        // without the ini): a record that lacks the field's own key is read from the first of these it has
+        // (ReflectionSerializer). The header tool's Desert/Schema/ComponentSchema.lock refuses a component
+        // field's rename that does not state it.
+        std::vector<std::string> WasNamed;
     };
 
     struct TypeInfo; // fwd

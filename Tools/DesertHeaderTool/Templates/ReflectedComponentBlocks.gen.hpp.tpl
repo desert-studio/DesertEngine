@@ -18,8 +18,8 @@ namespace Desert::Core::Serialize
     void ForEachReflectedComponentBlock( TVisit&& visit )
     {
         using R = ReflectedBlockRun;
-{% for c in components %}{% if c.whole %}        visit( ReflectedWholeBlock<::{{ c.fqn }}>{ "{{ c.key }}", "{{ c.typeName }}", R::{{ c.run }} } );
-{% else %}        visit( ReflectedMemberBlock<::{{ c.fqn }}, decltype( ::{{ c.fqn }}::{{ c.member }} )>{ "{{ c.key }}", "{{ c.typeName }}", &::{{ c.fqn }}::{{ c.member }}, R::{{ c.run }} } );
+{% for c in components %}{% if c.whole %}        visit( ReflectedWholeBlock<::{{ c.fqn }}>{ "{{ c.key }}", "{{ c.typeName }}", R::{{ c.run }}, {{ c.version }} } );
+{% else %}        visit( ReflectedMemberBlock<::{{ c.fqn }}, decltype( ::{{ c.fqn }}::{{ c.member }} )>{ "{{ c.key }}", "{{ c.typeName }}", &::{{ c.fqn }}::{{ c.member }}, R::{{ c.run }}, {{ c.version }} } );
 {% endif %}{% endfor %}    }
 } // namespace Desert::Core::Serialize
 // NOLINTEND

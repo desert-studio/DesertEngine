@@ -13,8 +13,8 @@ namespace Desert::Core::Serialize::Generated
 {
     void RegisterComponents_{{ module }}( [[maybe_unused]] ComponentRegistrar& r )
     {
-{% for c in components %}{% if c.whole %}        r.Add( ReflectedWholeBlock<::{{ c.fqn }}>{ "{{ c.key }}", "{{ c.typeName }}", ReflectedBlockRun::{{ c.run }} } );
-{% else %}        r.Add( ReflectedMemberBlock<::{{ c.fqn }}, decltype( ::{{ c.fqn }}::{{ c.member }} )>{ "{{ c.key }}", "{{ c.typeName }}", &::{{ c.fqn }}::{{ c.member }}, ReflectedBlockRun::{{ c.run }} } );
+{% for c in components %}{% if c.whole %}        r.Add( ReflectedWholeBlock<::{{ c.fqn }}>{ "{{ c.key }}", "{{ c.typeName }}", ReflectedBlockRun::{{ c.run }}, {{ c.version }} } );
+{% else %}        r.Add( ReflectedMemberBlock<::{{ c.fqn }}, decltype( ::{{ c.fqn }}::{{ c.member }} )>{ "{{ c.key }}", "{{ c.typeName }}", &::{{ c.fqn }}::{{ c.member }}, ReflectedBlockRun::{{ c.run }}, {{ c.version }} } );
 {% endif %}{% endfor %}    }
 } // namespace Desert::Core::Serialize::Generated
 // NOLINTEND
