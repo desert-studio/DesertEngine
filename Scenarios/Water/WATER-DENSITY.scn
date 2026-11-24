@@ -4,6 +4,9 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Density.desce
 Дано --subject viewport set Camera.Position 0,200,-800
 Дано --subject viewport set Camera.Direction 0,-0.1,1
-Когда run Play
-Когда advance 8
+Когда run Action "Simulate"
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Тогда-вид 5_density в масле осадка ящика заметно глубже, чем в воде (≈ 94 % против 85 %)

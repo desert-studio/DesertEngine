@@ -5,8 +5,11 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Buoyancy.desce
 Дано --subject viewport set Camera.Position 0,250,-900
 Дано --subject viewport set Camera.Direction 0,-0.2,1
-Когда run Play
-Когда advance 8
+Когда run Action "Simulate"
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Тогда-вид 1_wood_floats деревянный ящик качается на волнах, погружён ~60 % (Buoyancy.SubmergedShare ≈ 0.6)
 Тогда-вид 2_stone_sinks каменный ящик ушёл под воду, его не видно над поверхностью
 Тогда-вид 3_ice_90 ледяной ящик погружён ~90 %: над водой узкая полоска (SubmergedShare ≈ 0.9)
