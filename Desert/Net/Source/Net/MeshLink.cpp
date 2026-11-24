@@ -82,6 +82,11 @@ namespace Desert::Net
                 F32( p.Position.Y );
                 F32( p.Position.Z );
                 F32( p.Yaw );
+                F32( p.Velocity.X );
+                F32( p.Velocity.Y );
+                F32( p.Velocity.Z );
+                U8( p.Movement );
+                U8( p.TeleportCount );
             }
             void Move( const ISimLink::AckedMove& m )
             {
@@ -179,7 +184,8 @@ namespace Desert::Net
             bool Pawn( PawnState& p )
             {
                 return U32( p.Id ) && F32( p.Position.X ) && F32( p.Position.Y ) && F32( p.Position.Z ) &&
-                       F32( p.Yaw );
+                       F32( p.Yaw ) && F32( p.Velocity.X ) && F32( p.Velocity.Y ) && F32( p.Velocity.Z ) &&
+                       U8( p.Movement ) && U8( p.TeleportCount );
             }
             bool Move( ISimLink::AckedMove& m )
             {
@@ -657,12 +663,13 @@ namespace Desert::Net
             m_Handler.PeerLost( link.Role, link.Index, connection );
     }
 
-    void MeshEndpoint::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data )
+    void MeshEndpoint::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                                  NetClock::time_point received )
     {
         if ( m_ClientConnections.contains( connection ) )
         {
             if ( m_Clients )
-                m_Clients->OnMessage( connection, lane, data );
+                m_Clients->OnMessage( connection, lane, data, received );
             return;
         }
         const auto it = m_Links.find( connection );

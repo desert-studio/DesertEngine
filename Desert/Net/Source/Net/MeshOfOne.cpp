@@ -143,6 +143,8 @@ namespace Desert::Net
         }
         pawn.State.Position = pawn.Move.Position;
         pawn.State.Yaw      = pawn.Move.Yaw;
+        pawn.State.Velocity = pawn.Move.Velocity;
+        pawn.State.Movement = pawn.Move.Grounded ? kPawnGrounded : std::uint8_t{ 0 };
     }
 
     void PawnSimulation::Step()
@@ -194,6 +196,7 @@ namespace Desert::Net
         if ( it == m_Pawns.end() )
             return false;
         it->second.State.Position = position;
+        ++it->second.State.TeleportCount;
         // UE TeleportTo on a character: it stands at the new place, still; the floor is where it stands.
         it->second.Move.Position = position;
         it->second.Move.Velocity = {};
@@ -280,7 +283,8 @@ namespace Desert::Net
             m_Sim->PlayerJoined( peer.Player, verdict.Token.Account );
     }
 
-    void Gateway::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data )
+    void Gateway::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                             NetClock::time_point )
     {
         const auto it = m_Peers.find( connection );
         if ( it == m_Peers.end() )

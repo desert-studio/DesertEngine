@@ -6,7 +6,7 @@
 // character's position back - the driver writes the transform from the replicated state every frame.
 //   * Autonomous: this client's own pawn. Its input (CharacterControllerComponent::MoveInput, the script's intent)
 //     goes to the server; its position is the server's (NET-4 predicts it locally and corrects from the ack).
-//   * Simulated: another player's pawn, drawn interpolated kInterpolationDelaySeconds behind the server clock.
+//   * Simulated: another player's pawn, drawn interpolated the adaptive delay behind the server clock.
 
 #include <cstdint>
 

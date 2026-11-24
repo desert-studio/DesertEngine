@@ -57,6 +57,9 @@ namespace Desert::Net
                 U32( pawn.Id );
                 Vec( pawn.Position );
                 F32( pawn.Yaw );
+                Vec( pawn.Velocity );
+                U8( pawn.Movement );
+                U8( pawn.TeleportCount );
             }
             std::vector<std::byte> Take()
             {
@@ -123,7 +126,8 @@ namespace Desert::Net
             }
             bool Pawn( PawnState& pawn )
             {
-                return U32( pawn.Id ) && Vec( pawn.Position ) && F32( pawn.Yaw );
+                return U32( pawn.Id ) && Vec( pawn.Position ) && F32( pawn.Yaw ) && Vec( pawn.Velocity ) &&
+                       U8( pawn.Movement ) && U8( pawn.TeleportCount );
             }
             // Whole message read, nothing left over.
             [[nodiscard]] bool Done() const
@@ -144,13 +148,15 @@ namespace Desert::Net
         // Snapshot pawn count bound: a malformed count must not make the decoder reserve gigabytes.
         constexpr std::uint32_t kMaxSnapshotPawns = 4096;
 
+        // Shortest-arc interpolation of a yaw in radians.
         float LerpYaw( float a, float b, float t )
         {
-            float delta = std::fmod( b - a, 360.f );
-            if ( delta > 180.f )
-                delta -= 360.f;
-            else if ( delta < -180.f )
-                delta += 360.f;
+            constexpr float kPi   = 3.14159265358979f;
+            float           delta = std::fmod( b - a, 2.f * kPi );
+            if ( delta > kPi )
+                delta -= 2.f * kPi;
+            else if ( delta < -kPi )
+                delta += 2.f * kPi;
             return a + delta * t;
         }
     } // namespace
@@ -390,18 +396,48 @@ namespace Desert::Net
         if ( serverSeconds <= m_Samples.front().Time )
             return m_Samples.front().State;
         if ( serverSeconds >= m_Samples.back().Time )
-            return m_Samples.back().State;
+        {
+            // Past the newest snapshot (a late or lost one): on along the newest velocity, capped, then held still.
+            const PawnState& newest = m_Samples.back().State;
+            const double     ahead  = serverSeconds - m_Samples.back().Time;
+            const float      dt     = static_cast<float>( std::min( ahead, kMaxExtrapolationSeconds ) );
+            PawnState        out    = newest;
+            out.Position.X += newest.Velocity.X * dt;
+            out.Position.Y += newest.Velocity.Y * dt;
+            out.Position.Z += newest.Velocity.Z * dt;
+            if ( ahead > kMaxExtrapolationSeconds )
+                out.Velocity = {}; // held: the locomotion stands rather than walking on the spot
+            return out;
+        }
         const auto     after = std::find_if( m_Samples.begin(), m_Samples.end(),
                                              [&]( const Sample_& s ) { return s.Time > serverSeconds; } );
         const Sample_& a     = *( after - 1 );
         const Sample_& b     = *after;
-        const float    t     = static_cast<float>( ( serverSeconds - a.Time ) / ( b.Time - a.Time ) );
+        if ( a.State.TeleportCount != b.State.TeleportCount )
+            return a.State; // a cut at b's time, never a slide across the teleport
+        const double h  = b.Time - a.Time;
+        const float  s  = static_cast<float>( ( serverSeconds - a.Time ) / h );
+        const float  hs = static_cast<float>( h );
+        // Cubic Hermite basis and its derivative (d/ds; divided by h for d/dt).
+        const float s2 = s * s, s3 = s2 * s;
+        const float h00 = 2.f * s3 - 3.f * s2 + 1.f, h10 = s3 - 2.f * s2 + s, h01 = -2.f * s3 + 3.f * s2,
+                    h11 = s3 - s2;
+        const float d00 = 6.f * s2 - 6.f * s, d10 = 3.f * s2 - 4.f * s + 1.f, d01 = -6.f * s2 + 6.f * s,
+                    d11 = 3.f * s2 - 2.f * s;
+        const auto position = [&]( float p0, float v0, float p1, float v1 )
+        { return h00 * p0 + h10 * hs * v0 + h01 * p1 + h11 * hs * v1; };
+        const auto velocity = [&]( float p0, float v0, float p1, float v1 )
+        { return ( d00 * p0 + d10 * hs * v0 + d01 * p1 + d11 * hs * v1 ) / hs; };
+        const NetVec3 &pa = a.State.Position, &pb = b.State.Position, &va = a.State.Velocity, &vb = b.State.Velocity;
         PawnState      out;
-        out.Id         = b.State.Id;
-        out.Position.X = a.State.Position.X + ( b.State.Position.X - a.State.Position.X ) * t;
-        out.Position.Y = a.State.Position.Y + ( b.State.Position.Y - a.State.Position.Y ) * t;
-        out.Position.Z = a.State.Position.Z + ( b.State.Position.Z - a.State.Position.Z ) * t;
-        out.Yaw        = LerpYaw( a.State.Yaw, b.State.Yaw, t );
+        out.Id            = b.State.Id;
+        out.Position      = { position( pa.X, va.X, pb.X, vb.X ), position( pa.Y, va.Y, pb.Y, vb.Y ),
+                              position( pa.Z, va.Z, pb.Z, vb.Z ) };
+        out.Velocity      = { velocity( pa.X, va.X, pb.X, vb.X ), velocity( pa.Y, va.Y, pb.Y, vb.Y ),
+                              velocity( pa.Z, va.Z, pb.Z, vb.Z ) };
+        out.Yaw           = LerpYaw( a.State.Yaw, b.State.Yaw, s );
+        out.Movement      = s < 0.5f ? a.State.Movement : b.State.Movement;
+        out.TeleportCount = b.State.TeleportCount;
         return out;
     }
 

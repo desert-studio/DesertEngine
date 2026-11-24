@@ -8,7 +8,9 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Net/NetRoleComponent.hpp>
@@ -16,6 +18,7 @@
 #include <Engine/Reflection/FieldValue.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Reflection/Value.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 #include <Net/NetTransport.hpp>
@@ -230,17 +233,21 @@ namespace Desert::Core
         }
     }
 
-    // THE SERVER'S PAWN PREFAB, LOADED BEFORE ANY PAWN IS SPAWNED. The Welcome names it by handle; the open level
-    // references only its own assets, so a pawn the level does not name is not registered yet. The handle is
-    // resolved to its file through the content registry (handle -> stable key, no type and no prior registration
-    // needed) and registered + loaded here, once per session - UE's client loads the GameMode's DefaultPawnClass
-    // the same way.
+    // THE SERVER'S PAWN PREFAB, READ OFF THE FRAME BEFORE ANY PAWN IS SPAWNED. The Welcome names it by handle;
+    // the open level references only its own assets, so a pawn the level does not name is not registered yet.
+    // The handle is resolved to its file through the content registry (handle -> stable key, no type and no prior
+    // registration needed), registered as an UNREAD shell and read on the AsyncAssetLoader's workers; its
+    // dependency closure is requested when the read lands (RequestPawnClosure), and spawns wait for both - UE's
+    // client streams the GameMode's DefaultPawnClass and its references (FStreamableManager) the same way,
+    // never inside a frame.
     void ClientNetDriver::LoadPawnPrefab( Assets::AssetManager& assets )
     {
         const Assets::AssetHandle handle( m_Client->PawnPrefab() );
-        if ( assets.FindByHandle<Assets::PrefabAsset>( handle ) )
+        if ( const auto resident = assets.FindByHandle<Assets::PrefabAsset>( handle );
+             resident && resident->IsReadyForUse() )
         {
             m_PawnPrefab = handle;
+            RequestPawnClosure();
             return;
         }
         const std::string key = Assets::ContentRegistry::KeyForHandle( m_Client->PawnPrefab() );
@@ -250,24 +257,98 @@ namespace Desert::Core
                        m_Client->PawnPrefab() );
             return;
         }
-        const std::filesystem::path path   = Common::AssetHandle::PathForStableKey( key );
-        const auto                  prefab = assets.CreateAsset<Assets::PrefabAsset>( path );
-        if ( !prefab || !prefab->IsReadyForUse() )
+        // The shell, not the bytes: CreateAsset without a load reads the header only, so the shell already
+        // carries the prefab's own identity. The Welcome's number is the path-derived one; a prefab that declares
+        // its own identity is registered under that, and the spawns name the asset by the handle it was
+        // registered with (which is why this is not CreateFromRegistryRow, which refuses that disagreement).
+        const std::filesystem::path path = Common::AssetHandle::PathForStableKey( key );
+        const auto prefab = assets.CreateAsset<Assets::PrefabAsset>( path, /*loadAfterCreate=*/false );
+        if ( !prefab )
         {
-            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load", m_Client->PawnPrefab(), key );
+            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') could not be created",
+                       m_Client->PawnPrefab(), key );
             return;
         }
-        // The Welcome's number is the path-derived one; a prefab that declares its own identity is registered
-        // under that, so the spawns below name the asset by the handle it was registered with.
-        m_PawnPrefab = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
-        LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}', handle {:016x} here)",
-                  m_Client->PawnPrefab(), key, static_cast<std::uint64_t>( m_PawnPrefab ) );
+        const auto here     = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
+        m_PawnPrefabReading = true;
+        m_PawnPrefabRead    = Assets::AsyncAssetLoader::Get().Request(
+             prefab,
+             [this, here, key, welcome = m_Client->PawnPrefab()]( const Assets::Asset<Assets::AssetBase>& read,
+                                                                  const Assets::LoadOutcome               outcome,
+                                                                  const std::string&                      error )
+             {
+                 m_PawnPrefabReading = false;
+                 if ( outcome == Assets::LoadOutcome::Failed || !read || !read->IsReadyForUse() )
+                 {
+                     LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load: {}", welcome, key,
+                                   error );
+                     return;
+                 }
+                 m_PawnPrefab = here;
+                 LOG_INFO( "[Net] read the server's pawn prefab {:016x} off the frame ('{}', handle {:016x} here)",
+                              welcome, key, static_cast<std::uint64_t>( here ) );
+                 RequestPawnClosure();
+             },
+             [this] { m_PawnPrefabReading = false; } );
+        if ( !m_PawnPrefabRead.IsValid() )
+        {
+            m_PawnPrefabReading = false; // the loader refused and logged why
+            return;
+        }
+        LOG_INFO( "[Net] reading the server's pawn prefab {:016x} ('{}') off the frame", m_Client->PawnPrefab(),
+                  key );
+    }
+
+    // What a pawn spawn waits for: the rows of the prefab's closure that a spawn binds at once - meshes and their
+    // rigs, materials. Textures stream after the spawn at the mips the view asks (UE: a texture is never part of
+    // what an actor's spawn waits for), so they are read here but do not hold the spawn.
+    struct ClientNetDriver::PawnClosure
+    {
+        std::vector<Assets::ContentRegistry::ClosureRow> Rows;
+        bool                                             Landed = false;
+    };
+
+    void ClientNetDriver::RequestPawnClosure()
+    {
+        m_PawnClosure       = std::make_shared<PawnClosure>();
+        m_PawnClosure->Rows = Assets::ContentRegistry::Closure(
+             { { Common::AssetHandle( static_cast<std::uint64_t>( m_PawnPrefab ) ),
+                 std::string( Common::Content::KindName( Common::Content::ContentKind::Prefab ) ) } } );
+        Runtime::StartClosureReads( m_PawnClosure->Rows );
+        LOG_INFO( "[Net] reading the pawn prefab's closure off the frame: {} rows", m_PawnClosure->Rows.size() );
+    }
+
+    bool ClientNetDriver::PawnClosureLanded()
+    {
+        if ( m_PawnPrefabReading )
+            return false; // the prefab file itself is still on a worker
+        if ( !m_PawnClosure )
+            return true; // no prefab loaded: the spawn says why (SpawnPawnPrefabAt's error), nothing to wait for
+        if ( m_PawnClosure->Landed )
+            return true;
+        std::vector<Assets::ContentRegistry::ClosureRow> held;
+        for ( const auto& row : m_PawnClosure->Rows )
+            if ( row.Kind != Common::Content::KindName( Common::Content::ContentKind::Texture ) )
+                held.push_back( row );
+        if ( Runtime::ClosureArriving( held, 0.0f ) > 0 )
+            return false;
+        m_PawnClosure->Landed = true;
+        LOG_INFO( "[Net] the pawn prefab's closure has landed ({} rows): pawns spawn from now on",
+                  m_PawnClosure->Rows.size() );
+        return true;
     }
 
     void ClientNetDriver::ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets )
     {
         auto& reg = scene.GetRegistry();
         for ( const Net::NetId id : m_Client->TakeSpawned() )
+            m_AwaitingSpawn.push_back( id );
+        // A spawn binds the prefab's meshes and materials at once: it waits for their reads to land rather than
+        // reading them inside this frame (a destroy before that finds no entity and the held id no pawn).
+        std::vector<std::uint32_t> spawning;
+        if ( PawnClosureLanded() )
+            spawning.swap( m_AwaitingSpawn );
+        for ( const Net::NetId id : spawning )
         {
             const auto& pawns = m_Client->Pawns();
             const auto  found = pawns.find( id );
@@ -276,7 +357,7 @@ namespace Desert::Core
             const auto&     replicated = found->second;
             const auto      sample     = m_Client->Sample( id );
             const glm::vec3 at =
-                 sample ? ToGlm( sample->Position ) : ToGlm( replicated.History.Sample( 1e12 ).Position );
+                 sample ? ToGlm( sample->Position ) : ToGlm( replicated.History.Newest().Position );
             if ( replicated.Owned )
             {
                 // The own pawn: the one Play spawned from the level's GameMode, at the server's position; a level
@@ -384,6 +465,49 @@ namespace Desert::Core
             local.Translation         = position;
             local.Rotation            = { 0.0f, sample->Yaw, 0.0f };
             ECS::SetLocalTransform( reg, entity, local );
+            WriteLocomotion( scene, entity, *sample );
+        }
+    }
+
+    void ClientNetDriver::WriteLocomotion( Scene& scene, entt::entity pawn, const Net::PawnState& sample )
+    {
+        // NET-5 (§5.3): a simulated proxy's animation runs locally from its replicated movement, never from
+        // replicated poses (UE: the proxy's CharacterMovement Velocity is replicated and its AnimInstance reads it).
+        // The interpolated velocity is the Hermite's derivative, so the walk cycle's rate follows the path drawn.
+        auto&           reg      = scene.GetRegistry();
+        const glm::vec3 velocity = ToGlm( sample.Velocity );
+        const float     speed    = glm::length( glm::vec2( velocity.x, velocity.z ) );
+        const bool      falling  = ( sample.Movement & Net::kPawnGrounded ) == 0;
+        if ( auto* character = reg.try_get<ECS::CharacterControllerComponent>( pawn ) )
+        {
+            character->Velocity     = velocity;
+            character->CurrentSpeed = speed;
+        }
+        // The locomotion variables go to every anim graph of the pawn's hierarchy (the body is a child of the
+        // capsule) by the names the locomotion graphs declare.
+        std::vector<entt::entity> open{ pawn };
+        while ( !open.empty() )
+        {
+            const entt::entity entity = open.back();
+            open.pop_back();
+            if ( auto* anim = reg.try_get<ECS::AnimationComponent>( entity ) )
+            {
+                // One pending value per name: a graph that is not built yet does not drain the queue.
+                const auto write = [&]( std::string_view name, float value )
+                {
+                    auto& pending = anim->PendingGraphParams;
+                    const auto it = std::find_if( pending.begin(), pending.end(),
+                                                  [&]( const auto& p ) { return p.Name == name; } );
+                    if ( it != pending.end() )
+                        it->Value = value;
+                    else
+                        pending.push_back( { std::string( name ), value } );
+                };
+                write( kLocomotionSpeed, speed );
+                write( kLocomotionFalling, falling ? 1.0f : 0.0f );
+            }
+            if ( const auto* relation = reg.try_get<ECS::RelationshipComponent>( entity ) )
+                open.insert( open.end(), relation->Children.begin(), relation->Children.end() );
         }
     }
 
@@ -589,7 +713,7 @@ namespace Desert::Core
             const auto own = m_Client->Pawns().find( m_Client->OwnPawn() );
             if ( own != m_Client->Pawns().end() && m_OwnFirstServerPosition )
             {
-                const glm::vec3 newest = ToGlm( own->second.History.Sample( 1e12 ).Position );
+                const glm::vec3 newest = ToGlm( own->second.History.Newest().Position );
                 if ( glm::length( newest - *m_OwnFirstServerPosition ) >= m_Options.WalkCm )
                 {
                     m_Walking = false;

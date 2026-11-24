@@ -13,6 +13,7 @@
 // MovePredictor, the server runs the same Net::StepPawnMove) and reconciled against the server's acked state.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <glm/glm.hpp>
 
@@ -23,6 +24,7 @@
 #include <set>
 #include <vector>
 #include <string>
+#include <string_view>
 
 #include <entt/entt.hpp>
 
@@ -30,6 +32,7 @@ namespace Desert::Net
 {
     class INetTransport;
     class ReplicationClient;
+    struct PawnState;
 } // namespace Desert::Net
 
 namespace Desert::Core
@@ -93,8 +96,16 @@ namespace Desert::Core
     private:
         ClientNetDriver() = default;
         void      LoadPawnPrefab( Assets::AssetManager& assets );
+        void      RequestPawnClosure();
+        bool      PawnClosureLanded();
         void      ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
+        // NET-5: a remote pawn's locomotion variables from its interpolated replicated movement - the proxy's
+        // CharacterControllerComponent Velocity/CurrentSpeed and the anim graph parameters kLocomotion* of every
+        // AnimationComponent in its hierarchy.
+        void      WriteLocomotion( Scene& scene, entt::entity pawn, const Net::PawnState& sample );
+        static constexpr std::string_view kLocomotionSpeed   = "Speed";     // planar cm/s
+        static constexpr std::string_view kLocomotionFalling = "IsFalling"; // not on the ground
         // NET-2: the server's state of stable objects (cooked records, never spawned) written into the entities
         // this client's streamer made from the same records; a change whose entity is not streamed in waits for
         // it.
@@ -125,6 +136,16 @@ namespace Desert::Core
         bool                                    m_InSession = false;
         // The server's pawn prefab as THIS client's AssetManager knows it (LoadPawnPrefab); null until it loaded.
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
+        // The prefab file's own read, on the loader's workers (UE FStreamableManager::RequestAsyncLoad of the
+        // DefaultPawnClass): pawn spawns wait while it is in flight; destroying the driver releases it.
+        Assets::LoadRequest m_PawnPrefabRead;
+        bool                m_PawnPrefabReading = false;
+        // The pawn prefab's dependency closure, read on the loader's workers from the Welcome on; pawn spawns wait
+        // in m_AwaitingSpawn until it has landed (UE FStreamableManager: a replicated actor's class and its
+        // references are streamed before the spawn, never loaded inside a frame). ClientNetDriver.cpp.
+        struct PawnClosure;
+        std::shared_ptr<PawnClosure>            m_PawnClosure;
+        std::vector<std::uint32_t>              m_AwaitingSpawn; // NetIds the server spawned, not yet built here
         bool m_Closed = false;
         double                                  m_StepClock = 0.0, m_Clock = 0.0, m_NextLog = 1.0;
         // The own pawn's prediction (NET-4): its saved moves, the movement both sides run, the drawn offset a

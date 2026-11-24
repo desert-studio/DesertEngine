@@ -1,0 +1,7 @@
+# NET-REMOTE pass 5: the server's pawn prefab is read off the frame (unread shell + AsyncAssetLoader request), its
+# dependency closure is requested when that read lands, and pawn spawns wait for both; the remote pawn casts its
+# skinned shadow (70ef84a29). Runner: <scratch>/NET-REMOTE/run_net5b.sh (bot A connects FIRST, Editor B joins while
+# A walks in front of B's spawn).
+Дано DesertServer --role all on WP_Protocol (--lag-ms 75 --jitter-ms 30 --loss 2) + probe A (DesertNetProbe --bot, player 2, circle --dir 0,0,-0.5 --turn-deg-s 36) from task/NET-REMOTE
+Когда Editor B (player 1, --play --shot-player-view, --net-lag-ms 75 --net-loss 2) joins while A walks in front of B's camera for 20 s
+Тогда net5_remote_shadow B's frame shows A's pawn with a ground shadow; no sync-load warning for Pawn_Character.deprefab or its closure in B's log; interpolation delay 100-200 ms, jitter p95 <= 100 ms, 0 snaps

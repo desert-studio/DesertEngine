@@ -22,7 +22,7 @@ namespace Desert::Net
 {
     // Bumped by every change to any message the protocol carries.
     inline constexpr std::uint32_t kProtocolVersion =
-         3; // 2: the connect token in the Hello; 3: the pawn in the Welcome
+         4; // 2: the connect token in the Hello; 3: the pawn in the Welcome; 4: pawn velocity/movement/teleport
     // "DSNT": a Hello from something that is not our client is refused before its fields are read.
     inline constexpr std::uint32_t kHelloMagic = 0x544E5344u;
 
