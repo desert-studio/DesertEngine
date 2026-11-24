@@ -33,10 +33,53 @@ vec2 WaterMorphLocal( vec2 local, WaterTileRow t, vec3 observer, float lodLevel,
     return local;
 }
 
+// A RIVER'S FALL (WaterMeshTiles.glslh WaterTileIsFall; C++ WaterRenderer::AppendFallRows): the row is one
+// stretch of a fall's sheet, its centre line from A (Tile.xyz) to B (Lod.xyz), Tile.w wide across Zone.xy. The grid
+// runs along the stretch on x and across it on y, so the front face is the sheet's normal across x (B - A) - the
+// CPU's (Water::RiverFallAt) - and two stretches sharing a sample meet at the same bits.
+void WaterFallVertex( WaterTileRow t, int tileRow, ivec2 q )
+{
+    const int   quads  = int( t.Zone.w + 0.5 );
+    const float along  = float( q.x ) / float( quads );
+    const float across = float( q.y ) / float( quads ) - 0.5;
+    const vec3  A      = t.Tile.xyz;
+    const vec3  B      = t.Lod.xyz;
+    const vec3  side   = vec3( t.Zone.x, 0.0, t.Zone.y );
+    const vec4  worldPos = vec4( mix( A, B, along ) + side * ( across * t.Tile.w ), 1.0 );
+    const vec3  N      = normalize( cross( side, B - A ) );
+    const vec3  T      = side;
+    const vec3  Bt     = normalize( cross( N, T ) );
+    v_Surface.WorldPosition = worldPos.xyz;
+    v_Surface.Normal        = N;
+    // UV0 = the sheet's own coordinates (WaterFallSheetCoord: across, and along the flow from the river's flow
+    // distance at A, so the river's phase runs on over the lip), metres; UV1 = the particle's (X, Z) as on a tile.
+    v_Surface.UV0           = vec2( across * t.Tile.w, t.Lod.w + along * t.Zone.z ) * 0.01;
+    v_Surface.UV1           = worldPos.xz;
+    v_Surface.VertexColor   = vec4( 0.0, worldPos.y, t.Body.y, float( tileRow + 1 ) );
+    v_Surface.ObjectScaleUp = 1.0;
+    v_Surface.TBN           = mat3( T, Bt, N );
+#ifndef DESERT_SURFACE_CLIP_FROM_PIXEL
+    v_Surface.Clip        = cameraUB.ViewProjection * worldPos;
+#endif
+    v_Surface.PrevClip    = cameraUB.PrevViewProjection * worldPos; // the sheet stands still; its water flows
+    v_Surface.ObjectMoved = 0.0;
+    gl_Position           = cameraUB.JitteredViewProjection * worldPos;
+}
+
 void main()
 {
     const int          tileRow = int( m_PushConstants.PrimitiveIndex ) + gl_InstanceIndex;
     const WaterTileRow t       = WaterTileRows[tileRow];
+    if ( WaterTileIsFall( t.Body.y ) )
+    {
+        const ivec2 kFallCorner[6] = ivec2[]( ivec2( 0, 0 ), ivec2( 0, 1 ), ivec2( 1, 0 ), ivec2( 1, 0 ),
+                                              ivec2( 0, 1 ), ivec2( 1, 1 ) );
+        const int   fallQuads      = int( t.Zone.w + 0.5 );
+        const int   fallQuad       = gl_VertexIndex / 6;
+        WaterFallVertex( t, tileRow,
+                         ivec2( fallQuad % fallQuads, fallQuad / fallQuads ) + kFallCorner[gl_VertexIndex % 6] );
+        return;
+    }
     // The LOD rings are centred on the view the quadtree was traversed from (WaterRenderer::PrepareFrame).
     const vec3 observer = cameraUB.CameraPos.xyz;
 

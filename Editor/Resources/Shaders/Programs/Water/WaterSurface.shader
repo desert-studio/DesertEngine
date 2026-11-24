@@ -75,7 +75,8 @@ Shader "WaterSurface"
             // half a period apart, each faded out as it resets); still water reads one copy.
             vec2  p0, p1;
             float w1;
-            WaterFlowPhases( i.WorldPosition.xz, i.VertexColor, i.Time, p0, p1, w1 );
+            // On a river's fall the sheet's own coordinate (WaterFlowCoord): the ripples stream down it.
+            WaterFlowPhases( WaterFlowCoord( i.WorldPosition.xz, i.UV0, i.VertexColor ), i.VertexColor, i.Time, p0, p1, w1 );
             const vec3 n0 = WaterRipplePair( p0, i.Time );
             s.Normal      = w1 > 0.0 ? normalize( mix( n0, WaterRipplePair( p1, i.Time ), w1 ) ) : n0;
 #else
@@ -112,7 +113,9 @@ Shader "WaterSurface"
             vec2  foam0 = i.UV1, foam1 = i.UV1;
             float foamW1 = 0.0;
 #ifdef WATER_MAX_WAVES
-            WaterFlowPhases( i.UV1, i.VertexColor, i.Time, foam0, foam1, foamW1 );
+            // A fall's foam streaks down its sheet (WaterFlowCoord: the sheet's coordinate, stretched along the flow).
+            foam0 = WaterFlowCoord( i.UV1, i.UV0, i.VertexColor );
+            WaterFlowPhases( foam0, i.VertexColor, i.Time, foam0, foam1, foamW1 );
 #endif
             const vec4 sheet0        = WaterFoamSheet( foam0 );
             const vec4 sheet         = foamW1 > 0.0 ? mix( sheet0, WaterFoamSheet( foam1 ), foamW1 ) : sheet0;

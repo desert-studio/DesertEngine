@@ -1,0 +1,13 @@
+# WATER-FALLS: Water_Falls - a river (WaterBody River, FlowSpeed 200 cm/s) runs 8 m above a lake on a cliff and pours over
+# its lip at x = 0: the spline's steep reach (rise/run > Water::kRiverFallMinSlope) is drawn as the river's falling
+# sheet (WaterRenderer fall rows, Vertex_WaterMesh.glslh WaterFallVertex) and answered by Water::RiverFallAt.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Falls.desce
+Дано --subject viewport set Camera.Position 100,400,-2500
+Дано --subject viewport set Camera.Direction 0,-0.05,1
+Тогда-вид 1_side сбоку - сплошная лента воды от кромки до озера, течение видно по текстуре
+Дано --subject viewport set Camera.Position 900,300,-900
+Дано --subject viewport set Camera.Direction -0.6,-0.25,0.75
+Тогда-вид 2_base у основания пена и туман брызг, озеро у подножия волнуется
+Дано --subject viewport set Camera.Position -2000,2500,-6000
+Дано --subject viewport set Camera.Direction 0.3,-0.33,0.9
+Тогда-вид 3_far издали водопад читается как часть реки, без шва между рекой и падением

@@ -19,8 +19,10 @@ namespace Desert::Water
         // A river is its ribbon, not its box: the baked bank mask, clipped by the very test the drawn surface
         // discards by (RiverInsideBank = WaterOutsideBank's complement), so no water is answered where none is
         // drawn. A river without a bake covers nothing.
+        // Its falls are their sheets (RiverFallAt): the water a point meets where the river drops off a lip.
         if ( body.Type == WaterBodyType::River )
-            return body.Flow != nullptr && RiverInsideBank( *body.Flow, glm::vec2( point.x, point.z ) );
+            return body.Flow != nullptr && ( RiverInsideBank( *body.Flow, glm::vec2( point.x, point.z ) ) ||
+                                             RiverFallAt( *body.Flow, point, body.Gravity ).has_value() );
         return true;
     }
 
@@ -61,6 +63,27 @@ namespace Desert::Water
                                      std::optional<float> groundHeight )
     {
         WaterQueryResult result;
+
+        // A river's fall (WaterRiver.hpp RiverFall): off the banks the point is in the falling sheet, if anywhere -
+        // the sheet is the surface (its mid-plane and normal), the water column is the sheet's thickness, and the
+        // current is the falling water's (RiverFallSpeed: the river's flow gaining by free fall down the slope), so
+        // a floating body caught by the fall is dragged down it (BuoyancySimulation's drag on the relative velocity).
+        if ( body.Type == WaterBodyType::River && body.Flow != nullptr &&
+             !RiverInsideBank( *body.Flow, glm::vec2( point.x, point.z ) ) )
+        {
+            if ( const std::optional<RiverFallHit> fall = RiverFallAt( *body.Flow, point, body.Gravity ) )
+            {
+                result.PlaneLocation   = fall->SheetPoint;
+                result.SurfaceLocation = fall->SheetPoint;
+                result.PlaneNormal     = fall->Normal;
+                result.SurfaceNormal   = fall->Normal;
+                result.PlaneDepth      = kRiverFallSheetThicknessCm;
+                result.SurfaceDepth    = kRiverFallSheetThicknessCm;
+                result.ImmersionDepth  = fall->Immersion;
+                result.Velocity        = fall->Velocity;
+                return result;
+            }
+        }
 
         // The plane: an ocean's surface is level, at the body's own height (UE :677-701). A river's follows its
         // spline (UE :702-741, the spline's height and up vector at the closest input key): the baked surface
@@ -211,6 +234,8 @@ namespace Desert::Water
                                    std::span<const World::Landscape::LandscapeRayTile> ground )
     {
         m_Bodies.assign( bodies.begin(), bodies.end() );
+        for ( WaterBodyState& body : m_Bodies )
+            body.Gravity = m_Gravity;
         m_Ground.assign( ground.begin(), ground.end() );
     }
 

@@ -69,6 +69,9 @@ namespace Desert::Water
                 // This frame's bodies over this frame's ground. The body list is retained (WaterBodyGather:
                 // re-walked only when a body is added, patched or removed) and its values read every frame, so a
                 // moved or edited body is the water at once; nothing is allocated in a steady frame.
+                // The scene's gravity (the physics world's, SceneSettings::Gravity): a river's fall accelerates
+                // by it (WaterBodyState::Gravity).
+                m_Water.SetGravity( m_World.GetGravity() );
                 m_Water.SetWorld(
                      m_Gather.Gather(
                           registry, []( const Assets::AssetHandle& waves )
@@ -236,6 +239,6 @@ namespace Desert::Water
              } );
         // The water zones and the bodies inside them (WATER-W6): one command per zone.
         hooks.RenderCollectors.push_back( []( Core::Scene& scene )
-                                          { scene.AddSystem<ECS::WaterZoneECSSystem>(); } );
+                                          { scene.AddSystem<ECS::WaterZoneECSSystem>( &scene ); } );
     }
 } // namespace Desert::Water
