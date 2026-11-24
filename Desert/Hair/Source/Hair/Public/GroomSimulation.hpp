@@ -11,7 +11,7 @@
 //
 // NOT HERE: HAIR1 — a backend (its factory), the interpolation of strands from guides, the renderer.
 
-#include <Engine/Hair/GroomAsset.hpp>
+#include <Hair/Public/GroomAsset.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

@@ -49,7 +49,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Landscape/Public/LandscapeLayerInfoService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
@@ -739,7 +739,7 @@ namespace Desert::Editor::Tools
         LayerNamesOf( const Assets::Serialization::FoliageTypeData& type )
         {
             std::vector<std::string> names;
-            auto*                    service = Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+            auto*                    service = Runtime::GetLandscapeLayerInfoService();
             for ( const auto& ref : type.LandscapeLayers )
             {
                 const auto guid = Common::Content::AssetGuidFromText( ref.Guid );

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/World/Landscape/LandscapeGenerator.hpp>
+#include <Landscape/Public/LandscapeGenerator.hpp>
 #include <Engine/World/Landscape/LandscapePaint.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 #include <Engine/World/Landscape/LandscapeSplines.hpp>

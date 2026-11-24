@@ -1,4 +1,4 @@
-#include "LandscapeLayerInfoService.hpp"
+#include <Landscape/Public/LandscapeLayerInfoService.hpp>
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
 
@@ -64,5 +64,11 @@ namespace Desert::Runtime
     void LandscapeLayerInfoService::Clear()
     {
         m_Layers.Clear();
+    }
+
+    LandscapeLayerInfoService* GetLandscapeLayerInfoService()
+    {
+        static LandscapeLayerInfoService service;
+        return &service;
     }
 } // namespace Desert::Runtime

@@ -9,7 +9,7 @@
 // "Putting on the vest" below is plain test code standing in for a SCRIPT: the engine has no equipment,
 // slots or equip events (owner, 2026-09-27); it has the four mechanisms of IModularCharacter.
 #include <Engine/Animation/Modular/ModularCharacter.hpp>
-#include <Engine/Hair/GroomSimulation.hpp>
+#include <Hair/Public/GroomSimulation.hpp>
 #include <PhysicsCore/Cloth/ClothingSimulation.hpp>
 
 #include <gtest/gtest.h>
