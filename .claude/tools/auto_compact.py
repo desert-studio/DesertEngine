@@ -70,7 +70,61 @@ def claude_tty():
     return None
 
 
+def type_into(tty, text, enters):
+    """Select the Terminal tab on @p tty, type @p text and press Enter @p enters times."""
+    keys = "\n".join(['        delay 0.7\n        tell application "System Events" to key code 36'] * enters)
+    script = f'''
+tell application "Terminal"
+  repeat with w in windows
+    repeat with t in tabs of w
+      if tty of t is "{tty}" then
+        set selected of t to true
+        set index of w to 1
+        activate
+        delay 0.5
+        tell application "System Events" to keystroke "{text}"
+{keys}
+        return "typed"
+      end if
+    end repeat
+  end repeat
+end tell
+return "tab not found"
+'''
+    out = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    log(f"{text[:40]!r}: {(out.stdout or out.stderr).strip()}")
+
+
+def compactions(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read().count(b'"compact_boundary"')
+    except OSError:
+        return 0
+
+
+def worker(tty, cmd, transcript):
+    """Type @p cmd, wait until it has run, then type the continue prompt (owner 11-24: no idle after it)."""
+    before = compactions(transcript)
+    time.sleep(DELAY)
+    # Two Enters: the first may only accept the slash-command completion; on an empty prompt the second does nothing.
+    type_into(tty, cmd, 2)
+    if cmd == "/compact":
+        deadline = time.time() + 900
+        while compactions(transcript) <= before and time.time() < deadline:
+            time.sleep(3)
+        if compactions(transcript) <= before:
+            log("no compact_boundary within 15 min: continue prompt not typed")
+            return
+    time.sleep(4)
+    type_into(tty, RESUME[cmd], 2)
+
+
 def main():
+    if "--type" in sys.argv:
+        k = sys.argv.index("--type")
+        worker(*sys.argv[k + 1:k + 4])
+        return
     if "--now" in sys.argv or "--clear" in sys.argv:
         open(CLEAR if "--clear" in sys.argv else NOW, "w").close()
         return
@@ -101,31 +155,8 @@ def main():
     for flag in (NOW, CLEAR):
         if os.path.exists(flag):
             os.remove(flag)
-    script = f'''
-delay {DELAY}
-tell application "Terminal"
-  repeat with w in windows
-    repeat with t in tabs of w
-      if tty of t is "{tty}" then
-        set selected of t to true
-        set index of w to 1
-        activate
-        delay 0.5
-        tell application "System Events" to keystroke "{cmd}"
-        delay 0.3
-        tell application "System Events" to key code 36
-        delay 2
-        tell application "System Events" to keystroke "{RESUME[cmd]}"
-        delay 0.3
-        tell application "System Events" to key code 36
-        return "sent"
-      end if
-    end repeat
-  end repeat
-end tell
-return "tab not found"
-'''
-    subprocess.Popen(["/bin/sh", "-c", f"osascript -e '{script.replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}' >> '{LOG}' 2>&1"],
+    # Detached worker: the hook must return at once, the typing happens after the turn has ended.
+    subprocess.Popen([sys.executable, os.path.abspath(__file__), "--type", tty, cmd, data.get("transcript_path", "")],
                      start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     why = "by the lead's flag" if forced else f">= {THRESHOLD//1000}k"
     log(f"context {ctx//1000}k {why}: {cmd} scheduled into {tty}")
