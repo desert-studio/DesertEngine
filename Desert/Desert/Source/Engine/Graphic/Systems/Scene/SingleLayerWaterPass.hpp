@@ -78,8 +78,11 @@ namespace Desert::Graphic::System
         // camera is under a body this frame (after PrepareFrame), and "Deferred: Underwater" on the scene target
         // before the water surface, from the opaque scene's copy @p sceneCopy.
         [[nodiscard]] virtual bool HasUnderwater() const = 0;
+        // GRAPH BUILD: this frame's UnderwaterUB (the medium, the camera, the sun and sky look of @p frame) as a
+        // graph buffer, uploaded by the graph before the node reads it.
+        [[nodiscard]] virtual RDG::BufferRef UploadUnderwater( RDG::Builder& graph, const SceneFrameBinding& frame ) = 0;
         virtual void DeclareUnderwater( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
-                                        const SceneFrameBinding& frame )                                  = 0;
+                                        RDG::BufferRef uniforms )                                         = 0;
         [[nodiscard]] virtual Common::BoolResultStr RenderUnderwaterManual( const RDG::PassContext& context ) = 0;
 
         // THE WATER'S CAUSTICS (WATER-CAUSTICS): the sun refracted through this frame's waves onto the floor, a

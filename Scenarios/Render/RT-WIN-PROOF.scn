@@ -62,7 +62,7 @@
 Когда run Anti-Aliasing "Anti-Aliasing: DLSS"
 Когда run Scene "New Scene View"
 Когда --subject viewport drag 600,40 600,40 8
-Когда run Scene "Close Scene View Scene 2"
+Когда run Scene "Close Scene View Scene 3"
 Когда --subject viewport drag 600,40 600,40 8
 Тогда view_close_dlss RT-LEDGER / VIEW-CLOSE-LEAK (DLSS): after the close, 0 ledger rows of the closed view - editor.log has no "closed but N ledger rows"; the surviving view still upscales (no DLSS reset loop in the log)
 # --- SC-CAPTURE-SHARE + SC-FRAME-GUARD: the street's reflection capture B16_StreetCapture

@@ -3,7 +3,7 @@
         "Kind": "WaterWaves",
         "Guid": "8ad8dae2ff3f464c842b592ec26a806b",
         "Versions": {
-            "WAVS": 1
+            "WAVS": 2
         },
         "Dependencies": []
     },
@@ -17,7 +17,6 @@
         "MinAmplitude": 8.0,
         "MaxAmplitude": 140.0,
         "AmplitudeFalloff": 2.0,
-        "WindAngleDeg": 90.0,
         "DirectionAngularSpreadDeg": 90.0,
         "SmallWaveSteepness": 0.09,
         "LargeWaveSteepness": 0.035,

@@ -158,7 +158,7 @@ namespace Desert::Graphic::System
             ReportState( false, "no water body draws" );
             return std::nullopt;
         }
-        if ( inputs.BodyWaveLanes.size() != inputs.Bodies.size() )
+        if ( inputs.BodyWaveLanes.size() != inputs.Bodies.size() || inputs.BodyWaveMaskDepths.size() != inputs.Bodies.size() )
         {
             // WaterRenderer fills both in one step (one lane per body drawn): a mismatch is a caller's bug.
             ReportState( false, "the bodies' wave lanes do not match the bodies" );
@@ -188,7 +188,7 @@ namespace Desert::Graphic::System
                  body.FootprintMin.y <= upper.y )
                 rows.push_back(
                      WaterCausticsBodyRow{ .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
-                                           .Level = glm::vec4( body.SurfaceY, inputs.BodyWaveLanes[i], 0.0f, 0.0f ) } );
+                                           .Level = glm::vec4( body.SurfaceY, inputs.BodyWaveLanes[i], inputs.BodyWaveMaskDepths[i], 0.0f ) } );
         }
         if ( rows.empty() )
         {

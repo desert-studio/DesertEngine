@@ -60,7 +60,8 @@ namespace Desert::Graphic::System
     {
         glm::vec4 Footprint{ 0.0f }; // xy = min (X, Z), zw = max (cm)
         glm::vec4 Level{ 0.0f };     // x = the still surface Y (cm), y = its wave lane (WaterRenderer's: 1 + the
-                                     // frame's wave set, 0 = flat; WaterMeshTiles.glslh WaterWaveSetOf)
+                                     // frame's wave set, 0 = flat; WaterMeshTiles.glslh WaterWaveSetOf), z = its
+                                     // TargetWaveMaskDepth (cm, >= 1; WaterWaveAttenuation)
     };
     static_assert( sizeof( WaterCausticsBodyRow ) == 2 * sizeof( glm::vec4 ), "std430 body of two vec4" );
 
@@ -115,6 +116,8 @@ namespace Desert::Graphic::System
             std::span<const Water::WaterQuadTreeBody> Bodies;
             // WaterRenderer::GetFrameBodyWaveLanes: Bodies[i]'s wave lane (the set it draws with); one per body.
             std::span<const float> BodyWaveLanes;
+            // WaterRenderer::GetFrameBodyWaveMaskDepths: Bodies[i]'s TargetWaveMaskDepth (cm); one per body.
+            std::span<const float> BodyWaveMaskDepths;
             // The imported WaterInfo ground (FrameTextures::Import of WaterRenderer::GetWaterInfo), or invalid
             // when none is baked (the waves block's WaterInfoFrame.w is then 0 and the shader reads no texel of
             // it).

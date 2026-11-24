@@ -28,7 +28,8 @@ Shader "WaterUnderwater"
         Uniform(4) textureCube EnvironmentIrradianceTexture;
         #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
 
-        PushConstant UnderwaterPush
+        // A uniform block, not a push block: 176 bytes is past the 128 Vulkan guarantees (WaterRenderer::UploadUnderwater).
+        Uniform(5) UnderwaterUB
         {
             mat4 InvViewProjection; // the view's jittered inverse (the depth was rasterised jittered)
             vec4 CameraSurface;     // xyz = the camera (cm), w = the surface height at the camera (cm)

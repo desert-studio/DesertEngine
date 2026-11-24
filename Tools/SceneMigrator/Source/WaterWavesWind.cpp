@@ -1,6 +1,6 @@
 #include "WaterWavesWind.hpp"
 
-#include <Engine/Assets/Serialization/WaterWaves.hpp>
+#include <Water/Public/WaterWaves.hpp>
 
 #include <Common/Json/ReadWrite.hpp>
 

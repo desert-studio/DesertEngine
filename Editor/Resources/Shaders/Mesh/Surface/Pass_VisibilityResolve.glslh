@@ -337,7 +337,8 @@ void main()
     DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
                         cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), moved,
                         ( vg.Draw.Flags & DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW ) == 0u, true,
-                        ( vg.Draw.Flags & DESERT_GPU_DRAW_EMISSION_IS_LIGHT ) != 0u );
+                        ( vg.Draw.Flags & DESERT_GPU_DRAW_EMISSION_IS_LIGHT ) != 0u,
+                        ( vg.Draw.Flags & DESERT_GPU_PRIMITIVE_NO_DECALS ) == 0u );
 }
 #else
 // THE INSTANCED PATH'S RESOLVE (GRASS-VIS-MESH-1; UE 5 Nanite's FetchNaniteMaterialPixelParameters over a mesh's

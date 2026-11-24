@@ -109,6 +109,14 @@ namespace Desert::Graphic::System
                 return {};
             return m_FrameBodyWaveLanes;
         }
+        // Each frame body's TargetWaveMaskDepth (cm, >= 1; the tiles' WaterTileRow.Medium.x), one per
+        // GetFrameBodies row.
+        [[nodiscard]] std::span<const float> GetFrameBodyWaveMaskDepths() const
+        {
+            if ( m_Walk.Programs.empty() )
+                return {};
+            return m_FrameBodyWaveMaskDepths;
+        }
 
         // THE FFT OCEAN (WATER-RIVERS-FFT; Tessendorf 2001, the UE Water plugin's FFT wave source): when the
         // frame's body names a wave set authored as an FFT ocean and Effects.WaterWaveMethod resolves to FFT,
@@ -187,9 +195,11 @@ namespace Desert::Graphic::System
         }
         // SETUP of the underwater node ("Deferred: Underwater", drawn on the scene target BEFORE the water
         // surface): the opaque scene's copy @p sceneCopy (the target as it is: no feedback), the G-buffer depth
-        // and the sky's diffuse cube of @p view, the sky look and sun of @p frame.
+        // and the sky's diffuse cube of @p view, and @p uniforms (UploadUnderwater) as UnderwaterUB.
+        [[nodiscard]] RDG::BufferRef UploadUnderwater( RDG::Builder&            graph,
+                                                       const SceneFrameBinding& frame ) override;
         void DeclareUnderwater( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
-                                const SceneFrameBinding& frame ) override;
+                                RDG::BufferRef uniforms ) override;
         [[nodiscard]] Common::BoolResultStr RenderUnderwaterManual( const RDG::PassContext& context ) override;
 
         // THE CAUSTICS (WaterCaustics.hpp), this module's own system, made and initialised with the pass
@@ -545,12 +555,13 @@ namespace Desert::Graphic::System
         };
         TileWalk m_Walk;
         // Per-view scratch the frame reuses, so a steady frame allocates nothing: the traversal's tiles, the
-        // upload (the waves block, then the tile rows), and RenderManual's push block.
+        // upload (the waves block, then the tile rows). RecordDraws' push block is NOT here: the surface and the
+        // front layer record on two graph chunks at once (a thread's scratch, WaterRenderer.cpp).
         Water::WaterTraversalBuffers m_Traversal;
-        std::vector<std::byte>       m_Upload;
-        std::vector<std::byte>       m_Push;
+        std::vector<std::byte>                m_Upload;
         std::vector<glm::vec4>                m_Rows;        // material rows of every body material, one upload
         std::vector<Water::WaterQuadTreeBody> m_FrameBodies; // every body drawn this frame (GetFrameBodies)
         std::vector<float>                    m_FrameBodyWaveLanes; // its wave lane (GetFrameBodyWaveLanes)
+        std::vector<float> m_FrameBodyWaveMaskDepths; // its TargetWaveMaskDepth (GetFrameBodyWaveMaskDepths)
     };
 } // namespace Desert::Graphic::System

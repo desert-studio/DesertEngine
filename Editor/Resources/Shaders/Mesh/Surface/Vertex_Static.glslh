@@ -174,3 +174,4 @@ void main()
                                          cameraUB.ShadowSlopeClamp );
 #endif
 }
+#endif // VG visibility resolve (top of this file)

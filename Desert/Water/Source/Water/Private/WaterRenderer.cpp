@@ -352,15 +352,16 @@ namespace Desert::Graphic::System
     {
         if ( m_Caustics == nullptr )
             return std::nullopt;
-        const WaterCaustics::FrameInputs frame{ .Waves         = GetFrameWavesBlock(),
-                                                .Bodies        = GetFrameBodies(),
-                                                .BodyWaveLanes = GetFrameBodyWaveLanes(),
-                                                .WaterInfo     = inputs.WaterInfo,
-                                                .FFTWaves      = inputs.FFTWaves,
-                                                .SunTravel     = inputs.SunTravel,
-                                                .Camera        = inputs.Camera,
-                                                .TimeSeconds   = inputs.TimeSeconds,
-                                                .Black         = inputs.Black };
+        const WaterCaustics::FrameInputs        frame{ .Waves              = GetFrameWavesBlock(),
+                                                       .Bodies             = GetFrameBodies(),
+                                                       .BodyWaveLanes      = GetFrameBodyWaveLanes(),
+                                                       .BodyWaveMaskDepths = GetFrameBodyWaveMaskDepths(),
+                                                       .WaterInfo          = inputs.WaterInfo,
+                                                       .FFTWaves           = inputs.FFTWaves,
+                                                       .SunTravel          = inputs.SunTravel,
+                                                       .Camera             = inputs.Camera,
+                                                       .TimeSeconds        = inputs.TimeSeconds,
+                                                       .Black              = inputs.Black };
         const std::optional<WaterCausticsFrame> made = m_Caustics->AddPasses( graph, frame );
         if ( !made.has_value() )
             return std::nullopt;
@@ -670,6 +671,7 @@ namespace Desert::Graphic::System
         m_FrameWavesGraph   = nullptr;
         m_FrameBodies.clear();
         m_FrameBodyWaveLanes.clear();
+        m_FrameBodyWaveMaskDepths.clear();
         m_Underwater = UnderwaterFrame{};
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
@@ -784,6 +786,7 @@ namespace Desert::Graphic::System
                 // Every body that draws this frame (WATER-CAUSTICS: its footprint, still level and wave set).
                 m_FrameBodies.push_back( bodies.Footprints[b] );
                 m_FrameBodyWaveLanes.push_back( waveLane );
+                m_FrameBodyWaveMaskDepths.push_back( std::max( maskDepth, 1.0f ) );
             }
         }
         if ( programs.empty() )
@@ -911,7 +914,27 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
             DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
             DESERT_SHADER_PARAMETER( Texture, EnvironmentIrradianceTexture );
+            DESERT_SHADER_PARAMETER( UniformBuffer, UnderwaterUB );
         };
+        // WaterUnderwater.shader's UnderwaterUB (std140: every member 16-byte aligned).
+        struct UnderwaterUBData
+        {
+            glm::mat4 InvViewProjection;
+            glm::vec4 CameraSurface;
+            glm::vec4 Scattering;
+            glm::vec4 Absorption;
+            glm::vec4 ToSun;
+            glm::vec4 SunRadiance;
+            glm::vec4 SkyYawCosSin;
+            glm::vec4 SkyGain;
+        };
+        static_assert( sizeof( UnderwaterUBData ) == 176u, "UnderwaterUB: std140 size" );
+
+        // RecordDraws' per-draw push block, a thread's scratch (CPU-FRAME-ARENA 3, as TerrainRenderer's
+        // t_TerrainRecordPush): "Water: Surface" and "Water: Front Layer" are recorded on two graph chunks at
+        // once (RDG ChunkTasks), so one renderer-owned block was rewritten by the other chunk between a draw's
+        // WriteInto and its DrawProcedural - the draw took the other program's placement and lost its tiles.
+        thread_local std::vector<std::byte> t_WaterRecordPush;
     } // namespace
 
     bool WaterRenderer::ReadUnderwaterMedium( const Assets::AssetHandle& material, const MaterialStamp& stamp )
@@ -1079,18 +1102,37 @@ namespace Desert::Graphic::System
         m_Underwater.InvViewProjection = inv;
     }
 
-    void WaterRenderer::DeclareUnderwater( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
-                                           const SceneViewInputs& view, const SceneFrameBinding& frame )
+    RDG::BufferRef WaterRenderer::UploadUnderwater( RDG::Builder& graph, const SceneFrameBinding& frame )
     {
-        if ( !m_Underwater.Active || m_UnderwaterPipeline == nullptr || !sceneCopy.IsValid() )
-            return;
+        if ( !m_Underwater.Active || m_UnderwaterPipeline == nullptr )
+            return {};
         const auto sun            = m_SceneRenderer->GetFrameSun();
         m_Underwater.ToSun        = glm::vec4( -glm::vec3( sun.Direction ), 0.0f );
         m_Underwater.SunRadiance  = glm::vec4( glm::vec3( sun.ColorIntensity ) * sun.ColorIntensity.a, 0.0f );
         const SkyLookGPU look     = ToGPU( frame.EnvironmentLook );
         m_Underwater.SkyYawCosSin = look.YawCosSin;
         m_Underwater.SkyGain      = look.Gain;
-        using P                   = WaterUnderwaterShaderParameters;
+        const UnderwaterUBData data{ .InvViewProjection = m_Underwater.InvViewProjection,
+                                     .CameraSurface     = glm::vec4( m_Underwater.Camera, m_Underwater.SurfaceY ),
+                                     .Scattering  = glm::vec4( m_Underwater.Scattering, m_Underwater.PhaseG ),
+                                     .Absorption  = glm::vec4( m_Underwater.Absorption, m_Underwater.PreExposure ),
+                                     .ToSun       = m_Underwater.ToSun,
+                                     .SunRadiance = m_Underwater.SunRadiance,
+                                     .SkyYawCosSin = m_Underwater.SkyYawCosSin,
+                                     .SkyGain      = m_Underwater.SkyGain };
+        const RDG::BufferRef   buffer =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( data ) }, "Water.UnderwaterUB" );
+        graph.QueueBufferUpload( buffer, std::as_bytes( std::span<const UnderwaterUBData>( &data, 1 ) ) );
+        return buffer;
+    }
+
+    void WaterRenderer::DeclareUnderwater( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
+                                           const SceneViewInputs& view, const RDG::BufferRef uniforms )
+    {
+        if ( !m_Underwater.Active || m_UnderwaterPipeline == nullptr || !sceneCopy.IsValid() ||
+             !uniforms.IsValid() )
+            return;
+        using P = WaterUnderwaterShaderParameters;
         pass.Bindings( m_Layout.GetSlotted( m_UnderwaterPipeline->GetSpecification().Shader ).Layout,
                        RDG::NoOtherRouteFill() )
              .Texture( P::SceneColorTexture, sceneCopy, RDG::Access::SampledGraphics,
@@ -1101,24 +1143,14 @@ namespace Desert::Graphic::System
                        RDG::SubresourceRange::All() )
              .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
-             .PushConstants<ShaderPush::WaterUnderwater>();
+             .Uniform( P::UnderwaterUB, uniforms );
     }
 
     Common::BoolResultStr WaterRenderer::RenderUnderwaterManual( const RDG::PassContext& context )
     {
         if ( !m_Underwater.Active || m_UnderwaterPipeline == nullptr )
             return BOOLSUCCESS;
-        const ShaderPush::WaterUnderwater push{
-             .InvViewProjection = m_Underwater.InvViewProjection,
-             .CameraSurface     = glm::vec4( m_Underwater.Camera, m_Underwater.SurfaceY ),
-             .Scattering        = glm::vec4( m_Underwater.Scattering, m_Underwater.PhaseG ),
-             .Absorption        = glm::vec4( m_Underwater.Absorption, m_Underwater.PreExposure ),
-             .ToSun             = m_Underwater.ToSun,
-             .SunRadiance       = m_Underwater.SunRadiance,
-             .SkyYawCosSin      = m_Underwater.SkyYawCosSin,
-             .SkyGain           = m_Underwater.SkyGain };
-        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        bindings.PushConstants( push );
+        const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         return Renderer::GetInstance().DrawFullscreen( bindings, *m_UnderwaterPipeline, nullptr );
     }
 
@@ -1681,7 +1713,7 @@ namespace Desert::Graphic::System
         const RDG::PassBindings       block( context, context.GetBindingBlock( blockIndex ) );
         const MaterialExecutor*       executor = material.GetMaterialExecutor();
         const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
-        std::vector<std::byte>&       push     = m_Push;
+        std::vector<std::byte>&       push     = t_WaterRecordPush;
         // FPS-MAT-HANDLES3: the cell's push fields placed once per shader code (DrawPushFields::ShaderPlacements,
         // as TerrainRenderer::RecordDraws), copied here so a later Of on this thread cannot move it under the
         // loop; no field is found by name per draw.

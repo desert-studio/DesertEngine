@@ -348,7 +348,7 @@ Shader "Terrain"
                      DesertSunLight( directionLights.directionLights.Direction.xyz,
                                      directionLights.directionLights.ColorIntensity.rgb *
                                           directionLights.directionLights.ColorIntensity.a,
-                                     shadow, shadow ), // the cover's transmitted light is shadowed as its surface (no caster depth here)
+                                     shadow, shadow, directionLights.directionLights.Direction.w ), // the cover's transmitted light is shadowed as its surface (no caster depth here)
                      surface, payload );
 
             // The point and spot lights (the MegaLights volume under Shadows Stochastic, else the pixel's froxel) and

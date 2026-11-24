@@ -769,7 +769,13 @@ namespace Desert::Migration
             if ( arg == "--check" )
                 check = true;
             else
-                roots.emplace_back( arg );
+            {
+                // Absolute from the start: the tool opens no project, so a relative content path reaching the
+                // writer (Path::FullPath) has nothing to resolve against and aborts the write pass.
+                std::error_code       absEc;
+                std::filesystem::path root = std::filesystem::absolute( arg, absEc );
+                roots.push_back( absEc ? std::filesystem::path( arg ) : root.lexically_normal() );
+            }
         }
 
         if ( roots.empty() )

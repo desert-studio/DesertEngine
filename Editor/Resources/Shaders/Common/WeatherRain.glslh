@@ -198,7 +198,7 @@ DesertWetSurface DesertApplyRain( DesertWetSurface s, const vec3 p, const vec3 g
     if ( open <= 0.0 )
         return s;
     const float time  = cameraUB.Time;
-    const float flat  = smoothstep( kDesertPuddleUpRamp.x, kDesertPuddleUpRamp.y, geomN.y );
+    const float upness  = smoothstep( kDesertPuddleUpRamp.x, kDesertPuddleUpRamp.y, geomN.y );
     const float level = clamp( DesertWorldParameter( kDesertPuddleLevelKey ).x, 0.0, 1.0 );
     const float rain  = clamp( DesertWorldParameter( kDesertRainIntensityKey ).x, 0.0, 1.0 );
 
@@ -206,7 +206,7 @@ DesertWetSurface DesertApplyRain( DesertWetSurface s, const vec3 p, const vec3 g
     // cavity: its occlusion, a crack fills first) lies under water when the dip is filled past it: the water's depth
     // there is d - (1 - PuddleLevel) * fill, so PuddleLevel 0 is dry everywhere and 1 fills every dip to its rim.
     float puddle = 0.0;
-    if ( level > 0.0 && flat > 0.0 )
+    if ( level > 0.0 && upness > 0.0 )
     {
         const vec4  shape = DesertWorldParameter( kDesertPuddleShapeKey );
         const float fill  = shape.x;
@@ -216,7 +216,7 @@ DesertWetSurface DesertApplyRain( DesertWetSurface s, const vec3 p, const vec3 g
             const float relief = DesertGroundConcavityCm( p, shape.w, shape.z );
             const float cavity = ( 1.0 - clamp( s.AO, 0.0, 1.0 ) ) * shore;
             const float depth  = clamp( relief + cavity, 0.0, fill );
-            puddle = smoothstep( 0.0, shore, depth - ( 1.0 - level ) * fill ) * flat * open;
+            puddle = smoothstep( 0.0, shore, depth - ( 1.0 - level ) * fill ) * upness * open;
         }
     }
 
@@ -242,7 +242,7 @@ DesertWetSurface DesertApplyRain( DesertWetSurface s, const vec3 p, const vec3 g
         s.Metallic  = mix( s.Metallic, 0.0, puddle );
         s.NormalWS  = normalize( mix( s.NormalWS, water, puddle ) );
     }
-    const float film = wet * flat * ( 1.0 - puddle );
+    const float film = wet * upness * ( 1.0 - puddle );
     if ( film > 0.0 )
         s.NormalWS = normalize( s.NormalWS + ( water - vec3( 0.0, 1.0, 0.0 ) ) * film );
 

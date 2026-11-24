@@ -1167,12 +1167,15 @@ namespace Desert::Graphic
         // THE UNDERWATER VOLUME (WATER-UNDERWATER) first: over the opaque scene where the near plane is under the
         // water, reading the copy (the target as it is) and the G-buffer depth; the surface is drawn over it.
         if ( water->HasUnderwater() )
+        {
+            const RDG::BufferRef underwaterUB = water->UploadUnderwater( graph, frame );
             AddRaster(
                  graph, "Deferred: Underwater", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
                  RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return water->RenderUnderwaterManual( context ); },
-                 [water, sceneCopy, view, frame]( RDG::PassBuilder& pass )
-                 { water->DeclareUnderwater( pass, sceneCopy, view, frame ); } );
+                 [water, sceneCopy, view, underwaterUB]( RDG::PassBuilder& pass )
+                 { water->DeclareUnderwater( pass, sceneCopy, view, underwaterUB ); } );
+        }
         if ( !water->HasDraws() )
             return;
         const RDG::TextureRef waves           = FrameWaterWaves( graph, textures );

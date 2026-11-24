@@ -117,7 +117,7 @@ Shader "WaterCausticsSplat"
                 // surface's do, WaterWaveAttenuation), or the push's depth where none is baked.
                 const float ground      = WaterGroundDepth( source, stillY );
                 const float depth       = ground > 0.0 ? ground : Window.w;
-                const float attenuation = WaterWaveAttenuation( source, stillY );
+                const float attenuation = WaterWaveAttenuation( source, stillY, WaterCausticsBodyWaveMaskDepth( body ) );
                 const float viewDist    = WaterViewDistance( source, stillY, Camera.xyz );
                 vec3  position;
                 vec3  normal;

@@ -61,6 +61,11 @@ float WaterCausticsBodyLevel( int body )
 {
     return WaterCausticsBodies[2 * body + 1].x;
 }
+// The TargetWaveMaskDepth of body @p body (cm; WaterMeshTiles.glslh WaterWaveAttenuation).
+float WaterCausticsBodyWaveMaskDepth( int body )
+{
+    return WaterCausticsBodies[2 * body + 1].z;
+}
 // The wave lane of body @p body (the splat turns it into its wave set with WaterMeshTiles.glslh WaterWaveSetOf).
 float WaterCausticsBodyWaveLane( int body )
 {
