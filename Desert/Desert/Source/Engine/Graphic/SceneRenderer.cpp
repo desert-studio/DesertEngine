@@ -2271,11 +2271,11 @@ namespace Desert::Graphic
         if ( growsGrass )
             m_Systems.Grass->CommitFrame( graph, *m_Systems.Mesh.get() );
         {
-            // LANDSCAPE-RVT: the landscape's runtime virtual texture pages, before the G-buffer pass reads them.
+            // LANDSCAPE-RVT: the landscape's runtime virtual texture pages, before the G-buffer and forward passes
+            // read them (the terrain's G-buffer; on either path the meshes that blend into the ground, RVT-MESH-BLEND).
             auto* terrain = m_Systems.Terrain.get();
-            if ( const Common::BoolResultStr virtualTexture = terrain->AddVirtualTexturePasses(
-                      graph, textures, frame,
-                      m_RenderPath == Core::RenderPath::Deferred && !m_ViewProfile.SceneCapture );
+            if ( const Common::BoolResultStr virtualTexture =
+                      terrain->AddVirtualTexturePasses( graph, textures, frame, !m_ViewProfile.SceneCapture );
                  !virtualTexture )
                 LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), virtualTexture.GetError() );
         }

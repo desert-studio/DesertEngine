@@ -145,21 +145,10 @@ Shader "TerrainGBuffer"
         Out(5) float oThinGeometryCoverage; // slot 5 of the G-buffer target (Common/ThinGeometryCoverage.glslh)
 
         // LANDSCAPE-RVT (Common/LandscapeVirtualTexture.glslh): the landscape's runtime virtual texture this
-        // program reads the layer blend from (TerrainRenderer::DeclareGBufferDraws binds LandscapeVirtualTexture's
-        // page table, atlases and this frame's feedback; a view without it binds a zero header).
+        // program reads the layer blend from. The header declares its page table, atlases and feedback at the
+        // scene-read slots (kLandscapeVirtual*Binding), bound as scene-view inputs (BindSceneViewInputs; a view
+        // without the RVT binds a zero header).
         #define DESERT_TERRAIN_VIRTUAL_TEXTURE
-        ReadBuffer(4) LandscapeVirtualPageTable
-        {
-            uint VirtualPageTable[];
-        };
-        Uniform(5) texture2D LandscapeVirtualColorAtlas;
-        Uniform(6) texture2D LandscapeVirtualNormalAtlas;
-        Uniform(7) texture2D LandscapeVirtualOcclusionAtlas;
-        Uniform sampler LandscapeVirtualSampler;
-        Buffer(14) LandscapeVirtualFeedback
-        {
-            uint VirtualFeedback[];
-        };
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Generated/ShadingModels.glslh>
