@@ -1,12 +1,22 @@
 #include <Engine/Core/Serialize/SceneUpgrade.hpp>
 
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
+#include <Engine/Geometry/LightTravel.hpp>
+
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Settings/RenderMethods.hpp>
+
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <format>
+#include <map>
+#include <unordered_map>
 #include <span>
 #include <utility>
 
@@ -491,6 +501,207 @@ namespace Desert::Core
     }
 
 
+    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
+                                                              const MaterialGuidLookup&        materialGuid )
+    {
+        ReflectedAssetRefsReport report;
+        // The header GUID of the `.demat` an "assets:" key names, read once per key; nullopt = refused.
+        std::map<std::string, std::optional<std::string>> guids;
+        const auto guidOf = [&]( const std::string& key, const std::string& who ) -> std::optional<std::string>
+        {
+            if ( const auto found = guids.find( key ); found != guids.end() )
+                return found->second;
+            std::optional<std::string> guid = materialGuid ? materialGuid( key ) : std::nullopt;
+            if ( guid && !Common::Content::AssetGuidFromText( *guid ) )
+                guid.reset();
+            if ( !guid )
+                report.Refused.push_back( std::format( "{}: material '{}' states no header GUID", who, key ) );
+            guids.emplace( key, guid );
+            return guid;
+        };
+        const auto ref = []( const std::string& guid, const std::string& path )
+        {
+            rfl::Generic::Object one;
+            one["Guid"] = rfl::Generic( guid );
+            one["Path"] = rfl::Generic( path );
+            return rfl::Generic( std::move( one ) );
+        };
+        const auto texts = [&]( const rfl::Generic::Object& block, const char* key, const std::string& who,
+                                std::vector<std::string>& out ) -> bool
+        {
+            const auto stated = block.get( key );
+            if ( !stated.has_value() )
+                return true;
+            const auto array = stated.value().to_array();
+            if ( !array.has_value() )
+            {
+                report.Refused.push_back( std::format( "{}: StaticMesh.{} is not an array", who, key ) );
+                return false;
+            }
+            for ( const rfl::Generic& item : array.value() )
+                out.push_back( item.to_string().value_or( std::string() ) );
+            return true;
+        };
+        const auto raise = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "StaticMesh",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto text = [&]( const char* key )
+                           {
+                               const auto v = block.get( key );
+                               return v.has_value() ? v.value().to_string().value_or( std::string() )
+                                                    : std::string();
+                           };
+                           const bool statesMesh = block.get( "MeshGuid" ).has_value() ||
+                                                   block.get( "MeshPath" ).has_value();
+                           std::vector<std::string> slotGuids;
+                           std::vector<std::string> slotPaths;
+                           if ( !texts( block, "MaterialGuids", who, slotGuids ) ||
+                                !texts( block, "MaterialPaths", who, slotPaths ) )
+                               return false;
+                           const bool statesSlots = block.get( "MaterialGuids" ).has_value() ||
+                                                    block.get( "MaterialPaths" ).has_value();
+                           if ( !statesMesh && !statesSlots && block.get( "MeshHandle" ).has_value() )
+                               return false; // already v1
+                           const std::string meshGuid = text( "MeshGuid" );
+                           const std::string meshPath = text( "MeshPath" );
+                           for ( const char* key : { "MeshGuid", "MeshPath", "MaterialGuids", "MaterialPaths" } )
+                               DropKey( block, key );
+                           // Both keys always, as the save writes them (reflection states every field): a
+                           // primitive's MeshHandle is the empty {"", ""}, so a migrated scene and the same
+                           // scene saved again are byte-equal.
+                           block["MeshHandle"] = ref( meshGuid, meshPath );
+                           rfl::Generic::Array slots;
+                           const std::size_t   count = std::max( slotGuids.size(), slotPaths.size() );
+                           for ( std::size_t i = 0; i < count; ++i )
+                               slots.push_back( ref( i < slotGuids.size() ? slotGuids[i] : std::string(),
+                                                     i < slotPaths.size() ? slotPaths[i] : std::string() ) );
+                           block["MaterialSlots"] = rfl::Generic( std::move( slots ) );
+                           ++report.MeshBlocks;
+                           return true;
+                       } );
+            // The reflected Asset<MaterialAsset> fields, stated as a bare key until v1.
+            constexpr std::array<std::pair<const char*, const char*>, 4> kMaterialFields = {
+                 { { "LandscapeMaterial", "Material" },
+                   { "VolumetricCloud", "Material" },
+                   { "Destructible", "InteriorMaterial" },
+                   { "UIPanel", "Material" } } };
+            for ( const auto& [component, field] : kMaterialFields )
+                EditBlock( components, component,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const auto stated = block.get( field );
+                               if ( !stated.has_value() )
+                                   return false;
+                               const auto key = stated.value().to_string();
+                               if ( !key.has_value() )
+                                   return false; // already an object: {Guid, Path}
+                               std::string guid;
+                               if ( !key.value().empty() )
+                               {
+                                   const auto found =
+                                        guidOf( key.value(), std::format( "{} / {}.{}", who, component, field ) );
+                                   if ( !found )
+                                       return false;
+                                   guid = *found;
+                               }
+                               block[field] = ref( guid, key.value() );
+                               ++report.MaterialFields;
+                               return true;
+                           } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id.has_value() ? std::format( "entity {}", entity.id->ToString() )
+                                                          : std::string( "<record without id>" );
+            raise( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    raise( override_.Components, who + " (prefab override)" );
+        }
+        return report;
+    }
+
+    SunRotationReport MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities )
+    {
+        // The old engine's gate (Rules::kSunDirectionEpsilon before light v1): below it a Translation was no
+        // direction and the light emitted nothing.
+        constexpr float kOldDirectionEpsilon = 1e-4f;
+
+        std::unordered_map<Common::UUID, const Assets::EntityData*> byId;
+        for ( const auto& entity : entities )
+            if ( entity.id.has_value() )
+                byId.emplace( *entity.id, &entity );
+
+        // The world rotation of a record as the file states it: its own Rotation under its parents'. Bounded
+        // by the record count, so a parent cycle in a damaged file ends instead of spinning.
+        const auto worldRotation = [&]( std::optional<Common::UUID> id )
+        {
+            glm::quat world = glm::quat( 1.0f, glm::vec3( 0.0f ) );
+            for ( std::size_t depth = 0; id.has_value() && depth <= entities.size(); ++depth )
+            {
+                const auto found = byId.find( *id );
+                if ( found == byId.end() )
+                    break;
+                world = glm::quat( found->second->Rotation.value_or( glm::vec3( 0.0f ) ) ) * world;
+                id    = found->second->parent;
+            }
+            return world;
+        };
+
+        const auto isLight = []( Common::Json::KeyedValues& components )
+        { return components.get( "DirectionLight" ).has_value(); };
+
+        SunRotationReport report;
+        for ( auto& entity : entities )
+        {
+            if ( isLight( entity.Components ) )
+            {
+                const glm::vec3 travel = entity.Translation.value_or( glm::vec3( 0.0f ) );
+                if ( glm::length( travel ) > kOldDirectionEpsilon )
+                {
+                    const glm::quat parent = worldRotation( entity.parent );
+                    entity.Rotation =
+                         glm::eulerAngles( glm::inverse( parent ) * Geometry::RotationForTravel( travel ) );
+                    entity.Translation = glm::vec3( 0.0f );
+                    ++report.Aimed;
+                }
+                else
+                {
+                    ++report.Undirected;
+                }
+            }
+
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+            {
+                if ( !isLight( override_.Components ) || !override_.Translation.has_value() ||
+                     glm::length( *override_.Translation ) <= kOldDirectionEpsilon )
+                    continue;
+                override_.Rotation = glm::eulerAngles( Geometry::RotationForTravel( *override_.Translation ) );
+                override_.Translation = glm::vec3( 0.0f );
+                ++report.Overrides;
+            }
+        }
+        return report;
+    }
+
+    MaterialGuidLookup ContentMaterialGuidLookup()
+    {
+        return []( const std::string& key ) -> std::optional<std::string>
+        {
+            const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
+            if ( file.empty() )
+                return std::nullopt;
+            const Common::Content::AssetGuid guid = Assets::ReadTextHeaderGuid( file );
+            if ( guid == Common::Content::AssetGuid{} )
+                return std::nullopt;
+            return Common::Content::AssetGuidToText( guid );
+        };
+    }
+
     SceneGenerations StatedGenerations( const std::optional<Common::Content::TextAssetHeaderSerialized>& header )
     {
         return SceneGenerations{ Assets::StatedVersion( header, Assets::kSceneSchemaTag ),
@@ -507,7 +718,8 @@ namespace Desert::Core
     }
 
     SceneUpgradeReport UpgradeSceneRecords( std::vector<Assets::EntityData>& entities, const SceneGenerations& from,
-                                            const UpgradeTarget target, const std::string_view name )
+                                            const UpgradeTarget target, const std::string_view name,
+                                            const MaterialGuidLookup& materialGuid )
     {
         SceneUpgradeReport report;
         report.From                 = from;
@@ -601,6 +813,24 @@ namespace Desert::Core
         // World Partition's own chain above its floor: additive only.
         report.EntityHLODLayerRaised = from.WorldPartition < kWorldPartitionVersionEntityHLODLayer;
         report.ImpostorLayersRaised  = from.WorldPartition < kWorldPartitionVersionImpostorLayers;
+
+        // The asset-reference chain, after the scene's and World Partition's: its numbers are its tag's.
+        if ( from.AssetRef < kAssetRefVersionReflected )
+        {
+            report.ReflectedAssetRefsRaised = true;
+            report.ReflectedAssetRefs       = MigrateReflectedAssetRefsV0ToV1( entities, materialGuid );
+            if ( !report.ReflectedAssetRefs.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( name, report.ReflectedAssetRefs.Refused );
+                return report;
+            }
+        }
+        // The light chain, after the asset-reference chain.
+        if ( from.Light < kLightVersionRotation )
+        {
+            report.SunRotationRaised = true;
+            report.SunRotation       = MigrateLightRotationV0ToV1( entities );
+        }
         return report;
     }
 
@@ -621,7 +851,8 @@ namespace Desert::Core
             return current;
         }
         SceneUpgradeReport report =
-             UpgradeSceneRecords( scene.Entities, from, UpgradeTarget::Scene, scene.SceneName );
+             UpgradeSceneRecords( scene.Entities, from, UpgradeTarget::Scene, scene.SceneName,
+                                  ContentMaterialGuidLookup() );
         if ( report.Refused.empty() && scene.Header.has_value() )
             RestateCurrentGenerations( *scene.Header );
         return report;
@@ -634,6 +865,10 @@ namespace Desert::Core
         std::string scene = std::format( "v{}->v{}", report.From.Scene, head.Scene );
         if ( report.From.WorldPartition != head.WorldPartition )
             scene += std::format( " (world partition v{}->v{})", report.From.WorldPartition, head.WorldPartition );
+        if ( report.From.AssetRef != head.AssetRef )
+            scene += std::format( " (asset references v{}->v{})", report.From.AssetRef, head.AssetRef );
+        if ( report.From.Light != head.Light )
+            scene += std::format( " (lights v{}->v{})", report.From.Light, head.Light );
         return std::format( "'{}': upgraded {} in memory, save to keep", source, scene );
     }
 } // namespace Desert::Core

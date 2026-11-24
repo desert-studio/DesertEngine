@@ -12,30 +12,38 @@ Done in pass 1 (engine side, unbuilt):
 - SceneSerializer.cpp Deserialize logs LoadableScene::Upgraded once.
 - PrefabFormat.cpp ParseLoadablePrefab: UpgradeSceneRecords(Prefab) + restate header + LOG_INFO; kMigratorPath removed.
 
-## TODO pass 2 (tool = pure resave, no own copy of the steps)
-1. Tools/SceneMigrator/Source/SceneMigration.hpp:
-   - delete kSceneVersionRootSiblingIndex(470)..kSceneVersionTubeSourceLength(531) + static_assert(533) and
-     kWorldPartitionVersionHLODBuilderSettings/EntityHLODLayer/ImpostorLayers (632..649); add
-     `#include <Engine/Core/Serialize/SceneUpgrade.hpp>` and `using Core::kSceneVersionX;` for each (MigratorMain + tests
-     spell Desert::Migration::kSceneVersionX).
-   - delete structs/decls TracedRequestReport..GrassRasterPathReport (1056-1102), LandscapeSplineEntitiesReport + decl
-     (815-828), MigrateTubeSourceLengthV76ToV77 decl (760-762); `using Core::...` for them.
-   - FileMigrationReport (1446): replace VolumetricFogRaised(1516), EntityHLODLayerRaised/ImpostorLayersRaised(1536-7),
-     TracedRequest..TubeSourceLengthsStated (1578-1589) with `Core::SceneUpgradeReport Upgrade;`; AnyRaised (1610-1614):
-     `|| Upgrade.AnyRaised()`.
-2. SceneMigration.cpp: delete the six bodies (lines above); RunSteps (4912): delete the v72..v75 and v77 blocks
-   (~5160-5215); MigrateScene (6251): delete the spline block and VolumetricFogRaised; RunWorldPartitionSteps: delete
-   the v13/v14 flags; before MigrationHeader (both MigrateScene ~6449 and MigratePrefab ~6557) call
-   `Core::UpgradeSceneRecords(entities, from', target, name)` with from' = max(stated, floor) per tag (the legacy chain
-   just raised the file to the floors), Refused -> report.Refused.
-3. MigratorMain.cpp 632-678: report.X -> report.Upgrade.X for the moved fields.
-4. SceneFormat.hpp comments 130-147 / PostProcessSettings.hpp / RenderMethods.hpp / EngineComponentProvider.cpp name
-   "Tools/SceneMigrator, MigrateX" — point them to SceneUpgrade.
-5. UIAnimationTimelines TMLN v1->v2 (always-run, tool-only, Animation module): not in the in-memory chain; a >=v70
-   file with a TMLN v1 UI clip would load unshifted — decide (move to engine Engine-module hook or prove none left).
-6. Light v0->v1 (MigrateLightRotationV0ToV1, needs ECS::Rules::RotationForTravel from Engine module) and asset-ref
-   v0->v1 (reads mesh files) stay tool-only => their floor = head; move light step if Core may include SystemRules.
-7. Tests: Desert/Tests/Engine/SceneVersionGate, PrefabVersionGate assert the old refusal of OLDER files — now an
-   older file in the window loads. Keep compiling; update when tests are re-enabled.
-8. Build (Editor + SceneMigrator + tests compile) and the scenario: GI_Bistro_Night.desce v71 -> log
-   "upgraded v71->v77 in memory", same frame; a v999 file -> refusal, nothing loaded.
+## Done in pass 1b (tool = resave, one copy of the steps; unbuilt)
+- Core/Serialize/SceneUpgrade.{hpp,cpp}: + the asset-reference chain (kAssetRefVersionReflected, MigrateReflectedAssetRefsV0ToV1
+  over a MaterialGuidLookup - the step opens no file) and the light chain (kLightVersionRotation, MigrateLightRotationV0ToV1);
+  floors AssetRef/Light = 0; UpgradeSceneRecords(..., materialGuid) runs them after WP; ContentMaterialGuidLookup()
+  (PathForStableKey + Assets::ReadTextHeaderGuid, VFS-first) is the loader's lookup (UpgradeScene, ParseLoadablePrefab);
+  DescribeUpgrade names asset refs / lights when they moved.
+- Engine/Geometry/LightTravel.hpp (GeometryCore, NEW): kLightForwardAxis + RotationForTravel moved from ECS::Rules
+  (SystemRules.hpp now `using Geometry::...`), so Core reaches the rule without including the ECS.
+- Tools/SceneMigrator: the bodies of v72..v77 + AREF v0->v1 + light v0->v1 DELETED; SceneMigration.hpp names them
+  `using Core::...` (tests spell Desert::Migration::X); FileMigrationReport holds `Core::SceneUpgradeReport Upgrade`
+  (the moved flags/reports gone); RunSteps lost v72..v77, MigrateScene/MigratePrefab lost the v76 spline block and the
+  v71 flag, RunWorldPartitionSteps lost v13/v14, RunAssetRefSteps/RunLightSteps -> RunEngineUpgrade (from = max(stated,
+  floor) per tag; AssetsRootMaterialGuidLookup(assetsRoot) = the tool's old file locate+header read). MigratorMain prints
+  report.Upgrade.X.
+- Comments: SceneFormat.hpp (bumping rule, v73..v77, AREF/LGHT), RenderMethods.hpp, PostProcessSettings.hpp.
+
+## TODO pass 2
+1. BUILD (Editor + SceneMigrator + Tools tests): expected spots - SceneUpgrade.cpp includes (glm eulerAngles,
+   <filesystem>), `Geometry::` lookup inside ECS::Rules (if ambiguous: `::Desert::Geometry::`), std::max in
+   RunEngineUpgrade (<algorithm>), unused helpers/includes left in SceneMigration.cpp (<fstream>/<sstream> still used by
+   AssetsRootMaterialGuidLookup).
+2. TMLN v1 -> v2 (UIAnim) NOT moved: Core sits below AnimationCore/Engine (cmake/DesertModuleTable.cmake row Core), so the
+   step cannot be in SceneUpgrade. Chosen design (UE: a struct's Serialize reads its own custom version): the TIMELINE
+   READER upgrades it - move Tools/SceneMigrator/Source/ClipInterpShift.{hpp,cpp} (pure: Sequence + Json) to
+   Engine/Animation/Timeline/TimelineInterpShift.{hpp,cpp} (namespace Animation::Timeline; add the name to the Engine row
+   `Timeline/(SequenceFormat|TimelineInterpShift)\.` in cmake/DesertModuleTable.cmake:93, drop
+   Desert/Tests/CMakeLists.txt:102), and in SequenceFormat.cpp ReadSequence (:641) replace the "run SceneMigrator"
+   refusal of v1 with ShiftTimelineV1 (proved by VerifyInterpShift; a failed proof stays a refusal). Then the tool's
+   MigrateUIAnimationTimelinesV1ToV2 (SceneMigration.cpp ~1870, RunSteps "TMLN v1 -> v2") becomes ReadSequence ->
+   WriteSequence, i.e. the loader's function; fix includes in ClipLift.cpp, ClipMigration.cpp, MigratorMain.cpp,
+   SceneMigration.cpp/.hpp, the two tests (timeline_lift_test, clip_timeline_migration_test).
+3. Scenario: GI_Bistro_Night.desce v71 -> log "upgraded v71->v77 in memory"; `SceneMigrator --check` on
+   Projects/Desert/Content/Scenes reports the same raise (report.Upgrade from Core::UpgradeSceneRecords).
+4. Tests SceneVersionGate / PrefabVersionGate (Desert/Tests/Engine) still assert the old refusal of older files; update
+   when tests are re-enabled (keep compiling).

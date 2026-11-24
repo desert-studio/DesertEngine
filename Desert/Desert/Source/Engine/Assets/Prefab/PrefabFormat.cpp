@@ -56,7 +56,8 @@ namespace Desert::Assets
         if ( !PrefabIsAtCurrentVersion( data ) )
         {
             const Core::SceneUpgradeReport upgrade = Core::UpgradeSceneRecords(
-                 data.Entities, Core::StatedGenerations( data.Header ), Core::UpgradeTarget::Prefab, source );
+                 data.Entities, Core::StatedGenerations( data.Header ), Core::UpgradeTarget::Prefab, source,
+                 Core::ContentMaterialGuidLookup() );
             if ( !upgrade.Refused.empty() )
                 return Common::MakeError<PrefabData>( fmt::format(
                      "[PrefabAsset] {0} NOTHING WAS LOADED - no entity was taken from this file.", upgrade.Refused ) );

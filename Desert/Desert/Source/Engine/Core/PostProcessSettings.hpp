@@ -51,7 +51,7 @@ namespace Desert::Core
     //  VisibilityBuffer — the blades rasterise once into a 64-bit visibility buffer (depth | row | triangle,
     //                     atomicMax) and the material is evaluated once per pixel by a tiled resolve.
     // VisibilityBuffer, asked for by either, needs DeviceCapabilities::SupportsVisibilityBuffer64; a device
-    // without it keeps the G-buffer path and logs the refusal once. v75 (Tools/SceneMigrator,
+    // without it keeps the G-buffer path and logs the refusal once. v75 (Core/Serialize/SceneUpgrade.hpp,
     // MigrateGrassRasterPathV74ToV75) restated the former bool GrassVisibilityBuffer: false (the former default,
     // which every volume serialised) -> Scalability, true -> VisibilityBuffer.
     enum class GrassRasterPath : int

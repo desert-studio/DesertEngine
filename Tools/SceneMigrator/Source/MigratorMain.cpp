@@ -629,53 +629,53 @@ namespace
                 << "->v" << Desert::Migration::kWorldPartitionVersionHLODBuilderSettings << " ("
                 << report.HLODMergeMaterialsMoved
                 << " mesh layer(s)' MergeMaterials restated as Settings.MergeMaterials)";
-        if ( report.EntityHLODLayerRaised )
+        if ( report.Upgrade.EntityHLODLayerRaised )
             out << " world partition v"
                 << std::max( report.StatedWorldPartitionVersion,
                              Desert::Migration::kWorldPartitionVersionHLODBuilderSettings )
                 << "->v" << Desert::Migration::kWorldPartitionVersionEntityHLODLayer
                 << " (HLOD layer per entity: additive, nothing restated)";
-        if ( report.ImpostorLayersRaised )
+        if ( report.Upgrade.ImpostorLayersRaised )
             out << " world partition v"
                 << std::max( report.StatedWorldPartitionVersion,
                              Desert::Migration::kWorldPartitionVersionEntityHLODLayer )
                 << "->v" << Desert::Migration::kWorldPartitionVersionImpostorLayers
                 << " (impostor HLOD layers: additive, nothing restated)";
-        if ( report.ReflectedAssetRefsRaised )
-            out << " asset references v" << report.StatedAssetRefVersion << "->v"
-                << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
-                << " Static Mesh block(s) and " << report.ReflectedAssetRefs.MaterialFields
+        if ( report.Upgrade.ReflectedAssetRefsRaised )
+            out << " asset references v" << report.Upgrade.From.AssetRef << "->v"
+                << Desert::Migration::kAssetRefVersionReflected << " (" << report.Upgrade.ReflectedAssetRefs.MeshBlocks
+                << " Static Mesh block(s) and " << report.Upgrade.ReflectedAssetRefs.MaterialFields
                 << " material field(s) restated as {Guid, Path})";
-        if ( report.SunRotationRaised && ( report.SunRotation.Aimed > 0 || report.SunRotation.Overrides > 0 ||
-                                           report.SunRotation.Undirected > 0 ) )
+        if ( report.Upgrade.SunRotationRaised && ( report.Upgrade.SunRotation.Aimed > 0 || report.Upgrade.SunRotation.Overrides > 0 ||
+                                           report.Upgrade.SunRotation.Undirected > 0 ) )
             out << std::format( " lights v{}->v{} ({} directional light(s) aimed by Rotation, {} override(s) "
                                 "with an identity parent, {} without a direction kept their Rotation)",
-                                report.StatedLightVersion,
-                                Desert::Migration::kLightVersionRotation, report.SunRotation.Aimed,
-                                report.SunRotation.Overrides, report.SunRotation.Undirected );
-        if ( report.VolumetricFogRaised )
+                                report.Upgrade.From.Light,
+                                Desert::Migration::kLightVersionRotation, report.Upgrade.SunRotation.Aimed,
+                                report.Upgrade.SunRotation.Overrides, report.Upgrade.SunRotation.Undirected );
+        if ( report.Upgrade.VolumetricFogRaised )
             out << " scene ->v" << Desert::Migration::kSceneVersionVolumetricFog
                 << " (fog and lights state the Volumetric Fog fields at their defaults)";
-        if ( report.TracedRequestRaised && report.TracedRequest.Restated > 0 )
+        if ( report.Upgrade.TracedRequestRaised && report.Upgrade.TracedRequest.Restated > 0 )
             out << " scene ->v" << Desert::Migration::kSceneVersionTracedRequest << " ("
-                << report.TracedRequest.Restated << " GI / reflection method(s) re-stated as requests: "
+                << report.Upgrade.TracedRequest.Restated << " GI / reflection method(s) re-stated as requests: "
                 << "SoftwareTraced / HardwareTraced are Traced)";
-        if ( report.ComposedGIRaised && ( report.ComposedGI.Restated > 0 || report.ComposedGI.Dropped > 0 ) )
+        if ( report.Upgrade.ComposedGIRaised && ( report.Upgrade.ComposedGI.Restated > 0 || report.Upgrade.ComposedGI.Dropped > 0 ) )
             out << " scene ->v" << Desert::Migration::kSceneVersionComposedGI << " ("
-                << report.ComposedGI.Restated << " GI ScreenSpace request(s) re-stated as Off, "
-                << report.ComposedGI.Dropped << " GIIntensity dropped: GI comes from the method alone)";
-        if ( report.GrassRasterPathRaised && report.GrassRasterPath.Restated > 0 )
+                << report.Upgrade.ComposedGI.Restated << " GI ScreenSpace request(s) re-stated as Off, "
+                << report.Upgrade.ComposedGI.Dropped << " GIIntensity dropped: GI comes from the method alone)";
+        if ( report.Upgrade.GrassRasterPathRaised && report.Upgrade.GrassRasterPath.Restated > 0 )
             out << " scene ->v" << Desert::Migration::kSceneVersionGrassRasterPath << " ("
-                << report.GrassRasterPath.Restated << " GrassVisibilityBuffer bool(s) re-stated as GrassRaster: "
+                << report.Upgrade.GrassRasterPath.Restated << " GrassVisibilityBuffer bool(s) re-stated as GrassRaster: "
                 << "false is Scalability, true VisibilityBuffer)";
-        if ( report.LandscapeSplineEntitiesRaised && report.LandscapeSplineEntities.RootsCleared > 0 )
+        if ( report.Upgrade.LandscapeSplineEntitiesRaised && report.Upgrade.LandscapeSplineEntities.RootsCleared > 0 )
             out << std::format( " scene ->v{} ({} landscape spline entit(ies) split out of {} landscape root(s))",
                                 Desert::Migration::kSceneVersionLandscapeSplineEntities,
-                                report.LandscapeSplineEntities.SplinesCreated,
-                                report.LandscapeSplineEntities.RootsCleared );
-        if ( report.TubeSourceLengthRaised && report.TubeSourceLengthsStated > 0 )
+                                report.Upgrade.LandscapeSplineEntities.SplinesCreated,
+                                report.Upgrade.LandscapeSplineEntities.RootsCleared );
+        if ( report.Upgrade.TubeSourceLengthRaised && report.Upgrade.TubeSourceLengthsStated > 0 )
             out << std::format( " scene ->v{} ({} PointLight / SpotLight block(s) given SourceLength 0)",
-                                Desert::Migration::kSceneVersionTubeSourceLength, report.TubeSourceLengthsStated );
+                                Desert::Migration::kSceneVersionTubeSourceLength, report.Upgrade.TubeSourceLengthsStated );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

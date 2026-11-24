@@ -6,6 +6,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -20,7 +21,18 @@
 // THE OLDEST LOADABLE GENERATION (UE: VER_UE4_OLDEST_LOADABLE_PACKAGE). The steps below kSceneUpgradeFloor move
 // data between FILES (prefab files, landscape tiles, mesh headers, .defoliage / .desound / .vfx assets minted
 // beside the scene) or read shapes the engine's tree no longer has a member for; they stay in
-// Tools/SceneMigrator, and a file below the floor is refused by name with that one command. A file NEWER than
+// Tools/SceneMigrator, and a file below the floor is refused by name with that one command. Every step at or
+// above a floor - the scene's v71..v77, World Partition's v13/v14, the asset-reference and light chains whole -
+// is HERE and only here: the migrator runs its below-floor chain, then this one (UpgradeSceneRecords).
+//
+// A STEP THAT NEEDS ANOTHER FILE'S CONTENT DOES NOT OPEN IT. The asset-reference step reads a material's header
+// GUID through the MaterialGuidLookup its caller passes: the loader's reads the mounted content
+// (ContentMaterialGuidLookup), the migrator's its own assets root. The transform is one copy.
+//
+// SELF-VERSIONED BLOCKS upgrade in their own reader, not here (UE: a struct's Serialize reads its own custom
+// version): a timeline block states its TMLN number inside itself, so a TMLN v1 block - in a scene's UIAnim, a
+// .dseq, an .anim - is raised by the one reader every host goes through (Animation::Timeline::ReadSequence,
+// TimelineInterpShift.hpp). A file NEWER than
 // this engine (any tag above the head) is refused as before: nothing is ever loaded "as best we can".
 //
 // ADDING A STEP. Raise Core::kSceneVersion (or the subsystem's own number), add a kSceneVersion<Name> below
@@ -93,12 +105,62 @@ namespace Desert::Core
     static_assert( kWorldPartitionVersionImpostorLayers == kWorldPartitionVersion,
                    "World Partition's version moved: its step (or its additive note) belongs in SceneUpgrade" );
 
-    // THE FLOORS: the oldest generation of each tag this engine raises in memory. The asset-reference (v0 -> v1
-    // reads mesh files) and light (v0 -> v1) chains have no in-memory step yet, so their floor is the head.
+    // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (Assets::kAssetRefSchemaTag), run after the scene's and
+    // World Partition's.
+    //   1 - STATIC MESHES AND MATERIALS BY {Guid, Path} (STATICMESH-FORMAT). The Static Mesh block's MeshGuid +
+    //       MeshPath become its reflected `MeshHandle` {Guid, Path} and MaterialGuids + MaterialPaths its
+    //       `MaterialSlots` [{Guid, Path}] (the GUIDs the file already states); every reflected material field
+    //       stated as a bare key (LandscapeMaterial.Material, VolumetricCloud.Material,
+    //       Destructible.InteriorMaterial, UIPanel.Material) becomes {Guid, Path}, the GUID the `.demat` header
+    //       states (the caller's MaterialGuidLookup). Records and prefab overrides alike
+    //       (MigrateReflectedAssetRefsV0ToV1).
+    inline constexpr int kAssetRefVersionReflected = 1;
+    static_assert( kAssetRefVersionReflected == kAssetRefVersion,
+                   "the asset-reference version moved: its step belongs in SceneUpgrade (UpgradeSceneRecords)" );
+
+    // THE LIGHT COMPONENTS' OWN CHAIN (Assets::kLightSchemaTag), run after the asset-reference chain.
+    //   1 - A DIRECTIONAL LIGHT IS AIMED BY ITS ROTATION (PORT-SUN-ROTATION), as in UE: the light travels along
+    //       the entity's world forward axis (-Z) and its Translation is only where it sits. Every record with a
+    //       DirectionLight block whose Translation is a direction (longer than 1e-4, the old engine's gate) gets
+    //       the Rotation that aims its world forward axis along normalize(Translation) - the parents' stated
+    //       Rotations divided out - and a zero Translation. A light whose Translation was no direction emitted
+    //       nothing before; it keeps its Rotation and is counted. A prefab override that states a Translation
+    //       beside a DirectionLight block is converted the same way, its parent rotation taken as identity, and
+    //       counted (MigrateLightRotationV0ToV1). Scenes and prefabs alike.
+    inline constexpr int kLightVersionRotation = 1;
+    static_assert( kLightVersionRotation == kLightVersion,
+                   "the light version moved: its step belongs in SceneUpgrade (UpgradeSceneRecords)" );
+
+    // THE FLOORS: the oldest generation of each tag this engine raises in memory. The asset-reference and light
+    // chains are here whole (floor 0: a file that states no number).
     inline constexpr int kSceneUpgradeFloor          = kSceneVersionRootSiblingIndex;
     inline constexpr int kWorldPartitionUpgradeFloor = kWorldPartitionVersionHLODBuilderSettings;
-    inline constexpr int kAssetRefUpgradeFloor       = kAssetRefVersion;
-    inline constexpr int kLightUpgradeFloor          = kLightVersion;
+    inline constexpr int kAssetRefUpgradeFloor       = 0;
+    inline constexpr int kLightUpgradeFloor          = 0;
+
+    // The header GUID (text) of the material an asset key ("assets:Materials/M.demat") names, or nullopt when
+    // that file states none. Where the file is read from is the caller's: the step never opens a file.
+    using MaterialGuidLookup = std::function<std::optional<std::string>( const std::string& key )>;
+
+    // The loader's lookup: the key through the mounted content roots (Common::AssetHandle::PathForStableKey),
+    // the header read VFS-first (Assets::ReadTextHeaderGuid) - the identity every load of that material adopts.
+    [[nodiscard]] MaterialGuidLookup ContentMaterialGuidLookup();
+
+    // What MigrateReflectedAssetRefsV0ToV1 did to one file.
+    struct ReflectedAssetRefsReport
+    {
+        std::size_t              MeshBlocks     = 0; // Static Mesh blocks (records and overrides) restated
+        std::size_t              MaterialFields = 0; // bare material keys restated as {Guid, Path}
+        std::vector<std::string> Refused;            // a material file with no header GUID, or a wrong shape
+    };
+
+    // What MigrateLightRotationV0ToV1 did to one file.
+    struct SunRotationReport
+    {
+        std::size_t Aimed      = 0; // records whose Translation became their Rotation
+        std::size_t Overrides  = 0; // prefab overrides converted with an identity parent rotation
+        std::size_t Undirected = 0; // lights whose Translation was no direction; Rotation kept as stated
+    };
 
     // What MigrateLandscapeSplineEntitiesV75ToV76 did to one file.
     struct LandscapeSplineEntitiesReport
@@ -147,6 +209,10 @@ namespace Desert::Core
     MigrateLandscapeSplineEntitiesV75ToV76( std::vector<Assets::EntityData>& entities, bool createEntities );
     // Returns how many PointLight / SpotLight records it stated SourceLength 0 in.
     std::size_t MigrateTubeSourceLengthV76ToV77( std::vector<Assets::EntityData>& entities );
+    // PURE given @p materialGuid, which is asked once per distinct key.
+    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
+                                                              const MaterialGuidLookup&        materialGuid );
+    SunRotationReport        MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities );
 
     // The generations a file states (absent = 0), one per tag.
     struct SceneGenerations
@@ -191,6 +257,10 @@ namespace Desert::Core
         std::size_t                   TubeSourceLengthsStated = 0;
         bool                          EntityHLODLayerRaised   = false;
         bool                          ImpostorLayersRaised    = false;
+        bool                          ReflectedAssetRefsRaised = false;
+        ReflectedAssetRefsReport      ReflectedAssetRefs;
+        bool                          SunRotationRaised = false;
+        SunRotationReport             SunRotation;
 
         std::string Refused;
 
@@ -198,24 +268,26 @@ namespace Desert::Core
         {
             return VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised || FilmicDefaultRaised ||
                    GrassRasterPathRaised || LandscapeSplineEntitiesRaised || TubeSourceLengthRaised ||
-                   EntityHLODLayerRaised || ImpostorLayersRaised;
+                   EntityHLODLayerRaised || ImpostorLayersRaised || ReflectedAssetRefsRaised || SunRotationRaised;
         }
     };
 
     // THE CHAIN, over the records of one file whose generations are @p from. Every tag must be at or above its
     // floor and at or below its head (else Refused names the numbers); then every step whose number is above the
     // stated one runs, in order. Does not touch a header: the caller restates it (RestateCurrentGenerations) or,
-    // for the migrator, stamps it. @p name names the file in a refusal. PURE.
+    // for the migrator, stamps it. @p name names the file in a refusal; @p materialGuid answers the
+    // asset-reference step (asked only when the file states asset references v0). PURE given it.
     [[nodiscard]] SceneUpgradeReport UpgradeSceneRecords( std::vector<Assets::EntityData>& entities,
                                                           const SceneGenerations& from, UpgradeTarget target,
-                                                          std::string_view name );
+                                                          std::string_view name, const MaterialGuidLookup& materialGuid );
 
     // The header's Versions become this build's (Kind, Guid and Dependencies are kept): what an upgraded tree
     // states, so every later check of it reads current.
     void RestateCurrentGenerations( Common::Content::TextAssetHeaderSerialized& header );
 
     // A scene read by the engine: the chain from its header's numbers, then the header restated. A tree already
-    // current is left untouched (AnyRaised false, From == CurrentGenerations()). PURE.
+    // current is left untouched (AnyRaised false, From == CurrentGenerations()). Materials are looked up
+    // through ContentMaterialGuidLookup.
     [[nodiscard]] SceneUpgradeReport UpgradeScene( SceneSerialized& scene );
 
     // The one log line of an in-memory upgrade: "'<source>': upgraded v71->v77 in memory (...), save to keep".
