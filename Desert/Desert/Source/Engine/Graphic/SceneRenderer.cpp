@@ -1383,6 +1383,14 @@ namespace Desert::Graphic
              static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
         m_RayTracingScene.SetTlasUpdatesBeforeRebuild(
              quality.As<uint32_t>( Parameter::GlobalIlluminationTlasUpdatesBeforeRebuild ) );
+        {
+            const int lodError     = quality.As<int>( Parameter::GlobalIlluminationRayTracingLodError );
+            const int windDistance = quality.As<int>( Parameter::GlobalIlluminationFoliageWindDistance );
+            m_RayTracingScene.SetFoliageSettings( RayTracing::RayTracingFoliageSettings{
+                 .LodErrorPerCm = static_cast<float>( lodError ) / 10000.0f,
+                 .RefitBudget   = quality.As<uint32_t>( Parameter::GlobalIlluminationFoliageWindRefitBudget ),
+                 .WindDistance  = static_cast<float>( windDistance ) } );
+        }
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };

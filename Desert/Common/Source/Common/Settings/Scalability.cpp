@@ -446,6 +446,21 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild (the TLAS is "
                "built after this many in-place updates in a row; 0 = every frame)",
                60, Vis::Advanced },
+             { P::GlobalIlluminationRayTracingLodError, G::GlobalIllumination,
+               "GlobalIllumination.RayTracingLodError", 0, 1000, CL::None,
+               "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetFoliageSettings -> "
+               "RayTracingFoliageLod::Select (an ISM instance's RT-LOD: error per distance, 1/10000; 0 = LOD 0)",
+               50, Vis::Advanced },
+             { P::GlobalIlluminationFoliageWindRefitBudget, G::GlobalIllumination,
+               "GlobalIllumination.FoliageWindRefitBudget", 0, 4096, CL::None,
+               "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetFoliageSettings -> "
+               "RayTracingFoliageWind::AddPasses (swaying instances refit per frame; 0 = all rest pose)",
+               64, Vis::Advanced },
+             { P::GlobalIlluminationFoliageWindDistance, G::GlobalIllumination,
+               "GlobalIllumination.FoliageWindDistance", 0, 100000, CL::None,
+               "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetFoliageSettings -> "
+               "RayTracingFoliageWind::AddPasses (cm; farther swaying instances trace their rest pose)",
+               3000, Vis::Advanced },
              { P::ViewDistanceVirtualGeometryMaxPixelsPerEdge, G::ViewDistance,
                "ViewDistance.VirtualGeometryMaxPixelsPerEdge", 1, 1000, CL::None,
                "SceneRenderer::AddFrameVirtualGeometry -> VirtualGeometryRenderer::AddClusterCull (cluster LOD "

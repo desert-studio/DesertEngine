@@ -39,8 +39,8 @@ namespace Desert::Runtime
         [[nodiscard]] virtual std::shared_ptr<Mesh> Stage( const std::shared_ptr<Assets::MeshAsset>& asset ) = 0;
 
         /// THE DEVICE HALF, ON THE THREAD THAT ASKED FOR THE MESH (UE BeginInitResource): upload what Stage left
-        /// staged, build what the device derives from it (the BLAS) and claim the buffers in the resource ledger
-        /// under the asset's handle. False when the upload is refused; the uploader has logged why.
+        /// staged and claim the buffers in the resource ledger under the asset's handle (the BLAS is the ray-tracing
+        /// scene's, built on demand: RayTracingGeometryVariants). False when the upload is refused; the uploader has logged why.
         [[nodiscard]] virtual bool Commit( const std::shared_ptr<Mesh>& mesh, const Assets::MeshAsset& asset ) = 0;
     };
 

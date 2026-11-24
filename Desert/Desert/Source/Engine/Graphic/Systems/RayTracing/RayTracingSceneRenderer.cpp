@@ -472,8 +472,9 @@ namespace Desert::Graphic::RayTracing
                  primitive.DeformedMesh != static_cast<const void*>( skinned[i].Mesh ) )
                 return false;
         }
-        // The variant cache drops a variant no Resolve asked for in a frame: every variant of the kept gather is
-        // asked again, and a different answer (a re-uploaded mesh, a dropped and rebuilt variant) regathers.
+        // The BLAS owner releases an entry no Resolve asked for a while: every BLAS of the kept gather is asked
+        // again (keeping it alive), and a different answer (a re-uploaded mesh, a released and rebuilt BLAS, a
+        // mesh that became resident) regathers.
         for ( const RayTracingVariantUse& use : m_Gather.VariantUses )
         {
             const Common::ResultStr<const RayTracingGeometryResource*> resolved =
@@ -537,6 +538,7 @@ namespace Desert::Graphic::RayTracing
         m_DynamicBuilds.clear();
         RayTracingGatherInputs inputs = GatherInputsOf( meshes, viewOrigin, drawDistanceScale );
         inputs.FoliageLod             = &m_FoliageLod; // a TLAS gather picks each ISM instance's RT-LOD
+        inputs.FoliageLodErrorPerCm   = m_FoliageSettings.LodErrorPerCm;
         const GpuDriven::GpuScene*   scene    = meshes.GetGpuScene();
         bool                         relisted = !m_ListValid; // the instance list is laid out anew this frame
         {
@@ -601,7 +603,7 @@ namespace Desert::Graphic::RayTracing
                                                       cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
                  !skinned )
                 return skinned;
-            // Meshes the uploader built no BLAS for (procedural): built in the same pass, once per buffer upload.
+            // Procedural meshes (Mesh::IsProceduralRayTracingGeometry): built in the same pass, once per upload.
             if ( const Common::BoolResultStr procedural = cache.GetProcedural().AddBuilds(
                       graph, m_Gather.Primitives, cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
                  !procedural )
@@ -611,19 +613,19 @@ namespace Desert::Graphic::RayTracing
             m_FoliageStats = {};
             if ( const Common::BoolResultStr wind = cache.GetFoliageWind().AddPasses(
                       graph, meshes, m_Gather.Primitives, m_DynamicPrimitives, windCamera, viewOrigin,
-                      cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas, m_FoliageStats );
+                      cache.GetFrame(), m_FoliageSettings, m_DynamicBuilds, m_DynamicBlas, m_FoliageStats );
                  !wind )
                 return wind;
-            CountRayTracingFoliage( m_Gather.Primitives, m_FoliageStats );
+            CountRayTracingFoliage( m_Gather.Primitives, cache.GetVariants(), m_FoliageStats );
             if ( m_FoliageStats != m_LoggedFoliage )
             {
                 m_LoggedFoliage = m_FoliageStats;
                 LOG_INFO( "[RT] foliage BLAS: unique {} for {} instances ({} at an RT-LOD past 0), {:.2f} MiB vs "
-                          "LOD0 {:.2f} MiB; refit {} + built {} + shared {} / budget {}, rest pose {} of {} "
+                          "resident LOD0 {:.2f} MiB; refit {} + built {} + shared {} / budget {}, rest pose {} of {} "
                           "swaying, wind BLAS {:.2f} MiB",
                           m_FoliageStats.Unique, m_FoliageStats.Instances, m_FoliageStats.Lowered,
                           static_cast<double>( m_FoliageStats.SharedBytes ) / ( 1024.0 * 1024.0 ),
-                          static_cast<double>( m_FoliageStats.Lod0Bytes ) / ( 1024.0 * 1024.0 ),
+                          static_cast<double>( m_FoliageStats.Lod0ResidentBytes ) / ( 1024.0 * 1024.0 ),
                           m_FoliageStats.Refit, m_FoliageStats.Built, m_FoliageStats.Shared, m_FoliageStats.Budget,
                           m_FoliageStats.RestPose, m_FoliageStats.Swaying,
                           static_cast<double>( m_FoliageStats.WindBytes ) / ( 1024.0 * 1024.0 ) );

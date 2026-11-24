@@ -1,0 +1,34 @@
+# RT-FOLIAGE-LOD: the foliage's ray-tracing representation - per-instance RT-LOD by distance and the wind refit of
+# swaying instances (RayTracingFoliage.hpp; Scalability GlobalIllumination.RayTracingLodError /
+# FoliageWindRefitBudget / FoliageWindDistance). F:/BistroFoliageProj street with trees under wind, HW traced shadows
+# and reflections. Frame wait: the zero-length drag at 600,40 (RT-WIN-PROOF.scn). Log checks read editor.log
+# "[RT] foliage BLAS:" lines. Every Quality override is saved to machine.json: the tail clears them.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -440,300,-230
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано run Quality "Quality: Shadows.Method HardwareTraced"
+Дано run Quality "Quality: Reflections.Method HardwareTraced"
+Дано run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+# --- rt_foliage_wind: the traced crown shadow moves with the raster's crown
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_foliage_wind_a RT-FOLIAGE-LOD: tree crowns and their HW-traced shadows on the street; the shadow's leaf pattern matches the crown's pose in this frame
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид rt_foliage_wind_b RT-FOLIAGE-LOD: a later frame - the crown moved by the wind AND its traced shadow moved with it (pixel diff of the shadow region vs rt_foliage_wind_a > 0), no second still "ghost" shadow; editor.log "[RT] foliage BLAS:" refit > 0
+Когда run Quality "Quality: GlobalIllumination.FoliageWindRefitBudget 0"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_foliage_wind_off RT-FOLIAGE-LOD control: refit budget 0 - every crown traces its rest pose ("refit 0 + built 0", rest pose = swaying); the traced shadow stays still while the crown sways
+Когда run Quality "Quality: GlobalIllumination.FoliageWindRefitBudget 64"
+# --- rt_foliage_far: far trees present in reflections at a coarse RT-LOD, BLAS memory below all-LOD-0
+Когда run View "View mode: Reflections"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_foliage_far RT-FOLIAGE-LOD: the far trees appear in the traced reflections (shop windows, wet cobbles), no holes where far crowns stand; editor.log "[RT] foliage BLAS:" "at an RT-LOD past 0" > 0 and its MiB < "vs LOD0" MiB
+Когда run Quality "Quality: GlobalIllumination.RayTracingLodError 0"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_foliage_far_lod0 RT-FOLIAGE-LOD control: RT-LOD off - the same reflections (pixel diff vs rt_foliage_far small, far crowns only); editor.log "0 at an RT-LOD past 0", MiB = LOD0 MiB
+Когда run Quality "Quality: GlobalIllumination.RayTracingLodError 50"
+Когда run View "View mode: Lit"
+# --- tail: clear the overrides saved to machine.json
+Когда run Quality "Quality: Shadows.Method Default"
+Когда run Quality "Quality: Reflections.Method Default"
+Когда run Quality "Quality: GlobalIllumination.Method Default"
