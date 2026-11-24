@@ -61,6 +61,8 @@ namespace Desert::ECS
             body.Extents             = data.OceanExtents;
             body.TargetWaveMaskDepth = data.TargetWaveMaskDepth;
             body.Type                = data.Type;
+            body.Density             = data.Density;
+            body.Drag                = data.Drag;
             if ( data.Type == Water::WaterBodyType::River )
             {
                 // A river is its ribbon: its footprint's centre at its mean level, its bounds the extents.

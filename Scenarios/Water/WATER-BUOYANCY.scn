@@ -1,0 +1,12 @@
+# WATER-BUOYANCY: crates of three densities dropped from 3 m into the FFT ocean of Water_Ocean float by Archimedes
+# (BuoyancyComponent: pontoons cut from the collider, lift = rho * g * V_submerged of the ocean's Density 1000).
+# The scene: Water_Ocean plus three 100 cm crates (Collider Box 50, RigidBody Dynamic, Buoyancy Collider 3 cells) at
+# y = 300 cm: wood 600 kg/m3 (Mass 600), stone 2600 (Mass 2600), ice 917 (Mass 917).
+Сцена Content/Scenes/Water_Buoyancy.desce
+Дано --subject viewport set Camera.Position 0,250,-900
+Дано --subject viewport set Camera.Direction 0,-0.2,1
+Когда run Play
+Когда wait 8
+Тогда-вид 1_wood_floats деревянный ящик качается на волнах, погружён ~60 % (Buoyancy.SubmergedShare ≈ 0.6)
+Тогда-вид 2_stone_sinks каменный ящик ушёл под воду, его не видно над поверхностью
+Тогда-вид 3_ice_90 ледяной ящик погружён ~90 %: над водой узкая полоска (SubmergedShare ≈ 0.9)

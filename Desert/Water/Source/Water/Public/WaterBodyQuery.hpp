@@ -55,6 +55,10 @@ namespace Desert::Water
         /// read, the queries answer with the surface the GPU drew (FFTSurfaceAt), not with the set's Gerstner
         /// generator. Null = Gerstner.
         std::shared_ptr<const FFTSurfaceSnapshot> FFTSurface;
+        /// The fluid's density, kg/m^3, and drag, 1/s (ECS::WaterBodyData::Density / Drag): what a buoyant body's
+        /// pontoons in this body are pushed up and held back by (BuoyancySimulation.hpp).
+        float Density = 1000.0f;
+        float Drag    = 1.5f;
     };
 
     struct WaterQueryResult
