@@ -484,7 +484,7 @@ namespace Desert::Editor
         if ( m_NetClient )
         {
             DESERT_PROFILE_SCOPE( "ClientNetDriver::Tick" );
-            m_NetClient->Tick( scene, *m_Assets, ts.GetSeconds() );
+            m_NetClient->Tick( scene, *m_Assets ); // real time (ClientNetDriver::Tick)
         }
         // BEFORE the systems run, so no system sees an entity whose cell has just left.
         if ( m_WorldStreamer && m_WorldStreamer->Streams( scene ) )

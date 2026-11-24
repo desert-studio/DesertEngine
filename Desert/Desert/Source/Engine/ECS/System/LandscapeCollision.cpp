@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <vector>
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/World/Landscape/LandscapeCollisionShape.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
@@ -18,37 +19,6 @@ namespace Desert::ECS
         {
             return a.OriginX == b.OriginX && a.OriginZ == b.OriginZ && a.BaseY == b.BaseY &&
                    a.SpacingCm == b.SpacingCm && a.ZScale == b.ZScale;
-        }
-
-        // The heights Jolt is given: the same decode the renderer's shader and SampleLandscapeHeight use,
-        // relative to the frame's base (the body stands at BaseY). A hole in the visibility layer is
-        // kHeightFieldNoCollision, so every triangle touching it is gone (UE: the collision component's
-        // hole material / visibility data).
-        void DecodeHeights( const Landscape::LandscapeTileData& tile, float zScale, std::vector<float>& out )
-        {
-            const auto& samples = tile.Samples();
-            out.resize( samples.size() );
-            for ( size_t i = 0; i < samples.size(); ++i )
-                out[i] = Landscape::LandscapeHeightCm( samples[i], zScale );
-            if ( const auto visibility = tile.VisibilityLayer() )
-            {
-                const std::vector<uint8_t>& weights = tile.WeightLayers()[*visibility].Weights;
-                for ( size_t i = 0; i < weights.size(); ++i )
-                    if ( Landscape::LandscapeWeightIsHole( weights[i] ) )
-                        out[i] = Physics::kHeightFieldNoCollision;
-            }
-        }
-
-        Physics::HeightFieldDesc DescFor( const Landscape::LandscapeTileData& tile,
-                                          const Landscape::LandscapeFrame&    frame,
-                                          const std::vector<float>&           heights )
-        {
-            Physics::HeightFieldDesc desc;
-            desc.Position    = glm::vec3( frame.OriginX, frame.BaseY, frame.OriginZ );
-            desc.SampleCount = tile.SamplesX();
-            desc.SpacingCm   = frame.SpacingCm;
-            desc.HeightsCm   = heights;
-            return desc;
         }
     } // namespace
 
@@ -114,8 +84,8 @@ namespace Desert::ECS
                 const auto rects = heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Physics );
                 if ( rects.empty() || existing->second.Body == Physics::kInvalidBody )
                     continue;
-                DecodeHeights( heights, frame.ZScale, m_HeightsCm );
-                const auto desc = DescFor( heights, frame, m_HeightsCm );
+                Landscape::DecodeLandscapeCollisionHeights( heights, frame.ZScale, m_HeightsCm );
+                const auto desc = Landscape::LandscapeHeightFieldDesc( heights, frame, m_HeightsCm );
                 for ( const auto& rect : rects )
                 {
                     const auto updated = m_World->UpdateHeightField( existing->second.Body, desc, rect.X0, rect.Z0,
@@ -131,8 +101,8 @@ namespace Desert::ECS
                 Release( entity );
             // The body about to be built carries every height there is, so nothing pending is owed to it.
             heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Physics );
-            DecodeHeights( heights, frame.ZScale, m_HeightsCm );
-            auto desc = DescFor( heights, frame, m_HeightsCm );
+            Landscape::DecodeLandscapeCollisionHeights( heights, frame.ZScale, m_HeightsCm );
+            auto desc = Landscape::LandscapeHeightFieldDesc( heights, frame, m_HeightsCm );
             // UE's landscape preset; Build guarantees the register has every engine profile.
             const auto engineProfile =
                  m_World->GetCollisionProfiles().Resolve( Physics::EngineProfiles::kBlockAll );

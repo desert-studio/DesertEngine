@@ -59,7 +59,13 @@ namespace Desert::Physics
     /// Refuses, naming Jolt's reason, a set with fewer than four points or one that is flat.
     Common::ResultStr<ConvexHullGeometry> BuildConvexHull( std::span<const glm::vec3> points );
 
-
+    // What a character's move collides with besides the world (UpdateCharacter).
+    enum class ECharacterContacts : std::uint8_t
+    {
+        WithCharacters, // the other characters' capsules block it (a gameplay character in a scene)
+        WorldOnly,      // no character's capsule: a network pawn move, which the server steps in a collision
+                        // world of cells alone, so the client's prediction of it may not see the scene's pawns
+    };
 
     struct CharacterDesc
     {
@@ -367,7 +373,9 @@ namespace Desert::Physics
         // character moves at the world's rate, not the frame's. @p gravityCmPerS2 is the DOWNWARD magnitude the
         // caller integrated into @p velocity (GetGravity() times its Gravity Scale, UE
         // UCharacterMovementComponent::GetGravityZ): Jolt presses the floor's bodies with that same value.
-        void UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2, float dt );
+        // @p contacts: WorldOnly ignores every character's inner body (the client's own pawn capsule among them).
+        void UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2, float dt,
+                              ECharacterContacts contacts = ECharacterContacts::WithCharacters );
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
         /// The kinematic capsule body that follows the character (Jolt's CharacterVirtual inner body), in the
         /// character's profile: what a trigger sees of it, and the body its contact events name. Queries

@@ -1,6 +1,10 @@
 #include "ServerWorld.hpp"
 
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
+
+#include <Common/Core/Logger.hpp>
+#include <Common/Json/ReadWrite.hpp>
 
 #include <format>
 #include <utility>
@@ -12,7 +16,8 @@ namespace Desert::Server
     }
 
     Common::ResultStr<std::unique_ptr<ServerWorld>>
-    ServerWorld::Begin( Core::CookedWorldStart world, const Core::Rules::ResidencySettings& settings )
+    ServerWorld::Begin( Core::CookedWorldStart world, const Core::Rules::ResidencySettings& settings,
+                        Physics::PhysicsWorld& physics )
     {
         using Result = std::unique_ptr<ServerWorld>;
         // Every read of `world` is resolved before the plan is moved out of it: an argument list is not
@@ -29,6 +34,17 @@ namespace Desert::Server
                                               "': " + begun.GetError() );
         server->m_Executor.emplace( begun.ExtractValue() );
         server->m_Held.assign( recordCount, false );
+        server->m_Collision = std::make_unique<ServerCellCollision>( physics );
+        // The always-loaded units are resident from the start (their records came with the index, never through
+        // Activate): their collision - the landscape's root, a level-wide wall - is held for the server's life,
+        // under keys past the cell records'.
+        auto alwaysLoaded = Common::Json::Read<Core::SceneSerialized>( server->m_World.AlwaysLoadedJson );
+        if ( !alwaysLoaded )
+            return Common::MakeError<Result>( "server world '" + server->m_World.Index->SceneName +
+                                              "': its always-loaded records: " + alwaysLoaded.GetError() );
+        const std::vector<Assets::EntityData>& always = alwaysLoaded.GetValue().Entities;
+        for ( std::size_t i = 0; i < always.size(); ++i )
+            server->m_Collision->Add( recordCount + i, always[i], always );
         // The same cell source the client streams through (CookedFileReader over the cooked directory), read on
         // JobSystem workers: a server step never waits on a disk read.
         server->m_Loader =
@@ -71,15 +87,21 @@ namespace Desert::Server
                                                    "plan holds {} (slice {}..{})",
                                                    m_World.Index->SceneName, unit, unitRecords->size(), planned,
                                                    firstMember, firstMember + records.size() ) );
-        for ( const std::size_t record : records )
-            m_Held.at( record ) = true;
+        for ( std::size_t i = 0; i < records.size(); ++i )
+        {
+            m_Held.at( records[i] ) = true;
+            m_Collision->Add( records[i], ( *unitRecords )[firstMember + i], *unitRecords );
+        }
         return Common::MakeSuccess( true );
     }
 
     void ServerWorld::Destroy( std::span<const std::size_t> records )
     {
         for ( const std::size_t record : records )
+        {
             m_Held.at( record ) = false;
+            m_Collision->Remove( record );
+        }
     }
 
     void ServerWorld::StartLoad( std::size_t unit, std::uint64_t ticket )

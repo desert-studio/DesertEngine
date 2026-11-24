@@ -114,10 +114,9 @@ namespace Desert::Net
     // movement mode). Raw floats on the wire - the client compares them with its own, bit-exact path.
     struct PawnMoveState
     {
-        NetVec3 Position;
+        NetVec3 Position; // the capsule's feet
         NetVec3 Velocity;
         float   Yaw      = 0.f;
-        float   FloorY   = 0.f; // the floor plane the pawn stands on (PawnMovement.hpp)
         bool    Grounded = true;
     };
 
