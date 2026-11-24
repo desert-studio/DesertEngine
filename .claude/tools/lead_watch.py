@@ -30,7 +30,8 @@ STATE_DIR = os.path.expanduser("~/.claude/lead-watch")
 CSV = os.path.expanduser("~/.claude/lead-spend.csv")
 REPORT_EVERY = 20
 CONTEXT_LIMIT = 250_000
-CLEAR_AT = 150_000  # owner 11-24: 100k thrashed («Autocompact is thrashing»); window 200k, auto_compact.py types /compact at 150k
+CLEAR_AT = 130_000  # owner 11-24: 150k too late, 100k thrashed (a fresh compact starts at ~75k); the reminder also triggers auto_compact.py
+COMPACT_NOW = os.path.expanduser("~/.claude/tools/auto_compact.now")
 CLEAR_EVERY = 10
 BIG_RESULT = 6_000
 DIG_PER_TURN = 6
@@ -168,10 +169,11 @@ def main():
     event = data.get("hook_event_name", "")
     if st["ctx"] > CLEAR_AT and (event == "UserPromptSubmit" or st["n"] - st["last_clear_n"] >= CLEAR_EVERY):
         st["last_clear_n"] = st["n"]
-        lines.append(f"/CLEAR or /COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — every request re-reads it; write the handover "
-                     "(memory STATE FOR /clear), FIRST fill every free agent slot (up to 4) and start ready landings, THEN in this reply ASK THE OWNER "
-                     "FOR /clear if a task just ended (owner 11-23: /clear вместо /compact на стыке задач), else for /compact mid-work; "
-                     "continue at once after it (10-29: no idle before/after)")
+        open(COMPACT_NOW, "w").close()
+        lines.append(f"/COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — /compact is typed AUTOMATICALLY ~6 s after this turn ends "
+                     "(auto_compact.py, owner 11-24). In this turn: write the handover (memory STATE FOR /clear), fill every free agent slot (up to 4), "
+                     "start ready landings, and TELL THE OWNER in the reply «контекст Nk — запускаю /compact» (at a task boundary add that /clear is "
+                     "better and is theirs to type); continue at once after it (10-29: no idle before/after)")
     if st["n"] - st["last_report_n"] >= REPORT_EVERY:
         st["last_report_n"] = st["n"]
         read_pct = round(100 * 0.1 * st["read"] / units) if units else 0

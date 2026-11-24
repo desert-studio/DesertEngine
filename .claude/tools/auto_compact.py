@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Stop hook: when the lead's context passes THRESHOLD, type `/compact` into this session's Terminal tab.
 
+Owner 11-24 (2): 150k was too late; THRESHOLD 130k (a fresh compact already starts at ~75k) and the trigger goes out
+together with lead_watch's «/COMPACT» reminder: lead_watch touches auto_compact.now when it shows the reminder, and
+this hook then types /compact at the end of that turn regardless of THRESHOLD and COOLDOWN.
+`python3 auto_compact.py --now` sets the same flag by hand.
+
 Owner 11-24: autoCompactWindow 100k thrashed; window back to 200k, and /compact must come without the owner.
 Claude cannot run a slash command itself, so this hook finds the Terminal.app tab whose tty is this claude
 process's tty and types the command there (synthetic input is allowed, owner 09-30). It fires at most once per
@@ -12,13 +17,14 @@ machine adds its own keystroke path (console window of the claude process, e.g. 
 """
 import json, os, subprocess, sys, time
 
-THRESHOLD = 150_000
+THRESHOLD = 130_000
 COOLDOWN = 900
 DELAY = 6
 HOME = os.path.expanduser("~/.claude/tools")
 os.makedirs(HOME, exist_ok=True)
 STAMP = os.path.join(HOME, "auto_compact.stamp")
 LOG = os.path.join(HOME, "auto_compact.log")
+NOW = os.path.join(HOME, "auto_compact.now")
 
 
 def log(msg):
@@ -59,6 +65,9 @@ def claude_tty():
 
 
 def main():
+    if "--now" in sys.argv:
+        open(NOW, "w").close()
+        return
     if os.path.exists(os.path.join(HOME, "auto_compact.off")):
         return
     if sys.platform != "darwin":
@@ -67,18 +76,22 @@ def main():
     if data.get("stop_hook_active"):
         return
     ctx = context_tokens(data.get("transcript_path", ""))
-    if ctx < THRESHOLD:
-        return
-    try:
-        if time.time() - os.path.getmtime(STAMP) < COOLDOWN:
+    forced = os.path.exists(NOW)
+    if not forced:
+        if ctx < THRESHOLD:
             return
-    except OSError:
-        pass
+        try:
+            if time.time() - os.path.getmtime(STAMP) < COOLDOWN:
+                return
+        except OSError:
+            pass
     tty = claude_tty()
     if not tty:
         log(f"context {ctx//1000}k but no claude tty found")
         return
     open(STAMP, "w").close()
+    if forced:
+        os.remove(NOW)
     script = f'''
 delay {DELAY}
 tell application "Terminal"
@@ -101,7 +114,8 @@ return "tab not found"
 '''
     subprocess.Popen(["/bin/sh", "-c", f"osascript -e '{script.replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}' >> '{LOG}' 2>&1"],
                      start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    log(f"context {ctx//1000}k >= {THRESHOLD//1000}k: /compact scheduled into {tty}")
+    why = "with the /COMPACT reminder" if forced else f">= {THRESHOLD//1000}k"
+    log(f"context {ctx//1000}k {why}: /compact scheduled into {tty}")
 
 
 if __name__ == "__main__":
