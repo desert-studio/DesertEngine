@@ -18,11 +18,13 @@
 
 namespace Desert::Core
 {
-    // THE ONE GENERATION OF .desce THIS ENGINE READS AND WRITES. The saver stamps it, the loader REQUIRES
-    // it, and there is no second branch: a file that is not at this generation is refused by name and
-    // nothing is created for it (see RefuseSceneVersion below).
+    // THE GENERATION OF .desce THIS ENGINE WRITES. The saver stamps it; the loader raises an older file to it
+    // IN MEMORY (SceneUpgrade.hpp, UE's FCustomVersion upgrade on load: "upgraded vX->vY in memory, save to
+    // keep"), and refuses a NEWER one, or one below kSceneUpgradeFloor, by name with nothing created for it.
+    // Tools/SceneMigrator is the resave: the same UpgradeSceneRecords, then the file written back.
     //
-    // WHY THERE IS NO MIGRATION HERE. There used to be eight of them, one per schema step, and each was
+    // HISTORY - WHY THE OLD STEPS ARE NOT HERE (they still are not: the steps below the floor move data between
+    // files, so they stay in the tool). There used to be eight of them, one per schema step, and each was
     // written with a shelf life it never got: "deleted once no v<n> file remains". Eight accumulated steps
     // is eight expiries that were never enforced, and DEV_CONTRACT §4.3 - "the runtime knows nothing about
     // the old format" - had been false for every one of them. The steps were not deleted; they MOVED, whole,
@@ -247,6 +249,9 @@ namespace Desert::Core
         Common::Json::TextDocument
                         Document; // the file as parsed - every key, known or not, every number at its width
         SceneSerialized Scene;    // the typed view of that same document
+        // Non-empty: the file was at an older generation and was upgraded in memory (SceneUpgrade.hpp); the
+        // one line the loader logs. The document above is then the upgraded tree's.
+        std::string Upgraded;
     };
     [[nodiscard]] Common::ResultStr<LoadableScene> ParseLoadableScene( std::string_view   source,
                                                                        const std::string& json );

@@ -5,26 +5,11 @@
 
 #include <Common/Json/Json.hpp>
 #include <Common/Json/ReadWrite.hpp>
+#include <Common/Core/Logger.hpp>
+#include <Engine/Core/Serialize/SceneUpgrade.hpp>
 
 namespace Desert::Assets
 {
-    namespace
-    {
-        // Where the build this message came from actually put the tool — same NDEBUG choice, and for the
-        // same reason, as SceneFormat.cpp: naming a directory the binary is not in is the same dead end
-        // as naming no command at all.
-        //
-        // IT IS THE SCENE'S TOOL, and that is the point rather than an accident of naming: a prefab
-        // shares the scene's two version integers, so it moves through the same generations and is
-        // raised by the same step chain. Naming a separate PrefabMigrator here was naming a second
-        // command over a second corpus that a version bump had to remember (И11).
-#ifdef NDEBUG
-        constexpr const char* kMigratorPath = "build/Bin/Release/SceneMigrator";
-#else
-        constexpr const char* kMigratorPath = "build/Bin/Debug/SceneMigrator";
-#endif
-    } // namespace
-
     std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion,
                                      int foundWorldPartitionVersion, int foundAssetRefVersion,
                                      int foundLightVersion )
@@ -32,13 +17,14 @@ namespace Desert::Assets
         return fmt::format(
              "[PrefabAsset] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset references "
              "v{8} / lights v{10}, and this engine loads scene schema v{4} / world units v{5} / world partition v{6} / "
-             "asset references v{9} / lights v{11} only. NOTHING WAS LOADED - "
-             "no entity was taken from this file, and the scene is exactly as it was. A prefab carries the same "
-             "entity payloads a scene does, so it moves through the same generations; Tools/SceneMigrator "
-             "converts it, once, and writes the file back. Run:  {7} \"{0}\"",
+             "asset references v{9} / lights v{11}, and upgrades in memory from scene v{7} / world partition "
+             "v{12} up. NOTHING WAS LOADED - no entity was taken from this file, and the scene is exactly as it "
+             "was. A prefab carries the same entity payloads a scene does and moves through the same generations "
+             "(SceneUpgrade.hpp): a NEWER file was written by a later build; an older one is converted once by "
+             "Tools/SceneMigrator.",
              source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, Core::kSceneVersion,
-             Core::kUnitVersion, Core::kWorldPartitionVersion, kMigratorPath, foundAssetRefVersion,
-             Core::kAssetRefVersion, foundLightVersion, Core::kLightVersion );
+             Core::kUnitVersion, Core::kWorldPartitionVersion, Core::kSceneUpgradeFloor, foundAssetRefVersion,
+             Core::kAssetRefVersion, foundLightVersion, Core::kLightVersion, Core::kWorldPartitionUpgradeFloor );
     }
 
     std::string RefusePrefabVersion( std::string_view source, const PrefabData& prefab )
@@ -61,10 +47,22 @@ namespace Desert::Assets
         }
 
         PrefabData data = parsed.ExtractValue();
-        // An absent Header states no generation, so it is never current; naming it here as well lets the
-        // reads below dereference the header without a second, unreachable refusal.
-        if ( !PrefabIsAtCurrentVersion( data ) || !data.Header.has_value() )
+        // An absent Header states no generation; refused by its numbers (all 0).
+        if ( !data.Header.has_value() )
             return Common::MakeError<PrefabData>( RefusePrefabVersion( source, data ) );
+
+        // UPGRADE ON LOAD (Core/Serialize/SceneUpgrade.hpp): the scene's chain over the prefab's records - an
+        // older generation is raised in memory and logged once, a newer one (or one below the floor) refused.
+        if ( !PrefabIsAtCurrentVersion( data ) )
+        {
+            const Core::SceneUpgradeReport upgrade = Core::UpgradeSceneRecords(
+                 data.Entities, Core::StatedGenerations( data.Header ), Core::UpgradeTarget::Prefab, source );
+            if ( !upgrade.Refused.empty() )
+                return Common::MakeError<PrefabData>( fmt::format(
+                     "[PrefabAsset] {0} NOTHING WAS LOADED - no entity was taken from this file.", upgrade.Refused ) );
+            Core::RestateCurrentGenerations( *data.Header );
+            LOG_INFO( "[PrefabAsset] {0}", Core::DescribeUpgrade( source, upgrade ) );
+        }
 
         const Common::Content::AssetHeaderReadContext context{ Core::SceneTextSubsystems() };
         const auto header = Common::Content::TextHeaderToAssetHeader( *data.Header, context );

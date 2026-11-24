@@ -495,8 +495,8 @@ namespace Desert::Core
     Common::BoolResultStr SceneSerializer::DeserializeFromJson( const std::string& json,
                                                                 std::string_view   source ) const
     {
-        // THE VERSION GATE REFUSES, IT DOES NOT REPAIR: an old file is converted once by Tools/SceneMigrator
-        // (SceneFormat.hpp). The gate's parse is the load's only one - its result is what Deserialize takes.
+        // THE VERSION GATE: an older file is upgraded in memory, a newer one refused (SceneUpgrade.hpp). The
+        // gate's parse is the load's only one - its result is what Deserialize takes.
         auto loadable = ParseLoadableScene( source, json );
         if ( !loadable )
         {
@@ -517,6 +517,8 @@ namespace Desert::Core
         phases.Lap( "parse the file into typed records (version gate)", scene.Entities.size() );
 
         LOG_INFO( "Loading scene: {0}", scene.SceneName );
+        if ( !loaded.Upgraded.empty() )
+            LOG_INFO( "[SceneSerializer] {0}", loaded.Upgraded );
 
         // THE FILE, KEPT AS IT WAS PARSED, and every key in it this build cannot name, SAID OUT LOUD.
         //
