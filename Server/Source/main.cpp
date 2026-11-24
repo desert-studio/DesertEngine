@@ -21,6 +21,11 @@
 
 #include "ServerWorld.hpp"
 
+#include <Engine/Net/PawnPrefabMovement.hpp>
+#include <Net/PhysicsPawnMoveWorld.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Net/MeshCertificates.hpp>
 #include <Net/MeshLink.hpp>
 #include <Net/MeshOfOne.hpp>
@@ -65,6 +70,52 @@ namespace Desert::Server
 {
     namespace
     {
+        // THE SERVER'S COLLISION WORLD (UE dedicated server: the same collision as the client): a PhysicsWorld on
+        // the project's collision profiles, with the probe capsule the pawns move through (PhysicsPawnMoveWorld).
+        struct ServerCollision
+        {
+            std::unique_ptr<Physics::PhysicsWorld>     Physics;
+            std::unique_ptr<Net::PhysicsPawnMoveWorld> PawnMove;
+            Net::PawnMoveSettings                      Movement; // the pawn's, the capsule PawnMove sweeps
+        };
+        Common::ResultStr<ServerCollision> MakeServerCollision( const Net::PawnMoveSettings& movement )
+        {
+            auto profiles = Physics::CollisionProfiles::Read( Common::Constants::Path::PROJECT_CONFIG_PATH /
+                                                              Physics::kCollisionProfilesFileName );
+            if ( !profiles )
+                return Common::MakeError<ServerCollision>(
+                     std::format( "collision profiles: {}", profiles.GetError() ) );
+            ServerCollision collision;
+            collision.Physics = std::make_unique<Physics::PhysicsWorld>();
+            if ( !collision.Physics->Init( movement.Gravity, std::move( profiles.GetValue() ) ) )
+                return Common::MakeError<ServerCollision>( std::string( "the physics world did not initialise" ) );
+            auto pawnMove = Net::PhysicsPawnMoveWorld::Create( *collision.Physics, movement );
+            if ( !pawnMove )
+                return Common::MakeError<ServerCollision>( pawnMove.GetError() );
+            collision.PawnMove = pawnMove.ExtractValue();
+            collision.Movement = movement;
+            return Common::MakeSuccess( std::move( collision ) );
+        }
+
+        // THE PAWN'S MOVEMENT (UE: the DefaultPawnClass's CharacterMovement): the --pawn prefab's CharacterController,
+        // read as every client reads it (Engine/Net/PawnPrefabMovement.hpp). No --pawn (a server without players):
+        // no pawn moves, and the collision world takes the default gravity only.
+        Common::ResultStr<Net::PawnMoveSettings> PawnMovementOf( const std::string& pawn )
+        {
+            if ( pawn.empty() )
+                return Common::MakeSuccess( Net::PawnMoveSettings{} );
+            return Net::PrefabMovement::ReadPawnPrefabMovement( Common::AssetHandle::PathForStableKey( pawn ) );
+        }
+
+        // The collision world of a sim: the pawn's movement and the project's profiles (MakeServerCollision).
+        Common::ResultStr<ServerCollision> MakeSimCollision( const std::string& pawn )
+        {
+            auto movement = PawnMovementOf( pawn );
+            if ( !movement )
+                return Common::MakeError<ServerCollision>( movement.GetError() );
+            return MakeServerCollision( movement.GetValue() );
+        }
+
         // NET-ARCH §2M.2: `all` is the mesh of one (every role in this process, in-process links); the others are
         // one role each, linked over GNS mesh links with CA-signed certificates (Net/MeshLink.hpp). The global
         // services role (`service`) comes with NET-MESH-5.
@@ -810,7 +861,14 @@ namespace Desert::Server
             // THE SIM: PawnSimulation + the world's streaming, stepped on the coordinator's clock.
             Core::Rules::ResidencySettings settings;
             static_cast<Project::WorldPartitionSettings&>( settings ) = Project::CurrentWorldPartitionSettings();
-            auto begun = ServerWorld::Begin( std::move( world ), settings );
+            auto collision = MakeSimCollision( options.pawn );
+            if ( !collision )
+            {
+                LOG_ERROR( "[Server] {}", collision.GetError() );
+                return 5;
+            }
+            ServerCollision pawnCollision = collision.ExtractValue();
+            auto            begun         = ServerWorld::Begin( std::move( world ), settings, *pawnCollision.Physics );
             if ( !begun )
             {
                 LOG_ERROR( "[Server] {}", begun.GetError() );
@@ -819,9 +877,10 @@ namespace Desert::Server
             std::unique_ptr<ServerWorld>  server = begun.ExtractValue();
             Net::RemoteGatewayLink        gatewayLink( endpoint, netLog );
             Net::PawnSimulation::Settings simSettings;
+            simSettings.Movement = pawnCollision.Movement;
             for ( const glm::vec3& spawn : options.spawns )
                 simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
-            Net::PawnSimulation sim( replica, gatewayLink, std::move( simSettings ), netLog );
+            Net::PawnSimulation sim( replica, gatewayLink, *pawnCollision.PawnMove, std::move( simSettings ), netLog );
             Net::SimHandover    handover( endpoint, options.index, netLog );
             replica.TrackProxies();
             std::uint32_t lastStep = 0;
@@ -914,9 +973,10 @@ namespace Desert::Server
                         players = owned;
                         LOG_INFO(
                              "[Server] sim {} step {}: {} player(s) owned, {} proxy(ies), residency union of {} "
-                             "source(s): {} cell(s) activated, {} cell record(s) held",
+                             "source(s): {} cell(s) activated, {} cell record(s) held, collision {} body(ies)",
                              options.index, step, players, sources.size() - 1 - owned, sources.size(),
-                             server->ResidentCells().size(), server->HeldCellRecords() );
+                             server->ResidentCells().size(), server->HeldCellRecords(),
+                             server->Collision().Bodies() );
                     }
                 }
                 std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
@@ -994,7 +1054,14 @@ namespace Desert::Server
 
             Core::Rules::ResidencySettings settings;
             static_cast<Project::WorldPartitionSettings&>( settings ) = Project::CurrentWorldPartitionSettings();
-            auto begun = ServerWorld::Begin( std::move( world ), settings );
+            auto made = MakeSimCollision( options.pawn );
+            if ( !made )
+            {
+                LOG_ERROR( "[Server] {}", made.GetError() );
+                return 5;
+            }
+            ServerCollision collision = made.ExtractValue();
+            auto            begun     = ServerWorld::Begin( std::move( world ), settings, *collision.Physics );
             if ( !begun )
             {
                 LOG_ERROR( "[Server] {}", begun.GetError() );
@@ -1043,7 +1110,9 @@ namespace Desert::Server
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
-                sim = std::make_unique<Net::PawnSimulation>( *store, *gateway, std::move( simSettings ), netLog );
+                simSettings.Movement = collision.Movement;
+                sim       = std::make_unique<Net::PawnSimulation>( *store, *gateway, *collision.PawnMove,
+                                                                   std::move( simSettings ), netLog );
                 gateway->Bind( *sim );
                 LOG_INFO(
                      "[Server] listening on port {} (server id {}, cook hash {:016x}); {} spawn point(s); pawn {} "
@@ -1092,9 +1161,11 @@ namespace Desert::Server
                 for ( const std::string& name : sourceNames )
                     listed += std::format( "{}{}", listed.empty() ? "" : "; ", name );
                 LOG_INFO( "[Server] residency union ({}) of {} source(s) [{}]: {} always-loaded unit(s) + {} "
-                          "cell(s) activated, {} cell record(s) held: {}",
+                          "cell(s) activated, {} cell record(s) held, collision {} body(ies) ({} landscape "
+                          "tile(s)): {}",
                           why, sources.size(), listed, server->AlwaysLoadedUnits(), cells.size(),
-                          server->HeldCellRecords(), names.empty() ? std::string( "none" ) : names );
+                          server->HeldCellRecords(), server->Collision().Bodies(), server->Collision().Heightfields(),
+                          names.empty() ? std::string( "none" ) : names );
             };
             LOG_INFO( "[Server] stepping at {:.0f} Hz, server source at ({:.0f}, {:.0f}, {:.0f}) cm{}", kStepHz,
                       serverSource.Position.x, serverSource.Position.y, serverSource.Position.z,
