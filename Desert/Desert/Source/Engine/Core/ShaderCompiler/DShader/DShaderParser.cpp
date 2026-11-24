@@ -3351,7 +3351,7 @@ namespace Desert::Core::Preprocess
                                                           *surfaceBlock, cellInclude, autoDecls,
                                                           result.Surface.Blend, shadingModelDefine,
                                                           result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          false, heightFunctions, false ) );
+                                                          false, heightFunctions, SurfaceRowResponses{} ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -3392,7 +3392,7 @@ namespace Desert::Core::Preprocess
                                                               *surfaceBlock, cellInclude, rayHitAutoDecls,
                                                               result.Surface.Blend, shadingModelDefine,
                                                               result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                              false, heightFunctions, false ) );
+                                                              false, heightFunctions, SurfaceRowResponses{} ) );
                     }
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Meta.RayTracingPassNames.push_back( cell.Name );
@@ -3429,7 +3429,7 @@ namespace Desert::Core::Preprocess
                                                      stage, kSurfaceParticleSpritePath, kSurfaceParticleSpritePass,
                                                      *surfaceBlock, cellInclude, autoDecls, result.Surface.Blend,
                                                      shadingModelDefine, result.Surface.ResponsiveAA,
-                                                     opacityMaskFunction, false, heightFunctions, false ) );
+                                                     opacityMaskFunction, false, heightFunctions, SurfaceRowResponses{} ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -3446,7 +3446,7 @@ namespace Desert::Core::Preprocess
                                                      stage, kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass,
                                                      *surfaceBlock, cellInclude, autoDecls, result.Surface.Blend,
                                                      shadingModelDefine, result.Surface.ResponsiveAA,
-                                                     opacityMaskFunction, false, heightFunctions, false ) );
+                                                     opacityMaskFunction, false, heightFunctions, SurfaceRowResponses{} ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -3470,7 +3470,7 @@ namespace Desert::Core::Preprocess
                                                          stage, path, kSurfaceParticleGBufferPass, *surfaceBlock,
                                                          cellInclude, autoDecls, result.Surface.Blend,
                                                          shadingModelDefine, result.Surface.ResponsiveAA,
-                                                         opacityMaskFunction, false, heightFunctions, false ) );
+                                                         opacityMaskFunction, false, heightFunctions, SurfaceRowResponses{} ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -3491,7 +3491,7 @@ namespace Desert::Core::Preprocess
                                                               cellInclude, autoDecls, result.Surface.Blend,
                                                               shadingModelDefine, result.Surface.ResponsiveAA,
                                                               opacityMaskFunction, false, heightFunctions,
-                                                              false ) );
+                                                              SurfaceRowResponses{} ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -3509,7 +3509,7 @@ namespace Desert::Core::Preprocess
                                                          stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
                                                          cellInclude, autoDecls, result.Surface.Blend,
                                                          shadingModelDefine, result.Surface.ResponsiveAA,
-                                                         opacityMaskFunction, false, heightFunctions, false ) );
+                                                         opacityMaskFunction, false, heightFunctions, SurfaceRowResponses{} ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
@@ -3548,7 +3548,7 @@ namespace Desert::Core::Preprocess
                                                      stage, kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass,
                                                      *surfaceBlock, cellInclude, autoDecls, result.Surface.Blend,
                                                      shadingModelDefine, result.Surface.ResponsiveAA,
-                                                     opacityMaskFunction, false, heightFunctions, false ) );
+                                                     opacityMaskFunction, false, heightFunctions, SurfaceRowResponses{} ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -3563,7 +3563,7 @@ namespace Desert::Core::Preprocess
                                                       stage, kSurfaceWaterMeshPath, kSurfaceFrontLayerPass,
                                                       *surfaceBlock, cellInclude, autoDecls, result.Surface.Blend,
                                                       shadingModelDefine, result.Surface.ResponsiveAA,
-                                                      opacityMaskFunction, false, heightFunctions, false ) );
+                                                      opacityMaskFunction, false, heightFunctions, SurfaceRowResponses{} ) );
                 result.Meta.PassNames.push_back( front.Name );
                 result.Surface.Cells.push_back( front.Name );
                 result.Passes.push_back( std::move( front ) );
@@ -3669,7 +3669,7 @@ namespace Desert::Core::Preprocess
                                                   stage, path, kSurfaceVirtualGeometryResolvePass, *surfaceBlock,
                                                   cellInclude, autoDecls, result.Surface.Blend, shadingModelDefine,
                                                   result.Surface.ResponsiveAA, opacityMaskFunction, false,
-                                                  heightFunctions, respondsToWeather, true, true ) );
+                                                  heightFunctions, rowResponses, true, true ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
