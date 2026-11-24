@@ -1,0 +1,9 @@
+# FLUID-LAYERS: a tank (FluidVolume 200x150x200 cm) filled 60 cm deep with water (1000 kg/m3) and oil (900 kg/m3, 80 cSt) stirred together (InitialFill MixPhase 1, MixFraction 0.35); the variable-density pressure projection separates them.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Fluid_Layers.desce
+Дано --subject viewport set Camera.Position 0,120,-350
+Дано --subject viewport set Camera.Direction 0,-0.2,1
+Когда run Action "Simulate"
+Когда advance 2
+Когда advance 2
+Когда advance 1
+Тогда-вид 2_layers через 5 с масло лежит слоем сверху, граница вода/масло ровная, перемешанных капель почти нет

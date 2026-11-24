@@ -1,0 +1,9 @@
+# FLUID-OBJECTS: a 40 cm wooden crate (Box Collider, dynamic RigidBody 30 kg, ~470 kg/m3) dropped from 150 cm into a tank of water (FluidVolume 300x200x300 cm, filled 80 cm deep); pressure on the crate faces = buoyancy + splash push (two-way coupling).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Fluid_Objects.desce
+Дано --subject viewport set Camera.Position 0,200,-500
+Дано --subject viewport set Camera.Direction 0,-0.3,1
+Когда run Action "Simulate"
+Когда advance 1
+Тогда-вид 3_splash_impact через 1 с волна расходится от места удара ящика
+Когда advance 3
+Тогда-вид 3_splash через 4 с ящик плавает на поверхности (погружён примерно наполовину), не тонет и не выпрыгивает

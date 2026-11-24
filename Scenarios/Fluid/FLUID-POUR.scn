@@ -1,0 +1,8 @@
+# FLUID-POUR: a container above the floor pours water (FluidSource, Phase 0 Water 1000 kg/m3, 1 cSt, 4 L/s, 200 cm/s down) into a FluidVolume 400x200x400 cm whose bottom is the floor; FLIP/APIC on the GPU, particles drawn as spheres (pass 1).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Fluid_Pour.desce
+Дано --subject viewport set Camera.Position 0,250,-600
+Дано --subject viewport set Camera.Direction 0,-0.35,1
+Когда run Action "Simulate"
+Когда advance 2
+Когда advance 2
+Тогда-вид 1_pour через 4 с струя воды льётся из ёмкости и растекается лужей по полу
