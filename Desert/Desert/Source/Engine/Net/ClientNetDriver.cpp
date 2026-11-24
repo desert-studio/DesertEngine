@@ -260,10 +260,13 @@ namespace Desert::Core
             const glm::vec3    move    = InputMove( scene );
             const float        yaw     = glm::length( move ) > 1e-4f ? std::atan2( -move.x, -move.z ) : 0.0f;
             const std::uint8_t buttons = InputButtons( scene );
-            if ( const auto sent = m_Client->SendInput( { move.x, move.y, move.z }, yaw, buttons ) )
+            if ( const auto sent = m_Client->RecordInput( { move.x, move.y, move.z }, yaw, buttons ) )
                 if ( Net::IPawnMoveWorld* world = PredictionWorld( scene ) )
                     predictor.Predict( *sent, m_Prediction->Movement, *world, Net::kNetStepSeconds );
         }
+        // This frame's steps go out together with every one the server has not acked yet: one message per frame.
+        if ( steps > 0 )
+            m_Client->FlushInputs();
         if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than kCatchUpSteps is not caught up
             m_StepClock = 0.0;
 

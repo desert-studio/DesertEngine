@@ -3,8 +3,9 @@
 // PAWN REPLICATION WIRE + CLIENT-SIDE BUFFERS (Docs/contracts/NET-ARCH.md §2, §3.1, §5).
 //
 // After the handshake (NetHandshake.hpp) a session speaks four messages:
-//   Input    client -> server, State lane (unreliable): the last kInputRedundancy fixed steps of input, each with
-//            the client's fixed-step number, under a sequence id - one lost packet loses no input (§2).
+//   Input    client -> server, State lane (unreliable): every fixed step of input the server has not acked yet
+//            (the newest kInputRedundancy of them), each with the client's fixed-step number, under a sequence id
+//            - a lost packet loses no input: its steps ride in the next one (§2; Overwatch-style full resend).
 //   Snapshot server -> client, State lane (unreliable): the server step, the last input step the server has
 //            PROCESSED for this connection (the ack the client's prediction replays from, NET-4 §5.1), and the
 //            transform of every replicated pawn relevant to the connection.
@@ -37,7 +38,10 @@ namespace Desert::Net
     using NetId                              = std::uint32_t;
     inline constexpr NetId  kInvalidNetId    = 0;
     inline constexpr double kNetStepHz       = 60.0; // the server's fixed step (§2); the net frame number
-    inline constexpr int    kInputRedundancy = 3;    // input steps per Input message (§2)
+    // At most this many unacked input steps per Input message (§2). The server moves a pawn by every step in order
+    // and waits for a missing one, so a lost packet's steps must come again: the window covers the round trip plus
+    // one slow frame's burst of steps (0.53 s at 60 Hz). A step older than the window is given up by the server.
+    inline constexpr int kInputRedundancy = 32;
     // One input step's length - the move both the server and the predicting client simulate (PawnMovement.hpp).
     inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
     // Snapshots go out every second step: 30 Hz per connection (§2). A project setting once §3.6 lands.
@@ -84,7 +88,7 @@ namespace Desert::Net
     struct InputMessage
     {
         std::uint32_t          Sequence = 0;
-        std::vector<InputStep> Steps; // oldest first, at most kInputRedundancy
+        std::vector<InputStep> Steps; // oldest first, the unacked steps, at most kInputRedundancy
     };
 
     struct PawnState

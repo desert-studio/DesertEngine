@@ -22,16 +22,31 @@ namespace Desert::Net
         m_Transport.Poll( *this );
     }
 
-    std::optional<InputStep> ReplicationClient::SendInput( const NetVec3& move, float yaw, std::uint8_t buttons )
+    std::optional<InputStep> ReplicationClient::RecordInput( const NetVec3& move, float yaw, std::uint8_t buttons )
     {
         if ( m_State != EState::InSession )
             return std::nullopt;
         const InputStep step{ m_NextStep++, move, yaw, buttons };
         m_Inputs.Push( step );
+        return step;
+    }
+
+    void ReplicationClient::FlushInputs()
+    {
+        if ( m_State != EState::InSession )
+            return;
         InputMessage message;
+        message.Steps = m_Inputs.Latest( kInputRedundancy );
+        if ( message.Steps.empty() )
+            return;
         message.Sequence = m_NextSequence++;
-        message.Steps    = m_Inputs.Latest( kInputRedundancy );
         m_Transport.Send( m_Connection, EncodeInput( message ), ENetLane::State );
+    }
+
+    std::optional<InputStep> ReplicationClient::SendInput( const NetVec3& move, float yaw, std::uint8_t buttons )
+    {
+        const std::optional<InputStep> step = RecordInput( move, yaw, buttons );
+        FlushInputs();
         return step;
     }
 

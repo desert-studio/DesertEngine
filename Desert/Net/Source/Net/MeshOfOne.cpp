@@ -125,9 +125,14 @@ namespace Desert::Net
         return AckedMove{ *it->second.LastProcessed, it->second.Move, it->second.QueuedAtStep };
     }
 
-    // The server moves a pawn only by its player's input steps, one per step in step order (UE ServerMove: the
+    // The server moves a pawn only by its player's input steps, every one, in step order (UE ServerMove: the
     // server simulates the client's moves, never moves of its own) - so its state after step N is the client's
-    // prediction of N. A starved pawn holds; a queue above the clock sync's target drains two per step.
+    // prediction of N. A step that has not arrived holds the pawn, the steps after it wait: every Input message
+    // carries each unacked step (kInputRedundancy), so a lost packet's steps come with the next one. Moving on
+    // past a hole would leave the server a step's move short of the client - the periodic sprint corrections of
+    // NET-4 run 9 (33-183 cm, whole steps of 16.7 cm). Only a step the client no longer sends (the queue already
+    // runs a window past it) is given up. A starved pawn holds; a queue above the sync's target drains two per
+    // step.
     void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
         constexpr std::size_t kDrainAbove = 4;
@@ -135,7 +140,17 @@ namespace Desert::Net
         const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
         for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
         {
-            const auto next    = pawn.Pending.begin();
+            const auto next = pawn.Pending.begin();
+            if ( pawn.LastProcessed && next->first != *pawn.LastProcessed + 1 )
+            {
+                const std::uint32_t missing = *pawn.LastProcessed + 1;
+                if ( !StepAfter( pawn.Pending.rbegin()->first,
+                                 missing + static_cast<std::uint32_t>( kInputRedundancy ) - 1 ) )
+                    break; // still in flight: the next Input message repeats it
+                m_Log( std::format( "pawn net id {}: input steps {}..{} never arrived within the resend window; "
+                                    "moving on (the client is corrected)",
+                                    pawn.State.Id, missing, next->first - 1 ) );
+            }
             // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
             pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, m_World, kNetStepSeconds );
             pawn.LastProcessed = next->first;
