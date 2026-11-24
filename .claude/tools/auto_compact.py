@@ -7,7 +7,9 @@ this hook then types /compact at the end of that turn regardless of THRESHOLD an
 `python3 auto_compact.py --now` sets the same flag by hand.
 Owner 11-24 (3): «clear тоже делай ты… мониторь сам что и когда запустить». `--clear` sets auto_compact.clear: at the end of
 the turn the hook types /clear instead (the lead decides: task boundary, slots full, handover written). After either
-command the hook types a continuation prompt, queued while the command runs, so the lead resumes without the owner.
+command the hook types a continuation prompt once the command has finished, so the lead resumes without the owner.
+Owner 11-24 (4): leftover text in the prompt box went out as /compact's arguments; every typing first empties the box
+(Ctrl+E, Ctrl+U, Backspace per line, CLEAR_LINES lines).
 
 Owner 11-24: autoCompactWindow 100k thrashed; window back to 200k, and /compact must come without the owner.
 Claude cannot run a slash command itself, so this hook finds the Terminal.app tab whose tty is this claude
@@ -16,13 +18,14 @@ COOLDOWN seconds and only after the turn has ended (Stop), a few seconds later s
 Log: ~/.claude/tools/auto_compact.log.  Off switch: touch ~/.claude/tools/auto_compact.off
 macOS only (Terminal.app + osascript); on other platforms it logs once per call and does nothing — the Windows
 machine adds its own keystroke path (console window of the claude process, e.g. WScript.Shell AppActivate+SendKeys).
-/clear is never typed by this hook: it needs a written handover first (LEAD_PROTOCOL «КОНТЕКСТ ТИМЛИДА»).
+/clear only when the lead asked for it with --clear, after writing the handover (LEAD_PROTOCOL «КОНТЕКСТ ТИМЛИДА»).
 """
 import json, os, subprocess, sys, time
 
 THRESHOLD = 130_000
 COOLDOWN = 900
 DELAY = 6
+CLEAR_LINES = 8
 HOME = os.path.expanduser("~/.claude/tools")
 os.makedirs(HOME, exist_ok=True)
 STAMP = os.path.join(HOME, "auto_compact.stamp")
@@ -73,6 +76,12 @@ def claude_tty():
 def type_into(tty, text, enters):
     """Select the Terminal tab on @p tty, type @p text and press Enter @p enters times."""
     keys = "\n".join(['        delay 0.7\n        tell application "System Events" to key code 36'] * enters)
+    # Empty the prompt box first: whatever is left there would be sent together with @p text.
+    wipe = "\n".join(['        tell application "System Events"\n'
+                      '          keystroke "e" using control down\n'
+                      '          keystroke "u" using control down\n'
+                      '          key code 51\n'
+                      '        end tell'] * CLEAR_LINES)
     script = f'''
 tell application "Terminal"
   repeat with w in windows
@@ -82,6 +91,8 @@ tell application "Terminal"
         set index of w to 1
         activate
         delay 0.5
+{wipe}
+        delay 0.2
         tell application "System Events" to keystroke "{text}"
 {keys}
         return "typed"
