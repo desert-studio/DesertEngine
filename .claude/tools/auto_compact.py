@@ -5,6 +5,9 @@ Owner 11-24 (2): 150k was too late; THRESHOLD 130k (a fresh compact already star
 together with lead_watch's «/COMPACT» reminder: lead_watch touches auto_compact.now when it shows the reminder, and
 this hook then types /compact at the end of that turn regardless of THRESHOLD and COOLDOWN.
 `python3 auto_compact.py --now` sets the same flag by hand.
+Owner 11-24 (3): «clear тоже делай ты… мониторь сам что и когда запустить». `--clear` sets auto_compact.clear: at the end of
+the turn the hook types /clear instead (the lead decides: task boundary, slots full, handover written). After either
+command the hook types a continuation prompt, queued while the command runs, so the lead resumes without the owner.
 
 Owner 11-24: autoCompactWindow 100k thrashed; window back to 200k, and /compact must come without the owner.
 Claude cannot run a slash command itself, so this hook finds the Terminal.app tab whose tty is this claude
@@ -25,6 +28,9 @@ os.makedirs(HOME, exist_ok=True)
 STAMP = os.path.join(HOME, "auto_compact.stamp")
 LOG = os.path.join(HOME, "auto_compact.log")
 NOW = os.path.join(HOME, "auto_compact.now")
+CLEAR = os.path.join(HOME, "auto_compact.clear")
+RESUME = {"/compact": "continue (auto after /compact): pick up the work where it stopped",
+          "/clear": "continue (auto after /clear): read the newest HANDOVER in memory, then fill the agent slots"}
 
 
 def log(msg):
@@ -65,8 +71,8 @@ def claude_tty():
 
 
 def main():
-    if "--now" in sys.argv:
-        open(NOW, "w").close()
+    if "--now" in sys.argv or "--clear" in sys.argv:
+        open(CLEAR if "--clear" in sys.argv else NOW, "w").close()
         return
     if os.path.exists(os.path.join(HOME, "auto_compact.off")):
         return
@@ -76,7 +82,9 @@ def main():
     if data.get("stop_hook_active"):
         return
     ctx = context_tokens(data.get("transcript_path", ""))
-    forced = os.path.exists(NOW)
+    clear = os.path.exists(CLEAR)
+    forced = clear or os.path.exists(NOW)
+    cmd = "/clear" if clear else "/compact"
     if not forced:
         if ctx < THRESHOLD:
             return
@@ -90,8 +98,9 @@ def main():
         log(f"context {ctx//1000}k but no claude tty found")
         return
     open(STAMP, "w").close()
-    if forced:
-        os.remove(NOW)
+    for flag in (NOW, CLEAR):
+        if os.path.exists(flag):
+            os.remove(flag)
     script = f'''
 delay {DELAY}
 tell application "Terminal"
@@ -102,7 +111,11 @@ tell application "Terminal"
         set index of w to 1
         activate
         delay 0.5
-        tell application "System Events" to keystroke "/compact"
+        tell application "System Events" to keystroke "{cmd}"
+        delay 0.3
+        tell application "System Events" to key code 36
+        delay 2
+        tell application "System Events" to keystroke "{RESUME[cmd]}"
         delay 0.3
         tell application "System Events" to key code 36
         return "sent"
@@ -114,8 +127,8 @@ return "tab not found"
 '''
     subprocess.Popen(["/bin/sh", "-c", f"osascript -e '{script.replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}' >> '{LOG}' 2>&1"],
                      start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    why = "with the /COMPACT reminder" if forced else f">= {THRESHOLD//1000}k"
-    log(f"context {ctx//1000}k {why}: /compact scheduled into {tty}")
+    why = "by the lead's flag" if forced else f">= {THRESHOLD//1000}k"
+    log(f"context {ctx//1000}k {why}: {cmd} scheduled into {tty}")
 
 
 if __name__ == "__main__":

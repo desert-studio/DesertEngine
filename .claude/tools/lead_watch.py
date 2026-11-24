@@ -170,10 +170,10 @@ def main():
     if st["ctx"] > CLEAR_AT and (event == "UserPromptSubmit" or st["n"] - st["last_clear_n"] >= CLEAR_EVERY):
         st["last_clear_n"] = st["n"]
         open(COMPACT_NOW, "w").close()
-        lines.append(f"/COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — /compact is typed AUTOMATICALLY ~6 s after this turn ends "
-                     "(auto_compact.py, owner 11-24). In this turn: write the handover (memory STATE FOR /clear), fill every free agent slot (up to 4), "
-                     "start ready landings, and TELL THE OWNER in the reply «контекст Nk — запускаю /compact» (at a task boundary add that /clear is "
-                     "better and is theirs to type); continue at once after it (10-29: no idle before/after)")
+        lines.append(f"/COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — /compact is typed AUTOMATICALLY ~6 s after this turn ends, "
+                     "then a 'continue' prompt (auto_compact.py, owner 11-24). YOU decide: at a task boundary (slots full, hand-ins accepted) write "
+                     "the handover and run `python3 .claude/tools/auto_compact.py --clear` — /clear is typed instead (owner: «clear тоже делай ты»). "
+                     "In this turn fill every free agent slot (up to 4) and TELL THE OWNER «контекст Nk — запускаю /compact» (or /clear)")
     if st["n"] - st["last_report_n"] >= REPORT_EVERY:
         st["last_report_n"] = st["n"]
         read_pct = round(100 * 0.1 * st["read"] / units) if units else 0
