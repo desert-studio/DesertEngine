@@ -20,6 +20,10 @@ namespace Desert::HeaderTool
         std::string member;        // Block( Member ); empty for Whole
         std::string memberType;    // the member's declared type spelling, read from the struct body
         std::string run;           // Run( ... ): a ReflectedBlockRun enumerator
+        // Version( N ): the block's stored-shape version, 1 when not stated. Raised only for a change old scenes
+        // cannot be read through (a field removed or retyped) - Desert/Schema/ComponentSchema.lock
+        // (SchemaLock.hpp) refuses the build until it is, and refuses a raise nothing asked for.
+        unsigned    version = 1;
         std::string typeName;      // the reflected type's registry name, resolved once every header is parsed
         std::string headerInclude; // include path relative to source root
         std::string where;         // file:line of the marker, for diagnostics
@@ -34,8 +38,9 @@ namespace Desert::HeaderTool
         std::string registryName; // the registry key (the short name)
     };
 
-    // COMPONENT( Key( "Camera" ), Block( Data ) | Whole, Run( ActorsAndUI ) ) — `argsRaw` is the text between
-    // the parentheses. Every attribute is required and an unknown one is an error (written to `error`).
+    // COMPONENT( Key( "Camera" ), Block( Data ) | Whole, Run( ActorsAndUI ) [, Version( N )] ) — `argsRaw` is the
+    // text between the parentheses. Every attribute but Version is required and an unknown one is an error
+    // (written to `error`).
     ComponentBlock ParseComponentMeta( const std::string& argsRaw, std::string& error );
 
     // The declared type spelling of `member` in a struct body ("<type> <member> ;|=|{"), or nothing.

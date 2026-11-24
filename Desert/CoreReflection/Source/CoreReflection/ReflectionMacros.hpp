@@ -29,6 +29,7 @@
 //   Preview         an asset slot shows its content inline instead of only on hover
 //   SaveGame        the field is player progress: SaveGame slots write and restore only flagged fields
 //   EditCondition("Foo")  grey the row out while the bool field Foo of the same block is false ("!Foo" inverts)
+//   WasNamed("Old") the field's earlier name: old records are read from that key (repeatable, newest first)
 //
 // REFLECT() marks a struct/class for reflection. PROPERTY(...) marks the field that follows it.
 //
@@ -63,7 +64,8 @@
 //
 // Key("...") is the block's key in a scene record; Block( Member ) names the reflected member written as the
 // block, or Whole when the component itself is REFLECT() (Skybox); Run( ... ) is the ReflectedBlockRun the
-// serializer is registered in. The tool emits Engine/Generated/ReflectedComponentBlocks.gen.hpp from these
+// serializer is registered in; Version( N ) (optional, default 1) is raised only when old scenes cannot be read
+// through - a field removed or retyped - and Desert/Schema/ComponentSchema.lock enforces exactly that. The tool emits Engine/Generated/ReflectedComponentBlocks.gen.hpp from these
 // markers - the one list ComponentRegistry, ECS::ReflectedComponents and SceneMigrator read.
 #define REFLECT( ... )
 #define PROPERTY( ... )

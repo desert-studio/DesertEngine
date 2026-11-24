@@ -520,7 +520,10 @@ namespace Desert::Reflection
                 continue;
             }
             const FieldInfo& field = top.Type->Fields[top.Next++];
-            const auto       found = top.Src.Find( field.Name );
+            auto             found = top.Src.Find( field.Name );
+            // A field renamed with PROPERTY(WasNamed("Old")) is read from its old key in a record written before.
+            for ( std::size_t n = 0; !found && n < field.Meta.WasNamed.size(); ++n )
+                found = top.Src.Find( field.Meta.WasNamed[n] );
             if ( !found )
                 continue; // missing key — keep the field's current value
 

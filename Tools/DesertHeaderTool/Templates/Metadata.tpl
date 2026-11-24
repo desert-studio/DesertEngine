@@ -22,5 +22,6 @@ PropertyMetadata{ {% if f.meta.displayName %}.DisplayName = "{{ f.meta.displayNa
 {% if f.meta.replicated %}.Replicated = true, {% endif -%}
 {% if f.meta.editCondition %}.EditCondition = "{{ f.meta.editCondition }}", {% endif -%}
 {% if f.meta.refuse %}.Refuse = &::{{ f.meta.refuse }}, {% endif -%}
+{% if f.meta.hasWasNamed %}.WasNamed = { {% for n in f.meta.wasNamed %}"{{ n }}", {% endfor %}}, {% endif -%}
 }
 {#- the include sits mid-line in Field.tpl, so no newline follows the brace -#}
