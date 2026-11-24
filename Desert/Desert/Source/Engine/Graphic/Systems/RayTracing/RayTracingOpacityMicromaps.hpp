@@ -54,7 +54,7 @@ namespace Desert::Graphic::RayTracing
                  primitive.FirstSegmentRecord >= runVisited.size() || runVisited[primitive.FirstSegmentRecord] )
                 continue;
             runVisited[primitive.FirstSegmentRecord] = true;
-            const auto* geometry = static_cast<const RayTracingGeometryResource*>( primitive.Geometry );
+            const auto* geometry = static_cast<const RayTracingGeometryResource*>( primitive.LayoutOwner() );
             const RayTracingGeometryLayout layout = geometry->GetMetadataLayout();
             if ( layout.Segments.size() != primitive.SegmentRecordCount )
                 continue; // BuildRayTracingMetadata already refused such a run

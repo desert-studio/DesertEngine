@@ -5,7 +5,7 @@
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
 Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда run Quality "Quality: PathTracing.Denoiser Off"
-Когда run Quality "Quality: PathTracing.SamplesPerPixel 120"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 128"
 Когда run Quality "Quality: PathTracing.LightSampling 0"
 Когда frames 200
 Тогда-вид 0_night_all_120 the all-lights baseline after 120 paths; 0 errors / 0 VUID in editor.log

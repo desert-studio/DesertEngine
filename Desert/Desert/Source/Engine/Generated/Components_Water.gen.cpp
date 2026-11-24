@@ -6,6 +6,7 @@
 
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
 
+#include <Water/Public/BuoyancyComponent.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 #include <Water/Public/WaterZoneComponent.hpp>
 
@@ -13,8 +14,9 @@ namespace Desert::Core::Serialize::Generated
 {
     void RegisterComponents_Water( [[maybe_unused]] ComponentRegistrar& r )
     {
-        r.Add( ReflectedMemberBlock<::Desert::ECS::WaterBodyComponent, decltype( ::Desert::ECS::WaterBodyComponent::Data )>{ "WaterBody", "WaterBodyData", &::Desert::ECS::WaterBodyComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
-        r.Add( ReflectedMemberBlock<::Desert::ECS::WaterZoneComponent, decltype( ::Desert::ECS::WaterZoneComponent::Data )>{ "WaterZone", "WaterZoneData", &::Desert::ECS::WaterZoneComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::BuoyancyComponent, decltype( ::Desert::ECS::BuoyancyComponent::Data )>{ "Buoyancy", "BuoyancyData", &::Desert::ECS::BuoyancyComponent::Data, ReflectedBlockRun::ActorsAndUI, 1 } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::WaterBodyComponent, decltype( ::Desert::ECS::WaterBodyComponent::Data )>{ "WaterBody", "WaterBodyData", &::Desert::ECS::WaterBodyComponent::Data, ReflectedBlockRun::SkyAndAtmosphere, 1 } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::WaterZoneComponent, decltype( ::Desert::ECS::WaterZoneComponent::Data )>{ "WaterZone", "WaterZoneData", &::Desert::ECS::WaterZoneComponent::Data, ReflectedBlockRun::SkyAndAtmosphere, 1 } );
     }
 } // namespace Desert::Core::Serialize::Generated
 // NOLINTEND

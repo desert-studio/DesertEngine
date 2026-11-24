@@ -12,7 +12,7 @@ namespace Desert::Core::Serialize::Generated
 {
     void RegisterComponents_Landscape( [[maybe_unused]] ComponentRegistrar& r )
     {
-        r.Add( ReflectedMemberBlock<::Desert::ECS::LandscapeMaterialComponent, decltype( ::Desert::ECS::LandscapeMaterialComponent::Data )>{ "LandscapeMaterial", "LandscapeMaterialData", &::Desert::ECS::LandscapeMaterialComponent::Data, ReflectedBlockRun::Landscape } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::LandscapeMaterialComponent, decltype( ::Desert::ECS::LandscapeMaterialComponent::Data )>{ "LandscapeMaterial", "LandscapeMaterialData", &::Desert::ECS::LandscapeMaterialComponent::Data, ReflectedBlockRun::Landscape, 1 } );
     }
 } // namespace Desert::Core::Serialize::Generated
 // NOLINTEND

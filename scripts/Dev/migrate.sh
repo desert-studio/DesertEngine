@@ -17,7 +17,7 @@ for p in "$@"; do
 done
 cd "$DEV_ROOT" || exit 2
 LOG=$(dev_logdir migrate)
-BINARY="$DEV_ROOT/build/Bin/Debug/SceneMigrator"
+BINARY="$DEV_ROOT/build/Bin/${DEV_CONFIG:-Debug}/SceneMigrator"   # DEV_CONFIG=Release: same build + no-work-left check
 [ -f "$BINARY.exe" ] && BINARY="$BINARY.exe"
 
 dev_configure "$LOG" || exit 2
@@ -32,6 +32,7 @@ fi
 [ -x "$BINARY" ] || { echo "migrate.sh: $BINARY missing after build"; exit 2; }
 if ! dev_up_to_date SceneMigrator; then
     echo "migrate.sh: REFUSED — $BINARY is older than its inputs (ninja -n SceneMigrator in build/cmake/$DEV_PRESET has work left)"
+    ninja -C "$DEV_BUILD" -f "build-${DEV_CONFIG:-Debug}.ninja" -n SceneMigrator 2>&1 | grep -E '^\[[0-9]+/' | head -8
     exit 2
 fi
 

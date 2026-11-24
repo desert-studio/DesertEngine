@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <vector>
 
+#include <Water/Public/BuoyancyComponent.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 #include <Water/Public/WaterZoneComponent.hpp>
 
@@ -24,6 +25,16 @@ void RegisterReflection_Water();
 void RegisterReflection_Water()
 {
     using namespace ::Desert::Reflection;
+    {
+        using T = ::Desert::ECS::BuoyancyData;
+        TypeBuilder( "BuoyancyData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "PontoonSource", .Type = FieldType::Enum, .Offset = offsetof( T, PontoonSource ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PontoonSource )>(), .TypeName = "BuoyancyPontoonSource", .Meta = PropertyMetadata{ .DisplayName = "Pontoon Source", .Category = "Buoyancy", .Tooltip = "Collider: the pontoons are cut from this entity's collider, so they displace what the body displaces. Manual: the Pontoons list below (UE BuoyancyData.Pontoons).", .Summary = true, }, .EnumValues = { EnumValue{ "Collider", 0 }, EnumValue{ "Manual", 1 }, } } )
+                    .Field( FieldInfo{ .Name = "ColliderCellsPerAxis", .Type = FieldType::Int, .Offset = offsetof( T, ColliderCellsPerAxis ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::ColliderCellsPerAxis )>(), .TypeName = "int32_t", .Meta = PropertyMetadata{ .DisplayName = "Collider Cells Per Axis", .Category = "Buoyancy", .Tooltip = "How finely the collider is cut along each axis: N*N*N pontoons for a box. More cells follow the waves' shape under the body more closely and cost one water query each.", .HasRange = true, .RangeMin = 1, .RangeMax = 8, .EditCondition = "PontoonSource == Collider", } } )
+                    .Field( FieldInfo{ .Name = "Pontoons", .Type = FieldType::Struct, .Offset = offsetof( T, Pontoons ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Pontoons )>(), .TypeName = "std::vector<float>", .Meta = PropertyMetadata{ .DisplayName = "Pontoons", .Category = "Buoyancy", .Tooltip = "x y z radius per pontoon, body-local, cm (UE FSphericalPontoon RelativeLocation and Radius). Each sphere pushes up with the weight of the water its submerged part displaces.", .IsLength = true, .Advanced = true, .EditCondition = "PontoonSource == Manual", }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::Pontoons )>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::Pontoons )>, .ElementType = FieldType::Float, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::Pontoons )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::Pontoons )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::Pontoons )>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::Pontoons )> } )
+            .WithDefault<T>()
+            .Register();
+    }
     {
         using T = ::Desert::ECS::WaterBodyData;
         TypeBuilder( "WaterBodyData", sizeof( T ) )
@@ -37,6 +48,8 @@ void RegisterReflection_Water()
                     .Field( FieldInfo{ .Name = "RiverWidth", .Type = FieldType::Float, .Offset = offsetof( T, RiverWidth ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::RiverWidth )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "River Width", .Category = "River", .Tooltip = "The river's width across its spline, cm (UE the spline's RiverWidth).", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 1000000.0f, .IsLength = true, .EditCondition = "Type == River", } } )
                     .Field( FieldInfo{ .Name = "RiverFlowSpeed", .Type = FieldType::Float, .Offset = offsetof( T, RiverFlowSpeed ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::RiverFlowSpeed )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "River Flow Speed", .Category = "River", .Tooltip = "The surface speed on the centre line, cm/s (UE WaterVelocity); it eases to still water at the banks.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10000.0f, .EditCondition = "Type == River", } } )
                     .Field( FieldInfo{ .Name = "RiverFlowPeriod", .Type = FieldType::Float, .Offset = offsetof( T, RiverFlowPeriod ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::RiverFlowPeriod )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "River Flow Period", .Category = "River", .Tooltip = "The two-phase flow's period, s: how long one ripple texture is advected before it cross-fades to the other phase. Shorter stretches less, longer pulses less.", .HasRange = true, .RangeMin = 0.05f, .RangeMax = 60.0f, .EditCondition = "Type == River", } } )
+                    .Field( FieldInfo{ .Name = "Density", .Type = FieldType::Float, .Offset = offsetof( T, Density ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Density )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Density", .Category = "Fluid", .Tooltip = "The fluid's density, kg/m^3: a floating body is pushed up with the weight of the fluid it displaces (fresh water 1000, sea water 1025, oil about 900). A body denser than its fluid sinks.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 20000.0f, .Units = "kg/m3", } } )
+                    .Field( FieldInfo{ .Name = "Drag", .Type = FieldType::Float, .Offset = offsetof( T, Drag ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Drag )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Drag", .Category = "Fluid", .Tooltip = "How fast the fluid pulls a body in it to its own velocity, per second (a river's current carries a floating body; still water damps its bobbing and spin). The force at a pontoon is -Drag * displaced fluid mass * velocity relative to the fluid.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 100.0f, .Units = "1/s", } } )
             .WithDefault<T>()
             .Register();
     }

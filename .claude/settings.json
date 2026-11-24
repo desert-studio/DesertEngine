@@ -148,5 +148,6 @@
         ]
       }
     ]
-  }
+  },
+  "autoCompactWindow": 100000
 }

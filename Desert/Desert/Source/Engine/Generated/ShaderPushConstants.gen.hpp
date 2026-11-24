@@ -787,6 +787,43 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( NeuralRadianceCache, Adam ) == 32u, "NeuralRadianceCache::Adam: std430 offset" );
     static_assert( offsetof( NeuralRadianceCache, Adam2 ) == 48u, "NeuralRadianceCache::Adam2: std430 offset" );
 
+    // Programs/RayTracing/OpacityMicromapBake.shader (Compute)
+    struct OpacityMicromapBake
+    {
+        glm::uvec2 VertexAddress{};
+        glm::uvec2 IndexAddress{};
+        std::uint32_t VertexStride{};
+        std::uint32_t FirstVertex{};
+        std::uint32_t FirstIndex{};
+        std::uint32_t UvOffset{};
+        std::uint32_t TriangleCount{};
+        std::uint32_t OpacityTexture{};
+        std::uint32_t OpacitySampler{};
+        float OpacityCutoff{};
+        std::uint32_t MaterialFlags{};
+        std::uint32_t Std430Pad0[1]{};
+        glm::uvec2 DataAddress{};
+        glm::uvec2 TrianglesAddress{};
+        glm::uvec2 IndicesAddress{};
+    };
+    static_assert( sizeof( OpacityMicromapBake ) == 80u, "OpacityMicromapBake: std430 push block size" );
+    template <> inline constexpr bool IsBlock<OpacityMicromapBake> = true;
+    static_assert( offsetof( OpacityMicromapBake, VertexAddress ) == 0u, "OpacityMicromapBake::VertexAddress: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, IndexAddress ) == 8u, "OpacityMicromapBake::IndexAddress: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, VertexStride ) == 16u, "OpacityMicromapBake::VertexStride: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, FirstVertex ) == 20u, "OpacityMicromapBake::FirstVertex: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, FirstIndex ) == 24u, "OpacityMicromapBake::FirstIndex: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, UvOffset ) == 28u, "OpacityMicromapBake::UvOffset: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, TriangleCount ) == 32u, "OpacityMicromapBake::TriangleCount: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, OpacityTexture ) == 36u, "OpacityMicromapBake::OpacityTexture: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, OpacitySampler ) == 40u, "OpacityMicromapBake::OpacitySampler: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, OpacityCutoff ) == 44u, "OpacityMicromapBake::OpacityCutoff: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, MaterialFlags ) == 48u, "OpacityMicromapBake::MaterialFlags: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, Std430Pad0 ) == 52u, "OpacityMicromapBake::Std430Pad0: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, DataAddress ) == 56u, "OpacityMicromapBake::DataAddress: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, TrianglesAddress ) == 64u, "OpacityMicromapBake::TrianglesAddress: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, IndicesAddress ) == 72u, "OpacityMicromapBake::IndicesAddress: std430 offset" );
+
     // Programs/Debug/Overdraw.shader (Vertex)
     struct Overdraw
     {

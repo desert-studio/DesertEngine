@@ -421,7 +421,7 @@ namespace Desert::Graphic::RayTracing
             ++stats.Instances;
             if ( primitive.Submeshes.Lod > 0u )
                 ++stats.Lowered;
-            const void* rest = primitive.Wind.MeshPtr != nullptr ? primitive.Wind.Rest : primitive.Geometry;
+            const void* rest = primitive.LayoutOwner();
             if ( rest != nullptr && shared.insert( rest ).second )
                 stats.SharedBytes += static_cast<const RayTracingGeometryResource*>( rest )->GetMemoryBytes();
             const auto* mesh = static_cast<const Mesh*>( primitive.SourceMesh );

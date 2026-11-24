@@ -7,7 +7,7 @@
 # (the catalog line shows no rtfeat). The editor reads machine.json at launch, so each run is its own launch.
 # Frames of run A go under frames/on, run B under frames/off. Compare = per-pixel diff (never thumbnails).
 # The profile table (DesertCtl profile-dump) is the profiler's per-scope table over the last 0.5 s in editor.log.
-Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street_v70.desce
+Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position -20,170,330
 Дано --subject viewport set Camera.Direction -0.6,-0.45,-0.66
@@ -16,9 +16,9 @@
 Когда frames 120
 Когда profile-dump
 Тогда-вид 0_rt_shadows [omm_on_off] the bush and tree leaves cast alpha-cut shadows (holes between leaves, no solid quads); run A vs run B: per-pixel diff of 0_rt_shadows within noise (max |d| <= 2/255 outside the stochastic-shadow noise floor of two run-B frames); the RT shadow pass's GPU time in the profile table of run A LOWER than run B's; editor.log of run A has "[RayTracing] opacity micromaps:" with baked > 0; 0 VUID
-Когда run Quality "Quality: GlobalIllumination.Method 6"
-Когда run Quality "Quality: Reflections.Method 5"
-Когда run Quality "Quality: PathTracing.Denoiser 0"
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда run Quality "Quality: PathTracing.Denoiser Off"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
 Когда frames 200
 Когда profile-dump

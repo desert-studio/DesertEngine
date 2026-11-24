@@ -843,7 +843,13 @@ namespace Desert::Core
 
     SceneUpgradeReport UpgradeScene( SceneSerialized& scene )
     {
-        const SceneGenerations from = StatedGenerations( scene.Header );
+        SceneGenerations from = StatedGenerations( scene.Header );
+        // World Partition below its floor: every step under v12 (Tools/SceneMigrator, RunWorldPartitionSteps) reads
+        // the scene's WorldPartition block and nothing else - grids, HLOD layers, partitions. A scene that states no
+        // block (GI_Bistro_Night, WPAR 1) has nothing for them to move, so it starts its chain at the floor instead
+        // of being refused for a world it does not have.
+        if ( !scene.WorldPartition.has_value() && from.WorldPartition < kWorldPartitionUpgradeFloor )
+            from.WorldPartition = kWorldPartitionUpgradeFloor;
         if ( from == CurrentGenerations() )
         {
             SceneUpgradeReport current;

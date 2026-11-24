@@ -1,6 +1,6 @@
 # RT-WIN-PROOF: the hardware ray-tracing cards on the Windows RTX box, one editor session in F:/BistroFoliageProj.
 # Cards: RT-LOCAL-SHADOWS, RT-SECTION-MATS, RT-SCENE-2, MR6, RT-LEDGER, VIEW-CLOSE-LEAK, SC-CAPTURE-SHARE,
-# SC-FRAME-GUARD, RT-TRANSLUCENT-REFL. VG-RASTER.scn [vg_vsm], VOLFOG-SHOWCASE.scn and FPS-CPU-LOAD.scn are the
+# SC-FRAME-GUARD. RT-TRANSLUCENT-REFL has its own scenario. VG-RASTER.scn [vg_vsm], VOLFOG-SHOWCASE.scn and FPS-CPU-LOAD.scn are the
 # group's other three sessions (SHOTS-RUN.md).
 # Frame wait: the zero-length drag at 600,40 (sky / upper facade) as in REFL-RECAPTURE.scn - DesertCtl has no
 # frame-wait verb outside Play. Log checks read the run's editor.log (play_scenario keeps only the last reply line
@@ -78,17 +78,6 @@
 Когда run Scene "New Viewport (same scene)"
 Когда --subject viewport drag 600,40 600,40 8
 Тогда sc_frame_guard SC-FRAME-GUARD: two viewports of the same scene; editor.log: the second UpdateScene of a frame only reads (its write is refused / skipped and logged once), no double capture update, 0 VUID
-# --- RT-TRANSLUCENT-REFL: CornellDemo glass sphere on / off under traced reflections
-Когда run Scene "Open Scene CornellDemo.desce"
-Когда --subject viewport set Camera.Position 0,200,650
-Когда --subject viewport set Camera.Direction 0,-0.1,-1
-Когда --subject viewport drag 600,40 600,40 32
-Тогда-вид rt_glass_on RT-TRANSLUCENT-REFL: the glass sphere and its reflection in the floor / walls (traced reflections see the translucent surface)
-Когда run Entity "CB_GlassSphere"
-Когда --subject selection set Translation 0,-10000,70
-Когда --subject viewport drag 600,40 600,40 32
-Тогда-вид rt_glass_off RT-TRANSLUCENT-REFL: the sphere moved out of the box; frames_compare.py rt_glass_on rt_glass_off != 0 inside the floor reflection area (not only where the sphere itself was)
-Когда --subject selection set Translation 0,150,70
 # --- tail: machine.json back to defaults
 Когда run Quality "Quality: Shadows.Method Level"
 Когда run Quality "Quality: Reflections.Method Level"

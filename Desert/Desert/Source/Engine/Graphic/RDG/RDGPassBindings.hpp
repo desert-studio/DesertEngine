@@ -216,7 +216,8 @@ namespace Desert::Graphic::RDG
                              Access declared, SubresourceRange range, std::optional<SamplerDesc> sampler );
         // A sampler slot: no resource, only the state.
         void ResolveSampler( std::string_view shaderName, SamplerDesc sampler );
-        void ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared, uint32_t mip );
+        void ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared,
+                                  SubresourceRange range );
         // PushConstants' copy; private so no pass pushes bytes that are not a generated block.
         PassBindings& PushBytes( const void* data, uint32_t size );
 

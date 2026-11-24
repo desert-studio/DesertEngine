@@ -1,5 +1,5 @@
 # RENDER-PROXY: the render-state dirty set is fed at the source - ECS::SetLocalTransform (the one TransformComponent writer, a registry.patch) dirties the entity and its subtree; ECS::SetVisible / ECS::SetMaterial and the Static Mesh reflected edit (PostEditStaticMesh) dirty the entity; an unchanged value dirties nothing.
-Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce (static in edit mode: nothing moves by itself)
+Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
 Дано run View "View mode: Lit"; select Bistro_Research_Exterior_Paris_StreetLight_Glass_01B_6337 (the glass)
 Тогда-вид 0_idle after 120 frames with nothing edited: DesertCtl state --sections scene -> scene.renderDirty == 0; editor.log 0 error lines, 0 VUID
 Когда set selection Translation to the glass's translation + (0, 0, 50) (ControlService set-transform -> entity.SetLocalTransform)

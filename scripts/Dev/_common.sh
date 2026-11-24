@@ -63,9 +63,9 @@ dev_up_to_date() {
     # the CMake re-run behind it after every build ("[0/2] Re-checking globbed directories...", "[1/2] Re-running
     # CMake..."). Any OTHER step is real work left for the target.
     local out
-    out=$(ninja -C "$DEV_BUILD" -f build-Debug.ninja -n "$1" 2>/dev/null) || return 1
+    out=$(ninja -C "$DEV_BUILD" -f build-${DEV_CONFIG:-Debug}.ninja -n "$1" 2>/dev/null) || return 1
     grep -q '^ninja: no work to do' <<<"$out" && return 0
-    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] (Re-checking globbed directories|Re-running CMake)\.\.\.$'
+    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] ((Re-checking globbed directories|Re-running CMake)\.\.\.|GenVersion: .*|DesertHeaderTool: .*)$'
 }
 
 # dev_build <log> <target...> — build the Debug targets (and what they link) with the compiler cache, after any other
@@ -78,5 +78,5 @@ dev_build() {
         while pgrep -x ninja >/dev/null; do sleep 10; done
     fi
     # The compile cache's settings (base_dir, PCH digests) are the build's own: scripts/Dev/ccache_launcher.sh.
-    cmake --build "$DEV_BUILD" --config Debug -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
+    cmake --build "$DEV_BUILD" --config "${DEV_CONFIG:-Debug}" -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
 }

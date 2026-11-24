@@ -207,7 +207,8 @@ def main():
         lines = f.readlines()
     errs = sum(1 for l in lines if "error" in l.lower() or "assert" in l.lower())
     # a refused scene/prefab load leaves an empty view that still answers every step - the run proves nothing
-    refused = next((l.strip() for l in lines if "NOTHING WAS LOADED" in l), None)
+    refused = next((l.strip() for l in lines if "NOTHING WAS LOADED" in l
+                    or "Scene file does not exist" in l), None)
     if refused and not fail:
         fail = f"editor.log: {refused[:200]}"
     res = f"FAIL {fail}" if fail else f"PASS {steps} steps, {frames}/{thens} frames"

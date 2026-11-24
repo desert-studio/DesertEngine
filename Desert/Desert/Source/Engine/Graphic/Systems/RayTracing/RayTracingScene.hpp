@@ -179,6 +179,13 @@ namespace Desert::Graphic::RayTracing
         // keys an instance by with World (SurfaceCacheScene::PlacementKey): the hardware tracer's hit -> cards.
         // Null where the cache holds no such instance (skinned, landscape).
         const void* SourceMesh = nullptr;
+
+        // Whose segment layout the records follow: a wind BLAS is refitted from its rest-pose BLAS and keeps that
+        // layout, so every instance of one run has one owner whichever BLAS it traces this frame.
+        const void* LayoutOwner() const
+        {
+            return Wind.MeshPtr != nullptr ? Wind.Rest : Geometry;
+        }
     };
 
     // ONE PER-FRAME BLAS BUILD FOR A DEFORMED PRIMITIVE (UE FRayTracingDynamicGeometryUpdateParams): the skin pass

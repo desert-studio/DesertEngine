@@ -432,6 +432,17 @@ def self_check():
             cases[name] = None
             if '"deny"' not in out.stdout:
                 failed.append(name)
+        # Owner 11-23: continuing an agent past CONTINUE_MAX calls is refused.
+        send = os.path.join(STATE_DIR, "selfcheck-SEND.json")
+        with open(send, "w") as f:
+            json.dump({"calls": 60}, f)
+        sent = subprocess.run([sys.executable, __file__], input=json.dumps({
+            "tool_name": "SendMessage", "hook_event_name": "PreToolUse",
+            "tool_input": {"to": "selfcheck-SEND", "message": "next step"}}), capture_output=True, text=True)
+        os.remove(send)
+        cases["SendMessage to an agent with 60 calls"] = None
+        if '"deny"' not in sent.stdout:
+            failed.append("SendMessage to an agent with 60 calls")
         cases["lead launches a fat brief"] = None
         if '"deny"' not in out.stdout:
             failed.append("lead launches a fat brief")
@@ -479,6 +490,30 @@ MAX_WORKING_AGENTS = 5  # owner 10-29 «минимум 3, а максимум 5�
 NO_AGENT_CAP_THROUGH = _dt.date( 2026, 10, 15 )  # owner 10-16: cap of 3 back in force now (lift was through 10-19)
 MIN_FREE_DISK_GB = 15
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
+
+
+CONTINUE_MAX = 50  # owner 11-23: SendMessage to an agent past this many calls is refused
+
+
+def continued_agent_calls(tin):
+    """(target, calls) for a SendMessage recipient: an agent id, or a task code resolved through process-events.csv."""
+    import csv
+    target = str(tin.get("to") or tin.get("recipient") or tin.get("agent_id") or "").strip()
+    if not target:
+        return target, 0
+    ids = [target]
+    try:
+        with open(PROCESS_EVENTS) as f:
+            for row in csv.reader(f):
+                if len(row) >= 4 and row[1] == "launch" and row[2] == target:
+                    ids.append(row[3])
+    except OSError:
+        pass
+    calls = 0
+    for aid in ids:
+        if re.fullmatch(r"[\w.-]+", aid):
+            calls = max(calls, load_state(aid)[0].get("calls", 0))
+    return target, calls
 
 
 def lead_running_agents():
@@ -604,6 +639,13 @@ def main():
         if data.get("tool_name") == "mcp__notion__notion-fetch" and "386f5e0e" in str(tin.get("id") or ""):
             deny("[agent_guard] Тимлид: схему доски не читать — поля и значения в ~/.claude/tools/lead_templates.md "
                  "(владелец 10-21, пункт 6). Карточку — notion-search по коду, затем update.", data, "lead")
+    # Owner 11-23 («окей, обновляй все»): an agent past CONTINUE_MAX calls is not continued — its context costs more per
+    # call than a fresh agent reading its «## NEXT» (file:line + excerpts, DEV_CONTRACT §00).
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "SendMessage":
+        target, calls = continued_agent_calls(data.get("tool_input") or {})
+        if calls > CONTINUE_MAX:
+            deny(f"[agent_guard] Тимлид: агент {target} уже сделал {calls} вызовов (> {CONTINUE_MAX}) — не продолжать. "
+                 f"Запусти свежего агента по «## NEXT» его REMAINDER (владелец 11-23).", data, "lead")
     if not agent or agent_type == "explore":
         sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
 

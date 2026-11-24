@@ -1,0 +1,22 @@
+# RT-TRANSLUCENT-REFL: CornellDemo glass sphere on / off under hardware-traced reflections (own session: the
+# scene lives in Projects/Desert, RT-WIN-PROOF runs in F:/BistroFoliageProj).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/CornellDemo.desce
+Дано run View "View mode: Lit"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано run Quality "Quality: Reflections.Method HardwareTraced"
+Когда --subject viewport set Camera.Position 0,200,650
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_glass_on RT-TRANSLUCENT-REFL: the glass sphere and its reflection in the floor / walls (traced reflections see the translucent surface)
+Когда run Entity "CB_GlassSphere"
+Когда --subject selection set Translation 0,-10000,70
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_glass_off RT-TRANSLUCENT-REFL: the sphere moved out of the box; frames_compare.py rt_glass_on rt_glass_off != 0 inside the floor reflection area (not only where the sphere itself was)
+Когда --subject selection set Translation 0,150,70
+# --- tail: machine.json back to defaults
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Тогда rt_reset overrides cleared; editor.log 0 VUID over the whole run

@@ -305,9 +305,14 @@ namespace Desert::Graphic::RayTracing
                 return !lodFailed[lod];
             };
             const bool sways = variants != nullptr && data.Wind.Sways();
-            const auto                    firstRecord  = static_cast<uint32_t>( out.SegmentRecords.size() );
-            uint32_t                      recordCount  = 0;
-            bool                          recordsAdded = false;
+            // One segment run per RT-LOD: the records follow the segments of that level's BLAS.
+            struct SegmentRun
+            {
+                uint32_t First = 0;
+                uint32_t Count = 0;
+                bool     Added = false;
+            };
+            std::array<SegmentRun, kRayTracingMaxLod + 1u> lodRuns{};
             const InstanceCullDistance    cull       = ScaledByLens( data.CullDistance, inputs.DrawDistanceScale );
             const std::vector<glm::mat4>& transforms = *data.Transforms;
             for ( std::size_t instance = 0; instance < transforms.size(); ++instance )
@@ -350,14 +355,16 @@ namespace Desert::Graphic::RayTracing
                                        .Instance = component };
                 if ( variants != nullptr && instanceGeometry == nullptr && TracesProcedurally( *data.Mesh ) )
                     primitive.ProceduralMesh = data.Mesh;
-                if ( !recordsAdded )
+                SegmentRun& run = lodRuns[lod];
+                if ( !run.Added )
                 {
+                    run.First = static_cast<uint32_t>( out.SegmentRecords.size() );
                     AppendSegmentRecords( *data.Mesh, field.Sections, primitive, out );
-                    recordCount  = primitive.SegmentRecordCount;
-                    recordsAdded = true;
+                    run.Count = primitive.SegmentRecordCount;
+                    run.Added = true;
                 }
-                primitive.FirstSegmentRecord = firstRecord;
-                primitive.SegmentRecordCount = recordCount;
+                primitive.FirstSegmentRecord = run.First;
+                primitive.SegmentRecordCount = run.Count;
             }
         }
 

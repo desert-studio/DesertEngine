@@ -29,6 +29,6 @@
 Когда run Quality "Quality: GlobalIllumination.RayTracingLodError 50"
 Когда run View "View mode: Lit"
 # --- tail: clear the overrides saved to machine.json
-Когда run Quality "Quality: Shadows.Method Default"
-Когда run Quality "Quality: Reflections.Method Default"
-Когда run Quality "Quality: GlobalIllumination.Method Default"
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
