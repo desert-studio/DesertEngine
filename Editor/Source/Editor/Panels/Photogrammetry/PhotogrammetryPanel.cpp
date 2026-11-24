@@ -44,6 +44,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/CameraComponent.hpp>
@@ -52,7 +53,6 @@
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Graphic/Renderer.hpp>
-#endif
 
 namespace Desert::Editor
 {

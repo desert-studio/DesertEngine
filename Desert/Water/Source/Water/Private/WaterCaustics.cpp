@@ -128,9 +128,13 @@ namespace Desert::Graphic::System
             return;
         m_Reported = active;
         if ( active )
+        {
             LOG_INFO( "[Water] caustics=on res={}", kMapSize );
+        }
         else
+        {
             LOG_INFO( "[Water] caustics=off ({})", why );
+        }
     }
 
     // The graph's 'off' row (FrameTextures::SetSceneViewInputsOff) is this head, zeroed.

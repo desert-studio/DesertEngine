@@ -651,6 +651,8 @@ namespace Desert::Core::Rules
          { "ReflectionCapture", ComponentLoading::Spatial },
          { "Retarget", ComponentLoading::Spatial },
          { "RigidBody", ComponentLoading::Spatial },
+         // WATER-BUOYANCY: a floating body's pontoons travel with its RigidBody, in its cell.
+         { "Buoyancy", ComponentLoading::Spatial },
          { "VFX", ComponentLoading::Spatial },
          // A script's reach is whatever it does, which no file states. Spatial, and a game-manager script
          // is exactly what the author's AlwaysLoaded marker is for.

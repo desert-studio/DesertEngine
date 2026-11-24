@@ -47,5 +47,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<const WaterZoneBodies> Bodies;
         // The zone's bottom seen from above (UE WaterInfo ground depth); null over no landscape.
         std::shared_ptr<const Water::WaterInfoGround> Ground;
+        // The scene's gravity, cm/s^2 (SceneSettings::Gravity): a river fall's water accelerates by it down the
+        // sheet (Water::RiverFallSpeed), as the CPU query's does (Water::WaterBodyState::Gravity).
+        float Gravity = 0.0f;
     };
 } // namespace Desert::Graphic::System

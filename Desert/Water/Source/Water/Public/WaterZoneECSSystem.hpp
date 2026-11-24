@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/WindField.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -41,7 +42,12 @@ namespace Desert::ECS
     class WaterZoneECSSystem final : public System
     {
     public:
-        using System::System;
+        // The settings of the scene the zones draw in (Core::Scene::GetSettings, owned by the scene for its whole
+        // life): their gravity is what the rivers' falls accelerate by. Not the Scene itself - this header stays
+        // out of Scene.hpp's include graph.
+        explicit WaterZoneECSSystem( const Core::SceneSettings& settings ) : m_Settings( &settings )
+        {
+        }
 
         bool CanRunParallel() const override
         {
@@ -228,6 +234,7 @@ namespace Desert::ECS
                 draw.Zone.LODScale           = data.LODScale;
                 draw.Bodies                  = m_Bodies;
                 draw.Ground                  = GroundFor( entity, ground, groundKey, spacingCm, draw.Zone );
+                draw.Gravity                 = m_Settings->Gravity;
                 renderCommandBuffer.Emplace<Graphic::Render::WaterZoneCommand>( std::move( draw ) );
             }
         }
@@ -266,6 +273,7 @@ namespace Desert::ECS
             uint64_t                                      Key = 0;
             std::shared_ptr<const Water::WaterInfoGround> Ground;
         };
+        const Core::SceneSettings*                     m_Settings = nullptr;
         std::unordered_map<entt::entity, CachedGround> m_Ground;
         // The visible bodies the zones drew last frame (rebuilt only on a change) and the ground rows' storage.
         std::shared_ptr<const Graphic::System::WaterZoneBodies> m_Bodies;

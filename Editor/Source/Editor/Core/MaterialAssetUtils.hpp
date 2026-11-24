@@ -104,7 +104,7 @@ namespace Desert::Editor::MaterialAssetUtils
         if ( !row )
             return Common::MakeError<uint64_t>(
                  std::format( "'{}' was written but did not enter the content registry", path.generic_string() ) );
-        return static_cast<uint64_t>( row->Handle );
+        return Common::MakeSuccess( static_cast<uint64_t>( row->Handle ) );
     }
 
     // WHICH OF THE TWO THINGS HAPPENED. The function below can either author a material or hand back

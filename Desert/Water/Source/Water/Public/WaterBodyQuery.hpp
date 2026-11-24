@@ -55,6 +55,13 @@ namespace Desert::Water
         /// read, the queries answer with the surface the GPU drew (FFTSurfaceAt), not with the set's Gerstner
         /// generator. Null = Gerstner.
         std::shared_ptr<const FFTSurfaceSnapshot> FFTSurface;
+        /// The fluid's density, kg/m^3, and drag, 1/s (ECS::WaterBodyData::Density / Drag): what a buoyant body's
+        /// pontoons in this body are pushed up and held back by (BuoyancySimulation.hpp).
+        float Density = 1000.0f;
+        float Drag    = 1.5f;
+        /// The scene's gravity, cm/s^2 (SceneSettings::Gravity, the physics world's): what a river's falling water
+        /// accelerates by down its sheet (RiverFallSpeed). WaterSubsystem::SetWorld stamps it on every body.
+        float Gravity = 0.0f;
     };
 
     struct WaterQueryResult
@@ -147,6 +154,12 @@ namespace Desert::Water
     public:
         void Advance( double stepSeconds );
         void SetTime( double seconds );
+        /// The scene's gravity (cm/s^2) the bodies' falls accelerate by (WaterBodyState::Gravity); the next SetWorld
+        /// stamps it on the bodies.
+        void SetGravity( float gravity ) noexcept
+        {
+            m_Gravity = gravity;
+        }
 
         [[nodiscard]] float Time() const
         {
@@ -167,7 +180,8 @@ namespace Desert::Water
         [[nodiscard]] std::optional<WaterQueryHit> Query( const glm::vec3& point ) const;
 
     private:
-        double                                          m_Time = 0.0;
+        double                                          m_Time    = 0.0;
+        float                                           m_Gravity = 0.0f;
         std::vector<WaterBodyState>                     m_Bodies;
         std::vector<World::Landscape::LandscapeRayTile> m_Ground;
     };
