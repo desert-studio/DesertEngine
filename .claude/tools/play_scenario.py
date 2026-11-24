@@ -103,6 +103,8 @@ def main():
         os.remove(sock)
     log = open(os.path.join(out, "editor.log"), "w", encoding="utf-8", errors="replace")
     env = dict(os.environ, DESERT_ROOT=tree, DESERT_SCENARIO="1")
+    if hold:
+        env["DESERT_TIME_CAP_S"] = "0"  # run_capped.sh's 30-min wall-clock cap (11-25) is for unattended runs
     proc = subprocess.Popen([sys.executable, os.path.join(HERE, "run_capped.py"), editor, "--project", proj,
                              "--control-socket", sock, *launch], cwd=os.path.join(tree, "Editor"), env=env,
                             stdout=log, stderr=subprocess.STDOUT)
