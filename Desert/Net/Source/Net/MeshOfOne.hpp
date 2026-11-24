@@ -229,7 +229,8 @@ namespace Desert::Net
 
         void OnConnected( ConnectionId connection, std::string_view address ) override;
         void OnClosed( ConnectionId connection, const DisconnectInfo& info ) override;
-        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) override;
+        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                        NetClock::time_point received ) override;
 
         void PawnSpawned( PlayerId owner, std::uint32_t player, const PawnState& pawn ) override;
         void PawnDestroyed( NetId id ) override;

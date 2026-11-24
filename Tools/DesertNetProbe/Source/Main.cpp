@@ -402,7 +402,8 @@ namespace
             m_Peers.erase( it );
         }
 
-        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) override
+        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                        NetClock::time_point ) override
         {
             Peer& peer = m_Peers[connection];
             if ( data.empty() )
@@ -605,7 +606,8 @@ namespace
             m_Closed = true;
         }
 
-        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) override
+        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                        NetClock::time_point ) override
         {
             if ( data.empty() )
             {
@@ -781,15 +783,17 @@ namespace
 
     // A HEADLESS PLAYER (NET-1 scenario net1_two_clients; NET-ARCH §9 NET-10's bot client): the same
     // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step.
-    //   --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir x,y,z]
-    //         [--lag-ms L --loss P]
+    //   --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir x,y,z
+    //         --turn-deg-s R] [--lag-ms L --loss P]
+    // --turn-deg-s turns the walk direction about +Y at R degrees per second (a curve: radius = speed / R), and the
+    // pawn faces where it walks (NET-5's remote walk). |dir| below 1 walks slower (the server scales the move).
     // Walks its own pawn D cm along dir (server-authoritative: it stops when the SERVER's position of its pawn has
     // moved D cm), then idles; logs its own pawn and every remote pawn (interpolated) twice a second and a final
     // line per pawn with its displacement from where this client first saw it.
     int RunBot( int argc, char** argv )
     {
         std::string connect, cooked, tokenHex, name = "bot";
-        double      seconds = 10.0, walkCm = 0.0;
+        double      seconds = 10.0, walkCm = 0.0, turnDegPerSecond = 0.0;
         NetVec3     dir{ 1.f, 0.f, 0.f };
         NetSimulator simulator;
         for ( int i = 1; i < argc; ++i )
@@ -816,6 +820,8 @@ namespace
                 seconds = std::atof( value.c_str() );
             else if ( arg == "--walk-cm" )
                 walkCm = std::atof( value.c_str() );
+            else if ( arg == "--turn-deg-s" )
+                turnDegPerSecond = std::atof( value.c_str() );
             else if ( arg == "--lag-ms" )
                 simulator.SendLagMs = std::atoi( value.c_str() );
             else if ( arg == "--loss" )
@@ -838,7 +844,7 @@ namespace
         if ( connect.empty() || cooked.empty() || !token || seconds <= 0.0 )
         {
             Log( "usage: --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir "
-                 "x,y,z] [--lag-ms L --loss P]" );
+                 "x,y,z --turn-deg-s R] [--lag-ms L --loss P]" );
             return 1;
         }
         const std::optional<std::uint64_t> cookHash = ReadCookHash( cooked );
@@ -892,18 +898,26 @@ namespace
             if ( walking && client.OwnPawn() != kInvalidNetId && firstSeen.contains( client.OwnPawn() ) )
             {
                 const auto& own = client.Pawns().at( client.OwnPawn() );
-                const PawnState newest = own.History.Sample( 1e12 );
+                const PawnState newest = own.History.Newest();
                 if ( distance( newest.Position, firstSeen[client.OwnPawn()] ) >= walkCm )
                 {
                     walking = false;
                     Log( "[{}] walked {:.0f} cm (server position): stopping at step {}", name, walkCm, step );
                 }
             }
-            client.SendInput( walking ? dir : NetVec3{}, 0.f );
+            if ( walking && turnDegPerSecond != 0.0 )
+            {
+                const double turn = turnDegPerSecond * 3.14159265358979 / 180.0 / kNetStepHz;
+                const float  c = static_cast<float>( std::cos( turn ) ), s = static_cast<float>( std::sin( turn ) );
+                dir = { dir.X * c + dir.Z * s, dir.Y, -dir.X * s + dir.Z * c };
+            }
+            // Facing the walk (the editor's convention: yaw 0 faces -Z).
+            const float yaw = walking ? std::atan2( -dir.X, -dir.Z ) : 0.f;
+            client.SendInput( walking ? dir : NetVec3{}, yaw );
             // The cells around the SERVER's position of the own pawn, reported when they change.
             if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
             {
-                const PawnState newest = client.Pawns().at( client.OwnPawn() ).History.Sample( 1e12 );
+                const PawnState newest = client.Pawns().at( client.OwnPawn() ).History.Newest();
                 std::string     said;
                 if ( auto report = cells->Update( newest.Position, said ) )
                     client.ReportResidency( report->first, report->second );
