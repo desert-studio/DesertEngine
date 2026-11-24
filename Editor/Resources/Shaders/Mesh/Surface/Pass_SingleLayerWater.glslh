@@ -216,6 +216,9 @@ void main()
     // a river's cut leaf inside them: the river is drawn there (WaterBankClipped).
     if ( WaterBankClipped( i.WorldPosition.xz, i.VertexColor.b ) )
         discard;
+    // A river's fall gives way where the river's own surface is drawn (its overlap at the lip and the foot).
+    if ( WaterTileIsFall( i.VertexColor.b ) && WaterFallUnderRiver( i.WorldPosition ) )
+        discard;
     // The FFT ocean's normal per pixel (WaterPixelWaveFrame): the glint is as sharp as the finest cascade, not the
     // grid. The ripple maps then bend THIS frame (EvaluateSurface's tangent-space normal goes through i.TBN).
     mat3 waveTBN;
@@ -338,7 +341,7 @@ void main()
     const float bankBand  = WaterRiverBankBand( i.WorldPosition.xz, i.VertexColor.b );
     const float amount    = clamp( max( WaterFoamAmount( waveSet, WaterWavePlane( waveSet, i.UV1 ), i.Time, jitter, depth,
                                                          atten, viewDist, w ),
-                                        bankBand ),
+                                        max( bankBand, WaterFallFoam( i.UV0, i.VertexColor ) ) ),
                                    0.0, 1.0 );
     const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );
@@ -414,7 +417,7 @@ void main()
     // A river's surface also fades in over the bank mask's bilinear edge (WATER_RIVER_BANK_CLIP = the clip line,
     // WaterOutsideBank; 1 a half 50 cm texel inside), so the clip is never a hard edge where the bank's ground stands
     // below the baked level.
-    const float bankFade = i.VertexColor.b > 0.5
+    const float bankFade = i.VertexColor.b > 0.5 && !WaterTileIsFall( i.VertexColor.b )
                                ? smoothstep( WATER_RIVER_BANK_CLIP, 1.0, WaterFlowAt( i.WorldPosition.xz ).z )
                                : 1.0;
     const float shore    = ( w.ShoreFadeCm > 0.0 ? smoothstep( 0.0, w.ShoreFadeCm, baseLen ) : 1.0 ) * bankFade;

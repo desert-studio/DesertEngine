@@ -51,6 +51,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         // HideRayTracing: the device is probed as one without ray tracing (DeviceCaps HideRayTracing).
         bool HideRayTracing = false;
+        // HideOpacityMicromap / HideInvocationReorder: the device is probed as one without VK_EXT_opacity_micromap
+        // / VK_NV_ray_tracing_invocation_reorder (machine.json; the OMM / SER on-off comparison, RT-OMM-SER).
+        bool HideOpacityMicromap   = false;
+        bool HideInvocationReorder = false;
         // The --device-profile the host passes (DeviceProfile, DeviceCaps.hpp); applied after HideRayTracing.
         DeviceProfile Profile;
     };

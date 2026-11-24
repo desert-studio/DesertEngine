@@ -1,0 +1,15 @@
+# WATER-FALLS-FLOAT: Water_Falls - a river (WaterBody River, FlowSpeed 200 cm/s) runs 8 m above a lake on a cliff and pours over
+# its lip at x = 0: the spline's steep reach (rise/run > Water::kRiverFallMinSlope) is drawn as the river's falling
+# sheet (WaterRenderer fall rows, Vertex_WaterMesh.glslh WaterFallVertex) and answered by Water::RiverFallAt.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Falls.desce
+# A barrel (Capsule R 25, Mass 70, Buoyancy Collider) 10 m above the lip is carried to it by the current, dragged
+# down the sheet by the falling water's velocity (WaterQueryResult::Velocity = RiverFallSpeed) and floats in the lake.
+Дано --subject viewport set Camera.Position 100,600,-2200
+Дано --subject viewport set Camera.Direction -0.1,-0.15,1
+Когда run Action "Simulate"
+Когда advance 2
+Когда advance 2
+Тогда-вид 4_carried через 4 с бочку унесло к кромке
+Когда advance 2
+Когда advance 2
+Тогда-вид 5_dropped бочка упала и плавает в озере

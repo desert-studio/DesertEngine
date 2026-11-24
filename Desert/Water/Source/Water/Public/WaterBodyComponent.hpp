@@ -75,6 +75,20 @@ namespace Desert::ECS
                   Tooltip( "The two-phase flow's period, s: how long one ripple texture is advected before it "
                            "cross-fades to the other phase. Shorter stretches less, longer pulses less." ) )
         float RiverFlowPeriod = 1.0f;
+
+        // WATER-BUOYANCY: the fluid this body is, read by every BuoyancyComponent's pontoons in it (the one
+        // source of the water's density - a body floats by the water it is in, not by a value of its own).
+        PROPERTY( DisplayName( "Density" ), Category( "Fluid" ), Range( 1.0f, 20000.0f ), Units( "kg/m3" ),
+                  Tooltip( "The fluid's density, kg/m^3: a floating body is pushed up with the weight of the fluid "
+                           "it displaces (fresh water 1000, sea water 1025, oil about 900). A body denser than "
+                           "its fluid sinks." ) )
+        float Density = 1000.0f;
+
+        PROPERTY( DisplayName( "Drag" ), Category( "Fluid" ), Range( 0.0f, 100.0f ), Units( "1/s" ),
+                  Tooltip( "How fast the fluid pulls a body in it to its own velocity, per second (a river's "
+                           "current carries a floating body; still water damps its bobbing and spin). The force at "
+                           "a pontoon is -Drag * displaced fluid mass * velocity relative to the fluid." ) )
+        float Drag = 1.5f;
     };
 
     /// @p data's RiverSpline as points (a view of the flat floats; a trailing partial triple is ignored).

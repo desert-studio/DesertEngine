@@ -44,6 +44,8 @@ namespace Desert::Graphic::RayTracing
         // The view's RT-LOD selection (RayTracingFoliage.hpp), read and advanced by a TLAS gather; null (a scene
         // gather): every ISM instance at LOD 0.
         RayTracingFoliageLod* FoliageLod = nullptr;
+        // Its threshold (RayTracingFoliageSettings::LodErrorPerCm); 0: every ISM instance at LOD 0.
+        float FoliageLodErrorPerCm = 0.0f;
     };
 
     // RayTracingGatherResult: RayTracingScene.hpp (held by RayTracingSceneRenderer without this header).

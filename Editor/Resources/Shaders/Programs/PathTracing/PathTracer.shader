@@ -397,6 +397,16 @@ Shader "PathTracer"
             // walk's loop only: one ray never meets this many glass sheets in a scene.
             const uint kPathTracingMaxTranslucentLayers = 32u;
 
+            // THE SER PERMUTATION (DESERT_SER=1, System::PathTracer acquires it where the device catalog lists
+            // RayTracingFeature::InvocationReorder; DShaderParser enables GL_NV_shader_invocation_reorder for it).
+            // The coherence hint is the hit's SBT record index in kPathTracingSerKeyBits bits (NVIDIA: as few bits
+            // as name the materials; the all-ones key is the miss).
+            #ifndef DESERT_SER
+            #define DESERT_SER 0
+            #endif
+            const uint kPathTracingSerKeyBits = 16u;
+            const uint kPathTracingSerKeyMask = (1u << kPathTracingSerKeyBits) - 1u;
+
             bool PathTracingIsTransmissive()
             {
                 return any(greaterThan(payload.Transmission, vec3(0.0)));
@@ -436,7 +446,23 @@ Shader "PathTracer"
                 payload.ConeWidth    = coneWidth;
                 payload.ConeSpread   = SunParams.y;
                 payload.Transmission = vec3(0.0);
+            #if DESERT_SER
+                // SHADER EXECUTION REORDERING (RT-OMM-SER; UE PathTracing raygen NvReorderThread, NVIDIA SER
+                // guide): the traversal and the shading split, and between them the threads are regrouped by the
+                // hit's material - its SBT record, one per BLAS segment (RayTracingHitRecord.glslh) - so a warp
+                // runs one closest-hit program over one material instead of every bounce's mix. A miss sorts as
+                // its own key. The result is the plain traceRayEXT's: only the order of the shading moves.
+                hitObjectNV hit;
+                hitObjectTraceRayNV(hit, SceneTlas, gl_RayFlagsNoneEXT, cullMask, 0u, 1u, 0u, origin, tMin, direction,
+                                    distance, 0);
+                const uint materialKey = hitObjectIsHitNV(hit)
+                                             ? (hitObjectGetShaderBindingTableRecordIndexNV(hit) & kPathTracingSerKeyMask)
+                                             : kPathTracingSerKeyMask;
+                reorderThreadNV(hit, materialKey, kPathTracingSerKeyBits);
+                hitObjectExecuteShaderNV(hit, 0);
+            #else
                 traceRayEXT(SceneTlas, gl_RayFlagsNoneEXT, cullMask, 0u, 1u, 0u, origin, tMin, direction, distance, 0);
+            #endif
             }
             void PathTracingTraceMaterialTo(vec3 origin, vec3 direction, float coneWidth, float distance)
             {

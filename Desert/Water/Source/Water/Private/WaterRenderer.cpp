@@ -1222,6 +1222,57 @@ namespace Desert::Graphic::System
                 std::memcpy( m_Upload.data() + at, &row, sizeof( WaterTileRow ) );
                 ++rowCount;
             }
+
+            // A RIVER'S FALLS (Water::RiverFall, its bake's steep reaches): one row per stretch of each fall's sheet
+            // (Body.y = 2; Vertex_WaterMesh.glslh WaterFallVertex), drawn by the river's own template and material,
+            // its water's speed from the slope (Water::RiverFallSpeed under the scene's gravity, as the CPU query).
+            constexpr uint32_t kFallQuadsPerSide = 4u;
+            for ( size_t b = 0; b < bodies.size() && b < zone.Bodies->Flows.size(); ++b )
+            {
+                const std::shared_ptr<const Water::RiverFlowField>& flow = zone.Bodies->Flows[b];
+                if ( flow == nullptr || flow->Falls.empty() || bodies[b].Body.x < 0.0f )
+                    continue;
+                const WaterBodyLane& body    = bodies[b];
+                const auto           slot    = static_cast<uint32_t>( body.Body.x );
+                const uint32_t       program = bodyPrograms[b];
+                for ( const Water::RiverFall& fall : flow->Falls )
+                    for ( size_t k = 0; k + 1 < fall.Samples.size(); ++k )
+                    {
+                        const Water::RiverFallSample& a = fall.Samples[k];
+                        const Water::RiverFallSample& c = fall.Samples[k + 1];
+                        // The view cull (the tiles' frustum, as the quadtree's walk): the stretch's bounding sphere -
+                        // half its span, half the sheet's width and the surface's vertical reach around its middle.
+                        const glm::vec3 middle = 0.5f * ( a.Position + c.Position );
+                        const float     reach  = 0.5f * glm::length( c.Position - a.Position ) + 0.5f * fall.Width +
+                                            verticalExtent;
+                        if ( !frustum.IntersectsSphere( middle, reach ) )
+                            continue;
+                        if ( m_FrameDraws.empty() || m_FrameDraws.back().QuadsPerSide != kFallQuadsPerSide ||
+                             m_FrameDraws.back().MaterialSlot != slot || m_FrameDraws.back().ProgramSlot != program )
+                        {
+                            m_FrameDraws.push_back( { .FirstRow     = rowCount,
+                                                      .RowCount     = 0,
+                                                      .QuadsPerSide = kFallQuadsPerSide,
+                                                      .MaterialSlot = slot,
+                                                      .ProgramSlot  = program } );
+                        }
+                        ++m_FrameDraws.back().RowCount;
+                        WaterTileRow row;
+                        row.Tile   = glm::vec4( a.Position, fall.Width );
+                        row.Lod    = glm::vec4( c.Position, fall.LipFlowDistance + a.Distance );
+                        row.Zone   = glm::vec4( fall.Across.x, fall.Across.z, c.Distance - a.Distance,
+                                                static_cast<float>( kFallQuadsPerSide ) );
+                        row.Body   = body.Body;
+                        row.Body.y = 2.0f;
+                        row.Medium = glm::vec4( body.Medium.x, body.Medium.y,
+                                                Water::RiverFallSpeed( fall.FlowSpeed, a.Drop, zone.Gravity ),
+                                                Water::RiverFallSpeed( fall.FlowSpeed, c.Drop, zone.Gravity ) );
+                        const size_t at = m_Upload.size();
+                        m_Upload.resize( at + sizeof( WaterTileRow ) );
+                        std::memcpy( m_Upload.data() + at, &row, sizeof( WaterTileRow ) );
+                        ++rowCount;
+                    }
+            }
         }
         m_Walk.Rows = rowCount;
     }

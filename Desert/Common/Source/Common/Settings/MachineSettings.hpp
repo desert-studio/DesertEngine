@@ -128,6 +128,15 @@ namespace Common::Settings
         // start.
         bool HideRayTracing = false;
 
+        // RUN AS A CARD WITHOUT ONE RAY TRACING EXTENSION (RT-OMM-SER on/off comparison; UE keeps
+        // r.RayTracing.OpacityMicromaps / r.RayTracing.ShaderExecutionReordering as console variables). True = the
+        // probe plans that one row unreachable: VK_EXT_opacity_micromap (BLAS builds without micromaps,
+        // alpha-masked triangles all reach any-hit) / VK_NV_ray_tracing_invocation_reorder (raygen without
+        // hitObject reorder). Read once, when the Vulkan device is created; a change takes effect on the next
+        // start.
+        bool HideOpacityMicromap   = false;
+        bool HideInvocationReorder = false;
+
         // THE NN LAYER'S KERNEL PATH, FORCED on this machine (NN-RUNTIME step 2; UE keeps such a switch as a
         // console variable). Absent = the path the device selects (NeuralComputeCaps::Path). A forced path the
         // device cannot run is refused by the NN layer naming what is missing, never replaced by another

@@ -15,6 +15,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert
@@ -120,7 +121,7 @@ namespace Desert::Graphic::RayTracing
         Instanced,  // ONE instance of an ISM / foliage field: every instance is its own GPU-scene row
         Landscape,  // one landscape tile at the view's LOD
         Skinned,    // a deformed mesh, traced through its per-frame BLAS
-        Procedural, // a static/generic row whose mesh has no uploader BLAS (DynamicMesh): built in the graph
+        Procedural, // a static/generic row whose mesh is procedural (DynamicMesh): its BLAS built in the graph
         // A section whose instances the GPU wrote this frame (the landscape grass, GpuInstances.hpp): ONE
         // primitive per producer holds the BLAS and the segment run; its TLAS rows are written on the GPU
         // (RayTracingGpuInstanceSource), not by BuildRayTracingInstances. Counted by the rows reserved for it.
@@ -158,9 +159,9 @@ namespace Desert::Graphic::RayTracing
         // BLAS this frame.
         uint64_t       DeformedPositionsAddress = 0;
         RDG::BufferRef DeformedPositions;
-        // A mesh with no uploader BLAS (Mesh::GetRayTracingGeometry null, e.g. a DynamicMesh): the RT scene's
-        // procedural cache builds its (mesh, Submeshes) BLAS in "RayTracingScene.DynamicGeometry" and fills
-        // Geometry (RayTracingProceduralGeometry.hpp). Instanced rows keep Kind Instanced.
+        // A procedural mesh (Mesh::IsProceduralRayTracingGeometry, a DynamicMesh) with resident buffers: the RT
+        // scene's procedural cache builds its (mesh, Submeshes) BLAS in "RayTracingScene.DynamicGeometry" and
+        // fills Geometry (RayTracingProceduralGeometry.hpp). Instanced rows keep Kind Instanced.
         const Mesh* ProceduralMesh = nullptr;
         // RT-FOLIAGE-BLAS: a swaying ISM / foliage instance (its field's InstanceWind sways; RayTracingFoliage.hpp):
         // its mesh, the shared rest-pose BLAS of its RT-LOD and its key {entity, component instance}.
@@ -314,9 +315,10 @@ namespace Desert::Graphic::RayTracing
         glm::vec4 BladeBend{ 0.0f }; // and its Bend
     };
 
-    // A BLAS variant a gather resolved (RayTracingGeometryVariants::Resolve with masks set): the cache drops a
-    // variant no Resolve asked for in a frame, so a frame that keeps the gather instead of redoing it asks again
-    // for each use (RayTracingSceneRenderer::AddPasses) and regathers when the answer is another BLAS.
+    // A BLAS a gather resolved (RayTracingGeometryVariants::Resolve, the own LOD-0 BLAS included): the owner
+    // releases an entry no Resolve asked for a while and builds one on first ask, so a frame that keeps the gather
+    // instead of redoing it asks again for each use (RayTracingSceneRenderer::AddPasses) and regathers when the
+    // answer is another BLAS (a released and rebuilt one, a mesh that became resident, a re-upload).
     struct RayTracingVariantUse
     {
         Desert::Mesh*          MeshPtr  = nullptr;
@@ -332,13 +334,15 @@ namespace Desert::Graphic::RayTracing
         // Every primitive's per-segment material run (RayTracingSegmentRecord), indexed by FirstSegmentRecord.
         std::vector<RayTracingSegmentRecord>     SegmentRecords;
         std::vector<RayTracingGpuInstanceSource> GpuInstanced; // the GpuInstanced primitives' TLAS rows
-        std::vector<RayTracingVariantUse>        VariantUses;  // every masked Resolve of the gather
+        std::vector<RayTracingVariantUse>        VariantUses;  // one per distinct BLAS the gather resolved
+        std::unordered_set<const void*>          ResolvedGeometry; // the BLASes VariantUses already holds
 
         void Clear()
         {
             Primitives.clear();
             GpuInstanced.clear();
             VariantUses.clear();
+            ResolvedGeometry.clear();
             Skipped = {};
             Errors.clear();
             SegmentRecords.clear();

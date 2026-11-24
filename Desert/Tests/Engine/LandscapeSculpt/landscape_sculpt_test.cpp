@@ -2,7 +2,7 @@
 // what one step writes, what it leaves alone, that seam copies agree, and that the stroke's record undoes it
 // byte for byte. Plus the census of the editor's controls table (every panel widget is a palette command).
 
-#include <Engine/ECS/System/LandscapeTileImage.hpp>
+#include <Landscape/Public/LandscapeTileImage.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 

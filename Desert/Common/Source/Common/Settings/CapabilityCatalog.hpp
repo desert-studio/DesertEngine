@@ -113,6 +113,18 @@ namespace Common::Scalability
         RayTracingPipeline, // VK_KHR_ray_tracing_pipeline (raygen/hit/miss + SBT); NEVER on MoltenVK
     };
 
+    // RT-OMM-SER: the traversal accelerators a hardware-RT device adds on top of its RayTracingModes. Reader:
+    // RayTracingGeometry (OpacityMicromap: the masked BLAS carry a micromap baked from the opacity mask, UE
+    // r.RayTracing.OpacityMicromaps) and the path tracer / RT-reflection raygen programs (InvocationReorder: the
+    // DESERT_SER variant, hitObject + reorderThread by hit material, UE PathTracing NVAPI HitObject). Each one is
+    // listed only when the device enables its extension AND RayTracingAccel is Hardware; absent = today's any-hit /
+    // traceRay path, never a refusal. Mac: empty (MoltenVK exposes neither).
+    enum class RayTracingFeature : int
+    {
+        OpacityMicromap = 0, // VK_EXT_opacity_micromap
+        InvocationReorder,   // VK_NV_ray_tracing_invocation_reorder (Shader Execution Reordering)
+    };
+
     // How the device executes the rays RayTracingModes lists (UE GRHISupportsRayTracing is true only on hardware
     // RT). Reader: VulkanCapabilityCatalog (only Hardware lists a RayTracingMode for render methods), the log.
     // Emulated: the driver exposes the RT extensions over shader cores (GeForce GTX 10/16): the modes exist,
@@ -219,6 +231,9 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( Upscaler::DLSSRayReconstruction ) + 1 == kUpscalerNames.size() );
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
                    kRayTracingModeNames.size() );
+    inline constexpr std::array<std::string_view, 2> kRayTracingFeatureNames{ "OpacityMicromap", "InvocationReorder" };
+    static_assert( static_cast<std::size_t>( RayTracingFeature::InvocationReorder ) + 1 ==
+                   kRayTracingFeatureNames.size() );
 
     // WHICH NVIDIA RTX ARCHITECTURE THE DEVICE IS (CapabilityCatalog::Architecture), as far as the DLSS networks'
     // cost goes: Ada and newer run the transformer networks on FP8 tensor cores, Turing and Ampere do not, so
@@ -392,6 +407,10 @@ namespace Common::Scalability
         // Reader: VulkanCapabilityCatalog (RayTracingModes is {None} for render methods unless Hardware), the
         // catalog log line (rtaccel=). See RayTracingAcceleration.
         RayTracingAcceleration RayTracingAccel = RayTracingAcceleration::None;
+
+        // Reader: RayTracingGeometry (micromap bake at BLAS build) and the RT raygen programs (SER variant). See
+        // RayTracingFeature. Empty unless RayTracingAccel is Hardware.
+        std::vector<RayTracingFeature> RayTracingFeatures;
 
         // Reader: Graphic::ResolveRenderMethods (NeedsRenderArea: the virtual shadow map's attachment-less
         // raster). The largest square render area the device rasterizes: min of maxFramebufferWidth / Height and

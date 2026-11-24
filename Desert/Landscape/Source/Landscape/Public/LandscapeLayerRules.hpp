@@ -3,7 +3,7 @@
 // A landscape root's target layers as the paint stroke's rules. Its own header, not LandscapeRootOf.hpp:
 // that one is compiled by the loader, physics and a dozen suites that have no business with the asset
 // loader this needs.
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Landscape/Public/LandscapeLayerInfoService.hpp>
 #include <Engine/World/Landscape/LandscapePaint.hpp>
 
 #include <Common/Core/ResultStr.hpp>

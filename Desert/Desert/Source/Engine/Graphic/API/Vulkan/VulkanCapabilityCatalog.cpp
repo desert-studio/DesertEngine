@@ -170,6 +170,12 @@ namespace Desert::Graphic::API::Vulkan
                 catalog.RayTracingModes.push_back( RayTracingMode::RayQuery );
             if ( rayTracingPipeline )
                 catalog.RayTracingModes.push_back( RayTracingMode::RayTracingPipeline );
+            // RT-OMM-SER: the traversal accelerators, each a fact of its own row (DeviceCaps), offered only on
+            // hardware RT. SER reorders raygen invocations, so it exists only beside the pipeline mode.
+            if ( probe.Caps.Has( Capability::OpacityMicromap ) )
+                catalog.RayTracingFeatures.push_back( Common::Scalability::RayTracingFeature::OpacityMicromap );
+            if ( rayTracingPipeline && probe.Caps.Has( Capability::RayTracingInvocationReorder ) )
+                catalog.RayTracingFeatures.push_back( Common::Scalability::RayTracingFeature::InvocationReorder );
         }
 
         // Anisotropy: the standard levels up to the device's limit.

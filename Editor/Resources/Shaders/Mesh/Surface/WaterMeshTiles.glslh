@@ -14,7 +14,10 @@ struct WaterTileRow
     vec4 Zone; // xy = the zone's world (X, Z) origin, z = LOD scale (cm), w = quads per side
     // The tile's body (UE: the water mesh tile's WaterBodyIndex): x = its material's row (the draw's MaterialIndex),
     // y = 1 for a river (its surface is clipped to the bank mask, WaterOutsideBank), -1 for an ocean drawn under a
-    // river's cut leaf (clipped to the mask's complement, WaterBankClipped), 0 otherwise, z = 1 + its wave set in
+    // river's cut leaf (clipped to the mask's complement, WaterBankClipped), 2 for one stretch of a river's FALL
+    // (WaterTileIsFall: then Tile.xyz / Lod.xyz = the stretch's centre line ends A / B, Tile.w = the sheet's width,
+    // Lod.w = the river's flow distance at A, Zone.xy = across (X, Z), Zone.z = |B - A|, Medium.zw = the falling
+    // water's speed at A / B, cm/s), 0 otherwise, z = 1 + its wave set in
     // WaterWaveSets (0 = a flat body; WaterWaveSetOf), w = the body's index in its zone.
     vec4 Body;
     // The tile's body's medium (UE: the body's FWaterBodyRenderData; C++ WaterRenderer WaterBodyLane::Medium, one
@@ -61,6 +64,18 @@ layout( std430, binding = 24 ) readonly buffer WaterTiles
 };
 
 #include <Common/GerstnerWave.glslh>
+
+// A RIVER'S FALL (Water::RiverFall; C++ WaterRenderer::PrepareTiles' fall rows): the row draws one stretch of the
+// sheet the river pours over a lip (Vertex_WaterMesh.glslh WaterFallVertex), not a quadtree tile.
+bool WaterTileIsFall( float riverTile )
+{
+    return riverTile > 1.5;
+}
+// The sheet's flow streaks: its texture is stretched this much along the fall (falling water draws long streaks).
+#define WATER_FALL_STREAK 0.25
+// The sheet's ends overlap the river surface above the lip and below the foot by one spline sample; where the river's
+// tile draws, within this of its level, the sheet gives way (WaterFallUnderRiver), so the two never double up.
+#define WATER_FALL_SEAM_CM 20.0
 
 // The tile a water fragment belongs to (UE: the pixel's WaterBodyIndex -> its body's data): Vertex_WaterMesh.glslh
 // carries 1 + its row in WaterTileRows in VertexColor.a, the same on the triangle's three corners, so the fragment
@@ -372,7 +387,7 @@ vec3 WaterRiverSurfaceNormal( vec2 worldXZ )
 #define WATER_BANK_BAND_CM 50.0
 float WaterRiverBankBand( vec2 worldXZ, float riverTile )
 {
-    if ( riverTile < 0.5 || WaterFlowFrame.x < 0.5 )
+    if ( riverTile < 0.5 || WaterTileIsFall( riverTile ) || WaterFlowFrame.x < 0.5 )
         return 0.0;
     const float r    = WATER_BANK_BAND_CM;
     const float mask = min( min( WaterFlowAt( worldXZ ).z, min( WaterFlowAt( worldXZ + vec2( r, 0.0 ) ).z,
@@ -390,7 +405,7 @@ float WaterRiverBankBand( vec2 worldXZ, float riverTile )
 #define WATER_RIVER_BANK_CLIP 0.5
 bool WaterOutsideBank( vec2 worldXZ, float riverTile )
 {
-    return riverTile > 0.5 && WaterFlowAt( worldXZ ).z < WATER_RIVER_BANK_CLIP;
+    return riverTile > 0.5 && !WaterTileIsFall( riverTile ) && WaterFlowAt( worldXZ ).z < WATER_RIVER_BANK_CLIP;
 }
 
 // THE RIVER-TO-OCEAN LEAF (UE draws the ocean under the river): a quadtree leaf a river's banks cut, over an ocean,
@@ -398,6 +413,27 @@ bool WaterOutsideBank( vec2 worldXZ, float riverTile )
 // (WaterOutsideBank), the ocean (`riverTile` = -1, Water::WaterTileInstance::UnderRiver) to its complement - so
 // the leaf is partitioned by the one mask and threshold the CPU answers by (Water::QueryWater: inside the banks
 // the river, outside them the ocean): no hole beyond the bank, no double surface inside it.
+// The coordinate a surface's flow and foam run in: the world (X, Z) on a tile, the sheet's own (across, along the
+// flow, cm; Vertex_WaterMesh.glslh carries it in UV0, metres) on a fall, its along axis streaked.
+vec2 WaterFlowCoord( vec2 worldXZ, vec2 uv0, vec4 vertexColor )
+{
+    if ( !WaterTileIsFall( vertexColor.b ) )
+        return worldXZ;
+    return vec2( uv0.x, uv0.y * WATER_FALL_STREAK ) * 100.0;
+}
+
+// The fall's white water: the sheet aerates as it speeds up (UE's waterfall material: foam by flow speed), from
+// clear at the lip to white below. 0 off a fall.
+float WaterFallFoam( vec2 uv0, vec4 vertexColor )
+{
+    if ( !WaterTileIsFall( vertexColor.b ) )
+        return 0.0;
+    const WaterTileRow row   = WaterFragmentTile( vertexColor );
+    const float        along = clamp( ( uv0.y * 100.0 - row.Lod.w ) / max( row.Zone.z, 1.0 ), 0.0, 1.0 );
+    const float        speed = mix( row.Medium.z, row.Medium.w, along );
+    return smoothstep( 250.0, 900.0, speed );
+}
+
 bool WaterBankClipped( vec2 worldXZ, float riverTile )
 {
     if ( riverTile < -0.5 )
@@ -405,16 +441,43 @@ bool WaterBankClipped( vec2 worldXZ, float riverTile )
     return WaterOutsideBank( worldXZ, riverTile );
 }
 
+// A fall's fragment where the river's own tile draws (inside the banks, at the river's level): the sheet's overlap
+// above the lip and below the foot gives way to the surface it continues, so the river runs over the edge seamlessly.
+bool WaterFallUnderRiver( vec3 world )
+{
+    float level;
+    return WaterFlowAt( world.xz ).z >= WATER_RIVER_BANK_CLIP && WaterRiverLevel( world.xz, level ) &&
+           abs( world.y - level ) < WATER_FALL_SEAM_CM;
+}
+
 // THE TWO-PHASE FLOW (UE's water material FlowMap: two copies of a texture advected along the flow, half a period
 // apart, each faded out as it resets): the two advected positions of `worldXZ` at `time` and the second's weight.
 // The period is the fragment's own river's (`vertexColor` = SurfaceInput.VertexColor -> WaterFragmentTile ->
 // Medium.y = its WaterBodyData::RiverFlowPeriod), so two rivers of one frame each flow at their own pace.
 // No flow here: both positions are `worldXZ`, the weight 0.
+// On a fall's sheet `worldXZ` is the sheet's coordinate (WaterFlowCoord) and the flow runs down it at the falling
+// water's speed (Medium.zw: Water::RiverFallSpeed, the river's flow gaining by free fall - the velocity from the
+// slope), streaked by WATER_FALL_STREAK.
 void WaterFlowPhases( vec2 worldXZ, vec4 vertexColor, float time, out vec2 p0, out vec2 p1, out float w1 )
 {
     p0 = worldXZ;
     p1 = worldXZ;
     w1 = 0.0;
+    // The tile kind rides the vertex colour (b = WaterTileRow.Body.y, Vertex_WaterMesh.glslh): only a fall's sheet
+    // reads its row here, so the ocean's and the river's fragments never fetch a tile row for the fall branch.
+    if ( WaterTileIsFall( vertexColor.b ) )
+    {
+        const WaterTileRow row = WaterFragmentTile( vertexColor );
+        const float period = max( row.Medium.y, 0.05 );
+        const float along  = clamp( ( worldXZ.y / WATER_FALL_STREAK - row.Lod.w ) / max( row.Zone.z, 1.0 ), 0.0, 1.0 );
+        const vec2  fall   = vec2( 0.0, mix( row.Medium.z, row.Medium.w, along ) * WATER_FALL_STREAK );
+        const float ph0    = fract( time / period );
+        const float ph1    = fract( time / period + 0.5 );
+        p0                 = worldXZ - fall * ph0 * period;
+        p1                 = worldXZ - fall * ph1 * period;
+        w1                 = abs( ph0 - 0.5 ) * 2.0;
+        return;
+    }
     const vec3 flow = WaterFlowAt( worldXZ );
     if ( flow.z <= 0.0 )
         return;

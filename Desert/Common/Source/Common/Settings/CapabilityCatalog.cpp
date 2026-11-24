@@ -19,6 +19,11 @@ namespace Common::Scalability
             return kRayTracingModeNames[static_cast<std::size_t>( value )];
         }
 
+        std::string_view Name( RayTracingFeature value )
+        {
+            return kRayTracingFeatureNames[static_cast<std::size_t>( value )];
+        }
+
         std::string_view Name( RayTracingAcceleration value )
         {
             switch ( value )
@@ -133,6 +138,7 @@ namespace Common::Scalability
         if ( catalog.RayTracingAccel == RayTracingAcceleration::Emulated )
             out += " (emulated RT is not offered)";
         std::format_to( std::back_inserter( out ), " rtaccel={}", Name( catalog.RayTracingAccel ) );
+        AppendList( out, "rtfeat", catalog.RayTracingFeatures );
         AppendList( out, "aniso", catalog.AnisotropyLevels );
         AppendList( out, "out", catalog.DisplayOutputs );
         AppendList( out, "present", catalog.PresentModes );

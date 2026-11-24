@@ -6,7 +6,7 @@
 // ported Erosion / Hydro Erosion strokes (LandscapeSculpt.cpp) can run over the whole map with a brush of 1 — UE's
 // New Landscape offers neither, it creates flat or imports.
 
-#include <Engine/World/Landscape/LandscapeGenerator.hpp>
+#include <Landscape/Public/LandscapeGenerator.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 
