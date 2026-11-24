@@ -463,9 +463,11 @@ void WaterFlowPhases( vec2 worldXZ, vec4 vertexColor, float time, out vec2 p0, o
     p0 = worldXZ;
     p1 = worldXZ;
     w1 = 0.0;
-    const WaterTileRow row = WaterFragmentTile( vertexColor );
-    if ( WaterTileIsFall( row.Body.y ) )
+    // The tile kind rides the vertex colour (b = WaterTileRow.Body.y, Vertex_WaterMesh.glslh): only a fall's sheet
+    // reads its row here, so the ocean's and the river's fragments never fetch a tile row for the fall branch.
+    if ( WaterTileIsFall( vertexColor.b ) )
     {
+        const WaterTileRow row = WaterFragmentTile( vertexColor );
         const float period = max( row.Medium.y, 0.05 );
         const float along  = clamp( ( worldXZ.y / WATER_FALL_STREAK - row.Lod.w ) / max( row.Zone.z, 1.0 ), 0.0, 1.0 );
         const vec2  fall   = vec2( 0.0, mix( row.Medium.z, row.Medium.w, along ) * WATER_FALL_STREAK );

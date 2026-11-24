@@ -1208,6 +1208,13 @@ namespace Desert::Graphic::System
                     {
                         const Water::RiverFallSample& a = fall.Samples[k];
                         const Water::RiverFallSample& c = fall.Samples[k + 1];
+                        // The view cull (the tiles' frustum, as the quadtree's walk): the stretch's bounding sphere -
+                        // half its span, half the sheet's width and the surface's vertical reach around its middle.
+                        const glm::vec3 middle = 0.5f * ( a.Position + c.Position );
+                        const float     reach  = 0.5f * glm::length( c.Position - a.Position ) + 0.5f * fall.Width +
+                                            verticalExtent;
+                        if ( !frustum.IntersectsSphere( middle, reach ) )
+                            continue;
                         if ( m_FrameDraws.empty() || m_FrameDraws.back().QuadsPerSide != kFallQuadsPerSide ||
                              m_FrameDraws.back().MaterialSlot != slot || m_FrameDraws.back().ProgramSlot != program )
                         {

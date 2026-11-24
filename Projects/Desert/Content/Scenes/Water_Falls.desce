@@ -709,8 +709,8 @@
             ],
             "WaterBody": {
                 "WaterWaves": {
-                    "Guid": "",
-                    "Path": ""
+                    "Guid": "07d47b430fcb4f73ad47488a19c6b5b8",
+                    "Path": "assets:Water/Waves/CalmOcean.dwaves"
                 },
                 "OceanExtents": [
                     6400.0,
