@@ -1,9 +1,9 @@
 # WATER-BUOYANCY-RIVER: a barrel (Collider Capsule R 30, HalfHeight 40, axis X; Mass 150; Buoyancy Collider) on a river
 # (WaterBody Type River, RiverFlowSpeed 150 cm/s, Drag 1.5 1/s) is carried downstream by the current: the drag of
 # its pontoons pulls it to the water's velocity (WaterQueryResult::Velocity).
-Сцена Content/Scenes/Water_River_Buoyancy.desce
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_River_Buoyancy.desce
 Дано --subject viewport set Camera.Position 0,600,-1200
 Дано --subject viewport set Camera.Direction 0,-0.4,1
 Когда run Play
-Когда wait 5
+Когда advance 5
 Тогда-вид 4_barrel_drift через 5 с бочка снесена ниже по течению (≈ 5-7 м от точки старта), плывёт, не тонет

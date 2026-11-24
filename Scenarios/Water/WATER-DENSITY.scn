@@ -1,9 +1,9 @@
 # WATER-DENSITY: the same crate (850 kg/m3, 100 cm, Mass 850) in two still bodies side by side: water (Density 1000)
 # and «oil» (Density 900, its own WaterBody with OceanExtents 2000 x 2000). Draft = 850/1000 = 85 % in water,
 # 850/900 = 94 % in oil.
-Сцена Content/Scenes/Water_Density.desce
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Density.desce
 Дано --subject viewport set Camera.Position 0,200,-800
 Дано --subject viewport set Camera.Direction 0,-0.1,1
 Когда run Play
-Когда wait 8
+Когда advance 8
 Тогда-вид 5_density в масле осадка ящика заметно глубже, чем в воде (≈ 94 % против 85 %)
