@@ -10,7 +10,7 @@
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeEditTarget.hpp>
-#include <Engine/ECS/LandscapeLayerRules.hpp>
+#include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
@@ -408,7 +408,7 @@ namespace Desert::Editor::Commands
                 return Common::MakeFormattedError<World::Landscape::LandscapeEditLayerTarget>(
                      "heightmap: the landscape root is not loaded" );
             auto rules = ECS::LandscapeLayerRulesOf( registry.get<ECS::LandscapeComponent>( root ),
-                                                     *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
+                                                     *Runtime::GetLandscapeLayerInfoService() );
             if ( !rules )
                 return Common::MakeFormattedError<World::Landscape::LandscapeEditLayerTarget>( "heightmap: {}",
                                                                                                rules.GetError() );
@@ -524,7 +524,7 @@ namespace Desert::Editor::Commands
             const auto& body = registry.get<ECS::LandscapeComponent>( root );
             if ( body.Layers.empty() )
                 return Common::MakeSuccess( Rules{} );
-            auto* service = Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+            auto* service = Runtime::GetLandscapeLayerInfoService();
             if ( service == nullptr )
                 return Common::MakeError<Rules>( "landscape edit layers: no landscape layer info service" );
             auto rules = ECS::LandscapeLayerRulesOf( body, *service );

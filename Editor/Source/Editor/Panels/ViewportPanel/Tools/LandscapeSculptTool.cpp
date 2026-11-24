@@ -9,7 +9,7 @@
 #include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/ToastManager.hpp>
-#include <Engine/ECS/LandscapeLayerRules.hpp>
+#include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
@@ -246,7 +246,7 @@ namespace Desert::Editor::Tools
             return Common::MakeError( target.GetError() );
         auto rootEntity = ECS::FindLandscapeRootEntity( scene.GetRegistry(), *landscape );
         auto rules = ECS::LandscapeLayerRulesOf( scene.GetRegistry().get<ECS::LandscapeComponent>( rootEntity ),
-                                                 *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
+                                                 *Runtime::GetLandscapeLayerInfoService() );
         if ( !rules )
             return Common::MakeError( std::format( "landscape sculpt: {}", rules.GetError() ) );
         auto layer = ECS::FindLandscapeEditLayerTarget( scene.GetRegistry(), *landscape, rules.ExtractValue(),

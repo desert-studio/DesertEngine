@@ -36,7 +36,7 @@
 #include <filesystem>
 #include <format>
 #include <string>
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Landscape/Public/LandscapeLayerInfoService.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 
 namespace Desert::Editor
@@ -630,7 +630,7 @@ namespace Desert::Editor
         }
         const auto layers  = registry.get<ECS::LandscapeComponent>( root ).Layers; // a copy: commands edit it
         auto&      paint   = Core::LandscapeSculptState::Get().Paint;
-        auto&      service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+        auto&      service = *Runtime::GetLandscapeLayerInfoService();
 
         // The visibility layer (UE's Visibility tool, FLandscapeToolVisibility): a target of its own above the
         // root's layers, never one of them. Painting cuts a hole, Shift (the stroke's invert) fills it back; the

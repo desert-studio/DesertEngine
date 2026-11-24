@@ -7,7 +7,7 @@
 #include <Common/Json/Json.hpp>
 
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
-#include <Engine/World/Landscape/LandscapeGenerator.hpp>
+#include <Landscape/Public/LandscapeGenerator.hpp>
 
 #include <cstdlib>
 

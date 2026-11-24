@@ -1,7 +1,7 @@
-#include "LandscapeECSSystem.hpp"
+#include <Landscape/Public/LandscapeECSSystem.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/ECS/System/LandscapeTileImage.hpp>
+#include <Landscape/Public/LandscapeTileImage.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -18,7 +18,7 @@
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeWeightmap.hpp>
+#include <Landscape/Public/LandscapeWeightmap.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -29,8 +29,8 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include <Engine/Runtime/Services/Landscape/LandscapeGrassTypeService.hpp>
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Landscape/Public/LandscapeGrassTypeService.hpp>
+#include <Landscape/Public/LandscapeLayerInfoService.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 #include <Engine/World/Landscape/LandscapeTileComponent.hpp>
@@ -199,7 +199,7 @@ namespace Desert::ECS
                 // The service logs a failed layer once; a failed layer is simply absent here, and the tile's
                 // channels of it are reported below as layers the landscape does not list. Listed by address:
                 // the service holds the data (UE: a proxy's layer infos are object references, never copies).
-                auto&       service = *Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+                auto&       service = *Runtime::GetLandscapeLayerInfoService();
                 const auto& handles = registry.get<LandscapeComponent>( rootEntity ).Layers;
                 for ( const Assets::AssetHandle& handle : handles )
                 {
@@ -547,7 +547,7 @@ namespace Desert::ECS
         // service's built revision, the material service's invalidation version - or while one was pending.
         auto*           meshes        = Runtime::ResourceRegistry::GetMeshService();
         auto*           materials     = Runtime::ResourceRegistry::GetMaterialService();
-        auto*           types         = Runtime::ResourceRegistry::GetLandscapeGrassTypeService();
+        auto*           types         = Runtime::GetLandscapeGrassTypeService();
         GrassDrawCache& draws         = m_GrassDraws[rootId];
         const uint64_t  contentSerial = Assets::ContentRegistry::WriteSerial();
         bool            stale         = draws.Generation == 0u || !draws.Complete ||
@@ -626,7 +626,7 @@ namespace Desert::ECS
         const auto& grassLayers = m_GrassLayers;
         auto*       meshes      = Runtime::ResourceRegistry::GetMeshService();
         auto*       materials   = Runtime::ResourceRegistry::GetMaterialService();
-        auto*       types       = Runtime::ResourceRegistry::GetLandscapeGrassTypeService();
+        auto*       types       = Runtime::GetLandscapeGrassTypeService();
 
         // GRASS-FIELD: what each grass layer's varieties add up to as a cover, once the blades are thinned out
         // with distance - the leaf area they stand for per m2 of ground (a variety's Density per 100 m2 times one

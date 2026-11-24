@@ -24,7 +24,7 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/Runtime/Services/Landscape/LandscapeGrassTypeService.hpp>
+#include <Landscape/Public/LandscapeGrassTypeService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
 #include <Engine/Graphic/View/TemporalSuperResolution.hpp>

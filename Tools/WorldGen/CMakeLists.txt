@@ -15,15 +15,15 @@ desert_add_executable(WorldGen FOLDER Tools SOURCES ${_sources} ${_generated}
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeGenerator.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeSculpt.cpp"
+    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeGenerator.cpp"
+    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeSculpt.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeBrush.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeEditCache.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeEditLayers.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeEditLayerStack.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeSplines.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapePaint.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/World/Landscape/LandscapeTileFiles.cpp"
+    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeTileFiles.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/Serialize/SceneDependencies.cpp")
 desert_depend_on_codegen(WorldGen)
 target_compile_definitions(WorldGen PRIVATE DESERT_REFLECTION_DATA_ONLY)
