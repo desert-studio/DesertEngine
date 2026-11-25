@@ -907,6 +907,9 @@ RiverSpline: vector<float>
 RiverWidth: float
 RiverFlowSpeed: float
 RiverFlowPeriod: float
+FallFoam: AssetHandle
+FallSpray: AssetHandle
+FallMist: AssetHandle
 Density: float
 Drag: float
 

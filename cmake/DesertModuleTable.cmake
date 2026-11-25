@@ -61,12 +61,13 @@ desert_module(Renderer DEPS Engine UE "Renderer")
 desert_module(Media DEPS Engine Audio UE "MediaAssets")
 desert_module(Landscape DEPS Engine UE "Landscape" REFLECTED)
 desert_module(Destruction DEPS Engine UE "GeometryCollectionEngine" REFLECTED)
-# Water privately needs the Renderer as UE's Water plugin does: its single layer water pass implements the
-# Renderer's ISingleLayerWaterPass (Graphic/Systems/Scene/SingleLayerWaterPass.hpp), and its bodies stand on the landscape.
-desert_module(Water DEPS Engine Landscape Renderer UE "Water" REFLECTED)
 # VFX privately needs the Renderer as Niagara does: its particle renderer implements the Renderer's ISceneFXSystem
 # (UE FFXSystemInterface, Graphic/Systems/Scene/SceneFXSystem.hpp).
 desert_module(VFX DEPS Engine Renderer UE "Niagara" REFLECTED)
+# Water privately needs the Renderer as UE's Water plugin does: its single layer water pass implements the
+# Renderer's ISingleLayerWaterPass (Graphic/Systems/Scene/SingleLayerWaterPass.hpp), and its bodies stand on the landscape.
+# Its falls play their foot's effects as the VFX module's systems, as UE's Water does with Niagara.
+desert_module(Water DEPS Engine Landscape Renderer VFX UE "Water" REFLECTED)
 desert_module(Hair DEPS Engine UE "HairStrands")
 # L7
 desert_module(Foliage DEPS Landscape UE "Foliage" REFLECTED)

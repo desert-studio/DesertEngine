@@ -104,6 +104,10 @@ namespace Desert::ECS
         // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
         bool RequestRestart = false;
 
+        // The share (0..1) of every emitter's births this placement plays, set by the code that owns the effect (a
+        // river's fall by its landing speed, Water/WaterFallEffects). Transient - not reflected.
+        float SpawnScale = 1.0f;
+
         // Set by a Level Sequence's VFX track (LevelSequenceEntityHost::DriveEffect); nullopt = the effect runs on
         // the world's time as authored. While set, this instance's age is the sequence's - the scene's delta and
         // AutoActivate do not move it. The Sequencer preview gives it back on Restore. Transient - not reflected.

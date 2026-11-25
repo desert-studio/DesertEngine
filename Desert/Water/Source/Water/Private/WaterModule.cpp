@@ -3,6 +3,7 @@
 #include <Water/Public/WaterBodyComponent.hpp>
 #include <Water/Public/WaterBodyGather.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
+#include <Water/Public/WaterFallEffects.hpp>
 #include <Water/Public/WaterRenderer.hpp>
 #include <Water/Public/WaterWavesAsset.hpp>
 #include <Water/Public/WaterWavesService.hpp>
@@ -237,6 +238,9 @@ namespace Desert::Water
                  r.prepare<ECS::BuoyancyComponent>();
                  r.prepare<ECS::WaterZoneComponent>();
              } );
+        // The foam, spray and mist at the foot of every river's falls.
+        hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>
+                                     { return std::make_unique<WaterFallEffects>(); } );
         // The water zones and the bodies inside them (WATER-W6): one command per zone.
         hooks.RenderCollectors.push_back( []( Core::Scene& scene )
                                           { scene.AddSystem<ECS::WaterZoneECSSystem>( scene.GetSettings() ); } );
