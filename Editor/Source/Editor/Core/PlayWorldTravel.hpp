@@ -65,7 +65,7 @@ namespace Desert::Editor
                      []( const std::string& path )
                      {
                          return Common::MakeFormattedError<bool>(
-                              "OpenLevel('{}') needs a game world -- press Play; the level being authored is "
+                              "level.open('{}') needs a game world -- press Play; the level being authored is "
                               "not replaced",
                               path );
                      } );

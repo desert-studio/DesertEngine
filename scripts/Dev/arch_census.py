@@ -21,7 +21,7 @@ ENGINE = re.compile(r"^Desert/(?!Tests/|Projects/).*\.(hpp|cpp|h)$")
 CODE = re.compile(r"^(Desert|Editor|Runtime|Server)/(?!Tests/|Projects/|.*Generated/|.*(?:SMAAAreaTexData|IconsMaterialDesignIcons)\.h)"
                   r".*\.(hpp|cpp|h)$")
 # The sources whose worlds share a process.
-STATICS = re.compile(r"^Desert/(Desert/Source/Engine|Common/Source/Common/Core|UI|Audio)/.*\.(hpp|cpp|h)$")
+STATICS = re.compile(r"^(Desert/(Desert/Source/Engine|Common/Source/Common/Core|UI|Audio|Landscape|Water|VFX)|Editor/Source|Runtime)/.*\.(hpp|cpp|h)$")
 MAX_LINES = 2500
 RULES = {
     # A process-wide object: breaks two worlds in one process (audit 8, 13, 14).
@@ -29,6 +29,10 @@ RULES = {
                                      r":\s*public\s+[\w:]*Singleton\s*<")),
     # The engine knows a game's content by name.
     "content-name": (ENGINE, re.compile(r'"[^"\n]*\b(Bistro|Downtown|GI_Bistro_Night|Sandbox)\w*[^"\n]*"')),
+    # Mutable state at namespace scope (the g_ convention): no owner, shared by every world.
+    "namespace-state": (STATICS, re.compile(r"^\s*(?!.*\b(?:const|constexpr|constinit|extern|return|using)\b)"
+                                            r"(?:(?:static|inline|thread_local)\s+)*[A-Za-z_][\w:]*(?:<.*>)?[\s*]+"
+                                            r"g_\w+\s*(?:\[[^\]]*\]\s*)?(?:[;{=]|$)", re.M)),
     # An engine library reaches up into the editor.
     "engine-includes-editor": (ENGINE, re.compile(r'#include\s*[<"](Editor|EditorCore)/')),
     "todo": (CODE, re.compile(r"//.*\b(TODO|FIXME|HACK)\b")),
@@ -68,7 +72,9 @@ def hidden_statics(text):
                 head = re.split(r"[=({;]", text[m.end():m.end() + 400], maxsplit=1)[0]
                 while "<" in head and re.search(r"<[^<>]*>", head):
                     head = re.sub(r"<[^<>]*>", "", head)
-                if not re.search(r"\b(const|constexpr|constinit)\b", head):
+                # A const pointee does not make the pointer const: only what follows the last '*' counts.
+                own = head.rsplit("*", 1)[-1] if not re.search(r"\b(constexpr|constinit)\b", head) else head
+                if not re.search(r"\b(const|constexpr|constinit)\b", own):
                     found.append(text.count("\n", 0, m.start()) + 1)
             continue
         if token == "{":
@@ -133,8 +139,15 @@ def main():
         if rises and "--accept-rise" not in sys.argv:
             print(f"arch_census: {len(rises)} rise(s), baseline not written")
             return 1
+        reasons = list((base or {}).get("_accepted_rises", []))
+        if rises:
+            at = sys.argv.index("--accept-rise") + 1
+            if at >= len(sys.argv) or sys.argv[at].startswith("--"):
+                print("arch_census: --accept-rise names no reason, baseline not written")
+                return 1
+            reasons.append(sys.argv[at])
         with open(BASE, "w", encoding="utf-8", newline="\n") as out:
-            json.dump(counts, out, indent=1, sort_keys=True)
+            json.dump({**counts, "_accepted_rises": reasons} if reasons else counts, out, indent=1, sort_keys=True)
             out.write("\n")
         print("arch_census: baseline", total)
         return 0

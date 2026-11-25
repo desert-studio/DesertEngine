@@ -17,7 +17,7 @@ namespace Desert::Core
             path = Project::ProjectContext::DefaultScenePath();
             if ( path.empty() )
                 return Common::MakeError<std::string>(
-                     "OpenLevel names no level and the project has no default map (DefaultScene in the "
+                     "level.open names no level and the project has no default map (DefaultScene in the "
                      ".deproj, set in Build Settings)" );
         }
         else
@@ -29,13 +29,13 @@ namespace Desert::Core
                 path = ( std::filesystem::path( Project::ProjectContext::Directory() ) / named ).string();
             else
                 return Common::MakeFormattedError<std::string>(
-                     "OpenLevel('{}') refused: a relative level name is relative to the project folder and no "
+                     "level.open('{}') refused: a relative level name is relative to the project folder and no "
                      "project is open",
                      level );
         }
 
         if ( !Common::Utils::FileSystem::Exists( path ) ) // VFS-aware: a packaged game reads its pak
-            return Common::MakeFormattedError<std::string>( "OpenLevel('{}') refused: '{}' does not exist", level,
+            return Common::MakeFormattedError<std::string>( "level.open('{}') refused: '{}' does not exist", level,
                                                             path );
         return Common::MakeSuccess( std::move( path ) );
     }
