@@ -286,7 +286,7 @@ namespace Desert::Core
         if ( predictor.Started() )
             if ( const auto own = m_Entities.find( m_Client->OwnPawn() ); own != m_Entities.end() &&
                                                                           scene.GetRegistry().valid( own->second ) )
-                ECS::SetLocalTranslation( scene.GetRegistry(), own->second, OwnDrawnPosition() );
+                ECS::SetLocalTranslation( scene.GetRegistry(), own->second, glm::dvec3( OwnDrawnPosition() ) );
         StatsSlot() = NetPredictionStats{ predictor.Corrections(), predictor.Unacked(), 1.0 / m_Dilation };
 
         if ( m_Clock >= m_NextLog )
@@ -541,7 +541,7 @@ namespace Desert::Core
                     m_OwnFirstServerPosition = position;
                 // Predicted: Tick draws it after this frame's steps. It faces where its controller script turns it.
                 if ( !m_Prediction->Predictor.Started() )
-                    ECS::SetLocalTranslation( reg, entity, position );
+                    ECS::SetLocalTranslation( reg, entity, glm::dvec3( position ) );
                 continue;
             }
             ECS::LocalTransform local = reg.get<ECS::TransformComponent>( entity ).GetLocal();

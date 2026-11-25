@@ -1817,7 +1817,7 @@ namespace Desert::Migration
         {
             if ( isLight( entity.Components ) )
             {
-                const glm::vec3 travel = entity.Translation.value_or( glm::vec3( 0.0f ) );
+                const glm::vec3 travel( entity.Translation.value_or( glm::dvec3( 0.0 ) ) );
                 if ( glm::length( travel ) > kOldDirectionEpsilon )
                 {
                     const glm::quat parent = worldRotation( entity.parent );
@@ -1839,7 +1839,7 @@ namespace Desert::Migration
                 if ( !isLight( override_.Components ) || !override_.Translation.has_value() ||
                      glm::length( *override_.Translation ) <= kOldDirectionEpsilon )
                     continue;
-                override_.Rotation = glm::eulerAngles( ECS::Rules::RotationForTravel( *override_.Translation ) );
+                override_.Rotation = glm::eulerAngles( ECS::Rules::RotationForTravel( glm::vec3( *override_.Translation ) ) );
                 override_.Translation = glm::vec3( 0.0f );
                 ++report.Overrides;
             }
@@ -5450,7 +5450,7 @@ namespace Desert::Migration
             // The order the loader resolved it in before v37: the override over the prefab's root over the
             // component's own default (TransformComponent: no offset, no turn, unit scale).
             if ( !record.Translation.has_value() )
-                record.Translation = taken.Translation.value_or( root->Translation.value_or( glm::vec3( 0.0f ) ) );
+                record.Translation = taken.Translation.value_or( root->Translation.value_or( glm::dvec3( 0.0 ) ) );
             if ( !record.Rotation.has_value() )
                 record.Rotation = taken.Rotation.value_or( root->Rotation.value_or( glm::vec3( 0.0f ) ) );
             if ( !record.Scale.has_value() )

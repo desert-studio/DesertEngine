@@ -52,7 +52,7 @@ namespace Desert::Editor::Tools
 
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { mouseViewport.x, mouseViewport.y }, mainCamera->GetProjectionMatrix(),
-             mainCamera->GetViewMatrix(), mainCamera->GetPosition(),
+             mainCamera->GetViewMatrix(), glm::vec3( mainCamera->GetPosition() ),
              static_cast<uint32_t>( viewportSize.x ), static_cast<uint32_t>( viewportSize.y ) );
 
         // Engine-owned ray cast vs scene meshes (shared with the foliage tool — one raycast, one resolution).

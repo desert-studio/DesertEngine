@@ -360,7 +360,7 @@ namespace Desert::Editor
                                   ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
                                   if ( ( camera == nullptr ) || !MainScene() )
                                       return PaletteCommandOutcome( false, "no viewport camera or no scene" );
-                                  const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
+                                  const Common::Math::Ray    ray( glm::vec3( camera->GetPosition() ), camera->GetDirection() );
                                   ::Desert::Core::RaycastHit hit;
                                   if ( !MainScene()->Raycast( ray, hit ) )
                                       return PaletteCommandOutcome( false,
@@ -371,7 +371,7 @@ namespace Desert::Editor
                                   ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), cube );
                                   // The primitive cube is one metre, centred on its pivot: lift it by half
                                   // along the surface normal so it stands on the surface, not in it.
-                                  e.SetLocalTranslation( hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre ) );
+                                  e.SetLocalTranslation( glm::dvec3( hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre ) ) );
                                   const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
                                   Core::SelectionManager::SetSelected( uuid );
                                   Commands::NotifyCreated( { uuid } );

@@ -208,7 +208,7 @@ namespace Desert::Editor
                 const Flight::Pose pose =
                      Flight::PoseAt( *shot.FlightRoute, Flight::DistanceAt( m_ShotFrame, shot.FlightSpeed,
                                                                             ShotOptions::PlayStepSeconds ) );
-                PlaceEditorCamera( *cam, pose.Position, pose.Forward );
+                PlaceEditorCamera( *cam, glm::dvec3( pose.Position ), pose.Forward );
                 cam->SetInputEnabled( false );
             }
             else if ( cam != nullptr )
@@ -218,7 +218,7 @@ namespace Desert::Editor
                 // place the camera at all, so a developer who wanted a viewpoint and no capture had to
                 // launch with `--shot --shot-frames 1000000` to reach it. See ViewportCameraProperties.hpp.
                 const ShotCamera view = shot.CameraAt( shot.Parameter( m_ShotFrame ) );
-                PlaceEditorCamera( *cam, view.Position, view.Forward );
+                PlaceEditorCamera( *cam, glm::dvec3( view.Position ), view.Forward );
                 cam->SetInputEnabled( false ); // nothing may nudge it between here and the capture
             }
             m_ShotCameraPlaced = true;
@@ -273,7 +273,7 @@ namespace Desert::Editor
         const FramedView view    = FrameBox( bounds.Box, forward, cam->GetFOV(), aspect );
         cam->SetNear( view.Near );
         cam->SetFar( view.Far );
-        PlaceEditorCamera( *cam, view.Position, view.Forward );
+        PlaceEditorCamera( *cam, glm::dvec3( view.Position ), view.Forward );
         cam->SetInputEnabled( false );
         LOG_INFO( "[Shot] framed {} mesh(es), {} instance(s), {} tile(s), {} effect(s): box ({}, {}, {})..({}, "
                   "{}, {}), camera ({}, {}, {}), near {} far {}",

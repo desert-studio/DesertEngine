@@ -1196,7 +1196,7 @@ namespace Desert::Core
             std::vector<glm::vec3> origins;
             for ( const auto& view : m_Views.All() )
                 if ( view.Camera )
-                    origins.push_back( view.Camera->GetPosition() );
+                    origins.emplace_back( glm::vec3( view.Camera->GetPosition() ) );
             // The registry is read HERE, on the game thread (the scene's unbound volumes); the command takes the
             // values. The cache outlives the command: a Clear parks it (m_RetiringSurfaceCaches) for frames.
             const Core::PostProcessSettings scenePost =

@@ -911,7 +911,7 @@ namespace Desert::Editor
         vfx.RequestRestart    = true;
         // On the floor's top (the floor entity sits at y = -50, ApplySetup).
         const glm::vec3 origin( 0.0f, -50.0f, 0.0f );
-        m_Effect.SetLocalTranslation( origin );
+        m_Effect.SetLocalTranslation( glm::dvec3( origin ) );
 
         m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Fill            = Fill::Object;
@@ -1266,7 +1266,7 @@ namespace Desert::Editor
         // is there because a camera ABOVE a subject looks DOWN at it, and there is no subject here.
         if ( m_Fill == Fill::SkyDome )
         {
-            m_Camera->SetFromTransform( glm::vec3( 0.0f, kDomeEyeHeight, 0.0f ), glm::vec3( m_Pitch, m_Yaw, 0.0f ),
+            m_Camera->SetFromTransform( glm::dvec3( 0.0, kDomeEyeHeight, 0.0 ), glm::vec3( m_Pitch, m_Yaw, 0.0f ),
                                         kDomeFov, kDomeNearPlane, kDomeFarPlane, width, height );
             return;
         }
@@ -1278,7 +1278,7 @@ namespace Desert::Editor
         const float     aspect   = static_cast<float>( width ) / static_cast<float>( std::max( height, 1u ) );
         const glm::vec3 position = m_Focus + offset * ( FittedDistance( aspect ) * m_Zoom );
 
-        m_Camera->SetFromTransform( position, glm::vec3( -m_Pitch, m_Yaw, 0.0f ), kFov, kNearPlane, kFarPlane,
+        m_Camera->SetFromTransform( glm::dvec3( position ), glm::vec3( -m_Pitch, m_Yaw, 0.0f ), kFov, kNearPlane, kFarPlane,
                                     width, height );
     }
 

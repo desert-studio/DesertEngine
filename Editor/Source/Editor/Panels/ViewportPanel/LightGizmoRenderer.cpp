@@ -1136,7 +1136,7 @@ namespace Desert::Editor
             const float                     aspect = height > 0.0f ? width / height : 1.7778f;
             const Tools::CameraFrustumGizmo frustum =
                  Tools::BuildCameraFrustumGizmo( worldXf, aspect, std::tan( glm::radians( cam.FOV ) * 0.5f ),
-                                                 cam.Near, cam.Far, camera->GetPosition() );
+                                                 cam.Near, cam.Far, glm::vec3( camera->GetPosition() ) );
 
             // The selected camera is drawn in the editor's OWN selection colour — the same
             // EditorPreferences::OutlineColor the mesh outline uses, so a selected camera and a selected
@@ -1569,7 +1569,7 @@ namespace Desert::Editor
             const bool isStart = entity.HasComponent<ECS::PlayerStartComponent>();
             if ( isStart )
                 DrawPlayerStartBody( drawList, entity.GetWorldTransform().ToFloatMatrix(), mvp,
-                                     camera->GetPosition(), width, height, windowPos, IsSelected( entity ), pawn );
+                                     glm::vec3( camera->GetPosition() ), width, height, windowPos, IsSelected( entity ), pawn );
 
             if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), role, color, IsSelected( entity ), m_UIHelper ) )
             {

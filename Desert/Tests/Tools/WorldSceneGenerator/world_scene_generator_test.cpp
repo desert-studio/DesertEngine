@@ -348,8 +348,8 @@ TEST( WorldSceneGenerator, TheShippedPresetIsTheWorldTheProgrammeArguedFor )
         }
         if ( entity.Tag.value().find( "_Ground" ) == std::string::npos )
             continue;
-        minX = std::min( minX, entity.Translation.value().x );
-        maxX = std::max( maxX, entity.Translation.value().x );
+        minX = std::min( minX, static_cast<float>( entity.Translation.value().x ) );
+        maxX = std::max( maxX, static_cast<float>( entity.Translation.value().x ) );
     }
     EXPECT_FLOAT_EQ( maxX - minX, 31.0f * 25600.0f ); // 31 gaps between 32 tile centres
     EXPECT_FLOAT_EQ( ( maxX - minX ) + 25600.0f, 819200.0f ) << "8192 m, 1 unit = 1 cm";

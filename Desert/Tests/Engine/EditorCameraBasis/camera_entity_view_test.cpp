@@ -34,14 +34,15 @@ namespace
     }
 
     // A camera at @p position, yawed then pitched then rolled (radians), scaled — built the way a
-    // TransformComponent composes it.
-    glm::mat4 CameraWorld( const glm::vec3& position, float yaw, float pitch, float roll, float scale = 1.0f )
+    // TransformComponent composes it, then widened to the entity's double WorldTransform.
+    Desert::ECS::WorldTransform CameraWorld( const glm::vec3& position, float yaw, float pitch, float roll,
+                                     float scale = 1.0f )
     {
         glm::mat4 m = glm::translate( glm::mat4( 1.0f ), position );
         m           = glm::rotate( m, yaw, glm::vec3( 0.0f, 1.0f, 0.0f ) );
         m           = glm::rotate( m, pitch, glm::vec3( 1.0f, 0.0f, 0.0f ) );
         m           = glm::rotate( m, roll, glm::vec3( 0.0f, 0.0f, -1.0f ) );
-        return glm::scale( m, glm::vec3( scale ) );
+        return Desert::ECS::WorldTransform::FromFloatMatrix( glm::scale( m, glm::vec3( scale ) ) );
     }
 } // namespace
 
@@ -86,13 +87,13 @@ TEST( CameraEntityView, NearAndFarAreTheComponents )
 TEST( CameraEntityView, RollReachesThePicture )
 {
     const float     roll  = glm::radians( 30.0f );
-    const glm::mat4 world = CameraWorld( glm::vec3( 0.0f ), 0.4f, -0.2f, roll );
+    const Desert::ECS::WorldTransform world = CameraWorld( glm::vec3( 0.0f ), 0.4f, -0.2f, roll );
     const auto      view  = CameraEntityViewOf( world, 60.0f, 10.0f, 1.0e5f );
 
     EXPECT_NEAR( RollOf( view.Basis ), roll, 1.0e-4f );
 
-    const glm::vec3 ownUp   = glm::normalize( glm::vec3( world[1] ) );
-    const glm::vec3 ahead   = view.Position + view.Basis.Forward * 1000.0f;
+    const glm::vec3 ownUp   = glm::normalize( world.Basis[1] );
+    const glm::vec3 ahead   = glm::vec3( view.Position ) + view.Basis.Forward * 1000.0f;
     const glm::vec3 onOwnUp = Project( view, ahead + ownUp * 100.0f );
     EXPECT_NEAR( onOwnUp.x, 0.0f, 1.0e-4f );
     EXPECT_GT( onOwnUp.y, 0.0f );
@@ -126,18 +127,18 @@ TEST( CameraEntityView, EntityScaleIsNotAnOptic )
 // that was written, roll and all, and must keep the entity's scale.
 TEST( CameraEntityView, WriteBackIsTheInverse )
 {
-    const glm::vec3 position( -300.0f, 150.0f, 42.0f );
+    const glm::dvec3 position( -300.0, 150.0, 42.0 );
     const glm::vec3 forward = glm::normalize( glm::vec3( 0.3f, -0.5f, -0.8f ) );
     const ViewBasis basis{ forward, UpWithRoll( forward, glm::radians( -20.0f ) ) };
     const glm::vec3 scale( 100.0f );
 
-    const glm::mat4 world = CameraWorldTransformFor( position, basis, scale );
+    const Desert::ECS::WorldTransform world = CameraWorldTransformFor( position, basis, scale );
     const auto      back  = CameraEntityViewOf( world, 45.0f, 10.0f, 1.0e5f );
 
     EXPECT_NEAR( glm::length( back.Position - position ), 0.0f, 1.0e-4f );
     EXPECT_NEAR( glm::length( back.Basis.Forward - basis.Forward ), 0.0f, 1.0e-5f );
     EXPECT_NEAR( glm::length( back.Basis.Up - basis.Up ), 0.0f, 1.0e-5f );
-    EXPECT_NEAR( glm::length( glm::vec3( world[0] ) ), 100.0f, 1.0e-3f );
+    EXPECT_NEAR( glm::length( world.Basis[0] ), 100.0f, 1.0e-3f );
 }
 
 // Roll's two functions are inverses across forwards and angles, including looking straight down.

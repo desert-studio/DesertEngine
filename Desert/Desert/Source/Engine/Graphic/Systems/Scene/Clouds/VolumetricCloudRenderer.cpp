@@ -1524,7 +1524,7 @@ namespace Desert::Graphic::System
         // where it is floored — and a map centred on a different sphere than the one the march intersects
         // is a shadow displaced by the curvature.
         const CloudShadowMapView marchedView =
-             CloudBuildShadowMapView( camera->GetPosition(), atmosphere.SunDirection, payload.Layer.x, extentKm,
+             CloudBuildShadowMapView( glm::vec3( camera->GetPosition() ), atmosphere.SunDirection, payload.Layer.x, extentKm,
                                       snapKm, static_cast<float>( resolution ) );
 
         ShaderPush::CloudShadowMap push{};

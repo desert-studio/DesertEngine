@@ -42,7 +42,7 @@ namespace
     {
         const entt::entity pawn                                       = registry.create();
         registry.emplace<ECS::UUIDComponent>( pawn ).UUID             = Common::UUID( 7001 );
-        registry.emplace<ECS::TransformComponent>( pawn, ECS::LocalTransform{ .Translation = at } );
+        registry.emplace<ECS::TransformComponent>( pawn, ECS::LocalTransform{ .Translation = glm::dvec3( at ) } );
         return pawn;
     }
 
@@ -145,7 +145,7 @@ TEST( SaveGame, RestoredPawnBodyIsTeleportedAndStopped )
     registry.emplace<ECS::RigidBodyComponent>( pawn ).RuntimeBody = body.GetValue();
     const auto document = CaptureSaveGame( registry, pawn, kArena, NoFlaggedFields( {} ) );
 
-    ECS::SetLocalTranslation( registry, pawn, glm::vec3( 0.0f ) );
+    ECS::SetLocalTranslation( registry, pawn, glm::dvec3( 0.0f ) );
     world.SetLinearVelocity( body.GetValue(), glm::vec3( 0.0f, 0.0f, 500.0f ) );
 
     const auto applied = ApplySaveGame( registry, pawn, kArena, document, NoFlaggedFields( {} ), &world );
@@ -179,7 +179,7 @@ TEST( SaveGame, RestoredPawnCharacterIsTeleported )
     controller.RuntimeCharacter = character.GetValue();
     const auto document         = CaptureSaveGame( registry, pawn, kArena, NoFlaggedFields( {} ) );
 
-    ECS::SetLocalTranslation( registry, pawn, glm::vec3( 0.0f ) );
+    ECS::SetLocalTranslation( registry, pawn, glm::dvec3( 0.0f ) );
     registry.get<ECS::CharacterControllerComponent>( pawn ).Velocity = glm::vec3( 0.0f, 0.0f, -900.0f );
 
     const auto applied = ApplySaveGame( registry, pawn, kArena, document, NoFlaggedFields( {} ), &world );
@@ -190,7 +190,7 @@ TEST( SaveGame, RestoredPawnCharacterIsTeleported )
     EXPECT_EQ( glm::length( cc.Velocity ), 0.0f );
 
     // Without the world, a live character is reported instead of silently left behind.
-    ECS::SetLocalTranslation( registry, pawn, glm::vec3( 0.0f ) );
+    ECS::SetLocalTranslation( registry, pawn, glm::dvec3( 0.0f ) );
     const auto blind = ApplySaveGame( registry, pawn, kArena, document, NoFlaggedFields( {} ), nullptr );
     ASSERT_TRUE( blind.IsSuccess() );
     EXPECT_TRUE( AnyProblemMentions( blind.GetValue(), "no physics world" ) );

@@ -45,7 +45,7 @@ namespace Desert::Graphic::System
             return;
         }
 
-        const glm::vec3 eye = camera->GetPosition();
+        const glm::vec3 eye( camera->GetPosition() );
         if ( !m_RainOcclusionBox ||
              RainOcclusionNeedsRecentre( *m_RainOcclusionBox, eye, m_RainOcclusionQuality ) )
         {

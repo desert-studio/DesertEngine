@@ -81,6 +81,9 @@ namespace Desert::Geometry
 
     struct LODView
     {
+        // The eye in the float world the LOD inputs (mesh/instance transforms) are stored in; the camera's double
+        // eye narrows here explicitly. A distance-to-screen-size metric: the ~0.25 cm float step at 20 km never
+        // changes a level, unlike a vertex position, which goes camera-relative instead (TranslatedWorld).
         glm::vec3          Origin{ 0.0f };
         glm::mat4          Projection{ 1.0f };
         LODTemporalSamples Temporal{};

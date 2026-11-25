@@ -65,7 +65,7 @@ namespace Desert::ECS
                 const glm::mat4 view    = camera->GetViewMatrix();
                 const glm::vec3 forward = -glm::vec3( view[0][2], view[1][2], view[2][2] );
                 const glm::vec3 up      = glm::vec3( view[0][1], view[1][1], view[2][1] );
-                audio.SetListener( camera->GetPosition(), forward, up );
+                audio.SetListener( glm::vec3( camera->GetPosition() ), forward, up );
             }
 
             auto view = registry.view<AudioSourceComponent, TransformComponent>();

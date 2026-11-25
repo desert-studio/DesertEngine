@@ -112,7 +112,7 @@ namespace
     entt::entity AddVolume( entt::registry& reg, const glm::vec3& at, const ECS::PostProcessVolumeData& data )
     {
         const entt::entity e                                  = reg.create();
-        reg.emplace<ECS::TransformComponent>( e, ECS::LocalTransform{ .Translation = at } );
+        reg.emplace<ECS::TransformComponent>( e, ECS::LocalTransform{ .Translation = glm::dvec3( at ) } );
         reg.emplace<ECS::PostProcessVolumeComponent>( e, ECS::PostProcessVolumeComponent{ data } );
         return e;
     }
@@ -369,7 +369,7 @@ TEST( PostProcessVolume, AHiddenVolumeAndAHiddenLightAreSkipped )
     reg.emplace<ECS::VisibilityComponent>( v, false );
 
     const entt::entity hidden                                            = reg.create();
-    reg.emplace<ECS::TransformComponent>( hidden, ECS::LocalTransform{ .Translation = glm::vec3( 0.0f, -1.0f, 0.0f ) } );
+    reg.emplace<ECS::TransformComponent>( hidden, ECS::LocalTransform{ .Translation = glm::dvec3( 0.0f, -1.0f, 0.0f ) } );
     reg.emplace<ECS::DirectionLightComponent>( hidden ).Data.CastShadows = false;
     reg.emplace<ECS::VisibilityComponent>( hidden, false );
 

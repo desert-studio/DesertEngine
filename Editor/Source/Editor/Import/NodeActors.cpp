@@ -25,7 +25,7 @@ namespace Desert::Editor
             ECS::StaticMeshDesc mesh;
             mesh.MeshHandle = node.Mesh;
             ECS::SetStaticMesh( *child.GetRegistry(), child.GetHandle(), mesh );
-            child.SetLocalTranslation( node.Placement );
+            child.SetLocalTranslation( glm::dvec3( node.Placement ) );
             scene.Attach( root, child );
             placed.push_back( child );
         }

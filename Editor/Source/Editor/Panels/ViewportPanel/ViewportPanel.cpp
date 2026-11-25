@@ -286,7 +286,7 @@ namespace Desert::Editor
             return Common::MakeError( "create shape: the viewport has no scene, camera or size yet" );
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
-             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
              static_cast<uint32_t>( m_ViewportData.Size.y ) );
         auto placed = Tools::CreateShapeTool::PlaceAlong( *m_Scene, ray );
         if ( !placed.IsSuccess() )
@@ -309,7 +309,7 @@ namespace Desert::Editor
             return Common::MakeError( "foliage preview: the viewport has no scene, camera or size yet" );
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
-             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
              static_cast<uint32_t>( m_ViewportData.Size.y ) );
         ::Desert::Core::RaycastHit hit;
         if ( !m_Scene->RaycastComplex( ray, hit ) )
@@ -329,7 +329,7 @@ namespace Desert::Editor
             return Common::MakeError( "foliage stroke: the viewport has no camera or no size yet" );
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
-             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
              static_cast<uint32_t>( m_ViewportData.Size.y ) );
         m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, true );
         m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, false );
@@ -466,7 +466,7 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}': the prefab instantiated no root", path );
         // A world prefab lands on the surface met; a UI prefab keeps the layout its canvas gives it.
         if ( !parentEntity && surface && root.HasComponent<ECS::TransformComponent>() )
-            root.SetLocalTranslation( *surface );
+            root.SetLocalTranslation( glm::dvec3( *surface ) );
         const auto uuid = root.GetComponent<ECS::UUIDComponent>().UUID;
         Core::SelectionManager::SetSelected( uuid );
         Commands::NotifyCreated( { uuid } );
@@ -517,7 +517,7 @@ namespace Desert::Editor
         const std::string name = std::filesystem::path( path ).stem().string();
         auto& e = id.IsNull() ? m_Scene->CreateNewEntity( std::string( name ) ) : m_Scene->CreateEntityWithUUID( id, name );
         e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
-        e.SetLocalTranslation( target.Point );
+        e.SetLocalTranslation( glm::dvec3( target.Point ) );
         const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
         m_PendingDrops[static_cast<uint64_t>( uuid )]         = target;
         Core::SelectionManager::SetSelected( uuid );
@@ -621,8 +621,8 @@ namespace Desert::Editor
                 if ( dropTarget && transform.GetTranslation() == glm::dvec3( dropTarget->Point ) )
                     if ( const auto* meshAsset =
                               Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
-                        e.SetLocalTranslation( ActorDrop::PlacedOrigin(
-                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.GetScale() ) );
+                        e.SetLocalTranslation( glm::dvec3( ActorDrop::PlacedOrigin(
+                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.GetScale() ) ) );
                 PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
             }
         }
@@ -1040,7 +1040,7 @@ namespace Desert::Editor
                 if ( !entity )
                     return Common::MakeError<bool>(
                          "Focus Selected: the selected entity is not in this viewport's scene." );
-                editorCamera->Focus( glm::vec3( entity->get().GetWorldTransform().Origin ) );
+                editorCamera->Focus( entity->get().GetWorldTransform().Origin );
                 return Common::MakeSuccess( true );
             }
         }
@@ -2187,7 +2187,7 @@ namespace Desert::Editor
             {
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 // The footprint preview follows the cursor while it is over the viewport; off it, the last
@@ -2229,7 +2229,7 @@ namespace Desert::Editor
             {
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 m_VFXPaintTool.Update( *m_Scene, ray, pressing );
@@ -2248,11 +2248,11 @@ namespace Desert::Editor
                 const auto width    = static_cast<uint32_t>( m_ViewportData.Size.x );
                 const auto height   = static_cast<uint32_t>( m_ViewportData.Size.y );
                 const auto mouseRay = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
                      width, height );
                 const auto centreRay = Common::Math::Ray::FromScreenPosition(
                      { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
-                     camera->GetViewMatrix(), camera->GetPosition(), width, height );
+                     camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), width, height );
                 const auto edMode = Core::LandscapeSculptState::Get().Mode;
                 if ( edMode == Core::LandscapeEdMode::Paint )
                     m_LandscapePaintTool->Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered );
@@ -2269,14 +2269,14 @@ namespace Desert::Editor
             {
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 // CubeGrid aimed from the viewport centre (the palette's stand-in for a cursor): the same
                 // targeting, fed the ray a cursor at the centre would give.
                 const auto centreRay = Common::Math::Ray::FromScreenPosition(
                      { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
-                     camera->GetViewMatrix(), camera->GetPosition(),
+                     camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
@@ -3266,11 +3266,11 @@ namespace Desert::Editor
         if ( !recordValue.has_value() || !recordValue->Bounds.has_value() )
             return;
         const auto& box = *recordValue->Bounds;
-        root.SetLocalTranslation(
+        root.SetLocalTranslation( glm::dvec3(
              ActorDrop::PlacedOrigin( *dropTarget,
                                       ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),
                                                             glm::vec3( box.Max[0], box.Max[1], box.Max[2] ) },
-                                      transform.GetScale() ) );
+                                      transform.GetScale() ) ) );
     }
 
     void ViewportPanel::ApplySidecarMaterial( ECS::Entity& entity, const std::string& meshSourcePath )
@@ -3305,7 +3305,7 @@ namespace Desert::Editor
         // Same screen->world ray the click-picker uses (mouse position is already viewport-local).
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.MousePosition.x, m_ViewportData.MousePosition.y },
-             mainCamera->GetProjectionMatrix(), mainCamera->GetViewMatrix(), mainCamera->GetPosition(),
+             mainCamera->GetProjectionMatrix(), mainCamera->GetViewMatrix(), glm::vec3( mainCamera->GetPosition() ),
              static_cast<uint32_t>( m_ViewportData.Size.x ), static_cast<uint32_t>( m_ViewportData.Size.y ) );
 
         ::Desert::Core::RaycastHit hit;
@@ -3321,7 +3321,7 @@ namespace Desert::Editor
             return ActorDrop::Target{};
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.MousePosition.x, m_ViewportData.MousePosition.y }, camera->GetProjectionMatrix(),
-             camera->GetViewMatrix(), camera->GetPosition(), static_cast<uint32_t>( m_ViewportData.Size.x ),
+             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
              static_cast<uint32_t>( m_ViewportData.Size.y ) );
         ::Desert::Core::RaycastHit hit;
         const bool                 met = m_Scene->Raycast( ray, hit );

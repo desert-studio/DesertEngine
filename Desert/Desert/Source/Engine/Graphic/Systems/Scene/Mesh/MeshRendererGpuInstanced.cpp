@@ -723,7 +723,7 @@ namespace Desert::Graphic::System
         const bool frontToBack = maskedPrepass && !postOcclusion && camera != nullptr;
         if ( frontToBack )
         {
-            const glm::vec3 eye = camera->GetPosition();
+            const glm::vec3 eye( camera->GetPosition() );
             m_PrepassSectionOrder.clear();
             m_PrepassSectionOrder.reserve( m_GpuInstancedQueue.size() );
             for ( std::size_t k = 0; k < m_GpuInstancedQueue.size(); ++k )

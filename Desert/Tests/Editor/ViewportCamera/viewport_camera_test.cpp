@@ -45,10 +45,10 @@ namespace
     // aimed, and the camera sits one framing distance BACK along the view direction. This mirrors what the
     // camera does rather than calling it — the camera needs a GPU context and an event loop, and the
     // arithmetic is the half that can be wrong on its own.
-    glm::vec3 WhereTheCameraEndsUp( const glm::vec3& aimPoint, const glm::vec3& forward,
-                                    float distance = kViewportCameraFramingDistance )
+    glm::dvec3 WhereTheCameraEndsUp( const glm::dvec3& aimPoint, const glm::vec3& forward,
+                                     float distance = kViewportCameraFramingDistance )
     {
-        return aimPoint - glm::normalize( forward ) * distance;
+        return aimPoint - glm::dvec3( glm::normalize( forward ) * distance );
     }
 } // namespace
 
@@ -60,7 +60,7 @@ namespace
 // satisfied the day the framing distance moved and the placement broke.
 TEST( ViewportCamera, TheCameraLandsExactlyWhereItWasAskedForEveryPoseTried )
 {
-    const std::vector<glm::vec3> positions = {
+    const std::vector<glm::dvec3> positions = {
          { 0.0f, 200.0f, 0.0f },    { -1500.0f, 30.0f, 900.0f }, { 0.0f, 20000.0f, 0.0f },
          { 12.5f, -4.25f, 0.125f }, { 0.0f, 0.0f, 0.0f },
     };
@@ -76,12 +76,12 @@ TEST( ViewportCamera, TheCameraLandsExactlyWhereItWasAskedForEveryPoseTried )
          { 0.0f, 0.0f, -0.0001f },
     };
 
-    for ( const glm::vec3& position : positions )
+    for ( const glm::dvec3& position : positions )
     {
         for ( const glm::vec3& forward : forwards )
         {
-            const glm::vec3 aim    = ViewportCameraFocalPoint( position, forward );
-            const glm::vec3 landed = WhereTheCameraEndsUp( aim, forward );
+            const glm::dvec3 aim = ViewportCameraFocalPoint( position, forward );
+            const glm::dvec3 landed = WhereTheCameraEndsUp( aim, forward );
 
             EXPECT_NEAR( landed.x, position.x, 1e-2f );
             EXPECT_NEAR( landed.y, position.y, 1e-2f );
@@ -94,24 +94,24 @@ TEST( ViewportCamera, TheCameraLandsExactlyWhereItWasAskedForEveryPoseTried )
 // a factor error in one and a sign error in the other would cancel in the round trip above.
 TEST( ViewportCamera, TheAimPointIsOneFramingDistanceAheadAlongTheDirectionGiven )
 {
-    const glm::vec3 position( 0.0f, 200.0f, 0.0f );
+    const glm::dvec3 position( 0.0f, 200.0f, 0.0f );
     const glm::vec3 forward( 0.0f, 0.0f, -1.0f );
-    const glm::vec3 aim = ViewportCameraFocalPoint( position, forward );
+    const glm::dvec3 aim = ViewportCameraFocalPoint( position, forward );
 
     EXPECT_NEAR( glm::length( aim - position ), kViewportCameraFramingDistance, 1e-2f );
-    EXPECT_GT( glm::dot( glm::normalize( aim - position ), forward ), 0.999f );
+    EXPECT_GT( glm::dot( glm::vec3( glm::normalize( aim - position ) ), forward ), 0.999f );
 }
 
 // A DIFFERENT distance still lands the camera at the same place. This is what says the two uses of the
 // number are one number and not two that happen to be equal today.
 TEST( ViewportCamera, TheFramingDistanceCancelsWhateverItIs )
 {
-    const glm::vec3 position( -300.0f, 75.0f, 40.0f );
+    const glm::dvec3 position( -300.0f, 75.0f, 40.0f );
     const glm::vec3 forward( 0.4f, -0.2f, -0.9f );
 
     for ( const float distance : { 1.0f, 50.0f, 500.0f, 25000.0f } )
     {
-        const glm::vec3 landed =
+        const glm::dvec3 landed =
              WhereTheCameraEndsUp( ViewportCameraFocalPoint( position, forward, distance ), forward, distance );
         EXPECT_NEAR( glm::length( landed - position ), 0.0f, 1e-1f ) << "at distance " << distance;
     }
@@ -123,7 +123,7 @@ TEST( ViewportCamera, TheFramingDistanceCancelsWhateverItIs )
 
 TEST( ViewportCamera, TheCensusReportsThePoseTheCameraIsActuallyIn )
 {
-    const glm::vec3 position( 10.0f, 200.0f, -30.0f );
+    const glm::dvec3 position( 10.0f, 200.0f, -30.0f );
     const glm::vec3 forward( 0.0f, 0.5f, -1.0f );
 
     const std::vector<EditableProperty> census =
@@ -149,7 +149,7 @@ TEST( ViewportCamera, TheCensusReportsThePoseTheCameraIsActuallyIn )
 TEST( ViewportCamera, EverySettableRowOfTheCensusIsAcceptedByTheWrite )
 {
     const std::vector<EditableProperty> census = DescribeViewportCamera(
-         glm::vec3( 0.0f, 200.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false, false, false );
+         glm::dvec3( 0.0, 200.0, 0.0 ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false, false, false );
 
     for ( const EditableProperty& row : census )
     {
@@ -159,7 +159,7 @@ TEST( ViewportCamera, EverySettableRowOfTheCensusIsAcceptedByTheWrite )
         // Built from the census's own declared component count, and given a value that is legal for both
         // rows (a non-degenerate direction is also a legal position).
         // A row with a declared range is given its own minimum.
-        const std::vector<float> value( static_cast<std::size_t>( row.Components ), row.Min.value_or( 1.0f ) );
+        const std::vector<double> value( static_cast<std::size_t>( row.Components ), row.Min.value_or( 1.0f ) );
         EXPECT_TRUE( ValidateViewportCameraWrite( row.Name, value ).IsSuccess() )
              << row.Name << " is offered as settable and refused when written";
     }
@@ -170,7 +170,7 @@ TEST( ViewportCamera, EverySettableRowOfTheCensusIsAcceptedByTheWrite )
 TEST( ViewportCamera, TheDeclaredTypeAndTheDeclaredCountAgree )
 {
     for ( const EditableProperty& row :
-          DescribeViewportCamera( glm::vec3( 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false, false, false ) )
+          DescribeViewportCamera( glm::dvec3( 0.0 ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false, false, false ) )
     {
         EXPECT_EQ( row.Type,
                    row.Components == 1 ? std::string( "float" ) : "float" + std::to_string( row.Components ) )
@@ -216,9 +216,9 @@ TEST( ViewportCamera, TheOriginIsAValidPositionEvenThoughItIsNotAValidDirection 
 // long one would silently drop what the client meant. Both are refused, with the count quoted back.
 TEST( ViewportCamera, TheWrongNumberOfComponentsIsRefusedRatherThanPaddedOrTruncated )
 {
-    for ( const std::vector<float>& value :
-          { std::vector<float>{}, std::vector<float>{ 1.0f }, std::vector<float>{ 1.0f, 2.0f },
-            std::vector<float>{ 1.0f, 2.0f, 3.0f, 4.0f } } )
+    for ( const std::vector<double>& value :
+          { std::vector<double>{}, std::vector<double>{ 1.0f }, std::vector<double>{ 1.0f, 2.0f },
+            std::vector<double>{ 1.0f, 2.0f, 3.0f, 4.0f } } )
     {
         const auto refused = ValidateViewportCameraWrite( kViewportCameraPosition, value );
         ASSERT_FALSE( refused.IsSuccess() ) << value.size() << " components were accepted";

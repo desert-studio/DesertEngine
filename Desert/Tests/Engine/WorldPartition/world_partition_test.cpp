@@ -1932,7 +1932,7 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
                 const auto      spacing = static_cast<float>( rootBlock.get( "SpacingCm" )->to_double().value() );
                 const auto      tileX   = static_cast<float>( block.get( "TileX" )->to_int64().value() );
                 const auto      tileZ   = static_cast<float>( block.get( "TileZ" )->to_int64().value() );
-                const glm::vec3 origin  = records[root].Translation.value_or( glm::vec3( 0.0f ) );
+                const glm::vec3 origin( records[root].Translation.value_or( glm::dvec3( 0.0 ) ) );
                 const float     minX    = origin.x + tileX * quads * spacing;
                 const float     minZ    = origin.z + tileZ * quads * spacing;
                 for ( const float x : { minX, minX + quads * spacing } )

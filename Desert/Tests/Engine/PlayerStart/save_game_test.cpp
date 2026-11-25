@@ -80,7 +80,7 @@ namespace
     {
         const entt::entity pawn                                       = registry.create();
         registry.emplace<ECS::UUIDComponent>( pawn ).UUID             = Common::UUID( uuid );
-        registry.emplace<ECS::TransformComponent>( pawn, ECS::LocalTransform{ .Translation = at } );
+        registry.emplace<ECS::TransformComponent>( pawn, ECS::LocalTransform{ .Translation = glm::dvec3( at ) } );
         return pawn;
     }
 

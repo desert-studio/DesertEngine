@@ -415,7 +415,7 @@ namespace Desert::Graphic::System
             // pair (settled above, so a pair this graph bakes is already counted), the camera's position and the
             // light. The push is formed HERE and carried into the record, so the dispatch marches from exactly the
             // position the fingerprint was taken at.
-            const glm::vec3 cameraPosition = m_ActiveCamera->GetPosition();
+            const glm::vec3 cameraPosition( m_ActiveCamera->GetPosition() );
             // ... and, for the sun's fill alone, the cloud shadow it marches through (SkyCloudShadowFillInputsOf):
             // light 1's fill never reads the map, so a drifting cloud deck does not re-march it.
             const auto fillInputs = [this, &cloudShadowBlock, &cloudShadow](

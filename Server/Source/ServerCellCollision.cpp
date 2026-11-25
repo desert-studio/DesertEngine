@@ -81,7 +81,7 @@ namespace Desert::Server
         glm::mat4 LocalMatrix( const Assets::EntityData& data )
         {
             // The editor's Rotation: Euler degrees, composed as the entity's LocalTransform does (glm::quat).
-            const glm::vec3 t = data.Translation.value_or( glm::vec3( 0.0f ) );
+            const glm::vec3 t( data.Translation.value_or( glm::dvec3( 0.0 ) ) );
             const glm::quat r = glm::quat( glm::radians( data.Rotation.value_or( glm::vec3( 0.0f ) ) ) );
             const glm::vec3 s = data.Scale.value_or( glm::vec3( 1.0f ) );
             return glm::translate( glm::mat4( 1.0f ), t ) * glm::mat4_cast( r ) * glm::scale( glm::mat4( 1.0f ), s );

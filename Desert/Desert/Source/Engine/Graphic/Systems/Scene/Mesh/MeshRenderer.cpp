@@ -561,7 +561,7 @@ namespace Desert::Graphic::System
         // The policy itself lives in Geometry::SelectLOD so the editor can report the SAME level it
         // draws with (Details "Mesh" section); this only resolves the renderer's camera + LOD toggle.
         return Geometry::SelectLOD( transform, mesh->GetSubmeshes(),
-                                    Geometry::LODView{ .Origin        = camera->GetPosition(),
+                                    Geometry::LODView{ .Origin        = glm::vec3( camera->GetPosition() ),
                                                        .Projection    = camera->GetProjectionMatrix(),
                                                        .DistanceScale = m_LODDistanceScale },
                                     mesh->GetLODScreenSizes(), forcedLOD, lodBias );
@@ -581,7 +581,7 @@ namespace Desert::Graphic::System
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( !camera )
             return levels;
-        const Geometry::LODView view{ .Origin        = camera->GetPosition(),
+        const Geometry::LODView view{ .Origin        = glm::vec3( camera->GetPosition() ),
                                       .Projection    = camera->GetProjectionMatrix(),
                                       .Temporal      = m_ViewTemporalLOD,
                                       .DistanceScale = m_LODDistanceScale };
@@ -2700,7 +2700,7 @@ namespace Desert::Graphic::System
         if ( camera != nullptr )
         {
             frustum.emplace( camera->GetProjectionMatrix(), camera->GetViewMatrix() );
-            lodView.emplace( Geometry::LODView{ .Origin        = camera->GetPosition(),
+            lodView.emplace( Geometry::LODView{ .Origin        = glm::vec3( camera->GetPosition() ),
                                                 .Projection    = camera->GetProjectionMatrix(),
                                                 .DistanceScale = m_LODDistanceScale } );
         }

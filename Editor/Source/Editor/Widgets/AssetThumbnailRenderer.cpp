@@ -300,14 +300,14 @@ namespace Desert::Editor
         {
             // No camera yet (should not happen after EnsureInit): keep the subject visible at unit scale
             // rather than divide framing math by a matrix that is not there.
-            m_Target.SetLocalTransform( ECS::LocalTransform{ -center, glm::vec3( 0.0f ), glm::vec3( 1.0f ) } );
+            m_Target.SetLocalTransform( ECS::LocalTransform{ glm::dvec3( -center ), glm::vec3( 0.0f ), glm::vec3( 1.0f ) } );
             return;
         }
 
         const auto placement = ThumbnailFraming::PlaceInView( cam->GetViewMatrix(), cam->GetProjectionMatrix(),
                                                               worldSize, center, m_PendingThumbnail.Orbit );
         m_Target.SetLocalTransform( ECS::LocalTransform{
-             placement.Translation, glm::eulerAngles( placement.Rotation ), glm::vec3( placement.Scale ) } );
+             glm::dvec3( placement.Translation ), glm::eulerAngles( placement.Rotation ), glm::vec3( placement.Scale ) } );
     }
 
     void AssetThumbnailRenderer::RecordRender()
@@ -655,7 +655,7 @@ namespace Desert::Editor
         // scene — so an object capture's subject was framed against wherever the person happened to be
         // flying the real viewport. FitTarget reads the pose from the camera's own matrices, so the
         // picture was right either way; from here it is also REPRODUCIBLE.
-        m_DomeCamera->SetFromTransform( glm::vec3( 0.0f, kDomeEyeHeight, 0.0f ),
+        m_DomeCamera->SetFromTransform( glm::dvec3( 0.0, kDomeEyeHeight, 0.0 ),
                                         glm::vec3( kDomePitch, kDomeYaw, 0.0f ), kDomeFov, kDomeNearPlane,
                                         kDomeFarPlane, kRenderSize, kRenderSize );
         m_Scene->PinActiveCamera( m_DomeCamera );

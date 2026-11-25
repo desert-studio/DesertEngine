@@ -1562,7 +1562,7 @@ namespace Desert::Graphic::System
             return;
         }
         // Blending is order-dependent: far glass first, near glass over it (see TranslucentSortOrder.hpp).
-        TranslucentSortOrderInto( camera->GetPosition(), sortKeys, walk.SortDistance2, walk.DrawOrder );
+        TranslucentSortOrderInto( glm::vec3( camera->GetPosition() ), sortKeys, walk.SortDistance2, walk.DrawOrder );
         const std::vector<uint32_t>& drawOrder = walk.DrawOrder;
 
         // --- Per translucent cell, once per frame and BEFORE the blocks are declared, so each cell's route fill
@@ -1833,7 +1833,7 @@ namespace Desert::Graphic::System
         // The main view's cull, as BuildStaticDraws asks it (the same frustum and LOD view): the passes' look-ups
         // then find every entry current and cull nothing again this frame.
         const Core::Frustum     frustum = camera->GetFrustum();
-        const Geometry::LODView mainView{ .Origin     = camera->GetPosition(),
+        const Geometry::LODView mainView{ .Origin     = glm::vec3( camera->GetPosition() ),
                                           .Projection = camera->GetProjectionMatrix(),
                                           .Temporal   = m_ViewTemporalLOD };
         ++m_IsmViewCullCall;
@@ -3303,7 +3303,7 @@ namespace Desert::Graphic::System
             // instances and draws are the same; ParallelSetup 0 runs the culls inline, in queue order.
             // With the view's temporal LOD samples: an instance in a dithered transition draws both levels
             // (OrderIsmViewCullByLevel), PrepareViewIsmIds' view bit for bit.
-            const Geometry::LODView mainView{ .Origin     = camera->GetPosition(),
+            const Geometry::LODView mainView{ .Origin     = glm::vec3( camera->GetPosition() ),
                                               .Projection = camera->GetProjectionMatrix(),
                                               .Temporal   = m_ViewTemporalLOD };
             ++m_IsmViewCullCall;

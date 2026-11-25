@@ -511,7 +511,7 @@ namespace Desert::Runtime::Factory
              id, rootRecord.Tag.value_or( prefab->GetMetadata().Filepath.stem().string() ) );
 
         ECS::LocalTransform local;
-        local.Translation = rootRecord.Translation.value_or( glm::vec3( 0.0f ) );
+        local.Translation = rootRecord.Translation.value_or( glm::dvec3( 0.0 ) );
         local.Rotation    = rootRecord.Rotation.value_or( glm::vec3( 0.0f ) );
         local.Scale       = rootRecord.Scale.value_or( glm::vec3( 1.0f ) );
         ECS::SetLocalTransform( *root.GetRegistry(), root.GetHandle(), local );

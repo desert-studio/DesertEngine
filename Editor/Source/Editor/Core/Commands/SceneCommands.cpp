@@ -281,7 +281,7 @@ namespace Desert::Editor::Commands
                 {
                     // Built whole by the factory; the record gives it only where it stands.
                     ECS::LocalTransform local;
-                    local.Translation = ed.Translation.value_or( glm::vec3( 0.0f ) );
+                    local.Translation = ed.Translation.value_or( glm::dvec3( 0.0 ) );
                     local.Rotation    = ed.Rotation.value_or( glm::vec3( 0.0f ) );
                     local.Scale       = ed.Scale.value_or( glm::vec3( 1.0f ) );
                     ECS::SetLocalTransform( *e.GetRegistry(), e.GetHandle(), local );
@@ -2171,7 +2171,7 @@ namespace Desert::Editor::Commands
             ECS::Entity fresh = placed.GetValue();
             if ( fresh.HasComponent<ECS::TransformComponent>() )
             {
-                fresh.SetLocalTransform( ECS::LocalTransform{ translation, rotation, scale } );
+                fresh.SetLocalTransform( ECS::LocalTransform{ glm::dvec3( translation ), rotation, scale } );
             }
             if ( !tag.empty() && fresh.HasComponent<ECS::TagComponent>() )
                 fresh.GetComponent<ECS::TagComponent>().Tag = tag;
@@ -2260,7 +2260,7 @@ namespace Desert::Editor::Commands
             glm::quat rotation( 1.0f, 0.0f, 0.0f, 0.0f );
             glm::decompose( toFrame * entity.GetWorldTransform().ToFloatMatrix(), scale, rotation, translation,
                             skew, perspective );
-            return ECS::LocalTransform{ translation, glm::eulerAngles( rotation ), scale };
+            return ECS::LocalTransform{ glm::dvec3( translation ), glm::eulerAngles( rotation ), scale };
         }
 
         // What Break took off one entity, addressed by UUID like every other history entry: the broken level's

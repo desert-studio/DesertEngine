@@ -1012,10 +1012,10 @@ namespace Desert::Graphic
             // without this the streamer keeps only its smallest mips.
             if ( camera != nullptr && GetViewExtent().Height > 0 )
             {
-                const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+                const Geometry::LODView view{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() };
                 TextureStreamingDemand::Get().NoteAsset(
                      value.Texture,
-                     TextureStreamingDemand::ScreenPixels( camera->GetPosition(), 1.0f, view, GetViewExtent().Height ) );
+                     TextureStreamingDemand::ScreenPixels( glm::vec3( camera->GetPosition() ), 1.0f, view, GetViewExtent().Height ) );
             }
             const Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( value.Texture );
             // The bindless slot lives on the texture's image (as Texture2DProperty::GetBindlessSlot reads it).
@@ -1102,7 +1102,7 @@ namespace Desert::Graphic
         // what the world is about to show, measured at this view's lens as a draw is, so its mips stream first.
         if ( camera != nullptr && GetViewExtent().Height > 0 )
             TextureStreamingDemand::Get().NoteWarmups(
-                 &scene, Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                 &scene, Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() },
                  GetViewExtent().Height );
 
         const auto& skyboxSystem = m_Systems.Skybox.get();
@@ -1486,7 +1486,7 @@ namespace Desert::Graphic
         {
             const LocalWindSelection previous = m_LocalWindSelection;
             if ( const auto* cam = GetMainCamera() )
-                SelectLocalWind( m_LocalWindCandidates, cam->GetPosition(),
+                SelectLocalWind( m_LocalWindCandidates, glm::vec3( cam->GetPosition() ),
                                  glm::length( m_DirectionalWindVelocityXZ ),
                                  previous, m_LocalWindSelection, m_LocalWind, m_PrevLocalWind );
             else
@@ -2270,7 +2270,7 @@ namespace Desert::Graphic
                 if ( const auto* viewCamera = GetMainCamera(); viewCamera != nullptr )
                     meshes->ApplyDisplacement(
                          displacement,
-                         Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
+                         Geometry::LODView{ glm::vec3( viewCamera->GetPosition() ), viewCamera->GetProjectionMatrix() },
                          static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
             if ( m_FrameGpuScene == nullptr )
@@ -2341,7 +2341,7 @@ namespace Desert::Graphic
             const auto*     camera     = GetMainCamera();
             const glm::vec3 viewOrigin = camera != nullptr ? glm::vec3( camera->GetPosition() ) : glm::vec3( 0.0f ); // LWC p4 edge
             const float     lensScale  = camera != nullptr
-                                              ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
+                                              ? DrawDistanceScale( Geometry::LODView{ glm::vec3( camera->GetPosition() ),
                                                                                  camera->GetProjectionMatrix() } )
                                               : 1.0f;
             // The view's methods, or the scene's cards this view relights this frame with ray query.
@@ -4544,7 +4544,7 @@ namespace Desert::Graphic
             return 0.0f;
         if ( Geometry::IsEmpty( local ) )
             return 0.0f;
-        const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        const Geometry::LODView view{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() };
         // The largest any instance covers: the nearest instance decides what the shared textures must hold.
         float pixels = 0.0f;
         for ( const glm::mat4& transform : transforms )
@@ -4573,7 +4573,7 @@ namespace Desert::Graphic
         const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
         if ( Geometry::IsEmpty( local ) )
             return 0.0f;
-        const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        const Geometry::LODView view{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() };
         auto&                   demand = TextureStreamingDemand::Get();
         // The field's bounds tree, built once per instance snapshot and measured once per view: the nearest
         // instance's size without walking the instances (CPU-STREAM-DEMAND).
@@ -4589,7 +4589,7 @@ namespace Desert::Graphic
         const auto* camera = GetMainCamera();
         if ( maxDrawDistance <= 0.0f || mesh == nullptr || camera == nullptr )
             return true;
-        return IsWithinDrawDistance( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+        return IsWithinDrawDistance( Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() },
                                      transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
     }
 
@@ -4876,7 +4876,7 @@ namespace Desert::Graphic
                                                         0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
                                                            tile.SpacingCm };
             const float     pixels = TextureStreamingDemand::ScreenPixels(
-                 center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
+                 center, side * 0.70710678f, { glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() },
                  GetViewExtent().Height );
             for ( const auto& [slot, asset] : overrides->Textures )
                 TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );

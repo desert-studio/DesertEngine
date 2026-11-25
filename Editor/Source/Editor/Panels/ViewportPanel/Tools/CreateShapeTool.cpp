@@ -135,7 +135,7 @@ namespace Desert::Editor::Tools
         }
         const ECS::Entity entity    = scene.CreateNewEntity( std::move( label ) );
         entity.SetLocalTransform( ECS::LocalTransform{
-             spot.Point, glm::eulerAngles( spot.Rotation ),
+             glm::dvec3( spot.Point ), glm::eulerAngles( spot.Rotation ),
              entity.GetComponent<ECS::TransformComponent>().GetScale() } );
         ECS::StaticMeshDesc shape;
         if ( auto set = ECS::SetEditableMesh(

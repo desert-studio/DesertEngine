@@ -99,7 +99,7 @@ namespace Desert::Graphic::System
         if ( camera != nullptr )
         {
             VFX::VFXViewReport report{
-                 .Origin          = camera->GetPosition(),
+                 .Origin          = glm::vec3( camera->GetPosition() ),
                  .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
                  .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ),
                  .MaxWorldParticles =

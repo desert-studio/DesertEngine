@@ -710,7 +710,7 @@ TEST( ControlProtocol, ASelectionSetParsesAndWritesTheNamedTransformFieldAlone )
     before.Scale       = { 2.0f, 3.0f, 4.0f };
     const auto after   = WriteSelectionTransform( before, request.Property, request.Value );
     ASSERT_TRUE( after ) << after.GetError();
-    EXPECT_EQ( after.GetValue().Translation, glm::vec3( 2000.0f, 0.0f, -50.0f ) );
+    EXPECT_EQ( after.GetValue().Translation, glm::dvec3( 2000.0, 0.0, -50.0 ) );
     EXPECT_EQ( after.GetValue().Rotation, before.Rotation );
     EXPECT_EQ( after.GetValue().Scale, before.Scale );
 

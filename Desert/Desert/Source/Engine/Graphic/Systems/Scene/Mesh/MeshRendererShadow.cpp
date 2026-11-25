@@ -722,7 +722,7 @@ namespace Desert::Graphic::System
         // its cull distance, level or wind ring inside the cell (CPU-ISM-SHADOW REMAINDER says what replaces it).
         const auto*             camera = m_SceneRenderer->GetMainCamera();
         const Geometry::LODView lodView =
-             camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
+             camera != nullptr ? Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() }
                                : Geometry::LODView{};
         SignatureHash hash;
         hash.Add( camera != nullptr );
@@ -1049,7 +1049,7 @@ namespace Desert::Graphic::System
         const auto*       camera = m_SceneRenderer->GetMainCamera();
         Geometry::LODView lodView{};
         if ( camera != nullptr )
-            lodView = Geometry::LODView{ .Origin     = camera->GetPosition(),
+            lodView = Geometry::LODView{ .Origin     = glm::vec3( camera->GetPosition() ),
                                          .Projection = camera->GetProjectionMatrix(),
                                          .Temporal   = m_ViewTemporalLOD };
         // The runs of every field a caster view asks (each one's filter: a mesh, CastShadows, instances), in field

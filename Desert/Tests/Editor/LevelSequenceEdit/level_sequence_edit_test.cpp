@@ -71,12 +71,12 @@ namespace
         }
         bool Undo() override
         {
-            ECS::SetLocalTranslation( m_Registry, m_Entity, m_Before );
+            ECS::SetLocalTranslation( m_Registry, m_Entity, glm::dvec3( m_Before ) );
             return true;
         }
         bool Redo() override
         {
-            ECS::SetLocalTranslation( m_Registry, m_Entity, m_After );
+            ECS::SetLocalTranslation( m_Registry, m_Entity, glm::dvec3( m_After ) );
             return true;
         }
 
@@ -104,8 +104,8 @@ TEST( LevelSequenceKeys, AutoKeyedGizmoReleaseIsOneUndoStep )
 
     // The gesture: press, drag, release — the gizmo pushes the move and remembers the revision it stood at.
     ASSERT_TRUE( autoKey.Observe( world.registry, sequence, at, true ).IsSuccess() );
-    const glm::vec3 before = moved;
-    ECS::SetLocalTranslation( world.registry, world.door, glm::vec3( 777.0F, before.y, before.z ) );
+    const glm::vec3 before( moved );
+    ECS::SetLocalTranslation( world.registry, world.door, glm::dvec3( 777.0F, before.y, before.z ) );
     history.PushCommand( std::make_unique<TranslationRestore>( world.registry, world.door, before ) );
     const uint64_t move = history.Revision();
 

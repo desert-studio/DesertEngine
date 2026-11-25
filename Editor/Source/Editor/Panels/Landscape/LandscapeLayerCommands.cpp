@@ -123,7 +123,7 @@ namespace Desert::Editor::Commands
                 auto& root = scene->CreateEntityWithUUID( m_Root, "Landscape" );
                 if ( !root.HasComponent<ECS::TransformComponent>() )
                     root.AddComponent<ECS::TransformComponent>();
-                root.SetLocalTranslation( m_Generated.Root.Origin );
+                root.SetLocalTranslation( glm::dvec3( m_Generated.Root.Origin ) );
                 auto& landscape        = root.AddComponent<ECS::LandscapeComponent>();
                 landscape.QuadsPerTile = m_Quads;
                 landscape.SpacingCm    = m_Generated.Root.SpacingCm;

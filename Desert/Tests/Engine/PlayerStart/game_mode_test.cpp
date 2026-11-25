@@ -26,7 +26,7 @@ namespace
     entt::entity Start( Scene& scene, const char* name, const char* tag, glm::vec3 at )
     {
         ECS::Entity& e                                        = scene.CreateEntityWithUUID( Common::UUID(), name );
-        e.SetLocalTranslation( at );
+        e.SetLocalTranslation( glm::dvec3( at ) );
         e.AddComponent<ECS::PlayerStartComponent>().Data.Tag  = tag;
         return e.GetHandle();
     }
@@ -38,7 +38,7 @@ namespace
         {
             ++spawned;
             ECS::Entity& e = scene.CreateEntityWithUUID( Common::UUID(), "Pawn" );
-            e.SetLocalTranslation( glm::vec3( at[3] ) );
+            e.SetLocalTranslation( glm::dvec3( at[3] ) );
             e.AddComponent<ECS::CharacterControllerComponent>();
             e.AddComponent<ECS::CameraComponent>();
             return Common::MakeSuccess( e.GetHandle() );
@@ -112,7 +112,7 @@ TEST( GameMode, KillUnpossessesAndRestartsAfterTheDelayAtTheStart )
     ASSERT_TRUE( mode.RestartPlayer( scene, spawn ) );
     (void)mode.TakeEvents();
     const entt::entity first                              = scene.GetPlayerPawn();
-    ECS::SetLocalTranslation( reg, first, glm::vec3( 5000.0f, 0.0f, 0.0f ) ); // walked away
+    ECS::SetLocalTranslation( reg, first, glm::dvec3( 5000.0f, 0.0f, 0.0f ) ); // walked away
 
     ASSERT_TRUE( mode.Kill( scene, first ) );
     EXPECT_TRUE( scene.GetPlayerPawn() == entt::null ) << "a dead pawn is no longer possessed";

@@ -92,7 +92,7 @@ namespace Desert::Libraries
     {
         if ( Get<ECS::TransformComponent>( entity ) == nullptr )
             return;
-        entity.SetLocalTranslation( position );
+        entity.SetLocalTranslation( glm::dvec3( position ) );
         MoveThroughPhysics( entity );
     }
 

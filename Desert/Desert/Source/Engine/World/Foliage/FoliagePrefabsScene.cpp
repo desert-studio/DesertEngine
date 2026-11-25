@@ -99,7 +99,7 @@ namespace Desert::World::Foliage
                 const ECS::Rules::DecomposedTransform parts = ECS::Rules::DecomposeTransform( local );
                 registry.get_or_emplace<ECS::TransformComponent>( child );
                 ECS::SetLocalTransform( registry, child,
-                                        ECS::LocalTransform{ parts.Translation, parts.Rotation, parts.Scale } );
+                                        ECS::LocalTransform{ glm::dvec3( parts.Translation ), parts.Rotation, parts.Scale } );
             };
             // A copy: a spawned prefab may add to the component pools and move the field's vector.
             const glm::mat4        toField = glm::inverse( fieldWorld );
