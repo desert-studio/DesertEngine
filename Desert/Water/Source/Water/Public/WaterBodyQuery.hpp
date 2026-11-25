@@ -14,6 +14,7 @@
 #include <Water/Public/FFTSurfaceMirror.hpp>
 #include <Water/Public/WaterRiver.hpp>
 #include <Water/Public/WaterShoreField.hpp>
+#include <Water/Public/WaterWaveTable.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -33,19 +34,23 @@ namespace Desert::Water
     /// game thread.
     struct WaterBodyState
     {
-        /// The body's world location: Y is the still water level, (X, Z) is the WaveOrigin the waves are
-        /// evaluated relative to and the centre of the footprint.
+        /// The body's world location: Y is the still water level, (X, Z) the centre of the footprint and, unless
+        /// WaveOrigin says another, the origin the waves are evaluated relative to.
         glm::vec3 Location{ 0.0f };
         /// Full size of the footprint along world X and Z, cm (UE OceanExtents).
         glm::vec2 Extents{ 51200.0f, 51200.0f };
         /// Empty = a flat body (UE HasWaves() false). Shared: every body naming one `.dwaves` reads one set.
         std::shared_ptr<const std::vector<GerstnerWave>> Waves;
+        /// The lane's WaveOrigin (WaterWaveLane::Origin): a river's footprint centre is not its entity's X, Z.
+        std::optional<glm::vec2> WaveOrigin;
+        /// The waves are not known yet (WaterWaveState::Pending): the answer is the still plane, not ready.
+        bool WavesPending = false;
         /// Ocean or River (UE AWaterBodyOcean / AWaterBodyRiver). A river's Location is its footprint's centre at
         /// its mean level, Extents its footprint, and it covers only where its baked bank mask is set.
         WaterBodyType Type = WaterBodyType::Ocean;
         /// A river's baked flow (null for an ocean): the bank mask the queries clip to and the current they read.
         std::shared_ptr<const RiverFlowField> Flow;
-        /// The drawn surface is the FFT ocean (WaterWavesService::SurfaceOf, the renderer's own choice): the queries
+        /// The drawn surface is the FFT ocean (WaterWaveState::FFT, the renderer's own choice): the queries
         /// answer with FFTSurface, the cascades the GPU drew, never with the set's Gerstner generator.
         bool FFT = false;
         /// The newest read of that ocean; null until one landed, and the answer is then the still plane, not ready.
@@ -58,6 +63,9 @@ namespace Desert::Water
         /// accelerates by down its sheet (RiverFallSpeed). WaterSubsystem::SetWorld stamps it on every body.
         float Gravity = 0.0f;
     };
+
+    /// Gives the body its lane's waves: what the renderer draws it with.
+    void SetWaveLane( WaterBodyState& body, const WaterWaveLane& lane, const WaterFFTSurface& surface );
 
     struct WaterQueryResult
     {
@@ -75,8 +83,8 @@ namespace Desert::Water
         float WaveAttenuation = 0.0f;
         /// The highest the waves can rise here (UE FWaveInfo::MaxHeight).
         float MaxWaveHeight = 0.0f;
-        /// The waves are known. False: the body draws an FFT ocean no read-back of which has landed yet, and the
-        /// surface is the still plane.
+        /// The waves are known. False: the body's set is still being read, or it draws an FFT ocean no read-back of
+        /// which has landed yet, and the surface is the still plane (what floats keeps its last answer).
         bool SurfaceReady = true;
         /// How far below the surface the point is; negative above it.
         float ImmersionDepth = 0.0f;
@@ -107,10 +115,11 @@ namespace Desert::Water
 
     /// The body the point is deepest in, of those of the highest WaterBodyPriority that cover it (the surface the
     /// renderer draws there: inside a river's banks the river, never the ocean under it); nullopt when it is in
-    /// none of them.
+    /// none of them. With @p andUnready a body over the point whose surface is not ready (WaterQueryResult::
+    /// SurfaceReady) answers too, whether or not the point is under its still plane.
     [[nodiscard]] std::optional<WaterQueryHit>
     QueryWater( std::span<const WaterBodyState> bodies, const WaterShoreField* shore, const glm::vec3& point,
-                float time );
+                float time, bool andUnready = false );
 
     /**
      * @brief The water of one world: its bodies, the ground under them and the wave clock (UE UWaterSubsystem).
@@ -147,7 +156,7 @@ namespace Desert::Water
             return m_Bodies;
         }
 
-        [[nodiscard]] std::optional<WaterQueryHit> Query( const glm::vec3& point ) const;
+        [[nodiscard]] std::optional<WaterQueryHit> Query( const glm::vec3& point, bool andUnready = false ) const;
 
     private:
         double                                 m_Time    = 0.0;

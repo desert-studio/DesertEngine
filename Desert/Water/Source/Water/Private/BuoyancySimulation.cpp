@@ -98,7 +98,8 @@ namespace Desert::Water
     }
 
     float ApplyBuoyancy( Physics::PhysicsWorld& world, const Physics::BodyHandle body,
-                         const std::span<const glm::vec4> pontoons, const WaterSubsystem& water )
+                         const std::span<const glm::vec4> pontoons, const std::span<PontoonHold> holds,
+                         const WaterSubsystem& water )
     {
         const glm::vec3 position = world.GetPosition( body );
         const glm::quat rotation = world.GetRotation( body );
@@ -107,30 +108,40 @@ namespace Desert::Water
 
         float total     = 0.0f;
         float submerged = 0.0f;
-        for ( const glm::vec4& pontoon : pontoons )
+        for ( std::size_t i = 0; i < pontoons.size(); ++i )
         {
-            const float radius = pontoon.w;
-            const float volume = SubmergedSphereVolume( radius, 2.0f * radius );
+            const glm::vec4& pontoon = pontoons[i];
+            PontoonHold&     hold    = holds[i];
+            const float      radius  = pontoon.w;
+            const float      volume  = SubmergedSphereVolume( radius, 2.0f * radius );
             total += volume;
             const glm::vec3 centre = position + rotation * glm::vec3( pontoon );
             // Asked at the pontoon's LOWEST point: the query answers only for a point in the water, and a pontoon
             // is in the water as soon as its bottom is; the surface over the bottom is the surface over the centre.
             const glm::vec3                    bottom = centre - glm::vec3( 0.0f, radius, 0.0f );
-            const std::optional<WaterQueryHit> hit    = water.Query( bottom );
+            const std::optional<WaterQueryHit> hit    = water.Query( bottom, true );
             if ( !hit )
+            {
+                hold.Valid = false;
                 continue;
-            const float displaced = SubmergedSphereVolume( radius, hit->Result.ImmersionDepth );
+            }
+            if ( hit->Result.SurfaceReady || !hold.Valid )
+                hold = PontoonHold{ .Valid    = hit->Result.SurfaceReady,
+                                    .SurfaceY = bottom.y + hit->Result.ImmersionDepth,
+                                    .Density  = bodies[hit->Body].Density,
+                                    .Drag     = bodies[hit->Body].Drag,
+                                    .Velocity = hit->Result.Velocity };
+            const float displaced = SubmergedSphereVolume( radius, hold.SurfaceY - bottom.y );
             if ( displaced <= 0.0f )
                 continue;
             submerged += displaced;
 
-            const WaterBodyState& waterBody = bodies[hit->Body];
             // The mass of the water the pontoon pushes aside: its weight is the lift, and it is the mass the
             // water's drag pulls to the water's own velocity.
-            const float     displacedKg = waterBody.Density * kCubicMetrePerCubicCm * displaced;
+            const float     displacedKg = hold.Density * kCubicMetrePerCubicCm * displaced;
             const glm::vec3 lift( 0.0f, displacedKg * gravity, 0.0f );
-            const glm::vec3 relative = world.GetPointVelocity( body, centre ) - hit->Result.Velocity;
-            const glm::vec3 drag     = -waterBody.Drag * displacedKg * relative;
+            const glm::vec3 relative = world.GetPointVelocity( body, centre ) - hold.Velocity;
+            const glm::vec3 drag     = -hold.Drag * displacedKg * relative;
             world.AddForceAtPoint( body, lift + drag, centre );
         }
         return total > 0.0f ? submerged / total : 0.0f;

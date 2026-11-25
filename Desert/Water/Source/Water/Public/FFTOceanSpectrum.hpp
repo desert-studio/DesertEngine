@@ -47,8 +47,8 @@ namespace Desert::Water
 
     /// What a wave set's surface IS (`.dwaves` Source). A Gerstner set is its generator's sum everywhere; an FFT
     /// set is its Tessendorf ocean where the tier allows (Scalability Effects.WaterWaveMethod = FFT) and its
-    /// Gerstner generator - the same file's - below that tier and for the CPU's queries (REMAINDER: the GPU
-    /// cascades read back for buoyancy).
+    /// Gerstner generator - the same file's - below that tier, for the renderer and the CPU's queries alike
+    /// (ECS::WaterWaveSources).
     enum class WaterWaveSource
     {
         Gerstner,

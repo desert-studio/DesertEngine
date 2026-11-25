@@ -2,15 +2,11 @@
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/System/System.hpp>
-#include <Engine/ECS/System/WindField.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Water/Public/WaterWavesService.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
-#include <Water/Public/WaterOceanRule.hpp>
+#include <Water/Public/WaterWaveSources.hpp>
 #include <Water/Public/WaterShoreFieldSource.hpp>
 #include <Water/Public/WaterZoneCommand.hpp>
 
-#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -49,51 +45,21 @@ namespace Desert::ECS
             return true;
         }
 
-        // THE OCEAN'S WIND (WATER-UNDERWATER): one truth, the scene's ECS::WindAt - the query foliage, clouds,
-        // cloth and groom ask - at the first visible body naming each wave set (its wave origin, at its still
-        // level). A wave set holds no wind of its own; WaterWavesService rebuilds the set's FFT spectrum when
-        // this changes, so a WindSource edit moves the sea without a reload. Every frame, before the zone check:
-        // a body's buoyancy floats on the same sea whether or not a zone draws it.
-        void StateWaveWinds( entt::registry& registry )
-        {
-            auto* const service = Runtime::GetWaterWavesService();
-            if ( service == nullptr )
-                return;
-            m_WindStated.clear();
-            for ( const entt::entity entity : registry.view<WaterBodyComponent, TransformComponent>() )
-            {
-                const Assets::AssetHandle waves = registry.get<WaterBodyComponent>( entity ).Data.WaterWaves;
-                if ( static_cast<uint64_t>( waves ) == 0 || ECS::IsHidden( registry, entity ) ||
-                     std::find( m_WindStated.begin(), m_WindStated.end(), waves ) != m_WindStated.end() )
-                    continue;
-                m_WindStated.push_back( waves );
-                const glm::vec3 wind =
-                     WindAt( registry, registry.get<TransformComponent>( entity ).GetTranslation() ).Velocity;
-                service->SetWind( waves, glm::vec2( wind.x, wind.z ) );
-            }
-        }
-
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                      const Common::Timestep& /*ts*/ ) override
         {
-            StateWaveWinds( registry );
-
             const auto zones = registry.view<WaterZoneComponent, TransformComponent>();
             if ( zones.begin() == zones.end() )
                 return;
 
-            m_NoOcean.clear();
-            auto* const service = Runtime::GetWaterWavesService();
-            if ( const auto* const rule = registry.try_ctx<std::shared_ptr<WaterOceanRule>>();
-                 rule != nullptr && service != nullptr )
-                ( *rule )->Refused( registry, [service]( const Assets::AssetHandle& waves )
-                                    { return service->IsFFTSet( waves ); }, m_NoOcean );
-            // A hidden body, and a second ocean (WaterOceanRule), is no water.
-            const auto absent = [this, &registry]( const entt::entity entity )
-            {
-                return ECS::IsHidden( registry, entity ) ||
-                       std::find( m_NoOcean.begin(), m_NoOcean.end(), entity ) != m_NoOcean.end();
-            };
+            // The world's wave record, refreshed by the module's Prepares hook before any system of the frame.
+            const auto* const sources = registry.try_ctx<std::shared_ptr<WaterWaveSources>>();
+            if ( sources == nullptr )
+                return;
+            const WaterWaveSources& waves = **sources;
+            // A hidden body, and a second ocean (WaterWaveSources), is no water.
+            const auto absent = [&waves, &registry]( const entt::entity entity )
+            { return ECS::IsHidden( registry, entity ) || waves.IsRefused( entity ); };
 
             // A hidden body is no water, as a hidden mesh is no geometry. The visible bodies are compared with the
             // rows the zones drew last frame; only a change builds new rows (immutable and shared by every zone's
@@ -141,7 +107,7 @@ namespace Desert::ECS
                 const WaterBodyData& data     = view.get<WaterBodyComponent>( entity ).Data;
                 const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
                 same = data.Type == rows.Types[i] && data.WaterMaterial == rows.Materials[i] &&
-                       data.WaterWaves == rows.Waves[i] &&
+                       waves.LaneOf( entity ) == rows.WaveLanes[i] &&
                        glm::vec2( location.x, location.z ) == rows.WaveOrigins[i];
                 if ( same && data.Type == Water::WaterBodyType::River )
                     same = riverKey( entity ) == rows.RiverKeys[i]; // the footprint follows from the bake
@@ -187,7 +153,7 @@ namespace Desert::ECS
                     rows->Flows.push_back( std::move( flow ) );
                     rows->RiverKeys.push_back( key );
                     rows->Materials.push_back( data.WaterMaterial );
-                    rows->Waves.push_back( data.WaterWaves );
+                    rows->WaveLanes.push_back( waves.LaneOf( entity ) );
                     rows->WaveOrigins.emplace_back( location.x, location.z );
                 }
                 m_Bodies = std::move( rows );
@@ -214,6 +180,7 @@ namespace Desert::ECS
                 draw.Zone.TessellationFactor = data.TessellationFactor;
                 draw.Zone.LODScale           = data.LODScale;
                 draw.Bodies                  = m_Bodies;
+                draw.Waves                   = waves.Table();
                 draw.Shore                   = shore;
                 draw.Gravity                 = m_Settings->Gravity;
                 renderCommandBuffer.Emplace<Graphic::Render::WaterZoneCommand>( std::move( draw ) );
@@ -224,7 +191,5 @@ namespace Desert::ECS
         const Core::SceneSettings*                     m_Settings = nullptr;
         // The visible bodies the zones drew last frame (rebuilt only on a change).
         std::shared_ptr<const Graphic::System::WaterZoneBodies> m_Bodies;
-        std::vector<Assets::AssetHandle>                        m_WindStated; // StateWaveWinds' frame rows
-        std::vector<entt::entity>                               m_NoOcean;    // WaterOceanRule's refusals
     };
 } // namespace Desert::ECS

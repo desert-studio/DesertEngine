@@ -40,7 +40,7 @@
 #include <unordered_map>
 #include <vector>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
-#include <Water/Public/WaterWavesService.hpp>
+#include <Water/Public/WaterWaveTable.hpp>
 #include <Common/Settings/Scalability.hpp>
 
 #include <span>
@@ -105,7 +105,7 @@ namespace Desert::Graphic::System
 
         // WATER_MAX_WAVES / WATER_MAX_WAVE_SETS (WaterMeshTiles.glslh): the wave sets lead the tile buffer.
         constexpr auto     kMaxWaves    = static_cast<uint32_t>( Water::kMaxDrawnWaves );
-        constexpr uint32_t kMaxWaveSets = 4;
+        constexpr auto kMaxWaveSets = static_cast<uint32_t>( Water::kMaxWaveLanes );
         // One body wave set, std430 (WaterMeshTiles.glslh WaterWaveSet; UE: a water body's wave buffer).
         struct WaterWaveSet
         {
@@ -577,6 +577,7 @@ namespace Desert::Graphic::System
         m_Walk             = TileWalk{};
         m_FrameFrontLayers = 0u;
         m_FFTFrame.reset();
+        m_FFTSurface.reset();
         m_FrameWaterRefs  = WaterFrameRefs{};
         m_FrameWaterGraph = nullptr;
         m_FoamFrame.reset();
@@ -621,14 +622,8 @@ namespace Desert::Graphic::System
         // forward local-shadow reader's does (SceneRenderer::LocalShadowsAreVirtual, settled by BeginScene).
         const bool                          virtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
         std::vector<FrameProgram>           programs;
-        // The frame's wave sets: the asset, its WaveOrigin and the first body material naming it (its warnings).
-        struct FrameWaveSet
-        {
-            Assets::AssetHandle Asset;
-            glm::vec2           Origin{ 0.0f };
-            Assets::AssetHandle Material;
-        };
-        std::vector<FrameWaveSet>           waveSets;
+        // The world's wave lanes (ECS::WaterWaveSources), the CPU queries' own: every zone carries the one table.
+        const std::shared_ptr<const Water::WaterWaveTable> table = m_Queue.front().get().Waves;
         std::vector<std::vector<WaterBodyLane>> bodyLanes( m_Queue.size() );
         std::vector<std::vector<uint32_t>>      bodyPrograms( m_Queue.size() );
         for ( size_t z = 0; z < m_Queue.size(); ++z )
@@ -663,25 +658,8 @@ namespace Desert::Graphic::System
                     slot = frame->Materials.insert( frame->Materials.end(), body );
                 bodyPrograms[z][b] = static_cast<uint32_t>( frame - programs.begin() );
                 const bool river = b < bodies.Types.size() && bodies.Types[b] == Water::WaterBodyType::River;
-                // The body's wave set: 1 + its index in waveSets, 0 = flat (none named, or past the last set).
-                const Assets::AssetHandle& bodyWaves = bodies.Waves[b];
-                float                      waveLane  = 0.0f;
-                if ( static_cast<uint64_t>( bodyWaves ) != 0 )
-                {
-                    const glm::vec2 origin = b < bodies.WaveOrigins.size() ? bodies.WaveOrigins[b] : glm::vec2( 0.0f );
-                    auto set = std::find_if( waveSets.begin(), waveSets.end(), [&]( const FrameWaveSet& w )
-                                             { return w.Asset == bodyWaves && w.Origin == origin; } );
-                    if ( set == waveSets.end() && waveSets.size() < kMaxWaveSets )
-                        set = waveSets.insert( waveSets.end(),
-                                               FrameWaveSet{ .Asset = bodyWaves, .Origin = origin, .Material = body } );
-                    if ( set != waveSets.end() )
-                        waveLane = 1.0f + static_cast<float>( set - waveSets.begin() );
-                    else
-                        WarnOnce( body, WaterWarning::TooManyWaveSets,
-                                  std::format( "its body's wave set is past the frame's {} (WATER_MAX_WAVE_SETS) - "
-                                               "drawn flat",
-                                               kMaxWaveSets ) );
-                }
+                // The body's wave lane: 1 + its index in the table, 0 = flat.
+                const float waveLane = 1.0f + static_cast<float>( bodies.WaveLanes[b] );
                 // The body's own medium (UE: the river's flow): on a river its bake's two-phase period (WaterBodyData::RiverFlowPeriod ->
                 // Water::RiverFlowField::FlowPeriod).
                 const std::shared_ptr<const Water::RiverFlowField>& flow =
@@ -700,10 +678,9 @@ namespace Desert::Graphic::System
         if ( programs.empty() )
             return; // no body's template builds: no water (each refusal said once)
 
-        // THE BODIES' WAVES (UE: each water body's wave buffer the water vertex factory reads): each set generated
-        // once per asset (Runtime::WaterWavesService), packed ahead of the tiles. Still loading = flat this frame.
-        // THE FFT OCEAN replaces a set's Gerstner rows where the set is one and the tier asks for it: the world's one
-        // ocean (ECS::WaterOceanRule), under every WaveOrigin its bodies have.
+        // THE BODIES' WAVES (UE: each water body's wave buffer the water vertex factory reads): the table's lanes,
+        // packed ahead of the tiles. A pending lane is flat this frame. THE FFT OCEAN replaces a lane's Gerstner
+        // rows where the lane's state says so: the world's one ocean, under every WaveOrigin its bodies have.
         WaterWavesBlock waves;
         const glm::vec3 observer = glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] );
         // The floor and its shore (Water/WaterDepthField.glslh), before the waves: the swell's shore form reads its slope.
@@ -713,36 +690,22 @@ namespace Desert::Graphic::System
                                 ? glm::vec4( shore->OpenSeaFloorCm, shore->BeachSlope, Water::kShoreSkirtSlope, 0.0f )
                                 : glm::vec4( m_FrameBodies.front().SurfaceY - Water::kOpenSeaDepthCm, 0.0f,
                                              Water::kShoreSkirtSlope, 0.0f );
-        waves.Header.x       = static_cast<float>( waveSets.size() );
+        waves.Header.x       = static_cast<float>( table->Lanes.size() );
         float verticalExtent = kFlatSurfaceVerticalExtentCm;
         bool  fft            = false;
-        Assets::AssetHandle ocean = Assets::AssetHandle::Null(); // the FFT set, once fft
-        auto* const service  = Runtime::GetWaterWavesService();
-        for ( size_t index = 0; index < waveSets.size(); ++index )
+        for ( size_t index = 0; index < table->Lanes.size(); ++index )
         {
-            const FrameWaveSet& frameSet = waveSets[index];
-            WaterWaveSet&       set      = waves.Sets[index];
-            set.Header.z                 = frameSet.Origin.x;
-            set.Header.w                 = frameSet.Origin.y;
-            if ( service == nullptr )
+            const Water::WaterWaveLane& lane = table->Lanes[index];
+            WaterWaveSet&               set  = waves.Sets[index];
+            set.Header.z                     = lane.Origin.x;
+            set.Header.w                     = lane.Origin.y;
+            if ( lane.Waves != nullptr )
             {
-                WarnOnce( frameSet.Material, WaterWarning::NoWavesService,
-                          "its body's waves cannot be read: no WaterWavesService" );
-                continue;
-            }
-            Common::ResultStr<Runtime::WaterWavesService::Waves> got = service->Get( frameSet.Asset );
-            if ( !got )
-            {
-                if ( FirstWarning( frameSet.Material, WaterWarning::WavesRefused ) )
-                    Warn( frameSet.Material, std::format( "its body's waves are refused: {}", got.GetError() ) );
-            }
-            else if ( got.GetValue() )
-            {
-                const std::vector<Water::GerstnerWave>& rows = *got.GetValue();
-                if ( rows.size() > kMaxWaves && FirstWarning( frameSet.Material, WaterWarning::TooManyWaves ) )
-                    Warn( frameSet.Material, std::format( "its body's wave set has {} waves - the water mesh draws "
-                                                          "the first {} (WATER_MAX_WAVES)",
-                                                          rows.size(), kMaxWaves ) );
+                const std::vector<Water::GerstnerWave>& rows = *lane.Waves;
+                if ( rows.size() > kMaxWaves && FirstWarning( lane.Asset, WaterWarning::TooManyWaves ) )
+                    Warn( lane.Asset, std::format( "the wave set has {} waves - the water mesh draws the first {} "
+                                                   "(WATER_MAX_WAVES)",
+                                                   rows.size(), kMaxWaves ) );
                 const size_t count = std::min<size_t>( rows.size(), kMaxWaves );
                 for ( size_t k = 0; k < count; ++k )
                 {
@@ -757,11 +720,18 @@ namespace Desert::Graphic::System
                 verticalExtent = std::max( { verticalExtent, Water::MaxWaveHeight( rows ),
                                              kShoreWaveReach * swell.SignificantHeight } );
             }
-            if ( fft ? frameSet.Asset == ocean : PrepareFFTFrame( frameSet.Material, frameSet.Asset ) )
+            if ( lane.Spectrum == nullptr )
+                continue;
+            // The verdict is the world's: every reader takes the new state with the next frame's table.
+            const bool drawable = PrepareFFTFrame( lane.Asset, lane.Spectrum );
+            table->Surface->Verdict.store( drawable ? Water::WaterFFTVerdict::Drawable
+                                                    : Water::WaterFFTVerdict::Refused,
+                                           std::memory_order_release );
+            if ( drawable && lane.State == Water::WaterWaveState::FFT )
             {
                 fft                                   = true;
-                ocean                                 = frameSet.Asset;
-                service->SetDrawnFFT( frameSet.Asset );
+                m_FFTFrame                            = lane.Spectrum;
+                m_FFTSurface                          = table->Surface;
                 const Water::FFTOceanSpectrum& spectrum = *m_FFTFrame;
                 waves.Header.y                        = 1.0f;
                 waves.Header.z                        = spectrum.Params.Choppiness;
@@ -818,7 +788,7 @@ namespace Desert::Graphic::System
             waves.River = glm::vec4( river.Min, 1.0f / glm::max( river.Texel, glm::vec2( 1e-3f ) ) );
         }
         int32_t fftSet = -1;
-        for ( size_t index = 0; index < waveSets.size() && fft && fftSet < 0; ++index )
+        for ( size_t index = 0; index < table->Lanes.size() && fft && fftSet < 0; ++index )
             if ( waves.Sets[index].Header.y > 0.5f )
                 fftSet = static_cast<int32_t>( index );
         PrepareFoam( stamp, observer, fftSet, shore, waves.FoamOrigin, waves.FoamShape );
@@ -937,7 +907,6 @@ namespace Desert::Graphic::System
     void WaterRenderer::PrepareUnderwater( const glm::vec3& camera, const MaterialStamp& stamp )
     {
         const ViewFrame* const viewFrame = m_SceneRenderer->GetViewFrame();
-        auto* const            service   = Runtime::GetWaterWavesService();
         if ( viewFrame == nullptr )
             return;
         // The near plane's lowest corner (reversed-Z: device depth 1): a camera just above the water whose near
@@ -976,15 +945,9 @@ namespace Desert::Graphic::System
                     state.Location =
                          glm::vec3( state.Flow->Min.x + 0.5f * state.Flow->Extent.x, state.Flow->SurfaceY,
                                     state.Flow->Min.y + 0.5f * state.Flow->Extent.y );
-                if ( service != nullptr && static_cast<uint64_t>( bodies.Waves[b] ) != 0 )
-                {
-                    auto waves = service->Get( bodies.Waves[b] );
-                    if ( waves && waves.GetValue() )
-                        state.Waves = waves.GetValue();
-                    Water::WaterSurfaceSource surface = service->SurfaceOf( bodies.Waves[b] );
-                    state.FFT                         = surface.FFT;
-                    state.FFTSurface                  = std::move( surface.Read );
-                }
+                if ( const int32_t lane = bodies.WaveLanes[b]; lane >= 0 )
+                    Water::SetWaveLane( state, zone.Waves->Lanes[static_cast<size_t>( lane )],
+                                        *zone.Waves->Surface );
                 if ( !Water::WaterBodyCovers( state, camera ) )
                     continue;
                 const Water::WaterQueryResult hit   = Water::QueryWaterBody( state, camera, time, zone.Shore.get() );

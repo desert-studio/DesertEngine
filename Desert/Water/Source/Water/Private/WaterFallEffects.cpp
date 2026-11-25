@@ -9,6 +9,7 @@
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <VFX/Public/VFXComponent.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
+#include <Water/Public/WaterWaveSources.hpp>
 
 #include <glm/glm.hpp>
 
@@ -50,13 +51,16 @@ namespace Desert::Water
         ++m_Tick;
         const float gravity = scene.GetSettings().Gravity;
 
+        const auto* const sources = registry.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>();
+
         // Collected before any entity is made: making one writes the pools the rivers are read from.
         std::vector<Wanted>                     wanted;
         std::unordered_map<entt::entity, River> rivers;
         for ( const entt::entity entity : registry.view<ECS::WaterBodyComponent, ECS::TransformComponent>() )
         {
             const ECS::WaterBodyData& data = registry.get<ECS::WaterBodyComponent>( entity ).Data;
-            if ( data.Type != WaterBodyType::River || ECS::IsHidden( registry, entity ) )
+            if ( data.Type != WaterBodyType::River || ECS::IsHidden( registry, entity ) ||
+                 ( sources != nullptr && ( *sources )->IsRefused( entity ) ) ) // a second ocean is no water
                 continue;
             const std::array<Assets::AssetHandle, 3> systems = { data.FallFoam, data.FallSpray, data.FallMist };
             if ( std::all_of( systems.begin(), systems.end(),

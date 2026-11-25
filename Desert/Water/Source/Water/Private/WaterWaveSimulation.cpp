@@ -11,8 +11,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Water/Public/FFTSurfaceMirror.hpp>
-#include <Water/Public/WaterWavesService.hpp>
-#include <Common/Settings/Scalability.hpp>
+#include <Water/Public/WaterWaveTable.hpp>
 
 #include <algorithm>
 #include <array>
@@ -122,32 +121,13 @@ namespace Desert::Graphic::System
                m_FFTMips != nullptr;
     }
 
-    bool WaterRenderer::PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& wavesAsset )
+    bool WaterRenderer::PrepareFFTFrame( const Assets::AssetHandle&                            waves,
+                                         const std::shared_ptr<const Water::FFTOceanSpectrum>& spectrum )
     {
-        if ( static_cast<uint64_t>( wavesAsset ) == 0 )
-            return false;
-        const Common::Scalability::ResolvedQuality& quality = Common::Scalability::QualityState::Resolved();
-        if ( quality.As<Common::Scalability::WaterWaveMethod>(
-                  Common::Scalability::Parameter::EffectsWaterWaveMethod ) !=
-             Common::Scalability::WaterWaveMethod::FFT )
-            return false;
-        auto* const service = Runtime::GetWaterWavesService();
-        if ( service == nullptr )
-            return false; // PrepareFrame said NoWavesService
-        Common::ResultStr<Runtime::WaterWavesService::Spectrum> got = service->GetSpectrum( wavesAsset );
-        if ( !got )
-        {
-            if ( FirstWarning( material, WaterWarning::SpectrumRefused ) )
-                Warn( material, std::format( "its body's FFT ocean is refused: {}", got.GetError() ) );
-            return false;
-        }
-        const Runtime::WaterWavesService::Spectrum spectrum = got.GetValue();
-        if ( spectrum == nullptr )
-            return false; // a Gerstner set, or still loading
         if ( !EnsureFFTPipelines() )
         {
-            WarnOnce( material, WaterWarning::FFTPipelinesMissing,
-                      "its body's FFT ocean has no compute programs - drawn with its Gerstner generator" );
+            WarnOnce( waves, WaterWarning::FFTPipelinesMissing,
+                      "the FFT ocean has no compute programs - the world's sea is its Gerstner generator" );
             return false;
         }
 
@@ -157,15 +137,7 @@ namespace Desert::Graphic::System
             std::vector<unsigned char> bytes( Water::kFFTOceanCascades * kTexels * sizeof( glm::vec4 ) );
             for ( uint32_t c = 0; c < Water::kFFTOceanCascades; ++c )
             {
-                const std::vector<glm::vec4>& h0 = spectrum->Cascades[c].H0;
-                if ( h0.size() != kTexels )
-                {
-                    if ( FirstWarning( material, WaterWarning::SpectrumMalformed ) )
-                        Warn( material, std::format( "its FFT ocean's cascade {} has {} texels, not {} - drawn "
-                                                     "with its Gerstner generator",
-                                                     c, h0.size(), kTexels ) );
-                    return false;
-                }
+                const std::vector<glm::vec4>& h0 = spectrum->Cascades[c].H0; // kTexels: the service refuses another
                 std::memcpy( bytes.data() + c * kTexels * sizeof( glm::vec4 ), h0.data(),
                              kTexels * sizeof( glm::vec4 ) );
             }
@@ -188,16 +160,14 @@ namespace Desert::Graphic::System
             // The array holds another sea: this frame is its own previous one.
             m_WavesHold = std::make_shared<std::atomic<uint64_t>>( 0 );
         }
-        if ( m_FFTInitial == nullptr )
-            return false;
-        m_FFTFrame = spectrum;
-        return true;
+        return m_FFTInitial != nullptr;
     }
 
     void WaterRenderer::PublishFFTReadback( const uint32_t slot )
     {
         FFTReadbackSlot& read     = m_FFTReadback[slot];
-        auto             spectrum = std::exchange( read.Spectrum, nullptr );
+        const auto       spectrum = std::exchange( read.Spectrum, nullptr );
+        const auto       world    = std::exchange( read.Surface, nullptr );
         if ( spectrum == nullptr || !read.Buffer.Physical )
             return; // nothing extracted into this slot yet, or its graph faulted before the extract
         const std::span<const std::byte> bytes = read.Buffer.Physical->ReadForHost();
@@ -215,7 +185,7 @@ namespace Desert::Graphic::System
                                    bytes.size() ) );
         read.Buffer.Physical.reset();
         if ( !surface.Texels.empty() )
-            Runtime::GetWaterWavesService()->Surfaces().Publish( spectrum, std::move( surface ) );
+            world->Mirror.Publish( spectrum, std::move( surface ) );
     }
 
     RDG::TextureRef WaterRenderer::AddStillWaves( RDG::Builder& graph )
@@ -281,7 +251,9 @@ namespace Desert::Graphic::System
         const uint64_t frame     = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const uint64_t completed = m_WavesHold->load( std::memory_order_acquire ); // frame + 1; 0: none
         float          holds     = 0.0f;
-        if ( completed == frame + 1 )
+        if ( !m_WavesImage.Physical )
+            holds = 0.0f; // a fresh array holds nothing, whatever the last graph finished
+        else if ( completed == frame + 1 )
             holds = 2.0f;
         else if ( completed != 0 && completed == frame )
             holds = 1.0f;
@@ -386,14 +358,11 @@ namespace Desert::Graphic::System
                       .Storage( P::WaterFFTParamsBuffer, rowsBuffer, RDG::Access::StorageRead )
                       .Storage( P::WaterFFTReadbackBuffer, readbackBuffer, RDG::Access::StorageWrite );
              },
-             [pipeline = m_FFTFinalize, hold = m_WavesHold, frame]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [pipeline = m_FFTFinalize]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 Common::BoolResultStr   done = Renderer::GetInstance().DispatchCompute(
-                      bindings, *pipeline, kFFTGroups8, kFFTGroups8, Water::kFFTOceanCascades );
-                 if ( done )
-                     hold->store( frame + 1, std::memory_order_release );
-                 return done;
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, kFFTGroups8, kFFTGroups8,
+                                                                 Water::kFFTOceanCascades );
              } );
         // The mips: a distant pixel reads the mean of the waves under it, and their moments say what it lost.
         for ( uint32_t mip = 0; mip + 1 < kWavesMips; ++mip )
@@ -408,16 +377,24 @@ namespace Desert::Graphic::System
                           .Storage( P::WaterWavesSource, waves, RDG::Access::StorageRead, mip )
                           .Storage( P::WaterWavesTarget, waves, RDG::Access::StorageWrite, mip + 1 );
                  },
-                 [pipeline = m_FFTMips, groups = ( side + 7u ) / 8u]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline = m_FFTMips, groups = ( side + 7u ) / 8u, frame,
+                  // The last pass that writes the array says whose waves it holds, whole.
+                  hold = mip + 2 == kWavesMips ? m_WavesHold : nullptr](
+                      RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, groups, groups, kWavesLayers );
+                     Common::BoolResultStr   done = Renderer::GetInstance().DispatchCompute(
+                          bindings, *pipeline, groups, groups, kWavesLayers );
+                     if ( done && hold != nullptr )
+                         hold->store( frame + 1, std::memory_order_release );
+                     return done;
                  } );
         }
         if ( readback )
         {
             graph.Extract( readbackBuffer, m_FFTReadback[slot].Buffer, RDG::Access::HostRead );
             m_FFTReadback[slot].Spectrum = m_FFTFrame;
+            m_FFTReadback[slot].Surface  = m_FFTSurface;
             m_FFTReadback[slot].Time     = static_cast<double>( timeSeconds );
             m_FFTReadback[slot].Frame    = frame;
         }

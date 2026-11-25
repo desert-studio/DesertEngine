@@ -11,11 +11,14 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
 namespace Desert::ECS
 {
+    struct LandscapeTileRef; // Landscape/Public/LandscapeRootOf.hpp
+
     /**
      * @brief The one owner of a world's shore field (Water::WaterShoreField): baked once for the registry and read
      * by the renderer (WaterZoneECSSystem) and by the physics' water query (WaterPhysicsFeature) alike.
@@ -80,13 +83,14 @@ namespace Desert::ECS
         static Common::ResultStr<Field> Bake( const Input& input );
 
         // Adopts a finished bake, reads the world and starts the bake it asks for. False: no body.
-        bool  Refresh( entt::registry& registry );
+        // @p now: a first bake is left unsubmitted, for the caller to run.
+        bool  Refresh( entt::registry& registry, bool now );
         void  AdoptDone();
         // Fills m_Bodies, m_Offsets and m_WorldKey, reading only. False: no body.
-        bool  ReadWorld( entt::registry& registry );
-        Input CopyInput( entt::registry& registry );
+        bool  ReadWorld( entt::registry& registry, std::span<const LandscapeTileRef> tiles );
+        Input CopyInput( std::span<const LandscapeTileRef> tiles );
         // Fills m_Offsets for this call's tiles: each root is looked up once.
-        void  ResolveRootOffsets( entt::registry& registry );
+        void  ResolveRootOffsets( entt::registry& registry, std::span<const LandscapeTileRef> tiles );
         float RootOffsetOf( entt::registry& registry, const Common::UUID& root );
 
         std::mutex                               m_Mutex;

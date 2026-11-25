@@ -349,13 +349,8 @@ namespace Desert::Graphic::System
             VirtualLocalDoesNotBuild,
             NoFrontLayerCell,
             FrontLayerDoesNotBuild,
-            TooManyWaveSets,
-            NoWavesService,
-            WavesRefused,
             TooManyWaves,
-            SpectrumRefused,
             FFTPipelinesMissing,
-            SpectrumMalformed,
             FFTReadbackUnreadable,
             UnderwaterMediumMissing,
             UnderwaterPipelineMissing,
@@ -400,8 +395,9 @@ namespace Desert::Graphic::System
              BuildWavePipeline( const char* name, ShaderBindingLayoutCache& layout,
                                 std::span<const RDG::ShaderParameter> parameters );
         [[nodiscard]] bool EnsureFFTPipelines();
-        // Sets m_FFTFrame when @p waves is an FFT ocean this view draws; false: its Gerstner rows.
-        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& waves );
+        // Makes what drawing @p spectrum takes (programs, the uploaded spectrum); whether this renderer can.
+        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle&                            waves,
+                                            const std::shared_ptr<const Water::FFTOceanSpectrum>& spectrum );
         [[nodiscard]] RDG::TextureRef AddWavePasses( RDG::Builder& graph, RDG::TextureRef initial, float timeSeconds );
         [[nodiscard]] RDG::TextureRef AddStillWaves( RDG::Builder& graph );
         std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize, m_FFTMips, m_WavesStill;
@@ -411,6 +407,7 @@ namespace Desert::Graphic::System
         bool m_WavesStillTried = false;
         // This frame's spectrum (null: Gerstner), the one whose h0 is uploaded and its h0 image.
         std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTFrame;
+        std::shared_ptr<Water::WaterFFTSurface>        m_FFTSurface; // the frame's world's, beside m_FFTFrame
         std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTUploaded;
         std::shared_ptr<Image2D>                       m_FFTInitial;
         // The waves' array (Water/WaterFFT.glslh), and 1 + the frame whose graph completed it last with the uploaded
@@ -474,6 +471,7 @@ namespace Desert::Graphic::System
         {
             RDG::ExternalBuffer                            Buffer;
             std::shared_ptr<const Water::FFTOceanSpectrum> Spectrum; // null: nothing extracted into this slot
+            std::shared_ptr<Water::WaterFFTSurface>        Surface;  // the world it is of
             double                                         Time  = 0.0;
             uint64_t                                       Frame = 0; // the frame whose graph extracted into it
         };

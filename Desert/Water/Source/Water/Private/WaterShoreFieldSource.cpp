@@ -1,6 +1,7 @@
 #include <Water/Public/WaterShoreFieldSource.hpp>
 
 #include <Water/Public/WaterBodyComponent.hpp>
+#include <Water/Public/WaterWaveSources.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
@@ -44,13 +45,21 @@ namespace Desert::ECS
             uint64_t m_Value = 1469598103934665603ull;
         };
 
-        // Every visible body's footprint. A river's is its ribbon's box; it has a floor but no still shore.
+        // The world's wave record, made with the source by the module's Prepares hook.
+        const WaterWaveSources* SourcesOf( entt::registry& registry )
+        {
+            const auto* const sources = registry.try_ctx<std::shared_ptr<WaterWaveSources>>();
+            return sources != nullptr ? sources->get() : nullptr;
+        }
+
+        // Every visible body's footprint; a body the record refuses is no water and lowers no shore. A river's is its ribbon's box; it has a floor but no still shore.
         void GatherLevels( entt::registry& registry, std::vector<Water::WaterBodyLevel>& out )
         {
             out.clear();
+            const WaterWaveSources* const sources = SourcesOf( registry );
             for ( const entt::entity entity : registry.view<WaterBodyComponent, TransformComponent>() )
             {
-                if ( IsHidden( registry, entity ) )
+                if ( IsHidden( registry, entity ) || ( sources != nullptr && sources->IsRefused( entity ) ) )
                     continue;
                 const WaterBodyData& data   = registry.get<WaterBodyComponent>( entity ).Data;
                 const glm::vec3      at     = registry.get<TransformComponent>( entity ).GetTranslation();
@@ -147,10 +156,11 @@ namespace Desert::ECS
         return cached.OffsetCm;
     }
 
-    void WaterShoreFieldSource::ResolveRootOffsets( entt::registry& registry )
+    void WaterShoreFieldSource::ResolveRootOffsets( entt::registry&                         registry,
+                                                    const std::span<const LandscapeTileRef> tiles )
     {
         m_Offsets.clear();
-        for ( const LandscapeTileRef& tile : DrawableLandscapeTiles( registry ).Tiles )
+        for ( const LandscapeTileRef& tile : tiles )
         {
             const Common::UUID root( tile.Component->Landscape );
             if ( !m_Offsets.contains( static_cast<uint64_t>( root ) ) )
@@ -158,7 +168,8 @@ namespace Desert::ECS
         }
     }
 
-    bool WaterShoreFieldSource::ReadWorld( entt::registry& registry )
+    bool WaterShoreFieldSource::ReadWorld( entt::registry&                         registry,
+                                           const std::span<const LandscapeTileRef> tiles )
     {
         GatherLevels( registry, m_Bodies );
         if ( m_Bodies.empty() )
@@ -176,8 +187,10 @@ namespace Desert::ECS
             key.MixFloat( body.StillLevelCm );
             key.Mix( body.HasShore ? 1u : 0u );
         }
-        ResolveRootOffsets( registry );
-        for ( const LandscapeTileRef& tile : DrawableLandscapeTiles( registry ).Tiles )
+        const WaterWaveSources* const sources = SourcesOf( registry );
+        key.Mix( sources != nullptr ? sources->RefusedKey() : 0u );
+        ResolveRootOffsets( registry, tiles );
+        for ( const LandscapeTileRef& tile : tiles )
         {
             key.Mix( tile.Component->Heights->HeightStamp() );
             key.MixFloat( tile.Frame.OriginX );
@@ -191,12 +204,12 @@ namespace Desert::ECS
         return true;
     }
 
-    WaterShoreFieldSource::Input WaterShoreFieldSource::CopyInput( entt::registry& registry )
+    WaterShoreFieldSource::Input WaterShoreFieldSource::CopyInput( const std::span<const LandscapeTileRef> tiles )
     {
         Input input;
         input.Bodies = m_Bodies;
         input.Base   = m_Field;
-        for ( const LandscapeTileRef& tile : DrawableLandscapeTiles( registry ).Tiles )
+        for ( const LandscapeTileRef& tile : tiles )
         {
             const World::Landscape::LandscapeTileData& heights = *tile.Component->Heights;
             Tile copy{ heights.Samples(), heights.SamplesX(), heights.SamplesZ(), tile.Frame };
@@ -208,38 +221,46 @@ namespace Desert::ECS
         return input;
     }
 
-    bool WaterShoreFieldSource::Refresh( entt::registry& registry )
+    bool WaterShoreFieldSource::Refresh( entt::registry& registry, const bool now )
     {
         if ( m_Job != nullptr && m_Job->Done.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
             AdoptDone();
-        if ( !ReadWorld( registry ) )
+        const auto& gathered = DrawableLandscapeTiles( registry );
+        if ( !ReadWorld( registry, gathered.Tiles ) )
             return false;
         // A refused world keeps its key: it is baked again when it changes, not every step.
         if ( m_WorldKey == m_Key || m_Job != nullptr )
             return true;
         m_Key        = m_WorldKey;
         m_Job        = std::make_shared<BakeJob>();
-        m_Job->World = CopyInput( registry );
-        // Refused while the job system is going down: the bake stays unclaimed, and UpdateNow may still take it.
-        (void)Common::JobSystem::Get().Submit(
-             [job = m_Job]() noexcept
-             {
-                 if ( !job->Claimed.test_and_set() )
-                     job->Run();
-             } );
+        m_Job->World = CopyInput( gathered.Tiles );
+        // UpdateNow's first bake is run by its caller.
+        if ( now && m_Field == nullptr )
+            return true;
+        if ( !Common::JobSystem::Get().Submit(
+                  [job = m_Job]() noexcept
+                  {
+                      if ( !job->Claimed.test_and_set() )
+                          job->Run();
+                  } ) )
+        {
+            // The job system is going down: nothing is being baked, and the next reader asks again.
+            m_Job = nullptr;
+            m_Key = 0;
+        }
         return true;
     }
 
     WaterShoreFieldSource::Field WaterShoreFieldSource::Update( entt::registry& registry )
     {
         const std::scoped_lock lock( m_Mutex );
-        return Refresh( registry ) ? m_Field : nullptr;
+        return Refresh( registry, false ) ? m_Field : nullptr;
     }
 
     WaterShoreFieldSource::Field WaterShoreFieldSource::UpdateNow( entt::registry& registry )
     {
         const std::scoped_lock lock( m_Mutex );
-        if ( !Refresh( registry ) )
+        if ( !Refresh( registry, true ) )
             return nullptr;
         if ( m_Field == nullptr && m_Job != nullptr )
         {

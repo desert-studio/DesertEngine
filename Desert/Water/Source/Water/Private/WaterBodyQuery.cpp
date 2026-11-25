@@ -13,6 +13,15 @@
 
 namespace Desert::Water
 {
+    void SetWaveLane( WaterBodyState& body, const WaterWaveLane& lane, const WaterFFTSurface& surface )
+    {
+        body.Waves        = lane.Waves;
+        body.WaveOrigin   = lane.Origin;
+        body.WavesPending = lane.State == WaterWaveState::Pending;
+        body.FFT          = lane.State == WaterWaveState::FFT;
+        body.FFTSurface   = body.FFT ? surface.Mirror.Latest( lane.Spectrum.get() ) : nullptr;
+    }
+
     bool WaterBodyCovers( const WaterBodyState& body, const glm::vec3& point )
     {
         const glm::vec2 half = body.Extents * 0.5f;
@@ -113,7 +122,8 @@ namespace Desert::Water
         glm::vec3 DisplacementAt( const WaterBodyState& body, const glm::vec2 still, const float time,
                                   const Bands& bands )
         {
-            const glm::vec2 plane = still - glm::vec2( body.Location.x, body.Location.z );
+            const glm::vec2 plane =
+                 still - body.WaveOrigin.value_or( glm::vec2( body.Location.x, body.Location.z ) );
             return body.FFT
                         ? FFTDisplacementAt( *body.FFTSurface, plane, static_cast<double>( time ), bands.Weight )
                         : WaveDisplacement( GerstnerOf( body ), plane, time ) * bands.Weight[0];
@@ -135,9 +145,11 @@ namespace Desert::Water
                          const WaterShoreField* shore, const float beachSlope )
         {
             Waves waves;
-            if ( body.FFT ? !Readable( body.FFTSurface ) : body.Waves == nullptr || body.Waves->empty() )
+            if ( body.WavesPending ||
+                 ( body.FFT ? !Readable( body.FFTSurface ) : body.Waves == nullptr || body.Waves->empty() ) )
             {
-                waves.Ready = !body.FFT; // a flat body is its plane; an FFT sea not read back yet is not known
+                // A flat body is its plane; a set not read yet, or an FFT sea not read back yet, is not known.
+                waves.Ready = !body.WavesPending && !body.FFT;
                 return waves;
             }
             // The particle of still water the waves have moved over the point: its depth, not the point's, is
@@ -258,7 +270,8 @@ namespace Desert::Water
     }
 
     std::optional<WaterQueryHit> QueryWater( std::span<const WaterBodyState> bodies,
-                                             const WaterShoreField* shore, const glm::vec3& point, float time )
+                                             const WaterShoreField* shore, const glm::vec3& point, float time,
+                                             const bool andUnready )
     {
         // The drawn surface's rule first: of the bodies covering the point only the highest WaterBodyPriority is
         // there (a river inside its banks is drawn over the ocean, the ocean under a river's cut leaf is clipped
@@ -281,7 +294,8 @@ namespace Desert::Water
                 best.reset();
             }
             const WaterQueryResult result = QueryWaterBody( bodies[i], point, time, shore );
-            if ( result.IsInWater() && ( !best || result.ImmersionDepth > best->Result.ImmersionDepth ) )
+            const bool answers = result.IsInWater() || ( andUnready && !result.SurfaceReady );
+            if ( answers && ( !best || result.ImmersionDepth > best->Result.ImmersionDepth ) )
                 best = WaterQueryHit{ i, result };
         }
         return best;
@@ -306,8 +320,8 @@ namespace Desert::Water
         m_Shore = std::move( shore );
     }
 
-    std::optional<WaterQueryHit> WaterSubsystem::Query( const glm::vec3& point ) const
+    std::optional<WaterQueryHit> WaterSubsystem::Query( const glm::vec3& point, const bool andUnready ) const
     {
-        return QueryWater( m_Bodies, m_Shore.get(), point, Time() );
+        return QueryWater( m_Bodies, m_Shore.get(), point, Time(), andUnready );
     }
 } // namespace Desert::Water

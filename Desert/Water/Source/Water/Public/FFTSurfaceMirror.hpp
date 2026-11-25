@@ -8,7 +8,7 @@
 // once, on the GPU).
 //
 // The renderer publishes, the physics step reads: FFTSurfaceMirror is the one thread-safe hand-over
-// (Runtime::WaterWavesService owns it, as it owns the spectra the snapshots are keyed by).
+// (one per world, in its Water::WaterFFTSurface).
 
 #include <Water/Public/FFTOceanSpectrum.hpp>
 
@@ -56,13 +56,6 @@ namespace Desert::Water
     /// @p bandWeights scales each cascade: the depth's transform of its band there (the drawn surface's weights).
     [[nodiscard]] glm::vec3 FFTDisplacementAt( const FFTSurfaceSnapshot& snapshot, glm::vec2 plane, double time,
                                                const std::array<float, kFFTOceanCascades>& bandWeights ) noexcept;
-
-    /// What a wave set's bodies are drawn with: FFT, and the newest read of it (null before the first).
-    struct WaterSurfaceSource
-    {
-        bool                                      FFT = false;
-        std::shared_ptr<const FFTSurfaceSnapshot> Read;
-    };
 
     /// The renderer-to-physics hand-over: the newest snapshot of the frame's FFT ocean. Publish adopts @p read as
     /// the newest read of @p spectrum's ocean (the previous newest becomes Previous; another spectrum starts

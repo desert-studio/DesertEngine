@@ -2,11 +2,11 @@
 #include <Water/Public/BuoyancySimulation.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 #include <Water/Public/WaterBodyGather.hpp>
-#include <Water/Public/WaterOceanRule.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
 #include <Water/Public/WaterFallEffects.hpp>
 #include <Water/Public/WaterRenderer.hpp>
 #include <Water/Public/WaterShoreFieldSource.hpp>
+#include <Water/Public/WaterWaveSources.hpp>
 #include <Water/Public/WaterWavesAsset.hpp>
 #include <Water/Public/WaterWavesService.hpp>
 #include <Water/Public/WaterZoneCommand.hpp>
@@ -26,10 +26,12 @@
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <filesystem>
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -74,18 +76,11 @@ namespace Desert::Water
                 // The scene's gravity (the physics world's, SceneSettings::Gravity): a river's fall accelerates
                 // by it (WaterBodyState::Gravity).
                 m_Water.SetGravity( m_World.GetGravity() );
-                m_NoOcean.clear();
-                if ( const auto* const rule = registry.try_ctx<std::shared_ptr<ECS::WaterOceanRule>>() )
-                    ( *rule )->Refused( registry, []( const Assets::AssetHandle& waves )
-                                        { return Runtime::GetWaterWavesService()->IsFFTSet( waves ); }, m_NoOcean );
-                m_Water.SetWorld(
-                     m_Gather.Gather(
-                          registry, []( const Assets::AssetHandle& waves )
-                          { return Runtime::GetWaterWavesService()->Get( waves ); },
-                          // Bodies float on the surface the GPU drew.
-                          []( const Assets::AssetHandle& waves )
-                          { return Runtime::GetWaterWavesService()->SurfaceOf( waves ); }, m_NoOcean ),
-                     ShoreField( registry ) );
+                // Bodies float on the surface the GPU drew: the world's one wave record, the renderer's.
+                const auto* const sources = registry.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>();
+                if ( sources == nullptr )
+                    return; // a world never prepared has no water
+                m_Water.SetWorld( m_Gather.Gather( registry, **sources ), ShoreField( registry ) );
                 SyncBuoyant( registry );
             }
 
@@ -103,10 +98,12 @@ namespace Desert::Water
                 // surface of THIS step and push for this step only (a pre-step force acts on its step alone).
                 m_Water.Advance( dt );
                 const std::span<const glm::vec4> pontoons( m_Pontoons );
+                const std::span<PontoonHold>     holds( m_Holds );
                 for ( Buoyant& buoyant : m_Buoyant )
                     buoyant.SubmergedShare =
                          ApplyBuoyancy( m_World, buoyant.Body,
-                                        pontoons.subspan( buoyant.FirstPontoon, buoyant.PontoonCount ), m_Water );
+                                        pontoons.subspan( buoyant.FirstPontoon, buoyant.PontoonCount ),
+                                        holds.subspan( buoyant.FirstPontoon, buoyant.PontoonCount ), m_Water );
             }
 
             void AfterStep( entt::registry& registry ) override
@@ -143,8 +140,11 @@ namespace Desert::Water
             // storage is reused, so a steady frame allocates nothing.
             void SyncBuoyant( entt::registry& registry )
             {
+                std::swap( m_Buoyant, m_LastBuoyant );
+                std::swap( m_Holds, m_LastHolds );
                 m_Buoyant.clear();
                 m_Pontoons.clear();
+                m_Holds.clear();
                 auto buoyants = registry.view<ECS::BuoyancyComponent, ECS::RigidBodyComponent>();
                 for ( const entt::entity entity : buoyants )
                 {
@@ -175,6 +175,8 @@ namespace Desert::Water
                     }
                     if ( m_Pontoons.size() == first )
                         continue; // a Manual list with no pontoon: nothing to float on
+                    m_Holds.resize( m_Pontoons.size() );
+                    KeepHolds( entity, first, m_Pontoons.size() - first );
                     m_Buoyant.push_back( Buoyant{ .Entity         = entity,
                                                   .Body           = rigidBody.RuntimeBody,
                                                   .FirstPontoon   = first,
@@ -183,15 +185,55 @@ namespace Desert::Water
                 }
             }
 
+            // The pontoons' last ready answers move with them from frame to frame (the bodies' order is the view's,
+            // so the last frame's row is at this one's index unless a body came or went).
+            void KeepHolds( const entt::entity entity, const std::size_t first, const std::size_t count )
+            {
+                const auto row  = m_LastBuoyant.begin() + static_cast<std::ptrdiff_t>(
+                                                             std::min( m_Buoyant.size(), m_LastBuoyant.size() ) );
+                const auto same = [entity]( const Buoyant& b ) { return b.Entity == entity; };
+                const auto last = row != m_LastBuoyant.end() && same( *row )
+                                       ? row
+                                       : std::find_if( m_LastBuoyant.begin(), m_LastBuoyant.end(), same );
+                if ( last != m_LastBuoyant.end() && last->PontoonCount == count )
+                    std::copy_n( m_LastHolds.begin() + static_cast<std::ptrdiff_t>( last->FirstPontoon ), count,
+                                 m_Holds.begin() + static_cast<std::ptrdiff_t>( first ) );
+            }
+
             Physics::PhysicsWorld& m_World;
             WaterSubsystem         m_Water;
-            // Refuses a body whose wave set cannot be read, once per entity per Play.
             ECS::WaterBodyGather   m_Gather;
-            std::vector<entt::entity> m_NoOcean; // WaterOceanRule's refusals, storage reused
             std::vector<Buoyant>   m_Buoyant;
             std::vector<glm::vec4> m_Pontoons;
+            std::vector<PontoonHold> m_Holds; // one per pontoon
+            std::vector<Buoyant>     m_LastBuoyant; // the last frame's, for KeepHolds
+            std::vector<PontoonHold> m_LastHolds;
             // Buoyant bodies whose collider cannot be cut into pontoons, refused once per entity per Play.
             std::unordered_set<entt::entity> m_Refused;
+        };
+
+        // The world's wave record ends with its entities (Scene::Clear): the next scene's ocean is another one.
+        class WaterWaveSceneState final : public Core::ISceneModuleState
+        {
+        public:
+            void Tick( Core::Scene& /*scene*/, entt::registry& registry, double /*seconds*/ ) override
+            {
+                if ( const auto* const sources = registry.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>() )
+                    m_Sources = *sources;
+            }
+
+            void Reset() override
+            {
+            }
+
+            void Clear() override
+            {
+                if ( m_Sources != nullptr )
+                    m_Sources->Reset();
+            }
+
+        private:
+            std::shared_ptr<ECS::WaterWaveSources> m_Sources;
         };
     } // namespace
 
@@ -247,9 +289,21 @@ namespace Desert::Water
                  if ( r.try_ctx<std::shared_ptr<ECS::WaterShoreFieldSource>>() == nullptr )
                      r.set<std::shared_ptr<ECS::WaterShoreFieldSource>>(
                           std::make_shared<ECS::WaterShoreFieldSource>() );
-                 if ( r.try_ctx<std::shared_ptr<ECS::WaterOceanRule>>() == nullptr )
-                     r.set<std::shared_ptr<ECS::WaterOceanRule>>( std::make_shared<ECS::WaterOceanRule>() );
+                 if ( r.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>() == nullptr )
+                     r.set<std::shared_ptr<ECS::WaterWaveSources>>( std::make_shared<ECS::WaterWaveSources>() );
+                 // Once a frame, serially and before any system: the record every reader of the frame sees - a
+                 // paste, an undo and a scene without a zone are validated here like a load.
+                 r.ctx<std::shared_ptr<ECS::WaterWaveSources>>()->Refresh( r );
              } );
+        hooks.SceneLoadChecks.push_back(
+             []( const Core::Scene& scene, std::string_view /*sceneName*/ )
+             {
+                 const entt::registry& r = scene.GetRegistry();
+                 if ( const auto* const sources = r.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>() )
+                     ( *sources )->SceneLoaded( r );
+             } );
+        hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>
+                                     { return std::make_unique<WaterWaveSceneState>(); } );
         // The foam, spray and mist at the foot of every river's falls.
         hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>
                                      { return std::make_unique<WaterFallEffects>(); } );
