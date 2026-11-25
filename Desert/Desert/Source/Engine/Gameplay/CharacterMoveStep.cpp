@@ -49,9 +49,10 @@ namespace Desert::Gameplay
             return Length( velocity ) < kBrakeToStop ? Planar{} : velocity;
         }
 
-        // UE UCharacterMovementComponent::CalcVelocity on the planar velocity.
-        Planar CalcVelocity( Planar velocity, Planar acceleration, float dt, float maxSpeed, float friction,
-                             float brakingFrictionFactor, float brakingDeceleration )
+        // UE UCharacterMovementComponent::CalcVelocity on the planar velocity; @p analog is the stick's length (UE
+        // AnalogInputModifier: the input speed is the max speed times it).
+        Planar CalcVelocity( Planar velocity, Planar acceleration, float dt, float maxSpeed, float analog,
+                             float friction, float brakingFrictionFactor, float brakingDeceleration )
         {
             const bool zeroAcceleration = Length( acceleration ) < 1e-6f;
             const bool overMax          = Length( velocity ) > maxSpeed * 1.01f;
@@ -73,7 +74,9 @@ namespace Desert::Gameplay
             }
             if ( !zeroAcceleration )
             {
-                const float newMax = Length( velocity ) > maxSpeed * 1.01f ? Length( velocity ) : maxSpeed;
+                const float maxInputSpeed = maxSpeed * std::clamp( analog, 0.0f, 1.0f );
+                const float newMax =
+                     Length( velocity ) > maxInputSpeed * 1.01f ? Length( velocity ) : maxInputSpeed;
                 velocity.X += acceleration.X * dt;
                 velocity.Z += acceleration.Z * dt;
                 if ( const float speed = Length( velocity ); speed > newMax )
@@ -117,80 +120,152 @@ namespace Desert::Gameplay
     PawnActions PawnActionsOf( const ECS::CharacterControllerData& controller )
     {
         PawnActions actions;
-        for ( const std::string* name : { &controller.JumpAction, &controller.SprintAction } )
+        for ( const std::string* name :
+              { &controller.JumpAction, &controller.SprintAction, &controller.CrouchAction } )
             if ( !name->empty() && !actions.IndexOf( *name ) )
                 actions.Names.push_back( *name );
         actions.Jump   = controller.JumpAction;
         actions.Sprint = controller.SprintAction;
+        actions.Crouch = controller.CrouchAction;
         return actions;
     }
 
+    PawnCapsule CapsuleOf( const PawnMoveSettings& settings, bool crouched )
+    {
+        return { settings.CapsuleRadius, crouched ? settings.CrouchedHalfHeight : settings.CapsuleHalfHeight };
+    }
+
     PawnMoveState StepPawnMove( const PawnMoveState& from, const InputStep& input, const PawnMovement& movement,
-                                IPawnMoveWorld& world, float dtSeconds )
+                                IPawnMoveWorld& world, float dtSeconds, const NetVec3* rootMotionVelocity )
     {
         const PawnMoveSettings& settings = movement.Settings;
-        PawnMoveState state = from;
-        Planar        wish{ input.Move.X, input.Move.Z };
-        if ( const float length = Length( wish ); length > 1.0f )
-            wish = Scaled( wish, 1.0f / length );
-        // The game's reading of the step's action set: the pawn's declared Sprint / Jump actions (PawnActions).
-        const float maxSpeed =
-             movement.Actions.Held( input, movement.Actions.Sprint ) ? settings.MaxSprintSpeed : settings.MaxWalkSpeed;
-        Planar velocity{ state.Velocity.X, state.Velocity.Z };
-        if ( state.Grounded )
+        const PawnActions&      actions  = movement.Actions;
+        PawnMoveState           state    = from;
+        const bool              swimming = ( state.Mode & kModeSwimming ) != 0;
+        bool                    crouched = ( state.Mode & kModeCrouched ) != 0;
+
+        // UE UpdateCharacterStateBeforeMovement: crouch while the Crouch action is held (not swimming), stand up
+        // once it is released and the standing capsule fits. On the floor the feet stay
+        // (bCrouchMaintainsBaseLocation); in the air the capsule's centre stays, so the feet move by the
+        // half-height difference.
+        const float halfDelta   = settings.CapsuleHalfHeight - settings.CrouchedHalfHeight;
+        const bool  wantsCrouch = actions.Held( input, actions.Crouch ) && !swimming;
+        if ( wantsCrouch && !crouched )
         {
-            velocity = CalcVelocity( velocity, Scaled( wish, settings.MaxAcceleration ), dtSeconds, maxSpeed,
-                                     settings.GroundFriction, settings.BrakingFrictionFactor,
-                                     settings.BrakingDecelerationWalking );
-            state.Velocity.Y = 0.f;
-            if ( movement.Actions.Held( input, movement.Actions.Jump ) )
+            crouched = true;
+            if ( !state.Grounded )
+                state.Position.Y += halfDelta;
+        }
+        else if ( !wantsCrouch && crouched )
+        {
+            const NetVec3 standing{ state.Position.X, state.Position.Y - ( state.Grounded ? 0.f : halfDelta ),
+                                    state.Position.Z };
+            if ( world.Fits( standing, CapsuleOf( settings, false ) ) )
             {
-                state.Velocity.Y = settings.JumpZVelocity; // UE ACharacter::Jump -> DoJump
-                state.Grounded   = false;
-            }
+                crouched       = false;
+                state.Position = standing;
+            } // UE: stays crouched under a low ceiling, and retries every step
+        }
+
+        Planar wish{ input.Move.X, input.Move.Z };
+        float  analog = Length( wish );
+        if ( analog > 1.0f )
+        {
+            wish   = Scaled( wish, 1.0f / analog );
+            analog = 1.0f;
+        }
+        // The game's reading of the step's action set: the pawn's declared Sprint / Jump actions (PawnActions).
+        // A jump is the Jump action's press (UE bPressedJump, cleared on landing): held on, it does not repeat.
+        const bool  jumpHeld    = actions.Held( input, actions.Jump );
+        const bool  jumpPressed = jumpHeld && ( state.Mode & kModeJumpHeld ) == 0;
+        const float maxSpeed    = crouched                                ? settings.MaxWalkSpeedCrouched
+                                  : actions.Held( input, actions.Sprint ) ? settings.MaxSprintSpeed
+                                                                          : settings.MaxWalkSpeed;
+        Planar      velocity{ state.Velocity.X, state.Velocity.Z };
+        NetVec3     moveVelocity;
+        if ( swimming )
+        {
+            // UE PhysSwimming, as the swim intent drives it: the input's direction at Max Swim Speed, the swim
+            // axis (+1 up, -1 down) for the vertical; no gravity.
+            const float vertical = input.Axes.size() > kSwimVerticalAxis
+                                        ? std::clamp( input.Axes[kSwimVerticalAxis], -1.0f, 1.0f )
+                                        : 0.f;
+            velocity             = Scaled( wish, settings.MaxSwimSpeed );
+            state.Velocity.Y     = vertical * settings.MaxSwimSpeed;
+            moveVelocity         = { velocity.X, state.Velocity.Y, velocity.Z };
         }
         else
         {
-            // UE falling: lateral friction and braking 0, acceleration times AirControl.
-            velocity = CalcVelocity( velocity, Scaled( wish, settings.MaxAcceleration * settings.AirControl ),
-                                     dtSeconds, maxSpeed, 0.f, 0.f, 0.f );
+            if ( state.Grounded )
+            {
+                velocity = CalcVelocity( velocity, Scaled( wish, settings.MaxAcceleration ), dtSeconds, maxSpeed,
+                                         analog, settings.GroundFriction, settings.BrakingFrictionFactor,
+                                         settings.BrakingDecelerationWalking );
+                state.Velocity.Y = 0.f;
+                if ( jumpPressed && !crouched ) // UE CanJump: not while crouched
+                {
+                    state.Velocity.Y = settings.JumpZVelocity; // UE ACharacter::Jump -> DoJump
+                    state.Grounded   = false;
+                }
+            }
+            else
+            {
+                // UE falling: lateral friction and braking 0, acceleration times AirControl.
+                velocity = CalcVelocity( velocity, Scaled( wish, settings.MaxAcceleration * settings.AirControl ),
+                                         dtSeconds, maxSpeed, analog, 0.f, 0.f, 0.f );
+            }
+            // UE PhysWalking / PhysFalling with HasAnimRootMotion: the animation's root velocity IS the planar
+            // velocity; the vertical stays gravity's and the jump's.
+            if ( rootMotionVelocity != nullptr )
+                velocity = { rootMotionVelocity->X, rootMotionVelocity->Z };
+            if ( !state.Grounded )
+                state.Velocity.Y -= settings.Gravity * dtSeconds;
+            // A grounded walk keeps pressing the floor (UE: the walking move follows the floor; Jolt sticks the
+            // capsule to it), so a step off a ledge is a fall from the next move on, not a hover. A grounded pawn
+            // with no planar velocity does not press: UE PhysWalking moves nothing along a walkable floor and only
+            // re-finds it, while a press into a slope would slide down it (the collide-and-slide keeps the
+            // press's tangential part) - an idle pawn on a walkable slope stays put on every side. A floor that
+            // went away still ends the stand: the move's contacts find no floor and the pawn falls next step.
+            const bool idleOnFloor =
+                 state.Grounded && state.Velocity.Y == 0.f && velocity.X == 0.f && velocity.Z == 0.f;
+            const float pressY = idleOnFloor ? 0.f : -settings.Gravity * dtSeconds;
+            moveVelocity       = { velocity.X, state.Grounded ? pressY : state.Velocity.Y, velocity.Z };
         }
-        if ( !state.Grounded )
-            state.Velocity.Y -= settings.Gravity * dtSeconds;
         state.Velocity.X = velocity.X;
         state.Velocity.Z = velocity.Z;
-        // A grounded walk keeps pressing the floor (UE: the walking move follows the floor; Jolt sticks the
-        // capsule to it), so a step off a ledge is a fall from the next move on, not a hover. A grounded pawn
-        // with no planar velocity does not press: UE PhysWalking moves nothing along a walkable floor and only
-        // re-finds it, while a press into a slope would slide down it (the collide-and-slide keeps the press's
-        // tangential part) - an idle pawn on a walkable slope stays put on both sides. A floor that went away
-        // still ends the stand: the move's contacts find no floor and the pawn falls from the next step.
-        const bool                    idleOnFloor = state.Grounded && state.Velocity.Y == 0.f &&
-                                                    velocity.X == 0.f && velocity.Z == 0.f;
-        const float                   pressY      = idleOnFloor ? 0.f : -settings.Gravity * dtSeconds;
-        const NetVec3                 moveVelocity{ state.Velocity.X, state.Grounded ? pressY : state.Velocity.Y,
-                                    state.Velocity.Z };
-        const IPawnMoveWorld::Outcome moved  = world.Move( state, moveVelocity, settings, dtSeconds );
-        const bool                    rising = !state.Grounded && state.Velocity.Y > 0.f;
-        state.Position                       = moved.Position;
-        state.Velocity.X                     = moved.Velocity.X;
-        state.Velocity.Z                     = moved.Velocity.Z;
-        if ( state.Grounded )
-            state.Velocity.Y = 0.f;
-        else if ( moved.Velocity.Y < state.Velocity.Y * 0.5f && rising )
-            state.Velocity.Y = moved.Velocity.Y; // a ceiling stopped the jump (UE HandleImpact on the way up)
-        // UE ProcessLanded: a walkable floor under a falling capsule ends the fall; a grounded capsule whose floor
-        // went away starts falling (UE StartFalling from PhysWalking).
-        if ( moved.Grounded && !( rising && state.Velocity.Y > 0.f ) )
+
+        const IPawnMoveWorld::Outcome moved =
+             world.Move( state, moveVelocity, CapsuleOf( settings, crouched ), settings.Gravity, dtSeconds );
+        const bool rising = !state.Grounded && state.Velocity.Y > 0.f;
+        state.Position    = moved.Position;
+        state.Velocity.X  = moved.Velocity.X;
+        state.Velocity.Z  = moved.Velocity.Z;
+        if ( swimming )
         {
-            state.Velocity.Y = 0.f;
-            state.Grounded   = true;
+            state.Velocity.Y = moved.Velocity.Y; // what the water's floor and ceiling let the swim do
+            state.Grounded   = moved.Grounded;
         }
-        else if ( !moved.Grounded )
-            state.Grounded = false;
+        else
+        {
+            if ( state.Grounded )
+                state.Velocity.Y = 0.f;
+            else if ( moved.Velocity.Y < state.Velocity.Y * 0.5f && rising )
+                state.Velocity.Y = moved.Velocity.Y; // a ceiling stopped the jump (UE HandleImpact on the way up)
+            // UE ProcessLanded: a walkable floor under a falling capsule ends the fall; a grounded capsule whose
+            // floor went away starts falling (UE StartFalling from PhysWalking).
+            if ( moved.Grounded && !( rising && state.Velocity.Y > 0.f ) )
+            {
+                state.Velocity.Y = 0.f;
+                state.Grounded   = true;
+            }
+            else if ( !moved.Grounded )
+                state.Grounded = false;
+        }
+        state.Mode =
+             static_cast<std::uint8_t>( ( crouched ? kModeCrouched : 0u ) | ( swimming ? kModeSwimming : 0u ) |
+                                        ( jumpHeld ? kModeJumpHeld : 0u ) );
         state.Yaw = input.Yaw;
         return state;
     }
 
 } // namespace Desert::Gameplay
-

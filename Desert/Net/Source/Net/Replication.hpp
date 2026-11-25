@@ -42,7 +42,8 @@ namespace Desert::Net
     // and waits for a missing one, so a lost packet's steps must come again: the window covers the round trip plus
     // one slow frame's burst of steps (0.53 s at 60 Hz). A step older than the window is given up by the server.
     inline constexpr int kInputRedundancy = 32;
-    // One input step's length - the move both the server and the predicting client simulate (the game's Net::IPawnMover, MovePrediction.hpp).
+    // One input step's length - the move both the server and the predicting client simulate (the game's
+    // Net::IPawnMover, MovePrediction.hpp).
     inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
     // Snapshots go out every second step: 30 Hz per connection (§2). A project setting once §3.6 lands.
     inline constexpr int kSnapshotEverySteps = 2;
@@ -128,7 +129,21 @@ namespace Desert::Net
         NetVec3 Velocity;
         float   Yaw      = 0.f;
         bool    Grounded = true;
+        // The game's movement mode bits beyond Grounded (Gameplay: crouched, swimming, jump held), opaque here:
+        // carried and compared, never read - at most kMaxMoveModeBits of them.
+        std::uint8_t Mode = 0;
     };
+    inline constexpr unsigned kMaxMoveModeBits = 7;
+    // The move state's one flag byte on the wire: Grounded in bit 0, the game's Mode bits above it.
+    [[nodiscard]] inline std::uint8_t MoveFlagsOf( const PawnMoveState& state )
+    {
+        return static_cast<std::uint8_t>( ( state.Grounded ? 1u : 0u ) | ( unsigned( state.Mode ) << 1 ) );
+    }
+    inline void SetMoveFlags( PawnMoveState& state, std::uint8_t flags )
+    {
+        state.Grounded = ( flags & 1u ) != 0;
+        state.Mode     = static_cast<std::uint8_t>( flags >> 1 );
+    }
 
     struct SnapshotMessage
     {

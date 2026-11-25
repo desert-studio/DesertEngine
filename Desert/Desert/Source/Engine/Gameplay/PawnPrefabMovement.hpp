@@ -14,6 +14,7 @@
 #include <Common/Json/Json.hpp>
 #include <Common/Json/ReadWrite.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <optional>
@@ -25,19 +26,23 @@ namespace Desert::Gameplay::PrefabMovement
     // ECS::CharacterControllerData's defaults, so an absent key is that default (not a second copy of it here).
     struct CharacterControllerRecord
     {
-        std::optional<float> Radius;
-        std::optional<float> Height;
-        std::optional<float> MaxWalkSpeed;
-        std::optional<float> MaxSprintSpeed;
-        std::optional<float> MaxAcceleration;
-        std::optional<float> BrakingDecelerationWalking;
-        std::optional<float> GroundFriction;
-        std::optional<float> BrakingFrictionFactor;
-        std::optional<float> JumpZVelocity;
-        std::optional<float> AirControl;
-        std::optional<float> GravityScale;
+        std::optional<float>       Radius;
+        std::optional<float>       Height;
+        std::optional<float>       MaxWalkSpeed;
+        std::optional<float>       MaxSprintSpeed;
+        std::optional<float>       MaxAcceleration;
+        std::optional<float>       BrakingDecelerationWalking;
+        std::optional<float>       GroundFriction;
+        std::optional<float>       BrakingFrictionFactor;
+        std::optional<float>       JumpZVelocity;
+        std::optional<float>       AirControl;
+        std::optional<float>       GravityScale;
+        std::optional<float>       MaxWalkSpeedCrouched;
+        std::optional<float>       CrouchedHeight;
+        std::optional<float>       MaxSwimSpeed;
         std::optional<std::string> JumpAction;
         std::optional<std::string> SprintAction;
+        std::optional<std::string> CrouchAction;
     };
     DESERT_JSON_PARTIAL( CharacterControllerRecord,
                          "a .deprefab record's CharacterController block (ECS::CharacterControllerData)" );
@@ -46,7 +51,8 @@ namespace Desert::Gameplay::PrefabMovement
     {
         std::vector<Assets::EntityData> Entities;
     };
-    DESERT_JSON_PARTIAL( PrefabRecords, "a .deprefab document (header, name, entities); only its records are read" );
+    DESERT_JSON_PARTIAL( PrefabRecords,
+                         "a .deprefab document (header, name, entities); only its records are read" );
 
     // UE CharacterMovement over the capsule: the cylinder's half height is Height / 2 less the cap's radius.
     [[nodiscard]] inline PawnMoveSettings ToPawnMoveSettings( const ECS::CharacterControllerData& controller )
@@ -61,8 +67,14 @@ namespace Desert::Gameplay::PrefabMovement
         settings.JumpZVelocity              = controller.JumpZVelocity;
         settings.AirControl                 = controller.AirControl;
         settings.Gravity                    = PawnMoveSettings{}.Gravity * controller.GravityScale;
+        settings.MaxWalkSpeedCrouched       = controller.MaxWalkSpeedCrouched;
+        settings.MaxSwimSpeed               = controller.MaxSwimSpeed;
         settings.CapsuleRadius              = controller.Radius;
-        settings.CapsuleHalfHeight          = controller.Height * 0.5f - controller.Radius;
+        // The cylinder's half heights as the physics world builds the capsule (never below 1 cm; the crouched one
+        // never above the standing one) - ECS::CharacterMovement::CylinderHalfHeight.
+        settings.CapsuleHalfHeight  = std::max( controller.Height * 0.5f - controller.Radius, 1.0f );
+        settings.CrouchedHalfHeight = std::min(
+             std::max( controller.CrouchedHeight * 0.5f - controller.Radius, 1.0f ), settings.CapsuleHalfHeight );
         return settings;
     }
 
@@ -73,7 +85,8 @@ namespace Desert::Gameplay::PrefabMovement
 
     // The movement of the pawn prefab at @p prefabFile: its first record with a CharacterController block (the
     // pawn's root). A prefab with none is refused by name - a pawn that has no movement is not a pawn.
-    [[nodiscard]] inline Common::ResultStr<PawnMovement> ReadPawnPrefabMovement( const std::filesystem::path& prefabFile )
+    [[nodiscard]] inline Common::ResultStr<PawnMovement>
+    ReadPawnPrefabMovement( const std::filesystem::path& prefabFile )
     {
         auto prefab = Common::Json::ReadFile<PrefabRecords>( prefabFile );
         if ( !prefab )
@@ -86,11 +99,11 @@ namespace Desert::Gameplay::PrefabMovement
                 continue;
             auto read = Common::Json::Read<CharacterControllerRecord>( Common::Json::Write( block.value() ) );
             if ( !read )
-                return Common::MakeError<PawnMovement>( std::format(
-                     "pawn prefab '{}': CharacterController: {}", prefabFile.string(), read.GetError() ) );
+                return Common::MakeError<PawnMovement>( std::format( "pawn prefab '{}': CharacterController: {}",
+                                                                     prefabFile.string(), read.GetError() ) );
             const CharacterControllerRecord& stated = read.GetValue();
             ECS::CharacterControllerData     controller;
-            const auto take = []<typename T>( T& field, const std::optional<T>& value )
+            const auto                       take = []<typename T>( T& field, const std::optional<T>& value )
             {
                 if ( value )
                     field = *value;
@@ -108,6 +121,10 @@ namespace Desert::Gameplay::PrefabMovement
             take( controller.GravityScale, stated.GravityScale );
             take( controller.JumpAction, stated.JumpAction );
             take( controller.SprintAction, stated.SprintAction );
+            take( controller.CrouchAction, stated.CrouchAction );
+            take( controller.MaxWalkSpeedCrouched, stated.MaxWalkSpeedCrouched );
+            take( controller.CrouchedHeight, stated.CrouchedHeight );
+            take( controller.MaxSwimSpeed, stated.MaxSwimSpeed );
             return Common::MakeSuccess( ToPawnMovement( controller ) );
         }
         return Common::MakeError<PawnMovement>(

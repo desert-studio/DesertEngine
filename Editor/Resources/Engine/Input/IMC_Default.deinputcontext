@@ -9,7 +9,8 @@
             "cc4f358acea646eb8f653102109b9703",
             "9f0eb363e22a475a9224622fa23d4950",
             "f414c8e6e4464cfbae03203945e91afc",
-            "316d0b6b3f764db6a9dac3bc795e08a5"
+            "316d0b6b3f764db6a9dac3bc795e08a5",
+            "0767e29e2f0947708b393a2ce6745026"
         ]
     },
     "Mappings": [
@@ -122,6 +123,15 @@
                 "Path": "engine:Engine/Input/IA_Crouch.deinputaction"
             },
             "Key": "LeftControl",
+            "Modifiers": [],
+            "Triggers": []
+        },
+        {
+            "Action": {
+                "Guid": "0767e29e2f0947708b393a2ce6745026",
+                "Path": "engine:Engine/Input/IA_Sprint.deinputaction"
+            },
+            "Key": "LeftShift",
             "Modifiers": [],
             "Triggers": []
         }

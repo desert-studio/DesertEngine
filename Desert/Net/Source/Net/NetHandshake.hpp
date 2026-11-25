@@ -27,7 +27,8 @@ namespace Desert::Net
     // 2: the connect token in the Hello; 3: the pawn in the Welcome; 4: pawn velocity/movement/teleport; 5: the
     // signed token envelope (Ed25519, claims), join options in the Hello, the refusal's text in the Refuse.
     // 6: the input step carries the pawn's declared action set (bits + axes), not engine-fixed buttons.
-    inline constexpr std::uint32_t kProtocolVersion = 6;
+    // 7: the move state's flag byte carries the game's movement mode bits (crouched, swimming) beside Grounded.
+    inline constexpr std::uint32_t kProtocolVersion = 7;
     // "DSNT": a Hello from something that is not our client is refused before its fields are read.
     inline constexpr std::uint32_t kHelloMagic = 0x544E5344u;
 
