@@ -56,7 +56,6 @@
                     "Path": "assets:Water/Waves/CalmOcean.dwaves"
                 },
                 "OceanExtents": [4096000.0, 4096000.0],
-                "TargetWaveMaskDepth": 200.0,
                 "WaterMaterial": {
                     "Guid": "d73a046d0e3147928403692c8ea26f73",
                     "Path": "assets:Water/Materials/M_Water_Lake.demat"

@@ -535,7 +535,7 @@ namespace Desert::Core
         Serialize::LinkEngineComponentProvider();
         StartupEngineModules();
         for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
-            m_ModuleStates.push_back( make() );
+            m_ModuleStates.push_back( make( m_Registry ) );
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
 

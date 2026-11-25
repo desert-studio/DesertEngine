@@ -1574,7 +1574,16 @@ namespace Desert::Editor
                 // UE's viewport "Realtime": while editing, whether the world's preview time moves — the
                 // cloud wind, particles, a material's Time node. The user's answer, so it lives in
                 // editor.json beside the Show flags and never in the level (Core::WorldTime).
-                viewChanged |= ImGui::Checkbox( "Realtime", &EditorPreferences::Get().ViewportRealtime );
+                // A command's session answer (UIPreview::Realtime) is shown while it stands; a click is the
+                // user's own and ends it.
+                auto& session  = Core::UIPreview::Get().Realtime;
+                bool  realtime = session.value_or( EditorPreferences::Get().ViewportRealtime );
+                if ( ImGui::Checkbox( "Realtime", &realtime ) )
+                {
+                    session.reset();
+                    EditorPreferences::Get().ViewportRealtime = realtime;
+                    viewChanged                               = true;
+                }
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Advance world time while editing (wind, particles, material Time)" );
                 // A PLAIN SAVE, and that is the deliverable of К10. This call used to be wrapped in three

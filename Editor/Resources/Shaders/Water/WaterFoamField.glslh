@@ -1,0 +1,60 @@
+#ifndef DESERT_WATER_FOAM_FIELD_GLSLH
+#define DESERT_WATER_FOAM_FIELD_GLSLH
+
+// THE FOAM AROUND THE VIEW (Water::WaterFoamClipmapDesc): three nested windows side by side in one atlas, level l in
+// columns [l Size, (l + 1) Size), grid texel ij of a level at ij mod Size. R coverage, G bubbles, B wetness, A age.
+// Programs/Water/WaterFoamUpdate.shader writes it in the plane of the STILL water (a particle keeps its foam as the
+// waves move it); Mesh/Surface/Pass_SingleLayerWater.glslh and the ground read it.
+// The includer defines WATER_FOAM_FETCH( ivec2 texel ) and states the windows: WATER_FOAM_ORIGIN( l ) (xy = the
+// window's lower grid texel, z = 1 / texel, 1/cm) and WATER_FOAM_SIDE.
+
+// Bilinear over the grid; texels off the window are its edge's.
+vec4 WaterFoamLevel( int level, vec2 planeXZ )
+{
+    const vec3  window = WATER_FOAM_ORIGIN( level );
+    const int   side   = int( WATER_FOAM_SIDE + 0.5 );
+    const vec2  p      = planeXZ * window.z - 0.5;
+    const ivec2 i0     = ivec2( floor( p ) );
+    const vec2  f      = p - floor( p );
+    const ivec2 lower  = ivec2( window.xy );
+    vec4        sum    = vec4( 0.0 );
+    for ( int k = 0; k < 4; ++k )
+    {
+        const ivec2 d  = ivec2( k & 1, k >> 1 );
+        const ivec2 ij = clamp( i0 + d, lower, lower + side - 1 );
+        const float w  = ( d.x == 1 ? f.x : 1.0 - f.x ) * ( d.y == 1 ? f.y : 1.0 - f.y );
+        sum += w * WATER_FOAM_FETCH( ( ij & ( side - 1 ) ) + ivec2( level * side, 0 ) );
+    }
+    return sum;
+}
+
+// 1 well inside the window, 0 at its edge.
+float WaterFoamWindowWeight( int level, vec2 planeXZ )
+{
+    const vec3 window = WATER_FOAM_ORIGIN( level );
+    const vec2 uv     = ( planeXZ * window.z - window.xy ) / WATER_FOAM_SIDE;
+    const vec2 edge   = min( uv, 1.0 - uv );
+    return smoothstep( 0.02, 0.10, min( edge.x, edge.y ) );
+}
+
+// The foam at a point of the still plane, for a sample that stands for @p footprintCm of it: the finest window that
+// holds the point, its neighbour across the fade; none past the last.
+vec4 WaterFoamSample( vec2 planeXZ, float footprintCm )
+{
+    vec4  foam = vec4( 0.0 );
+    float left = 1.0;
+    for ( int level = 0; level < 3 && left > 0.0; ++level )
+    {
+        float w = WaterFoamWindowWeight( level, planeXZ );
+        // A level finer than the sample would alias: the next one is its mean.
+        if ( level < 2 )
+            w *= 1.0 - smoothstep( 2.0, 4.0, footprintCm * WATER_FOAM_ORIGIN( level ).z );
+        if ( w <= 0.0 )
+            continue;
+        foam += left * w * WaterFoamLevel( level, planeXZ );
+        left *= 1.0 - w;
+    }
+    return foam;
+}
+
+#endif

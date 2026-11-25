@@ -26,7 +26,6 @@ namespace Desert::Water
         using glm::mix;
         using glm::sin;
         using glm::sqrt;
-        using glm::trunc;
         using glm::vec2;
         using glm::vec3;
         using glm::vec4;
@@ -103,30 +102,20 @@ namespace Desert::Water
         return sum;
     }
 
-    WaveHeightSample WaveHeightAt( std::span<const GerstnerWave> waves, glm::vec2 plane, float time )
+    ShoreWaveParams GerstnerSwell( std::span<const GerstnerWave> waves, const float beachSlope )
     {
-        float     height = 0.0f;
-        glm::vec3 terms( 0.0f );
+        float variance = 0.0f;
+        float highest  = 0.0f;
+        float omega    = 0.0f;
         for ( const GerstnerWave& w : waves )
         {
-            const glm::vec4 sample =
-                 GerstnerWaveHeightAt( plane, w.Direction, w.WaveLength, w.Amplitude, w.Steepness, time );
-            terms += glm::vec3( sample.x, sample.y, sample.z );
-            height += sample.w;
+            variance += 0.5f * w.Amplitude * w.Amplitude;
+            if ( w.Amplitude > highest && w.WaveLength > 0.0f )
+            {
+                highest = w.Amplitude;
+                omega   = std::sqrt( 980.0f * 2.0f * std::numbers::pi_v<float> / w.WaveLength );
+            }
         }
-        return { height, GerstnerFinalizeNormal( terms ) };
-    }
-
-    float WaveSimpleHeightAt( std::span<const GerstnerWave> waves, glm::vec2 plane, float time )
-    {
-        float height = 0.0f;
-        for ( const GerstnerWave& w : waves )
-            height += GerstnerWaveSimpleHeight( plane, w.Direction, w.WaveLength, w.Amplitude, time );
-        return height;
-    }
-
-    float WaveDepthAttenuation( float depth, float targetWaveMaskDepth )
-    {
-        return GerstnerDepthAttenuation( depth, targetWaveMaskDepth );
+        return { .Omega = omega, .SignificantHeight = 4.0f * std::sqrt( variance ), .BeachSlope = beachSlope };
     }
 } // namespace Desert::Water

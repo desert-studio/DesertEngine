@@ -6,6 +6,7 @@
 #include <entt/entt.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -73,6 +74,11 @@ namespace Desert::Editor::Core
         // Draw the retained widget gallery (UI/Retained/WidgetGallery.hpp) over the level in this view, with
         // the preview's input -- "UI: Toggle the widget gallery". Feeds input as Preview does.
         bool WidgetGallery = false;
+
+        // The session's answer to the viewport's Realtime ("View: Realtime: On/Off"): set by a command, never
+        // saved, over the user's own (EditorPreferences::ViewportRealtime) and over a capture's clock.
+        std::optional<bool> Realtime;
+
         // WRITTEN BY THE PASS, read by the panel: the pointer shape the UI frame asked for
         // (UIViewContext::Cursor), shown by the ViewportPanel while the viewport is hovered.
         ::Desert::UI::UICursorShape Cursor = ::Desert::UI::UICursorShape::Default;

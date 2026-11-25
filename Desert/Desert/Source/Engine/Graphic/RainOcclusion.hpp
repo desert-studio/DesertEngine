@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 
@@ -36,14 +37,23 @@ namespace Desert::Graphic
         [[nodiscard]] bool operator==( const RainOcclusionQuality& ) const = default;
     };
 
+    // WHERE THE WATER LAST REACHED THE GROUND: the view's foam map (Water/WaterFoamField.glslh), whose B is the sand
+    // the swash wetted. Shape.y = 0: no map.
+    struct ShoreFoamUniforms
+    {
+        std::array<glm::vec4, 3> Origin{};      // xy = the level's lower grid texel, z = 1 / texel (1/cm)
+        glm::vec4                Shape{ 0.0f }; // x = a level's side (texels), y = 1 with a map, z = its bindless slot
+    };
+
     // std140 mirror of RainOcclusionUB (Common/RainOcclusion.glslh).
     struct RainOcclusionUniforms
     {
         glm::mat4 WorldToMap = glm::mat4( 1.0f ); // world -> the map's standard-Z clip (uv = (x, -y) * 0.5 + 0.5)
         glm::vec4 Params =
              glm::vec4( 0.0f ); // x = depth range (cm), y = valid (>0.5), z = bias (cm), w = texel (cm)
+        ShoreFoamUniforms Shore;
     };
-    static_assert( sizeof( RainOcclusionUniforms ) == 80, "RainOcclusionUB is a mat4 and a vec4" );
+    static_assert( sizeof( RainOcclusionUniforms ) == 144, "RainOcclusionUB is a mat4 and five vec4" );
 
     // One fitted box: where it stands and the matrix both the casters and the receivers use.
     struct RainOcclusionBox

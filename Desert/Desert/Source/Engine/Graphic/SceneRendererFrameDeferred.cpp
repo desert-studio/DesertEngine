@@ -971,21 +971,17 @@ namespace Desert::Graphic
         // is the water module's, SingleLayerWaterPass.hpp) or with Effects.WaterCaustics 0 - the latter imports
         // nothing, so its graph is the graph without caustics.
         System::ISingleLayerWaterPass* const water = m_Systems.Water.get();
+        // The foam map the ground finds its wet sand in (RainOcclusionUB's shore half).
+        if ( water != nullptr && water->GetShoreFoamUniforms().Shape.y > 0.5f )
+            textures.Transients.ShoreFoam =
+                 textures.Import( water->GetFoamHistory(), "Water.FoamHistory", RDG::Access::SampledGraphics );
         if ( m_ViewProfile.SceneCapture || water == nullptr || !water->CausticsEnabled() )
             return;
-        const FrameGraphRefs                         refs = textures.GraphRefs();
         System::ISingleLayerWaterPass::CausticsInputs caustics{ .SunTravel = glm::vec3( GetFrameSun().Direction ),
                                                                 .Camera    = frame.CameraPosition,
-                                                                .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
-                                                                .Black       = refs.System.Black };
+                                                                .TimeSeconds = static_cast<float>( frame.TimeSeconds ) };
         if ( water->FrameHasWaves() )
-        {
-            if ( water->GetWaterInfo() != nullptr )
-                caustics.WaterInfo =
-                     textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
-            // The FFT ocean's atlas the surface draws with (recorded once per graph; black without an FFT set).
-            caustics.FFTWaves = FrameWaterWaves( graph, textures );
-        }
+            caustics.Water = FrameWater( graph, textures ); // the surface's own (recorded once per graph)
         const std::optional<System::ISingleLayerWaterPass::CausticsFrame> made =
              water->AddCausticsPasses( graph, caustics );
         if ( made.has_value() )
@@ -2846,20 +2842,12 @@ namespace Desert::Graphic
         auto* water = m_Systems.Water.get();
         if ( writers.Water && water != nullptr )
         {
-            const RDG::TextureRef waterInfo =
-                 textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
-            if ( !waterInfo.IsValid() )
-            {
-                LOG_ERROR( "[SceneRenderer] Translucency: Front Layer G-buffer (Water): the WaterInfo ground "
-                           "cannot be imported - the water is not in the front layer" );
-            }
-            else
+            // Recorded here when the front layer is the water's first reader this frame; AddFramePasses said why not.
+            if ( const System::WaterFrameRefs waterRefs = FrameWater( graph, textures ); waterRefs.IsValid() )
             {
                 const SceneViewInputs   view  = SceneViewInputsOf( textures.GraphRefs() );
                 const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
                 const bool              load  = writers.Meshes;
-                // The FFT ocean's waves, recorded here when the front layer is their first reader this frame.
-                const RDG::TextureRef waves = FrameWaterWaves( graph, textures );
                 graph.AddPass(
                      "Translucency: Front Layer G-buffer (Water)", RDG::PassFlags::Raster,
                      [&]( RDG::PassBuilder& pass )
@@ -2871,7 +2859,7 @@ namespace Desert::Graphic
                          pass.ColorTarget( 0, surface.Normal, colorLoad );
                          pass.ColorTarget( 1, surface.Velocity, colorLoad );
                          pass.DepthTarget( surface.Depth, depthLoad );
-                         water->DeclareFrontLayerDraws( pass, waterInfo, waves, view, frame );
+                         water->DeclareFrontLayerDraws( pass, waterRefs, view, frame );
                      },
                      [water]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return water->RenderFrontLayerManual( context ); } );

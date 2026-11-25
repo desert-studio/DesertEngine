@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/RainOcclusion.hpp>
+
 // THE SINGLE LAYER WATER PASS AS THE RENDERER SEES IT (UE: the Renderer owns the single layer water passes -
 // SingleLayerWaterRendering - and the Water plugin owns the bodies, the quadtree and the water mesh that feed
 // them). The renderer schedules the frame's water through this interface and never names the Water module; the
@@ -32,6 +34,29 @@ namespace Desert::Graphic::RDG
 
 namespace Desert::Graphic::System
 {
+    // The frame's water in one graph: what every reader of the surface binds.
+    struct WaterFrameRefs
+    {
+        RDG::TextureRef Waves; // the FFT ocean's array, or one still texel
+        RDG::TextureRef Shore; // the floor and its shore
+        RDG::TextureRef River; // the rivers' flow and level
+        RDG::TextureRef Foam;  // the foam atlas this frame wrote, the graph's black without one
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return Waves.IsValid() && Shore.IsValid() && River.IsValid() && Foam.IsValid();
+        }
+    };
+    // What the graph imports for it.
+    struct WaterFrameImports
+    {
+        RDG::TextureRef River;
+        RDG::TextureRef Spectrum; // invalid: no FFT ocean
+        RDG::TextureRef FoamHistory;
+        RDG::TextureRef FoamTarget; // both invalid: no foam
+        RDG::TextureRef Black;
+    };
+
     class ISingleLayerWaterPass : public RenderSystem
     {
     public:
@@ -46,33 +71,32 @@ namespace Desert::Graphic::System
         [[nodiscard]] virtual bool HasDraws() const = 0;
         // Whether this frame's water program samples @p textureName (the shadow gates' question).
         [[nodiscard]] virtual bool FrameSamples( std::string_view textureName ) const = 0;
-        // The persistent WaterInfo ground the frame graph imports and the water passes sample.
-        [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetWaterInfo() const = 0;
+        // THE FRAME'S WATER (SceneRenderer::FrameWater): the persistent images the renderer imports (null: none),
+        // and the passes that advance the waves and the foam to @p timeSeconds, recorded once per graph;
+        // RecordedFrame answers the refs they returned for @p graph.
+        [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetRiverFlow() const          = 0;
+        [[nodiscard]] virtual bool                            FrameWavesAreFFT() const      = 0;
+        [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFFTInitialSpectrum() const = 0;
+        [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFoamHistory() const        = 0;
+        [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFoamTarget() const         = 0;
+        // Where the ground finds the foam written last (RainOcclusionUB's shore half).
+        [[nodiscard]] virtual ShoreFoamUniforms GetShoreFoamUniforms() const = 0;
+        [[nodiscard]] virtual WaterFrameRefs                  RecordedFrame( const RDG::Builder& graph ) const = 0;
+        virtual WaterFrameRefs AddFramePasses( RDG::Builder& graph, const WaterFrameImports& imports,
+                                               float timeSeconds ) = 0;
 
-        // "Deferred: Water": the surface into the scene target, after the scene copy. @p waves: this frame's FFT
-        // ocean atlas (RecordedWaves / AddWavePasses), the graph's black without one.
-        virtual void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, RDG::TextureRef waterInfo,
-                                   RDG::TextureRef waves, RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
+        // "Deferred: Water": the surface into the scene target, after the scene copy.
+        virtual void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const WaterFrameRefs& water,
+                                   RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
                                    const SceneViewInputs& view, const SceneFrameBinding& frame )    = 0;
         [[nodiscard]] virtual Common::BoolResultStr RenderManual( const RDG::PassContext& context ) = 0;
 
         // "Translucency: Front Layer G-buffer (Water)": the G-buffer the front layer's reflections trace from.
         [[nodiscard]] virtual bool HasFrontLayerDraws() const = 0;
-        virtual void               DeclareFrontLayerDraws( RDG::PassBuilder& pass, RDG::TextureRef waterInfo,
-                                                           RDG::TextureRef waves, const SceneViewInputs& view,
+        virtual void               DeclareFrontLayerDraws( RDG::PassBuilder& pass, const WaterFrameRefs& water,
+                                                           const SceneViewInputs& view,
                                                            const SceneFrameBinding& frame ) = 0;
         [[nodiscard]] virtual Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context ) = 0;
-
-        // THE FFT OCEAN (WATER-RIVERS-FFT; UE Water plugin's FFT wave source): whether this frame's water draws an
-        // FFT ocean (after PrepareFrame), its h0 cascades and the persistent two-frame waves atlas the renderer
-        // imports, and the passes that advance the ocean to @p timeSeconds into @p waves - recorded once per graph
-        // (SceneRenderer::FrameWaterWaves); RecordedWaves answers the ref they returned for @p graph, or invalid.
-        [[nodiscard]] virtual bool                           FrameWavesAreFFT() const      = 0;
-        [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFFTInitialSpectrum() const = 0;
-        [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFFTWaves() const           = 0;
-        [[nodiscard]] virtual RDG::TextureRef                RecordedWaves( const RDG::Builder& graph ) const = 0;
-        virtual RDG::TextureRef AddWavePasses( RDG::Builder& graph, RDG::TextureRef initial, RDG::TextureRef waves,
-                                               RDG::TextureRef waterInfo, float timeSeconds ) = 0;
 
         // THE UNDERWATER VOLUME (WATER-UNDERWATER; UE Water: the body's underwater post process): whether the
         // camera is under a body this frame (after PrepareFrame), and "Deferred: Underwater" on the scene target
@@ -93,9 +117,7 @@ namespace Desert::Graphic::System
             glm::vec3       SunTravel{ 0.0f, -1.0f, 0.0f }; // the direction the sunlight travels
             glm::vec3       Camera{ 0.0f };                 // the view's world position (cm)
             float           TimeSeconds = 0.0f;             // ViewFrame::TimeSeconds = the water mesh's cameraUB.Time
-            RDG::TextureRef Black;     // FrameGraphRefs::System.Black: the splat's ground where no WaterInfo is baked
-            RDG::TextureRef WaterInfo; // the imported GetWaterInfo, or invalid when none is baked
-            RDG::TextureRef FFTWaves;  // this frame's FFT atlas (the graph's black without one)
+            WaterFrameRefs  Water;                          // invalid when no water of the frame has waves
         };
         struct CausticsFrame
         {

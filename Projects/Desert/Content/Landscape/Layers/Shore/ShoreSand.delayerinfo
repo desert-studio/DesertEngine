@@ -10,9 +10,5 @@
     "LayerName": "ShoreSand",
     "Hardness": 0.5,
     "NoWeightBlend": false,
-    "LayerUsageDebugColor": [
-        0.62,
-        0.55,
-        0.42
-    ]
+    "LayerUsageDebugColor": [0.45, 0.38, 0.27]
 }

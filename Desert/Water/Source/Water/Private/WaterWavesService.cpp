@@ -47,17 +47,32 @@ namespace Desert::Runtime
                               "Gerstner sum folds through itself past 1 - lower SmallWaveSteepness/"
                               "LargeWaveSteepness",
                               steepness, waves.size() );
-            LOG_ERROR( "[Water] Wave set {} is refused: {}", static_cast<uint64_t>( handle ), why );
-            m_Failed[handle] = why;
+            Fail( handle, why );
             return;
         }
+        ++m_ShapeSerial;
+        m_Failed.erase( handle );
+        m_Ready.erase( handle );
+        m_Spectra.erase( handle );
         m_Generators[handle] = std::make_shared<const Water::GerstnerWaveGenerator>( generator );
 
         // An FFT set's ocean: its h0 cascades are a pure function of the FFT block, its seed and the scene's wind
-        // (SetWind), built by GetSpectrum (3 x 256^2 texels) when the wind changes and uploaded by the water
+        // (SetWind), built by GetSpectrum (4 x 256^2 texels) when the wind changes and uploaded by the water
         // renderer when the pointer does; the parse already refused a block the spectrum cannot honour.
         if ( asset->GetData().Source == Water::WaterWaveSource::FFT )
             m_Shapes[handle] = asset->GetData().FFT;
+        else
+            m_Shapes.erase( handle );
+    }
+
+    void WaterWavesService::Fail( const Assets::AssetHandle& handle, const std::string& why )
+    {
+        LOG_ERROR( "[Water] Wave set {} is refused: {}{}", static_cast<uint64_t>( handle ), why,
+                   m_Generators.contains( handle ) ? " - its last read waves are kept" : "" );
+        if ( m_Generators.contains( handle ) )
+            return;
+        ++m_ShapeSerial;
+        m_Failed[handle] = why;
     }
 
     void WaterWavesService::SetWind( const Assets::AssetHandle& handle, const glm::vec2& velocityXZ )
@@ -69,7 +84,6 @@ namespace Desert::Runtime
         wind.Speed = std::round( speed / 10.0f ) * 10.0f;
         if ( wind.Speed > 0.0f )
             wind.AngleDeg = std::round( glm::degrees( std::atan2( velocityXZ.y, velocityXZ.x ) ) * 2.0f ) * 0.5f;
-        const std::lock_guard<std::mutex> lock( m_WindMutex );
         m_Winds[handle] = wind;
     }
 
@@ -90,22 +104,17 @@ namespace Desert::Runtime
                 continue;
             if ( m_Requests.contains( handle ) )
                 continue;
-            m_Generators.erase( handle );
-            m_Ready.erase( handle );
-            m_Spectra.erase( handle );
-            m_Shapes.erase( handle );
-            m_Failed.erase( handle );
-
             Assets::Asset<Assets::WaterWavesAsset> asset;
             if ( assets )
                 asset = assets->ProbeByHandle<Assets::WaterWavesAsset>( handle );
             if ( asset == nullptr )
-                continue; // not resident any more: Request creates and reads it afresh
+            {
+                Read( handle ); // not resident any more: read afresh, the waves it had stand until it lands
+                continue;
+            }
             if ( const auto reread = asset->LoadFromFile(); !reread )
             {
-                LOG_ERROR( "[Water] Wave set {} was saved and cannot be re-read: {}", static_cast<uint64_t>( handle ),
-                           reread.GetError() );
-                m_Failed[handle] = reread.GetError();
+                Fail( handle, reread.GetError() );
                 continue;
             }
             LOG_INFO( "[Water] Wave set {} was saved: its waves are rebuilt.", static_cast<uint64_t>( handle ) );
@@ -113,30 +122,40 @@ namespace Desert::Runtime
         }
     }
 
-    float WaterWavesService::WindAngleOf( const Assets::AssetHandle& handle )
+    WaveSetKind WaterWavesService::KindOf( const Assets::AssetHandle& handle )
     {
-        const std::lock_guard<std::mutex> lock( m_WindMutex );
-        const auto                        wound = m_Winds.find( handle );
+        Request( handle );
+        if ( m_Generators.contains( handle ) )
+            return m_Shapes.contains( handle ) ? WaveSetKind::FFT : WaveSetKind::Gerstner;
+        return m_Failed.contains( handle ) ? WaveSetKind::Failed : WaveSetKind::Pending;
+    }
+
+    uint64_t WaterWavesService::ShapeSerial()
+    {
+        FollowWrites();
+        return m_ShapeSerial;
+    }
+
+    float WaterWavesService::WindAngleOf( const Assets::AssetHandle& handle ) const
+    {
+        const auto wound = m_Winds.find( handle );
         return wound == m_Winds.end() ? 0.0f : wound->second.AngleDeg;
     }
 
     void WaterWavesService::Request( const Assets::AssetHandle& handle )
     {
         FollowWrites();
-        if ( m_Generators.contains( handle ) || m_Failed.contains( handle ) || m_Requests.contains( handle ) )
-            return;
+        if ( !m_Generators.contains( handle ) && !m_Failed.contains( handle ) && !m_Requests.contains( handle ) )
+            Read( handle );
+    }
 
-        const auto fail = [this, handle]( const std::string& why )
-        {
-            LOG_ERROR( "[Water] Wave set {} cannot be read: {}", static_cast<uint64_t>( handle ), why );
-            m_Failed[handle] = why;
-        };
-
+    void WaterWavesService::Read( const Assets::AssetHandle& handle )
+    {
         auto created = Assets::CreateFromRegistryRow<Assets::WaterWavesAsset>(
              m_Assets, handle, Common::Content::ContentKind::WaterWaves );
         if ( !created )
         {
-            fail( created.GetError() );
+            Fail( handle, created.GetError() );
             return;
         }
         if ( created.GetValue()->IsReadyForUse() )
@@ -146,14 +165,14 @@ namespace Desert::Runtime
         }
         m_Requests[handle] = Assets::AsyncAssetLoader::Get().Request(
              created.GetValue(),
-             [this, handle, fail]( const Assets::Asset<Assets::AssetBase>& loaded,
+             [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded,
                                    const Assets::LoadOutcome outcome, const std::string& error )
              {
                  m_Requests.erase( handle );
                  if ( outcome == Assets::LoadOutcome::Loaded )
                      Adopt( handle, std::static_pointer_cast<Assets::WaterWavesAsset>( loaded ) );
                  else
-                     fail( error );
+                     Fail( handle, error );
              },
              [this, handle] { m_Requests.erase( handle ); } );
     }
@@ -187,15 +206,26 @@ namespace Desert::Runtime
         // The set's wind this frame (still air until a body states one); the spectrum is rebuilt only when it
         // differs from the wind the current one was raised by.
         Water::FFTOceanWind wind; // still air until a body states one
-        {
-            const std::lock_guard<std::mutex> lock( m_WindMutex );
-            if ( const auto wound = m_Winds.find( handle ); wound != m_Winds.end() )
-                wind = wound->second;
-        }
+        if ( const auto wound = m_Winds.find( handle ); wound != m_Winds.end() )
+            wind = wound->second;
         Spectrum& built = m_Spectra[handle];
         if ( built == nullptr || !( built->Wind == wind ) )
-            built = std::make_shared<const Water::FFTOceanSpectrum>(
+        {
+            auto spectrum = std::make_shared<const Water::FFTOceanSpectrum>(
                  Water::BuildFFTOceanSpectrum( shape->second, wind ) );
+            for ( const Water::FFTOceanCascade& cascade : spectrum->Cascades )
+                if ( cascade.H0.size() != static_cast<size_t>( Water::kFFTOceanResolution ) * Water::kFFTOceanResolution )
+                {
+                    LOG_ERROR( "[Water] Wave set {}: its FFT spectrum has {} texels in a cascade, not {} a side - its "
+                               "Gerstner generator is its sea",
+                               static_cast<uint64_t>( handle ), cascade.H0.size(), Water::kFFTOceanResolution );
+                    m_Spectra.erase( handle );
+                    m_Shapes.erase( handle );
+                    ++m_ShapeSerial;
+                    return Common::MakeSuccess( Spectrum{} );
+                }
+            built = std::move( spectrum );
+        }
         return Common::MakeSuccess( built );
     }
 
@@ -206,12 +236,9 @@ namespace Desert::Runtime
         m_Ready.clear();
         m_Spectra.clear();
         m_Shapes.clear();
-        {
-            const std::lock_guard<std::mutex> lock( m_WindMutex );
-            m_Winds.clear();
-        }
+        m_Winds.clear();
         m_Failed.clear();
-        m_Surfaces.Clear();
+        ++m_ShapeSerial;
     }
 
     WaterWavesService* GetWaterWavesService()
