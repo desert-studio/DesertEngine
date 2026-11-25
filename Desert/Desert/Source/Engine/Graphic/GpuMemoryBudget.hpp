@@ -23,8 +23,10 @@ namespace Desert::Graphic
      *
      * A client declares what it cannot work below, what it wants and what it holds, and takes its grant. The grant
      * is a pure function of the accepted pool and of every declaration: minimums first, the rest shared by weight
-     * up to what each wants. The HYSTERESIS is on the pool alone, so a moving camera redistributes at once while a
-     * breathing driver number moves nothing.
+     * up to what each wants - and no byte is granted to one client while another still holds it: growth is shared
+     * out of what nobody holds. The HYSTERESIS is on the pool alone, so a moving camera redistributes at once
+     * while a breathing driver number moves nothing. The pool SHRINKS at once and GROWS by a part of the gap per
+     * settle period, so what the rest of the process allocates meanwhile is measured before it is handed out.
      *
      * Thread-safe; Update is the frame loop's.
      */
@@ -52,6 +54,8 @@ namespace Desert::Graphic
             /// The bytes it may hold. Before the first measurement (no device: the tools and the suites) there is
             /// nothing to share out and it is `desired`.
             [[nodiscard]] uint64_t Grant() const;
+            /// Another client is granted less than it wants: what this one holds and does not use is owed to it.
+            [[nodiscard]] bool OthersWait() const;
 
         private:
             uint64_t m_Id = 0;
@@ -69,7 +73,8 @@ namespace Desert::Graphic
             uint64_t    Minimum       = 0;
             uint64_t    Desired       = 0;
             uint64_t    Held          = 0;
-            uint64_t    Grant         = 0;
+            uint64_t    Target        = 0; // its share of the pool
+            uint64_t    Grant         = 0; // the part of the target nobody else still holds
             bool        LoggedLimited = false;
         };
 
@@ -80,6 +85,8 @@ namespace Desert::Graphic
         [[nodiscard]] Row* Find( uint64_t id );
         // The grants from the accepted pool and the declarations.
         void Distribute();
+        // Raises each row's @p given towards its @p wanted out of @p left, by weight.
+        void Share( uint64_t Row::* given, uint64_t Row::* wanted, uint64_t left );
         // Takes @p pool as the accepted one, and says so.
         void Accept( uint64_t pool, uint64_t budget, uint64_t usage );
         void LogClients();

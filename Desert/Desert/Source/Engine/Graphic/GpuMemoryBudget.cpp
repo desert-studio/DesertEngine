@@ -24,6 +24,9 @@ namespace Desert::Graphic
         // again.
         constexpr uint32_t kSettleFrames = 30;
         constexpr uint32_t kLogFrames    = 120;
+        // The pool grows by this part of the gap to the measurement, one step per settle period: the usage each
+        // step brings is in the reading the next one is taken from.
+        constexpr uint64_t kGrowStepDivisor = 4;
         // A device without VK_EXT_memory_budget: the share of its heap the clients are given, half, the rest being
         // the targets, meshes and acceleration structures nothing measures there.
         constexpr uint64_t kUnmeasuredHeapDivisor = 2;
@@ -63,10 +66,10 @@ namespace Desert::Graphic
         Row* const            row = budget.Find( m_Id );
         if ( row == nullptr )
             return;
-        row->Held             = held;
         const uint64_t wanted = std::max( minimum, desired );
-        if ( row->Minimum == minimum && row->Desired == wanted )
+        if ( row->Minimum == minimum && row->Desired == wanted && row->Held == held )
             return;
+        row->Held    = held;
         row->Minimum = minimum;
         row->Desired = wanted;
         budget.Distribute();
@@ -78,6 +81,14 @@ namespace Desert::Graphic
         const std::lock_guard lock( budget.m_Lock );
         const Row* const      row = budget.Find( m_Id );
         return row != nullptr ? row->Grant : 0;
+    }
+
+    bool GpuMemoryBudget::Client::OthersWait() const
+    {
+        GpuMemoryBudget&      budget = GpuMemoryBudget::Get();
+        const std::lock_guard lock( budget.m_Lock );
+        return std::any_of( budget.m_Rows.begin(), budget.m_Rows.end(),
+                            [this]( const Row& row ) { return row.Id != m_Id && row.Grant < row.Desired; } );
     }
 
     uint64_t GpuMemoryBudget::Register( std::string name, const float weight )
@@ -109,13 +120,13 @@ namespace Desert::Graphic
         if ( !m_Measured )
         {
             for ( Row& row : m_Rows )
-                row.Grant = row.Desired;
+                row.Grant = row.Target = row.Desired;
             return;
         }
         uint64_t minimums = 0;
         for ( Row& row : m_Rows )
         {
-            row.Grant = row.Minimum;
+            row.Target = row.Minimum;
             minimums += row.Minimum;
         }
         // A minimum is granted whatever the pool: a client below it does not work at all, and the driver paging is
@@ -127,13 +138,27 @@ namespace Desert::Graphic
                       "granted past it",
                       MB( minimums ), MB( m_Pool ) );
         }
+        Share( &Row::Target, &Row::Desired, Less( m_Pool, minimums ) );
+        // A client that must give bytes back holds them until its frames in flight complete: the others grow only
+        // into what nobody holds now, and take the rest of their targets as it is released (Held is re-declared).
+        uint64_t taken = 0;
+        for ( Row& row : m_Rows )
+        {
+            const uint64_t holds = std::max( row.Held, row.Minimum );
+            row.Grant            = std::min( row.Target, holds );
+            taken += holds;
+        }
+        Share( &Row::Grant, &Row::Target, Less( m_Pool, taken ) );
+    }
+
+    void GpuMemoryBudget::Share( uint64_t Row::* const given, uint64_t Row::* const wanted, uint64_t left )
+    {
         // Each round satisfies at least one client or hands out everything left.
-        uint64_t left = Less( m_Pool, minimums );
         while ( left > 0 )
         {
             double weights = 0.0;
             for ( const Row& row : m_Rows )
-                if ( row.Grant < row.Desired )
+                if ( row.*given < row.*wanted )
                     weights += row.Weight;
             if ( weights <= 0.0 )
                 return;
@@ -141,13 +166,13 @@ namespace Desert::Graphic
             bool           satisfied = false;
             for ( Row& row : m_Rows )
             {
-                if ( row.Grant >= row.Desired )
+                if ( row.*given >= row.*wanted )
                     continue;
                 const auto share = static_cast<uint64_t>( static_cast<double>( round ) * row.Weight / weights );
-                const uint64_t given = std::min( { share, row.Desired - row.Grant, left } );
-                row.Grant += given;
-                left -= given;
-                satisfied = satisfied || row.Grant == row.Desired;
+                const uint64_t bytes = std::min( { share, row.*wanted - row.*given, left } );
+                row.*given += bytes;
+                left -= bytes;
+                satisfied = satisfied || row.*given == row.*wanted;
             }
             if ( !satisfied )
                 return;
@@ -221,24 +246,30 @@ namespace Desert::Graphic
             --m_LogWaitFrames;
         if ( !m_Measured )
         {
-            Accept( measured, budget, usage );
+            // The process is still loading: the first reading misses everything not allocated yet.
+            Accept( measured / kGrowStepDivisor, budget, usage );
             return;
         }
 
         const bool less     = measured + budget / kShrinkDivisor < m_Pool;
         const bool more     = measured > m_Pool + budget / kGrowDivisor;
         const bool pressure = measured < m_Pool && usage + budget / kPressureDivisor > budget;
+        // Past the budget the driver pages already: the pool falls to the measurement without waiting for
+        // anything.
+        const bool over     = less && usage > budget;
         m_ShrinkFrames      = less ? m_ShrinkFrames + 1 : 0;
         m_GrowFrames        = more ? m_GrowFrames + 1 : 0;
-        if ( ( m_ShrinkFrames >= kShrinkFrames || pressure ) && m_SettleFrames == 0 )
+        if ( over || ( ( m_ShrinkFrames >= kShrinkFrames || pressure ) && m_SettleFrames == 0 ) )
         {
             m_SettleFrames = kSettleFrames;
             Accept( measured, budget, usage );
             return;
         }
-        if ( m_GrowFrames >= kGrowFrames )
+        // Nothing grows while a shrink settles or while the usage is inside the pressure band.
+        if ( m_GrowFrames >= kGrowFrames && m_SettleFrames == 0 && usage + budget / kPressureDivisor <= budget )
         {
-            Accept( measured, budget, usage );
+            Accept( m_Pool + ( measured - m_Pool ) / kGrowStepDivisor, budget, usage );
+            m_GrowFrames = kGrowFrames - kSettleFrames; // the next step: a settle period of the gap still open
             return;
         }
         // The pool stands and the demand moved: a client went over or back under it.
