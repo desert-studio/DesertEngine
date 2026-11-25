@@ -25,6 +25,7 @@ and a lead decision went only into an agent's REMAINDER. Rules (lead session onl
 
 State: ~/.claude/board_guard_state.json {pages: {page_id: code}, writes: {code: t}, pending: {code: t}, agents: {id: code}}.
 """
+import datetime
 import json
 import os
 import re
@@ -108,6 +109,32 @@ def deny(reason):
 
 NOT_WRITERS = ("explore", "board", "architect", "reviewer", "acceptance")
 RUNNING_MAX_AGE = 4 * 3600  # an agent with no SubagentStop older than this died with its session (crash, reboot)
+
+
+def note_failed_agents(s, transcript):
+    """An agent killed by an API error (11-25: the usage limit) sends no SubagentStop. The harness's own notification
+    in the session transcript is the record; one older than the agent's last launch or resume does not count."""
+    live = [aid for aid in s["agents"] if aid not in s["stopped"]]
+    if not live or not transcript or not os.path.isfile(transcript):
+        return
+    with open(transcript, encoding="utf-8", errors="replace") as lines:
+        for line in lines:
+            if '"queue-operation"' not in line or "<task-notification>" not in line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            text = str(row.get("content") or "")
+            aid = re.match(r"<task-notification>\s*<task-id>([0-9a-z]+)</task-id>", text)
+            if (row.get("type") != "queue-operation" or not aid or aid.group(1) not in live
+                    or not re.search(r"<status>(failed|killed)</status>", text)):
+                continue
+            at = datetime.datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).timestamp()
+            if at > s["launched"].get(aid.group(1), 0):
+                s["stopped"][aid.group(1)] = at
+                s["pending"][s["agents"][aid.group(1)]] = at
+    save(s)
 
 
 def running_agent(s, code):
@@ -414,6 +441,9 @@ def main():
     tool = data.get("tool_name") or ""
     tin = data.get("tool_input") or {}
     s = load()
+
+    if event == "Stop" or (event == "PreToolUse" and tool in ("Agent", "SendMessage")):
+        note_failed_agents(s, data.get("transcript_path") or "")
 
     if event == "UserPromptSubmit":
         text = str(data.get("prompt") or "")
