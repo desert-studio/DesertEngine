@@ -24,6 +24,7 @@ namespace
     struct WaterFoamShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
+        DESERT_SHADER_PARAMETER( StorageBuffer, WaterFoamBodies );
         DESERT_SHADER_PARAMETER( Texture, WaterShoreTexture );
         DESERT_SHADER_PARAMETER( Texture, WaterRiverTexture );
         DESERT_SHADER_PARAMETER( Texture, WaterWavesTexture );
@@ -34,7 +35,7 @@ namespace
              ::Desert::Graphic::RDG::Erase( WaterTiles ),         ::Desert::Graphic::RDG::Erase( WaterShoreTexture ),
              ::Desert::Graphic::RDG::Erase( WaterRiverTexture ),  ::Desert::Graphic::RDG::Erase( WaterWavesTexture ),
              ::Desert::Graphic::RDG::Erase( LinearRepeatSampler ), ::Desert::Graphic::RDG::Erase( FoamHistoryTexture ),
-             ::Desert::Graphic::RDG::Erase( WaterFoamUB ) };
+             ::Desert::Graphic::RDG::Erase( WaterFoamUB ),         ::Desert::Graphic::RDG::Erase( WaterFoamBodies ) };
     };
 } // namespace
 
@@ -46,12 +47,11 @@ namespace Desert::Graphic::System
         struct WaterFoamUBData
         {
             std::array<glm::vec4, Water::kFoamLevels> Previous{}; // xy = the history's window origins
-            glm::vec4 Time{ 0.0f };   // x = the time (s), y = since the history (s), z = 1 with a history, w = still Y
-            glm::vec4 Source{ 0.0f }; // x = jacobian threshold, y = softness, z = gain, w = the wave set (-1: none)
-            glm::vec4 Decay{ 0.0f };  // x = foam, y = bubbles, z = wetness (s), w = the beach's slope
-            glm::vec4 Wind{ 0.0f };   // xy = cm/s
+            glm::vec4 Time{ 0.0f }; // x = the time (s), y = since the history (s), z = 1 with a history, w = the bodies
+            // The rectangle of the world the history does not stand in (min X, min Z, max X, max Z); empty: min > max.
+            glm::vec4 Changed{ 1.0f, 1.0f, 0.0f, 0.0f };
         };
-        static_assert( sizeof( WaterFoamUBData ) == 7 * sizeof( glm::vec4 ) );
+        static_assert( sizeof( WaterFoamUBData ) == 5 * sizeof( glm::vec4 ) );
         constexpr Core::Formats::ImageFormat kFoamFormat = Core::Formats::ImageFormat::RGBA8F;
         // A history older than this is another sea.
         constexpr float kFoamHistoryMaxAgeSeconds = 2.0f;
@@ -59,9 +59,15 @@ namespace Desert::Graphic::System
         constexpr float kSurfaceDriftOfWind = 0.03f;
     } // namespace
 
+    void WaterRenderer::RetireImage( std::shared_ptr<Image2D> image )
+    {
+        if ( image != nullptr )
+            m_RetiredImages.Park( std::move( image ),
+                                  ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+    }
+
     bool WaterRenderer::EnsureFoam( const uint32_t side )
     {
-        const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         if ( m_FoamSide != side )
         {
             for ( std::shared_ptr<Image2D>& image : m_Foam )
@@ -74,8 +80,7 @@ namespace Desert::Graphic::System
                                                                    .Properties =
                                                                         Core::Formats::Sample |
                                                                         Core::Formats::GraphDeclaredBindless };
-                if ( image != nullptr )
-                    m_RetiredFoam.Park( std::move( image ), frame );
+                RetireImage( std::move( image ) );
                 image = Image2D::Create( spec );
                 if ( image == nullptr || !image->GetBindlessSlot().IsValid() )
                 {
@@ -118,13 +123,40 @@ namespace Desert::Graphic::System
         return m_Foam[0] != nullptr && m_Foam[1] != nullptr && m_FoamPipeline != nullptr;
     }
 
-    void WaterRenderer::PrepareFoam( const Assets::AssetHandle& material, const MaterialStamp& stamp,
-                                     const glm::vec3& eye, const int32_t waveSet,
+    Water::WaterFoamParams WaterRenderer::FoamParamsOf( const Assets::AssetHandle& material,
+                                                        const MaterialStamp&       stamp )
+    {
+        if ( !( m_FoamStamp == stamp ) )
+        {
+            m_FoamStamp = stamp;
+            m_FoamMaterials.clear();
+        }
+        const auto known = m_FoamMaterials.find( static_cast<uint64_t>( material ) );
+        if ( known != m_FoamMaterials.end() )
+            return known->second;
+        constexpr std::array<std::string_view, 6> kNames{ "FoamDecaySeconds",      "BubbleDecaySeconds",
+                                                          "WetDrySeconds",         "WhitecapGain",
+                                                          "FoamJacobianThreshold", "FoamJacobianSoftness" };
+        std::array<glm::vec4, 6>                  values{};
+        Water::WaterFoamParams                    params;
+        if ( !ReadMaterialValues( material, stamp, kNames, values ) )
+            return params; // the template is not there yet: the next frame asks again
+        params.FoamDecaySeconds   = std::max( values[0].x, 0.1f );
+        params.BubbleDecaySeconds = std::max( values[1].x, 0.1f );
+        params.WetDrySeconds      = std::max( values[2].x, 0.1f );
+        params.WhitecapGain       = std::max( values[3].x, 0.0f );
+        params.JacobianThreshold  = values[4].x;
+        params.JacobianSoftness   = std::max( values[5].x, 0.01f );
+        m_FoamMaterials.emplace( static_cast<uint64_t>( material ), params );
+        return params;
+    }
+
+    void WaterRenderer::PrepareFoam( const MaterialStamp& stamp, const glm::vec3& eye, const int32_t fftSet,
                                      const std::shared_ptr<const Water::WaterShoreField>& shore,
                                      std::array<glm::vec4, 3>& origin, glm::vec4& shape )
     {
         const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
-        m_RetiredFoam.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+        m_RetiredImages.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
         const auto side = Common::Scalability::QualityState::Resolved().As<uint32_t>(
              Common::Scalability::Parameter::EffectsWaterFoamSize );
         if ( !EnsureFoam( side ) || m_FrameBodies.empty() )
@@ -137,31 +169,25 @@ namespace Desert::Graphic::System
             m_FoamState.Valid  = true;
             m_FoamTime         = m_FoamRecordedTime;
             m_FoamRecorded.reset();
+            m_FoamChanged.reset();
         }
-        if ( m_FoamShore != shore )
+        if ( const uint64_t floor = shore != nullptr ? shore->Revision : 0; m_FoamShore != floor )
         {
-            m_FoamShore       = shore; // another floor: the foam and the wet sand were another shore's
-            m_FoamState.Valid = false;
-        }
-
-        if ( m_FoamMaterial.Material != static_cast<uint64_t>( material ) || !( m_FoamMaterial.Stamp == stamp ) )
-        {
-            m_FoamMaterial.Material = static_cast<uint64_t>( material );
-            m_FoamMaterial.Stamp    = stamp;
-            constexpr std::array<std::string_view, 6> kNames{ "FoamDecaySeconds", "BubbleDecaySeconds",
-                                                              "WetDrySeconds",    "WhitecapGain",
-                                                              "FoamJacobianThreshold",
-                                                              "FoamJacobianSoftness" };
-            std::array<glm::vec4, 6>                  values{};
-            if ( ReadMaterialValues( material, stamp, kNames, values ) )
+            // Another floor: the foam and the wet sand go where the ground moved, and everywhere on another grid.
+            if ( shore != nullptr && shore->BaseRevision != 0 && shore->BaseRevision == m_FoamShore )
             {
-                m_FoamMaterial.Params.FoamDecaySeconds   = std::max( values[0].x, 0.1f );
-                m_FoamMaterial.Params.BubbleDecaySeconds = std::max( values[1].x, 0.1f );
-                m_FoamMaterial.Params.WetDrySeconds      = std::max( values[2].x, 0.1f );
-                m_FoamMaterial.Params.WhitecapGain       = std::max( values[3].x, 0.0f );
-                m_FoamMaterial.Params.JacobianThreshold  = values[4].x;
-                m_FoamMaterial.Params.JacobianSoftness   = std::max( values[5].x, 0.01f );
+                if ( const Water::WaterShoreField::Rect& rect = shore->ChangedGround; !rect.Empty() )
+                {
+                    const glm::vec2 lo = shore->MinCm + ( glm::vec2( rect.X0, rect.Z0 ) - 1.0f ) * shore->TexelCm;
+                    const glm::vec2 hi = shore->MinCm + ( glm::vec2( rect.X1, rect.Z1 ) + 1.0f ) * shore->TexelCm;
+                    const glm::vec4 held = m_FoamChanged.value_or( glm::vec4( lo, hi ) );
+                    m_FoamChanged        = glm::vec4( glm::min( glm::vec2( held.x, held.y ), lo ),
+                                                      glm::max( glm::vec2( held.z, held.w ), hi ) );
+                }
             }
+            else
+                m_FoamState.Valid = false;
+            m_FoamShore = floor;
         }
 
         const Water::WaterFoamClipmapDesc desc{ .Size = side };
@@ -171,17 +197,30 @@ namespace Desert::Graphic::System
         shape = glm::vec4( static_cast<float>( side ), 1.0f, 0.0f, 0.0f );
 
         FoamFrame frame;
-        frame.Params  = m_FoamMaterial.Params;
-        frame.Origin  = windows;
-        frame.WaveSet = waveSet;
-        frame.StillY  = shore != nullptr ? shore->ReferenceLevelCm : m_FrameBodies.front().SurfaceY;
+        frame.Origin = windows;
+        glm::vec2 drift( 0.0f );
         if ( m_FFTFrame != nullptr )
         {
             const float angle = glm::radians( m_FFTFrame->Wind.AngleDeg );
-            frame.Wind        = glm::vec2( std::cos( angle ), std::sin( angle ) ) * m_FFTFrame->Wind.Speed;
+            drift = glm::vec2( std::cos( angle ), std::sin( angle ) ) * ( m_FFTFrame->Wind.Speed * kSurfaceDriftOfWind );
         }
-        frame.BeachSlope = shore != nullptr ? shore->BeachSlope : 0.0f;
-        m_FoamFrame      = frame;
+        const float slope = shore != nullptr ? shore->BeachSlope : 0.0f;
+        frame.Bodies.reserve( m_FrameBodies.size() );
+        for ( size_t b = 0; b < m_FrameBodies.size(); ++b )
+        {
+            const Water::WaterQuadTreeBody& body   = m_FrameBodies[b];
+            const FrameBodyLook&            look   = m_FrameBodyLooks[b];
+            const Water::WaterFoamParams    params = FoamParamsOf( look.Material, stamp );
+            const int32_t                   set    = look.River ? -1 : static_cast<int32_t>( m_FrameBodyWaveLanes[b] ) - 1;
+            frame.Bodies.push_back( FoamBody{
+                 .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
+                 .Level     = glm::vec4( body.SurfaceY, static_cast<float>( set ), look.River ? 1.0f : 0.0f,
+                                         look.River ? 0.0f : slope ),
+                 .Source    = glm::vec4( params.JacobianThreshold, params.JacobianSoftness, params.WhitecapGain, 0.0f ),
+                 .Decay = glm::vec4( params.FoamDecaySeconds, params.BubbleDecaySeconds, params.WetDrySeconds, 0.0f ),
+                 .Drift = set >= 0 && set == fftSet ? glm::vec4( drift, 0.0f, 0.0f ) : glm::vec4( 0.0f ) } );
+        }
+        m_FoamFrame = std::move( frame );
     }
 
     ShoreFoamUniforms WaterRenderer::GetShoreFoamUniforms() const
@@ -213,17 +252,19 @@ namespace Desert::Graphic::System
         WaterFoamUBData data;
         for ( uint32_t l = 0; l < Water::kFoamLevels; ++l )
             data.Previous[l] = glm::vec4( glm::vec2( m_FoamState.Origin[l] ), 0.0f, 0.0f );
-        data.Time   = glm::vec4( timeSeconds, held ? age : 0.0f, held ? 1.0f : 0.0f, frame.StillY );
-        data.Source = glm::vec4( frame.Params.JacobianThreshold, frame.Params.JacobianSoftness,
-                                 frame.Params.WhitecapGain, static_cast<float>( frame.WaveSet ) );
-        data.Decay  = glm::vec4( frame.Params.FoamDecaySeconds, frame.Params.BubbleDecaySeconds,
-                                 frame.Params.WetDrySeconds, frame.BeachSlope );
-        data.Wind   = glm::vec4( frame.Wind * kSurfaceDriftOfWind, 0.0f, 0.0f );
+        data.Time = glm::vec4( timeSeconds, held ? age : 0.0f, held ? 1.0f : 0.0f,
+                               static_cast<float>( frame.Bodies.size() ) );
+        if ( m_FoamChanged )
+            data.Changed = *m_FoamChanged;
 
         const RDG::BufferRef uniforms = graph.CreateBuffer( RDG::BufferDesc{ sizeof( data ) }, "Water.FoamUB" );
         graph.QueueBufferUpload( uniforms, std::as_bytes( std::span<const WaterFoamUBData>( &data, 1 ) ) );
         const RDG::BufferRef tiles = graph.CreateBuffer( RDG::BufferDesc{ waves.size_bytes() }, "Water.FoamWaves" );
         graph.QueueBufferUpload( tiles, waves );
+        const std::span<const std::byte> bodyBytes = std::as_bytes( std::span( frame.Bodies ) );
+        const RDG::BufferRef             bodies =
+             graph.CreateBuffer( RDG::BufferDesc{ bodyBytes.size_bytes() }, "Water.FoamBodies" );
+        graph.QueueBufferUpload( bodies, bodyBytes );
 
         using P = WaterFoamShaderParameters;
         graph.AddPass(
@@ -233,6 +274,7 @@ namespace Desert::Graphic::System
                  pass.ColorTarget( 0, imports.FoamTarget, RDG::LoadOp::DontCare() );
                  pass.Bindings( m_FoamLayout.Get( m_FoamPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
                       .Storage( P::WaterTiles, tiles, RDG::Access::StorageRead )
+                      .Storage( P::WaterFoamBodies, bodies, RDG::Access::StorageRead )
                       .Texture( P::WaterShoreTexture, water.Shore, RDG::Access::SampledGraphics,
                                 RDG::SubresourceRange::All() )
                       .Texture( P::WaterRiverTexture, water.River, RDG::Access::SampledGraphics,

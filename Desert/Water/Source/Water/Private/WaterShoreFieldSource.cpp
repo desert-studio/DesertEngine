@@ -94,11 +94,18 @@ namespace Desert::ECS
             heights.push_back( data.ExtractValue() );
             tiles.push_back( { &heights.back(), tile.Frame } );
         }
-        return Water::BakeWaterShoreField( tiles, input.Bodies, input.SpacingCm );
+        return Water::BakeWaterShoreField( tiles, input.Bodies, input.SpacingCm, input.Base.get() );
     }
 
-    void WaterShoreFieldSource::Adopt( Common::ResultStr<Field> baked )
+    void WaterShoreFieldSource::BakeJob::Run() noexcept
     {
+        Promise.set_value( Bake( World ) );
+    }
+
+    void WaterShoreFieldSource::AdoptDone()
+    {
+        Common::ResultStr<Field> baked = m_Job->Done.get();
+        m_Job                          = nullptr;
         if ( baked )
             m_Field = baked.ExtractValue();
         else
@@ -118,13 +125,14 @@ namespace Desert::ECS
                               .Values       = service->GetValuesEditSerial(),
                               .Content      = Assets::ContentRegistry::WriteSerial() };
         RootOffset&      cached = m_Roots[static_cast<uint64_t>( root )];
-        if ( cached.Material == now.Material && cached.Invalidation == now.Invalidation &&
+        if ( cached.Resolved && cached.Material == now.Material && cached.Invalidation == now.Invalidation &&
              cached.Values == now.Values && cached.Content == now.Content )
             return cached.OffsetCm;
-        cached = now;
         Graphic::MaterialOverrides overrides;
         if ( now.Material == 0u || !service->ResolveOverrides( material->Data.Material, overrides ) )
-            return 0.0f; // LandscapeECSSystem names the material it could not resolve
+            return 0.0f; // LandscapeECSSystem names it; asked again at the next read
+        cached          = now;
+        cached.Resolved = true;
         // Terrain.shader's own defaults; the mean of a displacement map is the middle of its range.
         float magnitude = 0.0f;
         float centre    = 0.5f;
@@ -139,13 +147,24 @@ namespace Desert::ECS
         return cached.OffsetCm;
     }
 
+    void WaterShoreFieldSource::ResolveRootOffsets( entt::registry& registry )
+    {
+        m_Offsets.clear();
+        for ( const LandscapeTileRef& tile : DrawableLandscapeTiles( registry ).Tiles )
+        {
+            const Common::UUID root( tile.Component->Landscape );
+            if ( !m_Offsets.contains( static_cast<uint64_t>( root ) ) )
+                m_Offsets.emplace( static_cast<uint64_t>( root ), RootOffsetOf( registry, root ) );
+        }
+    }
+
     bool WaterShoreFieldSource::ReadWorld( entt::registry& registry )
     {
         GatherLevels( registry, m_Bodies );
         if ( m_Bodies.empty() )
         {
             m_Field = nullptr;
-            m_Job   = {};
+            m_Job   = nullptr; // its worker finishes into a promise nobody reads
             m_Key   = 0;
             return false;
         }
@@ -157,23 +176,17 @@ namespace Desert::ECS
             key.MixFloat( body.StillLevelCm );
             key.Mix( body.HasShore ? 1u : 0u );
         }
+        ResolveRootOffsets( registry );
         for ( const LandscapeTileRef& tile : DrawableLandscapeTiles( registry ).Tiles )
         {
-            World::Landscape::LandscapeTileData& heights = *tile.Component->Heights;
-            if ( !m_Job.valid() && !heights.DirtyRects( World::Landscape::LandscapeDirtyConsumer::Water ).empty() )
-            {
-                (void)heights.TakeDirtyRects( World::Landscape::LandscapeDirtyConsumer::Water );
-                ++m_Edits;
-            }
-            key.Mix( static_cast<uint64_t>( reinterpret_cast<uintptr_t>( &heights ) ) );
+            key.Mix( tile.Component->Heights->HeightStamp() );
             key.MixFloat( tile.Frame.OriginX );
             key.MixFloat( tile.Frame.OriginZ );
             key.MixFloat( tile.Frame.BaseY );
             key.MixFloat( tile.Frame.SpacingCm );
             key.MixFloat( tile.Frame.ZScale );
-            key.MixFloat( RootOffsetOf( registry, Common::UUID( tile.Component->Landscape ) ) );
+            key.MixFloat( m_Offsets.at( static_cast<uint64_t>( Common::UUID( tile.Component->Landscape ) ) ) );
         }
-        key.Mix( m_Edits );
         m_WorldKey = key.Value();
         return true;
     }
@@ -182,11 +195,12 @@ namespace Desert::ECS
     {
         Input input;
         input.Bodies = m_Bodies;
+        input.Base   = m_Field;
         for ( const LandscapeTileRef& tile : DrawableLandscapeTiles( registry ).Tiles )
         {
             const World::Landscape::LandscapeTileData& heights = *tile.Component->Heights;
             Tile copy{ heights.Samples(), heights.SamplesX(), heights.SamplesZ(), tile.Frame };
-            copy.Frame.BaseY += RootOffsetOf( registry, Common::UUID( tile.Component->Landscape ) );
+            copy.Frame.BaseY += m_Offsets.at( static_cast<uint64_t>( Common::UUID( tile.Component->Landscape ) ) );
             input.Tiles.push_back( std::move( copy ) );
             input.SpacingCm = input.SpacingCm == 0.0f ? tile.Frame.SpacingCm
                                                       : std::min( input.SpacingCm, tile.Frame.SpacingCm );
@@ -194,29 +208,45 @@ namespace Desert::ECS
         return input;
     }
 
+    bool WaterShoreFieldSource::Refresh( entt::registry& registry )
+    {
+        if ( m_Job != nullptr && m_Job->Done.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
+            AdoptDone();
+        if ( !ReadWorld( registry ) )
+            return false;
+        // A refused world keeps its key: it is baked again when it changes, not every step.
+        if ( m_WorldKey == m_Key || m_Job != nullptr )
+            return true;
+        m_Key        = m_WorldKey;
+        m_Job        = std::make_shared<BakeJob>();
+        m_Job->World = CopyInput( registry );
+        // Refused while the job system is going down: the bake stays unclaimed, and UpdateNow may still take it.
+        (void)Common::JobSystem::Get().Submit(
+             [job = m_Job]() noexcept
+             {
+                 if ( !job->Claimed.test_and_set() )
+                     job->Run();
+             } );
+        return true;
+    }
+
     WaterShoreFieldSource::Field WaterShoreFieldSource::Update( entt::registry& registry )
     {
         const std::scoped_lock lock( m_Mutex );
-        if ( m_Job.valid() && m_Job.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
-            Adopt( m_Job.get() );
-        if ( !ReadWorld( registry ) )
-            return nullptr;
-        if ( m_WorldKey != m_Key && !m_Job.valid() )
-        {
-            m_Key = m_WorldKey;
-            m_Job = Common::JobSystem::Get().Async( [input = CopyInput( registry )]() noexcept
-                                                    { return Bake( input ); } );
-        }
-        return m_Field;
+        return Refresh( registry ) ? m_Field : nullptr;
     }
 
     WaterShoreFieldSource::Field WaterShoreFieldSource::UpdateNow( entt::registry& registry )
     {
-        if ( Field field = Update( registry ) )
-            return field;
         const std::scoped_lock lock( m_Mutex );
-        if ( m_Field == nullptr && !m_Bodies.empty() )
-            Adopt( Bake( CopyInput( registry ) ) );
+        if ( !Refresh( registry ) )
+            return nullptr;
+        if ( m_Field == nullptr && m_Job != nullptr )
+        {
+            if ( !m_Job->Claimed.test_and_set() )
+                m_Job->Run();
+            AdoptDone(); // else a worker is inside it; the bake waits for nothing
+        }
         return m_Field;
     }
 } // namespace Desert::ECS

@@ -45,9 +45,10 @@ namespace Desert::Water
         WaterBodyType Type = WaterBodyType::Ocean;
         /// A river's baked flow (null for an ocean): the bank mask the queries clip to and the current they read.
         std::shared_ptr<const RiverFlowField> Flow;
-        /// The CPU mirror of the FFT ocean this body's wave set draws (WATER-RIVERS-FFT pass 7): when it holds a
-        /// read, the queries answer with the surface the GPU drew (FFTSurfaceAt), not with the set's Gerstner
-        /// generator. Null = Gerstner.
+        /// The drawn surface is the FFT ocean (WaterWavesService::SurfaceOf, the renderer's own choice): the queries
+        /// answer with FFTSurface, the cascades the GPU drew, never with the set's Gerstner generator.
+        bool FFT = false;
+        /// The newest read of that ocean; null until one landed, and the answer is then the still plane, not ready.
         std::shared_ptr<const FFTSurfaceSnapshot> FFTSurface;
         /// The fluid's density, kg/m^3, and drag, 1/s (ECS::WaterBodyData::Density / Drag): what a buoyant body's
         /// pontoons in this body are pushed up and held back by (BuoyancySimulation.hpp).
@@ -74,6 +75,9 @@ namespace Desert::Water
         float WaveAttenuation = 0.0f;
         /// The highest the waves can rise here (UE FWaveInfo::MaxHeight).
         float MaxWaveHeight = 0.0f;
+        /// The waves are known. False: the body draws an FFT ocean no read-back of which has landed yet, and the
+        /// surface is the still plane.
+        bool SurfaceReady = true;
         /// How far below the surface the point is; negative above it.
         float ImmersionDepth = 0.0f;
         /// The water's current at the point, cm/s (UE FWaterQueryResult::Velocity): a river's baked flow on the

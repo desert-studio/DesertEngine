@@ -8,7 +8,7 @@
 #include <Common/CameraUB.glslh>
 #include <Common/Velocity.glslh>
 #include <Common/MaterialTransport.glslh>
-#include <Mesh/Surface/WaterMeshTiles.glslh>
+#include <Mesh/Surface/WaterRiver.glslh>
 
 DESERT_SURFACE_VARYINGS( out )
 

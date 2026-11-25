@@ -50,7 +50,6 @@ namespace Desert::Graphic::System
     // What the graph imports for it.
     struct WaterFrameImports
     {
-        RDG::TextureRef Shore;
         RDG::TextureRef River;
         RDG::TextureRef Spectrum; // invalid: no FFT ocean
         RDG::TextureRef FoamHistory;
@@ -75,7 +74,6 @@ namespace Desert::Graphic::System
         // THE FRAME'S WATER (SceneRenderer::FrameWater): the persistent images the renderer imports (null: none),
         // and the passes that advance the waves and the foam to @p timeSeconds, recorded once per graph;
         // RecordedFrame answers the refs they returned for @p graph.
-        [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetShoreField() const         = 0;
         [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetRiverFlow() const          = 0;
         [[nodiscard]] virtual bool                            FrameWavesAreFFT() const      = 0;
         [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFFTInitialSpectrum() const = 0;

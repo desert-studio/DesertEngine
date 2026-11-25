@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <span>
 #include <utility>
 
 namespace Desert::Water
@@ -37,6 +38,7 @@ namespace Desert::Water
             glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
             float     Attenuation = 0.0f;
             float     MaxHeight   = 0.0f;
+            bool      Ready       = true;
         };
 
         void AddShoreWave( Waves& waves, const ShoreWaveParams& params, const WaterShoreSample& at,
@@ -52,55 +54,118 @@ namespace Desert::Water
             waves.Normal = glm::normalize( glm::vec3( -slope.x, 1.0f, -slope.y ) );
         }
 
-        Waves WavesOver( const WaterBodyState& body, const glm::vec2 worldXZ, const float time, const float depth,
-                         const WaterShoreSample& at, const float beachSlope )
+        // The drawn surface's sum at a still particle (WaterSurfaceField.glslh WaterSurfaceAt): the body's one
+        // source - the FFT cascades the GPU read back, or the Gerstner set - each band under the depth's transform.
+        struct Bands
         {
-            Waves           waves;
-            const glm::vec2 plane = worldXZ - glm::vec2( body.Location.x, body.Location.z );
-            if ( body.FFTSurface != nullptr && body.FFTSurface->Spectrum != nullptr )
+            std::array<float, kFFTOceanCascades> Weight{}; // [0] alone for a Gerstner set
+            ShoreWaveParams                      Swell;
+            WaterShoreSample                     Shore;
+            float                                Depth = 0.0f;
+        };
+
+        bool Readable( const std::shared_ptr<const FFTSurfaceSnapshot>& surface )
+        {
+            return surface != nullptr && surface->Spectrum != nullptr &&
+                   surface->Current.Texels.size() == kFFTReadbackTexels;
+        }
+
+        std::span<const GerstnerWave> GerstnerOf( const WaterBodyState& body )
+        {
+            const std::span<const GerstnerWave> set( *body.Waves );
+            return set.first( std::min( set.size(), kMaxDrawnWaves ) );
+        }
+
+        Bands BandsAt( const WaterBodyState& body, const glm::vec2 still, const float planeY,
+                       const WaterShoreField* shore, const float beachSlope )
+        {
+            Bands bands;
+            bands.Shore.GroundCm        = planeY - kOpenSeaDepthCm;
+            bands.Shore.ShoreDistanceCm = kShoreFarCm;
+            if ( shore != nullptr )
+                bands.Shore = SampleWaterShoreField( *shore, still );
+            bands.Depth = planeY - bands.Shore.GroundCm;
+            bands.Swell = body.FFT ? FFTOceanSwell( *body.FFTSurface->Spectrum, beachSlope )
+                                   : GerstnerSwell( GerstnerOf( body ), beachSlope );
+            const float nearShore =
+                 beachSlope > 0.0f
+                      ? ShoreWaveWeight( bands.Swell.SignificantHeight, bands.Depth, bands.Shore.ShoreDistanceCm )
+                      : 0.0f;
+            if ( !body.FFT )
             {
-                const FFTOceanSpectrum& spectrum = *body.FFTSurface->Spectrum;
-                const ShoreWaveParams   swell    = FFTOceanSwell( spectrum, beachSlope );
-                const float nearShore = beachSlope > 0.0f ? ShoreWaveWeight( swell.SignificantHeight, depth,
-                                                                             at.ShoreDistanceCm )
-                                                          : 0.0f;
-                std::array<float, kFFTOceanCascades> bands{};
-                for ( uint32_t c = 0; c < kFFTOceanCascades; ++c )
-                {
-                    const FFTOceanCascade& cascade = spectrum.Cascades[c];
-                    bands[c] =
-                         TransformBand( cascade.SignificantHeight, cascade.PeakOmega, depth, kWaveGravityCm )
-                              .Amplitude *
-                         ( c < kShoreSwellBands ? 1.0f - nearShore : 1.0f );
-                }
-                const std::optional<FFTSurfaceSample> fft =
-                     FFTSurfaceAt( *body.FFTSurface, plane, static_cast<double>( time ), bands );
-                if ( !fft )
-                    return waves;
-                waves.Height      = fft->Height;
-                waves.Normal      = fft->Normal;
-                waves.Attenuation = bands[0];
-                waves.MaxHeight   = spectrum.MaxWaveHeight * bands[0];
-                AddShoreWave( waves, swell, at, depth, worldXZ, time, kWaveGravityCm );
+                bands.Weight[0] = TransformBand( bands.Swell.SignificantHeight, bands.Swell.Omega, bands.Depth,
+                                                 kWaveGravityCm )
+                                       .Amplitude *
+                                  ( 1.0f - nearShore );
+                return bands;
+            }
+            for ( uint32_t c = 0; c < kFFTOceanCascades; ++c )
+            {
+                const FFTOceanCascade& cascade = body.FFTSurface->Spectrum->Cascades[c];
+                bands.Weight[c] =
+                     TransformBand( cascade.SignificantHeight, cascade.PeakOmega, bands.Depth, kWaveGravityCm )
+                          .Amplitude *
+                     ( c < kShoreSwellBands ? 1.0f - nearShore : 1.0f );
+            }
+            return bands;
+        }
+
+        glm::vec3 DisplacementAt( const WaterBodyState& body, const glm::vec2 still, const float time,
+                                  const Bands& bands )
+        {
+            const glm::vec2 plane = still - glm::vec2( body.Location.x, body.Location.z );
+            return body.FFT
+                        ? FFTDisplacementAt( *body.FFTSurface, plane, static_cast<double>( time ), bands.Weight )
+                        : WaveDisplacement( GerstnerOf( body ), plane, time ) * bands.Weight[0];
+        }
+
+        // Half the span the surface's tangents are taken over, cm: the finest detail the source holds.
+        float TangentReachCm( const WaterBodyState& body )
+        {
+            constexpr float kGerstnerReachCm = 5.0f;
+            return body.FFT ? 0.5f * body.FFTSurface->Spectrum->Params.CascadeSizes[kFFTOceanCascades - 1] /
+                                   static_cast<float>( kFFTReadbackSize )
+                            : kGerstnerReachCm;
+        }
+
+        // The steps of the fixed-point search for the still particle: each shrinks the error by the choppiness.
+        constexpr int kStillParticleSteps = 4;
+
+        Waves WavesOver( const WaterBodyState& body, const glm::vec2 worldXZ, const float planeY, const float time,
+                         const WaterShoreField* shore, const float beachSlope )
+        {
+            Waves waves;
+            if ( body.FFT ? !Readable( body.FFTSurface ) : body.Waves == nullptr || body.Waves->empty() )
+            {
+                waves.Ready = !body.FFT; // a flat body is its plane; an FFT sea not read back yet is not known
                 return waves;
             }
-            if ( body.Waves == nullptr || body.Waves->empty() )
-                return waves;
-            const std::span<const GerstnerWave> set( *body.Waves );
-            const ShoreWaveParams               swell = GerstnerSwell( set, beachSlope );
-            const float nearShore = beachSlope > 0.0f ? ShoreWaveWeight( swell.SignificantHeight, depth,
-                                                                         at.ShoreDistanceCm )
-                                                      : 0.0f;
-            waves.Attenuation =
-                 TransformBand( swell.SignificantHeight, swell.Omega, depth, kWaveGravityCm ).Amplitude *
-                 ( 1.0f - nearShore );
-            const WaveHeightSample sample = WaveHeightAt( set, plane, time );
-            waves.Height                  = sample.Height * waves.Attenuation;
-            waves.MaxHeight               = MaxWaveHeight( set ) * waves.Attenuation;
-            const glm::vec3 normal = glm::mix( glm::vec3( 0.0f, 1.0f, 0.0f ), sample.Normal, waves.Attenuation );
-            if ( glm::dot( normal, normal ) > 0.0f )
+            // The particle of still water the waves have moved over the point: its depth, not the point's, is
+            // what the drawn surface bends its bands by.
+            glm::vec2 still = worldXZ;
+            Bands     bands = BandsAt( body, still, planeY, shore, beachSlope );
+            glm::vec3 moved = DisplacementAt( body, still, time, bands );
+            for ( int i = 0; i < kStillParticleSteps; ++i )
+            {
+                still = worldXZ - glm::vec2( moved.x, moved.z );
+                bands = BandsAt( body, still, planeY, shore, beachSlope );
+                moved = DisplacementAt( body, still, time, bands );
+            }
+            waves.Height      = moved.y;
+            waves.Attenuation = bands.Weight[0];
+            waves.MaxHeight   = bands.Weight[0] * ( body.FFT ? body.FFTSurface->Spectrum->MaxWaveHeight
+                                                             : MaxWaveHeight( GerstnerOf( body ) ) );
+            const float e       = TangentReachCm( body );
+            const auto  tangent = [&]( const glm::vec2 d )
+            {
+                return glm::vec3( 2.0f * d.x, 0.0f, 2.0f * d.y ) + DisplacementAt( body, still + d, time, bands ) -
+                       DisplacementAt( body, still - d, time, bands );
+            };
+            const glm::vec3 normal = glm::cross( tangent( { 0.0f, e } ), tangent( { e, 0.0f } ) );
+            // A fold (the Jacobian not positive) has no height-field normal: the plane's stands.
+            if ( normal.y > 0.0f )
                 waves.Normal = glm::normalize( normal );
-            AddShoreWave( waves, swell, at, depth, worldXZ, time, kWaveGravityCm );
+            AddShoreWave( waves, bands.Swell, bands.Shore, bands.Depth, still, time, kWaveGravityCm );
             return waves;
         }
     } // namespace
@@ -170,8 +235,10 @@ namespace Desert::Water
         result.PlaneDepth   = result.PlaneLocation.y - at.GroundCm;
         result.SurfaceDepth = result.PlaneDepth;
 
-        const Waves waves      = WavesOver( body, glm::vec2( point.x, point.z ), time, result.PlaneDepth, at,
-                                            shore != nullptr && body.Type != WaterBodyType::River ? shore->BeachSlope : 0.0f );
+        const Waves waves = WavesOver( body, glm::vec2( point.x, point.z ), result.PlaneLocation.y, time, shore,
+                                       shore != nullptr && body.Type != WaterBodyType::River ? shore->BeachSlope
+                                                                                             : 0.0f );
+        result.SurfaceReady    = waves.Ready;
         result.WaveAttenuation = waves.Attenuation;
         result.MaxWaveHeight   = waves.MaxHeight;
         result.WaveHeight      = waves.Height;
@@ -195,7 +262,7 @@ namespace Desert::Water
     {
         // The drawn surface's rule first: of the bodies covering the point only the highest WaterBodyPriority is
         // there (a river inside its banks is drawn over the ocean, the ocean under a river's cut leaf is clipped
-        // to the banks' far side - WaterQuadTree::Classify, WaterMeshTiles.glslh WaterBankClipped - so inside
+        // to the banks' far side - WaterQuadTree::Classify, WaterRiver.glslh WaterBankClipped - so inside
         // the banks the river answers, outside them the ocean). Of several of that priority, the one the point is
         // deepest in (UE BuoyancyComponentSimulation.h:199-231). A point above a river inside its banks is NOT in
         // the ocean below: the ocean is not drawn there.

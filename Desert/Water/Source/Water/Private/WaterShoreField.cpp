@@ -4,8 +4,10 @@
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
+#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -120,6 +122,44 @@ namespace Desert::Water
             std::vector<int32_t> m_Nearest;
         };
 
+        float RelativeClamp( const float heightCm, const float referenceCm )
+        {
+            return std::clamp( heightCm, referenceCm - kShoreMaxRelativeCm, referenceCm + kShoreMaxRelativeCm );
+        }
+
+        void Grow( WaterShoreField::Rect& rect, const uint32_t x, const uint32_t z )
+        {
+            if ( rect.Empty() )
+                rect = { x, z, x + 1u, z + 1u };
+            else
+                rect = { std::min( rect.X0, x ), std::min( rect.Z0, z ), std::max( rect.X1, x + 1u ),
+                         std::max( rect.Z1, z + 1u ) };
+        }
+
+        // The GPU's texels, the bake's number and what differs from the field it replaces.
+        void Finish( WaterShoreField& field, const WaterShoreField* base )
+        {
+            static std::atomic<uint64_t> s_Last{ 0u };
+            field.Revision = s_Last.fetch_add( 1u, std::memory_order_relaxed ) + 1u;
+            field.Packed.reserve( field.Texels.size() );
+            for ( const WaterShoreField::Texel& texel : field.Texels )
+                field.Packed.push_back( PackShoreTexel( texel, field.ReferenceLevelCm ) );
+            if ( base == nullptr || base->Width != field.Width || base->Height != field.Height ||
+                 base->MinCm != field.MinCm || base->TexelCm != field.TexelCm ||
+                 base->ReferenceLevelCm != field.ReferenceLevelCm )
+                return;
+            field.BaseRevision = base->Revision;
+            for ( uint32_t z = 0; z < field.Height; ++z )
+                for ( uint32_t x = 0; x < field.Width; ++x )
+                {
+                    const std::size_t i = static_cast<std::size_t>( z ) * field.Width + x;
+                    if ( field.Packed[i] != base->Packed[i] )
+                        Grow( field.Changed, x, z );
+                    if ( field.Texels[i].GroundCm != base->Texels[i].GroundCm )
+                        Grow( field.ChangedGround, x, z );
+                }
+        }
+
         struct Bounds
         {
             glm::vec2 Min{ std::numeric_limits<float>::max() };
@@ -187,8 +227,17 @@ namespace Desert::Water
                         }
                     }
             }
+            // A height the texture cannot hold is the farthest one it can (a 650 m cliff is no water's floor).
+            const auto clampGround = [&field]
+            {
+                for ( WaterShoreField::Texel& texel : field.Texels )
+                    texel.GroundCm = RelativeClamp( texel.GroundCm, field.ReferenceLevelCm );
+            };
             if ( std::find( covered.begin(), covered.end(), uint8_t( 0u ) ) == covered.end() )
+            {
+                clampGround();
                 return;
+            }
             // A gap between tiles is the skirt of the nearest landscape, as outside the whole field.
             DistanceTransform nearest( field.Width, field.Height );
             nearest.Run( [&]( const std::size_t i ) { return covered[i] != 0u; } );
@@ -205,6 +254,7 @@ namespace Desert::Water
                      std::max( edge - kShoreSkirtSlope * nearest.DistanceTexels( i ) * field.TexelCm,
                                std::min( edge, field.OpenSeaFloorCm ) );
             }
+            clampGround();
         }
 
         void BakeShore( WaterShoreField& field, const std::span<const WaterBodyLevel> bodies )
@@ -261,7 +311,8 @@ namespace Desert::Water
 
     Common::ResultStr<std::shared_ptr<const WaterShoreField>>
     BakeWaterShoreField( const std::span<const World::Landscape::LandscapeRayTile> ground,
-                         const std::span<const WaterBodyLevel> bodies, const float spacingCm )
+                         const std::span<const WaterBodyLevel> bodies, const float spacingCm,
+                         const WaterShoreField* const base )
     {
         using Field = std::shared_ptr<const WaterShoreField>;
         if ( bodies.empty() )
@@ -292,7 +343,7 @@ namespace Desert::Water
                 field->ReferenceLevelCm = body.StillLevelCm;
             }
         }
-        field->OpenSeaFloorCm = lowest - kOpenSeaDepthCm;
+        field->OpenSeaFloorCm = RelativeClamp( lowest - kOpenSeaDepthCm, field->ReferenceLevelCm );
 
         Bounds landscape;
         for ( const World::Landscape::LandscapeRayTile& tile : ground )
@@ -310,6 +361,7 @@ namespace Desert::Water
             field->Width   = 1u;
             field->Height  = 1u;
             field->Texels.push_back( { field->OpenSeaFloorCm, kShoreFarCm, 0.0f, 0.0f } );
+            Finish( *field, base );
             return Common::MakeSuccess( Field( std::move( field ) ) );
         }
         const glm::vec2 extent = hi - lo;
@@ -325,7 +377,14 @@ namespace Desert::Water
         field->Texels.resize( static_cast<std::size_t>( field->Width ) * field->Height );
         BakeGround( *field, ground );
         BakeShore( *field, bodies );
+        Finish( *field, base );
         return Common::MakeSuccess( Field( std::move( field ) ) );
+    }
+
+    uint64_t PackShoreTexel( const WaterShoreField::Texel& texel, const float referenceLevelCm ) noexcept
+    {
+        return glm::packHalf4x16( glm::vec4( texel.GroundCm - referenceLevelCm, texel.ShoreDistanceCm,
+                                             texel.ShoreDirX, texel.ShoreDirZ ) );
     }
 
     WaterShoreSample SampleWaterShoreField( const WaterShoreField& field, const glm::vec2 worldXZ ) noexcept

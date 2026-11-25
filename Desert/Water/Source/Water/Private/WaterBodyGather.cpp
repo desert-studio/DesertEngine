@@ -4,6 +4,8 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 
+#include <utility>
+
 namespace Desert::ECS
 {
     namespace
@@ -99,7 +101,11 @@ namespace Desert::ECS
                     continue;
                 body.Waves = waves.GetValue();
                 if ( surfaces )
-                    body.FFTSurface = surfaces( data.WaterWaves );
+                {
+                    Water::WaterSurfaceSource surface = surfaces( data.WaterWaves );
+                    body.FFT                          = surface.FFT;
+                    body.FFTSurface                   = std::move( surface.Read );
+                }
             }
             m_Bodies.push_back( std::move( body ) );
         }

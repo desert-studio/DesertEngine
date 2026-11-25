@@ -2,7 +2,7 @@
 #define DESERT_WATER_FALL_SHEET_GLSLH
 
 // A RIVER'S FALL (Water::RiverFall): a sheet that thins as it speeds up, tears into strands and whitens with them.
-// Included after Mesh/Surface/WaterMeshTiles.glslh (WaterFlowCoord, WaterFlowPhases, the tile's Medium.zw speeds).
+// Included after Mesh/Surface/WaterRiver.glslh (WaterFlowCoord, WaterFlowPhases, the tile's Medium.zw speeds).
 struct WaterFallSheet
 {
     vec3  Normal;      // in the sheet's own frame

@@ -90,7 +90,7 @@ Shader "WaterSurface"
         {
             SurfaceOutput s = DefaultSurfaceOutput();
 #ifdef WATER_MAX_WAVES
-            // A river's surface flows along its spline (WaterMeshTiles.glslh WaterFlowPhases: two copies advected
+            // A river's surface flows along its spline (WaterRiver.glslh WaterFlowPhases: two copies advected
             // half a period apart, each faded out as it resets); still water reads one copy.
             vec2  p0, p1;
             float w1;

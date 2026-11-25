@@ -22,6 +22,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -68,7 +69,7 @@ namespace Desert::Graphic::System
         // PrepareFrame took, its tiles appended to the upload as rows and grouped into the frame's draws. Touches
         // only the zone trees, the traversal scratch, the upload's rows and the draws - no service, no GPU object.
         void PrepareTiles() noexcept override;
-        // FinishPrepare (render thread, after the task joined): the material's fold, the shore's image and the
+        // FinishPrepare (render thread, after the task joined): the material's fold, the rivers' image and the
         // rows' upload; the frame's program is set only here.
         void FinishPrepare() override;
 
@@ -83,11 +84,7 @@ namespace Desert::Graphic::System
         // screen shadow mask could serve it from.
         [[nodiscard]] bool FrameSamples( std::string_view textureName ) const override;
 
-        // The frame's images FinishPrepare keeps: the shore field (Water/WaterDepthField.glslh) and the rivers.
-        [[nodiscard]] const std::shared_ptr<Image2D>& GetShoreField() const override
-        {
-            return m_ShoreImage;
-        }
+        // The frame's rivers (FinishPrepare keeps the image).
         [[nodiscard]] const std::shared_ptr<Image2D>& GetRiverFlow() const override
         {
             return m_RiverImage;
@@ -385,9 +382,14 @@ namespace Desert::Graphic::System
         };
         std::vector<ResolvedProgram> m_Resolved;
 
-        // The shore field uploaded last (WaterZoneDraw::Shore) and its image.
-        std::shared_ptr<const Water::WaterShoreField> m_ShoreBaked;
-        std::shared_ptr<Image2D>                      m_ShoreImage;
+        // THE SHORE FIELD'S MAP (WaterShoreUpload.cpp): the pooled texture, and the revision of the bake it holds,
+        // written by the upload that completed (0: none).
+        [[nodiscard]] RDG::TextureRef          AddShorePass( RDG::Builder& graph );
+        std::shared_ptr<ComputePipeline>       m_ShoreUpload;
+        ShaderBindingLayoutCache               m_ShoreUploadLayout;
+        bool                                   m_ShoreUploadTried = false;
+        RDG::ExternalTexture                   m_ShoreImage;
+        std::shared_ptr<std::atomic<uint64_t>> m_ShoreHolds;
         // The rivers whose flow the river image carries (TileWalk::Flows when it was composed), and the image.
         std::vector<std::shared_ptr<const Water::RiverFlowField>> m_FlowsBaked;
         std::shared_ptr<Image2D>                                  m_RiverImage;
@@ -411,25 +413,35 @@ namespace Desert::Graphic::System
         std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTFrame;
         std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTUploaded;
         std::shared_ptr<Image2D>                       m_FFTInitial;
-        // The waves' array (Water/WaterFFT.glslh), whether it holds a frame of the uploaded sea, and its time.
-        RDG::ExternalTexture m_WavesImage;
-        bool                 m_WavesHold = false;
-        float                m_WavesTime = 0.0f;
+        // The waves' array (Water/WaterFFT.glslh), and 1 + the frame whose graph completed it last with the uploaded
+        // sea (0: none); made with the sea.
+        RDG::ExternalTexture                   m_WavesImage;
+        std::shared_ptr<std::atomic<uint64_t>> m_WavesHold;
 
         // THE FOAM (WaterFoamSimulation.cpp). The frame's parameters, set by PrepareFoam when the foam runs.
+        // One body's foam (Programs/Water/WaterFoamUpdate.shader WaterFoamBody, std430): each texel of the map
+        // follows the body whose footprint holds it.
+        struct FoamBody
+        {
+            glm::vec4 Footprint{ 0.0f }; // min X, min Z, max X, max Z
+            glm::vec4 Level{ 0.0f };     // x = still Y, y = its wave set (-1: none), z = 1 a river, w = its beach's slope
+            glm::vec4 Source{ 0.0f };    // x = jacobian threshold, y = softness, z = whitecap gain
+            glm::vec4 Decay{ 0.0f };     // x = foam, y = bubbles, z = wetness (s)
+            glm::vec4 Drift{ 0.0f };     // xy = the wind's surface drift (cm/s)
+        };
         struct FoamFrame
         {
-            Water::WaterFoamParams Params;
             std::array<glm::ivec2, Water::kFoamLevels> Origin{};
-            float                  StillY     = 0.0f;
-            float                  BeachSlope = 0.0f;
-            int32_t                WaveSet    = -1;
-            glm::vec2              Wind{ 0.0f }; // cm/s
+            std::vector<FoamBody>                      Bodies;
         };
-        // Places the windows around @p eye, reads @p material's foam values and writes the waves block's foam lanes.
-        void PrepareFoam( const Assets::AssetHandle& material, const MaterialStamp& stamp, const glm::vec3& eye,
-                          int32_t waveSet, const std::shared_ptr<const Water::WaterShoreField>& shore,
+        // Places the windows around @p eye, reads every body's foam values and writes the waves block's foam lanes.
+        // @p fftSet: the wave set the FFT ocean draws (its wind drifts the foam), -1 none.
+        void PrepareFoam( const MaterialStamp& stamp, const glm::vec3& eye, int32_t fftSet,
+                          const std::shared_ptr<const Water::WaterShoreField>& shore,
                           std::array<glm::vec4, 3>& origin, glm::vec4& shape );
+        // The foam values of @p material, read again only when the stamp moved.
+        [[nodiscard]] Water::WaterFoamParams FoamParamsOf( const Assets::AssetHandle& material,
+                                                           const MaterialStamp&       stamp );
         [[nodiscard]] bool EnsureFoam( uint32_t side );
         [[nodiscard]] RDG::TextureRef AddFoamPass( RDG::Builder& graph, const WaterFrameRefs& water,
                                                    const WaterFrameImports& imports, float timeSeconds );
@@ -438,23 +450,22 @@ namespace Desert::Graphic::System
         std::array<std::shared_ptr<Image2D>, 2>  m_Foam;
         uint32_t                                 m_FoamWritten = 0;
         uint32_t                                 m_FoamSide    = 0;
-        Assets::FrameRetireQueue<std::shared_ptr<Image2D>> m_RetiredFoam;
+        // An image replaced while frames in flight still read it.
+        void RetireImage( std::shared_ptr<Image2D> image );
+        Assets::FrameRetireQueue<std::shared_ptr<Image2D>> m_RetiredImages;
         std::shared_ptr<GraphicsPipeline>        m_FoamPipeline;
         ShaderBindingLayoutCache                 m_FoamLayout;
         // What this frame's pass wrote: the history from the next PrepareFoam on.
         std::optional<std::array<glm::ivec2, Water::kFoamLevels>> m_FoamRecorded;
         float                                    m_FoamRecordedTime = 0.0f;
         float                                    m_FoamTime         = 0.0f; // the history's
-        std::shared_ptr<const Water::WaterShoreField> m_FoamShore;          // the floor it lies on
+        uint64_t                                 m_FoamShore        = 0;    // the floor it lies on: its revision
+        // The rectangle of the world (min X, min Z, max X, max Z) whose floor moved under the history.
+        std::optional<glm::vec4>                 m_FoamChanged;
         bool                                     m_FoamTried = false;
-        // The foam values of the material read last, re-read only when it or the stamp moved.
-        struct FoamMaterial
-        {
-            uint64_t      Material = 0;
-            MaterialStamp Stamp;
-            Water::WaterFoamParams Params;
-        };
-        FoamMaterial m_FoamMaterial;
+        // The foam values of the materials read since the stamp moved.
+        MaterialStamp                                        m_FoamStamp;
+        std::unordered_map<uint64_t, Water::WaterFoamParams> m_FoamMaterials;
         // THE CPU MIRROR's read-back (WATER-RIVERS-FFT pass 7; Water::FFTSurfaceMirror): one host-readable buffer
         // per frame in flight the finalize pass fills with every kFFTReadbackStride-th displacement texel, read
         // when its slot comes round again (the frame start waited that slot's fence: no GPU wait), with the wave
@@ -463,7 +474,8 @@ namespace Desert::Graphic::System
         {
             RDG::ExternalBuffer                            Buffer;
             std::shared_ptr<const Water::FFTOceanSpectrum> Spectrum; // null: nothing extracted into this slot
-            double                                         Time = 0.0;
+            double                                         Time  = 0.0;
+            uint64_t                                       Frame = 0; // the frame whose graph extracted into it
         };
         std::vector<FFTReadbackSlot> m_FFTReadback;
         // Reads the slot this frame reuses and publishes it (AddWavePasses, before the slot is extracted into).
@@ -578,5 +590,11 @@ namespace Desert::Graphic::System
         std::vector<glm::vec4>                m_Rows;        // material rows of every body material, one upload
         std::vector<Water::WaterQuadTreeBody> m_FrameBodies; // every body drawn this frame (GetFrameBodies)
         std::vector<float>                    m_FrameBodyWaveLanes; // its wave lane (GetFrameBodyWaveLanes)
+        struct FrameBodyLook
+        {
+            Assets::AssetHandle Material;
+            bool                River = false;
+        };
+        std::vector<FrameBodyLook> m_FrameBodyLooks; // parallel to m_FrameBodies
     };
 } // namespace Desert::Graphic::System

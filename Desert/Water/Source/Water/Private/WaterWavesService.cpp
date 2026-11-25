@@ -7,6 +7,7 @@
 #include <Water/Public/FFTOceanSpectrum.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include <glm/geometric.hpp>
 #include <glm/trigonometric.hpp>
@@ -199,8 +200,29 @@ namespace Desert::Runtime
         return Common::MakeSuccess( built );
     }
 
+    void WaterWavesService::SetDrawnFFT( const Assets::AssetHandle& handle ) noexcept
+    {
+        m_DrawnFFT.store( static_cast<uint64_t>( handle ), std::memory_order_release );
+    }
+
+    Water::WaterSurfaceSource WaterWavesService::SurfaceOf( const Assets::AssetHandle& handle )
+    {
+        if ( Common::Scalability::QualityState::Resolved().As<Common::Scalability::WaterWaveMethod>(
+                  Common::Scalability::Parameter::EffectsWaterWaveMethod ) !=
+             Common::Scalability::WaterWaveMethod::FFT )
+            return {};
+        const uint64_t drawn = m_DrawnFFT.load( std::memory_order_acquire );
+        if ( drawn != 0 && drawn != static_cast<uint64_t>( handle ) )
+            return {};
+        const Common::ResultStr<Spectrum> spectrum = GetSpectrum( handle );
+        if ( !spectrum || spectrum.GetValue() == nullptr )
+            return {};
+        return { .FFT = true, .Read = m_Surfaces.Latest( spectrum.GetValue().get() ) };
+    }
+
     void WaterWavesService::Clear()
     {
+        m_DrawnFFT.store( 0, std::memory_order_release );
         m_Requests.clear();
         m_Generators.clear();
         m_Ready.clear();

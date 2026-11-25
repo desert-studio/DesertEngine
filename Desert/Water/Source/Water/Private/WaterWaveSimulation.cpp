@@ -9,6 +9,7 @@
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Water/Public/FFTSurfaceMirror.hpp>
 #include <Water/Public/WaterWavesService.hpp>
 #include <Common/Settings/Scalability.hpp>
@@ -181,9 +182,11 @@ namespace Desert::Graphic::System
                  .MipLevels  = {},
             };
             initial.Data = std::move( bytes );
-            m_FFTInitial = Image2D::Create( initial );
+            RetireImage( std::move( m_FFTInitial ) );
+            m_FFTInitial  = Image2D::Create( initial );
             m_FFTUploaded = spectrum;
-            m_WavesHold   = false; // the array holds another sea: this frame is its own previous one
+            // The array holds another sea: this frame is its own previous one.
+            m_WavesHold = std::make_shared<std::atomic<uint64_t>>( 0 );
         }
         if ( m_FFTInitial == nullptr )
             return false;
@@ -208,7 +211,7 @@ namespace Desert::Graphic::System
         else
             WarnOnce( Assets::AssetHandle::Null(), WaterWarning::FFTReadbackUnreadable,
                       std::format( "[Water] the FFT read-back is not host-readable ({} bytes): what floats rides "
-                                   "the Gerstner waves",
+                                   "the still plane",
                                    bytes.size() ) );
         read.Buffer.Physical.reset();
         if ( !surface.Texels.empty() )
@@ -252,8 +255,10 @@ namespace Desert::Graphic::System
     {
         if ( const WaterFrameRefs recorded = RecordedFrame( graph ); recorded.IsValid() )
             return recorded;
+        if ( m_Walk.Programs.empty() )
+            return {};
         WaterFrameRefs refs;
-        refs.Shore = imports.Shore;
+        refs.Shore = AddShorePass( graph );
         refs.River = imports.River;
         refs.Waves = FrameWavesAreFFT() && imports.Spectrum.IsValid()
                           ? AddWavePasses( graph, imports.Spectrum, timeSeconds )
@@ -270,9 +275,16 @@ namespace Desert::Graphic::System
                                                   const float timeSeconds )
     {
         const auto& sizes = m_FFTFrame->Params.CascadeSizes;
-        // What the array holds: nothing of this sea, the previous frame, or this very time (a second view's graph
-        // rewrites the same waves and keeps the same previous frame).
-        const float holds = !m_WavesHold ? 0.0f : ( m_WavesTime == timeSeconds ? 2.0f : 1.0f );
+        // What the array holds, by the frame whose graph completed it last: this frame (a second view's graph
+        // rewrites the same waves and keeps the same previous frame), the one before it, or nothing this frame
+        // may call its previous one (a gap, a faulted graph, another sea).
+        const uint64_t frame     = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t completed = m_WavesHold->load( std::memory_order_acquire ); // frame + 1; 0: none
+        float          holds     = 0.0f;
+        if ( completed == frame + 1 )
+            holds = 2.0f;
+        else if ( completed != 0 && completed == frame )
+            holds = 1.0f;
         const RDG::TextureRef waves =
              m_WavesImage.Physical
                   ? graph.RegisterExternal( m_WavesImage, "Water.Waves" )
@@ -354,7 +366,9 @@ namespace Desert::Graphic::System
         const uint32_t slots = EngineContext::GetInstance().GetMaxFramesInFlight();
         if ( m_FFTReadback.size() != slots )
             m_FFTReadback.assign( slots, FFTReadbackSlot{} );
-        const bool readback = slot < slots;
+        // A second view's graph of one frame leaves the slot to the first: its read-back is of this very frame.
+        const bool readback = slot < slots && !( m_FFTReadback[slot].Spectrum != nullptr &&
+                                                 m_FFTReadback[slot].Frame == frame );
         if ( readback )
             PublishFFTReadback( slot );
         const RDG::BufferRef readbackBuffer = graph.CreateBuffer(
@@ -372,11 +386,14 @@ namespace Desert::Graphic::System
                       .Storage( P::WaterFFTParamsBuffer, rowsBuffer, RDG::Access::StorageRead )
                       .Storage( P::WaterFFTReadbackBuffer, readbackBuffer, RDG::Access::StorageWrite );
              },
-             [pipeline = m_FFTFinalize]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [pipeline = m_FFTFinalize, hold = m_WavesHold, frame]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, kFFTGroups8, kFFTGroups8,
-                                                                 Water::kFFTOceanCascades );
+                 Common::BoolResultStr   done = Renderer::GetInstance().DispatchCompute(
+                      bindings, *pipeline, kFFTGroups8, kFFTGroups8, Water::kFFTOceanCascades );
+                 if ( done )
+                     hold->store( frame + 1, std::memory_order_release );
+                 return done;
              } );
         // The mips: a distant pixel reads the mean of the waves under it, and their moments say what it lost.
         for ( uint32_t mip = 0; mip + 1 < kWavesMips; ++mip )
@@ -402,11 +419,10 @@ namespace Desert::Graphic::System
             graph.Extract( readbackBuffer, m_FFTReadback[slot].Buffer, RDG::Access::HostRead );
             m_FFTReadback[slot].Spectrum = m_FFTFrame;
             m_FFTReadback[slot].Time     = static_cast<double>( timeSeconds );
+            m_FFTReadback[slot].Frame    = frame;
         }
         graph.Extract( waves, m_WavesImage, RDG::Access::SampledGraphics,
                        { RDG::Access::StorageRead, RDG::Access::StorageWrite, RDG::Access::SampledCompute } );
-        m_WavesHold = true;
-        m_WavesTime = timeSeconds;
         return waves;
     }
 } // namespace Desert::Graphic::System

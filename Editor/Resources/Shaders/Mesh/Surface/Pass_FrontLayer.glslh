@@ -17,7 +17,7 @@
 #include <Mesh/Surface/WaterInterface.glslh>
 // The bank clip and the FFT pixel frame the fragment below shares with Pass_SingleLayerWater (the vertex stage's
 // include of this header does not reach the fragment stage).
-#include <Mesh/Surface/WaterMeshTiles.glslh>
+#include <Mesh/Surface/WaterRiver.glslh>
 #endif
 
 DESERT_SURFACE_VARYINGS( in )

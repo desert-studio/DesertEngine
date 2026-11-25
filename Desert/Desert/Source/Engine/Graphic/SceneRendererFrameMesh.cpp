@@ -1196,7 +1196,6 @@ namespace Desert::Graphic
         const auto imported = [&]( const std::shared_ptr<Image2D>& image, const char* name, const RDG::Access access )
         { return image != nullptr ? textures.Import( image, name, access ) : RDG::TextureRef{}; };
         System::WaterFrameImports imports;
-        imports.Shore = imported( water->GetShoreField(), "Water.Shore", RDG::Access::SampledGraphics );
         imports.River = imported( water->GetRiverFlow(), "Water.River", RDG::Access::SampledGraphics );
         if ( water->FrameWavesAreFFT() )
             imports.Spectrum = imported( water->GetFFTInitialSpectrum(), "Water.H0", RDG::Access::SampledCompute );

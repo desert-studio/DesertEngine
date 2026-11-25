@@ -8,7 +8,7 @@ Shader "WaterFoamUpdate"
         // A texel the windows did not hold starts from the stationary state of its sources, never from nothing.
         #define DESERT_LINEAR_REPEAT_SAMPLER
         Uniform sampler LinearRepeatSampler;
-        #include <Mesh/Surface/WaterMeshTiles.glslh>
+        #include <Mesh/Surface/WaterRiver.glslh>
 
         In(0) vec2 v_TexCoord;
         Out(0) vec4 o_Foam;
@@ -16,12 +16,24 @@ Shader "WaterFoamUpdate"
         Uniform(0) WaterFoamUB
         {
             vec4 FoamPrevious[3]; // xy = the history's window origins
-            vec4 FoamTime;        // x = the time (s), y = since the history (s), z = 1 with a history, w = still Y
-            vec4 FoamSource;      // x = jacobian threshold, y = softness, z = gain, w = the wave set (-1: none)
-            vec4 FoamDecay;       // x = foam, y = bubbles, z = wetness (s), w = the beach's slope
-            vec4 FoamWind;        // xy = the surface drift (cm/s)
+            vec4 FoamTime;        // x = the time (s), y = since the history (s), z = 1 with a history, w = the bodies
+            vec4 FoamChanged;     // the world rectangle the history does not stand in (min, max); min > max: none
         };
         Uniform(1) texture2D FoamHistoryTexture;
+
+        // One body of the frame (System::WaterRenderer::FoamBody).
+        struct WaterFoamBody
+        {
+            vec4 Footprint; // min X, min Z, max X, max Z
+            vec4 Level;     // x = still Y, y = its wave set (-1: none), z = 1 a river, w = its beach's slope
+            vec4 Source;    // x = jacobian threshold, y = softness, z = gain
+            vec4 Decay;     // x = foam, y = bubbles, z = wetness (s)
+            vec4 Drift;     // xy = the wind's surface drift (cm/s)
+        };
+        layout( std430, binding = 2 ) readonly buffer WaterFoamBodies
+        {
+            WaterFoamBody FoamBodies[];
+        };
 
         #define WATER_FOAM_FETCH( t ) texelFetch( FoamHistoryTexture, t, 0 )
         #define WATER_FOAM_ORIGIN( l ) vec3( FoamPrevious[l].xy, WaterFoamOrigin[l].z )
@@ -32,6 +44,22 @@ Shader "WaterFoamUpdate"
         float SpeedFoam( float speed )
         {
             return smoothstep( 200.0, 500.0, speed );
+        }
+
+        // The body a texel belongs to: a river's inside its banks, else the highest still level whose footprint
+        // holds it (the shore field's own rule, WaterShoreField.cpp LevelAt); -1: none.
+        int FoamBodyAt( vec2 world, float river )
+        {
+            int found = -1;
+            for ( int b = 0; b < int( FoamTime.w + 0.5 ); ++b )
+            {
+                const WaterFoamBody body = FoamBodies[b];
+                if ( body.Level.z != river || any( lessThan( world, body.Footprint.xy ) ) || any( greaterThan( world, body.Footprint.zw ) ) )
+                    continue;
+                if ( found < 0 || body.Level.x > FoamBodies[found].Level.x )
+                    found = b;
+            }
+            return found;
         }
 
         void main()
@@ -45,21 +73,31 @@ Shader "WaterFoamUpdate"
             const float texel = 1.0 / WaterFoamOrigin[level].z;
             const vec2  world = ( vec2( ij ) + 0.5 ) * texel;
 
-            float river;
-            const bool  onRiver = WaterRiverLevel( world, river );
+            float riverY;
+            bool  onRiver = WaterRiverLevel( world, riverY );
+            int   owner   = onRiver ? FoamBodyAt( world, 1.0 ) : -1;
+            onRiver       = owner >= 0;
+            if ( !onRiver )
+                owner = FoamBodyAt( world, 0.0 );
+            if ( owner < 0 )
+            {
+                o_Foam = vec4( 0.0, 0.0, 0.0, 0.5 ); // no water stands here
+                return;
+            }
+            const WaterFoamBody body = FoamBodies[owner];
             const vec3  flow    = onRiver ? WaterFlowAt( world ) : vec3( 0.0 );
-            const float stillY  = onRiver ? river : FoamTime.w;
-            const int   set     = onRiver ? -1 : int( floor( FoamSource.w + 0.5 ) );
+            const float stillY  = onRiver ? riverY : body.Level.x;
+            const int   set     = int( floor( body.Level.y + 0.5 ) );
             const float time    = FoamTime.x;
             const float dt      = FoamTime.y;
-            const float slope   = onRiver ? 0.0 : FoamDecay.w;
+            const float slope   = body.Level.w;
             const WaterSurface s = WaterSurfaceAt( set, world, stillY, time, time, texel, slope );
             const vec4  swell    = set >= 0 ? WaterWaveSets[set].Swell : vec4( 0.0 );
 
             // What breaks here now. A coarse texel holds crests it does not resolve: its mean is softer, and lower.
             float cover = 0.0;
             if ( set >= 0 && s.Depth > 0.0 )
-                cover = FoamSource.z * smoothstep( 0.0, FoamSource.y, FoamSource.x - s.Jacobian );
+                cover = body.Source.z * smoothstep( 0.0, body.Source.y, body.Source.x - s.Jacobian );
             cover = max( cover, s.Front );
             cover = max( cover, SpeedFoam( length( flow.xy ) ) );
             if ( onRiver )
@@ -77,17 +115,18 @@ Shader "WaterFoamUpdate"
             // The current that carries the foam: the wind's drift, the river, the breaking front's bore.
             const WaterShoreSample shore = WaterShoreAt( world );
             const vec2 bore     = s.Front * sqrt( GERSTNER_GRAVITY * max( s.Depth, 10.0 ) ) * shore.ShoreDirection;
-            const vec2 velocity = ( onRiver ? flow.xy : FoamWind.xy ) + bore;
+            const vec2 velocity = ( onRiver ? flow.xy : body.Drift.xy ) + bore;
             const vec2 from     = world - velocity * dt;
             const vec2 at       = from * WaterFoamOrigin[level].z - FoamPrevious[level].xy;
-            if ( FoamTime.z > 0.5 && all( greaterThanEqual( at, vec2( 0.5 ) ) ) && all( lessThanEqual( at, vec2( float( side ) - 0.5 ) ) ) )
+            const bool  moved = all( greaterThanEqual( world, FoamChanged.xy ) ) && all( lessThanEqual( world, FoamChanged.zw ) );
+            if ( FoamTime.z > 0.5 && !moved && all( greaterThanEqual( at, vec2( 0.5 ) ) ) && all( lessThanEqual( at, vec2( float( side ) - 0.5 ) ) ) )
             {
                 const vec4 held = WaterFoamLevel( level, from );
-                foam.r = max( held.r * exp( -dt / FoamDecay.x ), cover );
-                foam.g = max( held.g * exp( -dt / FoamDecay.y ), 0.8 * cover );
+                foam.r = max( held.r * exp( -dt / body.Decay.x ), cover );
+                foam.g = max( held.g * exp( -dt / body.Decay.y ), 0.8 * cover );
                 // Wet sand dries where it is; nothing carries it.
-                foam.b = max( WaterFoamLevel( level, world ).b * exp( -dt / FoamDecay.z ), wetNow );
-                foam.a = cover >= held.r ? 0.0 : min( held.a + dt / FoamDecay.x, 1.0 );
+                foam.b = max( WaterFoamLevel( level, world ).b * exp( -dt / body.Decay.z ), wetNow );
+                foam.a = cover >= held.r ? 0.0 : min( held.a + dt / body.Decay.x, 1.0 );
             }
             // Eight bits stall a slow decay: a step is kept in the mean by one dithered count.
             const float noise = fract( 52.9829189 * fract( dot( gl_FragCoord.xy + 5.588238 * fract( time * 7.0 ) * 64.0, vec2( 0.06711056, 0.00583715 ) ) ) );

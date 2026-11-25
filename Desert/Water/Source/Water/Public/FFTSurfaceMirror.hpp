@@ -20,7 +20,6 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <vector>
 
 namespace Desert::Water
@@ -52,20 +51,18 @@ namespace Desert::Water
         FFTSurfaceRead                          Current;
     };
 
-    struct FFTSurfaceSample
-    {
-        float     Height = 0.0f;              // above the still plane, cm
-        glm::vec3 Normal{ 0.0f, 1.0f, 0.0f }; // unit
-    };
-
-    /// The FFT surface over the plane point @p plane (relative to the body's WaveOrigin, cm) at wave time @p time:
-    /// the choppy displacement inverted (the still point whose displaced position is @p plane, a fixed-point
-    /// iteration), the cascades summed, the normal from the displaced surface's central differences. Nullopt when
-    /// the snapshot holds no read.
+    /// The summed cascades' displacement of the still particle at @p plane (relative to the body's WaveOrigin, cm) at
+    /// wave time @p time, cm. @p snapshot holds a whole Current read.
     /// @p bandWeights scales each cascade: the depth's transform of its band there (the drawn surface's weights).
-    [[nodiscard]] std::optional<FFTSurfaceSample>
-    FFTSurfaceAt( const FFTSurfaceSnapshot& snapshot, glm::vec2 plane, double time,
-                  const std::array<float, kFFTOceanCascades>& bandWeights ) noexcept;
+    [[nodiscard]] glm::vec3 FFTDisplacementAt( const FFTSurfaceSnapshot& snapshot, glm::vec2 plane, double time,
+                                               const std::array<float, kFFTOceanCascades>& bandWeights ) noexcept;
+
+    /// What a wave set's bodies are drawn with: FFT, and the newest read of it (null before the first).
+    struct WaterSurfaceSource
+    {
+        bool                                      FFT = false;
+        std::shared_ptr<const FFTSurfaceSnapshot> Read;
+    };
 
     /// The renderer-to-physics hand-over: the newest snapshot of the frame's FFT ocean. Publish adopts @p read as
     /// the newest read of @p spectrum's ocean (the previous newest becomes Previous; another spectrum starts

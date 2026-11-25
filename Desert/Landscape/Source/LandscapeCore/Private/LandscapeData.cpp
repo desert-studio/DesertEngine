@@ -12,6 +12,7 @@
 #include <glm/vec4.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -136,20 +137,26 @@ namespace Desert::World::Landscape
         }
         constexpr uint32_t kHeightConsumers = ConsumerBit( LandscapeDirtyConsumer::Gpu ) |
                                               ConsumerBit( LandscapeDirtyConsumer::Physics ) |
-                                              ConsumerBit( LandscapeDirtyConsumer::Grass ) |
-                                              ConsumerBit( LandscapeDirtyConsumer::Water );
+                                              ConsumerBit( LandscapeDirtyConsumer::Grass );
         constexpr uint32_t kWeightConsumers =
              ConsumerBit( LandscapeDirtyConsumer::Weights ) | ConsumerBit( LandscapeDirtyConsumer::Grass );
         // The visibility layer also cuts the collider (LandscapeCollision reads it for holes).
         constexpr uint32_t kVisibilityConsumers =
              kWeightConsumers | ConsumerBit( LandscapeDirtyConsumer::Physics );
         constexpr uint32_t kAllConsumers    = ( 1u << kLandscapeDirtyConsumerCount ) - 1u;
+
+        uint64_t NextHeightStamp()
+        {
+            static std::atomic<uint64_t> s_Last{ 0u };
+            return s_Last.fetch_add( 1u, std::memory_order_relaxed ) + 1u;
+        }
     } // namespace
 
     LandscapeTileData::LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples )
          : m_SamplesX( samplesX ), m_SamplesZ( samplesZ ), m_Samples( std::move( samples ) )
     {
         RescanSampleRange();
+        m_HeightStamp = NextHeightStamp();
         MarkDirty( Bounds(), kAllConsumers );
     }
 
@@ -212,6 +219,7 @@ namespace Desert::World::Landscape
             m_LowestSample  = std::min( m_LowestSample, value );
             m_HighestSample = std::max( m_HighestSample, value );
         }
+        m_HeightStamp = NextHeightStamp();
         MarkDirty( { x, z, x + 1u, z + 1u }, kHeightConsumers );
     }
 
@@ -282,6 +290,7 @@ namespace Desert::World::Landscape
             m_LowestSample  = lowest;
             m_HighestSample = highest;
         }
+        m_HeightStamp = NextHeightStamp();
         MarkDirty( rect, kHeightConsumers );
         return Common::MakeSuccess( true );
     }

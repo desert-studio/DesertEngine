@@ -72,41 +72,12 @@ namespace Desert::Water
             return sum;
         }
 
-        // The displaced surface's height over the world plane point @p plane: the still point x0 with
-        // x0 + D_xz(x0) = plane found by fixed-point iteration (choppiness < 1 contracts it), then D_y(x0).
-        float HeightAt( const FFTSurfaceSnapshot& snapshot, const glm::vec2 plane, const double time,
-                        const BandWeights& weights ) noexcept
-        {
-            glm::vec2 still = plane;
-            glm::vec3 d     = DisplacementAt( snapshot, still, time, weights );
-            for ( int i = 0; i < 4; ++i )
-            {
-                still = plane - glm::vec2( d.x, d.z );
-                d     = DisplacementAt( snapshot, still, time, weights );
-            }
-            return d.y;
-        }
     } // namespace
 
-    std::optional<FFTSurfaceSample> FFTSurfaceAt( const FFTSurfaceSnapshot& snapshot, const glm::vec2 plane,
-                                                  const double                 time,
-                                                  const BandWeights& bandWeights ) noexcept
+    glm::vec3 FFTDisplacementAt( const FFTSurfaceSnapshot& snapshot, const glm::vec2 plane, const double time,
+                                 const BandWeights& bandWeights ) noexcept
     {
-        if ( snapshot.Spectrum == nullptr || snapshot.Current.Texels.size() != kFFTReadbackTexels )
-            return std::nullopt;
-        FFTSurfaceSample sample;
-        sample.Height = HeightAt( snapshot, plane, time, bandWeights );
-        // The normal from central differences half a read texel of the finest cascade apart (the finest detail
-        // the read holds).
-        const float e = 0.5f * snapshot.Spectrum->Params.CascadeSizes[kFFTOceanCascades - 1] /
-                        static_cast<float>( kFFTReadbackSize );
-        const float hx = HeightAt( snapshot, plane + glm::vec2( e, 0.0f ), time, bandWeights ) -
-                         HeightAt( snapshot, plane - glm::vec2( e, 0.0f ), time, bandWeights );
-        const float hz = HeightAt( snapshot, plane + glm::vec2( 0.0f, e ), time, bandWeights ) -
-                         HeightAt( snapshot, plane - glm::vec2( 0.0f, e ), time, bandWeights );
-        const glm::vec3 n( -hx, 2.0f * e, -hz );
-        sample.Normal = glm::normalize( n );
-        return sample;
+        return DisplacementAt( snapshot, plane, time, bandWeights );
     }
 
     void FFTSurfaceMirror::Publish( const std::shared_ptr<const FFTOceanSpectrum>& spectrum,

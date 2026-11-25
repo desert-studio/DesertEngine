@@ -9,6 +9,7 @@
 
 #include <glm/vec2.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 
@@ -64,11 +65,18 @@ namespace Desert::Runtime
         void SetWind( const Assets::AssetHandle& handle, const glm::vec2& velocityXZ );
 
         /// THE FFT OCEAN'S CPU MIRROR (WATER-RIVERS-FFT pass 7): WaterRenderer publishes each read-back of the
-        /// frame's FFT ocean, the physics gather hands the newest snapshot to the body naming that spectrum.
+        /// frame's FFT ocean.
         [[nodiscard]] Water::FFTSurfaceMirror& Surfaces()
         {
             return m_Surfaces;
         }
+
+        /// The set the renderer draws its one FFT ocean of (WaterRenderer, every frame it draws one).
+        void SetDrawnFFT( const Assets::AssetHandle& handle ) noexcept;
+
+        /// What the bodies of a set are drawn with, the renderer's rule: the FFT ocean under the FFT tier (one set a
+        /// frame, the others by their Gerstner generator), else Gerstner.
+        [[nodiscard]] Water::WaterSurfaceSource SurfaceOf( const Assets::AssetHandle& handle );
 
         void Clear();
 
@@ -101,6 +109,7 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, Water::FFTOceanWind> m_Winds;
         std::unordered_map<Assets::AssetHandle, std::string>         m_Failed;
         Water::FFTSurfaceMirror                                      m_Surfaces;
+        std::atomic<uint64_t>                                        m_DrawnFFT{ 0 }; // SetDrawnFFT; 0: none yet
     };
 
     // The `.dwaves` wave sets water bodies name (WATER-W2): read on demand, each generated into its Gerstner waves

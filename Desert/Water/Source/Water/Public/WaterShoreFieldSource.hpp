@@ -6,6 +6,7 @@
 
 #include <entt/entt.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <future>
 #include <memory>
@@ -20,8 +21,8 @@ namespace Desert::ECS
      * by the renderer (WaterZoneECSSystem) and by the physics' water query (WaterPhysicsFeature) alike.
      *
      * The bake is a job over copies of the tiles' samples; the previous field stays current while it runs. It is
-     * keyed by what it reads: the tiles and their roots, the height edits (LandscapeDirtyConsumer::Water), the
-     * bodies' footprints and levels and the landscape materials' mean displacement.
+     * keyed by what it reads: the tiles' heights (LandscapeTileData::HeightStamp), frames and roots, the bodies'
+     * footprints and levels and the landscape materials' mean displacement.
      *
      * Lives in the registry's context as a shared_ptr, created by the module's Prepares hook; the two readers run
      * inside parallel groups, so every call is serialised by the source's own mutex.
@@ -34,8 +35,9 @@ namespace Desert::ECS
         /// The current field, null until the first bake is done or while the world has no water body.
         [[nodiscard]] Field Update( entt::registry& registry );
 
-        /// The same, baking the world's first field on the calling thread: a body must not fall through the first
-        /// seconds of water because its floor is still being read.
+        /// The same, with the world's first bake finished before it returns (taken from the job when no worker
+        /// has begun it): a body must not fall through the first seconds of water because its floor is still being
+        /// read. Null: no body, or the bake was refused - said once, and baked again when the world changes.
         [[nodiscard]] Field UpdateNow( entt::registry& registry );
 
     private:
@@ -51,8 +53,20 @@ namespace Desert::ECS
             std::vector<Tile>                  Tiles;
             std::vector<Water::WaterBodyLevel> Bodies;
             float                              SpacingCm = 0.0f;
+            Field                              Base; // what the new field states its changes against
         };
-        // A root's mean displacement, resolved again only when its material's revision moved.
+        // One bake. Whoever claims it runs it: the job, or UpdateNow before a worker began.
+        struct BakeJob
+        {
+            Input                                  World;
+            std::atomic_flag                       Claimed;
+            std::promise<Common::ResultStr<Field>> Promise;
+            std::future<Common::ResultStr<Field>>  Done = Promise.get_future();
+
+            void Run() noexcept;
+        };
+        // A root's mean displacement, resolved again only when its material's revision moved; a material that did
+        // not resolve is not remembered.
         struct RootOffset
         {
             uint64_t Material     = 0;
@@ -60,23 +74,28 @@ namespace Desert::ECS
             uint32_t Values       = 0;
             uint64_t Content      = 0;
             float    OffsetCm     = 0.0f;
+            bool     Resolved     = false;
         };
 
         static Common::ResultStr<Field> Bake( const Input& input );
 
-        void Adopt( Common::ResultStr<Field> baked );
-        // Fills m_Bodies and m_WorldKey; takes the tiles' water edits unless a bake is under way. False: no body.
+        // Adopts a finished bake, reads the world and starts the bake it asks for. False: no body.
+        bool  Refresh( entt::registry& registry );
+        void  AdoptDone();
+        // Fills m_Bodies, m_Offsets and m_WorldKey, reading only. False: no body.
         bool  ReadWorld( entt::registry& registry );
         Input CopyInput( entt::registry& registry );
+        // Fills m_Offsets for this call's tiles: each root is looked up once.
+        void  ResolveRootOffsets( entt::registry& registry );
         float RootOffsetOf( entt::registry& registry, const Common::UUID& root );
 
         std::mutex                               m_Mutex;
         Field                                    m_Field;
-        std::future<Common::ResultStr<Field>>    m_Job;
+        std::shared_ptr<BakeJob>                 m_Job;
         uint64_t                                 m_Key      = 0; // what the newest bake was started for
         uint64_t                                 m_WorldKey = 0; // what the world is now
-        uint64_t                                 m_Edits    = 0; // height edits seen
         std::vector<Water::WaterBodyLevel>       m_Bodies;
-        std::unordered_map<uint64_t, RootOffset> m_Roots;
+        std::unordered_map<uint64_t, RootOffset> m_Roots;   // by root, across calls
+        std::unordered_map<uint64_t, float>      m_Offsets; // this call's
     };
 } // namespace Desert::ECS

@@ -144,7 +144,7 @@ namespace Desert::Water
     /// WaterOutsideBank, `WATER_RIVER_BANK_CLIP`) and for every CPU query (WaterBodyCovers) alike.
     inline constexpr float kRiverBankClip = 0.5f;
 
-    /// The flow at @p xz (world XZ, cm) exactly as the water surface reads it (WaterMeshTiles.glslh WaterFlowAt):
+    /// The flow at @p xz (world XZ, cm) exactly as the water surface reads it (WaterRiver.glslh WaterFlowAt):
     /// xy = the surface velocity (cm/s), z = the bank mask, bilinear between the texel centres, a neighbour off
     /// the field counting as zero. Zero for an empty field.
     [[nodiscard]] glm::vec3 SampleRiverFlowBilinear( const RiverFlowField& field, glm::vec2 xz ) noexcept;

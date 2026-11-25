@@ -1,0 +1,197 @@
+#ifndef DESERT_WATER_RIVER_GLSLH
+#define DESERT_WATER_RIVER_GLSLH
+
+// The frame's rivers as the water draws them and as the foam reads them: level, flow, banks, falls.
+// Its own header, so a pass that reads only the tile rows binds no river texture.
+#include <Mesh/Surface/WaterMeshTiles.glslh>
+
+// The sheet's flow streaks: its texture is stretched this much along the fall (falling water draws long streaks).
+#define WATER_FALL_STREAK 0.25
+// The sheet's ends overlap the river surface above the lip and below the foot by one spline sample; where the river's
+// tile draws, within this of its level, the sheet gives way (WaterFallUnderRiver), so the two never double up.
+#define WATER_FALL_SEAM_CM 20.0
+
+// THE RIVER (UE WaterInfo's river height and velocity): (flow x, flow z cm/s, bank mask, still surface Y cm), one
+// river's texels ARE its bake's grid (Water::RiverFlowField), so the height here and Water::SampleRiverSurfaceY's are
+// one source. RGBA32F, fetched by texel.
+layout( set = 1, binding = 9 ) uniform texture2D WaterRiverTexture;
+
+// The river region's texel at (x, z) of that region; zero (no flow, outside every bank) off it.
+vec4 WaterRiverTexel( ivec2 texel )
+{
+    const ivec2 size = ivec2( WaterFlowFrame.zw + 0.5 );
+    if ( any( lessThan( texel, ivec2( 0 ) ) ) || any( greaterThanEqual( texel, size ) ) )
+        return vec4( 0.0 );
+    return texelFetch( WaterRiverTexture, texel, 0 );
+}
+
+// The river region's texel space at a world (X, Z): texel centres on integers (Water::SampleRiverSurfaceY's p).
+vec2 WaterRiverTexelSpace( vec2 worldXZ )
+{
+    return ( worldXZ - WaterRiverFrame.xy ) * WaterRiverFrame.zw - 0.5;
+}
+
+// THE RIVER FLOW (UE: the river velocity the WaterInfo texture carries): xy = the surface velocity on the (X, Z)
+// plane (cm/s), z = the bank mask (1 inside a river's ribbon). Bilinear. Zero off the region or with no river.
+vec3 WaterFlowAt( vec2 worldXZ )
+{
+    if ( WaterFlowFrame.x < 0.5 )
+        return vec3( 0.0 );
+    const vec2  p  = WaterRiverTexelSpace( worldXZ );
+    const ivec2 i0 = ivec2( floor( p ) );
+    const vec2  f  = p - floor( p );
+    const vec3  a  = WaterRiverTexel( i0 ).rgb;
+    const vec3  b  = WaterRiverTexel( i0 + ivec2( 1, 0 ) ).rgb;
+    const vec3  c  = WaterRiverTexel( i0 + ivec2( 0, 1 ) ).rgb;
+    const vec3  d  = WaterRiverTexel( i0 + ivec2( 1, 1 ) ).rgb;
+    return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+}
+
+// THE RIVER'S STILL LEVEL (UE: the river spline's height baked into WaterInfo, read by the water mesh and by the
+// CPU query alike): the baked surface Y filtered bilinearly over the in-bank texels only, exactly as the CPU's
+// Water::SampleRiverSurfaceY filters the same texels - a bank texel's 0 never drags the level down. `fallbackY`
+// (the tile's mean level) where no in-bank texel is near. A function of the world (X, Z) alone, so two tiles that
+// share an edge, or a vertex morphing between LODs, read the same level: no step at the tile edges.
+bool WaterRiverLevel( vec2 worldXZ, out float level )
+{
+    level = 0.0;
+    if ( WaterFlowFrame.x < 0.5 )
+        return false;
+    const vec2  p      = WaterRiverTexelSpace( worldXZ );
+    const ivec2 i0     = ivec2( floor( p ) );
+    const vec2  f      = p - floor( p );
+    float       sum    = 0.0;
+    float       weight = 0.0;
+    for ( int dz = 0; dz < 2; ++dz )
+        for ( int dx = 0; dx < 2; ++dx )
+        {
+            const vec4 t = WaterRiverTexel( i0 + ivec2( dx, dz ) );
+            if ( t.b <= 0.5 )
+                continue;
+            const float w = ( dx == 1 ? f.x : 1.0 - f.x ) * ( dz == 1 ? f.y : 1.0 - f.y );
+            sum += w * t.a;
+            weight += w;
+        }
+    if ( !( weight > 0.0 ) )
+        return false;
+    level = sum / weight;
+    return true;
+}
+float WaterRiverSurfaceY( vec2 worldXZ, float fallbackY )
+{
+    float level;
+    return WaterRiverLevel( worldXZ, level ) ? level : fallbackY;
+}
+
+// The river's still surface normal at a world (X, Z): the level's slope across one texel (the CPU's
+// Water::QueryWaterBody tilts its PlaneNormal by the same difference, flat along an axis where either side is off
+// the banks), up off the river.
+float WaterRiverSlope( vec2 worldXZ, vec2 d )
+{
+    float a;
+    float b;
+    return WaterRiverLevel( worldXZ + d, a ) && WaterRiverLevel( worldXZ - d, b ) ? ( a - b ) / ( 2.0 * length( d ) ) : 0.0;
+}
+vec3 WaterRiverSurfaceNormal( vec2 worldXZ )
+{
+    const vec2 e = 1.0 / max( WaterRiverFrame.zw, vec2( 1e-6 ) );
+    return normalize( vec3( -WaterRiverSlope( worldXZ, vec2( e.x, 0.0 ) ), 1.0, -WaterRiverSlope( worldXZ, vec2( 0.0, e.y ) ) ) );
+}
+
+// THE BANK BAND (UE's river material: the shore foam and the opacity fade along the spline's edges): 1 at the bank
+// line, 0 from WATER_BANK_BAND_CM inside it - the bank mask's worst of the point and its four neighbours that far
+// out, so the band is the band's width whatever the 50 cm texel's bilinear edge. 0 on a tile that is not a river.
+#define WATER_BANK_BAND_CM 50.0
+float WaterRiverBankBand( vec2 worldXZ, float riverTile )
+{
+    if ( riverTile < 0.5 || WaterTileIsFall( riverTile ) || WaterFlowFrame.x < 0.5 )
+        return 0.0;
+    const float r    = WATER_BANK_BAND_CM;
+    const float mask = min( min( WaterFlowAt( worldXZ ).z, min( WaterFlowAt( worldXZ + vec2( r, 0.0 ) ).z,
+                                                                 WaterFlowAt( worldXZ - vec2( r, 0.0 ) ).z ) ),
+                            min( WaterFlowAt( worldXZ + vec2( 0.0, r ) ).z, WaterFlowAt( worldXZ - vec2( 0.0, r ) ).z ) );
+    return 1.0 - smoothstep( 0.0, 1.0, mask );
+}
+
+// A river tile's fragment outside its banks (UE draws a river as a spline mesh of the ribbon's width; here the
+// quadtree leaf overshoots the banks and is clipped to the baked mask). `riverTile` = WaterTileRow.Body.y, carried
+// to the fragment in VertexColor.b (Vertex_WaterMesh.glslh). The clip is THE one the CPU queries answer by
+// (Water::RiverInsideBank: the same bilinear mask, Water::SampleRiverFlowBilinear, against Water::kRiverBankClip),
+// so a body is never told it floats where no water is drawn. The bank band's outer edge (WaterRiverBankBand = 1)
+// sits on this line: the foam runs along the cut.
+#define WATER_RIVER_BANK_CLIP 0.5
+bool WaterOutsideBank( vec2 worldXZ, float riverTile )
+{
+    return riverTile > 0.5 && !WaterTileIsFall( riverTile ) && WaterFlowAt( worldXZ ).z < WATER_RIVER_BANK_CLIP;
+}
+
+// THE RIVER-TO-OCEAN LEAF (UE draws the ocean under the river): a quadtree leaf a river's banks cut, over an ocean,
+// is drawn by both bodies (Water::WaterQuadTree TileOwner::HasUnder) - the river clipped to the mask
+// (WaterOutsideBank), the ocean (`riverTile` = -1, Water::WaterTileInstance::UnderRiver) to its complement - so
+// the leaf is partitioned by the one mask and threshold the CPU answers by (Water::QueryWater: inside the banks
+// the river, outside them the ocean): no hole beyond the bank, no double surface inside it.
+// The coordinate a surface's flow and foam run in: the world (X, Z) on a tile, the sheet's own (across, along the
+// flow, cm; Vertex_WaterMesh.glslh carries it in UV0, metres) on a fall, its along axis streaked.
+vec2 WaterFlowCoord( vec2 worldXZ, vec2 uv0, vec4 vertexColor )
+{
+    if ( !WaterTileIsFall( vertexColor.b ) )
+        return worldXZ;
+    return vec2( uv0.x, uv0.y * WATER_FALL_STREAK ) * 100.0;
+}
+
+bool WaterBankClipped( vec2 worldXZ, float riverTile )
+{
+    if ( riverTile < -0.5 )
+        return WaterFlowAt( worldXZ ).z >= WATER_RIVER_BANK_CLIP;
+    return WaterOutsideBank( worldXZ, riverTile );
+}
+
+// A fall's fragment where the river's own tile draws (inside the banks, at the river's level): the sheet's overlap
+// above the lip and below the foot gives way to the surface it continues, so the river runs over the edge seamlessly.
+bool WaterFallUnderRiver( vec3 world )
+{
+    float level;
+    return WaterFlowAt( world.xz ).z >= WATER_RIVER_BANK_CLIP && WaterRiverLevel( world.xz, level ) &&
+           abs( world.y - level ) < WATER_FALL_SEAM_CM;
+}
+
+// THE TWO-PHASE FLOW (UE's water material FlowMap: two copies of a texture advected along the flow, half a period
+// apart, each faded out as it resets): the two advected positions of `worldXZ` at `time` and the second's weight.
+// The period is the fragment's own river's (`vertexColor` = SurfaceInput.VertexColor -> WaterFragmentTile ->
+// Medium.y = its WaterBodyData::RiverFlowPeriod), so two rivers of one frame each flow at their own pace.
+// No flow here: both positions are `worldXZ`, the weight 0.
+// On a fall's sheet `worldXZ` is the sheet's coordinate (WaterFlowCoord) and the flow runs down it at the falling
+// water's speed (Medium.zw: Water::RiverFallSpeed, the river's flow gaining by free fall - the velocity from the
+// slope), streaked by WATER_FALL_STREAK.
+void WaterFlowPhases( vec2 worldXZ, vec4 vertexColor, float time, out vec2 p0, out vec2 p1, out float w1 )
+{
+    p0 = worldXZ;
+    p1 = worldXZ;
+    w1 = 0.0;
+    // The tile kind rides the vertex colour (b = WaterTileRow.Body.y, Vertex_WaterMesh.glslh): only a fall's sheet
+    // reads its row here, so the ocean's and the river's fragments never fetch a tile row for the fall branch.
+    if ( WaterTileIsFall( vertexColor.b ) )
+    {
+        const WaterTileRow row = WaterFragmentTile( vertexColor );
+        const float period = max( row.Medium.y, 0.05 );
+        const float along  = clamp( ( worldXZ.y / WATER_FALL_STREAK - row.Lod.w ) / max( row.Zone.z, 1.0 ), 0.0, 1.0 );
+        const vec2  fall   = vec2( 0.0, mix( row.Medium.z, row.Medium.w, along ) * WATER_FALL_STREAK );
+        const float ph0    = fract( time / period );
+        const float ph1    = fract( time / period + 0.5 );
+        p0                 = worldXZ - fall * ph0 * period;
+        p1                 = worldXZ - fall * ph1 * period;
+        w1                 = abs( ph0 - 0.5 ) * 2.0;
+        return;
+    }
+    const vec3 flow = WaterFlowAt( worldXZ );
+    if ( flow.z <= 0.0 )
+        return;
+    const float period = max( WaterFragmentTile( vertexColor ).Medium.y, 0.05 );
+    const float ph0    = fract( time / period );
+    const float ph1    = fract( time / period + 0.5 );
+    p0                 = worldXZ - flow.xy * ph0 * period;
+    p1                 = worldXZ - flow.xy * ph1 * period;
+    w1                 = abs( ph0 - 0.5 ) * 2.0;
+}
+
+#endif // DESERT_WATER_RIVER_GLSLH

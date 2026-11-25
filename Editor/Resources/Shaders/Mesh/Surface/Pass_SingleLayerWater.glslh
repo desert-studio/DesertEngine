@@ -113,7 +113,7 @@ layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWord
 // include of AmbientIBL would otherwise take its sampler-less half first (as Pass_Forward.glslh orders it).
 #include <Common/ThinGeometryCoverage.glslh>
 // The body's waves (binding 24, ahead of the tiles): the one surface, here per pixel.
-#include <Mesh/Surface/WaterMeshTiles.glslh>
+#include <Mesh/Surface/WaterRiver.glslh>
 #include <Water/WaterUnderwater.glslh>
 // The scene's air (WIND-FIELD-GPU): the gust fronts and the local sources the foliage sways by roughen the
 // ripples.

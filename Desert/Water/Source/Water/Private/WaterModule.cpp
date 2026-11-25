@@ -77,16 +77,9 @@ namespace Desert::Water
                      m_Gather.Gather(
                           registry, []( const Assets::AssetHandle& waves )
                           { return Runtime::GetWaterWavesService()->Get( waves ); },
-                          // An FFT set's bodies float on the surface the GPU drew: its CPU mirror
-                          // (WaterWavesService::Surfaces, published by WaterRenderer's readback).
-                          []( const Assets::AssetHandle& waves ) -> std::shared_ptr<const FFTSurfaceSnapshot>
-                          {
-                              auto* const service  = Runtime::GetWaterWavesService();
-                              auto        spectrum = service->GetSpectrum( waves );
-                              if ( !spectrum || !spectrum.GetValue() )
-                                  return nullptr;
-                              return service->Surfaces().Latest( spectrum.GetValue().get() );
-                          } ),
+                          // Bodies float on the surface the GPU drew.
+                          []( const Assets::AssetHandle& waves )
+                          { return Runtime::GetWaterWavesService()->SurfaceOf( waves ); } ),
                      ShoreField( registry ) );
                 SyncBuoyant( registry );
             }

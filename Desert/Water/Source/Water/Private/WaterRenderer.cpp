@@ -20,7 +20,6 @@
 #include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Water/Public/GerstnerWaterWaves.hpp>
 #include <Water/Public/WaterRiver.hpp>
-#include <glm/gtc/packing.hpp>
 #include <Water/Public/FFTSurfaceMirror.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
@@ -54,7 +53,7 @@ namespace
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
         DESERT_SHADER_PARAMETER( StorageBuffer, Materials ); // Core::Formats::kMaterialRowBlockName
-        // Water/WaterDepthField.glslh binding 25 and WaterMeshTiles.glslh's river: fetched by texel, no sampler.
+        // Water/WaterDepthField.glslh binding 25 and WaterRiver.glslh's texture: fetched by texel, no sampler.
         DESERT_SHADER_PARAMETER( Texture, WaterShoreTexture );
         DESERT_SHADER_PARAMETER( Texture, WaterRiverTexture );
         // Pass_SingleLayerWater.glslh only: the scene behind the water and the one state its cubes, BRDF LUT,
@@ -105,7 +104,7 @@ namespace Desert::Graphic::System
         static_assert( sizeof( WaterWaveRow ) == 2 * sizeof( glm::vec4 ), "std430 rows of two vec4" );
 
         // WATER_MAX_WAVES / WATER_MAX_WAVE_SETS (WaterMeshTiles.glslh): the wave sets lead the tile buffer.
-        constexpr uint32_t kMaxWaves    = 32;
+        constexpr auto     kMaxWaves    = static_cast<uint32_t>( Water::kMaxDrawnWaves );
         constexpr uint32_t kMaxWaveSets = 4;
         // One body wave set, std430 (WaterMeshTiles.glslh WaterWaveSet; UE: a water body's wave buffer).
         struct WaterWaveSet
@@ -152,29 +151,6 @@ namespace Desert::Graphic::System
             };
             spec.Data = std::move( bytes );
             return Image2D::Create( spec );
-        }
-
-        // The shore field's texels as the GPU samples them (Water/WaterDepthField.glslh), heights over the field's
-        // reference level so half floats hold centimetres; with no field, one texel of the open sea.
-        std::shared_ptr<Image2D> CreateShoreImage( const Water::WaterShoreField* field )
-        {
-            const uint32_t              width  = field != nullptr ? field->Width : 1u;
-            const uint32_t              height = field != nullptr ? field->Height : 1u;
-            std::vector<unsigned char>  bytes( size_t( width ) * height * sizeof( uint64_t ) );
-            for ( size_t i = 0; i < size_t( width ) * height; ++i )
-            {
-                glm::vec4 texel( -Water::kOpenSeaDepthCm, Water::kShoreFarCm, 0.0f, 0.0f );
-                if ( field != nullptr )
-                {
-                    const Water::WaterShoreField::Texel& t = field->Texels[i];
-                    texel = glm::vec4( t.GroundCm - field->ReferenceLevelCm, t.ShoreDistanceCm, t.ShoreDirX,
-                                       t.ShoreDirZ );
-                }
-                const uint64_t packed = glm::packHalf4x16( texel );
-                std::memcpy( bytes.data() + i * sizeof( packed ), &packed, sizeof( packed ) );
-            }
-            return CreateFloatImage( "WaterShore", width, height, Core::Formats::ImageFormat::RGBA16F,
-                                     std::move( bytes ) );
         }
 
         // The river texture: one river's bake grid, or for several the rectangle over all of them at the finest of
@@ -606,6 +582,7 @@ namespace Desert::Graphic::System
         m_FoamFrame.reset();
         m_FrameBodies.clear();
         m_FrameBodyWaveLanes.clear();
+        m_FrameBodyLooks.clear();
         m_Underwater = UnderwaterFrame{};
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
@@ -717,6 +694,7 @@ namespace Desert::Graphic::System
                 // Every body that draws this frame (WATER-CAUSTICS: its footprint, still level and wave set).
                 m_FrameBodies.push_back( bodies.Footprints[b] );
                 m_FrameBodyWaveLanes.push_back( waveLane );
+                m_FrameBodyLooks.push_back( FrameBodyLook{ .Material = body, .River = river } );
             }
         }
         if ( programs.empty() )
@@ -781,6 +759,7 @@ namespace Desert::Graphic::System
             if ( !fft && PrepareFFTFrame( frameSet.Material, frameSet.Asset ) )
             {
                 fft                                   = true;
+                service->SetDrawnFFT( frameSet.Asset );
                 const Water::FFTOceanSpectrum& spectrum = *m_FFTFrame;
                 waves.Header.y                        = 1.0f;
                 waves.Header.z                        = spectrum.Params.Choppiness;
@@ -836,7 +815,11 @@ namespace Desert::Graphic::System
                                      static_cast<float>( river.Size.y ) );
             waves.River = glm::vec4( river.Min, 1.0f / glm::max( river.Texel, glm::vec2( 1e-3f ) ) );
         }
-        PrepareFoam( material, stamp, observer, waveSets.empty() ? -1 : 0, shore, waves.FoamOrigin, waves.FoamShape );
+        int32_t fftSet = -1;
+        for ( size_t index = 0; index < waveSets.size() && fft && fftSet < 0; ++index )
+            if ( waves.Sets[index].Header.y > 0.5f )
+                fftSet = static_cast<int32_t>( index );
+        PrepareFoam( stamp, observer, fftSet, shore, waves.FoamOrigin, waves.FoamShape );
         m_Upload.resize( sizeof( WaterWavesBlock ) );
         std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
 
@@ -996,9 +979,9 @@ namespace Desert::Graphic::System
                     auto waves = service->Get( bodies.Waves[b] );
                     if ( waves && waves.GetValue() )
                         state.Waves = waves.GetValue();
-                    auto spectrum = service->GetSpectrum( bodies.Waves[b] );
-                    if ( spectrum && spectrum.GetValue() )
-                        state.FFTSurface = service->Surfaces().Latest( spectrum.GetValue().get() );
+                    Water::WaterSurfaceSource surface = service->SurfaceOf( bodies.Waves[b] );
+                    state.FFT                         = surface.FFT;
+                    state.FFTSurface                  = std::move( surface.Read );
                 }
                 if ( !Water::WaterBodyCovers( state, camera ) )
                     continue;
@@ -1235,15 +1218,11 @@ namespace Desert::Graphic::System
     {
         if ( m_Walk.Programs.empty() )
             return;
-        // The caustics read both whether or not a tile is in view.
-        if ( m_Walk.Shore != m_ShoreBaked || m_ShoreImage == nullptr )
-        {
-            m_ShoreBaked = m_Walk.Shore;
-            m_ShoreImage = CreateShoreImage( m_ShoreBaked.get() );
-        }
+        // The caustics read it whether or not a tile is in view.
         if ( m_Walk.Flows != m_FlowsBaked || m_RiverImage == nullptr )
         {
             m_FlowsBaked = m_Walk.Flows;
+            RetireImage( std::move( m_RiverImage ) );
             m_RiverImage = CreateRiverImage( m_FlowsBaked );
         }
         if ( m_Walk.Rows == 0u )
