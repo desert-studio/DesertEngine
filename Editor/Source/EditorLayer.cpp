@@ -4,7 +4,7 @@
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>

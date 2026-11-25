@@ -1,4 +1,4 @@
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/GlslAsCpp.hpp>

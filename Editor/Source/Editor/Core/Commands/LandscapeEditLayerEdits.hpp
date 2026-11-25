@@ -1,5 +1,5 @@
 #pragma once
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
@@ -7,7 +7,7 @@
 
 #include <span>
 #include <vector>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 // The scene-free half of the Edit Layers commands (LandscapeLayerCommands.hpp): what one edit does to a stack
 // and to the tiles of one landscape in a registry. The undo entry and the editor's editing layer are the

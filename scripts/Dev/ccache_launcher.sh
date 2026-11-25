@@ -12,6 +12,11 @@
 #             PCH compile: a digest of what the PCH is made of with the tree root taken out -- its command line and every
 #             file its depfile lists (path relative to the tree, content). Same headers + same flags = same .sum in every
 #             tree. -fno-pch-timestamp (CMakeLists.txt) keeps header mtimes, which differ per tree, out of the PCH.
+#             The PCH ITSELF never crosses trees: its compile runs without base_dir, so the cache key holds this tree's
+#             absolute paths. With base_dir a Release PCH compile hashed the same in every tree (no -g, so no cwd in the
+#             hash) and the cache handed DesertEngine-LAND the PCH DesertEngine-S1 had compiled (11-25): its headers were
+#             S1's files, #pragma once did not recognise LAND's copy of UUID.hpp, "redefinition of 'UUID'". Only the
+#             consumers share, through <pch>.sum. A PCH a tree got before this rule: _common.sh dev_drop_foreign_pch.
 #   settings  here, not in the caller's environment, so every build of the tree (build_quiet.sh, dev_build, an IDE,
 #             a bare `ninja`) caches alike. CCACHE_STATSLOG passes through: compile_check.sh / timings read hit rates from it.
 set -u
@@ -28,7 +33,7 @@ case "$out" in *.pch) ;; *) exec "$@" ;; esac
 
 # A PCH: its old digest goes first, so a failed or interrupted compile never leaves a .sum describing another PCH.
 rm -f "$out.sum"
-"$@" || exit $?
+CCACHE_BASEDIR= "$@" || exit $?
 [ -n "$dep" ] && [ -f "$dep" ] || { echo "ccache_launcher: $out has no depfile (-MF), its consumers will not be cached across trees" >&2; exit 0; }
 # The depfile: "<out>: dep dep \" lines; our paths hold no spaces (a space-escaped path would split, and change the digest).
 deps=$(sed -e 's/\\$//' "$dep" | tr ' ' '\n' | grep -v -e '^$' -e ':$' | sort -u)

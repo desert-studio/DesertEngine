@@ -4,8 +4,8 @@
 #include <algorithm>
 #include <vector>
 #include <Landscape/Public/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeCollisionShape.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeCollisionShape.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Landscape/Public/LandscapeTileComponent.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 

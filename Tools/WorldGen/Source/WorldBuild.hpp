@@ -21,7 +21,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>

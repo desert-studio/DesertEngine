@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Editor/LandscapeEditor/Private/LandscapeEdModeBrushes.cpp:355-455,1009-1135,
 // adapted: see LandscapeBrush.hpp.
 
-#include <Engine/World/Landscape/LandscapeBrush.hpp>
+#include <Landscape/Public/LandscapeBrush.hpp>
 
 #include <glm/geometric.hpp>
 #include <glm/trigonometric.hpp>

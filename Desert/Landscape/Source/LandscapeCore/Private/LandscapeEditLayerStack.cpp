@@ -1,6 +1,6 @@
 // The stack half of LandscapeEditLayers.hpp: Find and ValidateLandscapeEditLayerStack need nothing of a tile,
 // so they live apart from the merge and a reader of the root's block (AuthoredComponentIO.hpp) links only this.
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
 
 #include <cmath>
 #include <cstdint>

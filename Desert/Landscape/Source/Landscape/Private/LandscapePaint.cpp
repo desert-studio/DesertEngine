@@ -1,6 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Editor/LandscapeEditor/Private/LandscapeEdModePaintTools.cpp:258-445
 // (FLandscapeToolStrokePaint::Apply), adapted: see LandscapePaint.hpp.
-#include <Engine/World/Landscape/LandscapePaint.hpp>
+#include <Landscape/Public/LandscapePaint.hpp>
 
 #include <Common/Core/Core.hpp>
 

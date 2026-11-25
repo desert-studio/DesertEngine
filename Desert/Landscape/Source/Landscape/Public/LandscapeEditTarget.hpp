@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Landscape/Public/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
 #include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <Common/Core/ResultStr.hpp>

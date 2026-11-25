@@ -1,9 +1,9 @@
 #pragma once
 
 #include <Landscape/Public/LandscapeGenerator.hpp>
-#include <Engine/World/Landscape/LandscapePaint.hpp>
+#include <Landscape/Public/LandscapePaint.hpp>
 #include <Landscape/Public/LandscapeSculpt.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 
 #include <algorithm>
 #include <array>

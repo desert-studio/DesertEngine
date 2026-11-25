@@ -119,7 +119,7 @@
 #include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 
 // The transform composition below, and NOT Engine/ECS/Components.hpp for it. TransformComponent's
 // GetTransform() is the three lines this file needs, but that header carries entt, the reflection

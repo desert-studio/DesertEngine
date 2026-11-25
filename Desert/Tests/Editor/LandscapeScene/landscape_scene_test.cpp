@@ -23,9 +23,9 @@
 #include <Landscape/Public/LandscapeComponentIO.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 
 #include <gtest/gtest.h>

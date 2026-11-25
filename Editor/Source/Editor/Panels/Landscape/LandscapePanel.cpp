@@ -21,7 +21,7 @@
 #include <Landscape/Public/LandscapeEditTarget.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Landscape/Public/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>

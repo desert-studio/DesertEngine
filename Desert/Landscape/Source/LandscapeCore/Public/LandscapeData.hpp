@@ -2,8 +2,8 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
-#include <Engine/World/Landscape/LandscapeFrame.hpp>
-#include <Engine/World/Landscape/LandscapeLayerLimits.hpp>
+#include <LandscapeCore/Public/LandscapeFrame.hpp>
+#include <LandscapeCore/Public/LandscapeLayerLimits.hpp>
 
 #include <glm/vec3.hpp>
 

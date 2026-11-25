@@ -1,6 +1,6 @@
 #include <Landscape/Public/LandscapeTileComponent.hpp>
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <memory>
 #include <utility>

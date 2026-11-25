@@ -1,6 +1,6 @@
 // Ported from UE 5.8 Runtime/Landscape: LandscapeSplineControlPoint.cpp (AutoCalcRotation),
 // LandscapeSplineSegment.cpp (UpdateSplinePoints) and LandscapeSplineRaster.cpp (RasterizeSegmentPoints).
-#include "LandscapeSplines.hpp"
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -10,7 +10,7 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 namespace Desert::World::Landscape
 {
