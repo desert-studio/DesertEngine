@@ -100,6 +100,7 @@ namespace
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
         DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheParamsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheIndirectionUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheProbesUB );
@@ -1149,7 +1150,8 @@ namespace Desert::Graphic::SurfaceCache
             return Common::MakeFormattedError<bool>( "surface cache radiosity: {}", missing );
         if ( !inputs.GIFrame.IsValid() || !inputs.PointLights.IsValid() || !inputs.SpotLights.IsValid() ||
              !inputs.WorldGridParams.IsValid() || !inputs.WorldGridCells.IsValid() || !inputs.EnvSpecular.IsValid() ||
-             !inputs.GBufferDepth.IsValid() || !inputs.GBufferA.IsValid() || !inputs.GBufferEmissive.IsValid() )
+             !inputs.GBufferDepth.IsValid() || !inputs.GBufferA.IsValid() || !inputs.GBufferEmissive.IsValid() ||
+             !inputs.GBufferShadingWord.IsValid() )
             return Common::MakeError<bool>( "surface cache radiosity: the GI ray contract's reads are incomplete" );
         if ( inputs.Async && ( !buffers.LightingTileArgs.IsValid() || !buffers.LightingTiles.IsValid() ) )
             return Common::MakeError<bool>( "surface cache radiosity: the async path runs over the frame's "
@@ -1210,6 +1212,7 @@ namespace Desert::Graphic::SurfaceCache
                           .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                           .Texture( P::GBufferATexture, inputs.GBufferA, kS, all )
                           .Texture( P::GBufferEmissiveTexture, inputs.GBufferEmissive, kS, all )
+                          .Texture( P::GBufferShadingWordTexture, inputs.GBufferShadingWord, kS, all )
                           .Texture( P::AtlasNormalTexture, layers[3], kS, all )
                           .Storage( kRadiosityTraceAtlas, trace, RDG::Access::StorageWrite )
                           .Storage( kTileArgs, tileArgs, kR )
@@ -1293,6 +1296,7 @@ namespace Desert::Graphic::SurfaceCache
                       .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                       .Texture( P::GBufferATexture, inputs.GBufferA, kS, all )
                       .Texture( P::GBufferEmissiveTexture, inputs.GBufferEmissive, kS, all )
+                      .Texture( P::GBufferShadingWordTexture, inputs.GBufferShadingWord, kS, all )
                       .Texture( P::AtlasNormalTexture, layers[3], kS, all )
                       .PushConstants<ShaderPush::SurfaceRadiosityPush>();
                  GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );

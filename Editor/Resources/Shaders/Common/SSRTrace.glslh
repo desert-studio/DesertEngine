@@ -148,7 +148,7 @@ layout(binding = 21) uniform texture2D GBufferATexture;
 #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
 layout(binding = 22) uniform texture2D GBufferEmissiveTexture;
 #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
-// The shading word (uint): a hit's EMISSION_IS_LIGHT (Common/GIHitLighting.glslh GIHitMaterial). Set 1, the
+// The shading word (uint): a hit's far side and emission mark (GIHitMaterial). Set 1, the
 // program's own set, beside the front layer's slots (Core::kSsrShadingWordBinding).
 layout(set = kSsrFrontLayerSet, binding = kSsrShadingWordBinding) uniform utexture2D GBufferShadingWordTexture;
 #define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
@@ -290,7 +290,9 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 	// The hit's own shading model (its word from the closest hit): a clear-coated car, a satin sheet, a brushed
 	// panel reflect as the raster lights them.
 	radiance = GIHitRadianceLit(hit, L, GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness,
-	                                                 payload.Emissive, true, payload.ShadingWord));
+	                                                 payload.Emissive, true, payload.ShadingWord,
+	                                                 DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
+	                                                                       DesertUnpackPayload(payload.ShadingWord))));
 	hitPoint = hit.position;
 	return true;
 #else

@@ -1396,6 +1396,9 @@ namespace Desert::Graphic
         // forward path's single-sample prepass depth) or, invalid, of the G-buffer depth. Invalid when it was not
         // built.
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef depth = {} );
+        // Whether a casting point or spot light of this frame has no shadow map (no atlas room, or no virtual
+        // map): its shadow is the screen trace over the HZB (Mesh/LocalLightShadow.glslh).
+        [[nodiscard]] bool LocalLightsNeedScreenTrace() const;
         // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
         // composes (SsrTexture); invalid when SSR did not run.
         // Reflections.TranslucentFrontLayer of the resolved quality.
@@ -1969,7 +1972,7 @@ namespace Desert::Graphic
         System::DistanceFieldShadowRenderer m_DistanceFieldShadow;
         bool                                m_DistanceFieldShadowReady  = false;
         bool                                m_DistanceFieldShadowFailed = false;
-        // MegaLights (per view: its reservoir and denoiser histories are this view's), created on the first frame
+        // MegaLights (per view: its visible-light hash and denoiser histories are this view's), created on the first frame
         // that resolves Shadows to Stochastic; its quality (Shadows.MegaLights*) taken each BeginScene.
         System::MegaLightsRenderer m_MegaLights;
         System::MegaLightsQuality  m_MegaLightsQuality;
@@ -1982,8 +1985,7 @@ namespace Desert::Graphic
         bool                           m_SSGIReady  = false;
         bool                           m_SSGIFailed = false;
         // The MegaLights translucency volume (per view: its history is this view's), created on the first frame
-        // that needs it; its quality (Shadows.MegaLightsVolume*, Shadows.MegaLightsMaxHistory) taken each
-        // BeginScene.
+        // that needs it; its quality (Shadows.MegaLightsVolume*) taken each BeginScene.
         System::MegaLightsVolumeRenderer m_MegaLightsVolume;
         System::MegaLightsVolumeQuality  m_MegaLightsVolumeQuality;
         // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that

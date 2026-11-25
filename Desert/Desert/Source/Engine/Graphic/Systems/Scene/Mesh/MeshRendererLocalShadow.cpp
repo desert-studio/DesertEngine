@@ -671,7 +671,8 @@ namespace Desert::Graphic::System
                      "first; {}.",
                      refused, atlasSide, atlasSide, kMinLocalShadowTile, kMinLocalShadowTile,
                      onlyLights != nullptr ? "they are ray traced with one hard ray"
-                                           : "whatever reads the maps draws them UNSHADOWED" );
+                                           : "the surfaces trace the screen depth for them, the volumes draw them "
+                                             "UNSHADOWED" );
         }
     }
 

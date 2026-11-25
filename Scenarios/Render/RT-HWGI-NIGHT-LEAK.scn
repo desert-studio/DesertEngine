@@ -1,0 +1,140 @@
+# RT-HWGI-NIGHT-LEAK: the cypress view of the Bistro night, hardware traced and at the level's own methods, against
+# the path tracer of this build (it transmits light through two-sided foliage). The exposure is fixed in every frame.
+# Numbers, linear luminance L, every frame averaged in 4x4 blocks, against pt, the same crop in both:
+# [emissive_bar] the surfaces around the lit bar (the bar's own saturated pixels cut out), hw and level: L +-20 %, R/G +-10 %.
+# [cypress_hw] the cypress, hw: L +-25 %, R/G and B/G +-15 %, pixels with any channel >= 0.99 no more than pt + 0.5 pp.
+# [cypress_level] the cypress, level: L +-25 %, blocks under 0.1 of pt's median no more than pt + 5 pp.
+# [disocclusion] move against settled: mean |dL| <= 10 % of settled L on the 16 px behind the cypress outline, no block
+# darker than 0.8 of settled.
+# THE CAUSE of the hardware cypress excess (388,228,10 against pt 94,62,0.5 before the change) is not established: the
+# i_ frames each switch one method on top of the level and name the one that brings it. Nothing is claimed from [hw] alone.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 0.5260688
+Когда frames 180
+Тогда-вид level the picture of the scene and the level, nothing overridden
+Тогда [emissive_bar]: the emissive triangles light their neighbours as in pt
+Когда run Quality "Quality: Shadows.Method HardwareTraced"
+Когда frames 120
+Тогда-вид i_hw_shadows hardware shadows alone
+Тогда [i_hw_shadows]: says whether the cypress excess comes with the shadows
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 120
+Тогда-вид i_hw_reflections hardware reflections alone
+Тогда [i_hw_reflections]: says whether the cypress excess comes with the reflections; the shield is not blue
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда frames 180
+Тогда-вид i_hw_gi hardware traced indirect light alone
+Тогда [i_hw_gi]: says whether the cypress excess comes with the indirect light
+Когда run Quality "Quality: GlobalIllumination.Method Off"
+Когда frames 120
+Тогда-вид i_direct the direct light alone
+Тогда [i_direct]: the direct light of the cypress at the level's shadows
+Когда run Quality "Quality: Shadows.Method HardwareTraced"
+Когда frames 120
+Тогда-вид i_direct_hw_shadows the direct light alone under hardware shadows
+Тогда [i_direct_hw_shadows]: the cypress direct light differs from i_direct by its shadow only
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 180
+Тогда-вид hw shadows, reflections and indirect light hardware traced
+Тогда [cypress_hw]: within the tolerance of pt
+Тогда [hw]: the shield is teal as in pt, not blue
+Когда run View "View mode: Base Color"
+Когда frames 8
+Тогда-вид basecolor the cypress base colour
+Тогда [basecolor]: the albedo map at its tint, the same as in the level's path
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда run Quality "Quality: PathTracing.Denoiser Off"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
+Когда frames 200
+Тогда-вид pt the path tracer, the reference
+Тогда [pt]: the cypress transmits light through its leaves, no fireflies
+Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
+Когда run Quality "Quality: PathTracing.Denoiser Level"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Shadows.Method HardwareTraced"
+Когда frames 180
+# 30 cm to the right (0.8,0,-0.6), 1 cm per frame, the shot at once.
+Когда --subject viewport set Camera.Position -19.2,250,329.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -18.4,250,328.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -17.6,250,328.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -16.8,250,327.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -16.0,250,327.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -15.2,250,326.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -14.4,250,325.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -13.6,250,325.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -12.8,250,324.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -12.0,250,324.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -11.2,250,323.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -10.4,250,322.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -9.6,250,322.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -8.8,250,321.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -8.0,250,321.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -7.2,250,320.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -6.4,250,319.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -5.6,250,319.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -4.8,250,318.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -4.0,250,318.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -3.2,250,317.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -2.4,250,316.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -1.6,250,316.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -0.8,250,315.6
+Когда frames 1
+Когда --subject viewport set Camera.Position 0.0,250,315.0
+Когда frames 1
+Когда --subject viewport set Camera.Position 0.8,250,314.4
+Когда frames 1
+Когда --subject viewport set Camera.Position 1.6,250,313.8
+Когда frames 1
+Когда --subject viewport set Camera.Position 2.4,250,313.2
+Когда frames 1
+Когда --subject viewport set Camera.Position 3.2,250,312.6
+Когда frames 1
+Когда --subject viewport set Camera.Position 4.0,250,312.0
+Когда frames 1
+Тогда-вид move the frame right after the move
+Когда frames 180
+Тогда-вид settled the same camera, settled
+Тогда [disocclusion]: no dark trail behind the cypress outline in move
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 0.5260688662528992
+Тогда z the levels and the exposure are restored

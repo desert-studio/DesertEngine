@@ -1395,7 +1395,8 @@ namespace Desert::Graphic
         }
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
-             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
+             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ),
+             .LocalScreenTraceIterations = quality.As<int>( Parameter::ShadowLocalScreenTraceIterations ) };
         if ( const auto& mesh = m_Systems.Mesh )
         {
             mesh->SetRainOcclusionQuality( RainOcclusionQuality{
@@ -1437,15 +1438,13 @@ namespace Desert::Graphic
                   static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRayLocal ) ) };
         m_MegaLightsQuality = System::MegaLightsQuality{
              .SamplesPerPixel  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
-             .SpatialSamples   = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
-             .MaxHistory       = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
              .DenoiserRadius   = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
              .DownsampleFactor = quality.As<uint32_t>( Parameter::ShadowMegaLightsDownsampleFactor ) };
         m_MegaLightsVolumeQuality = System::MegaLightsVolumeQuality{
              .TilePixels = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeTilePixels ),
              .Slices     = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeSlices ),
              .Samples    = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeSamples ),
-             .MaxHistory = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ) };
+             .MaxHistory = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeMaxHistory ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );
@@ -2718,8 +2717,10 @@ namespace Desert::Graphic
             // MSAA the prepass's multisampled depth through its own resolve, once (the base pass writes no depth,
             // so this is the opaque depth the receivers read).
             const bool volumeTracesScreen = LocalLightsAreStochastic() && StochasticTraceSources().ScreenTrace();
+            // A casting light without a shadow map is traced on this depth's hierarchy by the base pass.
+            const bool baseTracesScreen = LocalLightsNeedScreenTrace();
             const RDG::TextureRef prepassDepth =
-                 sceneDepth.IsValid() && ( LocalLightsReadVirtualPages() || volumeTracesScreen )
+                 sceneDepth.IsValid() && ( LocalLightsReadVirtualPages() || volumeTracesScreen || baseTracesScreen )
                       ? AddFrameSceneDepthResolve( graph, textures, "Forward: Prepass DepthResolve" )
                       : RDG::TextureRef{};
             // Stochastic with vsm+screen: the volume's froxels read the same local pages (MegaLightsVolumeVirtual).
@@ -2729,6 +2730,8 @@ namespace Desert::Graphic
                 (void)AddFrameVirtualShadows( graph, textures, prepassDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ),
                                               frame, {} );
             }
+            if ( baseTracesScreen && prepassDepth.IsValid() && EnsureScreenTraceResources() )
+                AddFrameHZB( graph, textures, prepassDepth );
             AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
         }
         DESERT_PROFILE_PHASE_END( lightGridPhases );
@@ -3996,6 +3999,8 @@ namespace Desert::Graphic
                            .Lights   = refs.Transients.Lights,
                            .PointLights = pointCount,
                            .SpotLights  = spotCount,
+                           .PointSources = m_PointLightShadows,
+                           .SpotSources  = m_SpotLightShadows,
                            .Width       = frame.Split.Render.Width,
                            .Height      = frame.Split.Render.Height,
              // The G-buffer depth is the opaque scene: the march has

@@ -177,6 +177,9 @@ namespace Common::Scalability
         // search. 4..64 and 4..32.
         ShadowFilterTaps,
         ShadowBlockerSearchTaps,
+        // Iterations of the closest-HZB walk that shadows a casting local light with no shadow map, per pixel
+        // (Mesh/LocalLightShadow.glslh; UE r.MegaLights.ScreenTraces.MaxIterations). 8..128
+        ShadowLocalScreenTraceIterations,
         // HardwareTraced sun: the ShadowVisibility denoiser's reconstruction kernel, in taps from the centre per
         // side (2 = 5x5; UE r.Shadow.Denoiser.ReconstructionSamples). 1..3
         ShadowRayTracedDenoiserRadius,
@@ -200,26 +203,22 @@ namespace Common::Scalability
         // 500..200000.
         ShadowWindAnimationDistance,
         // Shadows Stochastic (MegaLights, System::MegaLightsRenderer; UE r.MegaLights.*): the traced light samples
-        // per sample pixel (reservoirs, each traced once after the reuse; UE NumSamplesPerPixel), the ReSTIR
-        // spatial reuse's neighbours per sample (0 = no spatial reuse), the temporal reuse's history cap in frames
-        // (a reprojected reservoir weighs at most this many of the current frame's; 0 = no temporal reuse; UE
-        // Temporal.MaxFramesAccumulated), and the denoiser's reconstruction kernel, taps per side from the centre
-        // (ScreenSpaceDenoiser DiffuseIndirect and DirectSpecular), and the render pixels per sample pixel, per
-        // side (UE r.MegaLights.DownsampleFactor: 2 = the samples at half resolution, upsampled by the
-        // shading). 1..4, 0..8, 0..30, 1..3, 1..2.
+        // per sample pixel (each traced once; UE NumSamplesPerPixel), the denoiser's reconstruction kernel, taps
+        // per side from the centre (ScreenSpaceDenoiser DiffuseIndirect and DirectSpecular), and the render pixels
+        // per sample pixel, per side (UE r.MegaLights.DownsampleFactor: 2 = the samples at half resolution,
+        // upsampled by the shading). 1..4, 1..3, 1..2.
         ShadowMegaLightsSamplesPerPixel,
-        ShadowMegaLightsSpatialSamples,
-        ShadowMegaLightsMaxHistory,
         ShadowMegaLightsDenoiserRadius,
         ShadowMegaLightsDownsampleFactor,
         // The MegaLights translucency volume (System::MegaLightsVolumeRenderer; UE MegaLights' volume, sampled by
         // the forward and translucent surfaces): its froxel edge in render pixels (UE r.MegaLights.Volume's grid
         // cell, the fog grid's 16 px times DownsampleFactor), its depth slices over the light grid's near..far
-        // (logarithmic), and the traced light samples per froxel per frame (UE NumSamplesPerVoxel).
-        // 8..64, 16..128, 1..4.
+        // (logarithmic), the traced light samples per froxel per frame (UE NumSamplesPerVoxel), and the history cap in
+        // frames of its temporal accumulation (0 = none). 8..64, 16..128, 1..4, 0..30.
         ShadowMegaLightsVolumeTilePixels,
         ShadowMegaLightsVolumeSlices,
         ShadowMegaLightsVolumeSamples,
+        ShadowMegaLightsVolumeMaxHistory,
         // The view's rain occlusion (Graphic/RainOcclusion.hpp, MeshRenderer::RainOcclusionPass): the top-down
         // map's texels per side (256..4096), its box's side and depth in world cm (1000..100000), and how far the
         // camera moves from the box's centre, in percent of the side, before the box is recentred and redrawn

@@ -464,8 +464,8 @@ namespace Desert::Graphic::System
 
         // GRAPH BUILD (before the Composite node): the lights as graph buffers, each uploaded by the graph's
         // upload command. No light is one zeroed entry (a storage buffer is never empty); the counts are the
-        // material's LightsMetadata. @p grid = MakeLightGridParams of this view: its parameters are uploaded too
-        // and its cell buffer created, which "LightGrid" fills.
+        // material's LightsMetadata. @p grid = MakeLightGridParams of this view: its
+        // parameters are uploaded too and its cell buffer created, which "LightGrid" fills.
         // FPS-SET-MEMO4: every buffer is the view's kept one (@p kept, a stable VkBuffer per frame slot), not a
         // graph transient; refused when one cannot be made or imported.
         static Common::ResultStr<DeferredCompositeLights>

@@ -153,6 +153,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB ShadowFilter.x: "
                "Mesh/CascadedShadow.glslh PCSS blocker search taps)",
                16, Vis::Advanced },
+             { P::ShadowLocalScreenTraceIterations, G::Shadows, "Shadows.LocalScreenTraceIterations", 8, 128, CL::None,
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB ShadowFilter.w: "
+               "Mesh/LocalLightShadow.glslh HZB walk)",
+               64, Vis::Advanced },
              { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
                "kernel)",
@@ -183,15 +187,8 @@ namespace Common::Scalability
                "caster's movable / still split)",
                15000, Vis::Advanced },
              { P::ShadowMegaLightsSamplesPerPixel, G::Shadows, "Shadows.MegaLightsSamplesPerPixel", 1, 4, CL::None,
-               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (reservoirs per pixel)", 2,
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (traced samples per sample pixel)", 4,
                Vis::Advanced },
-             { P::ShadowMegaLightsSpatialSamples, G::Shadows, "Shadows.MegaLightsSpatialSamples", 0, 8, CL::None,
-               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Spatial Resampling\")",
-               4, Vis::Advanced },
-             { P::ShadowMegaLightsMaxHistory, G::Shadows, "Shadows.MegaLightsMaxHistory", 0, 30, CL::None,
-               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Temporal "
-               "Resampling\")",
-               20, Vis::Advanced },
              { P::ShadowMegaLightsDenoiserRadius, G::Shadows, "Shadows.MegaLightsDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect / DenoiseDirectSpecular "
                "(MegaLights kernel)",
@@ -208,6 +205,9 @@ namespace Common::Scalability
              { P::ShadowMegaLightsVolumeSamples, G::Shadows, "Shadows.MegaLightsVolumeSamples", 1, 4, CL::None,
                "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (traced samples per froxel)", 2,
                Vis::Advanced },
+             { P::ShadowMegaLightsVolumeMaxHistory, G::Shadows, "Shadows.MegaLightsVolumeMaxHistory", 0, 30,
+               CL::None, "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (history cap, frames)",
+               20, Vis::Advanced },
              { P::ShadowRainOcclusionMapSize, G::Shadows, "Shadows.RainOcclusionMapSize", 256, 4096, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (\"Weather: RainOcclusion\" "
                "target side)",

@@ -36,7 +36,7 @@
 // Volume" (Programs/Shadows/MegaLightsVolume.shader) draws Shadows.MegaLightsVolumeSamples local lights by
 // resampled importance over the light-grid cell, traces each once toward its source sphere, projects the shadowed
 // estimate on L1 spherical harmonics (one RGBA16F volume per colour channel) and blends it with the previous
-// frame's volume at the reprojected froxel (Shadows.MegaLightsMaxHistory, as the surface samples' temporal reuse).
+// frame's volume at the reprojected froxel (Shadows.MegaLightsVolumeMaxHistory).
 // The readers: Common/MegaLightsVolume.glslh (Mesh/Surface/Pass_Forward.glslh, Pass_Forward_Translucent.glslh),
 // bound by name through SceneViewInputs::MegaLightsVolume.
 // The history is this object's, per view: two slots of three volumes, one read and one written per frame, created
@@ -60,7 +60,7 @@ namespace Desert::Graphic::System
     // UE r.RayTracing.NormalBias (0.1 cm), as the surface samples' rays: the gap a froxel ray leaves at both ends.
     inline constexpr float kMegaLightsVolumeRayBias = 0.1f;
 
-    // Scalability Shadows.MegaLightsVolume* (and the shared Shadows.MegaLightsMaxHistory), taken each BeginScene.
+    // Scalability Shadows.MegaLightsVolume*, taken each BeginScene.
     struct MegaLightsVolumeQuality
     {
         uint32_t TilePixels = 16; // froxel edge, render pixels

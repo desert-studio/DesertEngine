@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <format>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
@@ -53,11 +54,12 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, SsrTraceTexture );
         DESERT_SHADER_PARAMETER( Texture, TraceRayTexture );
         DESERT_SHADER_PARAMETER( Texture, AccumulatedSignalTexture );
-        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, HistoryCountTexture );
+        DESERT_SHADER_PARAMETER( Texture, HistoryMomentsTexture );
         DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryCountTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryMomentsTexture );
         DESERT_SHADER_PARAMETER( UniformBuffer, DenoiserViewUB );
     };
 
@@ -69,6 +71,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
         DESERT_SHADER_PARAMETER( Texture, AccumulatedSignalTexture );
         DESERT_SHADER_PARAMETER( Texture, HistoryCountTexture );
+        DESERT_SHADER_PARAMETER( Texture, HistoryMomentsTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, DenoisedSignalTexture );
         DESERT_SHADER_PARAMETER( UniformBuffer, DenoiserViewUB );
     };
@@ -128,6 +131,17 @@ namespace Desert::Graphic::System
         SkyVisibility = 1,
     };
 
+    // A denoiser's slots in one graph: the premultiplied accumulation, its sample count with its view depth, and its
+    // luminance moments (the Black texture for a signal that keeps none, ScreenSpaceDenoiser::KeepsMoments).
+    // Readable: the previous frame of this view wrote them at this size; otherwise all three are Black.
+    struct DenoiserHistory
+    {
+        RDG::TextureRef Accumulation;
+        RDG::TextureRef SampleCount;
+        RDG::TextureRef Moments;
+        bool            Readable = false;
+    };
+
     // What a diffuse-indirect producer hands the denoiser (UE FDiffuseIndirectInputs): its full-resolution
     // estimate, rgb = light, a = per Alpha - RSM-GI's bounce light, MegaLights' demodulated local light (the share
     // they answered), SSGI's screen bounce (the sky's visibility).
@@ -139,10 +153,12 @@ namespace Desert::Graphic::System
         uint32_t ReconstructionRadius = 2;
         // What Signal's a means.
         DiffuseIndirectAlpha Alpha = DiffuseIndirectAlpha::AnsweredShare;
+        // The history a producer took of this graph itself (AcquireHistory); none = the denoiser takes it.
+        std::optional<DenoiserHistory> History;
     };
 
     // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart
-    // from the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 on a surface. The
+    // from the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 where it answered. The
     // diffuse half goes through DiffuseIndirectDenoiserInputs, so a glossy highlight never gets the diffuse
     // kernel.
     struct DirectSpecularDenoiserInputs
@@ -178,7 +194,7 @@ namespace Desert::Graphic::System
     //     reconstruction of the producer's raw samples at full resolution, every tap weighed by the bilateral
     //     weight of its surface against the pixel's (depth plane, normal, specular lobe).
     //  2) TEMPORAL ACCUMULATION (SSDTemporalAccumulation): the history reprojected (reflections through the
-    //     reflected point), rejected against the neighbourhood's variance, accumulated by sample count.
+    //     reflected point) texel by texel off the same surface (view depth), rejected against the neighbourhood's variance, accumulated by sample count.
     //  3) HISTORY CONVOLUTION (SSDHistoryConvolution): a bilateral post filter whose radius shrinks with the
     //     pixel's sample count - the output.
     // The history (accumulation + sample count) is this object's, per view (each SceneRenderer's producer owns
@@ -244,6 +260,26 @@ namespace Desert::Graphic::System
         {
             for ( HistorySlot& slot : m_Slots )
                 slot.Stamp.Invalidate();
+        }
+
+        // This frame's readable history in @p graph, for a producer that samples it before it denoises (MegaLights'
+        // hash reprojection): taken once per graph, and handed back with the denoiser's inputs.
+        [[nodiscard]] DenoiserHistory AcquireHistory( RDG::Builder& graph, const ViewFrame& frame,
+                                                      const RDG::TextureRef black, const uint32_t width,
+                                                      const uint32_t height )
+        {
+            HistorySlot& previous = m_Slots[m_Parity];
+            // Decided at build time: the exec runs after the frame was built and must not consult a stamp a later
+            // frame may have written.
+            const bool readable = previous.Built && previous.Width == width && previous.Height == height &&
+                                  previous.Stamp.ReadableIn( frame );
+            if ( !readable )
+                return { .Accumulation = black, .SampleCount = black, .Moments = black };
+            const SlotTextures slot = AcquireSlot( graph, previous, width, height, SlotName( m_Parity ) );
+            return { .Accumulation = slot.Accumulation,
+                     .SampleCount  = slot.SampleCount,
+                     .Moments      = KeepsMoments( m_Signal ) ? slot.Moments : black,
+                     .Readable     = true };
         }
 
         // UE IScreenSpaceDenoiser::DenoiseReflections. Adds the three passes to @p graph and returns the denoised
@@ -313,7 +349,7 @@ namespace Desert::Graphic::System
             if ( m_Signal != DenoiserSignal::DiffuseIndirect || !m_ReconstructPipeline )
                 return {};
             return DenoiseSurfaceSignal<ShaderPush::SSDReconstructDiffuse>(
-                 graph, in.Signal, in.ReconstructionRadius, in.Alpha, scene, frame, width, height,
+                 graph, in.Signal, in.ReconstructionRadius, in.Alpha, in.History, scene, frame, width, height,
                  "Denoise: Diffuse Reconstruction" );
         }
 
@@ -329,8 +365,8 @@ namespace Desert::Graphic::System
             if ( m_Signal != DenoiserSignal::DirectSpecular || !m_ReconstructPipeline )
                 return {};
             return DenoiseSurfaceSignal<ShaderPush::SSDReconstructDirectSpecular>(
-                 graph, in.Signal, in.ReconstructionRadius, DiffuseIndirectAlpha::AnsweredShare, scene, frame, width, height,
-                                         "Denoise: Direct Specular Reconstruction" );
+                 graph, in.Signal, in.ReconstructionRadius, DiffuseIndirectAlpha::AnsweredShare, std::nullopt,
+                 scene, frame, width, height, "Denoise: Direct Specular Reconstruction" );
         }
 
     private:
@@ -341,7 +377,9 @@ namespace Desert::Graphic::System
         template <ShaderPush::Block Push>
         RDG::TextureRef DenoiseSurfaceSignal( RDG::Builder& graph, const RDG::TextureRef input,
                                               const uint32_t             reconstructionRadius,
-                                              const DiffuseIndirectAlpha alpha, const DenoiserSceneTextures& scene,
+                                              const DiffuseIndirectAlpha alpha,
+                                              const std::optional<DenoiserHistory>& history,
+                                              const DenoiserSceneTextures&          scene,
                                               const ViewFrame& frame, const uint32_t width, const uint32_t height,
                                               const std::string_view passName )
         {
@@ -385,7 +423,7 @@ namespace Desert::Graphic::System
                                                                      Groups( width ), Groups( height ), 1 );
                  } );
             return AddTemporalAndConvolution( graph, signal, scene.Black, scene.Black, scene, frame, uniforms,
-                                              width, height, 1.0f, 0.0f, alphaIsSignal );
+                                              width, height, 1.0f, 0.0f, alphaIsSignal, history );
         }
 
     public:
@@ -470,12 +508,21 @@ namespace Desert::Graphic::System
             return roughSpecularFromGI ? 1.0f : 0.0f;
         }
 
+        // Whether a signal keeps its luminance moments (SSDTemporalAccumulation.shader 4): the surface lights, whose
+        // history convolution weighs its taps by their deviation. A reflection's history is reprojected through
+        // the reflected point and a penumbra mask is its own edge: neither reads one.
+        [[nodiscard]] static constexpr bool KeepsMoments( const DenoiserSignal signal )
+        {
+            return signal == DenoiserSignal::DiffuseIndirect || signal == DenoiserSignal::DirectSpecular;
+        }
+
         // The formats of the denoiser's images (ViewMemory counts them).
         static constexpr Core::Formats::ImageFormat kSignalFormat      = ViewTargetFormats::kDenoiserSignal;
         static constexpr Core::Formats::ImageFormat kSampleCountFormat = ViewTargetFormats::kDenoiserSampleCount;
+        static constexpr Core::Formats::ImageFormat kMomentsFormat     = ViewTargetFormats::kDenoiserMoments;
 
-        // The bytes one denoiser keeps between frames at this size: both slots of the signal's history and of its
-        // sample count. What a light's history costs the video memory
+        // The bytes a denoiser that keeps no moments (a light's penumbra mask) keeps between frames at this size:
+        // both slots of the signal's history and of its sample count. What a light's history costs the video memory
         // (SceneRendererImpl::SelectLocalShadowHistories).
         [[nodiscard]] static uint64_t HistoryBytes( const uint32_t width, const uint32_t height )
         {
@@ -543,12 +590,14 @@ namespace Desert::Graphic::System
             return kMaxSampleCountDiffuseIndirect; // unreachable: the switch names every signal (-Wswitch)
         }
 
-        // One history slot: the premultiplied accumulation and its sample count, each a graph texture created
-        // once (CreateTexture + Extract) and registered every frame after (RegisterExternal).
+        // One history slot: the premultiplied accumulation, its sample count with its view depth and, for a signal
+        // that KeepsMoments, its luminance moments - each a graph texture created once (CreateTexture + Extract) and
+        // registered every frame after (RegisterExternal).
         struct HistorySlot
         {
             RDG::ExternalTexture Accumulation;
             RDG::ExternalTexture SampleCount;
+            RDG::ExternalTexture Moments;
             bool                 Built  = false;
             uint32_t             Width  = 0;
             uint32_t             Height = 0;
@@ -575,26 +624,47 @@ namespace Desert::Graphic::System
             return buffer;
         }
 
-        // The slot's two textures in this graph: registered when they exist at this size, created and extracted
+        // The slot's textures in this graph: registered when they exist at this size, created and extracted
         // (kept past the graph, sampled by next frame's temporal pass) when they do not.
-        std::array<RDG::TextureRef, 2> AcquireSlot( RDG::Builder& graph, HistorySlot& slot, const uint32_t width,
-                                                    const uint32_t height, const std::string& name )
+        // Moments: invalid for a signal that keeps none.
+        struct SlotTextures
+        {
+            RDG::TextureRef Accumulation;
+            RDG::TextureRef SampleCount;
+            RDG::TextureRef Moments;
+        };
+        SlotTextures AcquireSlot( RDG::Builder& graph, HistorySlot& slot, const uint32_t width,
+                                  const uint32_t height, const std::string& name )
         {
             if ( slot.Built && slot.Width == width && slot.Height == height )
-                return { graph.RegisterExternal( slot.Accumulation, name ),
-                         graph.RegisterExternal( slot.SampleCount, name + ".Count" ) };
+                return { .Accumulation = graph.RegisterExternal( slot.Accumulation, name ),
+                         .SampleCount  = graph.RegisterExternal( slot.SampleCount, name + ".Count" ),
+                         .Moments      = KeepsMoments( m_Signal )
+                                              ? graph.RegisterExternal( slot.Moments, name + ".Moments" )
+                                              : RDG::TextureRef{} };
             slot.Accumulation = {};
             slot.SampleCount  = {};
+            slot.Moments      = {};
             slot.Stamp.Invalidate();
             const RDG::TextureRef accumulation = graph.CreateTexture( Desc( width, height, kSignalFormat ), name );
             const RDG::TextureRef count =
                  graph.CreateTexture( Desc( width, height, kSampleCountFormat ), name + ".Count" );
             graph.Extract( accumulation, slot.Accumulation, RDG::Access::SampledCompute );
             graph.Extract( count, slot.SampleCount, RDG::Access::SampledCompute );
+            RDG::TextureRef moments;
+            if ( KeepsMoments( m_Signal ) )
+            {
+                moments = graph.CreateTexture( Desc( width, height, kMomentsFormat ), name + ".Moments" );
+                graph.Extract( moments, slot.Moments, RDG::Access::SampledCompute );
+            }
             slot.Built  = true;
             slot.Width  = width;
             slot.Height = height;
-            return { accumulation, count };
+            return { .Accumulation = accumulation, .SampleCount = count, .Moments = moments };
+        }
+        [[nodiscard]] std::string SlotName( const uint32_t slot ) const
+        {
+            return std::format( "{}.History{}", SignalName( m_Signal ), slot );
         }
 
         // @p trace / @p traceRay: the reflections' trace and hit points, from which the temporal pass
@@ -604,33 +674,31 @@ namespace Desert::Graphic::System
         // @p alphaIsSignal: 1 when the signal's a is a signal of its own carried straight (DiffuseIndirectAlpha::
         // SkyVisibility) - the convolution then writes the accumulation as it is; 0 when a is the answered share
         // and the convolution divides the premultiplied rgb by it.
+        // @p acquired: the history the producer took of this graph already; none = taken here.
         RDG::TextureRef AddTemporalAndConvolution( RDG::Builder& graph, const RDG::TextureRef signal,
                                                    const RDG::TextureRef trace, const RDG::TextureRef traceRay,
                                                    const DenoiserSceneTextures& scene, const ViewFrame& frame,
                                                    const RDG::BufferRef uniforms, const uint32_t width,
                                                    const uint32_t height, const float minSampleCount,
                                                    const float signalGate    = 0.0f,
-                                                   const float alphaIsSignal = 0.0f )
+                                                   const float alphaIsSignal = 0.0f,
+                                                   const std::optional<DenoiserHistory>& acquired = std::nullopt )
         {
-            const std::string prefix   = SignalName( m_Signal ) + ".History";
-            HistorySlot& previous = m_Slots[m_Parity];
-            HistorySlot& next     = m_Slots[1u - m_Parity];
-            // Decided at build time: the exec runs after the frame was built and must not consult a stamp a later
-            // frame may have written.
-            const bool readable = previous.Built && previous.Width == width && previous.Height == height &&
-                                  previous.Stamp.ReadableIn( frame );
-            std::array<RDG::TextureRef, 2> history = { scene.Black, scene.Black };
-            if ( readable )
-                history = AcquireSlot( graph, previous, width, height, std::format( "{}{}", prefix, m_Parity ) );
-            const std::array<RDG::TextureRef, 2> written =
-                 AcquireSlot( graph, next, width, height, std::format( "{}{}", prefix, 1u - m_Parity ) );
-            m_Parity = 1u - m_Parity;
+            const DenoiserHistory history =
+                 acquired ? *acquired : AcquireHistory( graph, frame, scene.Black, width, height );
+            HistorySlot& next    = m_Slots[1u - m_Parity];
+            SlotTextures written = AcquireSlot( graph, next, width, height, SlotName( 1u - m_Parity ) );
+            m_Parity             = 1u - m_Parity;
+            const bool keepsMoments = KeepsMoments( m_Signal );
+            // The program declares the moments for every signal; one that keeps none never writes this texel.
+            if ( !keepsMoments )
+                written.Moments = graph.CreateTexture( Desc( 1u, 1u, kMomentsFormat ), "SSD.NoMoments" );
 
-            const float                    historyReadable = readable ? 1.0f : 0.0f;
+            const float                    historyReadable = history.Readable ? 1.0f : 0.0f;
             const ShaderPush::SSDTemporalAccumulation temporalPush{
                  .Params  = glm::vec4( historyReadable, static_cast<float>( m_Signal ), MaxSampleCount( m_Signal ),
                                        minSampleCount ),
-                 .Params2 = glm::vec4( signalGate, 0.0f, 0.0f, 0.0f ) };
+                 .Params2 = glm::vec4( signalGate, keepsMoments ? 1.0f : 0.0f, 0.0f, 0.0f ) };
             HistorySlot*    stamped = &next;
             graph.AddPass(
                  "Denoise: Temporal Accumulation", m_PassFlags,
@@ -652,17 +720,20 @@ namespace Desert::Graphic::System
                           .Texture( ScreenSpaceDenoiserTemporalShaderParameters::TraceRayTexture, traceRay,
                                     RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ) )
                           .Texture( ScreenSpaceDenoiserTemporalShaderParameters::AccumulatedSignalTexture,
-                                    history[0], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Sampler( ScreenSpaceDenoiserTemporalShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() )
-                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::HistoryCountTexture, history[1],
-                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                                    history.Accumulation, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::HistoryCountTexture,
+                                    history.SampleCount, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::HistoryMomentsTexture,
+                                    history.Moments, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Texture( ScreenSpaceDenoiserTemporalShaderParameters::VelocityTexture, scene.Velocity,
                                     RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Storage( ScreenSpaceDenoiserTemporalShaderParameters::NewHistoryTexture, written[0],
-                                    RDG::Access::StorageWrite )
+                          .Storage( ScreenSpaceDenoiserTemporalShaderParameters::NewHistoryTexture,
+                                    written.Accumulation, RDG::Access::StorageWrite )
                           .Storage( ScreenSpaceDenoiserTemporalShaderParameters::NewHistoryCountTexture,
-                                    written[1], RDG::Access::StorageWrite )
+                                    written.SampleCount, RDG::Access::StorageWrite )
+                          .Storage( ScreenSpaceDenoiserTemporalShaderParameters::NewHistoryMomentsTexture,
+                                    written.Moments, RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserTemporalShaderParameters::DenoiserViewUB, uniforms )
                           .PushConstants<ShaderPush::SSDTemporalAccumulation>();
                  },
@@ -683,7 +754,8 @@ namespace Desert::Graphic::System
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), SignalName( m_Signal ) );
             graph.SetFaultDefault( output, RDG::FaultDefault::Black );
             const ShaderPush::SSDHistoryConvolution convolutionPush{
-                 .Params = glm::vec4( signalGate, static_cast<float>( m_Signal ), alphaIsSignal, 0.0f ) };
+                 .Params = glm::vec4( signalGate, static_cast<float>( m_Signal ), alphaIsSignal,
+                                      keepsMoments ? 1.0f : 0.0f ) };
             graph.AddPass(
                  "Denoise: History Convolution", m_PassFlags,
                  [&]( RDG::PassBuilder& pass )
@@ -698,9 +770,13 @@ namespace Desert::Graphic::System
                           .Texture( ScreenSpaceDenoiserConvolutionShaderParameters::GBufferDepthTexture,
                                     scene.GBufferDepth, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Texture( ScreenSpaceDenoiserConvolutionShaderParameters::AccumulatedSignalTexture,
-                                    written[0], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                                    written.Accumulation, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Texture( ScreenSpaceDenoiserConvolutionShaderParameters::HistoryCountTexture,
-                                    written[1], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                                    written.SampleCount, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserConvolutionShaderParameters::HistoryMomentsTexture,
+                                    keepsMoments ? written.Moments : scene.Black, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
                           .Storage( ScreenSpaceDenoiserConvolutionShaderParameters::DenoisedSignalTexture, output,
                                     RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserConvolutionShaderParameters::DenoiserViewUB, uniforms )

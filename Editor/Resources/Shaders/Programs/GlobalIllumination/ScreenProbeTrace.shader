@@ -273,7 +273,7 @@ Shader "ScreenProbeTrace"
         #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
         Uniform(19) texture2D GBufferEmissiveTexture;
         #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
-        // The shading word: a hit's EMISSION_IS_LIGHT (Common/GIHitLighting.glslh GIHitMaterial).
+        // The shading word: a hit's far side and emission mark (GIHitMaterial).
         layout(binding = 24) uniform utexture2D GBufferShadingWordTexture;
         #define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
         #elif !defined( SP_TRACE_READS_CARDS )
