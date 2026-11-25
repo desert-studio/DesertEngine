@@ -34,6 +34,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Core::Rules
 {
@@ -84,17 +85,45 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kColliderComponent            = "Collider";
     inline constexpr std::string_view kCharacterControllerComponent = "CharacterController";
 
-    // The kind of @p record, the costliest first: a prefab instance makes a whole file; a landscape tile, a
-    // foliage field, a skinned mesh and an instance list each build more than a primitive; a body is a primitive
-    // plus a Jolt shape.
+    // A COMPONENT WHOSE MODULE STATES ITS RECORD'S KIND (UE: the actor class decides what it costs to stream in),
+    // registered at the module's StartupModule (the terrain module: a tile is a heightfield tile); a second row
+    // for a component is ignored. Read before this file's own kinds, in registration order.
+    struct ActivationKindComponent
+    {
+        std::string_view     Component;
+        ActivationRecordKind Kind = ActivationRecordKind::Plain;
+    };
+
+    namespace Detail
+    {
+        inline std::vector<ActivationKindComponent>& ActivationKindComponentList()
+        {
+            static std::vector<ActivationKindComponent> rows;
+            return rows;
+        }
+    } // namespace Detail
+
+    inline void RegisterActivationKind( const ActivationKindComponent& row )
+    {
+        for ( const ActivationKindComponent& known : Detail::ActivationKindComponentList() )
+            if ( known.Component == row.Component )
+                return;
+        if ( !row.Component.empty() )
+            Detail::ActivationKindComponentList().push_back( row );
+    }
+
+    // The kind of @p record, the costliest first: a prefab instance makes a whole file; a registered kind (a
+    // heightfield tile), a foliage field, a skinned mesh and an instance list each build more than a primitive; a
+    // body is a primitive plus a Jolt shape.
     [[nodiscard]] inline ActivationRecordKind ActivationKindOf( const Assets::EntityData& record )
     {
         const auto has = [&record]( std::string_view key )
         { return Detail::PayloadOf( record, key ).has_value(); };
         if ( record.PrefabPath.has_value() )
             return ActivationRecordKind::PrefabInstance;
-        if ( has( kLandscapeTileComponent ) )
-            return ActivationRecordKind::LandscapeTile;
+        for ( const ActivationKindComponent& row : Detail::ActivationKindComponentList() )
+            if ( has( row.Component ) )
+                return row.Kind;
         if ( has( kFoliageComponent ) )
             return ActivationRecordKind::Foliage;
         if ( has( kSkinnedMeshComponent ) )

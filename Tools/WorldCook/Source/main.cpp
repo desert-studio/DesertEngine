@@ -1,6 +1,7 @@
 // Thin entry point. Everything the tool does lives in RunWorldCook so the suite can drive the same path.
 
 #include <ToolMain.hpp>
+#include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 
 #include "WorldCookMain.hpp"
 
@@ -16,5 +17,6 @@ static int RunTool( int argc, char** argv )
 
 int main( int argc, char** argv )
 {
+    Desert::LandscapeCore::StartupModule(); // the landscape's partition rows and hooks: a cook places its tiles
     return Desert::Tools::RunMain( "WorldCook", argc, argv, &RunTool );
 }

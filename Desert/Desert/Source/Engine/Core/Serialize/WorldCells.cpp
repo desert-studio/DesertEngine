@@ -2267,7 +2267,8 @@ namespace Desert::Core::WorldCells
             if ( unitOf[group] == "no place" )
             {
                 if ( unplaced++ == 0 )
-                    out += "\nWithout a place (UnplacedPrefabInstances, UnplacedFramedRecords):\n";
+                    out += "\nWithout a place (UnplacedPrefabInstances, UnplacedFramedRecords, "
+                           "UnregisteredRecords):\n";
                 out += composite( group );
             }
         std::format_to( std::back_inserter( out ), "\nIssues: {}\n", issues.size() );

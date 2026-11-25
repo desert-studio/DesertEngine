@@ -123,6 +123,41 @@ namespace Desert::Core::Rules
          std::function<Common::ResultStr<bool>( std::string_view guid, std::string_view path )>;
     inline constexpr std::string_view kFoliageComponent = "Foliage";
 
+    // A COMPONENT WHOSE RECORD ITS MODULE'S OWN HLOD BUILDER DRAWS (UE: an actor class that brings its own
+    // UHLODBuilder, as ALandscapeProxy brings ULandscapeHLODBuilder): the record has no mesh block to instance, so
+    // the instancing leaves it out under its Reason and BuildCellHLOD hands it to that builder. Registered at the
+    // module's StartupModule (the terrain module: its tile and its spline); a second row for a component is
+    // ignored.
+    struct HLODBuilderComponent
+    {
+        std::string_view Component;
+        HLODExclusion    Reason = HLODExclusion::Unreadable;
+    };
+
+    namespace Detail
+    {
+        inline std::vector<HLODBuilderComponent>& HLODBuilderComponentList()
+        {
+            static std::vector<HLODBuilderComponent> rows;
+            return rows;
+        }
+    } // namespace Detail
+
+    inline void RegisterHLODBuilderComponent( const HLODBuilderComponent& row )
+    {
+        for ( const HLODBuilderComponent& known : Detail::HLODBuilderComponentList() )
+            if ( known.Component == row.Component )
+                return;
+        if ( !row.Component.empty() )
+            Detail::HLODBuilderComponentList().push_back( row );
+    }
+
+    // The registered rows, in registration order (the order a record carrying two of them is read in).
+    [[nodiscard]] inline std::span<const HLODBuilderComponent> HLODBuilderComponents()
+    {
+        return Detail::HLODBuilderComponentList();
+    }
+
     struct HLODNotInstanced
     {
         std::size_t   Record = kNoRecord;
@@ -284,16 +319,18 @@ namespace Desert::Core::Rules
                      "an unexpanded instance of '" + *record.PrefabPath + "'" } );
                 continue;
             }
-            // A landscape tile draws terrain from its height file, not from a mesh block (the reason above).
-            if ( Detail::PayloadOf( record, kLandscapeTileComponent ).has_value() )
+            // A record its module's own HLOD builder draws (HLODBuilderComponents: a tile's terrain from its
+            // height file, a spline's meshes bent along it), not a mesh block (the reasons above).
+            const HLODBuilderComponent* ownBuilder = nullptr;
+            for ( const HLODBuilderComponent& row : HLODBuilderComponents() )
+                if ( Detail::PayloadOf( record, row.Component ).has_value() )
+                {
+                    ownBuilder = &row;
+                    break;
+                }
+            if ( ownBuilder != nullptr )
             {
-                hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeTile } );
-                continue;
-            }
-            // A landscape spline draws meshes bent along its splines, not a mesh block (the reason above).
-            if ( Detail::PayloadOf( record, kLandscapeSplineComponent ).has_value() )
-            {
-                hlod.NotInstanced.push_back( { index, HLODExclusion::LandscapeSpline } );
+                hlod.NotInstanced.push_back( { index, ownBuilder->Reason } );
                 continue;
             }
             if ( Detail::PayloadOf( record, kSkinnedMeshComponent ).has_value() )
