@@ -554,12 +554,12 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
     DesertLODTransitionClipped( gl_FragCoord.xy, m_PushConstants.LodFadeSide, cameraUB.LodTransition.x )
 #endif
 #if defined( DESERT_SURFACE_OPACITY_DITHER )
-// A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) cuts below 1 - dither: a pixel is kept with
-// probability = mask, so a mip texel holding the MEAN coverage of leaves smaller than itself keeps their share of
-// the pixel (UE's spelling clips mask - clip + dither - 1; ours drops the clip so a fully opaque texel always stays
-// and the kept share is the mask itself, Wyman & McGuire's hashed alpha test). The clip value is unused then.
+// A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) keeps mask - clip + 0.83 * dither >= 0.5 (UE
+// GetDitheredMaterialMask, BlueNoiseCommon.ush GetBlueNoiseDitheredCoverage): a pixel of a mip texel holding the
+// MEAN coverage of leaves smaller than itself is kept in a share of the frames. UE's 0.83 makes a zero mask never
+// stay and a full one always stay at the default clip, 0.3333.
 #define DESERT_SURFACE_CLIP_THRESHOLD() \
-    ( DESERT_SURFACE_OPACITY_DITHER > 0.5 ? 1.0 - DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
+    ( DESERT_SURFACE_OPACITY_DITHER > 0.5 ? Material.OpacityMaskClipValue + 0.5 - 0.83 * DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
                                           : Material.OpacityMaskClipValue )
 #else
 #define DESERT_SURFACE_CLIP_THRESHOLD() Material.OpacityMaskClipValue

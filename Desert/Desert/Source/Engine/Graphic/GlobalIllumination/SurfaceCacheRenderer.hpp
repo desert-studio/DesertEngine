@@ -156,6 +156,7 @@ namespace Desert::Graphic::SurfaceCache
             RDG::TextureRef                       GBufferDepth;
             RDG::TextureRef                       GBufferA;
             RDG::TextureRef                       GBufferEmissive;
+            RDG::TextureRef                       GBufferShadingWord;
             // GPU-GI-CRITPATH (Scalability GlobalIllumination.SurfaceCacheAsyncRadiosity): true = the radiosity
             // trace and the integration run as compute on the async compute queue, in the segment of the radiance
             // cache's update they read and the screen probes' trace that reads their FinalLighting (UE: Lumen

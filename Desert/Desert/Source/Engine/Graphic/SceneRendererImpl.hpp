@@ -80,6 +80,7 @@
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/LightGrid.hpp>
+#include <Engine/Graphic/LightRowHistory.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/Deformation/DeformationFieldRenderer.hpp>
 
@@ -1969,7 +1970,7 @@ namespace Desert::Graphic
         System::DistanceFieldShadowRenderer m_DistanceFieldShadow;
         bool                                m_DistanceFieldShadowReady  = false;
         bool                                m_DistanceFieldShadowFailed = false;
-        // MegaLights (per view: its reservoir and denoiser histories are this view's), created on the first frame
+        // MegaLights (per view: its visible-light hash and denoiser histories are this view's), created on the first frame
         // that resolves Shadows to Stochastic; its quality (Shadows.MegaLights*) taken each BeginScene.
         System::MegaLightsRenderer m_MegaLights;
         System::MegaLightsQuality  m_MegaLightsQuality;
@@ -1982,8 +1983,7 @@ namespace Desert::Graphic
         bool                           m_SSGIReady  = false;
         bool                           m_SSGIFailed = false;
         // The MegaLights translucency volume (per view: its history is this view's), created on the first frame
-        // that needs it; its quality (Shadows.MegaLightsVolume*, Shadows.MegaLightsMaxHistory) taken each
-        // BeginScene.
+        // that needs it; its quality (Shadows.MegaLightsVolume*) taken each BeginScene.
         System::MegaLightsVolumeRenderer m_MegaLightsVolume;
         System::MegaLightsVolumeQuality  m_MegaLightsVolumeQuality;
         // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that
@@ -2016,6 +2016,7 @@ namespace Desert::Graphic
         // FPS-SET-MEMO4: the view's per-frame light buffers (AddFrameLightGrid -> UploadLights) and tile lists
         // (AddFrameTileClassify -> CreateTileLists), kept with a stable VkBuffer per frame slot.
         System::DeferredLightBufferStore m_KeptLights;
+        LightRowHistory                  m_LightRows; // ViewLightBuffers::PreviousRow
         FrameKeptBuffer                  m_KeptDeferredTiles;
         // This frame graph's import of the GPU scene's tables (AddFrameDrawBins), reset before it each frame.
         std::optional<GpuDriven::GpuSceneBuffers> m_FrameGpuSceneTables;

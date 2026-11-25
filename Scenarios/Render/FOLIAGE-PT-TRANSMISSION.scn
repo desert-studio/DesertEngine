@@ -1,22 +1,103 @@
-# FOLIAGE-PT-TRANSMISSION: light passes THROUGH two-sided foliage. Path tracer: TwoSidedFoliage has a Lambert transmission lobe around -N (PathTracer.shader PathTracingEvaluateCos / BsdfPdf / SampleBsdf) and every light is sampled on both hemispheres. MegaLights: a leaf lit from behind is attenuated by exp(-thickness * density), as under VSM and the shadow atlas, not blacked out by a yes/no ray (MegaLights.glslh MegaLightsTransmits).
+# FOLIAGE-PT-TRANSMISSION: the near hedge, the cypresses and the awning of the Bistro night: MegaLights against the path tracer. The exposure is fixed in every frame (the automatic one answers the method).
+# Numbers, linear luminance, every frame averaged in 4x4 blocks, 0_ml and 2_level against 1_pt: hedge L +-15 %, cv +-15 %, clip <= 0.5 %, blk <= PT + 3 pp, R/G +-10 %; cypress L +-25 %, blk <= PT + 5 pp; awning L +-30 %, blk <= PT + 10 pp; wall L +-10 %; Laplace energy of the hedge in 0_ml >= 0.8 of 1_pt. MegaLights passes <= base + 0.6 ms, VRAM <= base, 0 validation errors.
+# Side by side: [0_ml | 1_pt | 2_level], crop (.28,.20)-(.67,1.0), the brightness untouched.
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position -20,250,330
 Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
 Дано run Quality "Quality: Resolution.Percent 100"
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 0.5260688
 Когда run Quality "Quality: Shadows.Method Stochastic"
 Когда frames 120
-Тогда-вид 0_ml [ml_hedge] MegaLights: the near hedge has no black patches; leaves whose normal faces away from the lamp are dim green, not 0
+Тогда-вид 0_ml MegaLights, the GI of the level
+Тогда [0_ml]: the hedge is sharp and not burnt out, the cypresses and the awning are lit as in 1_pt, no coloured spots, no white outline
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
 Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда run Quality "Quality: PathTracing.Denoiser Off"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
 Когда frames 200
-Тогда-вид 1_pt [pt_cypress] path tracer: the cypress under the lamp is lit through its leaves (the shadowed side glows green, no black crown); no fireflies from the lobe
+Тогда-вид 1_pt the path tracer, the reference
+Тогда [1_pt]: the cypress glows through its leaves, no fireflies
 Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
 Когда run Quality "Quality: PathTracing.Denoiser Level"
 Когда run Quality "Quality: Reflections.Method Level"
 Когда run Quality "Quality: GlobalIllumination.Method Level"
 Когда run Quality "Quality: Shadows.Method Level"
+Когда frames 180
+Тогда-вид 2_level the picture of the scene and the level, nothing overridden
+Тогда [2_level]: the hedge keeps the leaf contrast and the leaf colour of 1_pt, the awning is red from below, not black
+# 30 cm to the right (0.8,0,-0.6), 1 cm per frame, the shot at once.
+Когда --subject viewport set Camera.Position -19.2,250,329.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -18.4,250,328.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -17.6,250,328.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -16.8,250,327.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -16.0,250,327.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -15.2,250,326.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -14.4,250,325.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -13.6,250,325.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -12.8,250,324.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -12.0,250,324.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -11.2,250,323.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -10.4,250,322.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -9.6,250,322.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -8.8,250,321.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -8.0,250,321.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -7.2,250,320.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -6.4,250,319.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -5.6,250,319.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -4.8,250,318.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -4.0,250,318.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -3.2,250,317.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -2.4,250,316.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -1.6,250,316.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -0.8,250,315.6
+Когда frames 1
+Когда --subject viewport set Camera.Position 0.0,250,315.0
+Когда frames 1
+Когда --subject viewport set Camera.Position 0.8,250,314.4
+Когда frames 1
+Когда --subject viewport set Camera.Position 1.6,250,313.8
+Когда frames 1
+Когда --subject viewport set Camera.Position 2.4,250,313.2
+Когда frames 1
+Когда --subject viewport set Camera.Position 3.2,250,312.6
+Когда frames 1
+Когда --subject viewport set Camera.Position 4.0,250,312.0
+Когда frames 1
+Тогда-вид 3_move the frame right after the move
+Тогда [3_move]: no trail and no glow behind the outline of the hedge
+Когда --subject viewport set Camera.Position -20,250,330
+Когда run Quality "Quality: Shadows.Method Stochastic"
+Когда run Quality "Quality: GlobalIllumination.Method Off"
+Когда frames 120
+Тогда-вид 4_gi_off the direct light alone
+Тогда [4_gi_off]: no black patches in the direct light of the hedge, the wall within 5 % of 0_ml
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Shadows.Method Level"
 Когда run Quality "Quality: Resolution.Percent Level"
-Тогда 2_level overrides removed
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
+Тогда z the levels are restored

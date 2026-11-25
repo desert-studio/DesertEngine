@@ -4,16 +4,21 @@ Shader "MegaLightsGenerateSamples"
     // "MegaLights: Generate Samples" (UE MegaLightsGenerateSamples, weighted reservoir sampling of the pixel's
     // froxel), per SAMPLE PIXEL at its representative render pixel (Common/MegaLights.glslh MegaLightsScreenPixel):
     // every light of the pixel's light-grid cell (every light when the cell overflowed, as the composite's
-    // loop) is a candidate, weighed by the target function - its unshadowed contribution's luminance - and each of
-    // the pixel's reservoirs takes one candidate in proportion to that weight (resampled importance sampling over
-    // the whole cell: W = sum(p^) / p^(chosen)). No visibility here: only the samples that survive the temporal and
-    // spatial reuse are traced ("MegaLights: Trace Samples", one ray each).
+    // loop) is a candidate, weighed by the target function (the perceived brightness of its unshadowed contribution),
+    // and each of the pixel's samples takes one candidate in proportion to that weight (resampled importance
+    // sampling over the whole cell: weight = sum(p^) / p^(chosen)).
+    //
+    // GUIDED by last frame's visibility (UE MegaLightsSampling.usf): a light the reprojected tile's hash and its
+    // four neighbours' ("MegaLights: Visible Light Hash") do not hold is drawn with Params.w of its weight. It
+    // changes the probability only: the weight divides by the same number. Without a hash (off screen, the first
+    // frame), and for a light the previous frame did not have, every light keeps its whole weight.
 
     Compute
     {
         Uniform sampler PointClampSampler;
         #define MEGALIGHTS_SHADING
         #include <Common/MegaLights.glslh>
+        #include <Common/RisReservoir.glslh>
 
         // The view's light grid (Programs/Deferred/LightGridBuild.shader), as the composite reads it.
         #include <Mesh/LightGrid.glslh>
@@ -26,12 +31,57 @@ Shader "MegaLightsGenerateSamples"
         	uint lightGridCells[];
         };
 
-        layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // RisReservoir, stacked layers
+        layout(binding = 11, rg32ui) writeonly uniform uimage2D OutSamplesTexture; // MegaLightsSample, stacked layers
+        // The light's row in the previous frame's index space (-1: it had none; ViewLightBuffers::PreviousRow).
+        layout(std430, binding = 12) readonly buffer PreviousLightRowsUB
+        {
+        	int previousLightRows[];
+        };
+        // The previous frame's "MegaLights: Visible Light Hash" (Counts.w = 0: unreadable).
+        layout(std430, binding = 13) readonly buffer HistoryVisibleLightsUB
+        {
+        	uvec4 historyVisibleLights[];
+        };
+        Uniform(14) texture2D VelocityTexture; // rg = this frame's NDC minus the previous frame's, unjittered
+        #define VelocityTexture sampler2D(VelocityTexture, PointClampSampler)
 
         // The emissive triangles a sample pixel draws per frame (UE MegaLights' emissive candidates per pixel).
         #define MEGALIGHTS_EMISSIVE_CANDIDATES 4
 
         LocalSize(8, 8, 1);
+
+        // The union of the hashes of the tile @p screen's surface was in last frame and of its four neighbours.
+        // False when it was off the screen or there is no hash.
+        bool LoadVisibleHash(ivec2 screen, MegaLightsPixel p, out uvec4 tile)
+        {
+        	tile = uvec4(0u);
+        	if (Counts.w == 0u)
+        		return false;
+        	const vec4 clip = ViewProjection * vec4(p.Position, 1.0);
+        	const vec2 ndc  = clip.xy / clip.w - texelFetch(VelocityTexture, screen, 0).rg;
+        	const vec2 uv   = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+        	if (any(lessThan(uv, vec2(0.0))) || any(greaterThanEqual(uv, vec2(1.0))))
+        		return false;
+        	const ivec2 tiles  = MegaLightsHashTiles();
+        	const ivec2 center = ivec2(uv * vec2(MegaLightsSampleSize())) / MEGALIGHTS_HASH_TILE;
+        	const ivec2 offsets[5] = ivec2[5](ivec2(0, 0), ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+        	for (int i = 0; i < 5; ++i)
+        	{
+        		const ivec2 at = clamp(center + offsets[i], ivec2(0), tiles - 1);
+        		tile |= historyVisibleLights[at.y * tiles.x + at.x];
+        	}
+        	return true;
+        }
+
+        // Whether @p light keeps its whole sampling weight: it casts no shadow, the pixel has no hash, the previous
+        // frame did not have it, or the hash holds it.
+        bool GuidedVisible(int light, bool hashed, uvec4 tile)
+        {
+        	if (!hashed || MegaLightsLightIsEmissive(light) || !MegaLightsLightCastsShadow(light))
+        		return true;
+        	const int previous = previousLightRows[light];
+        	return previous < 0 || MegaLightsHashHolds(tile, uint(previous));
+        }
 
         void main()
         {
@@ -48,8 +98,11 @@ Shader "MegaLightsGenerateSamples"
         	RisMerge streams[MEGALIGHTS_MAX_SAMPLES];
         	for (uint k = 0u; k < uint(MEGALIGHTS_MAX_SAMPLES); ++k)
         		streams[k] = RisBeginMerge();
+        	uvec4 tile   = uvec4(0u);
+        	bool  hashed = false;
         	if (p.Valid)
         	{
+        		hashed                = LoadVisibleHash(screen, p, tile);
         		const uint cell       = LightGridCellAt(lightGrid, vec2(screen) + 0.5, p.Position);
         		const uint count      = lightGridCells[cell];
         		const bool overflowed = LightGridCellOverflowed(lightGrid, count);
@@ -59,9 +112,11 @@ Shader "MegaLightsGenerateSamples"
         		for (uint j = 0u; j < candidates; ++j)
         		{
         			const int   light  = overflowed ? int(j) : int(lightGridCells[list + j]);
-        			const float target = MegaLightsTargetPdf(p, light);
+        			float       target = MegaLightsTargetPdf(p, light);
         			if (target <= 0.0)
         				continue;
+        			if (!GuidedVisible(light, hashed, tile))
+        				target *= Params.w;
         			for (uint k = 0u; k < samples; ++k)
         				RisStreamCandidate(streams[k], light, target, 1.0, MegaLightsRandom(random));
         		}
@@ -95,10 +150,11 @@ Shader "MegaLightsGenerateSamples"
         	}
         	for (uint k = 0u; k < samples; ++k)
         	{
-        		RisReservoir r = RisEndStream(streams[k], 1.0);
-        		if (r.Light < 0)
-        			r = RisEmptyReservoir(); // nothing lit the pixel: no confidence to carry
-        		imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), RisPackReservoir(r));
+        		const RisReservoir r      = RisEndStream(streams[k], 1.0);
+        		const bool         guided = r.Light >= 0 && GuidedVisible(r.Light, hashed, tile);
+        		const uvec2        packedSample =
+        		     MegaLightsPackSample(MegaLightsSample(r.Light, r.W, 1.0, guided));
+        		imageStore(OutSamplesTexture, MegaLightsSampleTexel(pixel, k), uvec4(packedSample, 0u, 0u));
         	}
         }
     }

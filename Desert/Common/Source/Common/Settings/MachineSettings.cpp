@@ -434,6 +434,53 @@ namespace Common::Settings
             return Json::Value( std::move( kept ) );
         }
 
+        // The overrides of the MegaLights reservoir reuse: Shadows.MegaLightsSpatialSamples names no pass and is
+        // dropped, Shadows.MegaLightsMaxHistory is the volume's (Shadows.MegaLightsVolumeMaxHistory). Nothing when
+        // the array holds neither.
+        std::optional<Json::Value> MigrateMegaLightsOverrides( const Json::Node&         overrides,
+                                                               std::vector<std::string>& warnings, bool& migrated )
+        {
+            constexpr std::string_view kOldSpatial = "Shadows.MegaLightsSpatialSamples";
+            constexpr std::string_view kOldHistory = "Shadows.MegaLightsMaxHistory";
+            constexpr std::string_view kNewHistory = "Shadows.MegaLightsVolumeMaxHistory";
+
+            Json::Value::Array kept;
+            bool               retired = false;
+            overrides.ForEachElement(
+                 [&]( std::size_t, const Json::Node& entry )
+                 {
+                     const auto value = entry.As<Scalability::ParameterOverride>();
+                     if ( !value )
+                     {
+                         kept.push_back( entry.Raw() );
+                         return;
+                     }
+                     const Scalability::ParameterOverride& read = value.GetValue();
+                     if ( read.Key == kOldSpatial )
+                     {
+                         retired = true;
+                         return;
+                     }
+                     if ( read.Key != kOldHistory )
+                     {
+                         kept.push_back( entry.Raw() );
+                         return;
+                     }
+                     retired = true;
+                     kept.push_back( Json::Value( Json::ObjectBuilder()
+                                                       .Set( "Key", std::string( kNewHistory ) )
+                                                       .Set( "Value", read.Value )
+                                                       .Build() ) );
+                 } );
+            if ( !retired )
+                return std::nullopt;
+            migrated = true;
+            warnings.push_back(
+                 "Quality.Overrides migrated: Shadows.MegaLightsSpatialSamples retired, "
+                 "Shadows.MegaLightsMaxHistory is Shadows.MegaLightsVolumeMaxHistory; the file is rewritten" );
+            return Json::Value( std::move( kept ) );
+        }
+
         // The Quality member with its Levels and Overrides screened. A Quality that is not an object comes back as
         // written: the member check refuses it whole.
         Json::Value ScreenQuality( const Json::Node& quality, std::vector<Rejection>& rejections,
@@ -450,11 +497,15 @@ namespace Common::Settings
                          rebuilt.Set( name, ScreenLevels( member, levelsOut ) );
                      else if ( name == "Overrides" )
                      {
-                         const std::optional<Json::Value> migrated =
+                         const std::optional<Json::Value> temporal =
                               MigrateTemporalOverrides( member, levelsOut.Warnings, levelsOut.Migrated );
-                         rebuilt.Set( name, migrated ? ScreenOverrides( Json::Root( *migrated, member.Where() ),
-                                                                        rejections )
-                                                     : ScreenOverrides( member, rejections ) );
+                         const Json::Value current = temporal ? *temporal : Json::Value( member.Raw() );
+                         const std::optional<Json::Value> megaLights =
+                              MigrateMegaLightsOverrides( Json::Root( current, member.Where() ),
+                                                          levelsOut.Warnings, levelsOut.Migrated );
+                         rebuilt.Set( name, ScreenOverrides( Json::Root( megaLights ? *megaLights : current,
+                                                                         member.Where() ),
+                                                             rejections ) );
                      }
                      else
                          rebuilt.Set( name, member.Raw() );

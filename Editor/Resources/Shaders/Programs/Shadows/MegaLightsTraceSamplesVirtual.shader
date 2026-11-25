@@ -2,7 +2,7 @@
 Shader "MegaLightsTraceSamplesVirtual"
 {
     // "MegaLights: Trace Samples" without ray tracing, on a device with virtual shadow maps
-    // (StochasticVisibility::VirtualMapsAndScreen; UE MegaLights' screen traces, then the light's VSM): each surviving
+    // (StochasticVisibility::VirtualMapsAndScreen; UE MegaLights' screen traces, then the light's VSM): each
     // sample's light tested once from the representative surface - its contact shadow, the screen trace over the
     // closest HZB, then the light's virtual shadow map pages ("VSM: Mark Local" marked them from this G-buffer).
     // The body is Common/MegaLightsTraceSamples.glslh, shared with the ray-query and screen programs.

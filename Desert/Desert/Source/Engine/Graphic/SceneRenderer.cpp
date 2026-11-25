@@ -1437,15 +1437,13 @@ namespace Desert::Graphic
                   static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRayLocal ) ) };
         m_MegaLightsQuality = System::MegaLightsQuality{
              .SamplesPerPixel  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
-             .SpatialSamples   = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
-             .MaxHistory       = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
              .DenoiserRadius   = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
              .DownsampleFactor = quality.As<uint32_t>( Parameter::ShadowMegaLightsDownsampleFactor ) };
         m_MegaLightsVolumeQuality = System::MegaLightsVolumeQuality{
              .TilePixels = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeTilePixels ),
              .Slices     = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeSlices ),
              .Samples    = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeSamples ),
-             .MaxHistory = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ) };
+             .MaxHistory = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeMaxHistory ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );

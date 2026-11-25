@@ -1,0 +1,129 @@
+#ifndef MEGALIGHTS_SAMPLE_GLSLH
+#define MEGALIGHTS_SAMPLE_GLSLH
+
+// A MEGALIGHTS LIGHT SAMPLE (UE MegaLights.ush FLightSample), how it is stored and shaded, the tile's memory of its
+// visible lights and the upsample from sample pixels to render pixels. Included by Common/MegaLights.glslh, after
+// its view block, random stream and MegaLightsPixel.
+//
+// Samples are made anew every frame; nothing of one frame's samples reaches the next but the tile hash below, and
+// that changes the PROBABILITY a light is drawn with, never the value it shades (UE MegaLightsSampling.usf).
+
+struct MegaLightsSample
+{
+	int   Light;         // -1 = none
+	float Weight;        // 1 / sampling probability at the pixel that drew it
+	float Visibility;    // 0 or 1 times the light's contact shadow; 1 until "Trace Samples"
+	bool  GuidedVisible; // the tile's hash held the light (or it keeps none: a new light, an emissive triangle)
+};
+
+// RG32UI: x = (light + 1) | guided << 31, y = packHalf2x16(Weight, Visibility). 0 = no sample.
+uvec2 MegaLightsPackSample(MegaLightsSample s)
+{
+	if (s.Light < 0 || s.Weight <= 0.0)
+		return uvec2(0u);
+	const uint light = uint(s.Light + 1) & 0x7FFFFFFFu;
+	return uvec2(light | (s.GuidedVisible ? 0x80000000u : 0u),
+	             packHalf2x16(vec2(min(s.Weight, 65504.0), s.Visibility)));
+}
+
+MegaLightsSample MegaLightsUnpackSample(uvec2 packedSample)
+{
+	const vec2 halves = unpackHalf2x16(packedSample.y);
+	return MegaLightsSample(int(packedSample.x & 0x7FFFFFFFu) - 1, halves.x, halves.y,
+	                        (packedSample.x & 0x80000000u) != 0u);
+}
+
+// What multiplies the light's unshadowed contribution at the pixel that shades the sample: the weight, clamped by
+// @p params.x (params.y for a light not guided as visible: UE MaxShadingWeight / MaxShadingWeightForHiddenLight),
+// times the visibility.
+float MegaLightsShadingWeight(MegaLightsSample s, vec4 params)
+{
+	return min(s.Weight, s.GuidedVisible ? params.x : params.y) * s.Visibility;
+}
+
+// ---- The visible lights of a tile (UE MegaLightsVisibility.ush) ---------------------------------------------------
+// A Bloom filter of 4 words per tile of MEGALIGHTS_HASH_TILE x MEGALIGHTS_HASH_TILE sample pixels, two bits per
+// light. A light is keyed by its row in the frame that marked it.
+#define MEGALIGHTS_HASH_TILE 8
+
+// The light's two bits: xy = their words, zw = their masks.
+uvec4 MegaLightsHashBits(uint light)
+{
+	const uint hash = MegaLightsPcg(light);
+	return uvec4(hash & 3u, (hash >> 2u) & 3u, 1u << ((hash >> 4u) & 31u), 1u << ((hash >> 9u) & 31u));
+}
+
+bool MegaLightsHashHolds(uvec4 tile, uint light)
+{
+	const uvec4 bits = MegaLightsHashBits(light);
+	return (tile[bits.x] & bits.z) != 0u && (tile[bits.y] & bits.w) != 0u;
+}
+
+void MegaLightsHashMark(inout uvec4 tile, uint light)
+{
+	const uvec4 bits = MegaLightsHashBits(light);
+	tile[bits.x] |= bits.z;
+	tile[bits.y] |= bits.w;
+}
+
+ivec2 MegaLightsHashTiles()
+{
+	return (MegaLightsSampleSize() + MEGALIGHTS_HASH_TILE - 1) / MEGALIGHTS_HASH_TILE;
+}
+
+// ---- The upsample (UE StochasticLightingUpsample.ush ComputeUpsampleWeights) --------------------------------------
+// One of the four sample pixels around @p renderPixel, drawn in proportion to its bilinear weight x how well its
+// representative lies on the pixel's plane x how close its normal is. False when none lies on the pixel's surface:
+// the pixel is not shaded and the denoiser's reconstruction fills it.
+bool MegaLightsUpsamplePixel(ivec2 renderPixel, MegaLightsPixel p, inout uint random, out ivec2 samplePixel)
+{
+	const ivec2 size  = MegaLightsSampleSize();
+	const vec2  at    = (vec2(renderPixel) + 0.5) / float(MegaLightsDownsampleFactor()) - 0.5;
+	const ivec2 base  = ivec2(floor(at));
+	const vec2  inner = at - vec2(base);
+	float       total = 0.0;
+	ivec2       candidates[4];
+	float       weights[4];
+	for (int i = 0; i < 4; ++i)
+	{
+		const ivec2 offset   = ivec2(i & 1, i >> 1);
+		const vec2  bilinear = mix(1.0 - inner, inner, vec2(offset));
+		float       weight   = bilinear.x * bilinear.y;
+		candidates[i]        = clamp(base + offset, ivec2(0), size - 1);
+		if (weight > 0.0)
+		{
+			const ivec2 screen = MegaLightsScreenPixel(candidates[i]);
+			const float depth  = texelFetch(GBufferDepthTexture, screen, 0).r;
+			const vec3  normal = texelFetch(GBufferNormalTexture, screen, 0).rgb;
+			if (depth > 0.0 && dot(normal, normal) > 0.001)
+			{
+				const vec2  uv       = (vec2(screen) + 0.5) / vec2(MegaLightsViewSize());
+				const vec3  position = ReconstructWorldPosition(uv, depth, InverseJitteredViewProjection);
+				const float plane    = dot(position - p.Position, p.N) / (0.01 * p.ViewDepth);
+				const float angle    = acos(clamp(dot(p.N, normalize(normal)), 0.0, 1.0));
+				const float facing   = clamp(1.0 - angle, 0.0, 1.0);
+				weight *= exp2(-plane * plane) * facing * facing;
+			}
+			else
+				weight = 0.0;
+		}
+		weights[i] = weight;
+		total += weight;
+	}
+	samplePixel = candidates[0];
+	if (total < 0.01) // UE bCanReconstruct
+		return false;
+	float remaining = MegaLightsRandom(random) * total;
+	for (int i = 0; i < 4; ++i)
+	{
+		if (weights[i] <= 0.0)
+			continue;
+		samplePixel = candidates[i];
+		if (remaining < weights[i])
+			break;
+		remaining -= weights[i];
+	}
+	return true;
+}
+
+#endif // MEGALIGHTS_SAMPLE_GLSLH

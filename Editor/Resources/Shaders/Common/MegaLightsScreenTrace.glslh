@@ -1,10 +1,11 @@
 #ifndef MEGALIGHTS_SCREEN_TRACE_GLSLH
 #define MEGALIGHTS_SCREEN_TRACE_GLSLH
 // THE SCREEN TRACE (UE MegaLights' screen traces, MegaLightsScreenSpaceTracing: TraceHZB over the closest HZB with a
-// relative depth thickness), one function for both of MegaLights' tracers: the surface samples
+// relative depth thickness), one function for all its tracers: the surface samples
 // (Common/MegaLights.glslh MegaLightsVisibility, from the representative pixel's surface) and the volume's froxel
 // samples (Common/MegaLightsVolumeWrite.glslh VolumeVisibility, from the froxel point - UE leaves its volume
-// unshadowed by screen traces; ours marches the same HZB from the point toward the light).
+// unshadowed by screen traces; ours marches the same HZB from the point toward the light),
+// and a shadow-casting light the shadow maps had no room for (Mesh/LocalLightShadow.glslh).
 // The includer declares HzbTexture and includes Common/HZBTrace.glslh, then defines, before this file:
 //   MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP - the jittered world -> clip matrix the HZB's depth was rasterised with
 //   MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD - its inverse
@@ -15,7 +16,10 @@
 
 #include <Common/ReconstructPosition.glslh>
 
+// The walk's bound; an includer whose hierarchy has one mip (Mesh/LocalLightShadow.glslh) names its own.
+#ifndef MEGALIGHTS_SCREEN_TRACE_ITERATIONS
 #define MEGALIGHTS_SCREEN_TRACE_ITERATIONS          64
+#endif
 #define MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS  0.02
 
 vec3 MegaLightsToScreen(vec3 world)
@@ -29,9 +33,8 @@ vec3 MegaLightsToScreen(vec3 world)
 // (Common/HZBTrace.glslh). Occluded when the walk stops on a depth texel the ray passes BEHIND by less than the
 // thickness (a surface in front of the ray, not a wall it merely went behind); a ray starting off the screen or
 // behind the near plane, or leaving them, is not occluded by what the screen does not hold (the next source
-// answers it, or none: unshadowed). @p hitDistance = how far along the ray the occluder stopped it (cm; unchanged
-// when nothing did).
-bool MegaLightsScreenTraceHit(vec3 origin, vec3 dir, float length, inout float hitDistance)
+// answers it, or none: unshadowed).
+bool MegaLightsScreenTraceOccluded(vec3 origin, vec3 dir, float length)
 {
 	if (length <= 0.0)
 		return false;
@@ -59,16 +62,7 @@ bool MegaLightsScreenTraceHit(vec3 origin, vec3 dir, float length, inout float h
 	const vec3  ray      = ReconstructWorldPosition(walk.Position.xy, walk.Position.z, MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD);
 	const float dSurface = distance(surface, MEGALIGHTS_SCREEN_TRACE_EYE);
 	const float dRay     = distance(ray, MEGALIGHTS_SCREEN_TRACE_EYE);
-	if (dRay < dSurface || dRay - dSurface > MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS * dSurface)
-		return false;
-	hitDistance = clamp(dot(ray - origin, dir), 0.0, length);
-	return true;
-}
-
-bool MegaLightsScreenTraceOccluded(vec3 origin, vec3 dir, float length)
-{
-	float hitDistance = length;
-	return MegaLightsScreenTraceHit(origin, dir, length, hitDistance);
+	return dRay >= dSurface && dRay - dSurface <= MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS * dSurface;
 }
 
 #endif // MEGALIGHTS_SCREEN_TRACE_GLSLH

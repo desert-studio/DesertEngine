@@ -28,6 +28,33 @@
 // that included Common/ContactShadow.glslh first (it marches the includer's screen depth). One with no screen
 // depth (the surface cache's card lighting) reads PointLightShadow / SpotLightShadow above instead.
 #ifdef CONTACT_SHADOW_GLSLH
+// THE SHADOW OF A CASTING LIGHT WITHOUT A MAP (no room left for it in the shadow atlas this frame, or its mask alone is
+// traced): the screen trace MegaLights' Screen source marches, over the depth the contact shadows read - a hierarchy of
+// one mip, so the walk is bounded in texels. 1 past what the screen holds. An orthographic view has no eye: unoccluded.
+#define HzbTexture CONTACT_SHADOW_DEPTH
+#include <Common/HZBTrace.glslh>
+#define MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP CONTACT_SHADOW_VP
+#define MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD CONTACT_SHADOW_INV_VP
+vec3 LocalLightScreenTraceEye()
+{
+    // The eye is the one world point with clip x = y = w = 0.
+    const vec4 eye = CONTACT_SHADOW_INV_VP * vec4(0.0, 0.0, 1.0, 0.0);
+    return eye.xyz / eye.w;
+}
+#define MEGALIGHTS_SCREEN_TRACE_EYE        LocalLightScreenTraceEye()
+#define MEGALIGHTS_SCREEN_TRACE_ITERATIONS 256
+#include <Common/MegaLightsScreenTrace.glslh>
+
+float LocalLightScreenShadow(vec3 worldPosition, vec3 N, vec3 lightPosition, float sourceRadius)
+{
+    const float bias     = 1.0; // cm off the receiver, on the side the ray leaves from
+    const vec3  toLight  = lightPosition - worldPosition;
+    const float distance = length(toLight);
+    const vec3  dir      = toLight / max(distance, 1e-3);
+    const vec3  origin   = worldPosition + N * (dot(N, dir) >= 0.0 ? bias : -bias);
+    return MegaLightsScreenTraceOccluded(origin, dir, distance - sourceRadius - 2.0 * bias) ? 0.0 : 1.0;
+}
+
 // `subsurfaceOpacity`: the receiver's (DesertSubsurfaceOpacity; -1 = not a subsurface model), for its contact shadow.
 DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, vec3 N, float subsurfaceOpacity)
 {
@@ -37,12 +64,19 @@ DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, ve
     {
         const float contact =
              ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
+        // Only a term the light has no shadow source for pays the trace.
+        const bool shadowed = LocalLightHasShadow(source.shadowView, source.shadowMaskSlot);
+        const bool mapped   = LocalLightHasShadowMap(source.shadowView, source.shadowMaskSlot);
+        const bool traced   = source.shadowCaster != 0 && (!shadowed || (subsurfaceOpacity >= 0.0 && !mapped));
+        const float screen = traced ? LocalLightScreenShadow(worldPosition, N, source.position, source.sourceRadius) : 1.0;
         light.Shadow = PointLightShadow(source, worldPosition, N) * contact;
+        if (!shadowed)
+            light.Shadow *= screen;
         // Only a subsurface receiver (opacity >= 0) has a model that reads the transmitted share.
         if (subsurfaceOpacity >= 0.0)
             light.TransmissionShadow =
                  PointLightTransmission(source, worldPosition, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) *
-                 contact;
+                 contact * screen;
     }
     return light;
 }
@@ -55,12 +89,19 @@ DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3
     {
         const float contact =
              ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
+        // Only a term the light has no shadow source for pays the trace.
+        const bool shadowed = LocalLightHasShadow(source.shadowView, source.shadowMaskSlot);
+        const bool mapped   = LocalLightHasShadowMap(source.shadowView, source.shadowMaskSlot);
+        const bool traced   = source.shadowCaster != 0 && (!shadowed || (subsurfaceOpacity >= 0.0 && !mapped));
+        const float screen = traced ? LocalLightScreenShadow(worldPosition, N, source.position, source.sourceRadius) : 1.0;
         light.Shadow = SpotLightShadow(source, worldPosition, N) * contact;
+        if (!shadowed)
+            light.Shadow *= screen;
         // Only a subsurface receiver (opacity >= 0) has a model that reads the transmitted share.
         if (subsurfaceOpacity >= 0.0)
             light.TransmissionShadow =
                  SpotLightTransmission(source, worldPosition, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) *
-                 contact;
+                 contact * screen;
     }
     return light;
 }

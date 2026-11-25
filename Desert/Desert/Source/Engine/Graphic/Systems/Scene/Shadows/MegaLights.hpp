@@ -36,27 +36,26 @@
 // DownsampleFactor, UE r.MegaLights.DownsampleFactor 2): one SAMPLE PIXEL per factor x factor block of render
 // pixels, taken at the block's representative pixel (Common/MegaLights.glslh MegaLightsScreenPixel). Per frame,
 // per view:
-//  1) "MegaLights: Generate Samples"    - per sample pixel, Shadows.MegaLightsSamplesPerPixel reservoirs, each one
-//     light of the pixel's light-grid cell drawn in proportion to its unshadowed contribution (no visibility);
-//  2) "MegaLights: Temporal Resampling" - ReSTIR DI temporal reuse: the previous frame's TRACED reservoirs at the
-//     sample pixel reprojected through the velocity, capped at Shadows.MegaLightsMaxHistory frames;
-//  3) "MegaLights: Spatial Resampling"  - ReSTIR DI spatial reuse over Shadows.MegaLightsSpatialSamples
-//  neighbours; 4) "MegaLights: Trace Samples"       - ONE visibility test per surviving sample (UE traces each
-//  sample once):
-//     the light's contact shadow through the G-buffer depth, then the light's own visibility source (its
-//     payload's ShadowVisibility, Common::Scalability::StochasticVisibility): a ray query toward a point of its
+//  1) "MegaLights: Generate Samples"   - per sample pixel, Shadows.MegaLightsSamplesPerPixel samples, each one
+//     light of the pixel's light-grid cell drawn in proportion to the perceived brightness of its unshadowed
+//     contribution, a light the tile did not see last frame with a share of it (no visibility here);
+//  2) "MegaLights: Trace Samples"      - ONE visibility test per sample (UE traces each sample once): the light's
+//     contact shadow through the G-buffer depth, then the light's own visibility source (its payload's
+//     ShadowVisibility, Common::Scalability::StochasticVisibility): a ray query toward a point of its
 //     source sphere (SourceRadius: soft shadows), or the screen trace over the closest HZB followed by the
-//     light's virtual shadow map pages (VSM-LOCAL), or the screen trace alone; W scaled by it. One program per
-//     set of sources present (Common::Scalability::StochasticSources, TraceProgramOf). Next frame's history;
-//  5) "MegaLights: Shade Samples"       - at RENDER resolution, every pixel shades its sample pixel's traced
-//     reservoirs with its own surface (UE ShadeLightSamples: the upsample), the shading model's specular lobe and
-//     its diffuse rest apart, each demodulated by its reflectance (Mesh/MegaLightsDemodulation.glslh);
-//  6) the screen-space denoiser, two signals (UE MegaLights' diffuse and specular): DiffuseIndirect for the
+//     light's virtual shadow map pages (VSM-LOCAL), or the screen trace alone. One program per set of sources
+//     present (Common::Scalability::StochasticSources, TraceProgramOf);
+//  3) "MegaLights: Visible Light Hash" - per tile of kMegaLightsHashTile^2 sample pixels, the lights whose samples
+//     were visible: what 1) is guided by next frame;
+//  4) "MegaLights: Shade Samples"      - at RENDER resolution, every pixel shades the samples of one of its four
+//     sample pixels with its own surface (UE ShadeLightSamples: the upsample), the shading model's specular lobe
+//     and its diffuse rest apart, each demodulated by its reflectance (Mesh/MegaLightsDemodulation.glslh);
+//  5) the screen-space denoiser, two signals (UE MegaLights' diffuse and specular): DiffuseIndirect for the
 //     diffuse, DirectSpecular (lobe-aware) for the specular (Shadows.MegaLightsDenoiserRadius) - the outputs the
 //     deferred composite's DESERT_MEGALIGHTS program remodulates in place of its light-grid loop.
-// The reservoir history (the reservoirs 4) wrote and the representative surface they were traced from) is this
-// object's, per view: two slots, one read and one written per frame, created once at a size and extracted, as the
-// denoiser's. Shaders (Editor/Resources/Shaders): Common/MegaLights.glslh, Programs/Shadows/MegaLights*.shader.
+// The samples live one frame; the only history of this object is the hash, per view: two slots, one read and one
+// written per frame, created once at a size and extracted. Temporal accumulation is the denoiser's.
+// Shaders (Editor/Resources/Shaders): Common/MegaLights.glslh, Programs/Shadows/MegaLights*.shader.
 namespace Desert::Graphic::System
 {
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -71,13 +70,13 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( AccelerationStructure, SceneTlas );
         DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingGeometryRecords );
         DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingMaterialRecords );
-        DESERT_SHADER_PARAMETER( StorageTexture, OutReservoirsTexture );
-        DESERT_SHADER_PARAMETER( StorageTexture, OutSurfaceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutSamplesTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, OutDiffuseTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, OutSpecularTexture );
-        DESERT_SHADER_PARAMETER( Texture, HistoryReservoirsTexture );
-        DESERT_SHADER_PARAMETER( Texture, HistorySurfaceTexture );
-        DESERT_SHADER_PARAMETER( Texture, ReservoirsTexture );
+        DESERT_SHADER_PARAMETER( Texture, SamplesTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PreviousLightRowsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, HistoryVisibleLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VisibleLightsUB );
         DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
         DESERT_SHADER_PARAMETER( Texture, HzbTexture );
         // The scene-lighting emissive triangles (Common/MegaLights.glslh bindings 60..66).
@@ -92,25 +91,30 @@ namespace Desert::Graphic::System
 
     inline constexpr std::string_view kMegaLightsDiffuseName  = "MegaLights.Diffuse";
     inline constexpr std::string_view kMegaLightsSpecularName = "MegaLights.Specular";
-    // The most reservoirs a pixel keeps: the shaders' MEGALIGHTS_MAX_SAMPLES (Scalability 1..4).
+    // The most samples a sample pixel draws: the shaders' MEGALIGHTS_MAX_SAMPLES (Scalability 1..4).
     inline constexpr uint32_t kMegaLightsMaxSamplesPerPixel = 4;
     // The coarsest sample grid: one sample pixel per 2x2 render pixels (UE r.MegaLights.DownsampleFactor's range).
     inline constexpr uint32_t kMegaLightsMaxDownsampleFactor = 2;
-    // The spatial reuse's disc, in render pixels (RTXDI's default spatial radius is 30 at 1080p; MegaLights reuses
-    // within its downsampled tile neighbourhood): a constant of the method, not a setting.
-    inline constexpr float kMegaLightsSpatialRadiusPixels = 16.0f;
+    // UE r.MegaLights.MaxShadingWeight / MaxShadingWeightForHiddenLight: the largest 1 / probability shaded, so one
+    // improbable light is not a firefly. The energy above it is lost, as UE's.
+    inline constexpr float kMegaLightsMaxShadingWeight       = 20.0f;
+    inline constexpr float kMegaLightsMaxHiddenShadingWeight = 5.0f;
+    // The visible-light hash: one filter of kMegaLightsHashWords words per tile of this many sample pixels per side
+    // (Common/MegaLightsSample.glslh MEGALIGHTS_HASH_TILE, uvec4).
+    inline constexpr uint32_t kMegaLightsHashTile  = 8;
+    inline constexpr uint32_t kMegaLightsHashWords = 4;
+    // The share of its sampling weight a light the hash does not hold keeps (UE: its hidden-light sampling
+    // weight). It moves the probability, not the value: the sample's weight divides by the same number.
+    inline constexpr float kMegaLightsHiddenLightShare = 0.1f;
     // UE r.RayTracing.NormalBias (0.1 cm), as the ray-traced sun.
     inline constexpr float kMegaLightsNormalBias = 0.1f;
 
     // Scalability Shadows.MegaLights*, taken each BeginScene.
     struct MegaLightsQuality
     {
-        uint32_t SamplesPerPixel = 1; // 1..kMegaLightsMaxSamplesPerPixel
-        uint32_t SpatialSamples  = 0; // 0 = no spatial reuse
-        uint32_t MaxHistory      = 0; // frames; 0 = no temporal reuse
-        uint32_t DenoiserRadius  = 2; // taps per side from the centre
-        uint32_t DownsampleFactor =
-             2; // render pixels per sample pixel, per side: 1..kMegaLightsMaxDownsampleFactor
+        uint32_t SamplesPerPixel  = 4; // 1..kMegaLightsMaxSamplesPerPixel
+        uint32_t DenoiserRadius   = 2; // taps per side from the centre
+        uint32_t DownsampleFactor = 2; // render pixels per sample pixel, per side: 1..kMegaLightsMaxDownsampleFactor
     };
 
     // The denoised, demodulated local lighting the composite remodulates (rgb, straight), render sized.
@@ -128,7 +132,7 @@ namespace Desert::Graphic::System
         RDG::TextureRef                     GBufferB;    // normal + roughness
         RDG::TextureRef                     ShadingWord; // RG32_UINT
         RDG::TextureRef                     Velocity;    // FrameTransients::Velocity
-        RDG::TextureRef                     Black;       // System.Black: the history before one exists
+        RDG::TextureRef                     Black;       // System.Black: the denoisers' history before one exists
         // The visibility sources the frame's casting lights resolved to (never empty) and what they read: the TLAS
         // and its records (RayQuery), the closest HZB (VirtualMaps, Screen) and the virtual shadow map's reader
         // tables (VirtualMaps).
@@ -137,7 +141,7 @@ namespace Desert::Graphic::System
         RayTracing::RayTracingMetadataFrame Metadata;
         RDG::TextureRef                     Hzb;
         VirtualShadowMapReadRefs            Vsm;
-        ViewLightBuffers                    Lights; // the rows and the light grid (AddFrameLightGrid)
+        ViewLightBuffers                    Lights; // the rows, their previous rows, the light grid
         uint32_t                            PointLights = 0;
         uint32_t                            SpotLights  = 0;
         uint32_t                            Width       = 0; // render resolution
@@ -157,9 +161,9 @@ namespace Desert::Graphic::System
         glm::mat4  PrevViewProjection;
         glm::mat4  InvJitteredViewProjection;
         glm::mat4  JitteredViewProjection; // the contact shadow's march (Common/ContactShadow.glslh)
-        glm::vec4  CameraPosition;         // xyz
-        glm::uvec4 Counts;                 // points, spots, samples per pixel, spatial samples
-        glm::vec4  Params;            // history cap, history readable, normal bias, spatial radius (sample px)
+        glm::vec4  CameraPosition;         // xyz, w = PreExposure
+        glm::uvec4 Counts;                 // points, spots, samples per pixel, hash readable
+        glm::vec4  Params;            // max shading weight, of a hidden light, normal bias, hidden light share
         glm::uvec4 Frame;             // frame index, render width, render height, downsample factor
         glm::vec4  ContactShadowView; // steps, tan(fov / 2), dither frame
         glm::uvec4 EmissiveCounts;    // EmissiveLightsFrame::StaticParams of MegaLightsInputs::Emissive
@@ -183,7 +187,7 @@ namespace Desert::Graphic::System
             return m_SpecularDenoiser.Initialize();
         }
 
-        // Declares the five MegaLights passes and the two denoiser signals; returns the denoised, demodulated
+        // Declares the four MegaLights passes and the two denoiser signals; returns the denoised, demodulated
         // local lighting. An error, never an unshadowed light grid, when the frame has no TLAS or a pass could
         // not be declared.
         [[nodiscard]] Common::ResultStr<MegaLightsLighting> AddPasses( RDG::Builder&            graph,
@@ -214,30 +218,39 @@ namespace Desert::Graphic::System
             if ( !in.Emissive.Valid )
                 return Common::MakeError<MegaLightsLighting>(
                      "MegaLights: the frame has no scene-lighting emissive list (AddFrameSceneEmissiveLights)" );
-            if ( !in.Lights.GridCells.IsValid() || !in.Velocity.IsValid() )
+            if ( !in.Lights.GridCells.IsValid() || !in.Lights.PreviousRow.IsValid() || !in.Velocity.IsValid() )
                 return Common::MakeError<MegaLightsLighting>( std::format(
                      "MegaLights: the frame has no {}",
-                     in.Velocity.IsValid() ? "light grid" : "velocity to reproject the history with" ) );
+                     in.Velocity.IsValid() ? "light grid or light rows" : "velocity to reproject the hash with" ) );
             const uint32_t samples = std::clamp( quality.SamplesPerPixel, 1u, kMegaLightsMaxSamplesPerPixel );
             const uint32_t factor  = std::clamp( quality.DownsampleFactor, 1u, kMegaLightsMaxDownsampleFactor );
             const uint32_t width   = in.Width; // render: the shading and the denoiser
             const uint32_t height  = in.Height;
-            // The sample pixels (Common/MegaLights.glslh MegaLightsSampleSize): the reservoirs and their history.
+            // The sample pixels (Common/MegaLights.glslh MegaLightsSampleSize): the samples and their hash.
             const uint32_t sampleWidth  = ( width + factor - 1u ) / factor;
             const uint32_t sampleHeight = ( height + factor - 1u ) / factor;
             const uint32_t stacked      = sampleHeight * samples;
 
-            // The history: readable when the previous frame of this view wrote it at this size and sample count.
-            HistorySlot& previous = m_Slots[m_Parity];
-            HistorySlot& next     = m_Slots[1u - m_Parity];
-            const bool   readable = previous.Built && previous.Width == sampleWidth &&
-                                  previous.Height == sampleHeight && previous.Samples == samples &&
-                                  previous.Stamp.ReadableIn( frame );
-            std::array<RDG::TextureRef, 2> history = { in.Black, in.Black };
+            // The hash: readable when the previous frame of this view wrote it at this size.
+            const uint32_t tilesWide   = ( sampleWidth + kMegaLightsHashTile - 1u ) / kMegaLightsHashTile;
+            const uint32_t tilesHigh   = ( sampleHeight + kMegaLightsHashTile - 1u ) / kMegaLightsHashTile;
+            const uint64_t hashBytes   = uint64_t( tilesWide ) * tilesHigh * kMegaLightsHashWords * sizeof( uint32_t );
+            HistorySlot&   previous    = m_Slots[m_Parity];
+            HistorySlot&   next        = m_Slots[1u - m_Parity];
+            const bool     readable    = previous.Built && previous.Width == sampleWidth &&
+                                  previous.Height == sampleHeight && previous.Stamp.ReadableIn( frame );
+            RDG::BufferRef historyHash;
             if ( readable )
-                history = AcquireSlot( graph, previous, m_Parity, sampleWidth, sampleHeight, samples );
-            const std::array<RDG::TextureRef, 2> written =
-                 AcquireSlot( graph, next, 1u - m_Parity, sampleWidth, sampleHeight, samples );
+                historyHash = AcquireSlot( graph, previous, m_Parity, sampleWidth, sampleHeight, hashBytes );
+            else
+            {
+                // Counts.w tells the shader not to look: the binding still names a buffer with contents.
+                historyHash = graph.CreateBuffer(
+                     RDG::BufferDesc{ uint64_t( kMegaLightsHashWords ) * sizeof( uint32_t ) }, "MegaLights.NoHash" );
+                graph.QueueBufferClear( historyHash, 0u );
+            }
+            const RDG::BufferRef hash =
+                 AcquireSlot( graph, next, 1u - m_Parity, sampleWidth, sampleHeight, hashBytes );
             m_Parity = 1u - m_Parity;
 
             const MegaLightsViewUniforms uniforms{
@@ -245,11 +258,10 @@ namespace Desert::Graphic::System
                  .PrevViewProjection        = frame.PrevViewProjection,
                  .InvJitteredViewProjection = frame.InvJitteredViewProjection,
                  .JitteredViewProjection    = frame.JitteredViewProjection,
-                 .CameraPosition            = glm::vec4( frame.CameraPosition, 1.0f ),
-                 .Counts = glm::uvec4( in.PointLights, in.SpotLights, samples, quality.SpatialSamples ),
-                 .Params = glm::vec4( static_cast<float>( quality.MaxHistory ), readable ? 1.0f : 0.0f,
-                                      kMegaLightsNormalBias,
-                                      kMegaLightsSpatialRadiusPixels / static_cast<float>( factor ) ),
+                 .CameraPosition            = glm::vec4( frame.CameraPosition, frame.PreExposure ),
+                 .Counts = glm::uvec4( in.PointLights, in.SpotLights, samples, readable ? 1u : 0u ),
+                 .Params = glm::vec4( kMegaLightsMaxShadingWeight, kMegaLightsMaxHiddenShadingWeight,
+                                      kMegaLightsNormalBias, kMegaLightsHiddenLightShare ),
                  .Frame  = glm::uvec4( static_cast<uint32_t>( frame.FrameIndex ), width, height, factor ),
                  .ContactShadowView     = in.ContactShadowView,
                  .EmissiveCounts        = in.Emissive.StaticParams(),
@@ -259,16 +271,15 @@ namespace Desert::Graphic::System
             graph.QueueBufferUpload( view,
                                      std::as_bytes( std::span<const MegaLightsViewUniforms>( &uniforms, 1 ) ) );
 
-            const RDG::TextureDesc reservoirDesc{ .Size   = { .Width = sampleWidth, .Height = stacked },
-                                                  .Format = Core::Formats::ImageFormat::RGBA32F };
-            const RDG::TextureRef  generated = graph.CreateTexture( reservoirDesc, "MegaLights.Samples" );
-            const RDG::TextureRef  temporal  = graph.CreateTexture( reservoirDesc, "MegaLights.Samples.Temporal" );
-            const RDG::TextureRef  spatial   = graph.CreateTexture( reservoirDesc, "MegaLights.Samples.Spatial" );
+            const RDG::TextureDesc sampleDesc{ .Size   = { .Width = sampleWidth, .Height = stacked },
+                                               .Format = Core::Formats::ImageFormat::RG32_UINT };
+            const RDG::TextureRef  generated = graph.CreateTexture( sampleDesc, "MegaLights.Samples" );
+            const RDG::TextureRef  traced    = graph.CreateTexture( sampleDesc, "MegaLights.TracedSamples" );
             const RDG::TextureDesc lightingDesc{ .Size   = { .Width = width, .Height = height },
                                                  .Format = ViewTargetFormats::kDenoiserSignal };
             const RDG::TextureRef  diffuse  = graph.CreateTexture( lightingDesc, kMegaLightsDiffuseName );
             const RDG::TextureRef  specular = graph.CreateTexture( lightingDesc, kMegaLightsSpecularName );
-            for ( const RDG::TextureRef texture : { generated, temporal, spatial, diffuse, specular } )
+            for ( const RDG::TextureRef texture : { diffuse, specular } )
                 graph.SetFaultDefault( texture, RDG::FaultDefault::Black );
 
             const auto common = [&]( RDG::BindingBlockBuilder& block, const bool shading )
@@ -324,49 +335,40 @@ namespace Desert::Graphic::System
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
+                          read( block, MegaLightsShaderParameters::VelocityTexture, in.Velocity );
                           block.Storage( kLightGridParamsBlock, in.Lights.GridParams, RDG::Access::StorageRead )
                                .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead )
-                               .Storage( MegaLightsShaderParameters::OutReservoirsTexture, generated,
+                               .Storage( MegaLightsShaderParameters::PreviousLightRowsUB, in.Lights.PreviousRow,
+                                         RDG::Access::StorageRead )
+                               .Storage( MegaLightsShaderParameters::HistoryVisibleLightsUB, historyHash,
+                                         RDG::Access::StorageRead )
+                               .Storage( MegaLightsShaderParameters::OutSamplesTexture, generated,
                                          RDG::Access::StorageWrite );
                       } );
-            AddStage( graph, kTemporal, m_Stages[kTemporal], sampleWidth, sampleHeight,
+            AddStage( graph, kTrace, traceProgram, sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          read( block, MegaLightsShaderParameters::ReservoirsTexture, generated );
-                          read( block, MegaLightsShaderParameters::HistoryReservoirsTexture, history[0] );
-                          read( block, MegaLightsShaderParameters::HistorySurfaceTexture, history[1] );
-                          read( block, MegaLightsShaderParameters::VelocityTexture, in.Velocity );
-                          block.Storage( MegaLightsShaderParameters::OutReservoirsTexture, temporal,
-                                         RDG::Access::StorageWrite );
-                      } );
-            AddStage( graph, kSpatial, m_Stages[kSpatial], sampleWidth, sampleHeight,
-                      [&]( RDG::BindingBlockBuilder& block )
-                      {
-                          common( block, true );
-                          read( block, MegaLightsShaderParameters::ReservoirsTexture, temporal );
-                          block.Storage( MegaLightsShaderParameters::OutReservoirsTexture, spatial,
+                          tracing( block );
+                          read( block, MegaLightsShaderParameters::SamplesTexture, generated );
+                          block.Storage( MegaLightsShaderParameters::OutSamplesTexture, traced,
                                          RDG::Access::StorageWrite );
                       } );
             HistorySlot* stamped = &next;
             AddStage(
-                 graph, kTrace, traceProgram, sampleWidth, sampleHeight,
+                 graph, kVisibleHash, m_Stages[kVisibleHash], tilesWide, tilesHigh,
                  [&]( RDG::BindingBlockBuilder& block )
                  {
-                     common( block, true );
-                     tracing( block );
-                     read( block, MegaLightsShaderParameters::ReservoirsTexture, spatial );
-                     block.Storage( MegaLightsShaderParameters::OutReservoirsTexture, written[0],
-                                    RDG::Access::StorageWrite )
-                          .Storage( MegaLightsShaderParameters::OutSurfaceTexture, written[1],
-                                    RDG::Access::StorageWrite );
+                     common( block, false );
+                     read( block, MegaLightsShaderParameters::SamplesTexture, traced );
+                     block.Storage( MegaLightsShaderParameters::VisibleLightsUB, hash, RDG::Access::StorageWrite );
                  },
                  [stamped, index = frame.FrameIndex]() { stamped->Stamp.Stamp( index ); } );
             AddStage( graph, kShade, m_Stages[kShade], width, height,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          read( block, MegaLightsShaderParameters::ReservoirsTexture, written[0] );
+                          read( block, MegaLightsShaderParameters::SamplesTexture, traced );
                           block.Storage( MegaLightsShaderParameters::OutDiffuseTexture, diffuse,
                                          RDG::Access::StorageWrite )
                                .Storage( MegaLightsShaderParameters::OutSpecularTexture, specular,
@@ -395,14 +397,13 @@ namespace Desert::Graphic::System
 
     private:
         static constexpr std::size_t                               kGenerate    = 0;
-        static constexpr std::size_t                               kTemporal    = 1;
-        static constexpr std::size_t                               kSpatial     = 2;
-        static constexpr std::size_t                               kTrace       = 3;
-        static constexpr std::size_t                               kShade       = 4;
-        static constexpr std::size_t                               kStageCount  = 5;
+        static constexpr std::size_t                               kTrace       = 1;
+        static constexpr std::size_t                               kVisibleHash = 2;
+        static constexpr std::size_t                               kShade       = 3;
+        static constexpr std::size_t                               kStageCount  = 4;
         static constexpr std::array<std::string_view, kStageCount> kShaderNames = {
-             "MegaLightsGenerateSamples", "MegaLightsTemporalResampling", "MegaLightsSpatialResampling",
-             "MegaLightsTraceSamples", "MegaLightsShadeSamples" };
+             "MegaLightsGenerateSamples", "MegaLightsTraceSamples", "MegaLightsVisibleHash",
+             "MegaLightsShadeSamples" };
         // The trace's programs, one per set of visibility sources a frame can hold (TraceProgramOf). The mixed
         // ones branch per light on its payload's ShadowVisibility (Common/MegaLights.glslh MegaLightsVisibility).
         // A Screen light needs no program of its own beside vsm+screen: its slot is -1, the screen trace alone.
@@ -427,13 +428,11 @@ namespace Desert::Graphic::System
             return sources.VirtualMaps ? kTraceVirtualMapsAndScreen : kTraceScreen;
         }
         static constexpr std::array<std::string_view, kStageCount> kPassNames = {
-             "MegaLights: Generate Samples", "MegaLights: Temporal Resampling", "MegaLights: Spatial Resampling",
-             "MegaLights: Trace Samples", "MegaLights: Shade Samples" };
-        // The two history slots' graph names (static: the graph keeps a view of each while it builds).
-        static constexpr std::array<std::string_view, 2> kHistoryReservoirNames = { "MegaLights.History0",
-                                                                                    "MegaLights.History1" };
-        static constexpr std::array<std::string_view, 2> kHistorySurfaceNames   = { "MegaLights.History0.Surface",
-                                                                                    "MegaLights.History1.Surface" };
+             "MegaLights: Generate Samples", "MegaLights: Trace Samples", "MegaLights: Visible Light Hash",
+             "MegaLights: Shade Samples" };
+        // The two hash slots' graph names (static: the graph keeps a view of each while it builds).
+        static constexpr std::array<std::string_view, 2> kVisibleLightsNames = { "MegaLights.VisibleLights0",
+                                                                                 "MegaLights.VisibleLights1" };
 
         struct Stage
         {
@@ -469,50 +468,35 @@ namespace Desert::Graphic::System
             return built;
         }
 
-        // One history slot, sample-pixel sized: the traced reservoirs (stacked layers) and the representative
-        // surface they were traced from.
+        // One slot of the visible-light hash, for a sample grid of Width x Height.
         struct HistorySlot
         {
-            RDG::ExternalTexture Reservoirs;
-            RDG::ExternalTexture Surface;
-            bool                 Built   = false;
-            uint32_t             Width   = 0;
-            uint32_t             Height  = 0;
-            uint32_t             Samples = 0;
-            PassHistoryStamp     Stamp; // which view frame wrote it
+            RDG::ExternalBuffer VisibleLights;
+            bool                Built  = false;
+            uint32_t            Width  = 0;
+            uint32_t            Height = 0;
+            PassHistoryStamp    Stamp; // which view frame wrote it
         };
 
-        // The slot's two textures in this graph: registered when they exist at this size, created and extracted
-        // (kept past the graph, read by next frame's temporal resampling) when they do not.
-        static std::array<RDG::TextureRef, 2> AcquireSlot( RDG::Builder& graph, HistorySlot& slot,
-                                                           const uint32_t index, const uint32_t width,
-                                                           const uint32_t height, const uint32_t samples )
+        // The slot's buffer in this graph: registered when it exists at this size, created and extracted (kept past
+        // the graph, read by the next frame's sampling) when it does not.
+        static RDG::BufferRef AcquireSlot( RDG::Builder& graph, HistorySlot& slot, const uint32_t index,
+                                           const uint32_t width, const uint32_t height, const uint64_t bytes )
         {
-            if ( slot.Built && slot.Width == width && slot.Height == height && slot.Samples == samples )
-                return { graph.RegisterExternal( slot.Reservoirs, kHistoryReservoirNames[index] ),
-                         graph.RegisterExternal( slot.Surface, kHistorySurfaceNames[index] ) };
-            slot.Reservoirs = {};
-            slot.Surface    = {};
+            if ( slot.Built && slot.Width == width && slot.Height == height )
+                return graph.RegisterExternal( slot.VisibleLights, kVisibleLightsNames[index] );
+            slot.VisibleLights = {};
             slot.Stamp.Invalidate();
-            const RDG::TextureRef reservoirs =
-                 graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = width, .Height = height * samples },
-                                                        .Format = Core::Formats::ImageFormat::RGBA32F },
-                                      kHistoryReservoirNames[index] );
-            const RDG::TextureRef surface =
-                 graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = width, .Height = height },
-                                                        .Format = Core::Formats::ImageFormat::RGBA16F },
-                                      kHistorySurfaceNames[index] );
-            graph.Extract( reservoirs, slot.Reservoirs, RDG::Access::SampledCompute );
-            graph.Extract( surface, slot.Surface, RDG::Access::SampledCompute );
-            slot.Built   = true;
-            slot.Width   = width;
-            slot.Height  = height;
-            slot.Samples = samples;
-            return { reservoirs, surface };
+            const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ bytes }, kVisibleLightsNames[index] );
+            graph.Extract( buffer, slot.VisibleLights, RDG::Access::StorageRead );
+            slot.Built  = true;
+            slot.Width  = width;
+            slot.Height = height;
+            return buffer;
         }
 
-        // One compute pass of @p stage over @p width x @p height (the sample pixels, or the render pixels for the
-        // shading; LocalSize(8, 8, 1) in every MegaLights shader);
+        // One compute pass of @p stage over @p width x @p height (the sample pixels, the hash tiles, or the render
+        // pixels for the shading; LocalSize(8, 8, 1) in every MegaLights shader);
         // @p onDispatched runs after a successful dispatch (the history stamp).
         template <typename Declare, typename Done = void ( * )()>
         void AddStage(

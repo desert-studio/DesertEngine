@@ -53,7 +53,6 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, SsrTraceTexture );
         DESERT_SHADER_PARAMETER( Texture, TraceRayTexture );
         DESERT_SHADER_PARAMETER( Texture, AccumulatedSignalTexture );
-        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, HistoryCountTexture );
         DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryTexture );
@@ -142,7 +141,7 @@ namespace Desert::Graphic::System
     };
 
     // What MegaLights hands the denoiser's specular signal (UE MegaLights denoises its specular lighting apart
-    // from the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 on a surface. The
+    // from the diffuse): its full-resolution demodulated specular light, rgb = light, a = 1 where it answered. The
     // diffuse half goes through DiffuseIndirectDenoiserInputs, so a glossy highlight never gets the diffuse
     // kernel.
     struct DirectSpecularDenoiserInputs
@@ -178,7 +177,7 @@ namespace Desert::Graphic::System
     //     reconstruction of the producer's raw samples at full resolution, every tap weighed by the bilateral
     //     weight of its surface against the pixel's (depth plane, normal, specular lobe).
     //  2) TEMPORAL ACCUMULATION (SSDTemporalAccumulation): the history reprojected (reflections through the
-    //     reflected point), rejected against the neighbourhood's variance, accumulated by sample count.
+    //     reflected point) texel by texel off the same surface (view depth), rejected against the neighbourhood's variance, accumulated by sample count.
     //  3) HISTORY CONVOLUTION (SSDHistoryConvolution): a bilateral post filter whose radius shrinks with the
     //     pixel's sample count - the output.
     // The history (accumulation + sample count) is this object's, per view (each SceneRenderer's producer owns
@@ -543,7 +542,7 @@ namespace Desert::Graphic::System
             return kMaxSampleCountDiffuseIndirect; // unreachable: the switch names every signal (-Wswitch)
         }
 
-        // One history slot: the premultiplied accumulation and its sample count, each a graph texture created
+        // One history slot: the premultiplied accumulation and its sample count with its view depth, each a graph texture created
         // once (CreateTexture + Extract) and registered every frame after (RegisterExternal).
         struct HistorySlot
         {
@@ -653,8 +652,6 @@ namespace Desert::Graphic::System
                                     RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ) )
                           .Texture( ScreenSpaceDenoiserTemporalShaderParameters::AccumulatedSignalTexture,
                                     history[0], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Sampler( ScreenSpaceDenoiserTemporalShaderParameters::LinearClampSampler,
-                                    RDG::SamplerDesc::LinearClamp() )
                           .Texture( ScreenSpaceDenoiserTemporalShaderParameters::HistoryCountTexture, history[1],
                                     RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Texture( ScreenSpaceDenoiserTemporalShaderParameters::VelocityTexture, scene.Velocity,

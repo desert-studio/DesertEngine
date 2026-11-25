@@ -60,6 +60,9 @@ namespace Desert::Graphic
         RDG::BufferRef Point;       // "Upload: Lights.Point"
         RDG::BufferRef Spot;        // "Upload: Lights.Spot"
         RDG::BufferRef ShadowViews; // "Upload: Lights.ShadowViews"
+        // "Upload: Lights.PreviousRow": int32 per row of the light index space (points, then spots), the row the
+        // same light had in this view's previous frame, -1 = none (LightRowHistory).
+        RDG::BufferRef PreviousRow;
         RDG::BufferRef GridParams;  // "Upload: Lights.GridParams"
         RDG::BufferRef GridCells;   // written by "LightGrid"
         // The world layout of the same lights (LightGridLayout::WorldClipmaps: the radiance cache's clipmap cells,

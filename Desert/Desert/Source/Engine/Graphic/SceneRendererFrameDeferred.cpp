@@ -448,10 +448,13 @@ namespace Desert::Graphic
              frame.Split.Render.Height, GetPointLights(), GetSpotLights(), m_LightGridQuality );
         // "Upload: Lights.Point" / "Upload: Lights.Spot" / "Upload: Lights.ShadowViews" /
         // "Upload: Lights.GridParams", ordered before the nodes that read them.
+        const std::vector<int32_t> previousRows =
+             m_LightRows.Advance( m_PointLightShadows, GetPointLights().PointLights.size(), m_SpotLightShadows,
+                                  GetSpotLights().SpotLights.size() );
         const Common::ResultStr<System::DeferredCompositeLights> uploaded =
              System::DeferredLightingRenderer::UploadLights( graph, GetPointLights(), GetSpotLights(),
-                                                             m_Systems.Mesh->GetLocalShadowRows(), grid,
-                                                             m_KeptLights );
+                                                             m_Systems.Mesh->GetLocalShadowRows(), previousRows,
+                                                             grid, m_KeptLights );
         if ( !uploaded )
         {
             LOG_ERROR( "[SceneRenderer] LightGrid: {}; the view has no light buffers", uploaded.GetError() );
@@ -715,6 +718,7 @@ namespace Desert::Graphic
                         .GBufferDepth    = inputs.GBufferDepth,
                         .GBufferA        = inputs.GBufferA,
                         .GBufferEmissive = inputs.GBufferEmissive,
+                        .GBufferShadingWord = inputs.GBufferShadingWord,
                         .Async           = m_SurfaceCacheAsyncRadiosity } );
                  !lit )
             {

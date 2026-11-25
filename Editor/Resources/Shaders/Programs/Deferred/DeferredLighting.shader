@@ -860,6 +860,9 @@ Shader "DeferredLighting"
         		if (giMode == 3)
         			sampled.Occlusion = ge.a;
         	}
+        	else
+        		// The sky behind a leaf is occluded as the sky in front of it.
+        		sampled.BackIrradiance *= skyVisibility;
         	if (reflectionInput == REFLECTION_INPUT_TRACED)
         	{
         		// UE MixSpecularAndRoughReflections (DiffuseIndirectComposite.usf) for Lumen reflections: the traced

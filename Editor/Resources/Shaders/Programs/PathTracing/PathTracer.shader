@@ -295,12 +295,9 @@ Shader "PathTracer"
                 }
                 // Every lobe the BSDF has keeps at least 5 % of the samples (the two-lobe sampler's clamp), so no
                 // direction it reflects into has a vanishing density; a black surface samples its GGX lobe alone.
-                // The transmitted albedo takes no more than the diffuse reflection leaves, so a leaf authored with a
-                // bright BaseColor and a bright SubsurfaceColor does not amplify the light.
-                m.Transmission = m.Model == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE
-                                     ? clamp(DesertSubsurfaceColor(m.Model, m.Payload), vec3(0.0),
-                                             max(vec3(1.0) - m.BaseColor * (1.0 - m.Metallic), vec3(0.0)))
-                                     : vec3(0.0);
+                // The transmitted albedo is the model's own (R + T = albedo, Common/FoliageEnergy.glslh; 0 for a
+                // model that lets no light through).
+                m.Transmission = DesertSubsurfaceColor(m.Model, m.Payload);
                 const vec4  weights = vec4(diffuse, specular, coat, PathTracingLuminance(m.Transmission));
                 const float total   = weights.x + weights.y + weights.z + weights.w;
                 m.LobeProbability         = vec3(0.0, 1.0, 0.0);
@@ -333,16 +330,11 @@ Shader "PathTracer"
                 return dot(N, L) < 0.0 ? 2.0 * m.Position - origin : origin;
             }
 
-            // f * cos of the hit's model toward L. Two-sided foliage: the raster's Evaluate with no transmitted
-            // light (its wrapped, view-dependent scatter fits a single punctual light and does not conserve energy)
-            // plus the Lambert transmission lobe the mixture samples and weighs.
+            // f * cos of the hit's model toward L, transmission included: the raster's Evaluate.
             vec3 PathTracingEvaluateCos(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
             {
-                DesertLight light = PathTracingUnitLight(L);
-                if (m.Model == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE)
-                    light.TransmissionShadow = 0.0;
-                return DesertEvaluateShadingModel(m.Model, light, PathTracingSurfaceOf(m, N, V), m.Payload) +
-                       m.Transmission * (max(-dot(N, L), 0.0) / PI);
+                return DesertEvaluateShadingModel(m.Model, PathTracingUnitLight(L), PathTracingSurfaceOf(m, N, V),
+                                                  m.Payload);
             }
 
             // f * cos toward L; the model's specular lobe (EvaluateSpecular) is the share.

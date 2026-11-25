@@ -11,7 +11,7 @@ Shader "MegaLightsVolume"
     //     point of the light's source sphere (SourceRadius: soft shadows over frames), as MegaLights' surface traces;
     //  3) the shadowed estimate projected on L1 spherical harmonics (L0, L1 x y z per colour channel);
     //  4) blended with the previous frame's volume at the point's reprojected froxel (an exponential average of
-    //     1 / (Shadows.MegaLightsMaxHistory + 1)), unless the point was outside it or the history is unreadable.
+    //     1 / (Shadows.MegaLightsVolumeMaxHistory + 1)), unless the point was outside it or the history is unreadable.
     // The result is next frame's history and what the forward and translucent cells read. This is the ray-query
     // program (StochasticVisibility::RayQuery, every casting light); the body is Common/MegaLightsVolumeWrite.glslh,
     // shared with MegaLightsVolumeRayQueryScreen.shader, MegaLightsVolumeVirtual.shader (vsm+screen),

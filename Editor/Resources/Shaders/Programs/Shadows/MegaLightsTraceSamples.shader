@@ -2,13 +2,11 @@
 Shader "MegaLightsTraceSamples"
 {
     // "MegaLights: Trace Samples" (UE MegaLightsHardwareRayTracing + its screen traces): THE ONE RAY of each sample.
-    // Per sample pixel, after the temporal and spatial reuse, the light every reservoir ended with is tested once
-    // from the sample pixel's representative surface (Common/MegaLights.glslh MegaLightsVisibility): its contact
-    // shadow through the G-buffer depth, then one ray query over the view's TLAS (masked segments alpha-tested)
-    // toward a point of the light's source sphere. The visibility scales the reservoir's W (0 = occluded: it keeps
-    // its confidence and loses its weight, RTXDI visibility reuse). These reservoirs are both what every render
-    // pixel of the block shades ("MegaLights: Shade Samples", no ray) and next frame's temporal history, with the
-    // representative's surface beside them.
+    // Per sample pixel, the light every sample drew ("MegaLights: Generate Samples") is tested once from the sample
+    // pixel's representative surface (Common/MegaLights.glslh MegaLightsVisibility): its contact shadow through the
+    // G-buffer depth, then one ray query over the view's TLAS (masked segments alpha-tested) toward a point of the
+    // light's source sphere. The sample keeps its visibility: what "MegaLights: Shade Samples" multiplies by, and
+    // what "MegaLights: Visible Light Hash" marks for the next frame's sampling.
 
     Compute
     {

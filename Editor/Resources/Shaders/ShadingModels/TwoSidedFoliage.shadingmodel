@@ -1,7 +1,7 @@
-// TwoSidedFoliage — UE's MSM_TwoSidedFoliage (ShadingModels.ush TwoSidedBxDF, the non-#if-0 branch): the slab
-// (Mesh/SubstrateSlab.glslh, no feature) for the side the light falls on, plus the light that passes THROUGH a thin leaf to the side facing away — a
-// wrapped N.L on the far side times a GGX lobe around the light's own direction, tinted by the leaf's
-// SubsurfaceColor. Its environment term is DefaultLit's plus the sky seen through the leaf: the irradiance from
+// TwoSidedFoliage — the model of UE's MSM_TwoSidedFoliage: the slab (Mesh/SubstrateSlab.glslh, no feature) for the
+// side the light falls on, plus the light that passes THROUGH a thin leaf to the side facing away: a Lambert lobe
+// around -N, tinted by the leaf's SubsurfaceColor. It is the lobe the path tracer samples, so raster, stochastic
+// lights, GI hits and the reference agree; the leaf conserves energy. Its environment term is DefaultLit's plus the sky seen through the leaf: the irradiance from
 // the far hemisphere, -N, times SubsurfaceColor (UE SkyLightingDiffuseShared.ush, the TWOSIDED_FOLIAGE branch).
 // Without the two transmission terms a leaf turned away from the sun is lit by the far hemisphere's blue sky
 // alone — Bistro's blue-fringed cypresses and hedges.
@@ -39,27 +39,14 @@ vec3 TwoSidedFoliageSubsurfaceColor( DesertPayload P )
     return encoded * encoded;
 }
 
-// UE BRDF.ush D_GGX( a2, NoH ), the form TwoSidedBxDF calls with a2 = 0.6 * 0.6.
-float TwoSidedFoliageGGX( float a2, float NoH )
-{
-    const float d = ( NoH * a2 - NoH ) * NoH + 1.0;
-    return a2 / ( PI * d * d );
-}
-
 vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
 {
-    // http://blog.stevemcauley.com/2011/12/03/energy-conserving-wrapped-diffuse/ — UE's Wrap = 0.5 on -N.L.
-    const float wrap    = 0.5;
-    const float wrapNoL = clamp( ( -dot( S.N, L.L ) + wrap ) / ( ( 1.0 + wrap ) * ( 1.0 + wrap ) ), 0.0, 1.0 );
-    // Scatter distribution: forward scattering, peaked where the eye looks through the leaf into the light.
-    const float scatter      = TwoSidedFoliageGGX( 0.6 * 0.6, clamp( -dot( S.V, L.L ), 0.0, 1.0 ) );
-    const vec3  transmission = L.Radiance * ( wrapNoL * scatter ) * TwoSidedFoliageSubsurfaceColor( P );
-
+    // A thin sheet: the slab on the lit side, the transmitted albedo as a Lambert lobe around -N
+    // (R + T = albedo, Common/FoliageEnergy.glslh). The path tracer samples this same lobe.
+    const vec3 through = TwoSidedFoliageSubsurfaceColor( P ) * ( max( -dot( S.N, L.L ), 0.0 ) / PI );
     // UE LightAccumulator_AddSplit: the surface light (the slab, which applies L.Shadow) takes the light's Shadow,
-    // the transmitted light its TransmissionShadow (the thickness of what stands between the leaf and the light).
-    // With Shadow on both, the normal offset of the opaque test put a leaf's far side behind the leaf itself: every
-    // leaf turned from the light was fully shadowed and the transmission never reached the screen.
-    return DesertSlabEvaluate( L, S, DesertMakeSlab( S, 0u ) ) + transmission * L.TransmissionShadow;
+    // the transmitted light its TransmissionShadow.
+    return DesertSlabEvaluate( L, S, DesertMakeSlab( S, 0u ) ) + L.Radiance * through * L.TransmissionShadow;
 }
 
 // The slab's lobe; the transmission is diffuse (UE FDirectLighting.Transmission joins the diffuse signal).
