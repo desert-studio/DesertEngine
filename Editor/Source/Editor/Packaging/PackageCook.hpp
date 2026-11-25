@@ -58,8 +58,8 @@ namespace Desert::Editor
     // texture's key is its source's bytes plus the cook's rules, see TextureImporter::Cook).
     //
     // `spirvDebugInfo` is the TARGET runtime's profile (Core::SpirvDebugInfoForConfigName), not this
-    // editor's: a Debug editor packaging a Release game must cook Release keys, or the shipped cache
-    // is dead on arrival. `developerInstruments` is the target runtime's DESERT_DEV_INSTRUMENTS
+    // editor's: an editor packaging a Shipping game must cook Shipping keys, or the shipped cache
+    // is dead on arrival (Debug and Release share one profile). `developerInstruments` is the target runtime's DESERT_DEV_INSTRUMENTS
     // (Common::ConfigHasDeveloperInstruments): a Shipping target cooks no developer-only shader.
     CookStats CookContentCaches( bool spirvDebugInfo, bool developerInstruments );
 

@@ -1,0 +1,15 @@
+# FPS-MAC-2: the editor an agent's scenario plays on Mac. play_scenario.py and scripts/Dev/_common.sh build and run the
+# host's row of scripts/Dev/dev_config.txt (Darwin = Release, the UE Development build) instead of a hard-coded -O0 Debug.
+# Before = the Debug editor of the same commit, after = Release; the same view, the per-pass table (profile-dump in
+# editor.log: cpu/gpu ms per scope) after each block of frames. The picture must not change.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce --gpu-profile
+Дано run View "View mode: Lit"
+Когда frames 60
+Когда profile-dump
+Тогда fpsmac2_release_wp WP_Protocol drawn (landscape, town, bushes, sky); status bar shows Release + this branch SHA; stat line shows FPS and GPU ms
+Когда --subject viewport set Camera.Glide -10
+Когда frames 60
+Когда profile-dump
+Когда --subject viewport set Camera.Glide 0
+Когда frames 10
+Тогда fpsmac2_fly the view 6 m farther along the camera: the same landscape, town and sky, nothing missing or black

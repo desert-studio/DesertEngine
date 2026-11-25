@@ -935,8 +935,9 @@ namespace Desert::Editor
         // of rebuilding. The cook writes files the registry must name, so the gather comes after
         // it; gathering before would ship a registry missing this cook's own output. It writes only
         // into the project's own cache, never into the output directory, so the rule below still holds.
-        // Cooked for the TARGET runtime's profile (options.Config), not this editor's: a Debug editor
-        // packaging a Release game must produce Release cache keys or the shipped cache never hits.
+        // Cooked for the TARGET runtime's profile (options.Config), not this editor's: an editor packaging
+        // a Shipping game must produce Shipping cache keys (no SPIR-V debug info) or the shipped cache
+        // never hits; Debug and Release runtimes share one profile.
         // The shader SET is the target's too: a Shipping runtime cannot load the developer-instrument
         // programs, so its package neither cooks nor carries them (Common/Core/DeveloperOnlyShaders.hpp).
         const bool      developerInstruments = Common::ConfigHasDeveloperInstruments( options.Config );
