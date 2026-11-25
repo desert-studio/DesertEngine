@@ -255,7 +255,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Common` — 148 files, 24,772 lines
 - `Deformation` — 4 files, 163 lines
 - `Editor` — 1 files, 147 lines
-- `Generated` — 3 files, 96 lines
+- `Generated` — 3 files, 205 lines
 - `Mesh` — 19 files, 2,528 lines
 - `Mesh/Generic` — 1 files, 21 lines
 - `Mesh/Surface` — 33 files, 5,230 lines
@@ -324,7 +324,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DesertCtl/mcp` — 1 files, 387 lines
 - `DesertHeaderTool` — 1 files, 1,902 lines
 - `DesertHeaderTool/Source` — 10 files, 1,729 lines: ComponentBlock, Diagnostic, HeaderModel, ModuleInfo, ModulePlacement, ModuleTable, ReflectedTypeName, RoutedEventName, ScannedFile, ShaderPushField, ShaderPushScan, ShaderPushStruct, … (+2)
-- `DesertNetProbe/Source` — 1 files, 1,048 lines
+- `DesertNetProbe/Source` — 1 files, 1,106 lines
 - `DomeSheet/Source` — 2 files, 699 lines: DomeSample, Image, SheetGeometry
 - `FbxMeshSplitter` — 3 files, 620 lines: FbxSplitResult
 - `GamePackager/Source` — 1 files, 208 lines
