@@ -288,11 +288,7 @@ namespace Desert::Editor
         // undoable again once the snapshot below has rebuilt the entities they name, under the same UUIDs.
         if ( !CommandHistory::Get().RemoveUndoBarrier() )
             LOG_ERROR( "[Play] Stop found no undo barrier: this Play session never fenced the history" );
-        if ( m_NetClient ) // the connection closes with Play (UE: the PIE client's net driver is destroyed)
-        {
-            m_NetClient->Shutdown( *scene );
-            m_NetClient.reset();
-        }
+        EndNetClient();          // the connection closes with Play (UE: the PIE client's net driver is destroyed)
         m_WorldStreamer.reset(); // before Clear: the snapshot below brings every cell back
         phases.Lap( "wait for the GPU, close the Play undo session, drop the streamer", 0 );
 
@@ -395,12 +391,10 @@ namespace Desert::Editor
 
         Desert::Core::SceneLoadPhases phases( std::format( "PIE travel '{}'", path ) );
         EngineContext::GetInstance().GetDevice()->WaitIdle(); // scene teardown frees GPU resources
-        if ( m_NetClient ) // a client does not travel on its own (UE: ServerTravel moves the clients); the session ends
-        {
+        if ( m_NetClient ) // a client does not travel on its own (UE: ServerTravel moves the clients); the session
+                           // ends
             LOG_WARN( "[Net] a level change on a client ends its session with the server" );
-            m_NetClient->Shutdown( *scene );
-            m_NetClient.reset();
-        }
+        EndNetClient();
         m_WorldStreamer.reset();                              // streams the world about to be cleared
         // The level left takes its Play records with it - they name the world about to be cleared (UE's travel in
         // PIE makes a new PIE world) - and the edit world's history stays parked behind a fresh barrier.
@@ -471,11 +465,28 @@ namespace Desert::Editor
         m_PendingStop = false;
         m_PlayWorld.Discard();
         m_EditPackages.reset();
+        EndNetClient(); // the closed view's world is still the active one here and goes after this returns
         m_WorldStreamer.reset();
         // The session ends here, not in Stop: its records go with the closed view's world, the parked history
         // comes back.
         if ( !CommandHistory::Get().RemoveUndoBarrier() )
             LOG_ERROR( "[Play] the closed view's Play session found no undo barrier: it never fenced the history" );
+    }
+
+    void PlaySession::EndNetClient()
+    {
+        if ( !m_NetClient )
+            return;
+        m_NetClient->Shutdown( *m_Workspace.ActiveScene() );
+        m_NetClient
+             .reset(); // releases the predicted pawn's character from the physics world (PhysicsPawnMoveWorld)
+    }
+
+    void PlaySession::EndForExit()
+    {
+        EndNetClient();
+        m_WorldStreamer.reset();
+        m_PendingStop = false;
     }
 
     bool PlaySession::TickStreaming( Desert::Core::Scene& scene, const Common::Timestep& ts )
