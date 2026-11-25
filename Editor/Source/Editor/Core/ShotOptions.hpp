@@ -208,6 +208,18 @@ namespace Desert::Editor
         // (WorldStreamer::SetDebugLoadDelayTicks).
         std::uint32_t StreamDelayTicks = 0;
 
+        // --quality <Key>=<Value> (repeatable): a capture's own scalability override on top of the machine's
+        // levels (UE -ExecCmds="r.MotionBlurQuality 0"), e.g. PostProcess.MotionBlurQuality=0 for a proof frame
+        // of a fast-moving view. It lives in THIS PROCESS only: a capture is an unattended run, whose quality
+        // changes never reach machine.json (QualityBoot::Persistence::ThisProcess). The key is a
+        // Common::Scalability ParameterSpec::Key; EditorLayer refuses an unknown key or an illegal value.
+        struct QualityOverride
+        {
+            std::string Key;
+            int         Value = 0;
+        };
+        std::vector<QualityOverride> Quality;
+
         // --- The pointer a headless capture has, and does not otherwise have (Ю12) -------------------
         //
         // WHY THIS EXISTS. `--shot` runs with no human and therefore with no cursor, so everything the UI
