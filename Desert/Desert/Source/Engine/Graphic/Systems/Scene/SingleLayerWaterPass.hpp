@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/RainOcclusion.hpp>
+
 // THE SINGLE LAYER WATER PASS AS THE RENDERER SEES IT (UE: the Renderer owns the single layer water passes -
 // SingleLayerWaterRendering - and the Water plugin owns the bodies, the quadtree and the water mesh that feed
 // them). The renderer schedules the frame's water through this interface and never names the Water module; the
@@ -79,6 +81,8 @@ namespace Desert::Graphic::System
         [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFFTInitialSpectrum() const = 0;
         [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFoamHistory() const        = 0;
         [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFoamTarget() const         = 0;
+        // Where the ground finds the foam written last (RainOcclusionUB's shore half).
+        [[nodiscard]] virtual ShoreFoamUniforms GetShoreFoamUniforms() const = 0;
         [[nodiscard]] virtual WaterFrameRefs                  RecordedFrame( const RDG::Builder& graph ) const = 0;
         virtual WaterFrameRefs AddFramePasses( RDG::Builder& graph, const WaterFrameImports& imports,
                                                float timeSeconds ) = 0;

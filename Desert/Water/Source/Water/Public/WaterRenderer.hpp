@@ -17,9 +17,11 @@
 #include <Water/Public/WaterShoreField.hpp>
 #include <Water/Public/WaterFoamClipmap.hpp>
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -136,6 +138,7 @@ namespace Desert::Graphic::System
         {
             return m_Foam[m_FoamWritten ^ 1u];
         }
+        [[nodiscard]] ShoreFoamUniforms GetShoreFoamUniforms() const override;
         // The frame's water, once AddFramePasses recorded it into @p graph; invalid otherwise.
         [[nodiscard]] WaterFrameRefs RecordedFrame( const RDG::Builder& graph ) const override
         {
@@ -417,8 +420,10 @@ namespace Desert::Graphic::System
         struct FoamFrame
         {
             Water::WaterFoamParams Params;
-            float                  StillY  = 0.0f;
-            int32_t                WaveSet = -1;
+            std::array<glm::ivec2, Water::kFoamLevels> Origin{};
+            float                  StillY     = 0.0f;
+            float                  BeachSlope = 0.0f;
+            int32_t                WaveSet    = -1;
             glm::vec2              Wind{ 0.0f }; // cm/s
         };
         // Places the windows around @p eye, reads @p material's foam values and writes the waves block's foam lanes.
@@ -428,21 +433,25 @@ namespace Desert::Graphic::System
         [[nodiscard]] bool EnsureFoam( uint32_t side );
         [[nodiscard]] RDG::TextureRef AddFoamPass( RDG::Builder& graph, const WaterFrameRefs& water,
                                                    const WaterFrameImports& imports, float timeSeconds );
-        [[nodiscard]] Common::BoolResultStr RenderFoam( const RDG::PassContext& context ) const;
         std::optional<FoamFrame>                 m_FoamFrame;
         Water::WaterFoamClipmapState             m_FoamState;
         std::array<std::shared_ptr<Image2D>, 2>  m_Foam;
         uint32_t                                 m_FoamWritten = 0;
         uint32_t                                 m_FoamSide    = 0;
-        DeferredReleaseQueue<std::shared_ptr<Image2D>> m_RetiredFoam;
+        Assets::FrameRetireQueue<std::shared_ptr<Image2D>> m_RetiredFoam;
         std::shared_ptr<GraphicsPipeline>        m_FoamPipeline;
+        ShaderBindingLayoutCache                 m_FoamLayout;
+        // What this frame's pass wrote: the history from the next PrepareFoam on.
+        std::optional<std::array<glm::ivec2, Water::kFoamLevels>> m_FoamRecorded;
+        float                                    m_FoamRecordedTime = 0.0f;
+        float                                    m_FoamTime         = 0.0f; // the history's
+        std::shared_ptr<const Water::WaterShoreField> m_FoamShore;          // the floor it lies on
         bool                                     m_FoamTried = false;
         // The foam values of the material read last, re-read only when it or the stamp moved.
         struct FoamMaterial
         {
             uint64_t      Material = 0;
             MaterialStamp Stamp;
-            bool          Readable = false;
             Water::WaterFoamParams Params;
         };
         FoamMaterial m_FoamMaterial;
