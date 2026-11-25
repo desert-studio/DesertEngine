@@ -112,7 +112,7 @@ namespace Desert::Core
         void      LoadPawnPrefab( Assets::AssetManager& assets );
         void      RequestPawnClosure();
         bool      PawnClosureLanded();
-        void      ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets );
+        void      ApplySpawnsAndDestroys( Scene& scene, Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
         // NET-5: a remote pawn's locomotion variables from its interpolated replicated movement - the proxy's
         // CharacterControllerComponent Velocity/CurrentSpeed and the anim graph parameters kLocomotion* of every
@@ -152,6 +152,7 @@ namespace Desert::Core
         std::optional<glm::vec3>                m_OwnFirstServerPosition;
         // The scripted input source (--net-walk*: a test client's hands), or none: the local player's input.
         std::unique_ptr<Gameplay::ScriptedPawnInput> m_Script;
+        bool m_ScriptSprintKeyHeld = false; // the script holds Left Shift in the player's Enhanced Input
         bool                                    m_InSession = false;
         // The server's pawn prefab as THIS client's AssetManager knows it (LoadPawnPrefab); null until it loaded.
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();

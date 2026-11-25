@@ -234,8 +234,9 @@ namespace Desert::Gameplay
         state.Velocity.X = velocity.X;
         state.Velocity.Z = velocity.Z;
 
-        const IPawnMoveWorld::Outcome moved =
-             world.Move( state, moveVelocity, CapsuleOf( settings, crouched ), ( world.Gravity() * settings.GravityScale ), dtSeconds );
+        const IPawnMoveWorld::Outcome moved  = world.Move( state, moveVelocity, CapsuleOf( settings, crouched ),
+                                                           world.Gravity() * settings.GravityScale,
+                                                          swimming ? 0.f : settings.MaxStepHeight, dtSeconds );
         const bool rising = !state.Grounded && state.Velocity.Y > 0.f;
         state.Position    = moved.Position;
         state.Velocity.X  = moved.Velocity.X;

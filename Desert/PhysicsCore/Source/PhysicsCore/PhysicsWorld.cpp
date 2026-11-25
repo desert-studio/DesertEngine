@@ -1956,7 +1956,7 @@ namespace Desert::Physics
     }
 
     void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2,
-                                        float dt, ECharacterContacts contacts )
+                                        float dt, ECharacterContacts contacts, float followFloorCm )
     {
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] || dt <= 0.0f )
             return;
@@ -1967,12 +1967,20 @@ namespace Desert::Physics
         character->SetLinearVelocity( ToJolt( velocity ) );
         const JPH::BodyFilter        anyBody;
         const NotCharacterBodyFilter notCharacter;
-        character->Update( dt, JPH::Vec3( 0.0f, -gravityCmPerS2, 0.0f ),
-                           m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) ), blockedBy,
-                           contacts == ECharacterContacts::WorldOnly
-                                ? static_cast<const JPH::BodyFilter&>( notCharacter )
-                                : anyBody,
-                           {}, *m_Impl->TempAllocator );
+        const JPH::BodyFilter&       bodies = contacts == ECharacterContacts::WorldOnly
+                                                   ? static_cast<const JPH::BodyFilter&>( notCharacter )
+                                                   : anyBody;
+        const auto       layers = m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) );
+        const JPH::RVec3 before = character->GetPosition();
+        character->Update( dt, JPH::Vec3( 0.0f, -gravityCmPerS2, 0.0f ), layers, blockedBy, bodies, {},
+                           *m_Impl->TempAllocator );
+        // A walk that left its floor without rising (downhill faster than the floor press, a step down) follows
+        // the floor instead of hopping off it (UE PhysWalking: FindFloor + AdjustFloorHeight; Jolt
+        // ExtendedUpdate's stick-to-floor, with the caller's grounded state). A jump rises, so it never sticks.
+        if ( followFloorCm > 0.0f && !character->IsSupported() &&
+             static_cast<float>( ( character->GetPosition() - before ).GetY() ) <= 1.0e-6f * dt )
+            character->StickToFloor( JPH::Vec3( 0.0f, -followFloorCm, 0.0f ), layers, blockedBy, bodies, {},
+                                     *m_Impl->TempAllocator );
     }
 
     BodyHandle PhysicsWorld::GetCharacterBody( CharacterHandle handle ) const

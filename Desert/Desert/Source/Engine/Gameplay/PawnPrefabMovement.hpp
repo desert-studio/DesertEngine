@@ -37,6 +37,7 @@ namespace Desert::Gameplay::PrefabMovement
         std::optional<float>       JumpZVelocity;
         std::optional<float>       AirControl;
         std::optional<float>       GravityScale;
+        std::optional<float>       MaxStepHeight;
         std::optional<float>       MaxWalkSpeedCrouched;
         std::optional<float>       CrouchedHeight;
         std::optional<float>       MaxSwimSpeed;
@@ -66,7 +67,8 @@ namespace Desert::Gameplay::PrefabMovement
         settings.BrakingFrictionFactor      = controller.BrakingFrictionFactor;
         settings.JumpZVelocity              = controller.JumpZVelocity;
         settings.AirControl                 = controller.AirControl;
-        settings.GravityScale = controller.GravityScale;
+        settings.GravityScale               = controller.GravityScale;
+        settings.MaxStepHeight              = controller.MaxStepHeight;
         settings.MaxWalkSpeedCrouched       = controller.MaxWalkSpeedCrouched;
         settings.MaxSwimSpeed               = controller.MaxSwimSpeed;
         settings.CapsuleRadius              = controller.Radius;
@@ -119,6 +121,7 @@ namespace Desert::Gameplay::PrefabMovement
             take( controller.JumpZVelocity, stated.JumpZVelocity );
             take( controller.AirControl, stated.AirControl );
             take( controller.GravityScale, stated.GravityScale );
+            take( controller.MaxStepHeight, stated.MaxStepHeight );
             take( controller.JumpAction, stated.JumpAction );
             take( controller.SprintAction, stated.SprintAction );
             take( controller.CrouchAction, stated.CrouchAction );
