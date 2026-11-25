@@ -3,7 +3,6 @@
 # (210,345) and (210,415) from it (the canvases are Stretch: one unit is one pixel).
 # Frames 7_preview_same and 8_game are the preview and GAMEPLAY-PROOF frames against the base, not steps of this file.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WL_UiA.desce
-Дано run Scene "Open Scene WL_UiB.desce"
 Дано run Scene "Open Scene WL_UiA.desce"
 Когда run Action "Play"
 Когда advance 1
@@ -16,11 +15,6 @@
 Когда input click - left
 Когда advance 0.5
 Тогда-вид 4_toast the toast "toast of A" is over A's view, bottom right, once
-Когда run Scene "Open Scene WL_UiB.desce"
-Когда advance 0.5
-Тогда-вид 2_doc_b document B reads placeholder of B and no message (not A, not hello from A); no toast
-Когда run Scene "Open Scene WL_UiA.desce"
-Когда advance 0.5
 Когда input move - 534,560
 Когда input click - left
 Когда advance 1
@@ -28,3 +22,31 @@
 Когда run Action "Stop"
 Когда advance 0.5
 Тогда-вид 6_stop the authored WL_UiA is back: World A, placeholder of A, its three buttons
+# The second session: document B is a second scene view, opened before Play; A travels (its script's timer) and stops
+# while B is the active document.
+Когда run Scene "New Scene View"
+Когда advance 0.5
+Когда run Panel "Open Scene 2"
+Когда advance 0.5
+Когда run Scene "Open Scene WL_UiB.desce"
+Когда advance 0.5
+Когда run Panel "Open Scene"
+Когда advance 0.5
+Когда run Action "Play"
+Когда advance 1
+Когда run Panel "Open Scene 2"
+Когда advance 0.5
+Тогда 2_doc_b document B (Scene 2) reads placeholder of B and no message (not A); no toast
+Когда advance 12
+Тогда play_b_active Scene 2 still shows the edited World B, unchanged by A's travel; B is the active document
+Когда run Panel "Open Scene"
+Когда advance 0.5
+Тогда play_a_travelled the main viewport plays level B: placeholder of B, not the letter A
+Когда run Panel "Open Scene 2"
+Когда advance 0.5
+Когда run Action "Stop"
+Когда advance 0.5
+Тогда stop_b_active Scene 2 shows World B unchanged
+Когда run Panel "Open Scene"
+Когда advance 0.5
+Тогда stop_a_restored the main viewport is back to the authored WL_UiA: World A, placeholder of A, its three buttons

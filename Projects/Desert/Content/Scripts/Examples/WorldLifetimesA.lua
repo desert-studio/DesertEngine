@@ -2,6 +2,8 @@
 
 function OnStart()
     ui.set( "probe.value", "A" )
+    -- With document B active: A's travel must load into A (the first session of the scenario stops before this).
+    Timer.after( 12.0, function() level.open( "Content/Scenes/WL_UiB.desce" ) end )
 end
 
 function OnUIMessage( msg )

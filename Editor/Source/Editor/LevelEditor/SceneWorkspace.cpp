@@ -92,8 +92,17 @@ namespace Desert::Editor
 
     void SceneWorkspace::RebuildRenderRegistry()
     {
-        m_RenderRegistry.reset();
-        m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_ActiveScene );
+        RebuildRenderRegistry( m_ActiveScene );
+    }
+
+    void SceneWorkspace::RebuildRenderRegistry( const std::shared_ptr<Desert::Core::Scene>& scene )
+    {
+        std::unique_ptr<Render::RenderRegistry>* registry = &m_RenderRegistry;
+        for ( const auto& doc : m_ExtraScenes )
+            if ( doc->Scene == scene )
+                registry = &doc->Registry;
+        registry->reset();
+        *registry = std::make_unique<Render::RenderRegistry>( scene );
     }
 
     namespace
@@ -118,22 +127,22 @@ namespace Desert::Editor
             allocator->SampleSceneOpen();
     }
 
-    void SceneWorkspace::ReleaseActiveWorld()
+    void SceneWorkspace::ReleaseWorld( const std::shared_ptr<Desert::Core::Scene>& scene )
     {
         std::size_t views = 0;
-        if ( m_ActiveScene == m_PrimaryScene && m_SceneRenderer )
+        if ( scene == m_PrimaryScene && m_SceneRenderer )
         {
             m_SceneRenderer->ReleaseWorldResources();
             ++views;
         }
         for ( const auto& doc : m_ExtraScenes )
-            if ( doc->Scene == m_ActiveScene && doc->Renderer )
+            if ( doc->Scene == scene && doc->Renderer )
             {
                 doc->Renderer->ReleaseWorldResources();
                 ++views;
             }
         for ( const auto& viewport : m_ExtraViewports )
-            if ( viewport->Scene.lock() == m_ActiveScene && viewport->Renderer )
+            if ( viewport->Scene.lock() == scene && viewport->Renderer )
             {
                 viewport->Renderer->ReleaseWorldResources();
                 ++views;
@@ -145,7 +154,7 @@ namespace Desert::Editor
         // The surface cache Clear parked (five 49 MB atlases on FIELD_Barn) would otherwise live on until the
         // frame ring comes round, beside the one the next world builds (FOLIAGE-LOOK-8: SurfaceCache.* x2 at
         // Stop).
-        m_ActiveScene->ReleaseParkedRenderers();
+        scene->ReleaseParkedRenderers();
         const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
              EngineContext::GetInstance().GetRendererContext() );
         const std::size_t drained =
@@ -155,10 +164,11 @@ namespace Desert::Editor
                   views, drained );
     }
 
-    void SceneWorkspace::ActiveSceneReplaced()
+    void SceneWorkspace::SceneReplaced( const std::shared_ptr<Desert::Core::Scene>& scene )
     {
-        RebuildRenderRegistry();
-        Core::SelectionManager::ClearSelection();
+        RebuildRenderRegistry( scene );
+        if ( scene == m_ActiveScene ) // the selection is the active document's (SetActiveScene)
+            Core::SelectionManager::ClearSelection();
     }
 
     Common::BoolResultStr SceneWorkspace::CreateSystems( Desert::Core::Scene& scene ) const

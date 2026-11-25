@@ -2,7 +2,8 @@
 
 // PLAY IN EDITOR (UE: UEditorEngine::PlayInEditor / EndPlayMap, FPlayWorldCommands).
 //
-// Play / Play from Here / Pause / Resume / Next Frame / Stop on the workspace's ACTIVE scene; the authored
+// Play / Play from Here / Pause / Resume / Next Frame / Stop on the workspace's ACTIVE scene; from Play to
+// Stop the session holds that scene itself, whichever document is active (UE: UEditorEngine::PlayWorld); the authored
 // snapshot Stop restores; the world streamer of a partitioned world in Play; the toolbar's playback group and
 // the palette's Play entries. A member of EditorLayer BY VALUE, declared after the SceneWorkspace it plays.
 
@@ -62,7 +63,7 @@ namespace Desert::Editor
 
         // The editor's frame boundary for the world's travel (PlayWorldTravel): in Play the queued level is loaded
         // into the PLAYED world and Stop still restores the authored one; outside Play the request is refused.
-        // Returns false when nothing was pending.
+        // Every document has its own queue; one that is not playing refuses its request. False: nothing was pending.
         [[nodiscard]] Common::BoolResultStr ServiceTravel();
 
         // The document about to close is the one playing: Play ends with it and its snapshot is discarded.
@@ -96,6 +97,8 @@ namespace Desert::Editor
             PlayFromHere,
             Simulate,
         };
+        // The scene this session plays; the active one while nothing plays. What a command acts on.
+        [[nodiscard]] std::shared_ptr<Desert::Core::Scene> CommandScene() const;
         void Start( StartKind kind, const std::string& playerStartTag );
 
         // Tears the played world down and plays the level at @p path in it (Runtime's LoadSceneInternal, with
@@ -106,7 +109,7 @@ namespace Desert::Editor
         // snapshot and packages.
         void RestoreEditWorld( const std::string& snapshot );
         // The session with the server ends while the world it plays in still exists: its remote pawns leave the
-        // active scene's players and its predicted pawn's character leaves that scene's physics world. Every end
+        // played scene's players and its predicted pawn's character leaves that scene's physics world. Every end
         // of Play (Stop, travel, the playing view closed, the editor closing) goes through here.
         void EndNetClient();
 
@@ -121,6 +124,8 @@ namespace Desert::Editor
         State                                        m_State = State::Paused;
         PlayWorldTravel                              m_PlayWorld; // the authored snapshot + the travelled map
         std::optional<Desert::Core::EntityPackages>  m_EditPackages; // the edit world's, from Play to Stop
+        std::weak_ptr<Desert::Core::Scene>           m_PlayScene; // from Play to Stop: the document owns it
+        uint64_t                                     m_PlayViewId = 0; // its view (SceneWorkspace::ActiveSceneId)
         std::string                                  m_EditFilePath; // its file, from Play to Stop
         bool                                         m_PendingStop = false;
         std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;

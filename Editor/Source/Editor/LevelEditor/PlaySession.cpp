@@ -148,13 +148,22 @@ namespace Desert::Editor
         Start( StartKind::Simulate, {} );
     }
 
+    std::shared_ptr<Desert::Core::Scene> PlaySession::CommandScene() const
+    {
+        auto played = m_PlayScene.lock();
+        return played ? played : m_Workspace.ActiveScene();
+    }
+
     void PlaySession::Start( const StartKind kind, const std::string& playerStartTag )
     {
         const bool fromHere = kind == StartKind::PlayFromHere;
         using SceneState  = ::Desert::Core::Scene::SceneState;
         const auto& scene = m_Workspace.ActiveScene();
-        if ( scene->GetState() != SceneState::Edit )
+        // One session at a time: a second document's Play would take the first one's snapshot.
+        if ( m_PlayWorld.Active() || scene->GetState() != SceneState::Edit )
             return;
+        m_PlayScene  = scene;
+        m_PlayViewId = m_Workspace.ActiveSceneId();
         // Play is a structural change of the edit world (entities completed from disk, the pawn, a refusal's
         // restore): every pointer-based record goes now, as around every structural command (OnStructuralChange).
         CommandHistory::Get().DropVolatile();
@@ -182,6 +191,7 @@ namespace Desert::Editor
             Editor::ToastManager::Push( std::format( "Play refused: {}", completed.GetError() ),
                                         Editor::ToastLevel::Error );
             m_PlayWorld.Discard( scene->Travel() );
+            m_PlayScene.reset();
             m_EditPackages.reset();
             return;
         }
@@ -196,6 +206,7 @@ namespace Desert::Editor
             else
                 m_EditPackages.reset();
             m_PlayWorld.Discard( scene->Travel() );
+            m_PlayScene.reset();
         };
         // The pawn is spawned AFTER the snapshot, so Stop's restore has never heard of it, and BEFORE the
         // streamer, which may unload the cell the PlayerStart stands in.
@@ -274,8 +285,8 @@ namespace Desert::Editor
     void PlaySession::Stop()
     {
         using SceneState  = ::Desert::Core::Scene::SceneState;
-        const auto& scene = m_Workspace.ActiveScene();
-        if ( scene->GetState() == SceneState::Edit || !m_PlayWorld.Active() )
+        const auto scene  = m_PlayScene.lock();
+        if ( !scene || scene->GetState() == SceneState::Edit || !m_PlayWorld.Active() )
             return;
 
         Desert::Core::SceneLoadPhases phases( "Stop restore" );
@@ -283,6 +294,8 @@ namespace Desert::Editor
         // PIE actors are mapped to their editor counterparts and selected again after the PIE world goes). The
         // snapshot restore below rebuilds every authored entity under its own UUID, so a UUID is the counterpart;
         // one that Play spawned (the pawn) is not in the restored world and drops out.
+        // With another document active the selection is that document's, and stays.
+        const bool                      playedIsActive     = scene == m_Workspace.ActiveScene();
         const std::vector<Common::UUID> selectedBeforeStop = Core::SelectionManager::GetSelection();
         EngineContext::GetInstance().GetDevice()->WaitIdle();
         // THE EDIT WORLD'S HISTORY COMES BACK (UEditorEngine::EndPlayMap -> RemoveUndoBarrier, PlayLevel.cpp:677):
@@ -306,7 +319,7 @@ namespace Desert::Editor
                  // atlas) was queued for deletion by Clear: release it before the snapshot's world builds its
                  // own, as the opener does (SceneFiles). Without it Stop held both worlds' GPU state at once -
                  // FIELD_Barn's Stop peaked over the 6 GB cap with DistanceFieldBrickAtlas x2 (FOLIAGE-LOOK-8).
-                 m_Workspace.ReleaseActiveWorld();
+                 m_Workspace.ReleaseWorld( scene );
                  phases.Lap( "release the played world's GPU resources, drain deferred deletions", outgoing );
                  const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
                  // NOT A FILE: named "<Play snapshot>" so a failure says which of the two "loading a scene" broke.
@@ -333,12 +346,15 @@ namespace Desert::Editor
         }
         phases.Lap( "initialise the scene", incoming );
 
-        m_Workspace.ActiveSceneReplaced();
-        std::vector<Common::UUID> counterparts;
-        for ( const Common::UUID& uuid : selectedBeforeStop )
-            if ( scene->FindEntityByID( uuid ) )
-                counterparts.push_back( uuid );
-        Core::SelectionManager::SetSelection( std::move( counterparts ) );
+        m_Workspace.SceneReplaced( scene );
+        if ( playedIsActive )
+        {
+            std::vector<Common::UUID> counterparts;
+            for ( const Common::UUID& uuid : selectedBeforeStop )
+                if ( scene->FindEntityByID( uuid ) )
+                    counterparts.push_back( uuid );
+            Core::SelectionManager::SetSelection( std::move( counterparts ) );
+        }
         phases.Lap( "rebuild the render registry, select the played selection's authored counterparts", incoming );
         phases.LogSummary();
 
@@ -349,14 +365,15 @@ namespace Desert::Editor
         // The session ends with the world: without this the editor kept reporting Play (MCP state "playing")
         // after every Stop — only a closed scene view used to end it (EndIfBoundTo).
         m_State = State::Paused;
+        m_PlayScene.reset();
     }
 
     void PlaySession::RestoreEditWorld( const std::string& snapshot )
     {
-        const auto& scene = m_Workspace.ActiveScene();
+        const auto scene = CommandScene();
         EngineContext::GetInstance().GetDevice()->WaitIdle();
         scene->Clear();
-        m_Workspace.ReleaseActiveWorld(); // as Stop: the old world's GPU state goes before the snapshot loads
+        m_Workspace.ReleaseWorld( scene ); // as Stop: the old world's GPU state goes before the snapshot loads
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         if ( const auto restored = serializer.DeserializeFromJson( snapshot, "<Play snapshot>" ); !restored )
         {
@@ -373,19 +390,40 @@ namespace Desert::Editor
         m_EditPackages.reset();
         if ( const auto inited = scene->Init(); !inited.IsSuccess() )
             LOG_ERROR( "[EditorLayer] scene failed to initialise after a refused Play: {}", inited.GetError() );
-        m_Workspace.ActiveSceneReplaced();
+        m_Workspace.SceneReplaced( scene );
     }
 
     Common::BoolResultStr PlaySession::ServiceTravel()
     {
-        return m_PlayWorld.Tick( m_Workspace.ActiveScene()->Travel(),
-                                 [this]( const std::string& path ) { return LoadIntoPlayWorld( path ); } );
+        const auto  played  = m_PlayScene.lock();
+        bool        pending = false;
+        std::string errors;
+        const auto  collect = [&]( const Common::BoolResultStr& travelled )
+        {
+            if ( travelled )
+                pending = pending || travelled.GetValue();
+            else
+                errors += ( errors.empty() ? "" : "; " ) + travelled.GetError();
+        };
+        const PlayWorldTravel::LoadMap load = [this]( const std::string& path ) { return LoadIntoPlayWorld( path ); };
+        // A document that is not playing has no game world: an inactive travel refuses its request by name.
+        PlayWorldTravel notPlaying;
+        const auto      tick = [&]( Desert::Core::Scene& scene )
+        { collect( ( &scene == played.get() ? m_PlayWorld : notPlaying ).Tick( scene.Travel(), load ) ); };
+        tick( *m_Workspace.PrimaryScene() );
+        for ( const auto& document : m_Workspace.Documents() )
+            tick( *document->Scene );
+        if ( !errors.empty() )
+            return Common::MakeError( errors );
+        return Common::MakeSuccess( pending );
     }
 
     Common::BoolResultStr PlaySession::LoadIntoPlayWorld( const std::string& path )
     {
         using SceneState  = ::Desert::Core::Scene::SceneState;
-        const auto& scene = m_Workspace.ActiveScene();
+        const auto scene  = m_PlayScene.lock();
+        if ( !scene )
+            return Common::MakeFormattedError<bool>( "Travel to '{}' refused: the played document is closed", path );
 
         // ASKED BEFORE ANYTHING IS TORN DOWN: a level that cannot load leaves the played world running.
         auto text = Desert::Core::ExternalEntities::ReadSceneFileText( path );
@@ -420,7 +458,7 @@ namespace Desert::Editor
         const auto stayInPlay = [&]( const std::string& error ) -> Common::BoolResultStr
         {
             scene->SetState( SceneState::Play );
-            m_Workspace.ActiveSceneReplaced();
+            m_Workspace.SceneReplaced( scene );
             return Common::MakeError( error );
         };
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
@@ -444,7 +482,7 @@ namespace Desert::Editor
                  std::format( "Travel to '{}' could not stream the world: {}", path, streamer.GetError() ) );
         m_WorldStreamer    = streamer.ExtractValue();
         m_WorldStreamClock = 0.0;
-        m_Workspace.ActiveSceneReplaced();
+        m_Workspace.SceneReplaced( scene );
         phases.Lap( "begin Play and the world streamer", scene->GetAllEntities().size() );
         phases.LogSummary();
         LOG_INFO( "[Play] travelled to '{}' -- Stop returns to the authored level", path );
@@ -462,19 +500,21 @@ namespace Desert::Editor
 
     void PlaySession::EndIfBoundTo( uint64_t sceneViewId )
     {
-        // The snapshot Stop would restore is of a scene about to cease existing, and Stop acts on whatever
-        // document is active — leaving the state alone would strand the editor in Play.
-        if ( m_State != State::Play || m_Workspace.ActiveSceneId() != sceneViewId )
+        // The snapshot Stop would restore is of a scene about to cease existing — leaving the state alone would
+        // strand the editor in Play.
+        const auto scene = m_PlayScene.lock();
+        if ( m_State != State::Play || !scene || m_PlayViewId != sceneViewId )
             return;
         LOG_INFO( "[Editor] Scene view #{} was playing when it was closed — play mode ends with it and "
                   "its snapshot is discarded.",
                   sceneViewId );
         m_State       = State::Paused;
         m_PendingStop = false;
-        m_PlayWorld.Discard( m_Workspace.ActiveScene()->Travel() );
+        m_PlayWorld.Discard( scene->Travel() );
         m_EditPackages.reset();
-        EndNetClient(); // the closed view's world is still the active one here and goes after this returns
+        EndNetClient(); // the closed view's world still exists here and goes after this returns
         m_WorldStreamer.reset();
+        m_PlayScene.reset();
         // The session ends here, not in Stop: its records go with the closed view's world, the parked history
         // comes back.
         if ( !CommandHistory::Get().RemoveUndoBarrier() )
@@ -485,7 +525,11 @@ namespace Desert::Editor
     {
         if ( !m_NetClient )
             return;
-        m_NetClient->Shutdown( *m_Workspace.ActiveScene() );
+        // Every end of Play comes here before the played document goes; a session that outlived it is said.
+        if ( const auto scene = m_PlayScene.lock() )
+            m_NetClient->Shutdown( *scene );
+        else
+            LOG_ERROR( "[Net] the client session outlived the document it played in" );
         m_NetClient
              .reset(); // releases the predicted pawn's character from the physics world (PhysicsPawnMoveWorld)
     }
@@ -494,13 +538,14 @@ namespace Desert::Editor
     {
         EndNetClient();
         m_WorldStreamer.reset();
+        m_PlayScene.reset();
         m_PendingStop = false;
     }
 
     bool PlaySession::TickStreaming( Desert::Core::Scene& scene, const Common::Timestep& ts )
     {
         // The network first: this frame's replicated poses are what streaming and every system see.
-        if ( m_NetClient )
+        if ( m_NetClient && m_PlayScene.lock().get() == &scene )
         {
             DESERT_PROFILE_SCOPE( "ClientNetDriver::Tick" );
             m_NetClient->Tick( scene, *m_Assets ); // real time (ClientNetDriver::Tick)
@@ -524,7 +569,7 @@ namespace Desert::Editor
 
     std::vector<::Desert::Core::Rules::StreamingSource> PlaySession::InstrumentStreamingSources() const
     {
-        const auto& scene = m_Workspace.ActiveScene();
+        const auto  scene = CommandScene();
         const auto* camera =
              scene ? dynamic_cast<::Desert::Core::EditorCamera*>( scene->GetActiveCamera().get() ) : nullptr;
         if ( !ShotOptions::Get().FlightRoute || camera == nullptr )
@@ -538,7 +583,7 @@ namespace Desert::Editor
     {
         using SceneState       = ::Desert::Core::Scene::SceneState;
         using Command          = PlayWorldCommand;
-        const auto&      scene = m_Workspace.ActiveScene();
+        const auto       scene = CommandScene();
         const SceneState state = scene->GetState();
         switch ( command )
         {
@@ -589,7 +634,7 @@ namespace Desert::Editor
 
         // UE's Level Editor group: Play | Options | Pause | Next Frame | Stop. Every slot is present in every
         // state and the ones that do not apply are greyed out, so the group never changes shape or position.
-        const SceneState state   = m_Workspace.ActiveScene()->GetState();
+        const SceneState state   = CommandScene()->GetState();
         const bool       editing = state == SceneState::Edit;
         const bool       paused  = state == SceneState::Paused;
 

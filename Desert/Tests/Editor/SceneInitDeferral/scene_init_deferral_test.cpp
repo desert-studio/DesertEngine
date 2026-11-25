@@ -169,7 +169,7 @@ TEST( SceneInitDeferral, TheEditorPassRegistryIsNotBuiltAgainstAnUninitialisedSc
 // A WORLD REPLACED IS A SELECTION DROPPED (UE: USelection follows the world). Open, New (the Basic template
 // opened untitled, through the same load) and Stop's snapshot restore all tear the active scene's entities
 // down and rebuild them; a selected UUID that survives the swap names an entity of a different world
-// (Outliner "1 selected", Details "Entity not found"). Each path must end in SceneWorkspace::ActiveSceneReplaced,
+// (Outliner "1 selected", Details "Entity not found"). Each path must end in SceneWorkspace::SceneReplaced,
 // and that one place must clear the selection.
 TEST( SceneInitDeferral, EveryWorldReplacementDropsTheOldWorldsSelection )
 {
@@ -177,13 +177,13 @@ TEST( SceneInitDeferral, EveryWorldReplacementDropsTheOldWorldsSelection )
     ASSERT_FALSE( root.empty() );
     const std::string workspace = StripLineComments( ReadAll(
          ( std::filesystem::path( root ) / "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp" ).string() ) );
-    const std::size_t replaced  = workspace.find( "void SceneWorkspace::ActiveSceneReplaced()" );
+    const std::size_t replaced  = workspace.find( "void SceneWorkspace::SceneReplaced(" );
     ASSERT_NE( replaced, std::string::npos ) << "the one world-replaced path is gone";
     const std::size_t body_end = workspace.find( "\n    }", replaced );
     const std::string body     = workspace.substr( replaced, body_end - replaced );
     EXPECT_NE( body.find( "SelectionManager::ClearSelection()" ), std::string::npos )
          << "a replaced world keeps the old world's selection";
-    EXPECT_NE( body.find( "RebuildRenderRegistry()" ), std::string::npos );
+    EXPECT_NE( body.find( "RebuildRenderRegistry( scene )" ), std::string::npos );
 
     struct Path
     {
@@ -200,7 +200,7 @@ TEST( SceneInitDeferral, EveryWorldReplacementDropsTheOldWorldsSelection )
         const std::size_t end = source.find( "\n    }\n", begin );
         const std::string fn  = source.substr( begin, end - begin );
         EXPECT_NE( fn.find( "->Clear()" ), std::string::npos ) << path.Function << " no longer replaces the world";
-        EXPECT_NE( fn.find( "m_Workspace.ActiveSceneReplaced()" ), std::string::npos )
+        EXPECT_NE( fn.find( "SceneReplaced(" ), std::string::npos )
              << path.Function << " replaces the world without dropping the old world's selection";
     }
 }

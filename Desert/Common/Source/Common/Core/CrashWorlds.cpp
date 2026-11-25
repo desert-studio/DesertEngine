@@ -8,12 +8,11 @@ namespace Common::Crash
     namespace
     {
         constexpr std::size_t  kLineChars = 1024;
-        constexpr std::size_t  kKindChars = 32;
         constexpr std::int32_t kFree      = -1;
 
         struct Slot
         {
-            char                      kind[kKindChars]    = {};
+            char                      kind[kCrashKindChars] = {};
             char                      text[2][kLineChars] = {};
             std::atomic<std::int32_t> published{ kFree };
         };
@@ -50,18 +49,26 @@ namespace Common::Crash
 
     CrashWorld::CrashWorld( std::string_view kind ) noexcept
     {
+        Append( m_Kind, kCrashKindChars, 0, kind );
+        if ( Claim( {}, "edit" ) )
+            return;
+        m_Slot = kUnlisted;
+        g_Unlisted.fetch_add( 1, std::memory_order_relaxed );
+    }
+
+    bool CrashWorld::Claim( std::string_view path, std::string_view state ) noexcept
+    {
         for ( std::size_t i = 0; i < kCrashWorldSlots; ++i )
         {
             Slot& slot = g_Slots[i];
             if ( slot.published.load( std::memory_order_relaxed ) != kFree )
                 continue;
-            Append( slot.kind, kKindChars, 0, kind );
-            Publish( slot, {}, "edit" );
+            Append( slot.kind, kCrashKindChars, 0, m_Kind );
+            Publish( slot, path, state );
             m_Slot = static_cast<std::int32_t>( i );
-            return;
+            return true;
         }
-        m_Slot = kUnlisted;
-        g_Unlisted.fetch_add( 1, std::memory_order_relaxed );
+        return false;
     }
 
     CrashWorld::~CrashWorld() noexcept
@@ -71,6 +78,7 @@ namespace Common::Crash
 
     CrashWorld::CrashWorld( CrashWorld&& other ) noexcept : m_Slot( std::exchange( other.m_Slot, -1 ) )
     {
+        Append( m_Kind, kCrashKindChars, 0, other.m_Kind );
     }
 
     CrashWorld& CrashWorld::operator=( CrashWorld&& other ) noexcept
@@ -79,6 +87,7 @@ namespace Common::Crash
         {
             Release();
             m_Slot = std::exchange( other.m_Slot, -1 );
+            Append( m_Kind, kCrashKindChars, 0, other.m_Kind );
         }
         return *this;
     }
@@ -87,6 +96,8 @@ namespace Common::Crash
     {
         if ( m_Slot >= 0 )
             Publish( g_Slots[m_Slot], path, state );
+        else if ( m_Slot == kUnlisted && Claim( path, state ) )
+            g_Unlisted.fetch_sub( 1, std::memory_order_relaxed );
     }
 
     void CrashWorld::Release() noexcept
