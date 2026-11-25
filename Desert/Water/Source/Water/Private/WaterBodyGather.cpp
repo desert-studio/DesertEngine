@@ -59,8 +59,7 @@ namespace Desert::ECS
             // actor location is.
             body.Location            = transform->GetTranslation();
             body.Extents             = data.OceanExtents;
-            body.TargetWaveMaskDepth = data.TargetWaveMaskDepth;
-            body.Type                = data.Type;
+                    body.Type                = data.Type;
             body.Density             = data.Density;
             body.Drag                = data.Drag;
             if ( data.Type == Water::WaterBodyType::River )

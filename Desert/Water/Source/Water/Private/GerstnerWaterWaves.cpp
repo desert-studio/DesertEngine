@@ -124,9 +124,4 @@ namespace Desert::Water
             height += GerstnerWaveSimpleHeight( plane, w.Direction, w.WaveLength, w.Amplitude, time );
         return height;
     }
-
-    float WaveDepthAttenuation( float depth, float targetWaveMaskDepth )
-    {
-        return GerstnerDepthAttenuation( depth, targetWaveMaskDepth );
-    }
 } // namespace Desert::Water

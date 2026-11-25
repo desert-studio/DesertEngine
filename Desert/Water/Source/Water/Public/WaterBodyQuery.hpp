@@ -13,7 +13,7 @@
 
 #include <Water/Public/FFTSurfaceMirror.hpp>
 #include <Water/Public/WaterRiver.hpp>
-#include <Landscape/Public/LandscapeRaycast.hpp>
+#include <Water/Public/WaterShoreField.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -29,10 +29,6 @@ namespace Desert::Water
 {
     struct GerstnerWave; // Water/Public/GerstnerWaterWaves.hpp: held by shared pointer, evaluated in the .cpp
 
-    /// The depth an ocean reports where no landscape answers under the point, or the landscape stands above the
-    /// plane (UE r.Water.OceanFallbackDepth, its default).
-    inline constexpr float kOceanFallbackDepthCm = 3000.0f;
-
     /// One ocean as the physics step sees it (UE FSolverSafeWaterBodyData): plain data, safe to read off the
     /// game thread.
     struct WaterBodyState
@@ -44,8 +40,6 @@ namespace Desert::Water
         glm::vec2 Extents{ 51200.0f, 51200.0f };
         /// Empty = a flat body (UE HasWaves() false). Shared: every body naming one `.dwaves` reads one set.
         std::shared_ptr<const std::vector<GerstnerWave>> Waves;
-        /// Depth at which the waves have died to e^-2 (UE TargetWaveMaskDepth, its default).
-        float TargetWaveMaskDepth = 2048.0f;
         /// Ocean or River (UE AWaterBodyOcean / AWaterBodyRiver). A river's Location is its footprint's centre at
         /// its mean level, Extents its footprint, and it covers only where its baked bank mask is set.
         WaterBodyType Type = WaterBodyType::Ocean;
@@ -70,15 +64,15 @@ namespace Desert::Water
         glm::vec3 SurfaceLocation{ 0.0f };
         glm::vec3 PlaneNormal{ 0.0f, 1.0f, 0.0f };
         glm::vec3 SurfaceNormal{ 0.0f, 1.0f, 0.0f };
-        /// Plane to the ground under it, >= 0.
+        /// Plane to the ground under it; negative where the ground stands above the plane (the swash's beach).
         float PlaneDepth = 0.0f;
-        /// PlaneDepth plus the attenuated wave height.
+        /// PlaneDepth plus the wave height: what stands between the surface and the ground.
         float SurfaceDepth = 0.0f;
-        /// The attenuated wave height above the plane.
+        /// The waves' height above the plane, the depth's transform and the shore wave included.
         float WaveHeight = 0.0f;
-        /// The share of the waves that survives here, [0, 1].
+        /// The factor the depth gives the longest band's amplitude (TransformBand); 0 on land.
         float WaveAttenuation = 0.0f;
-        /// The highest the attenuated waves can rise here (UE FWaveInfo::MaxHeight).
+        /// The highest the waves can rise here (UE FWaveInfo::MaxHeight).
         float MaxWaveHeight = 0.0f;
         /// How far below the surface the point is; negative above it.
         float ImmersionDepth = 0.0f;
@@ -95,14 +89,11 @@ namespace Desert::Water
     /// Whether the point lies over the body's footprint (world X, Z).
     [[nodiscard]] bool WaterBodyCovers( const WaterBodyState& body, const glm::vec3& point );
 
-    /// The landscape height under (x, z): the first tile that answers (neighbours share their seam samples).
-    [[nodiscard]] std::optional<float> GroundHeightAt( std::span<const World::Landscape::LandscapeRayTile> ground,
-                                                       float x, float z );
-
     /// UE QueryWaterInfoClosestToWorldLocation with ComputeLocation | ComputeNormal | ComputeDepth |
-    /// ComputeImmersionDepth | IncludeWaves, for one ocean at wave time `time`.
+    /// ComputeImmersionDepth | IncludeWaves, for one body at wave time `time`, over the
+    /// ground and the shore of @p shore (null: a world whose field is not baked yet answers the open sea).
     [[nodiscard]] WaterQueryResult QueryWaterBody( const WaterBodyState& body, const glm::vec3& point, float time,
-                                                   std::optional<float> groundHeight );
+                                                   const WaterShoreField* shore );
 
     struct WaterQueryHit
     {
@@ -110,36 +101,12 @@ namespace Desert::Water
         WaterQueryResult Result;
     };
 
-    /// Where WaterInfoGround has no landscape: a bottom far below any wave (no surf, no shore), not a NaN the
-    /// GPU's bilinear filter would spread.
-    inline constexpr float kWaterInfoNoGroundCm = -1.0e6f;
-
-    /**
-     * @brief THE WATER INFO GROUND (UE UWaterZone's WaterInfo texture, its ground-depth channel): the bottom of a
-     * water zone seen from straight above - the landscape's height at every texel centre of a square grid over
-     * the zone, row-major by Z. The water surface reads its depth here (the surf, the shore), never along the view
-     * ray, so a mesh standing in the water (a pier, a box) is no shallows and the depth of a pixel does not change
-     * with where the camera looks from. The ground is the landscape, as UE's WaterInfo renders it by default.
-     */
-    struct WaterInfoGround
-    {
-        glm::vec2          Min{ 0.0f };     // world (X, Z) of the grid's lower corner, cm
-        float              ExtentCm = 0.0f; // the grid's side, cm
-        uint32_t           Size     = 0u;   // texels per side
-        std::vector<float> HeightCm;        // Size * Size world Y, cm; kWaterInfoNoGroundCm off the landscape
-    };
-
-    /// @p ground sampled over the square of side @p extentCm around @p centre, @p size texels per side
-    /// (World::Landscape::SampleLandscapeHeight at each texel centre: the surface the landscape draws).
-    [[nodiscard]] WaterInfoGround BakeWaterInfoGround( std::span<const World::Landscape::LandscapeRayTile> ground,
-                                                       glm::vec2 centre, float extentCm, uint32_t size );
-
     /// The body the point is deepest in, of those of the highest WaterBodyPriority that cover it (the surface the
     /// renderer draws there: inside a river's banks the river, never the ocean under it); nullopt when it is in
     /// none of them.
     [[nodiscard]] std::optional<WaterQueryHit>
-    QueryWater( std::span<const WaterBodyState> bodies, std::span<const World::Landscape::LandscapeRayTile> ground,
-                const glm::vec3& point, float time );
+    QueryWater( std::span<const WaterBodyState> bodies, const WaterShoreField* shore, const glm::vec3& point,
+                float time );
 
     /**
      * @brief The water of one world: its bodies, the ground under them and the wave clock (UE UWaterSubsystem).
@@ -166,11 +133,10 @@ namespace Desert::Water
             return static_cast<float>( m_Time );
         }
 
-        /// Replaces the bodies and the ground; the ground's heights are BORROWED and must outlive the queries.
-        /// The body and ground rows are copied into the subsystem's own storage, reused frame to frame (the
-        /// bodies' wave sets are shared, not copied), so a steady frame allocates nothing.
-        void SetWorld( std::span<const WaterBodyState>                     bodies,
-                       std::span<const World::Landscape::LandscapeRayTile> ground );
+        /// Replaces the bodies and the shore field (immutable, the one the renderer draws over). The body rows
+        /// are copied into the subsystem's own storage, reused frame to frame (the bodies' wave sets are shared,
+        /// not copied), so a steady frame allocates nothing.
+        void SetWorld( std::span<const WaterBodyState> bodies, std::shared_ptr<const WaterShoreField> shore );
 
         [[nodiscard]] std::span<const WaterBodyState> Bodies() const
         {
@@ -180,9 +146,9 @@ namespace Desert::Water
         [[nodiscard]] std::optional<WaterQueryHit> Query( const glm::vec3& point ) const;
 
     private:
-        double                                          m_Time    = 0.0;
-        float                                           m_Gravity = 0.0f;
-        std::vector<WaterBodyState>                     m_Bodies;
-        std::vector<World::Landscape::LandscapeRayTile> m_Ground;
+        double                                 m_Time    = 0.0;
+        float                                  m_Gravity = 0.0f;
+        std::vector<WaterBodyState>            m_Bodies;
+        std::shared_ptr<const WaterShoreField> m_Shore;
     };
 } // namespace Desert::Water

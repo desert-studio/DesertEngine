@@ -169,12 +169,4 @@ float GerstnerWaveSimpleHeight( vec2 plane, vec2 direction, float wavelength, fl
     return cos( GerstnerPhase( plane, direction, wavelength, time ) ) * amplitude;
 }
 
-// How much of the waves survives over water `depth` cm deep (UE GetWaveAttenuationFactor): 1 - exp(-d / (m/2)),
-// 0 on the shore, approaching 1 past the target wave-mask depth m.
-float GerstnerDepthAttenuation( float depth, float targetWaveMaskDepth )
-{
-    float strength = exp( -max( depth, 0.0f ) / ( targetWaveMaskDepth / 2.0f ) );
-    return clamp( 1.0f - strength, 0.0f, 1.0f );
-}
-
 #endif // GERSTNER_WAVE_GLSLH

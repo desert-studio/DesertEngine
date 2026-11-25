@@ -16,6 +16,7 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -25,7 +26,7 @@
 namespace Desert::Water
 {
     /// Texels per side per cascade the GPU reads back (every kFFTReadbackStride-th texel of the 256^2 cascade:
-    /// 64^2 x 3 x 16 B = 192 KB a frame). The C++ twin of WaterFFTFinalize.shader WATER_FFT_READBACK_SIZE.
+    /// 64^2 x 4 x 16 B = 256 KB a frame). The C++ twin of WaterFFTFinalize.shader WATER_FFT_READBACK_SIZE.
     inline constexpr uint32_t kFFTReadbackSize   = 64;
     inline constexpr uint32_t kFFTReadbackStride = kFFTOceanResolution / kFFTReadbackSize;
     static_assert( kFFTReadbackStride * kFFTReadbackSize == kFFTOceanResolution );
@@ -61,8 +62,10 @@ namespace Desert::Water
     /// the choppy displacement inverted (the still point whose displaced position is @p plane, a fixed-point
     /// iteration), the cascades summed, the normal from the displaced surface's central differences. Nullopt when
     /// the snapshot holds no read.
-    [[nodiscard]] std::optional<FFTSurfaceSample> FFTSurfaceAt( const FFTSurfaceSnapshot& snapshot,
-                                                                glm::vec2 plane, double time ) noexcept;
+    /// @p bandWeights scales each cascade: the depth's transform of its band there (the drawn surface's weights).
+    [[nodiscard]] std::optional<FFTSurfaceSample>
+    FFTSurfaceAt( const FFTSurfaceSnapshot& snapshot, glm::vec2 plane, double time,
+                  const std::array<float, kFFTOceanCascades>& bandWeights ) noexcept;
 
     /// The renderer-to-physics hand-over: the newest snapshot of the frame's FFT ocean. Publish adopts @p read as
     /// the newest read of @p spectrum's ocean (the previous newest becomes Previous; another spectrum starts

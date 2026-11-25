@@ -1,13 +1,14 @@
 #include <Water/Public/WaterBodyQuery.hpp>
 #include <Water/Public/GerstnerWaterWaves.hpp>
+#include <Water/Public/WaterDepthTransform.hpp>
 
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <utility>
-#include <LandscapeCore/Public/LandscapeData.hpp>
 
 namespace Desert::Water
 {
@@ -26,41 +27,86 @@ namespace Desert::Water
         return true;
     }
 
-    std::optional<float> GroundHeightAt( std::span<const World::Landscape::LandscapeRayTile> ground, float x,
-                                         float z )
+    namespace
     {
-        for ( const World::Landscape::LandscapeRayTile& tile : ground )
+        // The waves over one plane point, the depth's transform of each band taken (WaterSurfaceField.glslh
+        // WaterSurfaceAt is the GPU's statement of the same sum).
+        struct Waves
         {
-            if ( tile.Heights == nullptr )
-                continue;
-            if ( const std::optional<float> height =
-                      World::Landscape::SampleLandscapeHeight( *tile.Heights, tile.Frame, x, z ) )
-                return height;
-        }
-        return std::nullopt;
-    }
+            float     Height = 0.0f;
+            glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
+            float     Attenuation = 0.0f;
+            float     MaxHeight   = 0.0f;
+        };
 
-    WaterInfoGround BakeWaterInfoGround( std::span<const World::Landscape::LandscapeRayTile> ground,
-                                         const glm::vec2 centre, const float extentCm, const uint32_t size )
-    {
-        WaterInfoGround info;
-        info.Min      = centre - glm::vec2( 0.5f * extentCm );
-        info.ExtentCm = extentCm;
-        info.Size     = size;
-        info.HeightCm.assign( static_cast<std::size_t>( size ) * size, kWaterInfoNoGroundCm );
-        const float texel = extentCm / static_cast<float>( std::max( size, 1u ) );
-        for ( uint32_t z = 0; z < size; ++z )
-            for ( uint32_t x = 0; x < size; ++x )
+        void AddShoreWave( Waves& waves, const ShoreWaveParams& params, const WaterShoreSample& at,
+                           const float depth, const glm::vec2 worldXZ, const float time, const float gravity )
+        {
+            const ShoreWaveSample shore = EvaluateShoreWave( params, at.ShoreDistanceCm, at.ShoreDirection, depth,
+                                                             worldXZ, time, gravity );
+            waves.Height += shore.Displacement.y;
+            waves.MaxHeight = std::max( waves.MaxHeight, shore.RunUpCm + kBreakerIndex * std::max( depth, 0.0f ) );
+            // The slopes add: the normal of a sum of height fields.
+            const glm::vec2 slope =
+                 -glm::vec2( waves.Normal.x, waves.Normal.z ) / std::max( waves.Normal.y, 0.05f ) + shore.SlopeXZ;
+            waves.Normal = glm::normalize( glm::vec3( -slope.x, 1.0f, -slope.y ) );
+        }
+
+        Waves WavesOver( const WaterBodyState& body, const glm::vec2 worldXZ, const float time, const float depth,
+                         const WaterShoreSample& at, const float beachSlope )
+        {
+            Waves           waves;
+            const glm::vec2 plane = worldXZ - glm::vec2( body.Location.x, body.Location.z );
+            if ( body.FFTSurface != nullptr && body.FFTSurface->Spectrum != nullptr )
             {
-                const glm::vec2 at = info.Min + ( glm::vec2( x, z ) + 0.5f ) * texel;
-                if ( const std::optional<float> height = GroundHeightAt( ground, at.x, at.y ) )
-                    info.HeightCm[static_cast<std::size_t>( z ) * size + x] = *height;
+                const FFTOceanSpectrum& spectrum = *body.FFTSurface->Spectrum;
+                const ShoreWaveParams   swell    = FFTOceanSwell( spectrum, beachSlope );
+                const float nearShore = beachSlope > 0.0f ? ShoreWaveWeight( swell.SignificantHeight, depth,
+                                                                             at.ShoreDistanceCm )
+                                                          : 0.0f;
+                std::array<float, kFFTOceanCascades> bands{};
+                for ( uint32_t c = 0; c < kFFTOceanCascades; ++c )
+                {
+                    const FFTOceanCascade& cascade = spectrum.Cascades[c];
+                    bands[c] =
+                         TransformBand( cascade.SignificantHeight, cascade.PeakOmega, depth, kWaveGravityCm )
+                              .Amplitude *
+                         ( c < kShoreSwellBands ? 1.0f - nearShore : 1.0f );
+                }
+                const std::optional<FFTSurfaceSample> fft =
+                     FFTSurfaceAt( *body.FFTSurface, plane, static_cast<double>( time ), bands );
+                if ( !fft )
+                    return waves;
+                waves.Height      = fft->Height;
+                waves.Normal      = fft->Normal;
+                waves.Attenuation = bands[0];
+                waves.MaxHeight   = spectrum.MaxWaveHeight * bands[0];
+                AddShoreWave( waves, swell, at, depth, worldXZ, time, kWaveGravityCm );
+                return waves;
             }
-        return info;
-    }
+            if ( body.Waves == nullptr || body.Waves->empty() )
+                return waves;
+            const std::span<const GerstnerWave> set( *body.Waves );
+            const ShoreWaveParams               swell = GerstnerSwell( set, beachSlope );
+            const float nearShore = beachSlope > 0.0f ? ShoreWaveWeight( swell.SignificantHeight, depth,
+                                                                         at.ShoreDistanceCm )
+                                                      : 0.0f;
+            waves.Attenuation =
+                 TransformBand( swell.SignificantHeight, swell.Omega, depth, kWaveGravityCm ).Amplitude *
+                 ( 1.0f - nearShore );
+            const WaveHeightSample sample = WaveHeightAt( set, plane, time );
+            waves.Height                  = sample.Height * waves.Attenuation;
+            waves.MaxHeight               = MaxWaveHeight( set ) * waves.Attenuation;
+            const glm::vec3 normal = glm::mix( glm::vec3( 0.0f, 1.0f, 0.0f ), sample.Normal, waves.Attenuation );
+            if ( glm::dot( normal, normal ) > 0.0f )
+                waves.Normal = glm::normalize( normal );
+            AddShoreWave( waves, swell, at, depth, worldXZ, time, kWaveGravityCm );
+            return waves;
+        }
+    } // namespace
 
     WaterQueryResult QueryWaterBody( const WaterBodyState& body, const glm::vec3& point, float time,
-                                     std::optional<float> groundHeight )
+                                     const WaterShoreField* shore )
     {
         WaterQueryResult result;
 
@@ -114,77 +160,38 @@ namespace Desert::Water
         result.SurfaceLocation = result.PlaneLocation;
         result.SurfaceNormal   = result.PlaneNormal;
 
-        // The depth: down to the landscape; an ocean over no landscape, or under it, reports the fallback depth
-        // and has its waves cancelled where the landscape stands above the plane (UE :743-794).
-        float waveAttenuation = 1.0f;
-        float planeDepth      = 0.0f;
-        if ( groundHeight )
-        {
-            planeDepth = result.PlaneLocation.y - *groundHeight;
-            if ( planeDepth < 0.0f )
-                waveAttenuation = 0.0f;
-        }
-        if ( !groundHeight || planeDepth < 0.0f )
-            planeDepth = kOceanFallbackDepthCm;
-        result.PlaneDepth   = glm::max( planeDepth, 0.0f );
+        // The depth: down to the shore field's floor, the very texels the surface is drawn over. The ground above
+        // the plane is a negative depth, not an unknown one. A world without its field yet is the open sea.
+        WaterShoreSample at;
+        at.GroundCm        = result.PlaneLocation.y - kOpenSeaDepthCm;
+        at.ShoreDistanceCm = kShoreFarCm;
+        if ( shore != nullptr )
+            at = SampleWaterShoreField( *shore, glm::vec2( point.x, point.z ) );
+        result.PlaneDepth   = result.PlaneLocation.y - at.GroundCm;
         result.SurfaceDepth = result.PlaneDepth;
 
-        // The waves: attenuated by depth, evaluated at the fixed plane point relative to the WaveOrigin
-        // (UE :801-831 and GetWaveInfoAtPosition :2012-2051).
-        const std::optional<FFTSurfaceSample> fft =
-             body.FFTSurface != nullptr
-                  ? FFTSurfaceAt( *body.FFTSurface,
-                                  glm::vec2( point.x - body.Location.x, point.z - body.Location.z ), time )
-                  : std::nullopt;
-        if ( fft )
-        {
-            // THE FFT OCEAN (WATER-RIVERS-FFT pass 7): the GPU's cascades as the CPU mirror last read them,
-            // extrapolated to `time`, damped by the same depth attenuation the vertex path applies.
-            waveAttenuation *= WaveDepthAttenuation( result.SurfaceDepth, body.TargetWaveMaskDepth );
-            result.WaveAttenuation = waveAttenuation;
-            if ( waveAttenuation > 0.0f && body.FFTSurface->Spectrum != nullptr )
-            {
-                result.MaxWaveHeight = body.FFTSurface->Spectrum->MaxWaveHeight * waveAttenuation;
-                const glm::vec3 normal = glm::mix( result.PlaneNormal, fft->Normal, waveAttenuation );
-                if ( glm::dot( normal, normal ) > 0.0f )
-                    result.SurfaceNormal = glm::normalize( normal );
-                result.WaveHeight = fft->Height * waveAttenuation;
-                result.SurfaceLocation.y += result.WaveHeight;
-                result.SurfaceDepth += result.WaveHeight;
-            }
-        }
-        else if ( body.Waves && !body.Waves->empty() )
-        {
-            const std::span<const GerstnerWave> waves( *body.Waves );
-            waveAttenuation *= WaveDepthAttenuation( result.SurfaceDepth, body.TargetWaveMaskDepth );
-            result.WaveAttenuation = waveAttenuation;
-            if ( waveAttenuation > 0.0f )
-            {
-                result.MaxWaveHeight = MaxWaveHeight( waves ) * waveAttenuation;
-
-                const glm::vec2        plane( point.x - body.Location.x, point.z - body.Location.z );
-                const WaveHeightSample sample = WaveHeightAt( waves, plane, time );
-
-                // UE lerps the normal toward the plane's by the same share and leaves it unnormalised; a
-                // surface normal is a direction, so it is normalised here.
-                const glm::vec3 normal = glm::mix( result.PlaneNormal, sample.Normal, waveAttenuation );
-                if ( glm::dot( normal, normal ) > 0.0f )
-                    result.SurfaceNormal = glm::normalize( normal );
-
-                result.WaveHeight = sample.Height * waveAttenuation;
-                result.SurfaceLocation.y += result.WaveHeight;
-                result.SurfaceDepth += result.WaveHeight;
-            }
-        }
+        const Waves waves      = WavesOver( body, glm::vec2( point.x, point.z ), time, result.PlaneDepth, at,
+                                            shore != nullptr ? shore->BeachSlope : 0.0f );
+        result.WaveAttenuation = waves.Attenuation;
+        result.MaxWaveHeight   = waves.MaxHeight;
+        result.WaveHeight      = waves.Height;
+        result.SurfaceLocation.y += waves.Height;
+        result.SurfaceDepth += waves.Height;
+        // The waves stand on the plane: their slope and the plane's add.
+        const glm::vec2 slope =
+             glm::vec2( waves.Normal.x, waves.Normal.z ) / std::max( waves.Normal.y, 0.05f ) +
+             glm::vec2( result.PlaneNormal.x, result.PlaneNormal.z ) / std::max( result.PlaneNormal.y, 0.05f );
+        result.SurfaceNormal = glm::normalize( glm::vec3( slope.x, 1.0f, slope.y ) );
 
         // Immersion: how far under the waved surface the point is (UE :834-842).
-        result.ImmersionDepth = result.SurfaceLocation.y - point.y;
+        // No water stands where the surface is under the ground (the beach between two run-ups).
+        result.ImmersionDepth =
+             result.SurfaceDepth > 0.0f ? result.SurfaceLocation.y - point.y : -std::abs( result.SurfaceDepth );
         return result;
     }
 
-    std::optional<WaterQueryHit> QueryWater( std::span<const WaterBodyState>                     bodies,
-                                             std::span<const World::Landscape::LandscapeRayTile> ground,
-                                             const glm::vec3& point, float time )
+    std::optional<WaterQueryHit> QueryWater( std::span<const WaterBodyState> bodies,
+                                             const WaterShoreField* shore, const glm::vec3& point, float time )
     {
         // The drawn surface's rule first: of the bodies covering the point only the highest WaterBodyPriority is
         // there (a river inside its banks is drawn over the ocean, the ocean under a river's cut leaf is clipped
@@ -194,8 +201,6 @@ namespace Desert::Water
         // the ocean below: the ocean is not drawn there.
         std::optional<WaterQueryHit> best;
         std::optional<int32_t>       topPriority;
-        std::optional<float>         groundHeight;
-        bool                         groundSampled = false;
         for ( std::size_t i = 0; i < bodies.size(); ++i )
         {
             if ( !WaterBodyCovers( bodies[i], point ) )
@@ -208,12 +213,7 @@ namespace Desert::Water
                 topPriority = priority;
                 best.reset();
             }
-            if ( !groundSampled )
-            {
-                groundHeight  = GroundHeightAt( ground, point.x, point.z );
-                groundSampled = true;
-            }
-            const WaterQueryResult result = QueryWaterBody( bodies[i], point, time, groundHeight );
+            const WaterQueryResult result = QueryWaterBody( bodies[i], point, time, shore );
             if ( result.IsInWater() && ( !best || result.ImmersionDepth > best->Result.ImmersionDepth ) )
                 best = WaterQueryHit{ i, result };
         }
@@ -230,17 +230,17 @@ namespace Desert::Water
         m_Time = seconds;
     }
 
-    void WaterSubsystem::SetWorld( std::span<const WaterBodyState>                     bodies,
-                                   std::span<const World::Landscape::LandscapeRayTile> ground )
+    void WaterSubsystem::SetWorld( std::span<const WaterBodyState>        bodies,
+                                   std::shared_ptr<const WaterShoreField> shore )
     {
         m_Bodies.assign( bodies.begin(), bodies.end() );
         for ( WaterBodyState& body : m_Bodies )
             body.Gravity = m_Gravity;
-        m_Ground.assign( ground.begin(), ground.end() );
+        m_Shore = std::move( shore );
     }
 
     std::optional<WaterQueryHit> WaterSubsystem::Query( const glm::vec3& point ) const
     {
-        return QueryWater( m_Bodies, m_Ground, point, Time() );
+        return QueryWater( m_Bodies, m_Shore.get(), point, Time() );
     }
 } // namespace Desert::Water
