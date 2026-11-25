@@ -33,7 +33,9 @@
 # ReplicationClient the engine's net driver will run); the editor windows are the next pass (REMAINDER).
 # Runner: <scratch>/NET-1/run_net1c.sh, logs <scratch>/NET-1/logs/net1c; loopback, 75 ms one-way lag, 2 % loss.
 #   DesertServer --project Projects/Desert/Desert.deproj --role all --world <WP_Protocol copy> --source 0,0,0
-#        --port 27031 --server-id 7 --secret-file S --spawn 0,0,0 --spawn 0,0,400 --steps 900
+#        --port 27031 --audience 7 --issuer-key ISSUER.public --spawn 0,0,0 --spawn 0,0,400 --steps 900
+#   (protocol v5, NET-AUTH-SPLIT: tokens A/B minted by DesertNetProbe --mint-token --issuer-key ISSUER.private
+#    --audience 7 --claims '?account=N'; the server holds only the issuer's public key)
 #   DesertNetProbe --bot --connect 127.0.0.1:27031 --cooked W --token A --name A --seconds 12 --walk-cm 2000 --dir 1,0,0
 #   DesertNetProbe --bot --connect 127.0.0.1:27031 --cooked W --token B --name B --seconds 12
 # Тогда [net1_two_clients] server.log: "no device created"; "admitted as player 1" and "player 2"; a residency

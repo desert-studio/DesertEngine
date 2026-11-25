@@ -1,5 +1,6 @@
 # DesertNetProbe: proves the transport, its lanes and the token handshake on its own (NET-1 scenario
-# net1b_lanes_token) -- one binary: --issue-token, --server or --client, under the GNS lag/loss simulator -- and
+# net1b_lanes_token) -- one binary: --gen-issuer-keys and --mint-token (the issuer's Ed25519 private key lives only
+# here, never in DesertServer), --server or --client, under the GNS lag/loss simulator -- and
 # plays a headless player (--bot) that streams the cooked world's cells around its own pawn and reports them to
 # the server as a client does (NET-3).
 desert_glob(_sources "Source/*.cpp")
