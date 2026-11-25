@@ -127,12 +127,16 @@ class Run:
             r.pump()
 
     def event(self, role=None, index=None):
-        """A Ждать match or a Консоль line: lines written before it never satisfy a later Ждать."""
+        """A Консоль line moves every role's cursor to now (what it causes comes after it); a Ждать match moves only
+        its own role's cursor past the matched line. Roles' logs reach the disk with their own delays (a server line
+        may be read after the client's reaction to it), so one role's match never says where another role is: run 4
+        skipped A's 'correction 1' (170 ms after the server's 'teleported' line) when that match moved A's cursor."""
+        if role is not None:
+            role.cursor = index + 1
+            return
         self.poll()
         for r in self.roles.values():
             r.cursor = len(r.lines)
-        if role is not None:
-            role.cursor = index + 1
 
     def role(self, name):
         if name not in self.roles:
