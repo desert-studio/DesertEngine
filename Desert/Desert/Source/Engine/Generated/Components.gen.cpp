@@ -23,8 +23,8 @@ namespace Desert::Core::Serialize::Generated
     void RegisterComponents_AnimationCore( ComponentRegistrar& r );
     void RegisterComponents_Localization( ComponentRegistrar& r );
     void RegisterComponents_ShaderCompiler( ComponentRegistrar& r );
-    void RegisterComponents_LandscapeCore( ComponentRegistrar& r );
     void RegisterComponents_Core( ComponentRegistrar& r );
+    void RegisterComponents_LandscapeCore( ComponentRegistrar& r );
     void RegisterComponents_RenderCore( ComponentRegistrar& r );
     void RegisterComponents_Engine( ComponentRegistrar& r );
     void RegisterComponents_Renderer( ComponentRegistrar& r );
@@ -55,8 +55,8 @@ namespace Desert::Core::Serialize::Generated
         RegisterComponents_AnimationCore( registrar );
         RegisterComponents_Localization( registrar );
         RegisterComponents_ShaderCompiler( registrar );
-        RegisterComponents_LandscapeCore( registrar );
         RegisterComponents_Core( registrar );
+        RegisterComponents_LandscapeCore( registrar );
         RegisterComponents_RenderCore( registrar );
         RegisterComponents_Engine( registrar );
         RegisterComponents_Renderer( registrar );
