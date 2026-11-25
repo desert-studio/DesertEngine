@@ -47,7 +47,8 @@
 
 namespace
 {
-    // THE FFT OCEAN'S THREE COMPUTE PROGRAMS (WATER-RIVERS-FFT; Programs/Water/WaterFFT*.shader), one spelling.
+    // THE FFT OCEAN'S COMPUTE PROGRAMS (WATER-RIVERS-FFT; Programs/Water/WaterFFT*.shader, WaterSurfFoam.shader), one
+    // spelling.
     struct WaterFFTShaderParameters
     {
         DESERT_SHADER_PARAMETER( Texture, WaterFFTInitialSpectrum );
@@ -60,6 +61,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTResultA );
         DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTResultB );
         DESERT_SHADER_PARAMETER( StorageTexture, WaterFFTWaves );
+        DESERT_SHADER_PARAMETER( Texture, WaterInfoTexture ); // the surf foam's ground
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterFFTParamsBuffer );
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterFFTReadbackBuffer ); // the CPU mirror's texels (finalize)
         static constexpr std::array kSpectrum{ ::Desert::Graphic::RDG::Erase( WaterFFTInitialSpectrum ),
@@ -76,6 +78,9 @@ namespace
                                                ::Desert::Graphic::RDG::Erase( WaterFFTWaves ),
                                                ::Desert::Graphic::RDG::Erase( WaterFFTParamsBuffer ),
                                                ::Desert::Graphic::RDG::Erase( WaterFFTReadbackBuffer ) };
+        static constexpr std::array kSurf{ ::Desert::Graphic::RDG::Erase( WaterInfoTexture ),
+                                           ::Desert::Graphic::RDG::Erase( WaterFFTWaves ),
+                                           ::Desert::Graphic::RDG::Erase( WaterFFTParamsBuffer ) };
     };
 
     // The slot names the two water cells' passes bind, spelled once (RDGShaderParameters.hpp; UE
@@ -158,11 +163,13 @@ namespace Desert::Graphic::System
             glm::vec4 Flow{ 0.0f };
             // WaterRiverFrame: xy = the river region's lower world (X, Z), zw = 1 / its texel along X and Z (1/cm).
             // Its first row is the ground region's side, Header.z.
-            glm::vec4                              River{ 0.0f };
+            glm::vec4 River{ 0.0f };
+            // WaterSurfFrame: xy = the eye (X, Z) the FFT ocean's surf foam windows stand around, zw unused.
+            glm::vec4                              Surf{ 0.0f };
             std::array<WaterWaveSet, kMaxWaveSets> Sets{};
         };
         static_assert( sizeof( WaterWavesBlock ) ==
-                       ( 5 + kMaxWaveSets * ( 1 + 2 * kMaxWaves ) ) * sizeof( glm::vec4 ) );
+                       ( 6 + kMaxWaveSets * ( 1 + 2 * kMaxWaves ) ) * sizeof( glm::vec4 ) );
         static_assert( sizeof( WaterWavesBlock ) == WaterRenderer::kWavesBlockBytes, "WATER-CAUSTICS reads the head" );
 
         // THE WATER INFO ATLAS as the GPU samples it (UE WaterInfo: ground depth + river height and velocity): one
@@ -309,16 +316,25 @@ namespace Desert::Graphic::System
         struct WaterFFTParams
         {
             glm::vec4 Cascade{ 0.0f }; // xyz = cascade patch sides (cm), w = the view's time (s)
-            glm::vec4 Shape{ 0.0f };   // x = choppiness, y = IFFT direction, z = the atlas band this frame writes
+            // x = choppiness, y = IFFT direction, z = the atlas band this frame writes, w = the surf eye's height.
+            glm::vec4 Shape{ 0.0f };
             // The foam history: x = the share of the previous half's foam kept, y = 1 + the previous half's first
-            // band (0 = no history).
+            // band (0 = no history). The surf foam's: z = FoamBreakerIndex (0 = no surf), w = the time since the
+            // previous half was recorded (s).
             glm::vec4 Foam{ 0.0f };
+            glm::vec4 Surf{ 0.0f };       // xy = the surf windows' eye (X, Z) now, zw = the previous half's
+            glm::vec4 SurfWave{ 0.0f };   // xy = WaveOrigin, z = the body's still level, w = its TargetWaveMaskDepth
+            glm::vec4 SurfGround{ 0.0f }; // the WaterInfo ground: xy = lower world, z = 1 / side, w = side in texels
         };
-        static_assert( sizeof( WaterFFTParams ) == 3 * sizeof( glm::vec4 ) );
+        static_assert( sizeof( WaterFFTParams ) == 6 * sizeof( glm::vec4 ) );
         constexpr uint32_t kFFTN = Water::kFFTOceanResolution;
-        // WATER_FFT_BANDS_PER_FRAME: the cascades' displacement and slopes, then the foam history band.
-        constexpr uint32_t kFFTBandsPerFrame = 2 * Water::kFFTOceanCascades + 1;
-        constexpr uint32_t kFFTGroups8       = kFFTN / 8;                    // LocalSize(8, 8, 1)
+        constexpr uint32_t kSurfSize = 512; // Water/WaterSurfFoam.glslh WATER_SURF_SIZE
+        // WATER_FFT_BANDS_PER_FRAME: the cascades' displacement and slopes, the foam history band, then the surf
+        // foam's window (kSurfSize^2 texels in kFFTN-wide rows).
+        constexpr uint32_t kFFTBandsPerFrame =
+             2 * Water::kFFTOceanCascades + 1 + kSurfSize * kSurfSize / ( kFFTN * kFFTN );
+        constexpr uint32_t kFFTGroups8  = kFFTN / 8; // LocalSize(8, 8, 1)
+        constexpr uint32_t kSurfGroups8 = kSurfSize / 8;
 
     } // namespace
 
@@ -836,11 +852,14 @@ namespace Desert::Graphic::System
                 set.Header.x   = static_cast<float>( count );
                 verticalExtent = std::max( verticalExtent, Water::MaxWaveHeight( rows ) );
             }
-            if ( !fft && PrepareFFTFrame( frameSet.Material, stamp, frameSet.Asset, waves.Header, waves.FFT,
-                                          verticalExtent ) )
+            if ( !fft &&
+                 PrepareFFTFrame( frameSet.Material, stamp, frameSet.Asset,
+                                  glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] ), waves.Header, waves.FFT,
+                                  verticalExtent ) )
             {
                 fft          = true;
                 set.Header.y = 1.0f;
+                waves.Surf   = glm::vec4( m_SurfEye.x, m_SurfEye.z, 0.0f, 0.0f );
             }
         }
         // The frame's rivers: every distinct baked ribbon of the zones (a body shared by two zones counts once).
@@ -1411,7 +1430,8 @@ namespace Desert::Graphic::System
     bool WaterRenderer::EnsureFFTPipelines()
     {
         if ( m_FFTTried )
-            return m_FFTSpectrum != nullptr && m_FFTTransform != nullptr && m_FFTFinalize != nullptr;
+            return m_FFTSpectrum != nullptr && m_FFTTransform != nullptr && m_FFTFinalize != nullptr &&
+                   m_FFTSurf != nullptr;
         m_FFTTried        = true;
         auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
         const auto  build   = [shaders]( const char* name, ShaderBindingLayoutCache& layout,
@@ -1441,12 +1461,14 @@ namespace Desert::Graphic::System
         m_FFTSpectrum  = build( "WaterFFTSpectrum", m_FFTSpectrumLayout, WaterFFTShaderParameters::kSpectrum );
         m_FFTTransform = build( "WaterFFT", m_FFTTransformLayout, WaterFFTShaderParameters::kTransform );
         m_FFTFinalize  = build( "WaterFFTFinalize", m_FFTFinalizeLayout, WaterFFTShaderParameters::kFinalize );
-        return m_FFTSpectrum != nullptr && m_FFTTransform != nullptr && m_FFTFinalize != nullptr;
+        m_FFTSurf      = build( "WaterSurfFoam", m_FFTSurfLayout, WaterFFTShaderParameters::kSurf );
+        return m_FFTSpectrum != nullptr && m_FFTTransform != nullptr && m_FFTFinalize != nullptr &&
+               m_FFTSurf != nullptr;
     }
 
     bool WaterRenderer::PrepareFFTFrame( const Assets::AssetHandle& material, const MaterialStamp& stamp,
-                                         const Assets::AssetHandle& wavesAsset, glm::vec4& header, glm::vec4& fft,
-                                         float& verticalExtent )
+                                         const Assets::AssetHandle& wavesAsset, const glm::vec3& eye,
+                                         glm::vec4& header, glm::vec4& fft, float& verticalExtent )
     {
         if ( static_cast<uint64_t>( wavesAsset ) == 0 )
             return false;
@@ -1547,6 +1569,13 @@ namespace Desert::Graphic::System
                 m_FFTFoamDecay.Seconds  = value[0].x;
                 if ( !m_FFTFoamDecay.Readable )
                     Warn( material, "its FFT ocean's foam history is off: its template has no FoamDecaySeconds" );
+                // The surf foam's breaker index, the other value of the same material its history needs.
+                constexpr std::array<std::string_view, 1> kBreaker{ "FoamBreakerIndex" };
+                std::array<glm::vec4, 1>                  breaker{};
+                if ( ReadMaterialValues( material, stamp, kBreaker, breaker ) )
+                    m_FFTFoamDecay.Breaker = breaker[0].x;
+                else
+                    Warn( material, "its FFT ocean's surf foam is off: its template has no FoamBreakerIndex" );
             }
             const double dt   = time - m_FFTFlipTime;
             m_FFTFoamHistory  = m_FFTFlipped && m_FFTWrittenHalf >= 0 && m_FFTFoamDecay.Readable;
@@ -1558,6 +1587,9 @@ namespace Desert::Graphic::System
             m_FFTPreviousHalf = m_FFTWrittenHalf >= 0 ? m_FFTWrittenHalf : m_FFTHalf;
             m_FFTFlipTime     = time;
             m_FFTFlipped      = true;
+            m_SurfEye         = eye;
+            m_SurfPreviousEye = m_SurfWrittenEye;
+            m_SurfDeltaTime   = static_cast<float>( time - m_SurfWrittenTime );
         }
         const int32_t previous = m_FFTPreviousHalf;
         const auto&   sizes    = spectrum->Params.CascadeSizes;
@@ -1597,9 +1629,10 @@ namespace Desert::Graphic::System
     }
 
     RDG::TextureRef WaterRenderer::AddWavePasses( RDG::Builder& graph, const RDG::TextureRef initial,
-                                                  const RDG::TextureRef waves, const float timeSeconds )
+                                                  const RDG::TextureRef waves, const RDG::TextureRef waterInfo,
+                                                  const float timeSeconds )
     {
-        if ( !FrameWavesAreFFT() || !initial.IsValid() || !waves.IsValid() )
+        if ( !FrameWavesAreFFT() || !initial.IsValid() || !waves.IsValid() || !waterInfo.IsValid() )
             return RDG::TextureRef{};
         if ( const RDG::TextureRef recorded = RecordedWaves( graph ); recorded.IsValid() )
             return recorded;
@@ -1608,9 +1641,29 @@ namespace Desert::Graphic::System
         // The foam history's lane: the previous half's first band + 1, 0 = no history (a new sea).
         const float previousFoam =
              m_FFTFoamHistory ? 1.0f + static_cast<float>( m_FFTPreviousHalf * int32_t( kFFTBandsPerFrame ) ) : 0.0f;
-        const WaterFFTParams rows{ .Cascade = glm::vec4( sizes[0], sizes[1], sizes[2], timeSeconds ),
-                                   .Shape   = glm::vec4( m_FFTFrame->Params.Choppiness, 0.0f, band, 0.0f ),
-                                   .Foam    = glm::vec4( m_FFTFoamKeep, previousFoam, 0.0f, 0.0f ) };
+        WaterFFTParams rows{ .Cascade = glm::vec4( sizes[0], sizes[1], sizes[2], timeSeconds ),
+                             .Shape   = glm::vec4( m_FFTFrame->Params.Choppiness, 0.0f, band, m_SurfEye.y ),
+                             .Foam    = glm::vec4( m_FFTFoamKeep, previousFoam, m_FFTFoamDecay.Breaker,
+                                                   m_SurfDeltaTime ),
+                             .Surf    = glm::vec4( m_SurfEye.x, m_SurfEye.z, m_SurfPreviousEye ) };
+        // The surf's sea and ground, from the waves block the surface draws with: the FFT set's origin, the still
+        // level and mask depth of the first body that draws it, the WaterInfo atlas's ground region.
+        WaterWavesBlock block;
+        if ( m_Upload.size() >= sizeof( block ) )
+            std::memcpy( &block, m_Upload.data(), sizeof( block ) );
+        for ( size_t body = 0; body < m_FrameBodies.size(); ++body )
+        {
+            // The lane: 1 + the body's set, 0 = flat (WaterTileRow.Body.z).
+            const size_t lane = static_cast<size_t>( m_FrameBodyWaveLanes[body] + 0.5f );
+            if ( lane == 0 || lane > block.Sets.size() || block.Sets[lane - 1].Header.y < 0.5f )
+                continue;
+            const glm::vec4& head = block.Sets[lane - 1].Header;
+            rows.SurfWave =
+                 glm::vec4( head.z, head.w, m_FrameBodies[body].SurfaceY, m_FrameBodyWaveMaskDepths[body] );
+            if ( m_WaterInfo != nullptr && block.Info.w > 0.5f )
+                rows.SurfGround = glm::vec4( glm::vec3( block.Info ), block.Header.z );
+            break;
+        }
         WaterFFTParams       columns = rows;
         columns.Shape.y              = 1.0f;
         const RDG::BufferRef rowsBuffer = graph.CreateBuffer( RDG::BufferDesc{ sizeof( WaterFFTParams ) },
@@ -1706,6 +1759,24 @@ namespace Desert::Graphic::System
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, kFFTGroups8, kFFTGroups8,
                                                                  Water::kFFTOceanCascades );
              } );
+        // The surf foam into the same half, after the surface it is judged on (one dispatch, all three windows).
+        graph.AddPass(
+             "Water: FFT Surf Foam", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( m_FFTSurfLayout.Get( m_FFTSurf->GetSpecification().Shader ),
+                                Renderer::GetPipelineRouteFill( *m_FFTSurf ) )
+                      .Texture( P::WaterInfoTexture, waterInfo, RDG::Access::SampledCompute,
+                                RDG::SubresourceRange::All() )
+                      .Storage( P::WaterFFTWaves, waves, RDG::Access::StorageWrite, 0 )
+                      .Storage( P::WaterFFTParamsBuffer, rowsBuffer, RDG::Access::StorageRead );
+             },
+             [pipeline = m_FFTSurf]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, kSurfGroups8, kSurfGroups8,
+                                                                 1 );
+             } );
         if ( readback )
         {
             graph.Extract( readbackBuffer, m_FFTReadback[slot].Buffer, RDG::Access::HostRead );
@@ -1713,6 +1784,8 @@ namespace Desert::Graphic::System
             m_FFTReadback[slot].Time     = static_cast<double>( timeSeconds );
         }
         m_FFTWrittenHalf    = m_FFTHalf;
+        m_SurfWrittenEye    = glm::vec2( m_SurfEye.x, m_SurfEye.z );
+        m_SurfWrittenTime   = m_FFTFlipTime;
         m_FrameWavesTexture = waves;
         m_FrameWavesGraph   = &graph;
         return waves;

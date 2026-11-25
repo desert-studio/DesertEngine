@@ -4,8 +4,8 @@ Shader "WaterFFTFinalize"
     Compute
     {
         // THE OCEAN'S CASCADES AS THE WATER MESH READS THEM (WATER-RIVERS-FFT): the two inverse-transformed packed
-        // spectra (WaterFFT.shader, rows then columns) unpacked into one 256 x 1792 half of a persistent rgba16f
-        // atlas of 256 x 3584 texels (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture); the rows below are
+        // spectra (WaterFFT.shader, rows then columns) unpacked into one 256 x 2816 half of a persistent rgba16f
+        // atlas of 256 x 5632 texels (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture); the rows below are
         // relative to that half (Params.Shape.z):
         //   rows [256 c, 256 c + 256),       cascade c: xyz = the displacement (lambda Dx, Dy, lambda Dz), cm;
         //                                               w = lambda dDx/dz (the Jacobian's cross term);
@@ -15,7 +15,8 @@ Shader "WaterFFTFinalize"
         //                                               kept as the max of now and the previous half's decayed
         //                                               by Params.Foam.x (the accumulate-and-decay foam buffer of
         //                                               AAA FFT oceans; written by the z = 0 invocation alone, so
-        //                                               no two invocations store one texel); w unused.
+        //                                               no two invocations store one texel); w unused;
+        //   rows [256 * 7, 256 * 11),        the surf foam (WaterSurfFoam.shader; not written here).
         // The water sums the cascades and forms the normal from the sums (Tessendorf 2001 sec. 3.4); its whitecaps
         // read the history band, so the foam trails behind the crest that folded.
         #include <Water/WaterFFT.glslh>
