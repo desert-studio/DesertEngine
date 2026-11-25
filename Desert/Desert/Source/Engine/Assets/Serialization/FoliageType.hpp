@@ -67,7 +67,7 @@ namespace Desert::Assets::Serialization
      *       (MigrateFoliageTypeV10ToV11) with UseFalloffCurve false, what every v10 volume grew (full density to
      *       its edge).
      *  12 - EnableDensityScaling joins (SCAL-COVER, UE UFoliageType::bEnableDensityScaling): the Foliage quality
-     *       may thin the drawn instances. SceneMigrator raises a v11 file (MigrateFoliageTypeV11ToV12) with it true
+     *       may thin the drawn instances. SceneMigrator raises a v11 file (MigrateFoliageTypeV11ToV12) with true
      *       for a Mesh type that does not collide and has a cull distance (ground cover), false for any other.
      *       The engine reads v12 only.
      *
@@ -333,8 +333,8 @@ namespace Desert::Assets::Serialization
     };
 
     /// Why a Prefab type has no CullDistance, Wind, IncludeInHLOD or density scaling: each is a property of an
-    /// instanced mesh draw (UE shows them on UFoliageType_InstancedStaticMesh only). The validator refuses a Prefab
-    /// type that
+    /// instanced mesh draw (UE shows them on UFoliageType_InstancedStaticMesh only). The validator refuses a
+    /// Prefab type that
     /// sets them, and the Details panel greys them out with this text.
     inline constexpr const char* kFoliagePrefabMeshOnlyReason =
          "a Prefab type places entities, which draw, cull, collide and stream as themselves; cull distance, wind, "
